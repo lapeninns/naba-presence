@@ -142,6 +142,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   const [verificationFilter, setVerificationFilter] = useState("all")
   const [pubsubTopic, setPubsubTopic] = useState("")
   const [message, setMessage] = useState("")
+  const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [loadState, setLoadState] = useState<
     "loading" | "ready" | "unavailable"
   >("loading")
@@ -222,6 +223,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             }
           } catch (error) {
             if (!active) return
+            setMessageKind("error")
             setMessage(
               error instanceof Error
                 ? `Your connection is saved, but Google discovery needs attention: ${error.message}`
@@ -232,6 +234,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
       } catch (error) {
         if (!active) return
         setLoadState("unavailable")
+        setMessageKind("error")
         setMessage(
           error instanceof Error
             ? error.message
@@ -246,18 +249,21 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   }, [])
 
   function connect() {
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
         const { authorizationUrl } = await beginGoogleConnect()
         window.location.assign(authorizationUrl)
       } catch (error) {
+        setMessageKind("error")
         setMessage(error instanceof Error ? error.message : "Connect failed.")
       }
     })
   }
 
   function discover() {
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
@@ -278,8 +284,10 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                 )
                 .map((location) => location.id)
             )
+            setMessageKind("info")
             setMessage("Google account found. Choose the locations to import.")
           } else {
+            setMessageKind("info")
             setMessage(
               `${result.accounts.length} Google account${result.accounts.length === 1 ? "" : "s"} found. Choose the account this workspace should use.`
             )
@@ -296,16 +304,19 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             )
             .map((location) => location.id)
         )
+        setMessageKind("info")
         setMessage(
           `${result.locations.length} Google location${result.locations.length === 1 ? "" : "s"} found.`
         )
       } catch (error) {
+        setMessageKind("error")
         setMessage(error instanceof Error ? error.message : "Discovery failed.")
       }
     })
   }
 
   function toggleAccount(account: GoogleAccount) {
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
@@ -317,6 +328,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         const result = await activateGoogleAccounts(activeIds)
         setAccounts(result.accounts)
         setLocations([])
+        setMessageKind("info")
         setMessage(
           activeIds.length
             ? "Account selected. We’ll now find its locations."
@@ -335,6 +347,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
           )
         }
       } catch (error) {
+        setMessageKind("error")
         setMessage(
           error instanceof Error ? error.message : "Account selection failed."
         )
@@ -345,9 +358,11 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   function configureNotifications() {
     const activeAccount = accounts.find((account) => account.isActive)
     if (!activeAccount) {
+      setMessageKind("error")
       setMessage("Activate a Google account before configuring notifications.")
       return
     }
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
@@ -363,12 +378,14 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                 : item
             ) ?? []
         )
+        setMessageKind("info")
         setMessage(
           pubsubTopic
             ? "NEW_REVIEW and UPDATED_REVIEW notifications enabled."
             : "Google notifications disabled."
         )
       } catch (error) {
+        setMessageKind("error")
         setMessage(
           error instanceof Error
             ? error.message
@@ -383,9 +400,11 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
       selectedLocationIds.includes(location.id)
     )
     if (!selectedLocations.length) {
+      setMessageKind("error")
       setMessage("Choose at least one verified location to continue.")
       return
     }
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
@@ -406,12 +425,14 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         const refreshed = await loadInternalLocations()
         setInternalLocations(refreshed.locations)
         setSelectedLocationIds([])
+        setMessageKind("info")
         setMessage(
           `${selectedLocations.length} location${selectedLocations.length === 1 ? "" : "s"} linked. Historical reviews are importing now.`
         )
       } catch (error) {
         const failureMessage =
           error instanceof Error ? error.message : "Import failed."
+        setMessageKind("error")
         setMessage(failureMessage)
         toast.add({
           type: "error",
@@ -427,17 +448,20 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function continueBackfill(externalLocationId: string) {
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
         const result = await runBackfill(externalLocationId)
         setBackfillProgress(result.progress)
+        setMessageKind("info")
         setMessage(
           result.batches.every((batch) => batch.complete)
             ? "Historical review import complete."
             : "Another batch was imported. Continue when you’re ready."
         )
       } catch (error) {
+        setMessageKind("error")
         setMessage(
           error instanceof Error ? error.message : "Import could not continue."
         )
@@ -446,13 +470,16 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function cancelBackfillContinuation(externalLocationId: string) {
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
         const result = await cancelBackfill(externalLocationId)
         setBackfillProgress(result.progress)
+        setMessageKind("info")
         setMessage("Historical import paused. You can resume it later.")
       } catch (error) {
+        setMessageKind("error")
         setMessage(
           error instanceof Error ? error.message : "Import could not be paused."
         )
@@ -462,6 +489,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
 
   function disconnect() {
     if (!connection) return
+    setMessageKind("info")
     setMessage("")
     startTransition(async () => {
       try {
@@ -474,6 +502,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                 : item
             ) ?? []
         )
+        setMessageKind("info")
         setMessage(
           "Google disconnected. Policy cleanup is scheduled within 7 days."
         )
@@ -483,6 +512,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
           description: "Policy cleanup is scheduled within 7 days.",
         })
       } catch (error) {
+        setMessageKind("error")
         setMessage(
           error instanceof Error ? error.message : "Disconnect failed."
         )
@@ -1035,7 +1065,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
       )}
 
       {message && loadState !== "unavailable" ? (
-        <Alert>
+        <Alert variant={messageKind === "error" ? "destructive" : "default"}>
           <Info />
           <AlertTitle>Setup update</AlertTitle>
           <AlertDescription>{message}</AlertDescription>
@@ -1118,7 +1148,7 @@ function SetupProgress({
     steps.findIndex((step) => !step.complete)
   )
   return (
-    <div className="grid gap-2 sm:grid-cols-4" aria-label="Setup progress">
+    <div className="grid gap-2 sm:grid-cols-4">
       {steps.map((step, index) => {
         const isCurrent =
           !steps.every((item) => item.complete) && index === currentIndex

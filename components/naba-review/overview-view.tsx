@@ -348,7 +348,7 @@ function HealthRow({
       </span>
       <div className="flex min-w-0 flex-col gap-0.5">
         <p className="text-sm font-medium">{label}</p>
-        <p className="font-mono text-xs text-muted-foreground">{detail}</p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
     </div>
   )

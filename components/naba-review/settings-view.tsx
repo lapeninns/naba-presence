@@ -220,6 +220,7 @@ export function SettingsView() {
     member: OrganisationMember,
     patch: Pick<OrganisationMember, "role" | "canPublish">
   ) {
+    const roleChanged = patch.role !== member.role
     setMessage("")
     startTransition(async () => {
       try {
@@ -229,7 +230,12 @@ export function SettingsView() {
             item.userId === member.userId ? { ...item, ...patch } : item
           )
         )
-        toast.add({ type: "success", title: "Member role updated." })
+        toast.add({
+          type: "success",
+          title: roleChanged
+            ? "Member role updated."
+            : "Member publish access updated.",
+        })
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Update failed.")
       }
@@ -262,7 +268,7 @@ export function SettingsView() {
               : item
           )
         )
-        setMessage("Location permissions updated.")
+        toast.add({ type: "success", title: "Location permissions updated." })
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Update failed.")
       }
@@ -761,7 +767,7 @@ export function SettingsView() {
       </Card>
 
       {message ? (
-        <p className="text-xs text-muted-foreground" role="status">
+        <p className="text-xs text-destructive" role="status">
           {message}
         </p>
       ) : null}
