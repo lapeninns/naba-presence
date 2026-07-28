@@ -9,9 +9,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  Clock3,
-  FileCheck2,
-  Inbox,
   LayoutDashboard,
   Link2,
   Menu,
@@ -22,7 +19,6 @@ import {
   Send,
   Settings,
   Sparkles,
-  Star,
   WandSparkles,
 } from "lucide-react"
 import {
@@ -94,13 +90,14 @@ import {
   publishDraft,
   saveDraft as saveDraftToApi,
 } from "@/lib/naba-review-api"
+import {
+  readControlValue,
+  Stars,
+  StatusBadge,
+  type View,
+} from "@/components/naba-review/shared"
 
-type View = "overview" | "reviews" | "analytics" | "connections" | "settings"
 type Queue = "all" | ReviewStatus
-
-function readControlValue(event: { currentTarget: unknown }) {
-  return (event.currentTarget as { value: string }).value
-}
 
 function mergeLocationDirectory(
   current: Map<string, string>,
@@ -138,9 +135,9 @@ export function NabaReviewApp() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [reviews, setReviews] = useState<Review[]>([])
   const [selectedId, setSelectedId] = useState("")
-  const [apiStatus, setApiStatus] = useState<
-    "loading" | "connected" | "error"
-  >("loading")
+  const [apiStatus, setApiStatus] = useState<"loading" | "connected" | "error">(
+    "loading"
+  )
   const [session, setSession] = useState<AppSession | null>(null)
 
   async function refreshReviews() {
@@ -389,7 +386,7 @@ function SidebarFooter({
         </Avatar>
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-sm font-medium">{displayName}</span>
-          <span className="truncate text-xs capitalize text-muted-foreground">
+          <span className="truncate text-xs text-muted-foreground capitalize">
             {role}
           </span>
         </div>
@@ -441,12 +438,12 @@ function ReviewsWorkspace({
   const [isFiltering, startFiltering] = useTransition()
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list")
   const deferredQuery = useDeferredValue(query)
+  const locationDirectory = useMemo(
+    () => mergeLocationDirectory(knownLocations, reviews),
+    [knownLocations, reviews]
+  )
   const selectedLocationId =
-    location === "All locations" ? undefined : knownLocations.get(location)
-
-  useEffect(() => {
-    setKnownLocations((current) => mergeLocationDirectory(current, reviews))
-  }, [reviews])
+    location === "All locations" ? undefined : locationDirectory.get(location)
 
   const serverFilters = useMemo(() => {
     const workflowByQueue: Record<Queue, string[] | undefined> = {
@@ -639,11 +636,13 @@ function ReviewsWorkspace({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {["All locations", ...knownLocations.keys()].map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
-                    </SelectItem>
-                  ))}
+                  {["All locations", ...locationDirectory.keys()].map(
+                    (item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    )
+                  )}
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -962,7 +961,6 @@ function ReviewDetail({
 
   useEffect(() => {
     let active = true
-    setDetailError("")
     void loadReviewDetail(review.id)
       .then((value) => {
         if (active) setDetailState({ reviewId: review.id, data: value })
@@ -1130,8 +1128,6 @@ function ReviewDetail({
           <span>Updated {review.updatedAt.toLowerCase()}</span>
           <span>·</span>
           <span>{review.language}</span>
-          <span>·</span>
-          <span>Theme: {review.theme}</span>
         </div>
       </div>
 
@@ -1319,47 +1315,17 @@ function VerificationPanel({ review }: { review: Review }) {
         <p className="text-xs leading-relaxed text-destructive">
           This draft is blocked. Edit it and save again to rerun verification.
         </p>
+      ) : isWarning ? (
+        <p className="text-xs leading-relaxed text-destructive">
+          The latest stored verification requires a manager to review this draft
+          before publishing.
+        </p>
       ) : (
-        <ul className="flex flex-col gap-2.5">
-          <CheckItem label="No personal data" />
-          <CheckItem label="No unsupported claims" />
-          <CheckItem label="Tone matches policy" />
-          <CheckItem
-            label={isWarning ? "Manager approval needed" : "Location confirmed"}
-            warning={isWarning}
-          />
-          <CheckItem label="Within 4096 bytes" />
-        </ul>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          The latest stored draft passed the configured verification checks.
+        </p>
       )}
     </div>
-  )
-}
-
-function CheckItem({
-  label,
-  warning = false,
-}: {
-  label: string
-  warning?: boolean
-}) {
-  return (
-    <li className="flex items-center gap-2 text-xs">
-      <span
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full",
-          warning
-            ? "bg-destructive/10 text-destructive"
-            : "bg-accent text-accent-foreground"
-        )}
-      >
-        {warning ? (
-          <Activity className="size-3" aria-hidden />
-        ) : (
-          <Check className="size-3" aria-hidden />
-        )}
-      </span>
-      <span>{label}</span>
-    </li>
   )
 }
 
@@ -1372,13 +1338,13 @@ function ActivityTimeline({
 }) {
   const events =
     persistedEvents?.slice(0, 8).map((event) => ({
-        label: event.action
-          .split(".")
-          .map((part) => part.replaceAll("_", " "))
-          .join(" · "),
-        detail: event.createdAt,
-        done: true,
-      })) ?? []
+      label: event.action
+        .split(".")
+        .map((part) => part.replaceAll("_", " "))
+        .join(" · "),
+      detail: event.createdAt,
+      done: true,
+    })) ?? []
 
   return (
     <div className="flex flex-col gap-3">
@@ -1388,7 +1354,10 @@ function ActivityTimeline({
       ) : events.length ? (
         <ol className="flex flex-col">
           {events.map((event, index) => (
-            <li key={event.label} className="relative flex gap-3 pb-4 last:pb-0">
+            <li
+              key={event.label}
+              className="relative flex gap-3 pb-4 last:pb-0"
+            >
               {index < events.length - 1 ? (
                 <span className="absolute top-5 left-[9px] h-[calc(100%-0.25rem)] w-px bg-border" />
               ) : null}
@@ -1410,62 +1379,5 @@ function ActivityTimeline({
         </p>
       )}
     </div>
-  )
-}
-
-function Stars({
-  value,
-  compact = false,
-}: {
-  value: number
-  compact?: boolean
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-0.5"
-      role="img"
-      aria-label={`${value} out of 5 stars`}
-    >
-      {[1, 2, 3, 4, 5].map((star) => (
-        <Star
-          key={star}
-          className={cn(
-            compact ? "size-3.5" : "size-4",
-            star <= value
-              ? "fill-rating text-rating"
-              : "text-muted-foreground/35"
-          )}
-          aria-hidden
-        />
-      ))}
-    </span>
-  )
-}
-
-function StatusBadge({ status }: { status: ReviewStatus }) {
-  if (status === "published") {
-    return (
-      <Badge variant="secondary">
-        <CheckCircle2 data-icon="inline-start" />
-        Published
-      </Badge>
-    )
-  }
-  if (status === "awaiting_approval") {
-    return (
-      <Badge variant="secondary">
-        <FileCheck2 data-icon="inline-start" />
-        Awaiting approval
-      </Badge>
-    )
-  }
-  if (status === "escalated") {
-    return <Badge variant="destructive">Escalated</Badge>
-  }
-  return (
-    <Badge variant="outline">
-      <Inbox data-icon="inline-start" />
-      Needs reply
-    </Badge>
   )
 }

@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
@@ -85,17 +84,13 @@ import {
   updateMember,
 } from "@/lib/naba-review-api"
 import { Review } from "@/lib/naba-review-data"
-
-const chartConfig = {
-  reviews: {
-    label: "Reviews",
-    color: "var(--chart-1)",
-  },
-  replies: {
-    label: "Replies",
-    color: "var(--chart-4)",
-  },
-} satisfies ChartConfig
+import {
+  chartConfig,
+  EmptyData,
+  formatDuration,
+  formatTimestamp,
+  LiveDataError,
+} from "@/components/naba-review/shared"
 
 type Navigate = (view: "reviews" | "analytics" | "connections") => void
 
@@ -128,7 +123,6 @@ export function OverviewView({
     let active = true
     const to = new Date()
     const from = new Date(to.getTime() - 7 * 86400000)
-    setOverviewStatus("loading")
     void Promise.all([
       loadAnalytics({
         from: from.toISOString(),
@@ -175,6 +169,12 @@ export function OverviewView({
       reviews: point.reviews,
       replies: point.replies,
     })) ?? []
+
+  function retryOverview() {
+    setOverviewData(null)
+    setOverviewStatus("loading")
+    setReloadKey((value) => value + 1)
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-7 md:px-8 md:py-9">
@@ -251,7 +251,7 @@ export function OverviewView({
             {overviewStatus === "loading" ? (
               <Skeleton className="h-[260px] w-full" />
             ) : overviewStatus === "error" ? (
-              <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+              <LiveDataError onRetry={retryOverview} />
             ) : chartData.length ? (
               <ChartContainer
                 config={chartConfig}
@@ -332,7 +332,7 @@ export function OverviewView({
                 <Skeleton className="h-12 w-full" />
               </>
             ) : overviewStatus === "error" ? (
-              <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+              <LiveDataError onRetry={retryOverview} />
             ) : (
               <>
                 <HealthRow
@@ -378,39 +378,6 @@ export function OverviewView({
       </div>
     </div>
   )
-}
-
-function LiveDataError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <Alert variant="destructive">
-      <Activity />
-      <AlertTitle>Live data could not be loaded</AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-3">
-        <span>No preview values were substituted.</span>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw data-icon="inline-start" />
-          Retry
-        </Button>
-      </AlertDescription>
-    </Alert>
-  )
-}
-
-function EmptyData({ message }: { message: string }) {
-  return (
-    <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-      {message}
-    </div>
-  )
-}
-
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value))
 }
 
 function MetricCard({
@@ -484,8 +451,6 @@ export function AnalyticsView() {
     const days = Number.parseInt(dateRange)
     const to = new Date()
     const from = new Date(to.getTime() - days * 86400000)
-    setAnalyticsStatus("loading")
-    setLiveAnalytics(null)
     void loadAnalytics({
       from: from.toISOString(),
       to: to.toISOString(),
@@ -509,33 +474,43 @@ export function AnalyticsView() {
     dateRange === "365d" ? "12 months" : `${Number.parseInt(dateRange)} days`
   const chartData =
     liveAnalytics?.series.map((point) => ({
-        label: new Intl.DateTimeFormat("en-GB", {
-          day: granularity === "month" ? undefined : "numeric",
-          month: "short",
-          year: granularity === "month" ? "2-digit" : undefined,
-        }).format(new Date(point.period)),
-        reviews: point.reviews,
-        replies: point.replies,
-      })) ?? []
+      label: new Intl.DateTimeFormat("en-GB", {
+        day: granularity === "month" ? undefined : "numeric",
+        month: "short",
+        year: granularity === "month" ? "2-digit" : undefined,
+      }).format(new Date(point.period)),
+      reviews: point.reviews,
+      replies: point.replies,
+    })) ?? []
   const rows =
     liveAnalytics?.locations.map((location) => ({
-        location: location.name,
-        rating:
-          location.averageRating === null
-            ? "—"
-            : location.averageRating.toFixed(1),
-        reviews: location.reviews,
-        responseRate:
-          location.responseRate === null ? "—" : `${location.responseRate}%`,
-        responseRateValue: location.responseRate ?? 0,
-        median: formatDuration(location.medianResponseSeconds),
-        p95: formatDuration(location.p95ResponseSeconds),
-        complaints: location.unresolvedComplaints,
-        rejectionRate:
-          location.verificationRejectionRate === null
-            ? "—"
-            : `${location.verificationRejectionRate}%`,
-      })) ?? []
+      location: location.name,
+      rating:
+        location.averageRating === null
+          ? "—"
+          : location.averageRating.toFixed(1),
+      reviews: location.reviews,
+      responseRate:
+        location.responseRate === null ? "—" : `${location.responseRate}%`,
+      responseRateValue: location.responseRate ?? 0,
+      median: formatDuration(location.medianResponseSeconds),
+      p95: formatDuration(location.p95ResponseSeconds),
+      complaints: location.unresolvedComplaints,
+      rejectionRate:
+        location.verificationRejectionRate === null
+          ? "—"
+          : `${location.verificationRejectionRate}%`,
+    })) ?? []
+
+  function beginAnalyticsLoad() {
+    setLiveAnalytics(null)
+    setAnalyticsStatus("loading")
+  }
+
+  function retryAnalytics() {
+    beginAnalyticsLoad()
+    setReloadKey((value) => value + 1)
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
@@ -552,9 +527,10 @@ export function AnalyticsView() {
           <NativeSelect
             size="sm"
             value={dateRange}
-            onValueChange={(value) =>
+            onValueChange={(value) => {
+              beginAnalyticsLoad()
               setDateRange(value as "7d" | "30d" | "90d" | "365d")
-            }
+            }}
             aria-label="Analytics date range"
           >
             <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
@@ -565,9 +541,10 @@ export function AnalyticsView() {
           <NativeSelect
             size="sm"
             value={granularity}
-            onValueChange={(value) =>
+            onValueChange={(value) => {
+              beginAnalyticsLoad()
               setGranularity(value as "day" | "week" | "month")
-            }
+            }}
             aria-label="Analytics granularity"
           >
             <NativeSelectOption value="day">Daily</NativeSelectOption>
@@ -578,7 +555,7 @@ export function AnalyticsView() {
       </div>
 
       {analyticsStatus === "error" ? (
-        <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+        <LiveDataError onRetry={retryAnalytics} />
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -802,13 +779,6 @@ export function AnalyticsView() {
   )
 }
 
-function formatDuration(seconds: number | null) {
-  if (seconds === null || !Number.isFinite(seconds)) return "—"
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.round((seconds % 3600) / 60)
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`
-}
-
 function formatAddress(
   address: GoogleLocation["storefrontAddress"] | null | undefined
 ) {
@@ -848,11 +818,7 @@ function isLocationCandidate(
   )
 }
 
-export function ConnectionsView({
-  onNavigate,
-}: {
-  onNavigate?: () => void
-}) {
+export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   const [connections, setConnections] = useState<GoogleConnection[]>([])
   const [locations, setLocations] = useState<GoogleLocation[]>([])
   const [accounts, setAccounts] = useState<GoogleAccount[]>([])
@@ -1276,8 +1242,8 @@ export function ConnectionsView({
                 <CardHeader>
                   <CardTitle>Choose your Google account</CardTitle>
                   <CardDescription>
-                    Only locations owned or managed by the active account can
-                    be imported.
+                    Only locations owned or managed by the active account can be
+                    imported.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -1375,9 +1341,7 @@ export function ConnectionsView({
                       </div>
                       {locations
                         .filter((location) => {
-                          const matchesText = (
-                            location.title ?? location.name
-                          )
+                          const matchesText = (location.title ?? location.name)
                             .toLowerCase()
                             .includes(locationQuery.trim().toLowerCase())
                           const matchesVerification =
@@ -1389,8 +1353,9 @@ export function ConnectionsView({
                         })
                         .map((location, index) => {
                           const isLinked = linkedExternalIds.has(location.id)
-                          const isSelected =
-                            selectedLocationIds.includes(location.id)
+                          const isSelected = selectedLocationIds.includes(
+                            location.id
+                          )
                           return (
                             <div key={location.id}>
                               {index ? <Separator /> : null}
@@ -1533,8 +1498,8 @@ export function ConnectionsView({
                 <CardHeader>
                   <CardTitle>Historical review import</CardTitle>
                   <CardDescription>
-                    Imports run in safe batches so a large review history
-                    cannot overwhelm the app.
+                    Imports run in safe batches so a large review history cannot
+                    overwhelm the app.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col divide-y">
@@ -1559,9 +1524,7 @@ export function ConnectionsView({
                       </div>
                       <Badge
                         variant={
-                          item.status === "failed"
-                            ? "destructive"
-                            : "secondary"
+                          item.status === "failed" ? "destructive" : "secondary"
                         }
                       >
                         {item.status === "succeeded"
@@ -1758,8 +1721,8 @@ function SetupProgress({
   return (
     <div className="grid gap-2 sm:grid-cols-4" aria-label="Setup progress">
       {steps.map((step, index) => {
-        const isCurrent = !steps.every((item) => item.complete) &&
-          index === currentIndex
+        const isCurrent =
+          !steps.every((item) => item.complete) && index === currentIndex
         return (
           <div
             key={step.label}
@@ -1857,14 +1820,13 @@ export function SettingsView() {
   const [settingsStatus, setSettingsStatus] = useState<
     "loading" | "ready" | "error"
   >("loading")
-  const [teamStatus, setTeamStatus] = useState<
-    "loading" | "ready" | "error"
-  >("loading")
+  const [teamStatus, setTeamStatus] = useState<"loading" | "ready" | "error">(
+    "loading"
+  )
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let active = true
-    setSettingsStatus("loading")
     void loadSettings()
       .then(({ settings }) => {
         if (!active) return
@@ -1885,7 +1847,6 @@ export function SettingsView() {
 
   useEffect(() => {
     let active = true
-    setTeamStatus("loading")
     void Promise.all([loadMembers(), loadInternalLocations()])
       .then(([memberResult, locationResult]) => {
         if (!active) return
@@ -1900,6 +1861,12 @@ export function SettingsView() {
       active = false
     }
   }, [reloadKey])
+
+  function reloadSettings() {
+    setSettingsStatus("loading")
+    setTeamStatus("loading")
+    setReloadKey((value) => value + 1)
+  }
 
   if (settingsStatus !== "ready") {
     return (
@@ -1918,7 +1885,7 @@ export function SettingsView() {
             <Skeleton className="h-64 w-full" />
           </>
         ) : (
-          <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+          <LiveDataError onRetry={reloadSettings} />
         )}
       </div>
     )
@@ -2132,110 +2099,124 @@ export function SettingsView() {
           {teamStatus === "loading" ? (
             <Skeleton className="h-48 w-full" />
           ) : teamStatus === "error" ? (
-            <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+            <LiveDataError onRetry={reloadSettings} />
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px_auto]">
-            <Input
-              value={newMemberName}
-              onChange={(event) => setNewMemberName(readControlValue(event))}
-              placeholder="Display name"
-              aria-label="New member display name"
-            />
-            <Input
-              value={newMemberEmail}
-              onChange={(event) => setNewMemberEmail(readControlValue(event))}
-              placeholder="name@example.com"
-              type="email"
-              aria-label="New member email"
-            />
-            <NativeSelect
-              value={newMemberRole}
-              onValueChange={(value) =>
-                setNewMemberRole(value as OrganisationMember["role"])
-              }
-              aria-label="New member role"
-            >
-              <NativeSelectOption value="admin">Admin</NativeSelectOption>
-              <NativeSelectOption value="member">Member</NativeSelectOption>
-              <NativeSelectOption value="viewer">Viewer</NativeSelectOption>
-            </NativeSelect>
-            <Button
-              onClick={inviteMember}
-              disabled={isPending || !newMemberName || !newMemberEmail}
-            >
-              Add member
-            </Button>
+                <Input
+                  value={newMemberName}
+                  onChange={(event) =>
+                    setNewMemberName(readControlValue(event))
+                  }
+                  placeholder="Display name"
+                  aria-label="New member display name"
+                />
+                <Input
+                  value={newMemberEmail}
+                  onChange={(event) =>
+                    setNewMemberEmail(readControlValue(event))
+                  }
+                  placeholder="name@example.com"
+                  type="email"
+                  aria-label="New member email"
+                />
+                <NativeSelect
+                  value={newMemberRole}
+                  onValueChange={(value) =>
+                    setNewMemberRole(value as OrganisationMember["role"])
+                  }
+                  aria-label="New member role"
+                >
+                  <NativeSelectOption value="admin">Admin</NativeSelectOption>
+                  <NativeSelectOption value="member">Member</NativeSelectOption>
+                  <NativeSelectOption value="viewer">Viewer</NativeSelectOption>
+                </NativeSelect>
+                <Button
+                  onClick={inviteMember}
+                  disabled={isPending || !newMemberName || !newMemberEmail}
+                >
+                  Add member
+                </Button>
               </div>
               {members.map((member) => (
                 <div
                   key={member.userId}
                   className="flex flex-col gap-3 rounded-xl border p-4"
                 >
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-48 flex-1">
-                  <p className="text-sm font-medium">{member.displayName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {member.email}
-                  </p>
-                </div>
-                <NativeSelect
-                  className="w-32"
-                  value={member.role}
-                  onValueChange={(value) =>
-                    changeMember(member, {
-                      role: value as OrganisationMember["role"],
-                      canPublish: member.canPublish,
-                    })
-                  }
-                  aria-label={`Role for ${member.displayName}`}
-                >
-                  <NativeSelectOption value="owner">Owner</NativeSelectOption>
-                  <NativeSelectOption value="admin">Admin</NativeSelectOption>
-                  <NativeSelectOption value="member">Member</NativeSelectOption>
-                  <NativeSelectOption value="viewer">Viewer</NativeSelectOption>
-                </NativeSelect>
-                <label className="flex items-center gap-2 text-xs">
-                  Publish all
-                  <Switch
-                    checked={member.canPublish}
-                    disabled={member.role === "viewer"}
-                    onCheckedChange={(canPublish) =>
-                      changeMember(member, {
-                        role: member.role,
-                        canPublish,
-                      })
-                    }
-                    aria-label={`Publish all locations for ${member.displayName}`}
-                  />
-                </label>
-              </div>
-              {member.role === "member" || member.role === "viewer" ? (
-                <div className="flex flex-wrap gap-2">
-                  {internalLocations.map((location) => {
-                    const assignment = member.locations.find(
-                      (item) => item.locationId === location.locationId
-                    )
-                    return (
-                      <Button
-                        key={location.locationId}
-                        variant={assignment ? "secondary" : "outline"}
-                        size="sm"
-                        onClick={() =>
-                          cycleLocationAccess(member, location.locationId)
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-48 flex-1">
+                      <p className="text-sm font-medium">
+                        {member.displayName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {member.email}
+                      </p>
+                    </div>
+                    <NativeSelect
+                      className="w-32"
+                      value={member.role}
+                      onValueChange={(value) =>
+                        changeMember(member, {
+                          role: value as OrganisationMember["role"],
+                          canPublish: member.canPublish,
+                        })
+                      }
+                      aria-label={`Role for ${member.displayName}`}
+                    >
+                      <NativeSelectOption value="owner">
+                        Owner
+                      </NativeSelectOption>
+                      <NativeSelectOption value="admin">
+                        Admin
+                      </NativeSelectOption>
+                      <NativeSelectOption value="member">
+                        Member
+                      </NativeSelectOption>
+                      <NativeSelectOption value="viewer">
+                        Viewer
+                      </NativeSelectOption>
+                    </NativeSelect>
+                    <label className="flex items-center gap-2 text-xs">
+                      Publish all
+                      <Switch
+                        checked={member.canPublish}
+                        disabled={member.role === "viewer"}
+                        onCheckedChange={(canPublish) =>
+                          changeMember(member, {
+                            role: member.role,
+                            canPublish,
+                          })
                         }
-                      >
-                        {location.name}
-                        {assignment
-                          ? assignment.canPublish
-                            ? " · Publish"
-                            : " · View"
-                          : " · No access"}
-                      </Button>
-                    )
-                  })}
-                </div>
-              ) : null}
+                        aria-label={`Publish all locations for ${member.displayName}`}
+                      />
+                    </label>
+                  </div>
+                  {member.role === "member" || member.role === "viewer" ? (
+                    <div className="flex flex-wrap gap-2">
+                      {internalLocations.map((location) => {
+                        const assignment = member.locations.find(
+                          (item) => item.locationId === location.locationId
+                        )
+                        return (
+                          <Button
+                            key={location.locationId}
+                            variant={assignment ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() =>
+                              cycleLocationAccess(member, location.locationId)
+                            }
+                          >
+                            {location.name}
+                            {assignment
+                              ? assignment.canPublish
+                                ? " · Publish"
+                                : " · View"
+                              : " · No access"}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </>
@@ -2325,17 +2306,17 @@ export function SettingsView() {
               <FieldContent>
                 <FieldTitle>Keep derived aggregates</FieldTitle>
                 <FieldDescription>
-                  Preserve rating, response-time and volume metrics after raw
-                  text is purged.
+                  Rating, response-time and volume metrics remain available
+                  after raw text is purged.
                 </FieldDescription>
               </FieldContent>
-              <Switch defaultChecked aria-label="Keep derived aggregates" />
+              <Switch checked disabled aria-label="Keep derived aggregates" />
             </Field>
           </FieldGroup>
         </CardContent>
         <CardFooter className="justify-between gap-3">
           <span className="text-xs text-muted-foreground">
-            Next purge: 29 Jul 2026, 02:00 UTC
+            Purges are recorded by the retention worker.
           </span>
           <Button
             variant="outline"
