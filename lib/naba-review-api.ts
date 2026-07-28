@@ -3,6 +3,7 @@ import type {
   ReviewStatus,
   VerificationStatus,
 } from "@/lib/naba-review-data"
+import type { DraftTone } from "@/lib/domain/reply-policy"
 
 type ApiReview = {
   id: string
@@ -187,7 +188,6 @@ export async function loadReviewsPage(
         responseTime:
           item.replyStatus === "published" ? "Published" : undefined,
         googleState: item.googleReplyState ?? undefined,
-        theme: "Google review",
       }
     }),
     nextCursor,
@@ -237,26 +237,33 @@ export async function loadReviewDetail(
   }
 }
 
-export async function generateDraft(reviewId: string) {
+export async function generateDraft(
+  reviewId: string,
+  tone: DraftTone = "warm_professional"
+) {
   const result = await apiFetch<{
     draftId: string
     body: string
     verification: { verdict: VerificationStatus }
   }>(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
-    body: JSON.stringify({ tone: "warm_professional" }),
+    body: JSON.stringify({ tone }),
   })
   return result
 }
 
-export async function saveDraft(reviewId: string, body: string) {
+export async function saveDraft(
+  reviewId: string,
+  body: string,
+  tone: DraftTone = "warm_professional"
+) {
   return apiFetch<{
     draftId: string
     body: string
     verification: { verdict: VerificationStatus }
   }>(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
-    body: JSON.stringify({ tone: "warm_professional", body }),
+    body: JSON.stringify({ tone, body }),
   })
 }
 

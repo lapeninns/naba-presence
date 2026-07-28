@@ -14,6 +14,7 @@ export async function verifyStoredDraft(
     id: string
     body: string
     review_text: string | null
+    reviewer_name?: string | null
     location_name: string
     rating: number
     detected_language_code?: string | null
@@ -34,6 +35,7 @@ export async function verifyStoredDraft(
     ...(await semanticVerification({
       body: draft.body,
       reviewText: draft.review_text,
+      reviewerName: draft.reviewer_name,
       locationName: draft.location_name,
       rating: draft.rating,
     })),
@@ -52,7 +54,7 @@ export async function verifyStoredDraft(
       id,
       ${verdict},
       ${sql.json(reasons)},
-      'deterministic-v1+semantic-v1'
+      'deterministic-v1+semantic-v2'
     from draft
     where id = ${draft.id}
     returning id::text as id

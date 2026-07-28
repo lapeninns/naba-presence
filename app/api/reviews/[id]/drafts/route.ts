@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
+import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
 import { generateReply } from "@/lib/server/ai"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
@@ -93,13 +94,14 @@ export async function POST(
           language,
           tone: input.tone,
           businessContext: input.businessContext,
+          draftPolicyVersion: DRAFT_POLICY_VERSION,
         })
       )
       const isRatingOnly = !review.review_text?.trim()
       const generated = input.body
         ? { reply: input.body, language }
         : isRatingOnly
-          ? ratingOnlyReply(review.rating, language)
+          ? ratingOnlyReply(review.rating, language, review.reviewer_name)
           : await generateReply({
               reviewText: review.review_text,
               rating: review.rating,
@@ -144,6 +146,7 @@ export async function POST(
         id: draft.id,
         body: generated.reply,
         review_text: review.review_text,
+        reviewer_name: review.reviewer_name,
         location_name: review.location_name,
         rating: review.rating,
         detected_language_code: review.language,

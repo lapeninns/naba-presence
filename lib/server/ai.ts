@@ -2,6 +2,7 @@ import "server-only"
 
 import { z } from "zod"
 
+import { buildReplyPrompt, type DraftTone } from "@/lib/domain/reply-policy"
 import type { VerificationReason } from "@/lib/domain/verification"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -99,22 +100,9 @@ export async function generateReply(input: {
   reviewerName: string | null
   locationName: string
   language: string
-  tone: string
+  tone: DraftTone
   businessContext?: string | null
 }) {
-  const prompt = [
-    "Write one proposed Google Business Profile review reply.",
-    "The reply is a draft for a human operator. Never claim it was published.",
-    "Use only the facts in the evidence. Do not invent refunds, investigations,",
-    "contact details, offers, amenities, events, or corrective actions.",
-    "Do not repeat personal data. Be concise, warm, specific, and professional.",
-    "For a complaint, acknowledge the experience without admitting legal liability.",
-    `Requested language: ${input.language}. Tone: ${input.tone}.`,
-    `Location: ${input.locationName}. Rating: ${input.rating}/5.`,
-    `Reviewer name: ${input.reviewerName ?? "anonymous"}.`,
-    `Business context: ${input.businessContext ?? "none supplied"}.`,
-    `Review: ${input.reviewText ?? "[rating-only review]"}`,
-  ].join("\n")
   return openAiStructured(
     getServerEnv().OPENAI_MODEL_DRAFT,
     "google_review_reply",
@@ -127,7 +115,7 @@ export async function generateReply(input: {
       },
       required: ["reply", "language"],
     },
-    prompt,
+    buildReplyPrompt(input),
     draftResultSchema
   )
 }
@@ -141,6 +129,7 @@ const semanticVerificationSchema = z.object({
 export async function semanticVerification(input: {
   body: string
   reviewText: string | null
+  reviewerName?: string | null
   locationName: string
   rating: number
 }): Promise<VerificationReason[]> {
@@ -164,9 +153,10 @@ export async function semanticVerification(input: {
     },
     [
       "Verify the proposed reply using only the supplied review evidence.",
-      "List claims that are not supported by the review or location name.",
+      "List claims not supported by the review, reviewer name, or location name.",
       "Flag unsafe escalation (threats, legal conclusions, promises) and tone mismatch.",
       `Location: ${input.locationName}. Rating: ${input.rating}/5.`,
+      `Reviewer display name: ${input.reviewerName ?? "anonymous"}.`,
       `Review: ${input.reviewText ?? "[rating-only review]"}`,
       `Proposed reply: ${input.body}`,
     ].join("\n"),

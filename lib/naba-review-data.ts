@@ -25,5 +25,4 @@ export type Review = {
   syncStatus?: string
   responseTime?: string
   googleState?: "APPROVED" | "PENDING" | "REJECTED"
-  theme: string
 }

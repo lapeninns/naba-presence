@@ -86,6 +86,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import type { DraftTone } from "@/lib/domain/reply-policy"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-review-data"
 import {
@@ -501,7 +502,12 @@ export function ReviewsWorkspace({
                   </Badge>
                 ) : null}
               </SheetTrigger>
-              <SheetContent side="right" className="w-[320px]">
+              {/* `!` forces this over the component's own
+                  `data-[side=right]:w-3/4`, which otherwise wins on
+                  specificity regardless of className order (confirmed via
+                  DOM measurement: without `!` the sheet rendered at 75vw,
+                  not 320px). */}
+              <SheetContent side="right" className="w-[320px]!">
                 <SheetHeader>
                   <SheetTitle>Filters</SheetTitle>
                   <SheetDescription>
@@ -869,6 +875,7 @@ function ReviewDetail({
   onUpdate: (patch: Partial<Review>) => void
 }) {
   const [draft, setDraft] = useState(review.draft)
+  const [tone, setTone] = useState<DraftTone>("warm_professional")
   const [feedback, setFeedback] = useState("")
   const [feedbackKind, setFeedbackKind] = useState<"success" | "error">(
     "success"
@@ -904,7 +911,7 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        const generated = await generateDraft(review.id)
+        const generated = await generateDraft(review.id, tone)
         setDraft(generated.body)
         onUpdate({
           draft: generated.body,
@@ -926,7 +933,7 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        const saved = await saveDraftToApi(review.id, draft)
+        const saved = await saveDraftToApi(review.id, draft, tone)
         onUpdate({
           draft: saved.body,
           draftId: saved.draftId,
@@ -947,7 +954,7 @@ function ReviewDetail({
       try {
         const saved =
           !review.draftId || draft !== review.draft
-            ? await saveDraftToApi(review.id, draft)
+            ? await saveDraftToApi(review.id, draft, tone)
             : {
                 draftId: review.draftId,
                 body: draft,
@@ -1118,13 +1125,26 @@ function ReviewDetail({
               <WandSparkles className="size-4 text-primary" aria-hidden />
               <h3 className="text-sm font-medium">Reply draft</h3>
             </div>
-            <Select defaultValue="warm">
+            <Select
+              value={tone}
+              onValueChange={(value) => {
+                if (value) setTone(value as DraftTone)
+              }}
+            >
               <SelectTrigger size="sm" aria-label="Reply tone">
-                <SelectValue>Warm professional</SelectValue>
+                <SelectValue>
+                  {tone === "warm_professional"
+                    ? "Warm professional"
+                    : tone === "concise"
+                      ? "Concise"
+                      : "Empathetic"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="warm">Warm professional</SelectItem>
+                  <SelectItem value="warm_professional">
+                    Warm professional
+                  </SelectItem>
                   <SelectItem value="concise">Concise</SelectItem>
                   <SelectItem value="empathetic">Empathetic</SelectItem>
                 </SelectGroup>

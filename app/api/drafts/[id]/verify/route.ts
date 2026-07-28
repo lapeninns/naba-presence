@@ -28,6 +28,7 @@ export async function POST(
           body: string
           review_id: string
           review_text: string | null
+          reviewer_name: string | null
           location_name: string
           rating: number
           detected_language_code: string | null
@@ -39,6 +40,7 @@ export async function POST(
           d.body,
           d.review_id::text as review_id,
           r.review_text,
+          r.reviewer_display_name as reviewer_name,
           r.detected_language_code,
           r.location_id::text as location_id,
           l.name as location_name,
