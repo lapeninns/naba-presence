@@ -1,0 +1,1453 @@
+"use client"
+
+import {
+  Activity,
+  ArrowLeft,
+  BarChart3,
+  Bell,
+  Building2,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  FileCheck2,
+  Inbox,
+  LayoutDashboard,
+  Link2,
+  Menu,
+  MessageSquareText,
+  MoreHorizontal,
+  RefreshCw,
+  Search,
+  Send,
+  Settings,
+  Sparkles,
+  Star,
+  WandSparkles,
+} from "lucide-react"
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react"
+
+import {
+  AnalyticsView,
+  ConnectionsView,
+  OverviewView,
+  SettingsView,
+} from "@/components/naba-review/dashboard-views"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { Spinner } from "@/components/ui/spinner"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
+import {
+  INITIAL_REVIEWS,
+  LOCATIONS,
+  Review,
+  ReviewStatus,
+} from "@/lib/naba-review-data"
+import {
+  generateDraft,
+  isPersistedReview,
+  loadReviewDetail,
+  type ReviewDetailData,
+  loadReviews,
+  loadReviewsPage,
+  publishDraft,
+  saveDraft as saveDraftToApi,
+} from "@/lib/naba-review-api"
+
+type View = "overview" | "reviews" | "analytics" | "connections" | "settings"
+type Queue = "all" | ReviewStatus
+
+function readControlValue(event: { currentTarget: unknown }) {
+  return (event.currentTarget as { value: string }).value
+}
+
+function mergeLocationDirectory(
+  current: Map<string, string>,
+  reviews: Review[]
+) {
+  const next = new Map(current)
+  for (const review of reviews) {
+    if (review.locationId) next.set(review.location, review.locationId)
+  }
+  return next
+}
+
+const NAV_ITEMS: {
+  id: View
+  label: string
+  icon: typeof LayoutDashboard
+}[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "reviews", label: "Reviews", icon: MessageSquareText },
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
+  { id: "connections", label: "Connections", icon: Link2 },
+  { id: "settings", label: "Settings", icon: Settings },
+]
+
+const QUEUES: { id: Queue; label: string }[] = [
+  { id: "all", label: "All reviews" },
+  { id: "needs_reply", label: "Needs reply" },
+  { id: "awaiting_approval", label: "Awaiting approval" },
+  { id: "escalated", label: "Escalated" },
+  { id: "published", label: "Published" },
+]
+
+export function NabaReviewApp() {
+  const [activeView, setActiveView] = useState<View>("reviews")
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS)
+  const [selectedId, setSelectedId] = useState(INITIAL_REVIEWS[0].id)
+  const [apiStatus, setApiStatus] = useState<
+    "loading" | "connected" | "preview"
+  >("loading")
+
+  async function refreshReviews() {
+    try {
+      const loaded = await loadReviews()
+      setReviews(loaded)
+      setSelectedId((current) =>
+        loaded.some((review) => review.id === current)
+          ? current
+          : (loaded[0]?.id ?? "")
+      )
+      setApiStatus("connected")
+    } catch {
+      setApiStatus("preview")
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    void loadReviews()
+      .then((loaded) => {
+        if (!active) return
+        setReviews(loaded)
+        setSelectedId((current) =>
+          loaded.some((review) => review.id === current)
+            ? current
+            : (loaded[0]?.id ?? "")
+        )
+        setApiStatus("connected")
+      })
+      .catch(() => {
+        if (active) setApiStatus("preview")
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  function navigate(view: View) {
+    setActiveView(view)
+    setMobileNavOpen(false)
+  }
+
+  return (
+    <div className="flex min-h-svh bg-background text-foreground">
+      <aside className="hidden w-56 shrink-0 border-r bg-sidebar md:flex md:flex-col">
+        <Brand />
+        <SidebarNavigation activeView={activeView} onNavigate={navigate} />
+        <SidebarFooter />
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="md:hidden"
+                  aria-label="Open navigation"
+                />
+              }
+            >
+              <Menu />
+            </SheetTrigger>
+            <SheetContent side="left" className="w-[280px] bg-sidebar p-0">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Navigation</SheetTitle>
+                <SheetDescription>
+                  Move between NabaReview workspaces.
+                </SheetDescription>
+              </SheetHeader>
+              <Brand />
+              <SidebarNavigation
+                activeView={activeView}
+                onNavigate={navigate}
+              />
+              <SidebarFooter />
+            </SheetContent>
+          </Sheet>
+
+          <div className="hidden min-w-0 items-center gap-2 md:flex">
+            <Building2 className="size-4 text-muted-foreground" aria-hidden />
+            <span className="truncate text-sm font-medium">Lapen Inns</span>
+            <ChevronDown
+              className="size-3.5 text-muted-foreground"
+              aria-hidden
+            />
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <div className="hidden items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs text-muted-foreground lg:flex">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  apiStatus === "connected"
+                    ? "bg-success"
+                    : apiStatus === "loading"
+                      ? "bg-rating"
+                      : "bg-muted-foreground"
+                )}
+              />
+              {apiStatus === "connected"
+                ? "Google sync healthy"
+                : apiStatus === "loading"
+                  ? "Checking live data"
+                  : "Preview mode"}
+            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Notifications"
+                  />
+                }
+              >
+                <Bell />
+              </TooltipTrigger>
+              <TooltipContent>Notifications</TooltipContent>
+            </Tooltip>
+            <Avatar className="size-8">
+              <AvatarFallback>MK</AvatarFallback>
+            </Avatar>
+          </div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-auto">
+          {activeView === "overview" ? (
+            <OverviewView reviews={reviews} onNavigate={navigate} />
+          ) : null}
+          {activeView === "reviews" ? (
+            <ReviewsWorkspace
+              reviews={reviews}
+              setReviews={setReviews}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              apiStatus={apiStatus}
+              onRefresh={refreshReviews}
+            />
+          ) : null}
+          {activeView === "analytics" ? <AnalyticsView /> : null}
+          {activeView === "connections" ? <ConnectionsView /> : null}
+          {activeView === "settings" ? <SettingsView /> : null}
+        </main>
+      </div>
+    </div>
+  )
+}
+
+function Brand() {
+  return (
+    <div className="flex h-16 shrink-0 items-center gap-2 border-b px-5">
+      <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+        <MessageSquareText className="size-4" aria-hidden />
+      </span>
+      <span className="font-heading text-base font-semibold tracking-tight">
+        NabaReview
+      </span>
+    </div>
+  )
+}
+
+function SidebarNavigation({
+  activeView,
+  onNavigate,
+}: {
+  activeView: View
+  onNavigate: (view: View) => void
+}) {
+  return (
+    <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 p-3">
+      {NAV_ITEMS.map((item) => {
+        const Icon = item.icon
+        const isActive = activeView === item.id
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onNavigate(item.id)}
+            className={cn(
+              "flex h-10 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+            )}
+            aria-current={isActive ? "page" : undefined}
+          >
+            <Icon className="size-4" aria-hidden />
+            {item.label}
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+function SidebarFooter() {
+  return (
+    <div className="border-t p-3">
+      <div className="flex items-center gap-3 rounded-xl px-2 py-2">
+        <Avatar className="size-8">
+          <AvatarFallback>MK</AvatarFallback>
+        </Avatar>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">Maya Kapoor</span>
+          <span className="truncate text-xs text-muted-foreground">Owner</span>
+        </div>
+        <MoreHorizontal className="size-4 text-muted-foreground" aria-hidden />
+      </div>
+    </div>
+  )
+}
+
+function ReviewsWorkspace({
+  reviews,
+  setReviews,
+  selectedId,
+  setSelectedId,
+  apiStatus,
+  onRefresh,
+}: {
+  reviews: Review[]
+  setReviews: React.Dispatch<React.SetStateAction<Review[]>>
+  selectedId: string
+  setSelectedId: (id: string) => void
+  apiStatus: "loading" | "connected" | "preview"
+  onRefresh: () => Promise<void>
+}) {
+  const [queue, setQueue] = useState<Queue>("all")
+  const [location, setLocation] = useState("All locations")
+  const [rating, setRating] = useState("all")
+  const [query, setQuery] = useState("")
+  const [dateRange, setDateRange] = useState("all")
+  const [replyState, setReplyState] = useState("all")
+  const [verification, setVerification] = useState("all")
+  const [publishState, setPublishState] = useState("all")
+  const [syncState, setSyncState] = useState("all")
+  const [sort, setSort] = useState<
+    "updated_desc" | "rating_desc" | "rating_asc"
+  >("updated_desc")
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [filterAnchor] = useState(() => Date.now())
+  const [knownLocations, setKnownLocations] = useState(
+    () =>
+      new Map(
+        reviews.flatMap((review) =>
+          review.locationId
+            ? ([[review.location, review.locationId]] as const)
+            : []
+        )
+      )
+  )
+  const [isFiltering, startFiltering] = useTransition()
+  const [mobilePane, setMobilePane] = useState<"list" | "detail">("list")
+  const deferredQuery = useDeferredValue(query)
+  const selectedLocationId =
+    location === "All locations" ? undefined : knownLocations.get(location)
+
+  const serverFilters = useMemo(() => {
+    const workflowByQueue: Record<Queue, string[] | undefined> = {
+      all: undefined,
+      needs_reply: ["new", "drafted", "verified"],
+      awaiting_approval: ["awaiting_approval", "publish_requested"],
+      escalated: ["escalated", "rejected", "failed"],
+      published: ["published"],
+    }
+    const days = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : null
+    return {
+      locationId: selectedLocationId,
+      ratings: rating === "all" ? undefined : [Number(rating)],
+      statuses: workflowByQueue[queue],
+      replyStates: replyState === "all" ? undefined : [replyState],
+      verificationStatuses: verification === "all" ? undefined : [verification],
+      publishStatuses: publishState === "all" ? undefined : [publishState],
+      syncStatuses: syncState === "all" ? undefined : [syncState],
+      dateFrom: days
+        ? new Date(filterAnchor - days * 86_400_000).toISOString()
+        : undefined,
+      search: deferredQuery.trim() || undefined,
+      sort,
+    }
+  }, [
+    dateRange,
+    deferredQuery,
+    filterAnchor,
+    publishState,
+    queue,
+    rating,
+    replyState,
+    selectedLocationId,
+    sort,
+    syncState,
+    verification,
+  ])
+
+  useEffect(() => {
+    if (apiStatus !== "connected") return
+    const timeout = window.setTimeout(() => {
+      startFiltering(async () => {
+        try {
+          const page = await loadReviewsPage(serverFilters)
+          setKnownLocations((current) =>
+            mergeLocationDirectory(current, page.items)
+          )
+          setReviews(page.items)
+          setNextCursor(page.nextCursor)
+          setSelectedId(page.items[0]?.id ?? "")
+        } catch {
+          // Preserve the last successful inbox state during a transient failure.
+        }
+      })
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [apiStatus, serverFilters, setReviews, setSelectedId])
+
+  const filteredReviews = useMemo(() => {
+    const normalizedQuery = deferredQuery.trim().toLowerCase()
+    return reviews.filter((review) => {
+      const matchesQueue =
+        apiStatus === "connected" || queue === "all" || review.status === queue
+      const matchesLocation =
+        apiStatus === "connected" ||
+        location === "All locations" ||
+        review.location === location
+      const matchesRating =
+        apiStatus === "connected" ||
+        rating === "all" ||
+        review.rating === Number.parseInt(rating)
+      const matchesQuery =
+        apiStatus === "connected" ||
+        !normalizedQuery ||
+        `${review.reviewer} ${review.text} ${review.location}`
+          .toLowerCase()
+          .includes(normalizedQuery)
+      return matchesQueue && matchesLocation && matchesRating && matchesQuery
+    })
+  }, [apiStatus, deferredQuery, location, queue, rating, reviews])
+
+  function loadMore() {
+    if (!nextCursor) return
+    startFiltering(async () => {
+      try {
+        const page = await loadReviewsPage(serverFilters, nextCursor)
+        setKnownLocations((current) =>
+          mergeLocationDirectory(current, page.items)
+        )
+        setReviews((current) => {
+          const byId = new Map(current.map((review) => [review.id, review]))
+          for (const review of page.items) byId.set(review.id, review)
+          return [...byId.values()]
+        })
+        setNextCursor(page.nextCursor)
+      } catch {
+        // Leave the current page intact.
+      }
+    })
+  }
+
+  const selectedReview =
+    reviews.find((review) => review.id === selectedId) ?? reviews[0]
+
+  function selectReview(id: string) {
+    setSelectedId(id)
+    setMobilePane("detail")
+  }
+
+  return (
+    <div className="flex h-[calc(100svh-4rem)] min-h-0 flex-col">
+      <div className="flex shrink-0 flex-col gap-4 border-b px-4 py-5 md:px-6">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-1">
+            <h1 className="font-heading text-2xl font-medium tracking-tight">
+              Reviews
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Review, verify and publish Google responses.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void onRefresh()}>
+            <RefreshCw data-icon="inline-start" />
+            {apiStatus === "connected"
+              ? "Live data"
+              : apiStatus === "loading"
+                ? "Connecting"
+                : "Preview data"}
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
+          <div className="flex [scrollbar-width:none] gap-1 overflow-x-auto pb-1 2xl:pb-0 [&::-webkit-scrollbar]:hidden">
+            {QUEUES.map((item) => {
+              const count =
+                item.id === "all"
+                  ? reviews.length
+                  : reviews.filter((review) => review.status === item.id).length
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setQueue(item.id)}
+                  className={cn(
+                    "flex h-8 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+                    queue === item.id
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  aria-pressed={queue === item.id}
+                >
+                  {item.label}
+                  <span className="font-mono text-[10px]">{count}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-1 flex-wrap items-center gap-2 2xl:justify-end">
+            <InputGroup className="min-w-[220px] flex-1 2xl:max-w-xs">
+              <InputGroupAddon>
+                <Search />
+              </InputGroupAddon>
+              <InputGroupInput
+                value={query}
+                onChange={(event) => setQuery(readControlValue(event))}
+                placeholder="Search reviews"
+                aria-label="Search reviews"
+              />
+            </InputGroup>
+            <Select
+              value={location}
+              onValueChange={(value) => {
+                if (value) setLocation(value)
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by location">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {[...new Set([...LOCATIONS, ...knownLocations.keys()])].map(
+                    (item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={dateRange}
+              onValueChange={(value) => value && setDateRange(value)}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by date range">
+                <SelectValue>
+                  {dateRange === "all"
+                    ? "Any date"
+                    : dateRange === "7d"
+                      ? "Last 7 days"
+                      : "Last 30 days"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Any date</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={replyState}
+              onValueChange={(value) => value && setReplyState(value)}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by reply state">
+                <SelectValue>
+                  {replyState === "all"
+                    ? "Any reply"
+                    : replyState === "replied"
+                      ? "Replied"
+                      : "Unreplied"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Any reply</SelectItem>
+                  <SelectItem value="replied">Replied</SelectItem>
+                  <SelectItem value="unreplied">Unreplied</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={verification}
+              onValueChange={(value) => value && setVerification(value)}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by verification">
+                <SelectValue>
+                  {verification === "all"
+                    ? "Any verification"
+                    : `Verification: ${verification}`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Any verification</SelectItem>
+                  <SelectItem value="pass">Passed</SelectItem>
+                  <SelectItem value="warn">Warning</SelectItem>
+                  <SelectItem value="fail">Failed</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={publishState}
+              onValueChange={(value) => value && setPublishState(value)}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by publish status">
+                <SelectValue>
+                  {publishState === "all"
+                    ? "Any publish status"
+                    : publishState.replaceAll("_", " ")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Any publish status</SelectItem>
+                  <SelectItem value="not_published">Not published</SelectItem>
+                  <SelectItem value="awaiting_approval">
+                    Awaiting approval
+                  </SelectItem>
+                  <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={syncState}
+              onValueChange={(value) => value && setSyncState(value)}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by sync status">
+                <SelectValue>
+                  {syncState === "all"
+                    ? "Any sync status"
+                    : `Sync: ${syncState}`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Any sync status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="running">Running</SelectItem>
+                  <SelectItem value="succeeded">Succeeded</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sort}
+              onValueChange={(value) => {
+                if (
+                  value === "updated_desc" ||
+                  value === "rating_desc" ||
+                  value === "rating_asc"
+                )
+                  setSort(value)
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="Sort reviews">
+                <SelectValue>
+                  {sort === "updated_desc"
+                    ? "Newest updated"
+                    : sort === "rating_desc"
+                      ? "Highest rating"
+                      : "Lowest rating"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="updated_desc">Newest updated</SelectItem>
+                  <SelectItem value="rating_desc">Highest rating</SelectItem>
+                  <SelectItem value="rating_asc">Lowest rating</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={rating}
+              onValueChange={(value) => {
+                if (value) setRating(value)
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="Filter by rating">
+                <SelectValue>
+                  {rating === "all" ? "All ratings" : `${rating} stars`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">All ratings</SelectItem>
+                  {[5, 4, 3, 2, 1].map((value) => (
+                    <SelectItem key={value} value={`${value}`}>
+                      {value} stars
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(340px,0.78fr)_minmax(520px,1.4fr)]">
+        <section
+          aria-label="Review list"
+          className={cn(
+            "min-h-0 border-r",
+            mobilePane === "detail" ? "hidden lg:block" : "block"
+          )}
+        >
+          <ScrollArea className="h-full">
+            <div className="flex flex-col">
+              {filteredReviews.length ? (
+                filteredReviews.map((review) => (
+                  <ReviewRow
+                    key={review.id}
+                    review={review}
+                    selected={review.id === selectedReview?.id}
+                    onSelect={() => selectReview(review.id)}
+                  />
+                ))
+              ) : (
+                <div className="flex min-h-80 flex-col items-center justify-center gap-3 px-8 text-center">
+                  <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <Search className="size-5" aria-hidden />
+                  </span>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-medium">No reviews found</p>
+                    <p className="text-xs text-muted-foreground">
+                      Try changing your filters or search.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {apiStatus === "connected" && nextCursor ? (
+                <div className="p-4">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={loadMore}
+                    disabled={isFiltering}
+                  >
+                    {isFiltering ? <Spinner data-icon="inline-start" /> : null}
+                    Load more reviews
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </section>
+
+        <section
+          aria-label="Selected review"
+          className={cn(
+            "min-h-0",
+            mobilePane === "list" ? "hidden lg:block" : "block"
+          )}
+        >
+          <ScrollArea className="h-full">
+            {selectedReview ? (
+              <ReviewDetail
+                key={selectedReview.id}
+                review={selectedReview}
+                onBack={() => setMobilePane("list")}
+                onUpdate={(patch) =>
+                  setReviews((current) =>
+                    current.map((review) =>
+                      review.id === selectedReview.id
+                        ? { ...review, ...patch }
+                        : review
+                    )
+                  )
+                }
+              />
+            ) : (
+              <div className="flex min-h-96 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+                Connect Google and link a verified location to begin.
+              </div>
+            )}
+          </ScrollArea>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ReviewRow({
+  review,
+  selected,
+  onSelect,
+}: {
+  review: Review
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full gap-3 border-b px-4 py-4 text-left transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none focus-visible:ring-inset md:px-5",
+        selected ? "bg-accent/70" : "hover:bg-muted/60"
+      )}
+      aria-current={selected ? "true" : undefined}
+    >
+      <Avatar className="size-9 shrink-0">
+        <AvatarFallback>{review.initials}</AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{review.reviewer}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {review.location}
+            </p>
+          </div>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {review.postedAt.split(",")[0]}
+          </span>
+        </div>
+        <Stars value={review.rating} compact />
+        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {review.excerpt}
+        </p>
+        <StatusBadge status={review.status} />
+      </div>
+    </button>
+  )
+}
+
+function ReviewDetail({
+  review,
+  onBack,
+  onUpdate,
+}: {
+  review: Review
+  onBack: () => void
+  onUpdate: (patch: Partial<Review>) => void
+}) {
+  const [draft, setDraft] = useState(review.draft)
+  const [feedback, setFeedback] = useState("")
+  const [feedbackKind, setFeedbackKind] = useState<"success" | "error">(
+    "success"
+  )
+  const [isPending, startTransition] = useTransition()
+  const [detailState, setDetailState] = useState<{
+    reviewId: string
+    data: ReviewDetailData
+  } | null>(null)
+  const detail = detailState?.reviewId === review.id ? detailState.data : null
+
+  useEffect(() => {
+    let active = true
+    if (isPersistedReview(review.id)) {
+      void loadReviewDetail(review.id)
+        .then((value) => {
+          if (active) setDetailState({ reviewId: review.id, data: value })
+        })
+        .catch(() => {})
+    }
+    return () => {
+      active = false
+    }
+  }, [review.id])
+
+  function regenerate() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        if (isPersistedReview(review.id)) {
+          const generated = await generateDraft(review.id)
+          setDraft(generated.body)
+          onUpdate({
+            draft: generated.body,
+            draftId: generated.draftId,
+            verification: generated.verification.verdict,
+          })
+        } else {
+          const body =
+            review.rating <= 2
+              ? `${review.reviewer.split(" ")[0]}, we’re sorry this part of your stay fell short. We have shared your comments with the ${review.location} team so they can review what happened and respond appropriately. Thank you for bringing it to our attention.`
+              : `Thank you, ${review.reviewer.split(" ")[0]}. We’re pleased you enjoyed your stay at ${review.location} and appreciate the thoughtful feedback. We’ll share your kind words with the team and hope to welcome you back soon.`
+          setDraft(body)
+        }
+        setFeedbackKind("success")
+        setFeedback("A new verified draft is ready.")
+      } catch (error) {
+        setFeedbackKind("error")
+        setFeedback(
+          error instanceof Error ? error.message : "Draft generation failed."
+        )
+      }
+    })
+  }
+
+  function saveDraft() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        if (isPersistedReview(review.id)) {
+          const saved = await saveDraftToApi(review.id, draft)
+          onUpdate({
+            draft: saved.body,
+            draftId: saved.draftId,
+            verification: saved.verification.verdict,
+          })
+        } else {
+          onUpdate({ draft })
+        }
+        setFeedbackKind("success")
+        setFeedback("Draft saved to the review audit trail.")
+      } catch (error) {
+        setFeedbackKind("error")
+        setFeedback(error instanceof Error ? error.message : "Save failed.")
+      }
+    })
+  }
+
+  function publish() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        if (isPersistedReview(review.id)) {
+          const saved =
+            !review.draftId || draft !== review.draft
+              ? await saveDraftToApi(review.id, draft)
+              : {
+                  draftId: review.draftId,
+                  body: draft,
+                  verification: { verdict: review.verification },
+                }
+          if (saved.verification.verdict === "fail") {
+            onUpdate({ verification: "fail", draftId: saved.draftId, draft })
+            throw new Error(
+              "This reply failed verification and cannot be published."
+            )
+          }
+          const published = await publishDraft(
+            review.id,
+            saved.draftId,
+            review.sourceUpdateTime
+          )
+          const status =
+            published.status === "awaiting_approval"
+              ? "awaiting_approval"
+              : published.status === "rejected"
+                ? "escalated"
+                : "published"
+          onUpdate({
+            draft,
+            draftId: saved.draftId,
+            verification: saved.verification.verdict,
+            status,
+            googleState: published.googleReplyState ?? undefined,
+            responseTime: "Just now",
+          })
+          setFeedback(
+            status === "awaiting_approval"
+              ? "Reply submitted for approval."
+              : "Reply sent to Google."
+          )
+        } else {
+          onUpdate({
+            draft,
+            status: "published",
+            googleState: "PENDING",
+            responseTime: "Just now",
+          })
+          setFeedback("Reply sent to Google. Moderation status is pending.")
+        }
+        setFeedbackKind("success")
+      } catch (error) {
+        setFeedbackKind("error")
+        setFeedback(error instanceof Error ? error.message : "Publish failed.")
+      }
+    })
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-5 md:px-7 md:py-7">
+      <div className="flex items-start gap-3">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          className="lg:hidden"
+          aria-label="Back to review list"
+        >
+          <ArrowLeft />
+        </Button>
+        <Avatar className="size-10">
+          <AvatarFallback>{review.initials}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-medium">{review.reviewer}</h2>
+            <StatusBadge status={review.status} />
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <Stars value={review.rating} compact />
+            <span>{review.location}</span>
+            <span>Posted {review.postedAt.toLowerCase()}</span>
+          </div>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Review actions"
+              />
+            }
+          >
+            <MoreHorizontal />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuGroup>
+              <DropdownMenuItem>Copy review ID</DropdownMenuItem>
+              <DropdownMenuItem>Open audit trail</DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem variant="destructive">
+                Report an issue
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="rounded-xl border bg-muted/35 p-4 md:p-5">
+        <p className="text-sm leading-7">{review.text}</p>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span>Updated {review.updatedAt.toLowerCase()}</span>
+          <span>·</span>
+          <span>{review.language}</span>
+          <span>·</span>
+          <span>Theme: {review.theme}</span>
+        </div>
+      </div>
+
+      {detail?.media.length ? (
+        <section className="flex flex-col gap-3" aria-label="Review media">
+          <h3 className="text-sm font-medium">Review media</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {detail.media.map((item) => (
+              <a
+                key={item.id}
+                href={item.videoUrl ?? item.thumbnailUrl ?? "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="group overflow-hidden rounded-xl border bg-muted/30"
+              >
+                {item.thumbnailUrl ? (
+                  <span
+                    className="block aspect-video bg-cover bg-center"
+                    style={{ backgroundImage: `url("${item.thumbnailUrl}")` }}
+                    role="img"
+                    aria-label={item.thumbnailLabel ?? "Review media thumbnail"}
+                  />
+                ) : (
+                  <span className="flex aspect-video items-center justify-center text-xs text-muted-foreground">
+                    Open review video
+                  </span>
+                )}
+                <span className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                  {item.thumbnailLabel ?? (item.videoUrl ? "Video" : "Photo")}
+                  <ArrowLeft className="size-3 rotate-135" aria-hidden />
+                </span>
+              </a>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Google replies support text only; media attachments are unavailable.
+          </p>
+        </section>
+      ) : null}
+
+      {review.status === "published" ? (
+        <Alert>
+          <CheckCircle2 />
+          <AlertTitle>Reply published</AlertTitle>
+          <AlertDescription>
+            Google moderation: {review.googleState ?? "APPROVED"} · Response
+            time {review.responseTime ?? "under 1 hour"}
+          </AlertDescription>
+        </Alert>
+      ) : review.status === "escalated" ? (
+        <Alert variant="destructive">
+          <Activity />
+          <AlertTitle>Escalation review required</AlertTitle>
+          <AlertDescription>
+            {detail?.reply?.googlePolicyViolation
+              ? `Google rejected the reply: ${detail.reply.googlePolicyViolation}. Edit and verify it before publishing again.`
+              : "This review should be checked by a manager before publishing. Verification can warn, but it cannot resolve the customer issue."}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <WandSparkles className="size-4 text-primary" aria-hidden />
+              <h3 className="text-sm font-medium">Reply draft</h3>
+            </div>
+            <Select defaultValue="warm">
+              <SelectTrigger size="sm" aria-label="Reply tone">
+                <SelectValue>Warm professional</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="warm">Warm professional</SelectItem>
+                  <SelectItem value="concise">Concise</SelectItem>
+                  <SelectItem value="empathetic">Empathetic</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Textarea
+            key={review.id}
+            value={draft}
+            onChange={(event) => {
+              setDraft(readControlValue(event))
+              setFeedback("")
+            }}
+            rows={8}
+            aria-label="Reply draft"
+            className="min-h-44 resize-y text-sm leading-6"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {new TextEncoder().encode(draft).length} / 4096 bytes
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              Original language: {review.language}
+            </span>
+          </div>
+
+          {feedback ? (
+            <p
+              className={cn(
+                "text-xs",
+                feedbackKind === "error" ? "text-destructive" : "text-success"
+              )}
+              role="status"
+              aria-live="polite"
+            >
+              {feedback}
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={regenerate} disabled={isPending}>
+              {isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <Sparkles data-icon="inline-start" />
+              )}
+              Regenerate
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={saveDraft}
+              disabled={isPending || !draft.trim()}
+            >
+              Save draft
+            </Button>
+            <Button
+              className="sm:ml-auto"
+              onClick={publish}
+              disabled={
+                isPending ||
+                review.verification === "pending" ||
+                review.verification === "fail" ||
+                !draft.trim()
+              }
+            >
+              <Send data-icon="inline-start" />
+              {review.status === "published"
+                ? "Update reply"
+                : review.status === "awaiting_approval"
+                  ? "Approve and publish"
+                  : "Publish reply"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-5 border-t pt-5 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
+          <VerificationPanel review={review} />
+          <Separator />
+          <ActivityTimeline status={review.status} events={detail?.timeline} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function VerificationPanel({ review }: { review: Review }) {
+  const isWarning = review.verification === "warn"
+  const isPending = review.verification === "pending"
+  const isFailure = review.verification === "fail"
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">Verification</h3>
+        <Badge variant={isWarning || isFailure ? "destructive" : "secondary"}>
+          {isPending
+            ? "Pending"
+            : isFailure
+              ? "Failed"
+              : isWarning
+                ? "Review needed"
+                : "Passed"}
+        </Badge>
+      </div>
+      {isPending ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Generate or save the draft to run all deterministic checks.
+        </p>
+      ) : isFailure ? (
+        <p className="text-xs leading-relaxed text-destructive">
+          This draft is blocked. Edit it and save again to rerun verification.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          <CheckItem label="No personal data" />
+          <CheckItem label="No unsupported claims" />
+          <CheckItem label="Tone matches policy" />
+          <CheckItem
+            label={isWarning ? "Manager approval needed" : "Location confirmed"}
+            warning={isWarning}
+          />
+          <CheckItem label="Within 4096 bytes" />
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function CheckItem({
+  label,
+  warning = false,
+}: {
+  label: string
+  warning?: boolean
+}) {
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full",
+          warning
+            ? "bg-destructive/10 text-destructive"
+            : "bg-accent text-accent-foreground"
+        )}
+      >
+        {warning ? (
+          <Activity className="size-3" aria-hidden />
+        ) : (
+          <Check className="size-3" aria-hidden />
+        )}
+      </span>
+      <span>{label}</span>
+    </li>
+  )
+}
+
+function ActivityTimeline({
+  status,
+  events: persistedEvents,
+}: {
+  status: ReviewStatus
+  events?: ReviewDetailData["timeline"]
+}) {
+  const previewEvents = [
+    { label: "Review ingested", detail: "Today, 09:43", done: true },
+    { label: "Draft generated", detail: "Today, 09:45", done: true },
+    {
+      label: "Verification completed",
+      detail: "Today, 09:45",
+      done: true,
+    },
+    {
+      label:
+        status === "published" ? "Published to Google" : "Awaiting publish",
+      detail: status === "published" ? "Just now" : "Owner or admin",
+      done: status === "published",
+    },
+  ]
+  const events = persistedEvents?.length
+    ? persistedEvents.slice(0, 8).map((event) => ({
+        label: event.action
+          .split(".")
+          .map((part) => part.replaceAll("_", " "))
+          .join(" · "),
+        detail: event.createdAt,
+        done: true,
+      }))
+    : previewEvents
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium">Activity</h3>
+      <ol className="flex flex-col">
+        {events.map((event, index) => (
+          <li key={event.label} className="relative flex gap-3 pb-4 last:pb-0">
+            {index < events.length - 1 ? (
+              <span className="absolute top-5 left-[9px] h-[calc(100%-0.25rem)] w-px bg-border" />
+            ) : null}
+            <span
+              className={cn(
+                "relative mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border bg-background",
+                event.done
+                  ? "border-primary text-primary"
+                  : "border-border text-muted-foreground"
+              )}
+            >
+              {event.done ? (
+                <Check className="size-3" aria-hidden />
+              ) : (
+                <Clock3 className="size-3" aria-hidden />
+              )}
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium">{event.label}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {event.detail}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function Stars({
+  value,
+  compact = false,
+}: {
+  value: number
+  compact?: boolean
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5"
+      role="img"
+      aria-label={`${value} out of 5 stars`}
+    >
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={cn(
+            compact ? "size-3.5" : "size-4",
+            star <= value
+              ? "fill-rating text-rating"
+              : "text-muted-foreground/35"
+          )}
+          aria-hidden
+        />
+      ))}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: ReviewStatus }) {
+  if (status === "published") {
+    return (
+      <Badge variant="secondary">
+        <CheckCircle2 data-icon="inline-start" />
+        Published
+      </Badge>
+    )
+  }
+  if (status === "awaiting_approval") {
+    return (
+      <Badge variant="secondary">
+        <FileCheck2 data-icon="inline-start" />
+        Awaiting approval
+      </Badge>
+    )
+  }
+  if (status === "escalated") {
+    return <Badge variant="destructive">Escalated</Badge>
+  }
+  return (
+    <Badge variant="outline">
+      <Inbox data-icon="inline-start" />
+      Needs reply
+    </Badge>
+  )
+}

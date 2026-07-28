@@ -1,0 +1,200 @@
+import "server-only"
+
+import { z } from "zod"
+
+import type { VerificationReason } from "@/lib/domain/verification"
+import { getServerEnv } from "@/lib/server/env"
+import { ApiError } from "@/lib/server/http"
+
+type JsonSchema = Record<string, unknown>
+
+function responseText(response: Record<string, unknown>): string {
+  if (typeof response.output_text === "string") return response.output_text
+  const output = Array.isArray(response.output) ? response.output : []
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue
+    const content = Array.isArray((item as { content?: unknown }).content)
+      ? ((item as { content: unknown[] }).content ?? [])
+      : []
+    for (const block of content) {
+      if (
+        block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "output_text" &&
+        typeof (block as { text?: unknown }).text === "string"
+      ) {
+        return (block as { text: string }).text
+      }
+    }
+  }
+  throw new ApiError(
+    502,
+    "ai_empty_response",
+    "The AI provider returned no text."
+  )
+}
+
+async function openAiStructured<T>(
+  model: string,
+  name: string,
+  schema: JsonSchema,
+  prompt: string,
+  validator: z.ZodType<T>
+): Promise<T> {
+  const env = getServerEnv()
+  if (!env.OPENAI_API_KEY) {
+    throw new ApiError(
+      503,
+      "ai_not_configured",
+      "Draft generation is not configured."
+    )
+  }
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+      ...(env.OPENAI_ORG_ID
+        ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
+        : {}),
+    },
+    body: JSON.stringify({
+      model,
+      input: prompt,
+      store: false,
+      text: {
+        format: {
+          type: "json_schema",
+          name,
+          strict: true,
+          schema,
+        },
+      },
+    }),
+    cache: "no-store",
+  })
+  const payload = (await response.json()) as Record<string, unknown>
+  if (!response.ok) {
+    const error =
+      payload.error && typeof payload.error === "object"
+        ? (payload.error as Record<string, unknown>)
+        : {}
+    throw new ApiError(
+      response.status,
+      String(error.code ?? "ai_provider_error"),
+      String(error.message ?? "The AI provider rejected the request.")
+    )
+  }
+  return validator.parse(JSON.parse(responseText(payload)))
+}
+
+const draftResultSchema = z.object({
+  reply: z.string().trim().min(1).max(4096),
+  language: z.string().trim().min(2).max(12),
+})
+
+export async function generateReply(input: {
+  reviewText: string | null
+  rating: number
+  reviewerName: string | null
+  locationName: string
+  language: string
+  tone: string
+  businessContext?: string | null
+}) {
+  const prompt = [
+    "Write one proposed Google Business Profile review reply.",
+    "The reply is a draft for a human operator. Never claim it was published.",
+    "Use only the facts in the evidence. Do not invent refunds, investigations,",
+    "contact details, offers, amenities, events, or corrective actions.",
+    "Do not repeat personal data. Be concise, warm, specific, and professional.",
+    "For a complaint, acknowledge the experience without admitting legal liability.",
+    `Requested language: ${input.language}. Tone: ${input.tone}.`,
+    `Location: ${input.locationName}. Rating: ${input.rating}/5.`,
+    `Reviewer name: ${input.reviewerName ?? "anonymous"}.`,
+    `Business context: ${input.businessContext ?? "none supplied"}.`,
+    `Review: ${input.reviewText ?? "[rating-only review]"}`,
+  ].join("\n")
+  return openAiStructured(
+    getServerEnv().OPENAI_MODEL_DRAFT,
+    "google_review_reply",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        reply: { type: "string" },
+        language: { type: "string" },
+      },
+      required: ["reply", "language"],
+    },
+    prompt,
+    draftResultSchema
+  )
+}
+
+const semanticVerificationSchema = z.object({
+  unsupportedClaims: z.array(z.string().max(240)).max(10),
+  unsafeEscalation: z.boolean(),
+  toneMismatch: z.boolean(),
+})
+
+export async function semanticVerification(input: {
+  body: string
+  reviewText: string | null
+  locationName: string
+  rating: number
+}): Promise<VerificationReason[]> {
+  if (!getServerEnv().OPENAI_API_KEY) return []
+  const result = await openAiStructured(
+    getServerEnv().OPENAI_MODEL_VERIFY,
+    "review_reply_verification",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        unsupportedClaims: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 10,
+        },
+        unsafeEscalation: { type: "boolean" },
+        toneMismatch: { type: "boolean" },
+      },
+      required: ["unsupportedClaims", "unsafeEscalation", "toneMismatch"],
+    },
+    [
+      "Verify the proposed reply using only the supplied review evidence.",
+      "List claims that are not supported by the review or location name.",
+      "Flag unsafe escalation (threats, legal conclusions, promises) and tone mismatch.",
+      `Location: ${input.locationName}. Rating: ${input.rating}/5.`,
+      `Review: ${input.reviewText ?? "[rating-only review]"}`,
+      `Proposed reply: ${input.body}`,
+    ].join("\n"),
+    semanticVerificationSchema
+  )
+  return [
+    ...result.unsupportedClaims.map((claim) => ({
+      code: "unsupported_claim",
+      severity: "fail" as const,
+      message: claim,
+    })),
+    ...(result.unsafeEscalation
+      ? [
+          {
+            code: "unsafe_escalation",
+            severity: "fail" as const,
+            message: "The reply contains an unsafe escalation.",
+          },
+        ]
+      : []),
+    ...(result.toneMismatch
+      ? [
+          {
+            code: "tone_mismatch",
+            severity: "warn" as const,
+            message: "The reply tone may not fit the review.",
+          },
+        ]
+      : []),
+  ]
+}

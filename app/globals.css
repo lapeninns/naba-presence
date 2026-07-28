@@ -4,126 +4,218 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ---------------------------------------------------------------------------
+   NabaReview design system
+   shadcn/ui (base-rhea, Base UI primitives) + the Google Business Profile palette.
+
+   Component shapes, radius and density are stock base-rhea. Only colour and
+   type are ours. Every value below is a Google Material/GBP hex converted to
+   oklch, and every text pair is measured against WCAG AA (4.5:1 for text,
+   3:1 for focus indicators). Where Google's own hex failed as *text*, the
+   darker Material step is used instead and the reason is noted inline.
+   See docs/specs/2026-07-28-design-system.md.
+--------------------------------------------------------------------------- */
+
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: var(--font-sans);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
+  /* `--font-mono` was absent here, so the `font-mono` utility fell through to
+       Tailwind's default stack and Geist Mono never applied despite being
+       loaded in layout.tsx. Adding the mapping is the fix.
+
+       These stay `var()` references so layout.tsx's next/font call remains the
+       single owner of the family names — change the font there and this file
+       needs no edit. (Verified in the browser: next/font emits the literal
+       families "Geist" / "Geist Mono" here, so spelling them out would also
+       work; the indirection is for maintenance, not correctness.) */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+
+  /* NabaReview additions — not part of the stock shadcn token contract. */
+  --color-rating: var(--rating);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.153 0.006 107.1);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.153 0.006 107.1);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.153 0.006 107.1);
-    --primary: oklch(0.228 0.013 107.4);
-    --primary-foreground: oklch(0.988 0.003 106.5);
-    --secondary: oklch(0.966 0.005 106.5);
-    --secondary-foreground: oklch(0.228 0.013 107.4);
-    --muted: oklch(0.966 0.005 106.5);
-    --muted-foreground: oklch(0.58 0.031 107.3);
-    --accent: oklch(0.966 0.005 106.5);
-    --accent-foreground: oklch(0.228 0.013 107.4);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.93 0.007 106.5);
-    --input: oklch(0.93 0.007 106.5);
-    --ring: oklch(0.737 0.021 106.9);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.988 0.003 106.5);
-    --sidebar-foreground: oklch(0.153 0.006 107.1);
-    --sidebar-primary: oklch(0.228 0.013 107.4);
-    --sidebar-primary-foreground: oklch(0.988 0.003 106.5);
-    --sidebar-accent: oklch(0.966 0.005 106.5);
-    --sidebar-accent-foreground: oklch(0.228 0.013 107.4);
-    --sidebar-border: oklch(0.93 0.007 106.5);
-    --sidebar-ring: oklch(0.737 0.021 106.9);
+  /* Surfaces — Google Grey: #FFFFFF / #F8F9FA / #F1F3F4 */
+  --background: oklch(1 0 0); /* #FFFFFF */
+  --foreground: oklch(0.248 0.006 271.2); /* #202124 — 16.10:1 on bg */
+  --card: oklch(1 0 0); /* #FFFFFF */
+  --card-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --popover: oklch(1 0 0); /* #FFFFFF */
+  --popover-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+
+  /* Google Blue 600. White text = 4.51:1, clears AA. */
+  --primary: oklch(0.574 0.195 257.9); /* #1A73E8 */
+  --primary-foreground: oklch(1 0 0); /* #FFFFFF */
+
+  --secondary: oklch(0.963 0.003 228.8); /* #F1F3F4 */
+  --secondary-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --muted: oklch(0.963 0.003 228.8); /* #F1F3F4 — Google grey-100.
+    Deliberately the surface-CONTAINER tone, not grey-50 (#F8F9FA). --muted is a
+    fill (Skeleton is bg-muted and nothing else, ghost buttons hover to it); at
+    grey-50 it sat at 1.05:1 against the white background and skeletons were
+    effectively invisible. Grey-100 gives 1.11:1, just above shadcn's own
+    baseline. muted-foreground still passes on it at 5.44:1. */
+  --muted-foreground: oklch(0.498 0.009 253.9); /* #5F6368 — 6.05:1 on bg */
+
+  /* Highlight/selected state — Google's pale blue tint. base-rhea applies
+       these on :focus, so accent-foreground has to read on the tint: Blue 600
+       is only 3.93:1 there, so it steps down to Blue 800 for 5.57:1. */
+  --accent: oklch(0.953 0.021 261.8); /* #E8F0FE */
+  --accent-foreground: oklch(
+    0.495 0.199 260.6
+  ); /* #0B57D0 — 5.57:1 on accent */
+
+  /* base-rhea renders destructive as TEXT on a /10 tint, never as a solid
+       fill, so this token must pass AA as text. Google Red #EA4335 fails
+       (3.92:1) and Material #D93025 fails on its own tint (4.10:1).
+       #B3261E passes both: 6.54:1 on white, 5.54:1 on the tint. */
+  --destructive: oklch(0.501 0.178 28.7); /* #B3261E */
+
+  --border: oklch(0.894 0.006 264.5); /* #DADCE0 — decorative divider */
+  --input: oklch(
+    0.936 0.005 258.3
+  ); /* #E8EAED — a FILL in base-rhea (bg-input/50) */
+  --ring: oklch(0.574 0.195 257.9); /* #1A73E8 — 4.51:1 focus indicator */
+
+  /* Review-domain tokens. --rating is the GBP star fill: decorative, so
+       exempt from text contrast. --success is Green 900, not Google Green
+       #34A853, which fails as text at 4.21:1. */
+  --rating: oklch(0.83 0.17 84); /* #FBBC04 */
+  --success: oklch(0.467 0.125 148.2); /* #146C2E — 6.53:1 on bg */
+  --success-foreground: oklch(1 0 0); /* #FFFFFF */
+  --warning: oklch(0.796 0.167 76); /* #F9AB00 — fill only */
+  --warning-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+
+  --radius: 0.625rem;
+
+  /* Charts: the four Google brand colours plus Google teal. Decorative
+       fills, exempt from text contrast — label series, don't rely on hue. */
+  --chart-1: oklch(0.63 0.18 260); /* #4285F4 blue */
+  --chart-2: oklch(0.626 0.206 29.1); /* #EA4335 red */
+  --chart-3: oklch(0.83 0.17 84); /* #FBBC04 yellow */
+  --chart-4: oklch(0.648 0.16 148.5); /* #34A853 green */
+  --chart-5: oklch(0.709 0.121 210.3); /* #12B5CB teal */
+
+  --sidebar: oklch(0.982 0.002 247.8); /* #F8F9FA */
+  --sidebar-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --sidebar-primary: oklch(0.574 0.195 257.9); /* #1A73E8 */
+  --sidebar-primary-foreground: oklch(1 0 0); /* #FFFFFF */
+  --sidebar-accent: oklch(0.953 0.021 261.8); /* #E8F0FE */
+  --sidebar-accent-foreground: oklch(0.495 0.199 260.6); /* #0B57D0 */
+  --sidebar-border: oklch(0.894 0.006 264.5); /* #DADCE0 */
+  --sidebar-ring: oklch(0.574 0.195 257.9); /* #1A73E8 */
 }
 
 .dark {
-    --background: oklch(0.153 0.006 107.1);
-    --foreground: oklch(0.988 0.003 106.5);
-    --card: oklch(0.228 0.013 107.4);
-    --card-foreground: oklch(0.988 0.003 106.5);
-    --popover: oklch(0.228 0.013 107.4);
-    --popover-foreground: oklch(0.988 0.003 106.5);
-    --primary: oklch(0.93 0.007 106.5);
-    --primary-foreground: oklch(0.228 0.013 107.4);
-    --secondary: oklch(0.286 0.016 107.4);
-    --secondary-foreground: oklch(0.988 0.003 106.5);
-    --muted: oklch(0.286 0.016 107.4);
-    --muted-foreground: oklch(0.737 0.021 106.9);
-    --accent: oklch(0.286 0.016 107.4);
-    --accent-foreground: oklch(0.988 0.003 106.5);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.58 0.031 107.3);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
-    --sidebar: oklch(0.228 0.013 107.4);
-    --sidebar-foreground: oklch(0.988 0.003 106.5);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.988 0.003 106.5);
-    --sidebar-accent: oklch(0.286 0.016 107.4);
-    --sidebar-accent-foreground: oklch(0.988 0.003 106.5);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.58 0.031 107.3);
+  /* Google's dark surfaces: #1F1F1F base, #28292C raised, #2D2E31 sunken. */
+  --background: oklch(0.239 0 0); /* #1F1F1F */
+  --foreground: oklch(0.936 0.005 258.3); /* #E8EAED — 13.68:1 on bg */
+  --card: oklch(0.281 0.006 271.2); /* #28292C */
+  --card-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+  --popover: oklch(0.281 0.006 271.2); /* #28292C */
+  --popover-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+
+  /* Material's dark inversion: a light primary carrying dark text, since
+       Blue 600 is too dark to sit on #1F1F1F. 7.50:1. */
+  --primary: oklch(0.825 0.08 260.3); /* #A8C7FA */
+  --primary-foreground: oklch(0.321 0.121 260.2); /* #062E6F */
+
+  --secondary: oklch(0.301 0.006 271.2); /* #2D2E31 */
+  --secondary-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+  --muted: oklch(0.301 0.006 271.2); /* #2D2E31 */
+  --muted-foreground: oklch(0.703 0.011 248); /* #9AA0A6 — 6.24:1 on bg */
+
+  /* Tonal blue container. accent-foreground stays NEUTRAL here on purpose:
+       base-rhea's popovers force `.dark` and set
+       `**:data-[variant=destructive]:text-accent-foreground!`, so a blue value
+       would turn destructive menu items blue. Neutral gives 9.82:1. */
+  --accent: oklch(0.34 0.078 260.5); /* #1F3760 */
+  --accent-foreground: oklch(
+    0.936 0.005 258.3
+  ); /* #E8EAED — 9.82:1 on accent */
+
+  --destructive: oklch(0.834 0.068 22); /* #F2B8B5 — 9.65:1 on bg, as text */
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
+
+  --rating: oklch(0.83 0.17 84); /* #FBBC04 — 9.65:1 on bg */
+  --success: oklch(0.792 0.143 151.6); /* #6DD58C */
+  --success-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --warning: oklch(0.796 0.167 76); /* #F9AB00 */
+  --warning-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+
+  /* Brand colours held constant across themes; all land L 0.63–0.83, which
+       reads on #1F1F1F. */
+  --chart-1: oklch(0.63 0.18 260); /* #4285F4 */
+  --chart-2: oklch(0.626 0.206 29.1); /* #EA4335 */
+  --chart-3: oklch(0.83 0.17 84); /* #FBBC04 */
+  --chart-4: oklch(0.648 0.16 148.5); /* #34A853 */
+  --chart-5: oklch(0.709 0.121 210.3); /* #12B5CB */
+
+  --sidebar: oklch(0.248 0.006 271.2); /* #202124 */
+  --sidebar-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+  --sidebar-primary: oklch(0.825 0.08 260.3); /* #A8C7FA */
+  --sidebar-primary-foreground: oklch(0.321 0.121 260.2); /* #062E6F */
+  --sidebar-accent: oklch(0.34 0.078 260.5); /* #1F3760 */
+  --sidebar-accent-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-background text-foreground;
-    }
+  }
   html {
     @apply font-sans;
-    }
+  }
 }

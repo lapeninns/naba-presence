@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  deterministicVerification,
+  verificationVerdict,
+} from "@/lib/domain/verification"
+
+const base = {
+  reviewText: "The stay was pleasant.",
+  locationName: "London Mayfair",
+  otherLocationNames: ["Birmingham NEC", "Leeds City"],
+  rating: 4,
+}
+
+function verify(body: string, overrides = {}) {
+  return deterministicVerification({ ...base, ...overrides, body })
+}
+
+describe("deterministic reply verification", () => {
+  it("passes a grounded, concise response", () => {
+    const reasons = verify(
+      "Thank you for sharing your feedback about your stay."
+    )
+    expect(reasons).toEqual([])
+    expect(verificationVerdict(reasons)).toBe("pass")
+  })
+
+  it.each([
+    ["email", "Please email guest@example.com.", "personal_contact_data"],
+    ["phone", "Please call +44 20 7946 0958.", "personal_contact_data"],
+    [
+      "promotion",
+      "Use promo code SORRY for a discount.",
+      "forbidden_promotion",
+    ],
+    [
+      "unsupported refund",
+      "We guarantee a full refund.",
+      "unsupported_commitment",
+    ],
+    ["unsafe language", "That was a shit experience.", "unsafe_language"],
+    ["wrong location", "The Birmingham NEC team thanks you.", "wrong_location"],
+  ])("fails %s", (_name, body, code) => {
+    const reasons = verify(body)
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code, severity: "fail" })
+    )
+    expect(verificationVerdict(reasons)).toBe("fail")
+  })
+
+  it("fails replies above Google's UTF-8 byte limit", () => {
+    const reasons = verify("🙂".repeat(1025))
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "reply_too_long", severity: "fail" })
+    )
+  })
+
+  it("warns when a complaint is not acknowledged", () => {
+    const reasons = verify("Thank you for the feedback.", {
+      rating: 1,
+      reviewText: "The room was cold.",
+    })
+    expect(reasons).toContainEqual(
+      expect.objectContaining({
+        code: "complaint_not_acknowledged",
+        severity: "warn",
+      })
+    )
+    expect(verificationVerdict(reasons)).toBe("warn")
+  })
+
+  it("does not classify a refund as invented when it is review evidence", () => {
+    const reasons = verify("We are sorry the promised refund was delayed.", {
+      reviewText: "My promised refund has not arrived.",
+    })
+    expect(reasons.map((reason) => reason.code)).not.toContain(
+      "unsupported_commitment"
+    )
+  })
+
+  it("warns on a likely language mismatch", () => {
+    const reasons = verify("Thank you for your feedback.", {
+      expectedLanguage: "ja",
+    })
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "language_mismatch", severity: "warn" })
+    )
+  })
+})
