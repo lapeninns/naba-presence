@@ -9,8 +9,8 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 
 const SESSION_COOKIE = "naba_session"
-const DEMO_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
-const DEMO_USER_ID = "00000000-0000-4000-8000-000000000002"
+const LOCAL_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
+const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000002"
 
 export type Session = {
   sessionId: string
@@ -151,26 +151,83 @@ export function isLocalBootstrapEnabled() {
   return hostname === "localhost" || hostname === "127.0.0.1"
 }
 
+async function syncLocalOwnerIdentity(session: Session): Promise<Session> {
+  if (session.userId !== LOCAL_USER_ID) return session
+
+  const identity = await getDatabase().begin(async (sql) => {
+    await sql`
+      select set_config(
+        'app.organisation_id',
+        ${LOCAL_ORGANISATION_ID},
+        true
+      )
+    `
+    const [googleIdentity] = await sql<
+      { email: string | null; displayName: string | null }[]
+    >`
+      select
+        gc.google_email as email,
+        coalesce(ga.account_name, gc.google_email) as "displayName"
+      from google_connection gc
+      left join google_account ga
+        on ga.google_connection_id = gc.id
+       and ga.is_active = true
+      where gc.organisation_id = ${LOCAL_ORGANISATION_ID}
+        and gc.status = 'active'
+      order by ga.is_active desc nulls last, gc.last_refresh_at desc nulls last
+      limit 1
+    `
+    if (!googleIdentity?.email) return null
+    const displayName = googleIdentity.displayName ?? googleIdentity.email
+    const [updated] = await sql<{ email: string; displayName: string }[]>`
+      update app_user
+      set
+        email = case
+          when not exists (
+            select 1
+            from app_user other
+            where other.email = ${googleIdentity.email}
+              and other.id <> ${LOCAL_USER_ID}
+          ) then ${googleIdentity.email}
+          else email
+        end,
+        display_name = ${displayName},
+        updated_at = now()
+      where id = ${LOCAL_USER_ID}
+      returning email, display_name as "displayName"
+    `
+    return updated ?? null
+  })
+
+  return identity
+    ? { ...session, email: identity.email, displayName: identity.displayName }
+    : session
+}
+
 export async function ensureDevelopmentSession(): Promise<Session> {
   const existing = await getSession()
-  if (existing) return existing
+  if (existing) return syncLocalOwnerIdentity(existing)
   if (process.env.NODE_ENV === "production" && !isLocalBootstrapEnabled()) {
     throw new ApiError(401, "authentication_required", "Please sign in.")
   }
 
   const token = await getDatabase().begin(async (sql) => {
     await sql`
-      select set_config('app.organisation_id', ${DEMO_ORGANISATION_ID}, true)
+      select set_config('app.organisation_id', ${LOCAL_ORGANISATION_ID}, true)
     `
     await sql`
       insert into organisation (id, slug, name)
-      values (${DEMO_ORGANISATION_ID}, 'lapen-inns', 'Lapen Inns')
+      values (${LOCAL_ORGANISATION_ID}, 'lapen-inns', 'Lapen Inns')
       on conflict (id) do update set name = excluded.name
     `
     await sql`
       insert into app_user (id, email, display_name)
-      values (${DEMO_USER_ID}, 'demo@nabareview.local', 'Maya Khan')
-      on conflict (id) do update set display_name = excluded.display_name
+      values (
+        ${LOCAL_USER_ID},
+        'local-owner@nabareview.local',
+        'Local owner'
+      )
+      on conflict (id) do nothing
     `
     await sql`
       insert into member (
@@ -179,18 +236,18 @@ export async function ensureDevelopmentSession(): Promise<Session> {
         role,
         can_publish
       )
-      values (${DEMO_ORGANISATION_ID}, ${DEMO_USER_ID}, 'owner', true)
+      values (${LOCAL_ORGANISATION_ID}, ${LOCAL_USER_ID}, 'owner', true)
       on conflict (organisation_id, user_id)
       do update set role = 'owner', can_publish = true
     `
-    return createSession(sql, DEMO_USER_ID, DEMO_ORGANISATION_ID)
+    return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })
 
   await setSessionCookie(token)
 
   const session = await lookupSession(token)
   if (!session) throw new Error("Development session could not be created")
-  return session
+  return syncLocalOwnerIdentity(session)
 }
 
 export async function clearSession() {

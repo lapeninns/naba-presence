@@ -13,10 +13,9 @@ export const runtime = "nodejs"
 export async function GET() {
   try {
     const session =
-      (await getSession()) ??
-      (process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
+      process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
         ? await ensureDevelopmentSession()
-        : null)
+        : await getSession()
     return NextResponse.json({ session })
   } catch (error) {
     return apiError(error)
