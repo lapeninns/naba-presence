@@ -4,6 +4,19 @@ import { Sparkles } from "lucide-react"
 import { useEffect, useState, useTransition } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -19,13 +32,24 @@ import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldSeparator,
   FieldTitle,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemFooter,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
+import { toast } from "@/components/ui/toast"
 import {
   addMember,
   createPrivacyRequest,
@@ -38,10 +62,17 @@ import {
   saveSettings,
   updateMember,
 } from "@/lib/naba-review-api"
-import { LiveDataError } from "@/components/naba-review/shared"
+import {
+  LiveDataError,
+  readControlValue,
+} from "@/components/naba-review/shared"
 
-function readControlValue(event: { currentTarget: unknown }) {
-  return (event.currentTarget as { value: string }).value
+function memberInitialsOf(displayName: string) {
+  return displayName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("")
 }
 
 export function SettingsView() {
@@ -71,6 +102,7 @@ export function SettingsView() {
     "loading"
   )
   const [reloadKey, setReloadKey] = useState(0)
+  const [confirmPrivacyOpen, setConfirmPrivacyOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -149,7 +181,10 @@ export function SettingsView() {
           defaultTimezone,
           directPublishConsent,
         })
-        setMessage("Policy settings saved and added to the audit trail.")
+        toast.add({
+          type: "success",
+          title: "Policy settings saved and added to the audit trail.",
+        })
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Save failed.")
       }
@@ -169,7 +204,10 @@ export function SettingsView() {
         setMembers((current) => [...current, { ...member, locations: [] }])
         setNewMemberName("")
         setNewMemberEmail("")
-        setMessage("Member added. Their access change is in the audit trail.")
+        toast.add({
+          type: "success",
+          title: "Member added. Their access change is in the audit trail.",
+        })
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Add member failed."
@@ -191,7 +229,7 @@ export function SettingsView() {
             item.userId === member.userId ? { ...item, ...patch } : item
           )
         )
-        setMessage("Member role updated.")
+        toast.add({ type: "success", title: "Member role updated." })
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Update failed.")
       }
@@ -240,7 +278,10 @@ export function SettingsView() {
           subjectReference: privacySubject,
           reason: "Submitted from the organisation compliance workspace.",
         })
-        setMessage("Privacy request recorded in the immutable audit trail.")
+        toast.add({
+          type: "success",
+          title: "Privacy request recorded in the immutable audit trail.",
+        })
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Privacy request failed."
@@ -286,7 +327,7 @@ export function SettingsView() {
                 aria-label="Require human approval"
               />
             </Field>
-            <Separator />
+            <FieldSeparator />
             {!approvalRequired ? (
               <>
                 <Field orientation="horizontal">
@@ -304,7 +345,7 @@ export function SettingsView() {
                     aria-label="Consent to direct publishing"
                   />
                 </Field>
-                <Separator />
+                <FieldSeparator />
               </>
             ) : null}
             <Field orientation="horizontal">
@@ -349,123 +390,152 @@ export function SettingsView() {
             <LiveDataError onRetry={reloadSettings} />
           ) : (
             <>
-              <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px_auto]">
-                <Input
-                  value={newMemberName}
-                  onChange={(event) =>
-                    setNewMemberName(readControlValue(event))
-                  }
-                  placeholder="Display name"
-                  aria-label="New member display name"
-                />
-                <Input
-                  value={newMemberEmail}
-                  onChange={(event) =>
-                    setNewMemberEmail(readControlValue(event))
-                  }
-                  placeholder="name@example.com"
-                  type="email"
-                  aria-label="New member email"
-                />
-                <NativeSelect
-                  value={newMemberRole}
-                  onValueChange={(value) =>
-                    setNewMemberRole(value as OrganisationMember["role"])
-                  }
-                  aria-label="New member role"
-                >
-                  <NativeSelectOption value="admin">Admin</NativeSelectOption>
-                  <NativeSelectOption value="member">Member</NativeSelectOption>
-                  <NativeSelectOption value="viewer">Viewer</NativeSelectOption>
-                </NativeSelect>
-                <Button
-                  onClick={inviteMember}
-                  disabled={isPending || !newMemberName || !newMemberEmail}
-                >
-                  Add member
-                </Button>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field>
+                  <FieldLabel htmlFor="new-member-name">
+                    Display name
+                  </FieldLabel>
+                  <Input
+                    id="new-member-name"
+                    value={newMemberName}
+                    onChange={(event) =>
+                      setNewMemberName(readControlValue(event))
+                    }
+                    placeholder="Display name"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="new-member-email">Email</FieldLabel>
+                  <Input
+                    id="new-member-email"
+                    value={newMemberEmail}
+                    onChange={(event) =>
+                      setNewMemberEmail(readControlValue(event))
+                    }
+                    placeholder="name@example.com"
+                    type="email"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="new-member-role">Role</FieldLabel>
+                  <NativeSelect
+                    id="new-member-role"
+                    value={newMemberRole}
+                    onValueChange={(value) =>
+                      setNewMemberRole(value as OrganisationMember["role"])
+                    }
+                  >
+                    <NativeSelectOption value="admin">
+                      Admin
+                    </NativeSelectOption>
+                    <NativeSelectOption value="member">
+                      Member
+                    </NativeSelectOption>
+                    <NativeSelectOption value="viewer">
+                      Viewer
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
               </div>
-              {members.map((member) => (
-                <div
-                  key={member.userId}
-                  className="flex flex-col gap-3 rounded-xl border p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="min-w-48 flex-1">
-                      <p className="text-sm font-medium">
-                        {member.displayName}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {member.email}
-                      </p>
-                    </div>
-                    <NativeSelect
-                      className="w-32"
-                      value={member.role}
-                      onValueChange={(value) =>
-                        changeMember(member, {
-                          role: value as OrganisationMember["role"],
-                          canPublish: member.canPublish,
-                        })
-                      }
-                      aria-label={`Role for ${member.displayName}`}
+              <Button
+                onClick={inviteMember}
+                disabled={isPending || !newMemberName || !newMemberEmail}
+                className="self-start"
+              >
+                Add member
+              </Button>
+              <ItemGroup className="gap-2">
+                {members.map((member) => {
+                  const memberInitials = memberInitialsOf(member.displayName)
+                  return (
+                    <Item
+                      key={member.userId}
+                      role="listitem"
+                      variant="outline"
+                      size="sm"
                     >
-                      <NativeSelectOption value="owner">
-                        Owner
-                      </NativeSelectOption>
-                      <NativeSelectOption value="admin">
-                        Admin
-                      </NativeSelectOption>
-                      <NativeSelectOption value="member">
-                        Member
-                      </NativeSelectOption>
-                      <NativeSelectOption value="viewer">
-                        Viewer
-                      </NativeSelectOption>
-                    </NativeSelect>
-                    <label className="flex items-center gap-2 text-xs">
-                      Publish all
-                      <Switch
-                        checked={member.canPublish}
-                        disabled={member.role === "viewer"}
-                        onCheckedChange={(canPublish) =>
-                          changeMember(member, {
-                            role: member.role,
-                            canPublish,
-                          })
-                        }
-                        aria-label={`Publish all locations for ${member.displayName}`}
-                      />
-                    </label>
-                  </div>
-                  {member.role === "member" || member.role === "viewer" ? (
-                    <div className="flex flex-wrap gap-2">
-                      {internalLocations.map((location) => {
-                        const assignment = member.locations.find(
-                          (item) => item.locationId === location.locationId
-                        )
-                        return (
-                          <Button
-                            key={location.locationId}
-                            variant={assignment ? "secondary" : "outline"}
-                            size="sm"
-                            onClick={() =>
-                              cycleLocationAccess(member, location.locationId)
+                      <ItemMedia>
+                        <Avatar size="sm">
+                          <AvatarFallback>{memberInitials}</AvatarFallback>
+                        </Avatar>
+                      </ItemMedia>
+                      <ItemContent>
+                        <ItemTitle>{member.displayName}</ItemTitle>
+                        <ItemDescription>{member.email}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <NativeSelect
+                          className="w-32"
+                          value={member.role}
+                          onValueChange={(value) =>
+                            changeMember(member, {
+                              role: value as OrganisationMember["role"],
+                              canPublish: member.canPublish,
+                            })
+                          }
+                          aria-label={`Role for ${member.displayName}`}
+                        >
+                          <NativeSelectOption value="owner">
+                            Owner
+                          </NativeSelectOption>
+                          <NativeSelectOption value="admin">
+                            Admin
+                          </NativeSelectOption>
+                          <NativeSelectOption value="member">
+                            Member
+                          </NativeSelectOption>
+                          <NativeSelectOption value="viewer">
+                            Viewer
+                          </NativeSelectOption>
+                        </NativeSelect>
+                        <label className="flex items-center gap-2 text-xs">
+                          Publish all
+                          <Switch
+                            checked={member.canPublish}
+                            disabled={member.role === "viewer"}
+                            onCheckedChange={(canPublish) =>
+                              changeMember(member, {
+                                role: member.role,
+                                canPublish,
+                              })
                             }
-                          >
-                            {location.name}
-                            {assignment
-                              ? assignment.canPublish
-                                ? " · Publish"
-                                : " · View"
-                              : " · No access"}
-                          </Button>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+                            aria-label={`Publish all locations for ${member.displayName}`}
+                          />
+                        </label>
+                      </ItemActions>
+                      {member.role === "member" || member.role === "viewer" ? (
+                        <ItemFooter className="flex-wrap justify-start">
+                          {internalLocations.map((location) => {
+                            const assignment = member.locations.find(
+                              (item) => item.locationId === location.locationId
+                            )
+                            return (
+                              <Button
+                                key={location.locationId}
+                                variant={assignment ? "secondary" : "outline"}
+                                size="sm"
+                                onClick={() =>
+                                  cycleLocationAccess(
+                                    member,
+                                    location.locationId
+                                  )
+                                }
+                              >
+                                {location.name}
+                                {assignment
+                                  ? assignment.canPublish
+                                    ? " · Publish"
+                                    : " · View"
+                                  : " · No access"}
+                              </Button>
+                            )
+                          })}
+                        </ItemFooter>
+                      ) : null}
+                    </Item>
+                  )
+                })}
+              </ItemGroup>
             </>
           )}
         </CardContent>
@@ -526,7 +596,7 @@ export function SettingsView() {
             Separate transient Google content from durable aggregates.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="retention-window">
@@ -549,17 +619,19 @@ export function SettingsView() {
                 automatically.
               </FieldDescription>
             </Field>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldTitle>Keep derived aggregates</FieldTitle>
-                <FieldDescription>
-                  Rating, response-time and volume metrics remain available
-                  after raw text is purged.
-                </FieldDescription>
-              </FieldContent>
-              <Switch checked disabled aria-label="Keep derived aggregates" />
-            </Field>
           </FieldGroup>
+          <Item variant="muted" size="sm">
+            <ItemContent>
+              <ItemTitle>Keep derived aggregates</ItemTitle>
+              <ItemDescription>
+                Rating, response-time and volume metrics remain available
+                after raw text is purged.
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+              <Badge variant="secondary">Enforced</Badge>
+            </ItemActions>
+          </Item>
         </CardContent>
         <CardFooter className="justify-between gap-3">
           <span className="text-xs text-muted-foreground">
@@ -624,12 +696,42 @@ export function SettingsView() {
           </FieldGroup>
         </CardContent>
         <CardFooter className="flex-wrap gap-2">
-          <Button
-            onClick={submitPrivacyRequest}
-            disabled={isPending || privacySubject.trim().length < 3}
+          <AlertDialog
+            open={confirmPrivacyOpen}
+            onOpenChange={setConfirmPrivacyOpen}
           >
-            Record request
-          </Button>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  disabled={isPending || privacySubject.trim().length < 3}
+                />
+              }
+            >
+              Create request
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Create privacy request?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This starts a tracked erasure or export workflow for the
+                  reviewer above. It’s recorded in the immutable audit trail
+                  immediately and cannot be withdrawn once created.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => {
+                    setConfirmPrivacyOpen(false)
+                    submitPrivacyRequest()
+                  }}
+                >
+                  Create request
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button
             variant="outline"
             disabled={privacySubject.trim().length < 3}
