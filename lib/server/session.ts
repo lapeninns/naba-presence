@@ -136,8 +136,7 @@ export async function setSessionCookie(token: string) {
   ;(await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure:
-      process.env.NODE_ENV === "production" && !isLocalBootstrapEnabled(),
+    secure: process.env.NODE_ENV === "production" && !isLocalBootstrapEnabled(),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
     priority: "high",
@@ -155,10 +154,7 @@ export function isLocalBootstrapEnabled() {
 export async function ensureDevelopmentSession(): Promise<Session> {
   const existing = await getSession()
   if (existing) return existing
-  if (
-    process.env.NODE_ENV === "production" &&
-    !isLocalBootstrapEnabled()
-  ) {
+  if (process.env.NODE_ENV === "production" && !isLocalBootstrapEnabled()) {
     throw new ApiError(401, "authentication_required", "Please sign in.")
   }
 

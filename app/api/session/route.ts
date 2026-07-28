@@ -14,8 +14,7 @@ export async function GET() {
   try {
     const session =
       (await getSession()) ??
-      (process.env.NODE_ENV !== "production" ||
-      isLocalBootstrapEnabled()
+      (process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
         ? await ensureDevelopmentSession()
         : null)
     return NextResponse.json({ session })
