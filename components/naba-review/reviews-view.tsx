@@ -37,9 +37,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -86,6 +84,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/components/ui/toast"
 import type { DraftTone } from "@/lib/domain/reply-policy"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-review-data"
@@ -877,9 +876,6 @@ function ReviewDetail({
   const [draft, setDraft] = useState(review.draft)
   const [tone, setTone] = useState<DraftTone>("warm_professional")
   const [feedback, setFeedback] = useState("")
-  const [feedbackKind, setFeedbackKind] = useState<"success" | "error">(
-    "success"
-  )
   const [isPending, startTransition] = useTransition()
   const [detailState, setDetailState] = useState<{
     reviewId: string
@@ -918,10 +914,11 @@ function ReviewDetail({
           draftId: generated.draftId,
           verification: generated.verification.verdict,
         })
-        setFeedbackKind("success")
-        setFeedback("A new verified draft is ready.")
+        toast.add({
+          type: "success",
+          title: "A new verified draft is ready.",
+        })
       } catch (error) {
-        setFeedbackKind("error")
         setFeedback(
           error instanceof Error ? error.message : "Draft generation failed."
         )
@@ -939,10 +936,12 @@ function ReviewDetail({
           draftId: saved.draftId,
           verification: saved.verification.verdict,
         })
-        setFeedbackKind("success")
-        setFeedback("Draft saved to the review audit trail.")
+        toast.add({
+          type: "success",
+          title: "Draft saved",
+          description: "Recorded in the review audit trail.",
+        })
       } catch (error) {
-        setFeedbackKind("error")
         setFeedback(error instanceof Error ? error.message : "Save failed.")
       }
     })
@@ -985,14 +984,14 @@ function ReviewDetail({
           googleState: published.googleReplyState ?? undefined,
           responseTime: "Just now",
         })
-        setFeedback(
-          status === "awaiting_approval"
-            ? "Reply submitted for approval."
-            : "Reply sent to Google."
-        )
-        setFeedbackKind("success")
+        toast.add({
+          type: "success",
+          title:
+            status === "awaiting_approval"
+              ? "Reply submitted for approval."
+              : "Reply sent to Google.",
+        })
       } catch (error) {
-        setFeedbackKind("error")
         setFeedback(error instanceof Error ? error.message : "Publish failed.")
       }
     })
@@ -1010,7 +1009,7 @@ function ReviewDetail({
         >
           <ArrowLeft />
         </Button>
-        <Avatar className="size-10">
+        <Avatar size="default">
           <AvatarFallback>{review.initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
@@ -1037,16 +1036,14 @@ function ReviewDetail({
             <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-48">
-            <DropdownMenuGroup>
-              <DropdownMenuItem>Copy review ID</DropdownMenuItem>
-              <DropdownMenuItem>Open audit trail</DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem variant="destructive">
-                Report an issue
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+            <DropdownMenuItem
+              onClick={() => {
+                void navigator.clipboard.writeText(review.id)
+                toast.add({ type: "success", title: "Review ID copied" })
+              }}
+            >
+              Copy review ID
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1054,7 +1051,9 @@ function ReviewDetail({
       <div className="rounded-xl border bg-muted/35 p-4 md:p-5">
         <p className="text-sm leading-7">{review.text}</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span>Updated {review.updatedAt.toLowerCase()}</span>
+          <span className="font-mono text-[11px]">
+            Updated {review.updatedAt.toLowerCase()}
+          </span>
           <span>·</span>
           <span>{review.language}</span>
         </div>
@@ -1174,10 +1173,7 @@ function ReviewDetail({
 
           {feedback ? (
             <p
-              className={cn(
-                "text-xs",
-                feedbackKind === "error" ? "text-destructive" : "text-success"
-              )}
+              className="text-xs text-destructive"
               role="status"
               aria-live="polite"
             >
@@ -1308,7 +1304,7 @@ function ActivityTimeline({
               </span>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs font-medium">{event.label}</span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="font-mono text-[11px] text-muted-foreground">
                   {event.detail}
                 </span>
               </div>
