@@ -4,10 +4,8 @@ import { useEffect, useState } from "react"
 
 import { AnalyticsView } from "@/components/naba-review/analytics-view"
 import { AppShell } from "@/components/naba-review/app-shell"
-import {
-  ConnectionsView,
-  SettingsView,
-} from "@/components/naba-review/dashboard-views"
+import { ConnectionsView } from "@/components/naba-review/connections-view"
+import { SettingsView } from "@/components/naba-review/dashboard-views"
 import { OverviewView } from "@/components/naba-review/overview-view"
 import { ReviewsWorkspace } from "@/components/naba-review/reviews-view"
 import { type View } from "@/components/naba-review/shared"
