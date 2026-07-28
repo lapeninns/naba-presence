@@ -13,6 +13,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { type ChartConfig } from "@/components/ui/chart"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { ReviewStatus } from "@/lib/naba-review-data"
 
@@ -114,9 +121,15 @@ export function LiveDataError({ onRetry }: { onRetry: () => void }) {
 
 export function EmptyData({ message }: { message: string }) {
   return (
-    <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-      {message}
-    </div>
+    <Empty className="min-h-[220px] border-0 p-6">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Inbox aria-hidden />
+        </EmptyMedia>
+        <EmptyTitle className="text-base">Nothing to show yet</EmptyTitle>
+        <EmptyDescription>{message}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 

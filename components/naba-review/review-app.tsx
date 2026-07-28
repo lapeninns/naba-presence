@@ -6,9 +6,9 @@ import { AppShell } from "@/components/naba-review/app-shell"
 import {
   AnalyticsView,
   ConnectionsView,
-  OverviewView,
   SettingsView,
 } from "@/components/naba-review/dashboard-views"
+import { OverviewView } from "@/components/naba-review/overview-view"
 import { ReviewsWorkspace } from "@/components/naba-review/reviews-view"
 import { type View } from "@/components/naba-review/shared"
 import { Review } from "@/lib/naba-review-data"
