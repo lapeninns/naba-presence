@@ -65,7 +65,7 @@ for (const viewport of [
       await page.goto("/")
       await openNavigationSurface(page, "Connections", viewport.name === "mobile")
       await expect(
-        page.getByRole("heading", { name: "Google connection" })
+        page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} connections`)
     })
