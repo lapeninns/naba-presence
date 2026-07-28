@@ -1,0 +1,100 @@
+name: nabareview-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: nabareview
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nabareview"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+      args:
+        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      target: runtime
+      args:
+        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: local-compose-session-secret-at-least-32-characters
+      TOKEN_ENCRYPTION_KEY: local-compose-encryption-key-at-least-32-characters
+      CRON_SECRET: local-compose-cron-secret
+      SUPPORT_IMPERSONATION_SECRET: local-compose-support-secret-at-least-32-characters
+      DRAFTS_ENABLED: "true"
+      PUBLISH_ENABLED: "true"
+      SYNC_ENABLED: "true"
+      WEBHOOKS_ENABLED: "true"
+      LOCAL_BOOTSTRAP_ENABLED: "true"
+      GOOGLE_REQUESTS_PER_SECOND: "8"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_PUBSUB_AUDIENCE: ${GOOGLE_PUBSUB_AUDIENCE:-}
+      GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL:-}
+      GOOGLE_PUBSUB_VERIFICATION_TOKEN: ${GOOGLE_PUBSUB_VERIFICATION_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL_DRAFT: ${OPENAI_MODEL_DRAFT:-gpt-5-mini}
+      OPENAI_MODEL_VERIFY: ${OPENAI_MODEL_VERIFY:-gpt-5-mini}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/session').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  scheduler:
+    build:
+      context: .
+      target: runtime
+      args:
+        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+    command: ["node", "scripts/scheduler.mjs"]
+    environment:
+      CRON_SECRET: local-compose-cron-secret
+      SCHEDULER_BASE_URL: http://web:3000
+      RECONCILE_INTERVAL_SECONDS: "900"
+      RETENTION_INTERVAL_SECONDS: "86400"
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+volumes:
+  postgres-data:

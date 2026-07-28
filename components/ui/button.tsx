@@ -8,7 +8,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // Stock base-rhea uses `hover:bg-primary/80`, which lightens the fill
+        // toward the page and drops white-on-primary to 3.27:1 — below AA. No
+        // Google blue survives that. Darken toward --foreground instead (the
+        // same color-mix idiom base-rhea uses for `secondary` below), which
+        // also matches how Google's own buttons behave on hover: 5.29:1.
+        default:
+          "bg-primary text-primary-foreground hover:bg-[color-mix(in_oklch,var(--primary),var(--foreground)_12%)]",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30",
         secondary:

@@ -1,0 +1,15 @@
+.git
+.next
+node_modules
+.env*
+!.env.example
+npm-debug.log*
+pnpm-debug.log*
+coverage
+test-results
+playwright-report
+tsconfig.tsbuildinfo
+.claude
+.design-sync
+.ds-sync
+ds-bundle
