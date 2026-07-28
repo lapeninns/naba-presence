@@ -74,7 +74,11 @@ Two alternatives were rejected:
   editor with right rail: verification + activity timeline). Changes:
   - Draft save / publish / regenerate successes become Toasts; failures stay inline.
   - Byte counter and timestamps use `font-mono`.
-  - The tone `Select` is removed (not wired to the drafting API).
+  - The tone `Select` is kept: mid-execution, parallel reply-policy work
+    (`lib/domain/reply-policy.ts`) wired tone through `generateDraft`/`saveDraft`,
+    so it is no longer decorative. It must be properly labelled and paired with the
+    tone state. (Amended 2026-07-28 with user approval; originally slated for removal
+    as unwired.)
   - The actions `DropdownMenu` keeps only working items: "Copy review ID" writes the id
     to the clipboard and toasts; dead items are removed.
 

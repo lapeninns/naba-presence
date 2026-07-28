@@ -711,9 +711,10 @@ In `ReviewDetail`, keep the `feedback` state but use it **only for errors**: del
 
 Error paths keep `setFeedback(message)`; the inline `<p role="status">` keeps rendering only when `feedback` is set, always with `text-destructive` (drop the success class branch).
 
-- [ ] **Step 2: Honest controls**
+- [ ] **Step 2: Honest controls** *(amended 2026-07-28, user-approved: tone stays)*
 
-- Delete the tone `Select` (defaultValue "warm") and its `SelectGroup` — it is not wired to `generateDraft`. The "Reply draft" heading row keeps only the `WandSparkles` icon + title.
+- KEEP the tone `Select`: adopted parallel reply-policy work wired it (`tone` state of type `DraftTone` from `@/lib/domain/reply-policy`, passed to `generateDraft`/`saveDraftToApi`; controlled `value={tone}`, `aria-label="Reply tone"`). Verify the wiring is intact and the trigger stays labelled; do not restyle it beyond the task's mono/toast changes.
+- VERIFY the parked Task-4 finding is resolved in the committed file: the filter `SheetContent` must carry `className="w-[320px]!"` (with the `!`) so the 320px width beats the component's `data-[side=right]:w-3/4` — confirm in the browser that the sheet renders 320px wide.
 - In the actions `DropdownMenu`: "Copy review ID" gets
   `onClick={() => { void navigator.clipboard.writeText(review.id); toast.add({ type: "success", title: "Review ID copied" }) }}`.
   Delete "Open audit trail" and the destructive "Report an issue" group (dead).
