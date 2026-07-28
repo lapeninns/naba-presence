@@ -129,7 +129,13 @@ export function RoutingSubmenu() {
           start earlier for early flights.
         </p>
       </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-56" sideOffset={152} alignOffset={64}>
+      {/*
+        `sideOffset` is deliberately small here. This component cards at 520x300;
+        a parent menu placed further right leaves under 192px to its inline-end,
+        so Base UI flips the submenu back over the parent and buries the items
+        below `Assign to`. 56 + 224 (parent) + 192 (submenu) stays inside 520.
+      */}
+      <ContextMenuContent className="min-w-56" sideOffset={56} alignOffset={64}>
         <ContextMenuGroup>
           <ContextMenuItem>
             <CornerUpLeft />

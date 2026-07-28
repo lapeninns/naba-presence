@@ -3,11 +3,15 @@
 import {
   Activity,
   ArrowRight,
+  Building2,
   CheckCircle2,
   Clock3,
+  Download,
   ExternalLink,
+  Info,
   Link2,
   RefreshCw,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Star,
@@ -28,6 +32,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   ChartConfig,
   ChartContainer,
@@ -46,6 +51,8 @@ import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import {
   beginGoogleConnect,
@@ -71,16 +78,13 @@ import {
   loadSettings,
   type InternalLocation,
   type OrganisationMember,
+  type OrganisationSettings,
   runBackfill,
   saveLocationAssignments,
   saveSettings,
   updateMember,
 } from "@/lib/naba-review-api"
-import {
-  LOCATION_METRICS,
-  PERFORMANCE_DATA,
-  Review,
-} from "@/lib/naba-review-data"
+import { Review } from "@/lib/naba-review-data"
 
 const chartConfig = {
   reviews: {
@@ -102,27 +106,86 @@ function readControlValue(event: { currentTarget: unknown }) {
 export function OverviewView({
   reviews,
   onNavigate,
+  displayName,
+  organisationName,
 }: {
   reviews: Review[]
   onNavigate: Navigate
+  displayName: string
+  organisationName: string
 }) {
+  const [overviewData, setOverviewData] = useState<{
+    analytics: AnalyticsOverview
+    connections: GoogleConnection[]
+    settings: OrganisationSettings
+  } | null>(null)
+  const [overviewStatus, setOverviewStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading")
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    const to = new Date()
+    const from = new Date(to.getTime() - 7 * 86400000)
+    setOverviewStatus("loading")
+    void Promise.all([
+      loadAnalytics({
+        from: from.toISOString(),
+        to: to.toISOString(),
+        granularity: "day",
+      }),
+      loadConnections(),
+      loadSettings(),
+    ])
+      .then(([analytics, connectionResult, settingsResult]) => {
+        if (!active) return
+        setOverviewData({
+          analytics,
+          connections: connectionResult.connections,
+          settings: settingsResult.settings,
+        })
+        setOverviewStatus("ready")
+      })
+      .catch(() => {
+        if (!active) return
+        setOverviewData(null)
+        setOverviewStatus("error")
+      })
+    return () => {
+      active = false
+    }
+  }, [reloadKey])
+
   const needsAttention = reviews.filter(
     (review) => review.status === "needs_reply" || review.status === "escalated"
   ).length
-  const published = reviews.filter(
-    (review) => review.status === "published"
-  ).length
-  const responseRate = Math.round((published / reviews.length) * 100)
+  const summary = overviewData?.analytics.summary
+  const connection =
+    overviewData?.connections.find((item) => item.status === "active") ??
+    overviewData?.connections[0]
+  const connectionHealthy =
+    connection?.status === "active" && !connection.reconnectRequired
+  const chartData =
+    overviewData?.analytics.series.map((point) => ({
+      label: new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+      }).format(new Date(point.period)),
+      reviews: point.reviews,
+      replies: point.replies,
+    })) ?? []
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-7 md:px-8 md:py-9">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div className="flex flex-col gap-1">
           <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-            Good morning, Maya
+            Good morning, {displayName.split(/\s+/)[0] || "there"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Lapen Inns has {needsAttention} reviews that need attention today.
+            {organisationName} has {needsAttention} reviews that need attention
+            today.
           </p>
         </div>
         <Button onClick={() => onNavigate("reviews")}>
@@ -134,26 +197,34 @@ export function OverviewView({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Average rating"
-          value="4.5"
-          detail="+0.2 this month"
+          value={
+            summary?.averageRating === null || !summary
+              ? "—"
+              : summary.averageRating.toFixed(1)
+          }
+          detail="Google reviews · last 7 days"
           icon={Star}
         />
         <MetricCard
           title="Response rate"
-          value={`${responseRate}%`}
-          detail="Target 95%"
+          value={
+            summary?.responseRate === null || !summary
+              ? "—"
+              : `${summary.responseRate}%`
+          }
+          detail="Published or accepted replies"
           icon={TrendingUp}
         />
         <MetricCard
           title="Median response"
-          value="3h 14m"
-          detail="48m faster"
+          value={summary ? formatDuration(summary.medianResponseSeconds) : "—"}
+          detail="From review to reply"
           icon={Clock3}
         />
         <MetricCard
           title="Needs attention"
           value={`${needsAttention}`}
-          detail="1 escalation"
+          detail="Current inbox page"
           icon={Activity}
         />
       </div>
@@ -177,58 +248,72 @@ export function OverviewView({
             </Button>
           </CardHeader>
           <CardContent>
-            <ChartContainer
-              config={chartConfig}
-              className="h-[260px] w-full"
-              initialDimension={{ width: 760, height: 260 }}
-            >
-              <AreaChart
-                accessibilityLayer
-                data={PERFORMANCE_DATA}
-                margin={{ left: -18, right: 10, top: 10 }}
+            {overviewStatus === "loading" ? (
+              <Skeleton className="h-[260px] w-full" />
+            ) : overviewStatus === "error" ? (
+              <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+            ) : chartData.length ? (
+              <ChartContainer
+                config={chartConfig}
+                className="h-[260px] w-full"
+                initialDimension={{ width: 760, height: 260 }}
               >
-                <defs>
-                  <linearGradient id="reviews-fill" x1="0" x2="0" y1="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="var(--color-reviews)"
-                      stopOpacity={0.2}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="var(--color-reviews)"
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={10}
-                />
-                <YAxis tickLine={false} axisLine={false} width={36} />
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent indicator="line" />}
-                />
-                <Area
-                  dataKey="reviews"
-                  type="monotone"
-                  fill="url(#reviews-fill)"
-                  stroke="var(--color-reviews)"
-                  strokeWidth={2}
-                />
-                <Area
-                  dataKey="replies"
-                  type="monotone"
-                  fill="transparent"
-                  stroke="var(--color-replies)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ChartContainer>
+                <AreaChart
+                  accessibilityLayer
+                  data={chartData}
+                  margin={{ left: -18, right: 10, top: 10 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="reviews-fill"
+                      x1="0"
+                      x2="0"
+                      y1="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="5%"
+                        stopColor="var(--color-reviews)"
+                        stopOpacity={0.2}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor="var(--color-reviews)"
+                        stopOpacity={0}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={10}
+                  />
+                  <YAxis tickLine={false} axisLine={false} width={36} />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent indicator="line" />}
+                  />
+                  <Area
+                    dataKey="reviews"
+                    type="monotone"
+                    fill="url(#reviews-fill)"
+                    stroke="var(--color-reviews)"
+                    strokeWidth={2}
+                  />
+                  <Area
+                    dataKey="replies"
+                    type="monotone"
+                    fill="transparent"
+                    stroke="var(--color-replies)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            ) : (
+              <EmptyData message="No review activity was recorded in the last 7 days." />
+            )}
           </CardContent>
         </Card>
 
@@ -240,32 +325,45 @@ export function OverviewView({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
-            <HealthRow
-              label="Google connection"
-              detail="Active · refreshed 4m ago"
-              healthy
-            />
-            <HealthRow
-              label="Pub/Sub notifications"
-              detail="Healthy · no backlog"
-              healthy
-            />
-            <HealthRow
-              label="Reconciliation"
-              detail="Last run 11m ago"
-              healthy
-            />
-            <Separator />
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between text-sm">
-                <span>30-day content window</span>
-                <span className="font-medium">7 days left</span>
-              </div>
-              <Progress value={77} />
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Raw Google review text is automatically purged on schedule.
-              </p>
-            </div>
+            {overviewStatus === "loading" ? (
+              <>
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </>
+            ) : overviewStatus === "error" ? (
+              <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+            ) : (
+              <>
+                <HealthRow
+                  label="Google connection"
+                  detail={
+                    connection
+                      ? connectionHealthy
+                        ? `Active${connection.lastRefreshAt ? ` · refreshed ${formatTimestamp(connection.lastRefreshAt)}` : ""}`
+                        : connection.reconnectRequired
+                          ? "Reconnect required"
+                          : connection.status
+                      : "Not connected"
+                  }
+                  healthy={Boolean(connectionHealthy)}
+                />
+                <HealthRow
+                  label="Google notifications"
+                  detail={
+                    connection?.notificationsEnabled
+                      ? "Configured"
+                      : "Not configured · scheduled sync remains available"
+                  }
+                  healthy={Boolean(connection?.notificationsEnabled)}
+                />
+                <HealthRow
+                  label="Raw-content retention"
+                  detail={`${overviewData?.settings.rawContentRetentionDays ?? "—"} days`}
+                  healthy={Boolean(overviewData?.settings)}
+                />
+              </>
+            )}
           </CardContent>
           <CardFooter>
             <Button
@@ -280,6 +378,39 @@ export function OverviewView({
       </div>
     </div>
   )
+}
+
+function LiveDataError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert variant="destructive">
+      <Activity />
+      <AlertTitle>Live data could not be loaded</AlertTitle>
+      <AlertDescription className="flex flex-col items-start gap-3">
+        <span>No preview values were substituted.</span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          <RefreshCw data-icon="inline-start" />
+          Retry
+        </Button>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+function EmptyData({ message }: { message: string }) {
+  return (
+    <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+      {message}
+    </div>
+  )
+}
+
+function formatTimestamp(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
 }
 
 function MetricCard({
@@ -343,31 +474,41 @@ export function AnalyticsView() {
   const [granularity, setGranularity] = useState<"day" | "week" | "month">(
     "day"
   )
+  const [analyticsStatus, setAnalyticsStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading")
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let active = true
     const days = Number.parseInt(dateRange)
     const to = new Date()
     const from = new Date(to.getTime() - days * 86400000)
+    setAnalyticsStatus("loading")
+    setLiveAnalytics(null)
     void loadAnalytics({
       from: from.toISOString(),
       to: to.toISOString(),
       granularity,
     })
       .then((analytics) => {
-        if (active) setLiveAnalytics(analytics)
+        if (!active) return
+        setLiveAnalytics(analytics)
+        setAnalyticsStatus("ready")
       })
-      .catch(() => {})
+      .catch(() => {
+        if (active) setAnalyticsStatus("error")
+      })
     return () => {
       active = false
     }
-  }, [dateRange, granularity])
+  }, [dateRange, granularity, reloadKey])
 
   const summary = liveAnalytics?.summary
   const rangeLabel =
     dateRange === "365d" ? "12 months" : `${Number.parseInt(dateRange)} days`
-  const chartData = liveAnalytics
-    ? liveAnalytics.series.map((point) => ({
+  const chartData =
+    liveAnalytics?.series.map((point) => ({
         label: new Intl.DateTimeFormat("en-GB", {
           day: granularity === "month" ? undefined : "numeric",
           month: "short",
@@ -375,29 +516,26 @@ export function AnalyticsView() {
         }).format(new Date(point.period)),
         reviews: point.reviews,
         replies: point.replies,
-      }))
-    : PERFORMANCE_DATA.map((point) => ({
-        label: point.day,
-        reviews: point.reviews,
-        replies: point.replies,
-      }))
-  const rows = liveAnalytics
-    ? liveAnalytics.locations.map((location) => ({
+      })) ?? []
+  const rows =
+    liveAnalytics?.locations.map((location) => ({
         location: location.name,
-        rating: (location.averageRating ?? 0).toFixed(1),
+        rating:
+          location.averageRating === null
+            ? "—"
+            : location.averageRating.toFixed(1),
         reviews: location.reviews,
-        responseRate: `${location.responseRate ?? 0}%`,
+        responseRate:
+          location.responseRate === null ? "—" : `${location.responseRate}%`,
+        responseRateValue: location.responseRate ?? 0,
         median: formatDuration(location.medianResponseSeconds),
         p95: formatDuration(location.p95ResponseSeconds),
         complaints: location.unresolvedComplaints,
-        rejectionRate: `${location.verificationRejectionRate ?? 0}%`,
-      }))
-    : LOCATION_METRICS.map((location) => ({
-        ...location,
-        p95: "6h 40m",
-        complaints: 2,
-        rejectionRate: "1.8%",
-      }))
+        rejectionRate:
+          location.verificationRejectionRate === null
+            ? "—"
+            : `${location.verificationRejectionRate}%`,
+      })) ?? []
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
@@ -439,51 +577,67 @@ export function AnalyticsView() {
         </div>
       </div>
 
+      {analyticsStatus === "error" ? (
+        <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Google reviews"
-          value={String(summary?.reviewVolume ?? 459)}
+          value={summary ? String(summary.reviewVolume) : "—"}
           detail={`Current ${rangeLabel} window`}
           icon={Star}
         />
         <MetricCard
           title="Average rating"
-          value={(summary?.averageRating ?? 4.5).toFixed(1)}
-          detail={summary ? "Google reviews only" : "+0.2 vs prior period"}
+          value={
+            summary?.averageRating === null || !summary
+              ? "—"
+              : summary.averageRating.toFixed(1)
+          }
+          detail="Google reviews only"
           icon={TrendingUp}
         />
         <MetricCard
           title="Response rate"
-          value={`${summary?.responseRate ?? 92}%`}
-          detail={summary ? "Published or accepted replies" : "+6 points"}
+          value={
+            summary?.responseRate === null || !summary
+              ? "—"
+              : `${summary.responseRate}%`
+          }
+          detail="Published or accepted replies"
           icon={CheckCircle2}
         />
         <MetricCard
           title="Median response"
-          value={
-            summary ? formatDuration(summary.medianResponseSeconds) : "3h 14m"
-          }
-          detail={summary ? "From review to reply" : "18% faster"}
+          value={summary ? formatDuration(summary.medianResponseSeconds) : "—"}
+          detail="From review to reply"
           icon={Clock3}
         />
         <MetricCard
           title="P95 response"
-          value={
-            summary ? formatDuration(summary.p95ResponseSeconds) : "7h 42m"
-          }
+          value={summary ? formatDuration(summary.p95ResponseSeconds) : "—"}
           detail="95% of responses are faster"
           icon={Clock3}
         />
         <MetricCard
           title="Unresolved complaints"
-          value={String(summary?.unresolvedComplaints ?? 8)}
+          value={summary ? String(summary.unresolvedComplaints) : "—"}
           detail="1–2 star reviews without a live reply"
           icon={Activity}
         />
         <MetricCard
           title="Verification rejection"
-          value={`${summary?.verificationRejectionRate ?? 2.1}%`}
-          detail={`${summary?.verificationFailures ?? 4} latest drafts failed`}
+          value={
+            summary?.verificationRejectionRate === null || !summary
+              ? "—"
+              : `${summary.verificationRejectionRate}%`
+          }
+          detail={
+            summary
+              ? `${summary.verificationFailures} latest drafts failed`
+              : "Latest draft verification results"
+          }
           icon={ShieldCheck}
         />
       </div>
@@ -497,64 +651,70 @@ export function AnalyticsView() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ChartContainer
-            config={chartConfig}
-            className="h-[280px] w-full"
-            initialDimension={{ width: 960, height: 280 }}
-          >
-            <AreaChart
-              accessibilityLayer
-              data={chartData}
-              margin={{ left: -18, right: 10, top: 10 }}
+          {analyticsStatus === "loading" ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : chartData.length ? (
+            <ChartContainer
+              config={chartConfig}
+              className="h-[280px] w-full"
+              initialDimension={{ width: 960, height: 280 }}
             >
-              <defs>
-                <linearGradient
-                  id="analytics-reviews-fill"
-                  x1="0"
-                  x2="0"
-                  y1="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor="var(--color-reviews)"
-                    stopOpacity={0.2}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor="var(--color-reviews)"
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="label"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={10}
-              />
-              <YAxis tickLine={false} axisLine={false} width={36} />
-              <ChartTooltip
-                cursor={false}
-                content={<ChartTooltipContent indicator="line" />}
-              />
-              <Area
-                dataKey="reviews"
-                type="monotone"
-                fill="url(#analytics-reviews-fill)"
-                stroke="var(--color-reviews)"
-                strokeWidth={2}
-              />
-              <Area
-                dataKey="replies"
-                type="monotone"
-                fill="transparent"
-                stroke="var(--color-replies)"
-                strokeWidth={2}
-              />
-            </AreaChart>
-          </ChartContainer>
+              <AreaChart
+                accessibilityLayer
+                data={chartData}
+                margin={{ left: -18, right: 10, top: 10 }}
+              >
+                <defs>
+                  <linearGradient
+                    id="analytics-reviews-fill"
+                    x1="0"
+                    x2="0"
+                    y1="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor="var(--color-reviews)"
+                      stopOpacity={0.2}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor="var(--color-reviews)"
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={10}
+                />
+                <YAxis tickLine={false} axisLine={false} width={36} />
+                <ChartTooltip
+                  cursor={false}
+                  content={<ChartTooltipContent indicator="line" />}
+                />
+                <Area
+                  dataKey="reviews"
+                  type="monotone"
+                  fill="url(#analytics-reviews-fill)"
+                  stroke="var(--color-reviews)"
+                  strokeWidth={2}
+                />
+                <Area
+                  dataKey="replies"
+                  type="monotone"
+                  fill="transparent"
+                  stroke="var(--color-replies)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ChartContainer>
+          ) : (
+            <EmptyData message="No review activity exists for this date range." />
+          )}
         </CardContent>
       </Card>
 
@@ -602,7 +762,7 @@ export function AnalyticsView() {
                   <td className="px-2 py-4">
                     <div className="flex items-center gap-3">
                       <Progress
-                        value={Number.parseInt(row.responseRate)}
+                        value={row.responseRateValue}
                         className="w-28"
                       />
                       <span>{row.responseRate}</span>
@@ -614,36 +774,30 @@ export function AnalyticsView() {
                   <td className="px-2 py-4 text-right">{row.rejectionRate}</td>
                 </tr>
               ))}
+              {analyticsStatus === "ready" && rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-2 py-10 text-center text-muted-foreground"
+                  >
+                    No linked location data exists for this date range.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Review themes</CardTitle>
-            <CardDescription>
-              Frequent topics in retained review content
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <ThemeBar label="Service" value={78} detail="142 mentions" />
-            <ThemeBar label="Location" value={63} detail="116 mentions" />
-            <ThemeBar label="Breakfast" value={48} detail="88 mentions" />
-            <ThemeBar label="Room comfort" value={31} detail="57 mentions" />
-          </CardContent>
-        </Card>
-        <Alert>
-          <ShieldCheck />
-          <AlertTitle>Policy-aware analytics</AlertTitle>
-          <AlertDescription>
-            These aggregates are separated from transient Google content. Raw
-            review text remains subject to the configured 30-day retention
-            window.
-          </AlertDescription>
-        </Alert>
-      </div>
+      <Alert>
+        <ShieldCheck />
+        <AlertTitle>Policy-aware analytics</AlertTitle>
+        <AlertDescription>
+          These aggregates are separated from transient Google content. Raw
+          review text remains subject to the organisation’s configured retention
+          policy.
+        </AlertDescription>
+      </Alert>
     </div>
   )
 }
@@ -653,26 +807,6 @@ function formatDuration(seconds: number | null) {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.round((seconds % 3600) / 60)
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`
-}
-
-function ThemeBar({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: number
-  detail: string
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground">{detail}</span>
-      </div>
-      <Progress value={value} />
-    </div>
-  )
 }
 
 function formatAddress(
@@ -714,43 +848,118 @@ function isLocationCandidate(
   )
 }
 
-export function ConnectionsView() {
-  const [connections, setConnections] = useState<GoogleConnection[] | null>(
-    null
-  )
+export function ConnectionsView({
+  onNavigate,
+}: {
+  onNavigate?: () => void
+}) {
+  const [connections, setConnections] = useState<GoogleConnection[]>([])
   const [locations, setLocations] = useState<GoogleLocation[]>([])
   const [accounts, setAccounts] = useState<GoogleAccount[]>([])
   const [backfillProgress, setBackfillProgress] =
     useState<BackfillProgress | null>(null)
+  const [settings, setSettings] = useState<OrganisationSettings | null>(null)
   const [internalLocations, setInternalLocations] = useState<
     InternalLocation[]
   >([])
   const [linkTargets, setLinkTargets] = useState<Record<string, string>>({})
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [locationQuery, setLocationQuery] = useState("")
   const [verificationFilter, setVerificationFilter] = useState("all")
   const [pubsubTopic, setPubsubTopic] = useState("")
   const [message, setMessage] = useState("")
+  const [loadState, setLoadState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading")
   const [isPending, startTransition] = useTransition()
-  const connection = connections?.[0]
-  const isPreview = connections === null
+  const connection =
+    connections.find((item) => item.status === "active") ?? connections[0]
+  const linkedExternalIds = new Set(
+    internalLocations
+      .map((location) => location.externalLocationId)
+      .filter((id): id is string => Boolean(id))
+  )
+  const activeAccount = accounts.find((account) => account.isActive)
+  const importItems = backfillProgress?.items ?? []
+  const importComplete =
+    linkedExternalIds.size > 0 &&
+    importItems.length > 0 &&
+    importItems.every((item) => item.status === "succeeded")
+  const setupComplete =
+    connection?.status === "active" &&
+    Boolean(activeAccount) &&
+    linkedExternalIds.size > 0 &&
+    importComplete &&
+    Boolean(settings)
 
   useEffect(() => {
     let active = true
-    void Promise.all([
-      loadConnections(),
-      loadInternalLocations(),
-      loadBackfillProgress(),
-    ])
-      .then(([connectionResult, locationResult, backfillResult]) => {
-        if (active) {
-          setConnections(connectionResult.connections)
-          setInternalLocations(locationResult.locations)
-          setBackfillProgress(backfillResult.progress)
+    async function loadConnectionWorkspace() {
+      try {
+        const [
+          connectionResult,
+          locationResult,
+          backfillResult,
+          settingsResult,
+        ] = await Promise.all([
+          loadConnections(),
+          loadInternalLocations(),
+          loadBackfillProgress(),
+          loadSettings(),
+        ])
+        if (!active) return
+        setConnections(connectionResult.connections)
+        setInternalLocations(locationResult.locations)
+        setBackfillProgress(backfillResult.progress)
+        setSettings(settingsResult.settings)
+        setLoadState("ready")
+
+        const activeConnection = connectionResult.connections.find(
+          (item) => item.status === "active"
+        )
+        if (activeConnection) {
+          try {
+            const accountResult = await discoverGoogleAccounts()
+            if (!active) return
+            setAccounts(accountResult.accounts)
+            if (accountResult.accounts.some((account) => account.isActive)) {
+              const locationDiscovery = await discoverGoogleLocations()
+              if (!active) return
+              setLocations(locationDiscovery.locations)
+              const alreadyLinked = new Set(
+                locationResult.locations
+                  .map((location) => location.externalLocationId)
+                  .filter((id): id is string => Boolean(id))
+              )
+              setSelectedLocationIds(
+                locationDiscovery.locations
+                  .filter(
+                    (location) =>
+                      location.verified && !alreadyLinked.has(location.id)
+                  )
+                  .map((location) => location.id)
+              )
+            }
+          } catch (error) {
+            if (!active) return
+            setMessage(
+              error instanceof Error
+                ? `Your connection is saved, but Google discovery needs attention: ${error.message}`
+                : "Your connection is saved, but Google discovery could not refresh."
+            )
+          }
         }
-      })
-      .catch(() => {
-        if (active) setMessage("Preview mode · database connection unavailable")
-      })
+      } catch (error) {
+        if (!active) return
+        setLoadState("unavailable")
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Connection setup is temporarily unavailable."
+        )
+      }
+    }
+    void loadConnectionWorkspace()
     return () => {
       active = false
     }
@@ -775,15 +984,40 @@ export function ConnectionsView() {
         if (!accounts.length) {
           const result = await discoverGoogleAccounts()
           setAccounts(result.accounts)
-          setMessage(
-            `${result.accounts.length} Google account${result.accounts.length === 1 ? "" : "s"} discovered. Select the accounts to activate.`
-          )
+          const firstAccount = result.accounts[0]
+          if (result.accounts.length === 1 && firstAccount?.id) {
+            const activated = await activateGoogleAccounts([firstAccount.id])
+            setAccounts(activated.accounts)
+            const discovered = await discoverGoogleLocations()
+            setLocations(discovered.locations)
+            setSelectedLocationIds(
+              discovered.locations
+                .filter(
+                  (location) =>
+                    location.verified && !linkedExternalIds.has(location.id)
+                )
+                .map((location) => location.id)
+            )
+            setMessage("Google account found. Choose the locations to import.")
+          } else {
+            setMessage(
+              `${result.accounts.length} Google account${result.accounts.length === 1 ? "" : "s"} found. Choose the account this workspace should use.`
+            )
+          }
           return
         }
         const result = await discoverGoogleLocations()
         setLocations(result.locations)
+        setSelectedLocationIds(
+          result.locations
+            .filter(
+              (location) =>
+                location.verified && !linkedExternalIds.has(location.id)
+            )
+            .map((location) => location.id)
+        )
         setMessage(
-          `${result.locations.length} Google location${result.locations.length === 1 ? "" : "s"} discovered.`
+          `${result.locations.length} Google location${result.locations.length === 1 ? "" : "s"} found.`
         )
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Discovery failed.")
@@ -805,9 +1039,21 @@ export function ConnectionsView() {
         setLocations([])
         setMessage(
           activeIds.length
-            ? "Account selection saved. Refresh locations to continue."
+            ? "Account selected. We’ll now find its locations."
             : "No Google accounts are active."
         )
+        if (activeIds.length) {
+          const discovered = await discoverGoogleLocations()
+          setLocations(discovered.locations)
+          setSelectedLocationIds(
+            discovered.locations
+              .filter(
+                (location) =>
+                  location.verified && !linkedExternalIds.has(location.id)
+              )
+              .map((location) => location.id)
+          )
+        }
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Account selection failed."
@@ -852,37 +1098,58 @@ export function ConnectionsView() {
     })
   }
 
-  function link(location: GoogleLocation) {
+  function importSelectedLocations() {
+    const selectedLocations = locations.filter((location) =>
+      selectedLocationIds.includes(location.id)
+    )
+    if (!selectedLocations.length) {
+      setMessage("Choose at least one verified location to continue.")
+      return
+    }
     setMessage("")
     startTransition(async () => {
       try {
-        const locationId = linkTargets[location.id] || undefined
-        const confirmRelink = locationId
-          ? window.confirm(
-              "Confirm this mapping. If the Google location was linked elsewhere, its historical reviews will move with it without mixing other location data."
-            )
-          : false
-        if (locationId && !confirmRelink) return
-        await linkGoogleLocation(location, { locationId, confirmRelink })
-        const backfill = location.verified
-          ? await runBackfill(location.id)
-          : null
-        if (backfill) setBackfillProgress(backfill.progress)
+        let latestProgress = backfillProgress
+        for (const location of selectedLocations) {
+          const locationId = linkTargets[location.id] || undefined
+          const confirmRelink = locationId
+            ? window.confirm(
+                `Use the existing “${internalLocations.find((item) => item.locationId === locationId)?.name ?? "location"}” record for ${location.title ?? location.name}?`
+              )
+            : false
+          if (locationId && !confirmRelink) continue
+          await linkGoogleLocation(location, { locationId, confirmRelink })
+          const backfill = await runBackfill(location.id)
+          latestProgress = backfill.progress
+        }
+        if (latestProgress) setBackfillProgress(latestProgress)
         const refreshed = await loadInternalLocations()
         setInternalLocations(refreshed.locations)
-        const failed = backfill?.batches.some((batch) => batch.error)
-        const complete = backfill?.batches.every((batch) => batch.complete)
+        setSelectedLocationIds([])
         setMessage(
-          location.verified && failed
-            ? `${location.title ?? location.name} linked, but backfill needs attention.`
-            : location.verified && complete
-              ? `${location.title ?? location.name} linked and backfilled.`
-              : location.verified
-                ? `${location.title ?? location.name} linked. Backfill continuation is pending.`
-                : `${location.title ?? location.name} linked. Review actions remain blocked until Google marks it verified.`
+          `${selectedLocations.length} location${selectedLocations.length === 1 ? "" : "s"} linked. Historical reviews are importing now.`
         )
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Linking failed.")
+        setMessage(error instanceof Error ? error.message : "Import failed.")
+      }
+    })
+  }
+
+  function continueBackfill(externalLocationId: string) {
+    setMessage("")
+    startTransition(async () => {
+      try {
+        const result = await runBackfill(externalLocationId)
+        setBackfillProgress(result.progress)
+        setMessage(
+          result.batches.every((batch) => batch.complete)
+            ? "Historical review import complete."
+            : "Another batch was imported. Continue when you’re ready."
+        )
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Import could not continue."
+        )
       }
     })
   }
@@ -893,14 +1160,10 @@ export function ConnectionsView() {
       try {
         const result = await cancelBackfill(externalLocationId)
         setBackfillProgress(result.progress)
-        setMessage(
-          result.cancelledExternalLocationIds.length
-            ? "Backfill continuation cancelled."
-            : "No pending backfill continuation was available to cancel."
-        )
+        setMessage("Historical import paused. You can resume it later.")
       } catch (error) {
         setMessage(
-          error instanceof Error ? error.message : "Cancellation failed."
+          error instanceof Error ? error.message : "Import could not be paused."
         )
       }
     })
@@ -932,399 +1195,641 @@ export function ConnectionsView() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col gap-1">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
+      <div className="flex flex-col gap-2">
+        <Badge variant="outline" className="w-fit">
+          Merchant setup
+        </Badge>
         <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-          Google connection
+          {setupComplete
+            ? "Google Business Profile"
+            : "Connect Google Business Profile"}
         </h1>
-        <p className="text-sm text-muted-foreground">
-          OAuth access, linked locations and notification health.
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          {setupComplete
+            ? "Your locations, review history, and reply policy are ready."
+            : "Set up your review workspace in a few guided steps. You stay in control of every location we import."}
         </p>
       </div>
 
-      <Card>
-        <CardHeader className="flex-row items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-              <Link2 className="size-5" aria-hidden />
-            </span>
-            <div className="flex flex-col gap-1">
-              <CardTitle>
-                {connection?.googleEmail ??
-                  (isPreview ? "ops@lapeninns.co.uk" : "No Google account")}
-              </CardTitle>
-              <CardDescription>
-                {connection
-                  ? `Scope: business.manage · connected ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(connection.createdAt))}`
-                  : isPreview
-                    ? "Scope: business.manage · preview data"
-                    : "Connect an authorised Google Business Profile account"}
-              </CardDescription>
-            </div>
+      <SetupProgress
+        connected={connection?.status === "active"}
+        locationsChosen={linkedExternalIds.size > 0}
+        importComplete={importComplete}
+        policyReady={Boolean(settings) && importComplete}
+      />
+
+      {loadState === "loading" ? (
+        <ConnectionSetupSkeleton />
+      ) : loadState === "unavailable" ? (
+        <Alert variant="destructive">
+          <Info />
+          <AlertTitle>We couldn’t load connection setup</AlertTitle>
+          <AlertDescription>
+            {message || "Refresh the page to try again."}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <Card>
+              <CardHeader className="flex-row items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                    <Link2 className="size-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <CardTitle className="truncate">
+                      {connection?.googleEmail ?? "Connect your Google account"}
+                    </CardTitle>
+                    <CardDescription>
+                      {connection
+                        ? `Connected ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(connection.createdAt))}`
+                        : "Use the Google account that manages your Business Profile."}
+                    </CardDescription>
+                  </div>
+                </div>
+                <Badge
+                  variant={
+                    connection?.reconnectRequired ? "destructive" : "secondary"
+                  }
+                >
+                  {connection?.reconnectRequired
+                    ? "Reconnect"
+                    : connection?.status === "active"
+                      ? "Connected"
+                      : "Not connected"}
+                </Badge>
+              </CardHeader>
+              {!connection ? (
+                <CardFooter>
+                  <Button onClick={connect} disabled={isPending}>
+                    {isPending ? <Spinner /> : <ExternalLink />}
+                    Connect Google
+                  </Button>
+                </CardFooter>
+              ) : null}
+            </Card>
+
+            {connection ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Choose your Google account</CardTitle>
+                  <CardDescription>
+                    Only locations owned or managed by the active account can
+                    be imported.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  {accounts.length ? (
+                    accounts.map((account) => (
+                      <div
+                        key={account.id}
+                        className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                          <Building2 className="size-4" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {account.accountName ?? account.googleAccountName}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            {account.googleAccountName}
+                            {account.role ? ` · ${account.role}` : ""}
+                          </p>
+                        </div>
+                        <Button
+                          variant={account.isActive ? "secondary" : "outline"}
+                          size="sm"
+                          onClick={() => toggleAccount(account)}
+                          disabled={isPending}
+                          aria-pressed={account.isActive}
+                        >
+                          {account.isActive ? (
+                            <CheckCircle2 data-icon="inline-start" />
+                          ) : null}
+                          {account.isActive ? "Selected" : "Use account"}
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
+                      <p className="text-sm font-medium">
+                        No Google Business accounts found yet
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        We’ll check the connected Google account for profiles
+                        you can manage.
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={discover}
+                        disabled={isPending}
+                      >
+                        {isPending ? <Spinner /> : <RefreshCw />}
+                        Find my accounts
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {activeAccount ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Choose locations to import</CardTitle>
+                  <CardDescription>
+                    Verified locations can sync reviews and publish approved
+                    replies. Existing links are kept intact.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col">
+                  {locations.length ? (
+                    <>
+                      <div className="grid gap-2 border-b pb-4 sm:grid-cols-[1fr_180px]">
+                        <Input
+                          value={locationQuery}
+                          onChange={(event) =>
+                            setLocationQuery(readControlValue(event))
+                          }
+                          placeholder="Search locations"
+                          aria-label="Search Google locations"
+                        />
+                        <NativeSelect
+                          value={verificationFilter}
+                          onValueChange={setVerificationFilter}
+                          aria-label="Filter by verification state"
+                        >
+                          <NativeSelectOption value="all">
+                            All locations
+                          </NativeSelectOption>
+                          <NativeSelectOption value="verified">
+                            Verified
+                          </NativeSelectOption>
+                          <NativeSelectOption value="unverified">
+                            Needs verification
+                          </NativeSelectOption>
+                        </NativeSelect>
+                      </div>
+                      {locations
+                        .filter((location) => {
+                          const matchesText = (
+                            location.title ?? location.name
+                          )
+                            .toLowerCase()
+                            .includes(locationQuery.trim().toLowerCase())
+                          const matchesVerification =
+                            verificationFilter === "all" ||
+                            (verificationFilter === "verified"
+                              ? location.verified
+                              : !location.verified)
+                          return matchesText && matchesVerification
+                        })
+                        .map((location, index) => {
+                          const isLinked = linkedExternalIds.has(location.id)
+                          const isSelected =
+                            selectedLocationIds.includes(location.id)
+                          return (
+                            <div key={location.id}>
+                              {index ? <Separator /> : null}
+                              <div className="flex gap-3 py-4">
+                                <Checkbox
+                                  className="mt-1"
+                                  checked={isLinked || isSelected}
+                                  disabled={isLinked || !location.verified}
+                                  onCheckedChange={(checked) =>
+                                    setSelectedLocationIds((current) =>
+                                      checked
+                                        ? [...current, location.id]
+                                        : current.filter(
+                                            (id) => id !== location.id
+                                          )
+                                    )
+                                  }
+                                  aria-label={`Select ${location.title ?? location.name}`}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-medium">
+                                      {location.title ?? location.name}
+                                    </p>
+                                    <Badge
+                                      variant={
+                                        location.verified
+                                          ? "secondary"
+                                          : "outline"
+                                      }
+                                    >
+                                      {isLinked
+                                        ? "Imported"
+                                        : location.verified
+                                          ? "Verified"
+                                          : "Verification required"}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {formatGoogleAddress(location) ||
+                                      location.accountName}
+                                  </p>
+                                  {!isLinked && location.verified ? (
+                                    <NativeSelect
+                                      className="mt-3 max-w-sm"
+                                      value={linkTargets[location.id] ?? ""}
+                                      onValueChange={(value) =>
+                                        setLinkTargets((current) => ({
+                                          ...current,
+                                          [location.id]: value,
+                                        }))
+                                      }
+                                      aria-label={`Workspace location for ${location.title ?? location.name}`}
+                                    >
+                                      <NativeSelectOption value="">
+                                        Create a new workspace location
+                                      </NativeSelectOption>
+                                      {internalLocations
+                                        .filter(
+                                          (internal) =>
+                                            !internal.externalLocationId
+                                        )
+                                        .map((internal) => (
+                                          <NativeSelectOption
+                                            key={internal.locationId}
+                                            value={internal.locationId}
+                                          >
+                                            {internal.name}
+                                            {isLocationCandidate(
+                                              location,
+                                              internal
+                                            )
+                                              ? " · suggested"
+                                              : ""}
+                                          </NativeSelectOption>
+                                        ))}
+                                    </NativeSelect>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
+                      <p className="text-sm font-medium">
+                        No locations discovered
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Refresh after a profile is added or your Google access
+                        changes.
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={discover}
+                        disabled={isPending}
+                      >
+                        {isPending ? <Spinner /> : <RefreshCw />}
+                        Find locations
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+                {locations.length ? (
+                  <CardFooter className="flex-col items-stretch justify-between gap-3 border-t sm:flex-row sm:items-center">
+                    <p className="text-xs text-muted-foreground">
+                      {selectedLocationIds.length
+                        ? `${selectedLocationIds.length} verified location${selectedLocationIds.length === 1 ? "" : "s"} selected`
+                        : linkedExternalIds.size
+                          ? `${linkedExternalIds.size} location${linkedExternalIds.size === 1 ? "" : "s"} already imported`
+                          : "Choose a verified location to continue"}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={discover}
+                        disabled={isPending}
+                      >
+                        <RefreshCw data-icon="inline-start" />
+                        Refresh
+                      </Button>
+                      {selectedLocationIds.length ? (
+                        <Button
+                          onClick={importSelectedLocations}
+                          disabled={isPending}
+                        >
+                          {isPending ? <Spinner /> : <Download />}
+                          Import reviews
+                        </Button>
+                      ) : null}
+                    </div>
+                  </CardFooter>
+                ) : null}
+              </Card>
+            ) : null}
+
+            {importItems.length ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Historical review import</CardTitle>
+                  <CardDescription>
+                    Imports run in safe batches so a large review history
+                    cannot overwhelm the app.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col divide-y">
+                  {importItems.map((item) => (
+                    <div
+                      key={item.externalLocationId}
+                      className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {item.locationName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.status === "succeeded"
+                            ? "All available review pages imported"
+                            : item.status === "failed"
+                              ? `Needs attention${item.lastErrorCode ? ` · ${item.lastErrorCode}` : ""}`
+                              : item.status === "cancelled"
+                                ? "Paused"
+                                : "More review pages are ready to import"}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          item.status === "failed"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                      >
+                        {item.status === "succeeded"
+                          ? "Complete"
+                          : item.status === "failed"
+                            ? "Retry"
+                            : item.status === "cancelled"
+                              ? "Paused"
+                              : "In progress"}
+                      </Badge>
+                      {item.status !== "succeeded" ? (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              continueBackfill(item.externalLocationId)
+                            }
+                            disabled={isPending}
+                          >
+                            {isPending ? <Spinner /> : <RefreshCw />}
+                            Continue import
+                          </Button>
+                          {item.status !== "cancelled" ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                cancelBackfillContinuation(
+                                  item.externalLocationId
+                                )
+                              }
+                              disabled={isPending}
+                            >
+                              Pause
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ) : null}
           </div>
-          <Badge variant="secondary">
-            {connection?.reconnectRequired
-              ? "Reconnect required"
-              : (connection?.status ??
-                (isPreview ? "Preview" : "Not connected"))}
-          </Badge>
-        </CardHeader>
-        <CardContent className="grid gap-5 md:grid-cols-3">
-          <ConnectionMetric
-            label="OAuth token"
-            value={connection?.status === "active" ? "Healthy" : "Not active"}
-            detail={
-              connection?.reconnectRequired
-                ? `Reconnect task open · ${connection.lastErrorCode ?? "access expired"}`
-                : connection?.lastRefreshAt
-                  ? `Refreshed ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(connection.lastRefreshAt))}`
-                  : isPreview
-                    ? "Refreshed 4 minutes ago"
-                    : "Awaiting connection"
-            }
-          />
-          <ConnectionMetric
-            label="Notifications"
-            value={
-              connection?.notificationsEnabled
-                ? "Active"
-                : isPreview
-                  ? "Active"
-                  : "Not configured"
-            }
-            detail="NEW_REVIEW, UPDATED_REVIEW"
-          />
-          <ConnectionMetric
-            label="Pub/Sub"
-            value="Healthy"
-            detail="0 messages in backlog"
-          />
-        </CardContent>
-        <CardFooter className="flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={connection ? discover : connect}
-            disabled={isPending}
-          >
-            <RefreshCw data-icon="inline-start" />
-            {connection
-              ? accounts.length
-                ? "Refresh locations"
-                : "Discover accounts"
-              : "Connect Google"}
-          </Button>
+
+          <div className="flex flex-col gap-4 lg:sticky lg:top-6">
+            <Card className="bg-muted/30">
+              <CardHeader>
+                <CardTitle>
+                  {setupComplete ? "Setup complete" : "What happens next"}
+                </CardTitle>
+                <CardDescription>
+                  {setupComplete
+                    ? "NabaReview is ready for your team."
+                    : "A clear path from connection to the first reply."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <GuidanceItem
+                  icon={ShieldCheck}
+                  title="Your approval policy"
+                  detail={
+                    settings?.approvalRequired
+                      ? "Every reply needs approval before publishing."
+                      : "Approved team members can publish directly."
+                  }
+                />
+                <GuidanceItem
+                  icon={Download}
+                  title="Historical reviews"
+                  detail="Imported in small, resumable batches to protect performance."
+                />
+                <GuidanceItem
+                  icon={Activity}
+                  title="Ongoing sync"
+                  detail={
+                    connection?.notificationsEnabled
+                      ? "Real-time Google notifications are active."
+                      : "Scheduled sync keeps reviews current."
+                  }
+                />
+              </CardContent>
+              <CardFooter className="flex-col items-stretch gap-2">
+                {setupComplete ? (
+                  <Button onClick={onNavigate}>
+                    <Settings2 data-icon="inline-start" />
+                    Review reply policy
+                  </Button>
+                ) : !connection ? (
+                  <Button onClick={connect} disabled={isPending}>
+                    {isPending ? <Spinner /> : <ExternalLink />}
+                    Connect Google
+                  </Button>
+                ) : null}
+                <Button variant="ghost" onClick={onNavigate}>
+                  Policy settings
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </CardFooter>
+            </Card>
+
+            {activeAccount ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">
+                    Optional real-time notifications
+                  </CardTitle>
+                  <CardDescription>
+                    Scheduled sync works without this. Teams with Google Cloud
+                    Pub/Sub can add a topic later.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                  <Input
+                    value={pubsubTopic}
+                    onChange={(event) =>
+                      setPubsubTopic(readControlValue(event))
+                    }
+                    placeholder="projects/…/topics/…"
+                    aria-label="Google Pub/Sub topic"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={configureNotifications}
+                    disabled={isPending}
+                  >
+                    Configure notifications
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {message && loadState !== "unavailable" ? (
+        <Alert>
+          <Info />
+          <AlertTitle>Setup update</AlertTitle>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {connection ? (
+        <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Connection management</p>
+            <p className="text-xs text-muted-foreground">
+              Reconnect after access changes, or disconnect to stop sync and
+              publishing.
+            </p>
+          </div>
           <Button variant="outline" onClick={connect} disabled={isPending}>
             <ExternalLink data-icon="inline-start" />
-            Reconnect OAuth
+            Reconnect
           </Button>
           <Button
             variant="ghost"
-            className="ml-auto text-destructive"
+            className="text-destructive"
             onClick={disconnect}
-            disabled={!connection || isPending}
+            disabled={isPending}
           >
             <Unplug data-icon="inline-start" />
             Disconnect
           </Button>
-        </CardFooter>
-      </Card>
-
-      {accounts.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Google accounts</CardTitle>
-            <CardDescription>
-              Select which accessible accounts this organisation may use.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {accounts.map((account) => (
-              <div
-                key={account.id}
-                className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {account.accountName ?? account.googleAccountName}
-                  </p>
-                  <p className="truncate font-mono text-xs text-muted-foreground">
-                    {account.googleAccountName} ·{" "}
-                    {account.role ?? "unknown role"}
-                  </p>
-                </div>
-                <Button
-                  variant={account.isActive ? "secondary" : "outline"}
-                  size="sm"
-                  onClick={() => toggleAccount(account)}
-                  disabled={isPending}
-                  aria-pressed={account.isActive}
-                >
-                  {account.isActive ? "Active" : "Activate"}
-                </Button>
-              </div>
-            ))}
-            <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row">
-              <Input
-                value={pubsubTopic}
-                onChange={(event) => setPubsubTopic(readControlValue(event))}
-                placeholder="projects/project-id/topics/gbp-reviews"
-                aria-label="Google Pub/Sub topic"
-              />
-              <Button
-                variant="outline"
-                onClick={configureNotifications}
-                disabled={isPending}
-              >
-                Configure notifications
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       ) : null}
-
-      {backfillProgress?.items.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Historical backfill</CardTitle>
-            <CardDescription>
-              {backfillProgress.counts.succeeded ?? 0} complete ·{" "}
-              {backfillProgress.counts.failed ?? 0} failed ·{" "}
-              {(backfillProgress.counts.pending ?? 0) +
-                (backfillProgress.counts.running ?? 0)}{" "}
-              in progress
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col divide-y">
-            {backfillProgress.items.map((item) => (
-              <div
-                key={item.externalLocationId}
-                className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {item.locationName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.status === "failed"
-                      ? `Failed · ${item.lastErrorCode ?? "unknown error"}`
-                      : item.status === "pending"
-                        ? "More Google pages are queued"
-                        : item.status === "succeeded"
-                          ? "All review pages imported"
-                          : item.status.replace("_", " ")}
-                    {item.attemptCount ? ` · attempt ${item.attemptCount}` : ""}
-                  </p>
-                </div>
-                <Badge
-                  variant={
-                    item.status === "failed" ? "destructive" : "secondary"
-                  }
-                >
-                  {item.status.replace("_", " ")}
-                </Badge>
-                {item.status === "pending" || item.status === "failed" ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      cancelBackfillContinuation(item.externalLocationId)
-                    }
-                    disabled={isPending}
-                  >
-                    Cancel
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Linked locations</CardTitle>
-          <CardDescription>
-            {locations.length
-              ? `${locations.length} discovered Google locations`
-              : "Google locations mapped to Lapen Inns"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col">
-          {locations.length ? (
-            <div className="grid gap-2 border-b pb-4 sm:grid-cols-[1fr_180px]">
-              <Input
-                value={locationQuery}
-                onChange={(event) => setLocationQuery(readControlValue(event))}
-                placeholder="Filter Google locations"
-                aria-label="Filter Google locations"
-              />
-              <NativeSelect
-                value={verificationFilter}
-                onValueChange={setVerificationFilter}
-                aria-label="Filter by verification state"
-              >
-                <NativeSelectOption value="all">All states</NativeSelectOption>
-                <NativeSelectOption value="verified">
-                  Verified
-                </NativeSelectOption>
-                <NativeSelectOption value="unverified">
-                  Unverified
-                </NativeSelectOption>
-              </NativeSelect>
-            </div>
-          ) : null}
-          {locations.length
-            ? locations
-                .filter((location) => {
-                  const matchesText = (location.title ?? location.name)
-                    .toLowerCase()
-                    .includes(locationQuery.trim().toLowerCase())
-                  const matchesVerification =
-                    verificationFilter === "all" ||
-                    (verificationFilter === "verified"
-                      ? location.verified
-                      : !location.verified)
-                  return matchesText && matchesVerification
-                })
-                .map((location, index) => (
-                  <div key={location.id}>
-                    {index ? <Separator /> : null}
-                    <LocationConnection
-                      name={location.title ?? location.name}
-                      account={`${location.accountName} · ${formatGoogleAddress(location) || location.name}`}
-                      status={location.verified ? "Verified" : "Unverified"}
-                      sync={
-                        location.verified
-                          ? "Ready for reviews and replies"
-                          : "May be linked; review actions stay blocked"
-                      }
-                    />
-                    <div className="flex flex-col gap-2 pb-4 pl-12 sm:flex-row">
-                      <NativeSelect
-                        value={linkTargets[location.id] ?? ""}
-                        onValueChange={(value) =>
-                          setLinkTargets((current) => ({
-                            ...current,
-                            [location.id]: value,
-                          }))
-                        }
-                        aria-label={`Internal location for ${location.title ?? location.name}`}
-                      >
-                        <NativeSelectOption value="">
-                          Create “{location.title ?? location.name}”
-                        </NativeSelectOption>
-                        {internalLocations.map((internal) => (
-                          <NativeSelectOption
-                            key={internal.locationId}
-                            value={internal.locationId}
-                          >
-                            {internal.name}
-                            {isLocationCandidate(location, internal)
-                              ? " · suggested"
-                              : ""}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => link(location)}
-                        disabled={isPending}
-                      >
-                        Link location
-                      </Button>
-                    </div>
-                  </div>
-                ))
-            : [
-                ["London Mayfair", "accounts/4821 · locations/1184", "2m"],
-                ["Birmingham NEC", "accounts/4821 · locations/2267", "5m"],
-                ["Leeds City", "accounts/4821 · locations/3951", "4m"],
-              ].map(([name, account, sync], index) => (
-                <div key={name}>
-                  {index ? <Separator /> : null}
-                  <LocationConnection
-                    name={name}
-                    account={account}
-                    status={isPreview ? "Verified" : "Not discovered"}
-                    sync={
-                      isPreview ? `Synced ${sync} ago` : "Refresh locations"
-                    }
-                  />
-                </div>
-              ))}
-        </CardContent>
-      </Card>
-
-      {message ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          {message}
-        </p>
-      ) : null}
-
-      <Alert>
-        <ShieldCheck />
-        <AlertTitle>Disconnect control</AlertTitle>
-        <AlertDescription>
-          Disconnecting immediately stops sync and publishing, then starts the
-          policy-compliant disassociation and cleanup workflow.
-        </AlertDescription>
-      </Alert>
     </div>
   )
 }
 
-function ConnectionMetric({
-  label,
-  value,
+function SetupProgress({
+  connected,
+  locationsChosen,
+  importComplete,
+  policyReady,
+}: {
+  connected: boolean
+  locationsChosen: boolean
+  importComplete: boolean
+  policyReady: boolean
+}) {
+  const steps = [
+    { label: "Connect Google", complete: connected },
+    { label: "Choose locations", complete: locationsChosen },
+    { label: "Import reviews", complete: importComplete },
+    { label: "Set reply policy", complete: policyReady },
+  ]
+  const currentIndex = Math.max(
+    0,
+    steps.findIndex((step) => !step.complete)
+  )
+  return (
+    <div className="grid gap-2 sm:grid-cols-4" aria-label="Setup progress">
+      {steps.map((step, index) => {
+        const isCurrent = !steps.every((item) => item.complete) &&
+          index === currentIndex
+        return (
+          <div
+            key={step.label}
+            className="flex items-center gap-3 rounded-xl border bg-card px-3 py-3"
+            aria-current={isCurrent ? "step" : undefined}
+          >
+            <span
+              className={
+                step.complete
+                  ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                  : isCurrent
+                    ? "flex size-7 shrink-0 items-center justify-center rounded-full border border-primary text-xs font-medium text-primary"
+                    : "flex size-7 shrink-0 items-center justify-center rounded-full border text-xs text-muted-foreground"
+              }
+            >
+              {step.complete ? (
+                <CheckCircle2 className="size-4" aria-hidden />
+              ) : (
+                index + 1
+              )}
+            </span>
+            <span
+              className={
+                isCurrent || step.complete
+                  ? "text-xs font-medium"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {step.label}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function GuidanceItem({
+  icon: Icon,
+  title,
   detail,
 }: {
-  label: string
-  value: string
+  icon: typeof Activity
+  title: string
   detail: string
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl border bg-muted/40 p-4">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium">{value}</span>
-      <span className="text-xs text-muted-foreground">{detail}</span>
+    <div className="flex gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {detail}
+        </p>
+      </div>
     </div>
   )
 }
 
-function LocationConnection({
-  name,
-  account,
-  status,
-  sync,
-  onLink,
-}: {
-  name: string
-  account: string
-  status: string
-  sync: string
-  onLink?: () => void
-}) {
+function ConnectionSetupSkeleton() {
   return (
-    <div className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center">
-      <span className="flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground">
-        <CheckCircle2 className="size-4" aria-hidden />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-sm font-medium">{name}</p>
-        <p className="truncate font-mono text-xs text-muted-foreground">
-          {account}
-        </p>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-44 w-full" />
+        <Skeleton className="h-72 w-full" />
       </div>
-      <div className="flex items-center gap-2 sm:justify-end">
-        <Badge variant="secondary">{status}</Badge>
-        <span className="text-xs text-muted-foreground">{sync}</span>
-        {onLink ? (
-          <Button variant="outline" size="sm" onClick={onLink}>
-            Link
-          </Button>
-        ) : null}
-      </div>
+      <Skeleton className="h-80 w-full" />
     </div>
   )
 }
@@ -1349,9 +1854,17 @@ export function SettingsView() {
   >("access")
   const [message, setMessage] = useState("")
   const [isPending, startTransition] = useTransition()
+  const [settingsStatus, setSettingsStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading")
+  const [teamStatus, setTeamStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading")
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let active = true
+    setSettingsStatus("loading")
     void loadSettings()
       .then(({ settings }) => {
         if (!active) return
@@ -1360,26 +1873,56 @@ export function SettingsView() {
         setDefaultLanguage(settings.defaultLanguageCode)
         setDefaultTimezone(settings.defaultTimezone)
         setDirectPublishConsent(Boolean(settings.directPublishConsentAt))
+        setSettingsStatus("ready")
       })
-      .catch(() => {})
+      .catch(() => {
+        if (active) setSettingsStatus("error")
+      })
     return () => {
       active = false
     }
-  }, [])
+  }, [reloadKey])
 
   useEffect(() => {
     let active = true
+    setTeamStatus("loading")
     void Promise.all([loadMembers(), loadInternalLocations()])
       .then(([memberResult, locationResult]) => {
         if (!active) return
         setMembers(memberResult.members)
         setInternalLocations(locationResult.locations)
+        setTeamStatus("ready")
       })
-      .catch(() => {})
+      .catch(() => {
+        if (active) setTeamStatus("error")
+      })
     return () => {
       active = false
     }
-  }, [])
+  }, [reloadKey])
+
+  if (settingsStatus !== "ready") {
+    return (
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
+            Reply policy
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Human approval, verification and retention controls.
+          </p>
+        </div>
+        {settingsStatus === "loading" ? (
+          <>
+            <Skeleton className="h-72 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </>
+        ) : (
+          <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+        )}
+      </div>
+    )
+  }
 
   function persistSettings() {
     setMessage("")
@@ -1552,24 +2095,15 @@ export function SettingsView() {
             ) : null}
             <Field orientation="horizontal">
               <FieldContent>
-                <FieldTitle>Escalate one-star reviews</FieldTitle>
-                <FieldDescription>
-                  Route serious complaints into the escalation queue.
-                </FieldDescription>
-              </FieldContent>
-              <Switch defaultChecked aria-label="Escalate one-star reviews" />
-            </Field>
-            <Separator />
-            <Field orientation="horizontal">
-              <FieldContent>
                 <FieldTitle>Block drafts that fail verification</FieldTitle>
                 <FieldDescription>
-                  Prevent publish when claims, personal data or tone checks
-                  fail.
+                  Always enforced by the publishing API when claims, personal
+                  data or tone checks fail.
                 </FieldDescription>
               </FieldContent>
               <Switch
-                defaultChecked
+                checked
+                disabled
                 aria-label="Block drafts that fail verification"
               />
             </Field>
@@ -1595,7 +2129,13 @@ export function SettingsView() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px_auto]">
+          {teamStatus === "loading" ? (
+            <Skeleton className="h-48 w-full" />
+          ) : teamStatus === "error" ? (
+            <LiveDataError onRetry={() => setReloadKey((value) => value + 1)} />
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px_auto]">
             <Input
               value={newMemberName}
               onChange={(event) => setNewMemberName(readControlValue(event))}
@@ -1626,12 +2166,12 @@ export function SettingsView() {
             >
               Add member
             </Button>
-          </div>
-          {members.map((member) => (
-            <div
-              key={member.userId}
-              className="flex flex-col gap-3 rounded-xl border p-4"
-            >
+              </div>
+              {members.map((member) => (
+                <div
+                  key={member.userId}
+                  className="flex flex-col gap-3 rounded-xl border p-4"
+                >
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-48 flex-1">
                   <p className="text-sm font-medium">{member.displayName}</p>
@@ -1696,8 +2236,10 @@ export function SettingsView() {
                   })}
                 </div>
               ) : null}
-            </div>
-          ))}
+                </div>
+              ))}
+            </>
+          )}
         </CardContent>
       </Card>
 

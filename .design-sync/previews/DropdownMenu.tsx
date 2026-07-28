@@ -26,7 +26,6 @@ import {
   Filter,
   Link2,
   Star,
-  Tag,
   Trash2,
   Users,
   MoreHorizontal,
@@ -115,6 +114,11 @@ export function GroupedSections() {
             </Button>
           }
         />
+        {/*
+          The popup is `max-h-(--available-height)` + `overflow-y-auto`, and this
+          component cards at 520x300. Rows past ~200px of menu are scroll-clipped
+          with no visible affordance, so keep this menu to two short groups.
+        */}
         <DropdownMenuContent>
           {/* GroupLabel throws outside a Group — it must be a Group child. */}
           <DropdownMenuGroup>
@@ -122,10 +126,6 @@ export function GroupedSections() {
             <DropdownMenuItem>
               <CornerUpLeft />
               Reply with template
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Tag />
-              Add tag
             </DropdownMenuItem>
             <DropdownMenuItem>
               <CheckCheck />
@@ -144,11 +144,6 @@ export function GroupedSections() {
               Copy review links
             </DropdownMenuItem>
           </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive">
-            <Trash2 />
-            Discard drafts
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

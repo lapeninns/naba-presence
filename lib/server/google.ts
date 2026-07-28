@@ -24,6 +24,8 @@ const OAUTH_SCOPE = [
   "https://www.googleapis.com/auth/business.manage",
 ].join(" ")
 
+export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
+
 let nextGoogleRequestAt = 0
 const googleTracer = trace.getTracer("nabareview.google")
 const googleMeter = metrics.getMeter("nabareview.google")
@@ -151,7 +153,7 @@ export function googleOAuthUrl(input: {
     )
   }
   const redirectUri = new URL(
-    "/api/google/connect/callback",
+    GOOGLE_OAUTH_CALLBACK_PATH,
     env.NEXTAUTH_URL ?? "http://localhost:3000"
   )
   const params = new URLSearchParams({
@@ -195,7 +197,7 @@ export async function exchangeGoogleCode(
       code_verifier: verifier,
       grant_type: "authorization_code",
       redirect_uri: new URL(
-        "/api/google/connect/callback",
+        GOOGLE_OAUTH_CALLBACK_PATH,
         env.NEXTAUTH_URL ?? "http://localhost:3000"
       ).toString(),
     }),

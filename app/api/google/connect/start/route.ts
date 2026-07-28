@@ -2,7 +2,11 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 import { randomToken, signValue } from "@/lib/server/crypto"
-import { googleOAuthUrl, pkceChallenge } from "@/lib/server/google"
+import {
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  googleOAuthUrl,
+  pkceChallenge,
+} from "@/lib/server/google"
 import { apiError } from "@/lib/server/http"
 import { getSession } from "@/lib/server/session"
 
@@ -27,7 +31,7 @@ export async function POST() {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      path: "/api/google/connect/callback",
+      path: GOOGLE_OAUTH_CALLBACK_PATH,
       maxAge: 10 * 60,
     })
     return NextResponse.json({

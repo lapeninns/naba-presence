@@ -88,10 +88,23 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
+export type AppSession = {
+  sessionId: string
+  userId: string
+  organisationId: string
+  organisationName: string
+  displayName: string
+  email: string
+  role: "owner" | "admin" | "member" | "viewer"
+  canPublish: boolean
+}
+
+export async function loadSession() {
+  return apiFetch<{ session: AppSession | null }>("/api/session")
+}
+
 async function requireApiSession() {
-  const { session } = await apiFetch<{ session: unknown | null }>(
-    "/api/session"
-  )
+  const { session } = await loadSession()
   if (!session) {
     throw new Error("Sign in to use live organisation data.")
   }
@@ -264,12 +277,6 @@ export async function publishDraft(
   })
 }
 
-export function isPersistedReview(reviewId: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    reviewId
-  )
-}
-
 export type GoogleConnection = {
   id: string
   googleEmail: string | null
@@ -380,7 +387,10 @@ export type BackfillProgress = {
   total: number
 }
 
-export async function runBackfill(externalLocationId: string) {
+export async function runBackfill(
+  externalLocationId: string,
+  maxPagesPerLocation = 10
+) {
   return apiFetch<{
     batches: Array<{
       externalLocationIds: string[]
@@ -394,7 +404,7 @@ export async function runBackfill(externalLocationId: string) {
     method: "POST",
     body: JSON.stringify({
       externalLocationIds: [externalLocationId],
-      maxPagesPerLocation: 10,
+      maxPagesPerLocation,
     }),
   })
 }

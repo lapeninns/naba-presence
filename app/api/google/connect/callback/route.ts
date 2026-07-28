@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { encryptSecret, sha256, verifySignedValue } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
 import { ApiError, apiError, requestId } from "@/lib/server/http"
 import {
@@ -262,14 +263,15 @@ async function completeOAuth(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
   try {
     await completeOAuth(request)
-    return NextResponse.redirect(new URL("/?google=connected", request.url))
+    return NextResponse.redirect(new URL("/?google=connected", baseUrl))
   } catch (error) {
     const response = apiError(error)
     if (response.status >= 400) {
       return NextResponse.redirect(
-        new URL(`/?google=error&status=${response.status}`, request.url)
+        new URL(`/?google=error&status=${response.status}`, baseUrl)
       )
     }
     return response

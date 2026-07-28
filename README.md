@@ -97,7 +97,7 @@ Enable the Account Management, Business Information, Business Profile, and
 Notifications APIs. Add this OAuth redirect URI:
 
 ```text
-{NEXTAUTH_URL}/api/google/connect/callback
+{NEXTAUTH_URL}/api/auth/callback/google
 ```
 
 Use `business.manage`, configure offline access, and point a verified Pub/Sub

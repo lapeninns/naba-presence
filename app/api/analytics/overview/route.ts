@@ -73,7 +73,7 @@ export async function GET(request: Request) {
         from review r
         left join review_reply rr on rr.review_id = r.id
         left join lateral (
-          select verification_status
+          select id, verification_status
           from draft
           where review_id = r.id
           order by created_at desc

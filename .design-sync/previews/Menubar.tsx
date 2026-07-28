@@ -152,6 +152,14 @@ export function ViewOptions() {
   )
 }
 
+// The submenu opens `side="right"` and MenubarSubContent forwards only
+// align/alignOffset/side/sideOffset to the Positioner — there is no
+// `collisionPadding` escape hatch. In this card's 420px viewport the default
+// widths (parent min-w-56 + sub min-w-48, anchored under the second trigger)
+// push the sub past the collision boundary, and Base UI flips it back on top
+// of its own parent, hiding "Riverside" and "Airport" entirely. Both popups
+// are narrowed so parent-right + sub-width stays inside the viewport; measured
+// sub right edge is 407 of 420. Widen either one and the overlap returns.
 export function LocationSubmenu() {
   return (
     <div className="flex w-full max-w-md flex-col gap-3">
@@ -159,12 +167,12 @@ export function LocationSubmenu() {
         <ReviewsMenuDef />
         <MenubarMenu defaultOpen>
           <MenubarTrigger>Locations</MenubarTrigger>
-          <MenubarContent className="min-w-56">
+          <MenubarContent className="min-w-40">
             <MenubarItem>All locations</MenubarItem>
             <MenubarSeparator />
             <MenubarSub defaultOpen>
               <MenubarSubTrigger>Central</MenubarSubTrigger>
-              <MenubarSubContent className="min-w-48">
+              <MenubarSubContent className="min-w-40">
                 <MenubarItem>Open reply queue</MenubarItem>
                 <MenubarItem>Profile settings</MenubarItem>
                 <MenubarItem>Disconnect profile</MenubarItem>

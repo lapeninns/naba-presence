@@ -308,6 +308,72 @@ these overlays Base UI focuses the first control on open**, so the ring does ren
 `<button>` picks up Chrome's default outline; `Button variant="ghost"` with layout overrides gives
 the DS ring instead.
 
+### The `viewport` override creates its own class of bug — check menus at 1×
+
+The `cardMode: "single"` + `viewport` overrides that fix portal escape introduce a **smaller
+canvas**, and Base UI's collision avoidance then re-solves popup placement inside it. Three cells
+shipped broken this way and every automated check passed them — no ⚠, no `pageErrs`, capture
+reporting "0 errors":
+
+- **`DropdownMenu.GroupedSections` was silently scroll-clipped.** `DropdownMenuContent` is
+  `max-h-(--available-height)` + `overflow-y-auto`; at `520x300` three rows (including a
+  destructive item) were cut off **with no scrollbar rendered**. Budget rows against the viewport
+  height before adding them.
+- **`ContextMenu.RoutingSubmenu` and `Menubar.LocationSubmenu` both collision-flipped back on top
+  of their own parent**, fully occluding parent items. The arithmetic: `offset + parent width +
+  submenu width` must fit the viewport width, or Base UI re-solves and the submenu lands over the
+  parent. `MenubarSubContent` forwards only `align/alignOffset/side/sideOffset` to the Positioner —
+  `collisionPadding`/`collisionBoundary` are unreachable — so the **only** lever is popup width
+  (`min-w-40` fixed it).
+
+All three were invisible on the composite sheet and obvious in `raw/`. This is the strongest
+argument for the dense-cell raw rule below.
+
+### Verification techniques worth reusing
+
+- **Grade dense cells from `_screenshots/review/raw/<group>__<Name>__<Cell>.png`.** Composites are
+  downscaled on read — the factor varies with sheet height (0.61×–0.92× observed), so there is no
+  safe "it's big enough" heuristic. Every real defect this run found was invisible at composite
+  scale.
+- **Fold a font audit into the `pageerror` probe** — resolve computed `font-family` per cell while
+  you are already in the page. One false positive: `InputOTP` reports generic `monospace`, which
+  belongs to the `input-otp` library's transparent caret-measuring input, not to visible text.
+- **Grep the compiled CSS for a token value before opening any PNG** when the question is "is this
+  grey visible?". Settles it in a second and avoids misjudging a downscaled composite.
+- **`Progress/Values` (the 0% row) is the canary for any background-token change** — it is the only
+  surface that is bare `bg-muted` on white with no border, radius, or adjacent ink to help it read.
+- **Negative result — do NOT build this shortcut:** PNG byte size cannot screen for silently-blank
+  cells. A synthetic all-white 900×700 PNG is ~2.9 KB and the smallest legitimate cell in this repo
+  is 3596 B. ~700 bytes of margin is far too thin for a threshold; use the `pageerror` probe.
+
+### Things that look like defects but are correct
+
+- **`Button variant="destructive"` is a tinted fill, not solid red** (`bg-destructive/10
+  text-destructive`), so Delete/Discard/Disconnect render as pale-pink pills with red text. This is
+  why `--destructive` is a text-safe `#B3261E` rather than Google's `#EA4335`.
+- **`Attachment`'s uploading state animates** (`shimmer` on `data-state=uploading|processing`), so a
+  frozen capture catches the filename mid-sweep beside a mid-rotation spinner.
+- **Geist Mono's metrics space out periods and slashes** — `4.6` reads as `4 . 6`, `16 / 9`
+  likewise. Font behaviour, not stray characters in the preview source.
+- **`ToggleGroup`'s `Spacing` cell is intentionally half-detached** — it documents the real
+  `spacing` prop, which defaults to `2` (detached).
+
+### Open DS-level contrast decisions (owner's call, not preview faults)
+
+1. **`variant="destructive"` is neutralised inside every menu popup** by
+   `**:data-[variant=destructive]:text-accent-foreground!` — "Discard all drafts" is visually
+   identical to "Copy link" in DropdownMenu, ContextMenu and Menubar.
+2. **`ComboboxEmpty` and combobox/menubar group labels run ~2:1** — `text-muted-foreground` on the
+   dark translucent popup surface. Legible at 1:1, near-invisible when scaled down.
+
+Both ship as-is and were graded `good` (correctly composed and tokenised); they need a token or
+selector decision, not a preview workaround.
+
+### For copying disabled affordances
+
+`Switch` is the component to imitate — it uses `data-disabled:*`, which Base UI actually emits.
+`RadioGroupItem` and `Checkbox` carry the dead `disabled:` selector (see the dead-selector list).
+
 ### Grading gotcha that nearly froze bad verdicts
 
 `cssEntry`/`extraFonts` sit in the converter's **styling trust class**: `renderHashFor` does not

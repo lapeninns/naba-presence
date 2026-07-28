@@ -82,19 +82,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import {
-  INITIAL_REVIEWS,
-  LOCATIONS,
-  Review,
-  ReviewStatus,
-} from "@/lib/naba-review-data"
+import { Review, ReviewStatus } from "@/lib/naba-review-data"
 import {
   generateDraft,
-  isPersistedReview,
+  type AppSession,
   loadReviewDetail,
   type ReviewDetailData,
   loadReviews,
   loadReviewsPage,
+  loadSession,
   publishDraft,
   saveDraft as saveDraftToApi,
 } from "@/lib/naba-review-api"
@@ -140,11 +136,12 @@ const QUEUES: { id: Queue; label: string }[] = [
 export function NabaReviewApp() {
   const [activeView, setActiveView] = useState<View>("reviews")
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS)
-  const [selectedId, setSelectedId] = useState(INITIAL_REVIEWS[0].id)
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [selectedId, setSelectedId] = useState("")
   const [apiStatus, setApiStatus] = useState<
-    "loading" | "connected" | "preview"
+    "loading" | "connected" | "error"
   >("loading")
+  const [session, setSession] = useState<AppSession | null>(null)
 
   async function refreshReviews() {
     try {
@@ -157,26 +154,32 @@ export function NabaReviewApp() {
       )
       setApiStatus("connected")
     } catch {
-      setApiStatus("preview")
+      setApiStatus("error")
     }
   }
 
   useEffect(() => {
     let active = true
-    void loadReviews()
-      .then((loaded) => {
+    void Promise.allSettled([loadReviews(), loadSession()]).then(
+      ([reviewsResult, sessionResult]) => {
         if (!active) return
-        setReviews(loaded)
-        setSelectedId((current) =>
-          loaded.some((review) => review.id === current)
-            ? current
-            : (loaded[0]?.id ?? "")
-        )
-        setApiStatus("connected")
-      })
-      .catch(() => {
-        if (active) setApiStatus("preview")
-      })
+        if (reviewsResult.status === "fulfilled") {
+          const loaded = reviewsResult.value
+          setReviews(loaded)
+          setSelectedId((current) =>
+            loaded.some((review) => review.id === current)
+              ? current
+              : (loaded[0]?.id ?? "")
+          )
+          setApiStatus("connected")
+        } else {
+          setApiStatus("error")
+        }
+        if (sessionResult.status === "fulfilled") {
+          setSession(sessionResult.value.session)
+        }
+      }
+    )
     return () => {
       active = false
     }
@@ -187,12 +190,25 @@ export function NabaReviewApp() {
     setMobileNavOpen(false)
   }
 
+  const organisationName = session?.organisationName ?? "Your organisation"
+  const displayName = session?.displayName ?? "Account"
+  const userInitials =
+    displayName
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "AC"
+
   return (
     <div className="flex min-h-svh bg-background text-foreground">
       <aside className="hidden w-56 shrink-0 border-r bg-sidebar md:flex md:flex-col">
         <Brand />
         <SidebarNavigation activeView={activeView} onNavigate={navigate} />
-        <SidebarFooter />
+        <SidebarFooter
+          displayName={displayName}
+          role={session?.role ?? "member"}
+          initials={userInitials}
+        />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -222,13 +238,19 @@ export function NabaReviewApp() {
                 activeView={activeView}
                 onNavigate={navigate}
               />
-              <SidebarFooter />
+              <SidebarFooter
+                displayName={displayName}
+                role={session?.role ?? "member"}
+                initials={userInitials}
+              />
             </SheetContent>
           </Sheet>
 
           <div className="hidden min-w-0 items-center gap-2 md:flex">
             <Building2 className="size-4 text-muted-foreground" aria-hidden />
-            <span className="truncate text-sm font-medium">Lapen Inns</span>
+            <span className="truncate text-sm font-medium">
+              {organisationName}
+            </span>
             <ChevronDown
               className="size-3.5 text-muted-foreground"
               aria-hidden
@@ -248,10 +270,10 @@ export function NabaReviewApp() {
                 )}
               />
               {apiStatus === "connected"
-                ? "Google sync healthy"
+                ? "Live data"
                 : apiStatus === "loading"
                   ? "Checking live data"
-                  : "Preview mode"}
+                  : "Live data unavailable"}
             </div>
             <Tooltip>
               <TooltipTrigger
@@ -268,14 +290,19 @@ export function NabaReviewApp() {
               <TooltipContent>Notifications</TooltipContent>
             </Tooltip>
             <Avatar className="size-8">
-              <AvatarFallback>MK</AvatarFallback>
+              <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
           </div>
         </header>
 
         <main className="min-h-0 flex-1 overflow-auto">
           {activeView === "overview" ? (
-            <OverviewView reviews={reviews} onNavigate={navigate} />
+            <OverviewView
+              reviews={reviews}
+              onNavigate={navigate}
+              displayName={displayName}
+              organisationName={organisationName}
+            />
           ) : null}
           {activeView === "reviews" ? (
             <ReviewsWorkspace
@@ -288,7 +315,9 @@ export function NabaReviewApp() {
             />
           ) : null}
           {activeView === "analytics" ? <AnalyticsView /> : null}
-          {activeView === "connections" ? <ConnectionsView /> : null}
+          {activeView === "connections" ? (
+            <ConnectionsView onNavigate={() => navigate("settings")} />
+          ) : null}
           {activeView === "settings" ? <SettingsView /> : null}
         </main>
       </div>
@@ -343,16 +372,26 @@ function SidebarNavigation({
   )
 }
 
-function SidebarFooter() {
+function SidebarFooter({
+  displayName,
+  role,
+  initials,
+}: {
+  displayName: string
+  role: AppSession["role"]
+  initials: string
+}) {
   return (
     <div className="border-t p-3">
       <div className="flex items-center gap-3 rounded-xl px-2 py-2">
         <Avatar className="size-8">
-          <AvatarFallback>MK</AvatarFallback>
+          <AvatarFallback>{initials}</AvatarFallback>
         </Avatar>
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium">Maya Kapoor</span>
-          <span className="truncate text-xs text-muted-foreground">Owner</span>
+          <span className="truncate text-sm font-medium">{displayName}</span>
+          <span className="truncate text-xs capitalize text-muted-foreground">
+            {role}
+          </span>
         </div>
         <MoreHorizontal className="size-4 text-muted-foreground" aria-hidden />
       </div>
@@ -372,7 +411,7 @@ function ReviewsWorkspace({
   setReviews: React.Dispatch<React.SetStateAction<Review[]>>
   selectedId: string
   setSelectedId: (id: string) => void
-  apiStatus: "loading" | "connected" | "preview"
+  apiStatus: "loading" | "connected" | "error"
   onRefresh: () => Promise<void>
 }) {
   const [queue, setQueue] = useState<Queue>("all")
@@ -404,6 +443,10 @@ function ReviewsWorkspace({
   const deferredQuery = useDeferredValue(query)
   const selectedLocationId =
     location === "All locations" ? undefined : knownLocations.get(location)
+
+  useEffect(() => {
+    setKnownLocations((current) => mergeLocationDirectory(current, reviews))
+  }, [reviews])
 
   const serverFilters = useMemo(() => {
     const workflowByQueue: Record<Queue, string[] | undefined> = {
@@ -531,9 +574,20 @@ function ReviewsWorkspace({
               ? "Live data"
               : apiStatus === "loading"
                 ? "Connecting"
-                : "Preview data"}
+                : "Retry live data"}
           </Button>
         </div>
+
+        {apiStatus === "error" ? (
+          <Alert variant="destructive">
+            <Activity />
+            <AlertTitle>Live review data is unavailable</AlertTitle>
+            <AlertDescription>
+              NabaReview will not substitute preview records. Check the
+              connection, then retry.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
           <div className="flex [scrollbar-width:none] gap-1 overflow-x-auto pb-1 2xl:pb-0 [&::-webkit-scrollbar]:hidden">
@@ -585,13 +639,11 @@ function ReviewsWorkspace({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {[...new Set([...LOCATIONS, ...knownLocations.keys()])].map(
-                    (item) => (
-                      <SelectItem key={item} value={item}>
-                        {item}
-                      </SelectItem>
-                    )
-                  )}
+                  {["All locations", ...knownLocations.keys()].map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -905,17 +957,24 @@ function ReviewDetail({
     reviewId: string
     data: ReviewDetailData
   } | null>(null)
+  const [detailError, setDetailError] = useState("")
   const detail = detailState?.reviewId === review.id ? detailState.data : null
 
   useEffect(() => {
     let active = true
-    if (isPersistedReview(review.id)) {
-      void loadReviewDetail(review.id)
-        .then((value) => {
-          if (active) setDetailState({ reviewId: review.id, data: value })
-        })
-        .catch(() => {})
-    }
+    setDetailError("")
+    void loadReviewDetail(review.id)
+      .then((value) => {
+        if (active) setDetailState({ reviewId: review.id, data: value })
+      })
+      .catch((error) => {
+        if (!active) return
+        setDetailError(
+          error instanceof Error
+            ? error.message
+            : "Review activity could not be loaded."
+        )
+      })
     return () => {
       active = false
     }
@@ -925,21 +984,13 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        if (isPersistedReview(review.id)) {
-          const generated = await generateDraft(review.id)
-          setDraft(generated.body)
-          onUpdate({
-            draft: generated.body,
-            draftId: generated.draftId,
-            verification: generated.verification.verdict,
-          })
-        } else {
-          const body =
-            review.rating <= 2
-              ? `${review.reviewer.split(" ")[0]}, we’re sorry this part of your stay fell short. We have shared your comments with the ${review.location} team so they can review what happened and respond appropriately. Thank you for bringing it to our attention.`
-              : `Thank you, ${review.reviewer.split(" ")[0]}. We’re pleased you enjoyed your stay at ${review.location} and appreciate the thoughtful feedback. We’ll share your kind words with the team and hope to welcome you back soon.`
-          setDraft(body)
-        }
+        const generated = await generateDraft(review.id)
+        setDraft(generated.body)
+        onUpdate({
+          draft: generated.body,
+          draftId: generated.draftId,
+          verification: generated.verification.verdict,
+        })
         setFeedbackKind("success")
         setFeedback("A new verified draft is ready.")
       } catch (error) {
@@ -955,16 +1006,12 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        if (isPersistedReview(review.id)) {
-          const saved = await saveDraftToApi(review.id, draft)
-          onUpdate({
-            draft: saved.body,
-            draftId: saved.draftId,
-            verification: saved.verification.verdict,
-          })
-        } else {
-          onUpdate({ draft })
-        }
+        const saved = await saveDraftToApi(review.id, draft)
+        onUpdate({
+          draft: saved.body,
+          draftId: saved.draftId,
+          verification: saved.verification.verdict,
+        })
         setFeedbackKind("success")
         setFeedback("Draft saved to the review audit trail.")
       } catch (error) {
@@ -978,54 +1025,44 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        if (isPersistedReview(review.id)) {
-          const saved =
-            !review.draftId || draft !== review.draft
-              ? await saveDraftToApi(review.id, draft)
-              : {
-                  draftId: review.draftId,
-                  body: draft,
-                  verification: { verdict: review.verification },
-                }
-          if (saved.verification.verdict === "fail") {
-            onUpdate({ verification: "fail", draftId: saved.draftId, draft })
-            throw new Error(
-              "This reply failed verification and cannot be published."
-            )
-          }
-          const published = await publishDraft(
-            review.id,
-            saved.draftId,
-            review.sourceUpdateTime
+        const saved =
+          !review.draftId || draft !== review.draft
+            ? await saveDraftToApi(review.id, draft)
+            : {
+                draftId: review.draftId,
+                body: draft,
+                verification: { verdict: review.verification },
+              }
+        if (saved.verification.verdict === "fail") {
+          onUpdate({ verification: "fail", draftId: saved.draftId, draft })
+          throw new Error(
+            "This reply failed verification and cannot be published."
           )
-          const status =
-            published.status === "awaiting_approval"
-              ? "awaiting_approval"
-              : published.status === "rejected"
-                ? "escalated"
-                : "published"
-          onUpdate({
-            draft,
-            draftId: saved.draftId,
-            verification: saved.verification.verdict,
-            status,
-            googleState: published.googleReplyState ?? undefined,
-            responseTime: "Just now",
-          })
-          setFeedback(
-            status === "awaiting_approval"
-              ? "Reply submitted for approval."
-              : "Reply sent to Google."
-          )
-        } else {
-          onUpdate({
-            draft,
-            status: "published",
-            googleState: "PENDING",
-            responseTime: "Just now",
-          })
-          setFeedback("Reply sent to Google. Moderation status is pending.")
         }
+        const published = await publishDraft(
+          review.id,
+          saved.draftId,
+          review.sourceUpdateTime
+        )
+        const status =
+          published.status === "awaiting_approval"
+            ? "awaiting_approval"
+            : published.status === "rejected"
+              ? "escalated"
+              : "published"
+        onUpdate({
+          draft,
+          draftId: saved.draftId,
+          verification: saved.verification.verdict,
+          status,
+          googleState: published.googleReplyState ?? undefined,
+          responseTime: "Just now",
+        })
+        setFeedback(
+          status === "awaiting_approval"
+            ? "Reply submitted for approval."
+            : "Reply sent to Google."
+        )
         setFeedbackKind("success")
       } catch (error) {
         setFeedbackKind("error")
@@ -1140,8 +1177,8 @@ function ReviewDetail({
           <CheckCircle2 />
           <AlertTitle>Reply published</AlertTitle>
           <AlertDescription>
-            Google moderation: {review.googleState ?? "APPROVED"} · Response
-            time {review.responseTime ?? "under 1 hour"}
+            Google moderation: {review.googleState ?? "Not reported"} · Response
+            time {review.responseTime ?? "Not available"}
           </AlertDescription>
         </Alert>
       ) : review.status === "escalated" ? (
@@ -1249,7 +1286,7 @@ function ReviewDetail({
         <div className="flex flex-col gap-5 border-t pt-5 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
           <VerificationPanel review={review} />
           <Separator />
-          <ActivityTimeline status={review.status} events={detail?.timeline} />
+          <ActivityTimeline events={detail?.timeline} error={detailError} />
         </div>
       </div>
     </div>
@@ -1327,70 +1364,51 @@ function CheckItem({
 }
 
 function ActivityTimeline({
-  status,
   events: persistedEvents,
+  error,
 }: {
-  status: ReviewStatus
   events?: ReviewDetailData["timeline"]
+  error?: string
 }) {
-  const previewEvents = [
-    { label: "Review ingested", detail: "Today, 09:43", done: true },
-    { label: "Draft generated", detail: "Today, 09:45", done: true },
-    {
-      label: "Verification completed",
-      detail: "Today, 09:45",
-      done: true,
-    },
-    {
-      label:
-        status === "published" ? "Published to Google" : "Awaiting publish",
-      detail: status === "published" ? "Just now" : "Owner or admin",
-      done: status === "published",
-    },
-  ]
-  const events = persistedEvents?.length
-    ? persistedEvents.slice(0, 8).map((event) => ({
+  const events =
+    persistedEvents?.slice(0, 8).map((event) => ({
         label: event.action
           .split(".")
           .map((part) => part.replaceAll("_", " "))
           .join(" · "),
         detail: event.createdAt,
         done: true,
-      }))
-    : previewEvents
+      })) ?? []
 
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Activity</h3>
-      <ol className="flex flex-col">
-        {events.map((event, index) => (
-          <li key={event.label} className="relative flex gap-3 pb-4 last:pb-0">
-            {index < events.length - 1 ? (
-              <span className="absolute top-5 left-[9px] h-[calc(100%-0.25rem)] w-px bg-border" />
-            ) : null}
-            <span
-              className={cn(
-                "relative mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border bg-background",
-                event.done
-                  ? "border-primary text-primary"
-                  : "border-border text-muted-foreground"
-              )}
-            >
-              {event.done ? (
+      {error ? (
+        <p className="text-xs leading-relaxed text-destructive">{error}</p>
+      ) : events.length ? (
+        <ol className="flex flex-col">
+          {events.map((event, index) => (
+            <li key={event.label} className="relative flex gap-3 pb-4 last:pb-0">
+              {index < events.length - 1 ? (
+                <span className="absolute top-5 left-[9px] h-[calc(100%-0.25rem)] w-px bg-border" />
+              ) : null}
+              <span className="relative mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-primary bg-background text-primary">
                 <Check className="size-3" aria-hidden />
-              ) : (
-                <Clock3 className="size-3" aria-hidden />
-              )}
-            </span>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-medium">{event.label}</span>
-              <span className="text-[11px] text-muted-foreground">
-                {event.detail}
               </span>
-            </div>
-          </li>
-        ))}
-      </ol>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">{event.label}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {event.detail}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          No activity has been recorded for this review.
+        </p>
+      )}
     </div>
   )
 }

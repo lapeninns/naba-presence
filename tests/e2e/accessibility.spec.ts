@@ -43,14 +43,20 @@ for (const viewport of [
 
     test("inbox, review detail, and reply editor", async ({ page }) => {
       await page.goto("/")
+      const row = page
+        .getByRole("region", { name: "Review list" })
+        .getByRole("button")
+        .first()
+      await expect(row).toBeVisible()
       if (viewport.name === "mobile") {
-        const row = page.getByRole("button", { name: /Alice Morgan/ }).first()
-        await expect(row).toBeVisible()
         await expectAccessible(page, "mobile review inbox")
         await row.click()
       }
       await expect(
-        page.getByRole("heading", { name: "Alice Morgan" }).first()
+        page
+          .getByRole("region", { name: "Selected review" })
+          .getByRole("heading")
+          .first()
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} review detail and editor`)
     })
