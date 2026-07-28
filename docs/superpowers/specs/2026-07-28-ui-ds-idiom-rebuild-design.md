@@ -155,3 +155,17 @@ feedback policy above.
 
 Shell (+ Toaster/theme toggle) → Reviews → Overview → Analytics → Connections →
 Settings → final validation sweep. Each increment leaves all checks green.
+
+## Amendments (2026-07-28)
+
+- Adopted parallel reply-policy work (commit 37af99f) extended beyond the tone
+  selector: rating-only reply personalization changes, modified
+  `tests/rating-only.test.ts`, new `tests/reply-policy.test.ts`, and a
+  `checks_version` bump to `deterministic-v1+semantic-v2` — superseding this
+  spec's "existing tests pass unmodified" line for those files.
+- The connections a11y test's heading anchor was corrected (commit a182b1f):
+  the previously asserted heading "Google connection" never existed in any
+  version of the view; the assertion now anchors the real h1 ("Google
+  Business Profile" / "Connect Google Business Profile").
+- The plan's Task 8 premise that the a11y suite matches heading "Google
+  connection" was a plan error, corrected by the same commit.
