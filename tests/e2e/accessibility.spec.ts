@@ -24,13 +24,13 @@ async function expectAccessible(page: Page, surface: string) {
   ).toEqual([])
 }
 
-async function openNavigationSurface(page: Page, name: string) {
-  const mobileMenu = page.getByRole("button", { name: "Open navigation" })
-  const mobile = await mobileMenu.isVisible()
-  if (mobile) await mobileMenu.click()
+async function openNavigationSurface(page: Page, name: string, mobile: boolean) {
+  if (mobile) {
+    await page.getByRole("button", { name: "Toggle navigation" }).click()
+  }
   await page.getByRole("button", { name, exact: true }).click()
   if (mobile) {
-    await expect(page.getByRole("dialog", { name: "Navigation" })).toBeHidden()
+    await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeHidden()
   }
 }
 
@@ -63,7 +63,7 @@ for (const viewport of [
 
     test("connections", async ({ page }) => {
       await page.goto("/")
-      await openNavigationSurface(page, "Connections")
+      await openNavigationSurface(page, "Connections", viewport.name === "mobile")
       await expect(
         page.getByRole("heading", { name: "Google connection" })
       ).toBeVisible()
@@ -72,7 +72,7 @@ for (const viewport of [
 
     test("settings", async ({ page }) => {
       await page.goto("/")
-      await openNavigationSurface(page, "Settings")
+      await openNavigationSurface(page, "Settings", viewport.name === "mobile")
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()

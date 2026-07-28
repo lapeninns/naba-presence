@@ -3,21 +3,12 @@
 import {
   Activity,
   ArrowLeft,
-  BarChart3,
-  Bell,
-  Building2,
   Check,
   CheckCircle2,
-  ChevronDown,
-  LayoutDashboard,
-  Link2,
-  Menu,
-  MessageSquareText,
   MoreHorizontal,
   RefreshCw,
   Search,
   Send,
-  Settings,
   Sparkles,
   WandSparkles,
 } from "lucide-react"
@@ -29,6 +20,7 @@ import {
   useTransition,
 } from "react"
 
+import { AppShell } from "@/components/naba-review/app-shell"
 import {
   AnalyticsView,
   ConnectionsView,
@@ -62,21 +54,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-review-data"
 import {
@@ -110,18 +89,6 @@ function mergeLocationDirectory(
   return next
 }
 
-const NAV_ITEMS: {
-  id: View
-  label: string
-  icon: typeof LayoutDashboard
-}[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "reviews", label: "Reviews", icon: MessageSquareText },
-  { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "connections", label: "Connections", icon: Link2 },
-  { id: "settings", label: "Settings", icon: Settings },
-]
-
 const QUEUES: { id: Queue; label: string }[] = [
   { id: "all", label: "All reviews" },
   { id: "needs_reply", label: "Needs reply" },
@@ -132,7 +99,6 @@ const QUEUES: { id: Queue; label: string }[] = [
 
 export function NabaReviewApp() {
   const [activeView, setActiveView] = useState<View>("reviews")
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [reviews, setReviews] = useState<Review[]>([])
   const [selectedId, setSelectedId] = useState("")
   const [apiStatus, setApiStatus] = useState<"loading" | "connected" | "error">(
@@ -184,215 +150,42 @@ export function NabaReviewApp() {
 
   function navigate(view: View) {
     setActiveView(view)
-    setMobileNavOpen(false)
   }
 
   const organisationName = session?.organisationName ?? "Your organisation"
   const displayName = session?.displayName ?? "Account"
-  const userInitials =
-    displayName
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "AC"
 
   return (
-    <div className="flex min-h-svh bg-background text-foreground">
-      <aside className="hidden w-56 shrink-0 border-r bg-sidebar md:flex md:flex-col">
-        <Brand />
-        <SidebarNavigation activeView={activeView} onNavigate={navigate} />
-        <SidebarFooter
+    <AppShell
+      activeView={activeView}
+      onNavigate={navigate}
+      apiStatus={apiStatus}
+      session={session}
+    >
+      {activeView === "overview" ? (
+        <OverviewView
+          reviews={reviews}
+          onNavigate={navigate}
           displayName={displayName}
-          role={session?.role ?? "member"}
-          initials={userInitials}
+          organisationName={organisationName}
         />
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
-          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-            <SheetTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="md:hidden"
-                  aria-label="Open navigation"
-                />
-              }
-            >
-              <Menu />
-            </SheetTrigger>
-            <SheetContent side="left" className="w-[280px] bg-sidebar p-0">
-              <SheetHeader className="sr-only">
-                <SheetTitle>Navigation</SheetTitle>
-                <SheetDescription>
-                  Move between NabaReview workspaces.
-                </SheetDescription>
-              </SheetHeader>
-              <Brand />
-              <SidebarNavigation
-                activeView={activeView}
-                onNavigate={navigate}
-              />
-              <SidebarFooter
-                displayName={displayName}
-                role={session?.role ?? "member"}
-                initials={userInitials}
-              />
-            </SheetContent>
-          </Sheet>
-
-          <div className="hidden min-w-0 items-center gap-2 md:flex">
-            <Building2 className="size-4 text-muted-foreground" aria-hidden />
-            <span className="truncate text-sm font-medium">
-              {organisationName}
-            </span>
-            <ChevronDown
-              className="size-3.5 text-muted-foreground"
-              aria-hidden
-            />
-          </div>
-
-          <div className="ml-auto flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs text-muted-foreground lg:flex">
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  apiStatus === "connected"
-                    ? "bg-success"
-                    : apiStatus === "loading"
-                      ? "bg-rating"
-                      : "bg-muted-foreground"
-                )}
-              />
-              {apiStatus === "connected"
-                ? "Live data"
-                : apiStatus === "loading"
-                  ? "Checking live data"
-                  : "Live data unavailable"}
-            </div>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Notifications"
-                  />
-                }
-              >
-                <Bell />
-              </TooltipTrigger>
-              <TooltipContent>Notifications</TooltipContent>
-            </Tooltip>
-            <Avatar className="size-8">
-              <AvatarFallback>{userInitials}</AvatarFallback>
-            </Avatar>
-          </div>
-        </header>
-
-        <main className="min-h-0 flex-1 overflow-auto">
-          {activeView === "overview" ? (
-            <OverviewView
-              reviews={reviews}
-              onNavigate={navigate}
-              displayName={displayName}
-              organisationName={organisationName}
-            />
-          ) : null}
-          {activeView === "reviews" ? (
-            <ReviewsWorkspace
-              reviews={reviews}
-              setReviews={setReviews}
-              selectedId={selectedId}
-              setSelectedId={setSelectedId}
-              apiStatus={apiStatus}
-              onRefresh={refreshReviews}
-            />
-          ) : null}
-          {activeView === "analytics" ? <AnalyticsView /> : null}
-          {activeView === "connections" ? (
-            <ConnectionsView onNavigate={() => navigate("settings")} />
-          ) : null}
-          {activeView === "settings" ? <SettingsView /> : null}
-        </main>
-      </div>
-    </div>
-  )
-}
-
-function Brand() {
-  return (
-    <div className="flex h-16 shrink-0 items-center gap-2 border-b px-5">
-      <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-        <MessageSquareText className="size-4" aria-hidden />
-      </span>
-      <span className="font-heading text-base font-semibold tracking-tight">
-        NabaReview
-      </span>
-    </div>
-  )
-}
-
-function SidebarNavigation({
-  activeView,
-  onNavigate,
-}: {
-  activeView: View
-  onNavigate: (view: View) => void
-}) {
-  return (
-    <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 p-3">
-      {NAV_ITEMS.map((item) => {
-        const Icon = item.icon
-        const isActive = activeView === item.id
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onNavigate(item.id)}
-            className={cn(
-              "flex h-10 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            )}
-            aria-current={isActive ? "page" : undefined}
-          >
-            <Icon className="size-4" aria-hidden />
-            {item.label}
-          </button>
-        )
-      })}
-    </nav>
-  )
-}
-
-function SidebarFooter({
-  displayName,
-  role,
-  initials,
-}: {
-  displayName: string
-  role: AppSession["role"]
-  initials: string
-}) {
-  return (
-    <div className="border-t p-3">
-      <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-        <Avatar className="size-8">
-          <AvatarFallback>{initials}</AvatarFallback>
-        </Avatar>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium">{displayName}</span>
-          <span className="truncate text-xs text-muted-foreground capitalize">
-            {role}
-          </span>
-        </div>
-        <MoreHorizontal className="size-4 text-muted-foreground" aria-hidden />
-      </div>
-    </div>
+      ) : null}
+      {activeView === "reviews" ? (
+        <ReviewsWorkspace
+          reviews={reviews}
+          setReviews={setReviews}
+          selectedId={selectedId}
+          setSelectedId={setSelectedId}
+          apiStatus={apiStatus}
+          onRefresh={refreshReviews}
+        />
+      ) : null}
+      {activeView === "analytics" ? <AnalyticsView /> : null}
+      {activeView === "connections" ? (
+        <ConnectionsView onNavigate={() => navigate("settings")} />
+      ) : null}
+      {activeView === "settings" ? <SettingsView /> : null}
+    </AppShell>
   )
 }
 
