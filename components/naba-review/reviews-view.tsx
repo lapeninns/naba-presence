@@ -1009,7 +1009,7 @@ function ReviewDetail({
         >
           <ArrowLeft />
         </Button>
-        <Avatar size="default">
+        <Avatar size="lg">
           <AvatarFallback>{review.initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
@@ -1038,8 +1038,14 @@ function ReviewDetail({
           <DropdownMenuContent align="end" className="min-w-48">
             <DropdownMenuItem
               onClick={() => {
-                void navigator.clipboard.writeText(review.id)
-                toast.add({ type: "success", title: "Review ID copied" })
+                navigator.clipboard
+                  .writeText(review.id)
+                  .then(() =>
+                    toast.add({ type: "success", title: "Review ID copied" })
+                  )
+                  .catch(() =>
+                    setFeedback("Review ID could not be copied.")
+                  )
               }}
             >
               Copy review ID
