@@ -101,7 +101,7 @@ export function AppShell({
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
           <SidebarTrigger aria-label="Toggle navigation" />
           <div className="hidden min-w-0 items-center gap-2 md:flex">
