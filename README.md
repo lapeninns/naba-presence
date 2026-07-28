@@ -121,3 +121,4 @@ general availability.
 - [Requirement traceability matrix](docs/requirements-matrix.md)
 - [Design system decision](docs/specs/2026-07-28-design-system.md)
 - Original design-system proof sheet: `/design-system`
+- [UI DS-idiom rebuild design](docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)
