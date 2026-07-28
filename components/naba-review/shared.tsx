@@ -12,6 +12,12 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+} from "@/components/ui/card"
 import { type ChartConfig } from "@/components/ui/chart"
 import {
   Empty,
@@ -130,6 +136,33 @@ export function EmptyData({ message }: { message: string }) {
         <EmptyDescription>{message}</EmptyDescription>
       </EmptyHeader>
     </Empty>
+  )
+}
+
+export function MetricCard({
+  title,
+  value,
+  detail,
+  icon: Icon,
+}: {
+  title: string
+  value: string
+  detail: string
+  icon: typeof Star
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between pb-2">
+        <CardDescription>{title}</CardDescription>
+        <Icon className="size-4 text-muted-foreground" aria-hidden />
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <p className="font-mono text-2xl font-medium tracking-tight">
+          {value}
+        </p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
+      </CardContent>
+    </Card>
   )
 }
 

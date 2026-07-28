@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
-  Clock3,
   Download,
   ExternalLink,
   Info,
@@ -14,12 +13,9 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
-  Star,
-  TrendingUp,
   Unplug,
 } from "lucide-react"
 import { useEffect, useState, useTransition } from "react"
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -34,11 +30,6 @@ import {
 } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart"
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -48,7 +39,6 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -64,12 +54,10 @@ import {
   disconnectGoogle,
   discoverGoogleAccounts,
   discoverGoogleLocations,
-  type AnalyticsOverview,
   type GoogleAccount,
   type GoogleConnection,
   type GoogleLocation,
   linkGoogleLocation,
-  loadAnalytics,
   loadBackfillProgress,
   loadConnections,
   loadInternalLocations,
@@ -83,364 +71,10 @@ import {
   saveSettings,
   updateMember,
 } from "@/lib/naba-review-api"
-import {
-  chartConfig,
-  EmptyData,
-  formatDuration,
-  LiveDataError,
-} from "@/components/naba-review/shared"
-import { MetricCard } from "@/components/naba-review/overview-view"
+import { LiveDataError } from "@/components/naba-review/shared"
 
 function readControlValue(event: { currentTarget: unknown }) {
   return (event.currentTarget as { value: string }).value
-}
-
-export function AnalyticsView() {
-  const [liveAnalytics, setLiveAnalytics] = useState<AnalyticsOverview | null>(
-    null
-  )
-  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "365d">(
-    "30d"
-  )
-  const [granularity, setGranularity] = useState<"day" | "week" | "month">(
-    "day"
-  )
-  const [analyticsStatus, setAnalyticsStatus] = useState<
-    "loading" | "ready" | "error"
-  >("loading")
-  const [reloadKey, setReloadKey] = useState(0)
-
-  useEffect(() => {
-    let active = true
-    const days = Number.parseInt(dateRange)
-    const to = new Date()
-    const from = new Date(to.getTime() - days * 86400000)
-    void loadAnalytics({
-      from: from.toISOString(),
-      to: to.toISOString(),
-      granularity,
-    })
-      .then((analytics) => {
-        if (!active) return
-        setLiveAnalytics(analytics)
-        setAnalyticsStatus("ready")
-      })
-      .catch(() => {
-        if (active) setAnalyticsStatus("error")
-      })
-    return () => {
-      active = false
-    }
-  }, [dateRange, granularity, reloadKey])
-
-  const summary = liveAnalytics?.summary
-  const rangeLabel =
-    dateRange === "365d" ? "12 months" : `${Number.parseInt(dateRange)} days`
-  const chartData =
-    liveAnalytics?.series.map((point) => ({
-      label: new Intl.DateTimeFormat("en-GB", {
-        day: granularity === "month" ? undefined : "numeric",
-        month: "short",
-        year: granularity === "month" ? "2-digit" : undefined,
-      }).format(new Date(point.period)),
-      reviews: point.reviews,
-      replies: point.replies,
-    })) ?? []
-  const rows =
-    liveAnalytics?.locations.map((location) => ({
-      location: location.name,
-      rating:
-        location.averageRating === null
-          ? "—"
-          : location.averageRating.toFixed(1),
-      reviews: location.reviews,
-      responseRate:
-        location.responseRate === null ? "—" : `${location.responseRate}%`,
-      responseRateValue: location.responseRate ?? 0,
-      median: formatDuration(location.medianResponseSeconds),
-      p95: formatDuration(location.p95ResponseSeconds),
-      complaints: location.unresolvedComplaints,
-      rejectionRate:
-        location.verificationRejectionRate === null
-          ? "—"
-          : `${location.verificationRejectionRate}%`,
-    })) ?? []
-
-  function beginAnalyticsLoad() {
-    setLiveAnalytics(null)
-    setAnalyticsStatus("loading")
-  }
-
-  function retryAnalytics() {
-    beginAnalyticsLoad()
-    setReloadKey((value) => value + 1)
-  }
-
-  return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-            Analytics
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Google review and reply performance for the last {rangeLabel}.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <NativeSelect
-            size="sm"
-            value={dateRange}
-            onValueChange={(value) => {
-              beginAnalyticsLoad()
-              setDateRange(value as "7d" | "30d" | "90d" | "365d")
-            }}
-            aria-label="Analytics date range"
-          >
-            <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
-            <NativeSelectOption value="30d">Last 30 days</NativeSelectOption>
-            <NativeSelectOption value="90d">Last 90 days</NativeSelectOption>
-            <NativeSelectOption value="365d">Last 12 months</NativeSelectOption>
-          </NativeSelect>
-          <NativeSelect
-            size="sm"
-            value={granularity}
-            onValueChange={(value) => {
-              beginAnalyticsLoad()
-              setGranularity(value as "day" | "week" | "month")
-            }}
-            aria-label="Analytics granularity"
-          >
-            <NativeSelectOption value="day">Daily</NativeSelectOption>
-            <NativeSelectOption value="week">Weekly</NativeSelectOption>
-            <NativeSelectOption value="month">Monthly</NativeSelectOption>
-          </NativeSelect>
-        </div>
-      </div>
-
-      {analyticsStatus === "error" ? (
-        <LiveDataError onRetry={retryAnalytics} />
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="Google reviews"
-          value={summary ? String(summary.reviewVolume) : "—"}
-          detail={`Current ${rangeLabel} window`}
-          icon={Star}
-        />
-        <MetricCard
-          title="Average rating"
-          value={
-            summary?.averageRating === null || !summary
-              ? "—"
-              : summary.averageRating.toFixed(1)
-          }
-          detail="Google reviews only"
-          icon={TrendingUp}
-        />
-        <MetricCard
-          title="Response rate"
-          value={
-            summary?.responseRate === null || !summary
-              ? "—"
-              : `${summary.responseRate}%`
-          }
-          detail="Published or accepted replies"
-          icon={CheckCircle2}
-        />
-        <MetricCard
-          title="Median response"
-          value={summary ? formatDuration(summary.medianResponseSeconds) : "—"}
-          detail="From review to reply"
-          icon={Clock3}
-        />
-        <MetricCard
-          title="P95 response"
-          value={summary ? formatDuration(summary.p95ResponseSeconds) : "—"}
-          detail="95% of responses are faster"
-          icon={Clock3}
-        />
-        <MetricCard
-          title="Unresolved complaints"
-          value={summary ? String(summary.unresolvedComplaints) : "—"}
-          detail="1–2 star reviews without a live reply"
-          icon={Activity}
-        />
-        <MetricCard
-          title="Verification rejection"
-          value={
-            summary?.verificationRejectionRate === null || !summary
-              ? "—"
-              : `${summary.verificationRejectionRate}%`
-          }
-          detail={
-            summary
-              ? `${summary.verificationFailures} latest drafts failed`
-              : "Latest draft verification results"
-          }
-          icon={ShieldCheck}
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Review and reply volume</CardTitle>
-          <CardDescription>
-            {granularity[0]?.toUpperCase() + granularity.slice(1)} Google review
-            volume for the selected window
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {analyticsStatus === "loading" ? (
-            <Skeleton className="h-[280px] w-full" />
-          ) : chartData.length ? (
-            <ChartContainer
-              config={chartConfig}
-              className="h-[280px] w-full"
-              initialDimension={{ width: 960, height: 280 }}
-            >
-              <AreaChart
-                accessibilityLayer
-                data={chartData}
-                margin={{ left: -18, right: 10, top: 10 }}
-              >
-                <defs>
-                  <linearGradient
-                    id="analytics-reviews-fill"
-                    x1="0"
-                    x2="0"
-                    y1="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="5%"
-                      stopColor="var(--color-reviews)"
-                      stopOpacity={0.2}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="var(--color-reviews)"
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={10}
-                />
-                <YAxis tickLine={false} axisLine={false} width={36} />
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent indicator="line" />}
-                />
-                <Area
-                  dataKey="reviews"
-                  type="monotone"
-                  fill="url(#analytics-reviews-fill)"
-                  stroke="var(--color-reviews)"
-                  strokeWidth={2}
-                />
-                <Area
-                  dataKey="replies"
-                  type="monotone"
-                  fill="transparent"
-                  stroke="var(--color-replies)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ChartContainer>
-          ) : (
-            <EmptyData message="No review activity exists for this date range." />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Location performance</CardTitle>
-          <CardDescription>
-            Response speed and coverage across linked Google locations
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="px-2 py-3 font-medium">Location</th>
-                <th className="px-2 py-3 font-medium">Rating</th>
-                <th className="px-2 py-3 font-medium">Reviews</th>
-                <th className="px-2 py-3 font-medium">Response rate</th>
-                <th className="px-2 py-3 text-right font-medium">
-                  Median response
-                </th>
-                <th className="px-2 py-3 text-right font-medium">
-                  P95 response
-                </th>
-                <th className="px-2 py-3 text-right font-medium">Unresolved</th>
-                <th className="px-2 py-3 text-right font-medium">
-                  Verification rejection
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.location} className="border-b last:border-0">
-                  <td className="px-2 py-4 font-medium">{row.location}</td>
-                  <td className="px-2 py-4">
-                    <span className="inline-flex items-center gap-1">
-                      <Star
-                        className="size-4 fill-rating text-rating"
-                        aria-hidden
-                      />
-                      {row.rating}
-                    </span>
-                  </td>
-                  <td className="px-2 py-4">{row.reviews}</td>
-                  <td className="px-2 py-4">
-                    <div className="flex items-center gap-3">
-                      <Progress
-                        value={row.responseRateValue}
-                        className="w-28"
-                      />
-                      <span>{row.responseRate}</span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-4 text-right">{row.median}</td>
-                  <td className="px-2 py-4 text-right">{row.p95}</td>
-                  <td className="px-2 py-4 text-right">{row.complaints}</td>
-                  <td className="px-2 py-4 text-right">{row.rejectionRate}</td>
-                </tr>
-              ))}
-              {analyticsStatus === "ready" && rows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-2 py-10 text-center text-muted-foreground"
-                  >
-                    No linked location data exists for this date range.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-
-      <Alert>
-        <ShieldCheck />
-        <AlertTitle>Policy-aware analytics</AlertTitle>
-        <AlertDescription>
-          These aggregates are separated from transient Google content. Raw
-          review text remains subject to the organisation’s configured retention
-          policy.
-        </AlertDescription>
-      </Alert>
-    </div>
-  )
 }
 
 function formatAddress(

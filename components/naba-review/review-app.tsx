@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react"
 
+import { AnalyticsView } from "@/components/naba-review/analytics-view"
 import { AppShell } from "@/components/naba-review/app-shell"
 import {
-  AnalyticsView,
   ConnectionsView,
   SettingsView,
 } from "@/components/naba-review/dashboard-views"

@@ -41,6 +41,7 @@ import {
   formatDuration,
   formatTimestamp,
   LiveDataError,
+  MetricCard,
 } from "@/components/naba-review/shared"
 
 type Navigate = (view: "reviews" | "analytics" | "connections") => void
@@ -324,33 +325,6 @@ export function OverviewView({
         </Card>
       </div>
     </div>
-  )
-}
-
-export function MetricCard({
-  title,
-  value,
-  detail,
-  icon: Icon,
-}: {
-  title: string
-  value: string
-  detail: string
-  icon: typeof Star
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between pb-2">
-        <CardDescription>{title}</CardDescription>
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1">
-        <p className="font-mono text-2xl font-medium tracking-tight">
-          {value}
-        </p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
-      </CardContent>
-    </Card>
   )
 }
 
