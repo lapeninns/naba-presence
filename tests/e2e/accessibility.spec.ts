@@ -41,6 +41,25 @@ for (const viewport of [
   test.describe(`${viewport.name} WCAG 2.2 AA`, () => {
     test.use({ viewport })
 
+    test("application shell", async ({ page }) => {
+      await page.goto("/")
+      if (viewport.name === "desktop") {
+        await expect(page.locator('[data-variant="floating"]')).toBeVisible()
+      } else {
+        await page.getByRole("button", { name: "Toggle navigation" }).click()
+        await expect(
+          page.getByRole("dialog", { name: "Sidebar" })
+        ).toBeVisible()
+      }
+      await expect(
+        page.getByRole("navigation", { name: "Primary" })
+      ).toBeVisible()
+      if (viewport.name === "mobile") {
+        await page.waitForTimeout(350)
+      }
+      await expectAccessible(page, `${viewport.name} application shell`)
+    })
+
     test("inbox, review detail, and reply editor", async ({ page }) => {
       await page.goto("/")
       const row = page

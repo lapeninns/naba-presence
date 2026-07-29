@@ -74,26 +74,30 @@ export function AppShell({
 
   return (
     <SidebarProvider>
-      <Sidebar>
-        <SidebarHeader className="h-16 shrink-0 justify-center border-b px-4">
-          <div className="flex items-center gap-2">
+      <Sidebar variant="floating" collapsible="icon">
+        <SidebarHeader className="shrink-0 gap-3 border-b border-sidebar-border/70 px-4 py-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-2">
+          <div className="flex items-center gap-2.5">
             <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <MessageSquareText className="size-4" aria-hidden />
             </span>
-            <span className="font-heading text-base font-semibold tracking-tight">
+            <span className="font-heading text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
               NabaReview
             </span>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
+            <Building2 className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate text-xs font-medium">{organisationName}</span>
           </div>
         </SidebarHeader>
         <SidebarContent>
           <ShellNav activeView={activeView} onNavigate={onNavigate} />
         </SidebarContent>
-        <SidebarFooter className="border-t">
+        <SidebarFooter className="border-t border-sidebar-border/70">
           <div className="flex items-center gap-3 px-2 py-1.5">
             <Avatar size="sm">
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-medium">{displayName}</span>
               <span className="truncate text-xs text-muted-foreground capitalize">
                 {session?.role ?? "member"}
@@ -104,12 +108,8 @@ export function AppShell({
         <SidebarRail />
       </Sidebar>
       <SidebarInset className="min-w-0">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
+        <header className="flex h-14 shrink-0 items-center gap-3 bg-transparent px-4 md:px-6">
           <SidebarTrigger aria-label="Toggle navigation" />
-          <div className="hidden min-w-0 items-center gap-2 md:flex">
-            <Building2 className="size-4 text-muted-foreground" aria-hidden />
-            <span className="truncate text-sm font-medium">{organisationName}</span>
-          </div>
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-xs text-muted-foreground lg:flex">
               <span
@@ -129,9 +129,6 @@ export function AppShell({
                   : "Live data unavailable"}
             </div>
             <ThemeToggle />
-            <Avatar size="sm">
-              <AvatarFallback>{userInitials}</AvatarFallback>
-            </Avatar>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
@@ -149,29 +146,32 @@ function ShellNav({
 }) {
   const { setOpenMobile } = useSidebar()
   return (
-    <SidebarGroup>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            return (
-              <SidebarMenuItem key={item.id}>
-                <SidebarMenuButton
-                  isActive={activeView === item.id}
-                  onClick={() => {
-                    onNavigate(item.id)
-                    setOpenMobile(false)
-                  }}
-                >
-                  <Icon aria-hidden />
-                  {item.label}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )
-          })}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <nav aria-label="Primary">
+      <SidebarGroup>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon
+              return (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    aria-label={item.label}
+                    isActive={activeView === item.id}
+                    onClick={() => {
+                      onNavigate(item.id)
+                      setOpenMobile(false)
+                    }}
+                  >
+                    <Icon aria-hidden />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    </nav>
   )
 }
 
