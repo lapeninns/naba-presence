@@ -64,18 +64,28 @@ export async function GET(request: Request) {
           )::float as "verificationRejectionRate",
           percentile_cont(0.5) within group (
             order by extract(epoch from (
-              rr.google_reply_updated_at - r.create_time
+              rr.first_published_at - r.create_time
             ))
           ) filter (
-            where rr.google_reply_updated_at is not null
-          )::float as "medianResponseSeconds",
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianFirstResponseSeconds",
           percentile_cont(0.95) within group (
+            order by extract(epoch from (
+              rr.first_published_at - r.create_time
+            ))
+          ) filter (
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "p95FirstResponseSeconds",
+          percentile_cont(0.5) within group (
             order by extract(epoch from (
               rr.google_reply_updated_at - r.create_time
             ))
           ) filter (
             where rr.google_reply_updated_at is not null
-          )::float as "p95ResponseSeconds"
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianLatestEditSeconds"
         from review r
         left join review_reply rr on rr.review_id = r.id
         left join lateral (
@@ -178,18 +188,28 @@ export async function GET(request: Request) {
           )::float as "responseRate",
           percentile_cont(0.5) within group (
             order by extract(epoch from (
-              rr.google_reply_updated_at - r.create_time
+              rr.first_published_at - r.create_time
             ))
           ) filter (
-            where rr.google_reply_updated_at is not null
-          )::float as "medianResponseSeconds",
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianFirstResponseSeconds",
           percentile_cont(0.95) within group (
+            order by extract(epoch from (
+              rr.first_published_at - r.create_time
+            ))
+          ) filter (
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "p95FirstResponseSeconds",
+          percentile_cont(0.5) within group (
             order by extract(epoch from (
               rr.google_reply_updated_at - r.create_time
             ))
           ) filter (
             where rr.google_reply_updated_at is not null
-          )::float as "p95ResponseSeconds",
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianLatestEditSeconds",
           count(*) filter (
             where r.star_rating <= 2
               and coalesce(rr.publish_status, 'not_published')
@@ -232,7 +252,111 @@ export async function GET(request: Request) {
         group by l.id, l.name
         order by "averageRating" desc
       `
-      return { from, to, timezone, summary, series, locations }
+      const [providerRow] = await sql<
+        {
+          averageRating: number | null
+          totalReviewCount: number | null
+          localReviewCount: number
+          localAverageRating: number | null
+        }[]
+      >`
+        select
+          round(
+            sum(
+              e.google_average_rating * e.google_total_review_count
+            ) / nullif(sum(e.google_total_review_count), 0),
+            2
+          )::float as "averageRating",
+          sum(e.google_total_review_count)::integer as "totalReviewCount",
+          (
+            select count(*)::integer
+            from review r
+            where r.provider_deleted_at is null
+              ${
+                session.role === "owner" || session.role === "admin"
+                  ? sql``
+                  : sql`and (
+                      not exists (
+                        select 1 from location_member lm
+                        where lm.user_id = ${session.userId}
+                      )
+                      or exists (
+                        select 1 from location_member lm
+                        where lm.user_id = ${session.userId}
+                          and lm.location_id = r.location_id
+                      )
+                    )`
+              }
+          ) as "localReviewCount",
+          (
+            select avg(r.star_rating)::float
+            from review r
+            where r.provider_deleted_at is null
+              ${
+                session.role === "owner" || session.role === "admin"
+                  ? sql``
+                  : sql`and (
+                      not exists (
+                        select 1 from location_member lm
+                        where lm.user_id = ${session.userId}
+                      )
+                      or exists (
+                        select 1 from location_member lm
+                        where lm.user_id = ${session.userId}
+                          and lm.location_id = r.location_id
+                      )
+                    )`
+              }
+          ) as "localAverageRating"
+        from external_location e
+        join location_link ll
+          on ll.external_location_id = e.id
+         and ll.is_active = true
+        where e.provider_totals_refreshed_at is not null
+          ${
+            session.role === "owner" || session.role === "admin"
+              ? sql``
+              : sql`and (
+                  not exists (
+                    select 1 from location_member lm
+                    where lm.user_id = ${session.userId}
+                  )
+                  or exists (
+                    select 1 from location_member lm
+                    where lm.user_id = ${session.userId}
+                      and lm.location_id = ll.location_id
+                  )
+                )`
+          }
+      `
+      const countDivergence =
+        providerRow.totalReviewCount !== null &&
+        Math.abs(
+          providerRow.totalReviewCount - providerRow.localReviewCount
+        ) /
+          Math.max(providerRow.totalReviewCount, 1) >
+          0.02
+      const ratingDivergence =
+        providerRow.averageRating !== null &&
+        providerRow.localAverageRating !== null &&
+        Math.abs(
+          providerRow.averageRating - providerRow.localAverageRating
+        ) > 0.1
+      const providerTotals = {
+        averageRating: providerRow.averageRating,
+        totalReviewCount: providerRow.totalReviewCount,
+        localReviewCount: providerRow.localReviewCount,
+        divergence: countDivergence || ratingDivergence,
+      }
+      return {
+        from,
+        to,
+        timezone,
+        summary,
+        series,
+        locations,
+        providerTotals,
+      }
     })
     return NextResponse.json(analytics)
   } catch (error) {

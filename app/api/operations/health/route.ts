@@ -60,6 +60,37 @@ export async function GET() {
         group by google_policy_violation
         order by count desc
       `
+      const [providerDivergence] = await sql<{ count: number }[]>`
+        with local_totals as (
+          select
+            external_location_id,
+            count(*)::integer as review_count,
+            avg(star_rating)::float as average_rating
+          from review
+          where provider_deleted_at is null
+          group by external_location_id
+        )
+        select count(*) filter (
+          where (
+            e.google_total_review_count is not null
+            and abs(
+              e.google_total_review_count -
+              coalesce(lt.review_count, 0)
+            )::float / greatest(e.google_total_review_count, 1) > 0.02
+          ) or (
+            e.google_average_rating is not null
+            and lt.average_rating is not null
+            and abs(
+              e.google_average_rating::float - lt.average_rating
+            ) > 0.1
+          )
+        )::integer as count
+        from external_location e
+        left join local_totals lt
+          on lt.external_location_id = e.id
+        where e.provider_totals_refreshed_at >=
+          now() - interval '30 days'
+      `
       return {
         generatedAt: new Date().toISOString(),
         sync,
@@ -67,6 +98,7 @@ export async function GET() {
         connections,
         publish24h: publish,
         replyRejections30d: rejections,
+        providerTotalDivergence30d: providerDivergence.count,
       }
     })
     return NextResponse.json(health, {

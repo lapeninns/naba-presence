@@ -307,6 +307,11 @@ describeDatabase("durable publish lifecycle", () => {
 
     const first = await publish(fixture)
     expect(first.status).toBe(200)
+    const [firstReply] = await admin<{ firstPublishedAt: Date }[]>`
+      select first_published_at as "firstPublishedAt"
+      from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
     const deleted = await fetch(
       `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/reply`,
       {
@@ -345,6 +350,14 @@ describeDatabase("durable publish lifecycle", () => {
 
     expect(republish.status).toBe(200)
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(2)
+    const [republishedReply] = await admin<{ firstPublishedAt: Date }[]>`
+      select first_published_at as "firstPublishedAt"
+      from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(republishedReply.firstPublishedAt.toISOString()).toBe(
+      firstReply.firstPublishedAt.toISOString()
+    )
     const attempts = await admin<
       { idempotency_key: string; operation: string; status: string }[]
     >`

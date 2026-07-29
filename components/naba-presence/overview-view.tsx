@@ -183,9 +183,13 @@ export function OverviewView({
           icon={TrendingUp}
         />
         <MetricCard
-          title="Median response"
-          value={summary ? formatDuration(summary.medianResponseSeconds) : "—"}
-          detail="From review to reply"
+          title="Median first response"
+          value={
+            summary
+              ? formatDuration(summary.medianFirstResponseSeconds)
+              : "—"
+          }
+          detail="From review to first reply"
           icon={Clock3}
         />
         <MetricCard

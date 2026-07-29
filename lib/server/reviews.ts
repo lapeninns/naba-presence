@@ -259,7 +259,8 @@ export async function upsertGoogleReview(
         google_reply_state,
         google_policy_violation,
         publish_status,
-        google_reply_updated_at
+        google_reply_updated_at,
+        first_published_at
       )
       values (
         ${organisationId},
@@ -274,6 +275,7 @@ export async function upsertGoogleReview(
               ? "published"
               : "accepted"
         },
+        ${moderation.updateTime},
         ${moderation.updateTime}
       )
       on conflict (organisation_id, review_id) do update
@@ -282,7 +284,11 @@ export async function upsertGoogleReview(
         google_reply_state = excluded.google_reply_state,
         google_policy_violation = excluded.google_policy_violation,
         publish_status = excluded.publish_status,
-      google_reply_updated_at = excluded.google_reply_updated_at
+        google_reply_updated_at = excluded.google_reply_updated_at,
+        first_published_at = coalesce(
+          review_reply.first_published_at,
+          excluded.google_reply_updated_at
+        )
     `
   } else {
     await sql`
@@ -466,6 +472,18 @@ export async function syncLinkedLocation(input: {
             ) {
               committed += 1
             }
+          }
+          if (pages === 0) {
+            await sql`
+              update external_location
+              set
+                google_average_rating = ${page.averageRating ?? null},
+                google_total_review_count = ${
+                  page.totalReviewCount ?? null
+                },
+                provider_totals_refreshed_at = now()
+              where id = ${input.externalLocationId}
+            `
           }
           await sql`
             update sync_checkpoint

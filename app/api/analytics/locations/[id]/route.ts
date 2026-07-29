@@ -66,18 +66,28 @@ export async function GET(
           )::float as "responseRate",
           percentile_cont(0.5) within group (
             order by extract(epoch from (
-              rr.google_reply_updated_at - r.create_time
+              rr.first_published_at - r.create_time
             ))
           ) filter (
-            where rr.google_reply_updated_at is not null
-          )::float as "medianResponseSeconds",
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianFirstResponseSeconds",
           percentile_cont(0.95) within group (
+            order by extract(epoch from (
+              rr.first_published_at - r.create_time
+            ))
+          ) filter (
+            where rr.first_published_at is not null
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "p95FirstResponseSeconds",
+          percentile_cont(0.5) within group (
             order by extract(epoch from (
               rr.google_reply_updated_at - r.create_time
             ))
           ) filter (
             where rr.google_reply_updated_at is not null
-          )::float as "p95ResponseSeconds",
+              and rr.publish_status not in ('deleted', 'not_published')
+          )::float as "medianLatestEditSeconds",
           count(r.id) filter (
             where r.star_rating <= 2
               and coalesce(rr.publish_status, 'not_published')

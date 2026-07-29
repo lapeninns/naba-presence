@@ -636,8 +636,9 @@ export type AnalyticsOverview = {
     unresolvedComplaints: number
     verificationFailures: number
     verificationRejectionRate: number | null
-    medianResponseSeconds: number | null
-    p95ResponseSeconds: number | null
+    medianFirstResponseSeconds: number | null
+    p95FirstResponseSeconds: number | null
+    medianLatestEditSeconds: number | null
   }
   series: Array<{
     period: string
@@ -652,11 +653,18 @@ export type AnalyticsOverview = {
     reviews: number
     averageRating: number | null
     responseRate: number | null
-    medianResponseSeconds: number | null
-    p95ResponseSeconds: number | null
+    medianFirstResponseSeconds: number | null
+    p95FirstResponseSeconds: number | null
+    medianLatestEditSeconds: number | null
     unresolvedComplaints: number
     verificationRejectionRate: number | null
   }>
+  providerTotals: {
+    averageRating: number | null
+    totalReviewCount: number | null
+    localReviewCount: number
+    divergence: boolean
+  }
 }
 
 export async function loadAnalytics(options?: {

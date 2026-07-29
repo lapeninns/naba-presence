@@ -109,8 +109,9 @@ export function AnalyticsView() {
       responseRate:
         location.responseRate === null ? "—" : `${location.responseRate}%`,
       responseRateValue: location.responseRate ?? 0,
-      median: formatDuration(location.medianResponseSeconds),
-      p95: formatDuration(location.p95ResponseSeconds),
+      firstResponse: formatDuration(location.medianFirstResponseSeconds),
+      p95FirstResponse: formatDuration(location.p95FirstResponseSeconds),
+      latestEdit: formatDuration(location.medianLatestEditSeconds),
       complaints: location.unresolvedComplaints,
       rejectionRate:
         location.verificationRejectionRate === null
@@ -200,15 +201,33 @@ export function AnalyticsView() {
           icon={CheckCircle2}
         />
         <MetricCard
-          title="Median response"
-          value={summary ? formatDuration(summary.medianResponseSeconds) : "—"}
-          detail="From review to reply"
+          title="Median first response"
+          value={
+            summary
+              ? formatDuration(summary.medianFirstResponseSeconds)
+              : "—"
+          }
+          detail="From review to first reply"
           icon={Clock3}
         />
         <MetricCard
-          title="P95 response"
-          value={summary ? formatDuration(summary.p95ResponseSeconds) : "—"}
-          detail="95% of responses are faster"
+          title="P95 first response"
+          value={
+            summary
+              ? formatDuration(summary.p95FirstResponseSeconds)
+              : "—"
+          }
+          detail="95% of first responses are faster"
+          icon={Clock3}
+        />
+        <MetricCard
+          title="Median latest edit"
+          value={
+            summary
+              ? formatDuration(summary.medianLatestEditSeconds)
+              : "—"
+          }
+          detail="From review to latest reply edit"
           icon={Clock3}
         />
         <MetricCard
@@ -324,8 +343,15 @@ export function AnalyticsView() {
                 <TableHead>Rating</TableHead>
                 <TableHead>Reviews</TableHead>
                 <TableHead>Response rate</TableHead>
-                <TableHead className="text-right">Median response</TableHead>
-                <TableHead className="text-right">P95 response</TableHead>
+                <TableHead className="text-right">
+                  Median first response
+                </TableHead>
+                <TableHead className="text-right">
+                  P95 first response
+                </TableHead>
+                <TableHead className="text-right">
+                  Median latest edit
+                </TableHead>
                 <TableHead className="text-right">Unresolved</TableHead>
                 <TableHead className="text-right">
                   Verification rejection
@@ -360,10 +386,13 @@ export function AnalyticsView() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
-                    {row.median}
+                    {row.firstResponse}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
-                    {row.p95}
+                    {row.p95FirstResponse}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {row.latestEdit}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
                     {row.complaints}
@@ -376,7 +405,7 @@ export function AnalyticsView() {
               {analyticsStatus === "ready" && rows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="py-10 text-center text-muted-foreground"
                   >
                     No linked location data exists for this date range.

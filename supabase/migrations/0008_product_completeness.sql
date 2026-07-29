@@ -102,6 +102,38 @@ grant execute on function resolve_invitation_for_acceptance(text)
 
 grant select, insert, update, delete on invitation to naba_app_runtime;
 
+update review_reply rr
+set first_published_at = coalesce(
+  (
+    select min(pa.finished_at)
+    from publish_attempt pa
+    where pa.review_reply_id = rr.id
+      and pa.operation = 'publish'
+      and pa.status = 'succeeded'
+  ),
+  case
+    when rr.publish_status in ('published', 'accepted', 'rejected')
+      then rr.google_reply_updated_at
+  end
+)
+where rr.first_published_at is null;
+
+alter table external_location
+  add column google_average_rating numeric(3, 2),
+  add column google_total_review_count integer,
+  add column provider_totals_refreshed_at timestamptz;
+
+grant select (
+  google_average_rating,
+  google_total_review_count,
+  provider_totals_refreshed_at
+) on external_location to naba_app_runtime;
+grant update (
+  google_average_rating,
+  google_total_review_count,
+  provider_totals_refreshed_at
+) on external_location to naba_app_runtime;
+
 insert into schema_migration (version)
 values ('0008_product_completeness')
 on conflict (version) do nothing;
