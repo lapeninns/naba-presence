@@ -336,6 +336,19 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} connections`)
     })
 
+    test("menu assistant", async ({ page }) => {
+      await page.goto("/")
+      await openNavigationSurface(
+        page,
+        "Menu assistant",
+        viewport.name === "mobile"
+      )
+      await expect(
+        page.getByRole("heading", { name: "Menu assistant" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} menu assistant`)
+    })
+
     test("settings", async ({ page }) => {
       await page.goto("/")
       await openNavigationSurface(page, "Settings", viewport.name === "mobile")

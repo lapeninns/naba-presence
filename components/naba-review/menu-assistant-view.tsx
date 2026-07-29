@@ -41,6 +41,7 @@ import {
   type ManagedMenu,
   setMenuPublished,
 } from "@/lib/naba-review-api"
+import { PageFrame, PageHeader } from "@/components/naba-review/shared"
 
 function itemCount(menu: ManagedMenu) {
   return menu.content.categories.reduce(
@@ -53,11 +54,7 @@ function formatBytes(value: number) {
   return `${(value / 1024 / 1024).toFixed(value > 1024 * 1024 ? 1 : 2)} MB`
 }
 
-export function MenuAssistantView({
-  onNavigate,
-}: {
-  onNavigate: () => void
-}) {
+export function MenuAssistantView({ onNavigate }: { onNavigate: () => void }) {
   const [locations, setLocations] = useState<InternalLocation[]>([])
   const [menus, setMenus] = useState<ManagedMenu[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState("")
@@ -78,7 +75,9 @@ export function MenuAssistantView({
     setLocations(locationResult.locations)
     setMenus(menuResult.menus)
     setSelectedLocationId((current) => {
-      if (locationResult.locations.some((item) => item.locationId === current)) {
+      if (
+        locationResult.locations.some((item) => item.locationId === current)
+      ) {
         return current
       }
       return locationResult.locations[0]?.locationId ?? ""
@@ -112,7 +111,8 @@ export function MenuAssistantView({
         setFile(null)
         toast.add({
           title: "Menu extracted",
-          description: "Review the structured menu, then publish it for guests.",
+          description:
+            "Review the structured menu, then publish it for guests.",
           type: "success",
         })
       } catch (error) {
@@ -168,19 +168,19 @@ export function MenuAssistantView({
 
   if (loadState === "loading") {
     return (
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-6">
-        <Skeleton className="h-20 w-full" />
-        <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <PageFrame width="wide">
+        <Skeleton className="h-24 w-full rounded-(--nr-radius-card)" />
+        <div className="grid gap-(--nr-gap-card) lg:grid-cols-[360px_minmax(0,1fr)]">
           <Skeleton className="h-96" />
           <Skeleton className="h-96" />
         </div>
-      </main>
+      </PageFrame>
     )
   }
 
   if (loadState === "unavailable") {
     return (
-      <main className="mx-auto w-full max-w-7xl p-4 md:p-6">
+      <PageFrame width="wide">
         <Alert variant="destructive">
           <RefreshCw />
           <AlertTitle>Menu workspace could not be loaded</AlertTitle>
@@ -188,35 +188,32 @@ export function MenuAssistantView({
             Check the database connection and try again.
           </AlertDescription>
         </Alert>
-      </main>
+      </PageFrame>
     )
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-6">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <p className="mb-1 flex items-center gap-2 text-sm font-medium text-primary">
+    <PageFrame width="wide">
+      <PageHeader
+        eyebrow={
+          <p className="flex items-center gap-2 text-xs font-semibold text-primary">
             <Bot className="size-4" aria-hidden />
             Guest experience
           </p>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            Menu assistant
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Upload an approved menu and give guests a link where they can ask
-            questions by text or voice.
-          </p>
-        </div>
-        {selectedMenu?.isPublished ? (
-          <Badge variant="secondary">
-            <CheckCircle2 data-icon="inline-start" />
-            Live for guests
-          </Badge>
-        ) : (
-          <Badge variant="outline">Draft</Badge>
-        )}
-      </div>
+        }
+        title="Menu assistant"
+        description="Upload an approved menu and give guests a link where they can ask questions by text or voice."
+        actions={
+          selectedMenu?.isPublished ? (
+            <Badge variant="secondary">
+              <CheckCircle2 data-icon="inline-start" />
+              Live for guests
+            </Badge>
+          ) : (
+            <Badge variant="outline">Draft</Badge>
+          )
+        }
+      />
 
       {!locations.length ? (
         <Card>
@@ -231,9 +228,9 @@ export function MenuAssistantView({
           </CardFooter>
         </Card>
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="flex flex-col gap-6">
-            <Card>
+        <div className="grid items-start gap-(--nr-gap-card) lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="flex flex-col gap-(--nr-gap-card)">
+            <Card className="bg-card">
               <CardHeader>
                 <CardTitle>Menu source</CardTitle>
                 <CardDescription>
@@ -281,7 +278,7 @@ export function MenuAssistantView({
                   </p>
                 </div>
                 {file ? (
-                  <div className="rounded-2xl bg-secondary p-3 text-sm">
+                  <div className="rounded-(--nr-radius-control) border bg-muted/60 p-3 text-sm">
                     <p className="truncate font-medium">{file.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatBytes(file.size)}
@@ -312,7 +309,7 @@ export function MenuAssistantView({
           </div>
 
           {selectedMenu ? (
-            <Card>
+            <Card className="bg-card">
               <CardHeader>
                 <CardTitle>{selectedMenu.name}</CardTitle>
                 <CardDescription>
@@ -322,9 +319,7 @@ export function MenuAssistantView({
                 </CardDescription>
                 <CardAction>
                   <Badge
-                    variant={
-                      selectedMenu.isPublished ? "secondary" : "outline"
-                    }
+                    variant={selectedMenu.isPublished ? "secondary" : "outline"}
                   >
                     {selectedMenu.isPublished ? "Published" : "Needs review"}
                   </Badge>
@@ -341,9 +336,12 @@ export function MenuAssistantView({
                   </Alert>
                 ) : null}
 
-                <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-(--nr-gap-section)">
                   {selectedMenu.content.categories.map((category) => (
-                    <section key={category.name} className="flex flex-col gap-3">
+                    <section
+                      key={category.name}
+                      className="flex flex-col gap-3"
+                    >
                       <div>
                         <h2 className="font-heading text-base font-semibold">
                           {category.name}
@@ -354,7 +352,7 @@ export function MenuAssistantView({
                           </p>
                         ) : null}
                       </div>
-                      <div className="divide-y rounded-2xl border">
+                      <div className="divide-y overflow-hidden rounded-(--nr-radius-control) border bg-card">
                         {category.items.map((item, index) => (
                           <div
                             key={`${item.name}-${index}`}
@@ -376,10 +374,7 @@ export function MenuAssistantView({
                                     </Badge>
                                   ))}
                                   {item.allergens.map((allergen) => (
-                                    <Badge
-                                      key={allergen}
-                                      variant="destructive"
-                                    >
+                                    <Badge key={allergen} variant="destructive">
                                       {allergen}
                                     </Badge>
                                   ))}
@@ -426,9 +421,9 @@ export function MenuAssistantView({
               </CardFooter>
             </Card>
           ) : (
-            <Card className="min-h-96 items-center justify-center text-center">
+            <Card className="min-h-96 items-center justify-center bg-card text-center">
               <CardContent className="flex max-w-md flex-col items-center gap-3 py-12">
-                <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
+                <span className="flex size-12 items-center justify-center rounded-(--nr-radius-control) bg-secondary">
                   <FileUp className="size-5" aria-hidden />
                 </span>
                 <div>
@@ -445,6 +440,6 @@ export function MenuAssistantView({
           )}
         </div>
       )}
-    </main>
+    </PageFrame>
   )
 }
