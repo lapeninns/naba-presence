@@ -50,6 +50,16 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --shadow-nr-card: var(--nr-shadow-card);
+  --shadow-nr-panel: var(--nr-shadow-panel);
+  --shadow-nr-float: var(--nr-shadow-float);
+  --shadow-nr-hover: var(--nr-shadow-hover);
+  --shadow-nr-pop: var(--nr-shadow-pop);
+  --shadow-nr-modal: var(--nr-shadow-modal);
+  --shadow-nr-primary: var(--nr-shadow-primary);
 
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -129,8 +139,63 @@
   --success-foreground: oklch(1 0 0); /* #FFFFFF */
   --warning: oklch(0.796 0.167 76); /* #F9AB00 — fill only */
   --warning-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --info: oklch(0.57 0.12 230);
+  --info-foreground: oklch(1 0 0);
 
   --radius: 0.625rem;
+
+  /* Foundation scale shared by the application shell and component system. */
+  --nr-space-1: 2px;
+  --nr-space-2: 4px;
+  --nr-space-3: 6px;
+  --nr-space-4: 8px;
+  --nr-space-5: 10px;
+  --nr-space-6: 12px;
+  --nr-space-7: 14px;
+  --nr-space-8: 16px;
+  --nr-space-9: 20px;
+  --nr-space-10: 24px;
+  --nr-space-11: 28px;
+  --nr-space-12: 32px;
+  --nr-space-13: 40px;
+  --nr-space-14: 48px;
+  --nr-sidebar-width: 256px;
+  --nr-sidebar-margin: 14px;
+  --nr-page-pad-x: 30px;
+  --nr-page-pad-y: 26px;
+  --nr-page-max-width: 1180px;
+  --nr-gap-card: 14px;
+  --nr-gap-section: 22px;
+  --nr-card-pad: 18px;
+  --nr-panel-pad: 20px;
+  --nr-radius-tag: 6px;
+  --nr-radius-chip: 8px;
+  --nr-radius-control: 12px;
+  --nr-radius-field: 14px;
+  --nr-radius-card: 18px;
+  --nr-radius-panel: 20px;
+  --nr-radius-shell: 22px;
+  --nr-radius-modal: 24px;
+  --nr-radius-pill: 999px;
+  --nr-shadow-card: 0 6px 20px rgb(0 0 0 / 0.05);
+  --nr-shadow-panel: 0 8px 28px rgb(0 0 0 / 0.06);
+  --nr-shadow-float: 0 12px 32px rgb(0 0 0 / 0.07);
+  --nr-shadow-hover: 0 12px 28px rgb(0 0 0 / 0.09);
+  --nr-shadow-pop: 0 16px 48px rgb(0 0 0 / 0.14);
+  --nr-shadow-modal: 0 24px 80px rgb(0 0 0 / 0.22);
+  --nr-shadow-primary: 0 4px 14px color-mix(in srgb, var(--primary) 35%, transparent);
+  --nr-glass-filter: blur(12px) saturate(1.35);
+  --nr-surface-glass: color-mix(in srgb, var(--card) 62%, transparent);
+  --nr-surface-glass-strong: color-mix(in srgb, var(--card) 70%, transparent);
+  --nr-surface-card-translucent: color-mix(in srgb, var(--card) 66%, transparent);
+  --nr-surface-glass-border: color-mix(in srgb, var(--border) 55%, transparent);
+  --nr-duration-fast: 150ms;
+  --nr-duration-standard: 200ms;
+  --nr-duration-deliberate: 250ms;
+  --nr-duration-overlay: 320ms;
+  --nr-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --nr-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --nr-lift-hover: -2px;
 
   /* Charts: the four Google brand colours plus Google teal. Decorative
        fills, exempt from text contrast — label series, don't rely on hue. */
@@ -206,6 +271,31 @@
   --sidebar-accent-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
   --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
+
+  --nr-shadow-card: 0 6px 20px rgb(0 0 0 / 0.2);
+  --nr-shadow-panel: 0 8px 28px rgb(0 0 0 / 0.24);
+  --nr-shadow-float: 0 12px 32px rgb(0 0 0 / 0.28);
+  --nr-shadow-hover: 0 12px 28px rgb(0 0 0 / 0.32);
+  --nr-shadow-pop: 0 16px 48px rgb(0 0 0 / 0.38);
+  --nr-shadow-modal: 0 24px 80px rgb(0 0 0 / 0.5);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --nr-surface-glass: color-mix(in srgb, var(--card) 94%, transparent);
+    --nr-surface-glass-strong: var(--card);
+    --nr-surface-card-translucent: color-mix(in srgb, var(--card) 96%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --nr-duration-fast: 1ms;
+    --nr-duration-standard: 1ms;
+    --nr-duration-deliberate: 1ms;
+    --nr-duration-overlay: 1ms;
+    --nr-lift-hover: 0px;
+  }
 }
 
 @layer base {
@@ -214,6 +304,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 32rem),
+      radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--rating) 5%, transparent), transparent 30rem);
   }
   html {
     @apply font-sans;
