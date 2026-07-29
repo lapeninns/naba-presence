@@ -17,6 +17,15 @@ const shared = readFileSync(
   new URL("../components/naba-review/shared.tsx", import.meta.url),
   "utf8"
 )
+const card = readFileSync(
+  new URL("../components/ui/card.tsx", import.meta.url),
+  "utf8"
+)
+const sharedFunction = (name: string, nextName: string) =>
+  shared.slice(
+    shared.indexOf(`export function ${name}`),
+    shared.indexOf(`export function ${nextName}`)
+  )
 const tokens = [
   "--nr-space-1",
   "--nr-space-14",
@@ -60,5 +69,29 @@ describe("NabaReview design system", () => {
     expect(shared).toContain("export function PageFrame")
     expect(shared).toContain("export function PageHeader")
     expect(shared).toContain("export function BusinessContext")
+  })
+  it("supports all three PageFrame width modes", () => {
+    const pageFrame = sharedFunction("PageFrame", "PageHeader")
+
+    expect(pageFrame).toContain('width?: "standard" | "wide" | "workspace"')
+    expect(pageFrame).toContain('width === "standard" && "max-w-(--nr-page-max-width)"')
+    expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
+    expect(pageFrame).toContain('width === "workspace" && "max-w-none"')
+  })
+  it("limits the semantic translucent surface to business and metric cards", () => {
+    const businessContext = sharedFunction("BusinessContext", "readControlValue")
+    const metricCard = sharedFunction("MetricCard", "chartConfig")
+
+    expect(businessContext).toContain("--nr-surface-card-translucent")
+    expect(metricCard).toContain("--nr-surface-card-translucent")
+    expect(card).toContain("bg-card")
+    expect(card).not.toContain("--nr-surface-card-translucent")
+  })
+  it("requires a labelled textual BusinessContext status", () => {
+    const businessContext = sharedFunction("BusinessContext", "readControlValue")
+
+    expect(businessContext).toContain("status?: { label: string; value: string }")
+    expect(businessContext).toContain("{status.label}</span>")
+    expect(businessContext).toContain("{status.value}</span>")
   })
 })

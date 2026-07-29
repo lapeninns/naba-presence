@@ -97,7 +97,7 @@ export function BusinessContext({
 }: {
   organisationName: string
   detail?: React.ReactNode
-  status?: { label: string; value: React.ReactNode }
+  status?: { label: string; value: string }
 }) {
   return (
     <Card className="bg-[var(--nr-surface-card-translucent)] backdrop-blur-xl">
