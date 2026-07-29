@@ -85,7 +85,11 @@ import {
   type OrganisationSettings,
   runBackfill,
 } from "@/lib/naba-review-api"
-import { readControlValue } from "@/components/naba-review/shared"
+import {
+  PageFrame,
+  PageHeader,
+  readControlValue,
+} from "@/components/naba-review/shared"
 
 function formatAddress(
   address: GoogleLocation["storefrontAddress"] | null | undefined
@@ -521,22 +525,16 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Merchant setup
-        </Badge>
-        <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-          {setupComplete
-            ? "Google Business Profile"
-            : "Connect Google Business Profile"}
-        </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          {setupComplete
+    <PageFrame width="wide">
+      <PageHeader
+        eyebrow={<Badge variant="outline">Merchant setup</Badge>}
+        title="Google Business Profile"
+        description={
+          setupComplete
             ? "Your locations, review history, and reply policy are ready."
-            : "Set up your review workspace in a few guided steps. You stay in control of every location we import."}
-        </p>
-      </div>
+            : "Set up your review workspace in a few guided steps. You stay in control of every location we import."
+        }
+      />
 
       <SetupProgress
         connected={connection?.status === "active"}
@@ -558,7 +556,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex min-w-0 flex-col gap-6">
-            <Card>
+            <Card aria-label="Google connection">
               <CardHeader className="flex-row items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-3">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
@@ -609,7 +607,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             </Card>
 
             {connection ? (
-              <Card>
+              <Card aria-label="Google account choice">
                 <CardHeader>
                   <CardTitle>Choose your Google account</CardTitle>
                   <CardDescription>
@@ -619,37 +617,44 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   {accounts.length ? (
-                    accounts.map((account) => (
-                      <div
-                        key={account.id}
-                        className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center"
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                          <Building2 className="size-4" aria-hidden />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {account.accountName ?? account.googleAccountName}
-                          </p>
-                          <p className="truncate font-mono text-xs text-muted-foreground">
-                            {account.googleAccountName}
-                            {account.role ? ` · ${account.role}` : ""}
-                          </p>
-                        </div>
-                        <Button
-                          variant={account.isActive ? "secondary" : "outline"}
-                          size="sm"
-                          onClick={() => toggleAccount(account)}
-                          disabled={isPending}
-                          aria-pressed={account.isActive}
+                    <ItemGroup>
+                      {accounts.map((account) => (
+                        <Item
+                          key={account.id}
+                          role="listitem"
+                          variant="outline"
                         >
-                          {account.isActive ? (
-                            <CheckCircle2 data-icon="inline-start" />
-                          ) : null}
-                          {account.isActive ? "Selected" : "Use account"}
-                        </Button>
-                      </div>
-                    ))
+                          <ItemMedia className="flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                            <Building2 className="size-4" aria-hidden />
+                          </ItemMedia>
+                          <ItemContent>
+                            <ItemTitle>
+                              {account.accountName ?? account.googleAccountName}
+                            </ItemTitle>
+                            <ItemDescription className="font-mono">
+                              {account.googleAccountName}
+                              {account.role ? ` · ${account.role}` : ""}
+                            </ItemDescription>
+                          </ItemContent>
+                          <ItemActions>
+                            <Button
+                              variant={
+                                account.isActive ? "secondary" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => toggleAccount(account)}
+                              disabled={isPending}
+                              aria-pressed={account.isActive}
+                            >
+                              {account.isActive ? (
+                                <CheckCircle2 data-icon="inline-start" />
+                              ) : null}
+                              {account.isActive ? "Selected" : "Use account"}
+                            </Button>
+                          </ItemActions>
+                        </Item>
+                      ))}
+                    </ItemGroup>
                   ) : (
                     <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
                       <p className="text-sm font-medium">
@@ -674,7 +679,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             ) : null}
 
             {activeAccount ? (
-              <Card>
+              <Card aria-label="Google location import">
                 <CardHeader>
                   <CardTitle>Choose locations to import</CardTitle>
                   <CardDescription>
@@ -879,7 +884,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             ) : null}
 
             {importItems.length ? (
-              <Card>
+              <Card aria-label="Historical review backfill">
                 <CardHeader>
                   <CardTitle>Historical review import</CardTitle>
                   <CardDescription>
@@ -901,17 +906,16 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                       imported
                     </p>
                   </div>
-                  <div className="flex flex-col divide-y">
+                  <ItemGroup>
                     {importItems.map((item) => (
-                      <div
+                      <Item
                         key={item.externalLocationId}
-                        className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
+                        role="listitem"
+                        variant="outline"
                       >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {item.locationName}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
+                        <ItemContent>
+                          <ItemTitle>{item.locationName}</ItemTitle>
+                          <ItemDescription>
                             {item.status === "succeeded"
                               ? "All available review pages imported"
                               : item.status === "failed"
@@ -919,62 +923,70 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                 : item.status === "cancelled"
                                   ? "Paused"
                                   : "More review pages are ready to import"}
+                          </ItemDescription>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {item.externalLocationId}
                           </p>
-                        </div>
-                        <Badge
-                          variant={
-                            item.status === "failed"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {item.status === "succeeded"
-                            ? "Complete"
-                            : item.status === "failed"
-                              ? "Retry"
-                              : item.status === "cancelled"
-                                ? "Paused"
-                                : "In progress"}
-                        </Badge>
-                        {item.status !== "succeeded" ? (
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                continueBackfill(item.externalLocationId)
-                              }
-                              disabled={isPending}
-                            >
-                              {isPending ? <Spinner /> : <RefreshCw />}
-                              Continue import
-                            </Button>
-                            {item.status !== "cancelled" ? (
+                        </ItemContent>
+                        <ItemActions className="flex-wrap">
+                          <Badge
+                            variant={
+                              item.status === "failed"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {item.status === "succeeded"
+                              ? "Complete"
+                              : item.status === "failed"
+                                ? "Retry"
+                                : item.status === "cancelled"
+                                  ? "Paused"
+                                  : "In progress"}
+                          </Badge>
+                          {item.status !== "succeeded" ? (
+                            <>
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
                                 onClick={() =>
-                                  cancelBackfillContinuation(
-                                    item.externalLocationId
-                                  )
+                                  continueBackfill(item.externalLocationId)
                                 }
                                 disabled={isPending}
                               >
-                                Pause
+                                {isPending ? <Spinner /> : <RefreshCw />}
+                                Continue import
                               </Button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
+                              {item.status !== "cancelled" ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    cancelBackfillContinuation(
+                                      item.externalLocationId
+                                    )
+                                  }
+                                  disabled={isPending}
+                                >
+                                  Pause
+                                </Button>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </ItemActions>
+                      </Item>
                     ))}
-                  </div>
+                  </ItemGroup>
                 </CardContent>
               </Card>
             ) : null}
           </div>
 
           <div className="flex flex-col gap-4 lg:sticky lg:top-6">
-            <Card className="bg-muted/30">
+            <Card
+              aria-label="Connection status and guidance"
+              className="bg-card shadow-md"
+            >
               <CardHeader>
                 <CardTitle>
                   {setupComplete ? "Setup complete" : "What happens next"}
@@ -1030,7 +1042,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             </Card>
 
             {activeAccount ? (
-              <Card>
+              <Card aria-label="Notification management" className="bg-card">
                 <CardHeader>
                   <CardTitle className="text-sm">
                     Optional real-time notifications
@@ -1073,56 +1085,58 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
       ) : null}
 
       {connection ? (
-        <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Connection management</p>
-            <p className="text-xs text-muted-foreground">
-              Reconnect after access changes, or disconnect to stop sync and
-              publishing.
-            </p>
-          </div>
-          <Button variant="outline" onClick={connect} disabled={isPending}>
-            <ExternalLink data-icon="inline-start" />
-            Reconnect
-          </Button>
-          <AlertDialog
-            open={confirmDisconnectOpen}
-            onOpenChange={setConfirmDisconnectOpen}
-          >
-            <AlertDialogTrigger
-              render={
-                <Button variant="outline" size="sm" disabled={isPending} />
-              }
+        <Card aria-label="Connection management" className="bg-card">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Connection management</p>
+              <p className="text-xs text-muted-foreground">
+                Reconnect after access changes, or disconnect to stop sync and
+                publishing.
+              </p>
+            </div>
+            <Button variant="outline" onClick={connect} disabled={isPending}>
+              <ExternalLink data-icon="inline-start" />
+              Reconnect
+            </Button>
+            <AlertDialog
+              open={confirmDisconnectOpen}
+              onOpenChange={setConfirmDisconnectOpen}
             >
-              <Unplug data-icon="inline-start" />
-              Disconnect
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Disconnect Google?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Review sync stops immediately, and the scheduled policy
-                  cleanup removes Google data within 7 days. You can reconnect
-                  at any time.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={() => {
-                    setConfirmDisconnectOpen(false)
-                    disconnect()
-                  }}
-                >
-                  Disconnect
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+              <AlertDialogTrigger
+                render={
+                  <Button variant="outline" size="sm" disabled={isPending} />
+                }
+              >
+                <Unplug data-icon="inline-start" />
+                Disconnect
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Disconnect Google?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Review sync stops immediately, and the scheduled policy
+                    cleanup removes Google data within 7 days. You can reconnect
+                    at any time.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => {
+                      setConfirmDisconnectOpen(false)
+                      disconnect()
+                    }}
+                  >
+                    Disconnect
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </CardContent>
+        </Card>
       ) : null}
-    </div>
+    </PageFrame>
   )
 }
 
@@ -1148,14 +1162,17 @@ function SetupProgress({
     steps.findIndex((step) => !step.complete)
   )
   return (
-    <div className="grid gap-2 sm:grid-cols-4">
+    <div
+      className="grid gap-2 rounded-xl border bg-card p-2 shadow-sm sm:grid-cols-4"
+      aria-label="Connection setup progress"
+    >
       {steps.map((step, index) => {
         const isCurrent =
           !steps.every((item) => item.complete) && index === currentIndex
         return (
           <div
             key={step.label}
-            className="flex items-center gap-3 rounded-xl border bg-card px-3 py-3"
+            className="flex items-center gap-3 rounded-lg px-3 py-3"
             aria-current={isCurrent ? "step" : undefined}
           >
             <span

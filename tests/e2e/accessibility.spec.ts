@@ -407,6 +407,10 @@ for (const viewport of [
       await expect(
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
+      await expect(page.getByLabel("Connection setup progress")).toBeVisible()
+      await expect(
+        page.getByLabel("Connection status and guidance")
+      ).toBeVisible()
       await expectAccessible(page, `${viewport.name} connections`)
     })
 
