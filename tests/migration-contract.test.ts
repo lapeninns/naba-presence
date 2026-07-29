@@ -102,6 +102,25 @@ describe("database migration contract", () => {
     )
   })
 
+  it("0005 hardens app_user and content-free routing tables", async () => {
+    const tenantHardeningMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0005_tenant_hardening.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(tenantHardeningMigration).toContain(
+      "alter table app_user enable row level security"
+    )
+    expect(
+      tenantHardeningMigration.match(
+        /language plpgsql security definer/g
+      )
+    ).toHaveLength(3)
+    expect(tenantHardeningMigration).toContain("webhook_route_claim")
+  })
+
   it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
     const directory = new URL("../supabase/migrations/", import.meta.url)
     const files = (await readdir(directory)).filter(

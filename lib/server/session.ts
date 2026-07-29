@@ -132,6 +132,7 @@ async function syncLocalOwnerIdentity(session: Session): Promise<Session> {
         true
       )
     `
+    await sql`select set_config('app.user_id', ${LOCAL_USER_ID}, true)`
     const [googleIdentity] = await sql<
       { email: string | null; displayName: string | null }[]
     >`
@@ -186,29 +187,10 @@ export async function ensureDevelopmentSession(): Promise<Session> {
       select set_config('app.organisation_id', ${LOCAL_ORGANISATION_ID}, true)
     `
     await sql`
-      insert into organisation (id, slug, name)
-      values (${LOCAL_ORGANISATION_ID}, 'lapen-inns', 'Lapen Inns')
-      on conflict (id) do update set name = excluded.name
-    `
-    await sql`
-      insert into app_user (id, email, display_name)
-      values (
-        ${LOCAL_USER_ID},
-        'local-owner@nabapresence.local',
-        'Local owner'
+      select provision_local_bootstrap(
+        ${LOCAL_ORGANISATION_ID},
+        ${LOCAL_USER_ID}
       )
-      on conflict (id) do nothing
-    `
-    await sql`
-      insert into member (
-        organisation_id,
-        user_id,
-        role,
-        can_publish
-      )
-      values (${LOCAL_ORGANISATION_ID}, ${LOCAL_USER_ID}, 'owner', true)
-      on conflict (organisation_id, user_id)
-      do update set role = 'owner', can_publish = true
     `
     return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })

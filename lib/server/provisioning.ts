@@ -20,19 +20,16 @@ export async function provisionOwner(profile: GoogleProfile) {
     const [user] = await sql<
       { id: string; default_organisation_id: string | null }[]
     >`
-      insert into app_user (email, display_name, google_subject)
-      values (
+      select
+        id::text as id,
+        default_organisation_id::text as default_organisation_id
+      from provision_google_user(
         ${profile.email ?? `${profile.sub}@google.invalid`},
         ${profile.name ?? profile.email ?? "Google user"},
         ${profile.sub}
       )
-      on conflict (email) do update
-      set google_subject = excluded.google_subject,
-          display_name = excluded.display_name
-      returning
-        id::text as id,
-        default_organisation_id::text as default_organisation_id
     `
+    await sql`select set_config('app.user_id', ${user.id}, true)`
     let organisationId = user.default_organisation_id
     if (!organisationId) {
       // Establish the tenant context BEFORE the RLS-sensitive insert so the

@@ -136,6 +136,7 @@ describeDatabase("100k-review inbox performance", () => {
       join numbered_locations nl
         on nl.number = ((series.number - 1) % 500) + 1
     `
+    await admin`analyze review`
   }, 120_000)
 
   afterAll(async () => {
@@ -143,7 +144,7 @@ describeDatabase("100k-review inbox performance", () => {
       await admin`delete from organisation where id = ${organisationId}`
     }
     await Promise.all([admin?.end(), runtime?.end()])
-  })
+  }, 120_000)
 
   it("keeps the P95 cursor-page query below 1.5 seconds", async () => {
     const durations: number[] = []

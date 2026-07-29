@@ -86,11 +86,10 @@ export async function POST(request: Request) {
     assertRoleChangeAllowed(session.role, input.role)
     const member = await withTenant(session.organisationId, async (sql) => {
       const [user] = await sql<{ id: string }[]>`
-        insert into app_user (email, display_name)
-        values (${input.email}, ${input.displayName})
-        on conflict (email) do update
-        set display_name = excluded.display_name
-        returning id::text as id
+        select attach_member_user(
+          ${input.email},
+          ${input.displayName}
+        )::text as id
       `
       const [existing] = await sql<{ role: z.infer<typeof roleSchema> }[]>`
         select role
@@ -133,7 +132,12 @@ export async function POST(request: Request) {
         requestId: requestId(request),
         metadata: { role: input.role, canPublish: input.canPublish },
       })
-      return { ...row, email: input.email, displayName: input.displayName }
+      const [profileRow] = await sql`
+        select email, display_name as "displayName"
+        from app_user
+        where id = ${user.id}
+      `
+      return { ...row, ...profileRow }
     })
     return NextResponse.json({ member }, { status: 201 })
   } catch (error) {

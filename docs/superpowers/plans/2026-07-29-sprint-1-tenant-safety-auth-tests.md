@@ -1042,7 +1042,7 @@ Expected: all PASS, including the new sign-in route tests and axe scenario.
 - Consumes: Task 1's role, Task 4's `provisionOwner`.
 - Produces: SQL functions `provision_google_user(p_email text, p_display_name text, p_google_subject text) returns table (id uuid, default_organisation_id uuid)`, `attach_member_user(p_email text, p_display_name text) returns uuid`, `provision_local_bootstrap(p_organisation_id uuid, p_user_id uuid) returns void`; GUC `app.user_id`; error contract `409 location_routing_conflict` on cross-tenant `webhook_route` claims. Sprint 4 HARD-401 hardens `provision_google_user` with `email_verified` rules — same function name.
 
-- [ ] **Step 1: Write the failing SQL-level tests** — `tests/integration/app-user-isolation.test.ts`:
+- [x] **Step 1: Write the failing SQL-level tests** — `tests/integration/app-user-isolation.test.ts`:
 
 ```ts
 describeDatabase("app_user isolation", () => {
@@ -1133,9 +1133,9 @@ it("keeps organisation_job_route readable context-free but not writable", async 
 })
 ```
 
-- [ ] **Step 2: Run both** — Expected: FAIL (no policies exist; `provision_google_user` undefined).
+- [x] **Step 2: Run both** — Expected: FAIL (no policies exist; `provision_google_user` undefined).
 
-- [ ] **Step 3: Write `supabase/migrations/0005_tenant_hardening.sql`**
+- [x] **Step 3: Write `supabase/migrations/0005_tenant_hardening.sql`**
 
 ```sql
 begin;
@@ -1285,14 +1285,20 @@ on conflict (version) do nothing;
 commit;
 ```
 
-- [ ] **Step 4: Update the three call sites.**
+- [x] **Step 4: Update the three call sites.**
   - `lib/server/provisioning.ts`: replace the raw `insert into app_user … on conflict` (Step 4 of Task 4) with `const [user] = await sql<{ id: string; default_organisation_id: string | null }[]>\`select id::text as id, default_organisation_id::text as default_organisation_id from provision_google_user(${profile.email ?? `${profile.sub}@google.invalid`}, ${profile.name ?? profile.email ?? "Google user"}, ${profile.sub})\``.
   - `app/api/members/route.ts:88-94`: replace the upsert with `const [user] = await sql<{ id: string }[]>\`select attach_member_user(${input.email}, ${input.displayName})::text as id\``. The stale-display-name concern disappears (function never updates existing rows); the response continues to echo `input.displayName` for the newly-invited case only — change the `return` at line 136 to read the actual row: `const [profileRow] = await sql\`select email, display_name as "displayName" from app_user where id = ${user.id}\`` and spread that instead.
   - `lib/server/session.ts`: in `ensureDevelopmentSession` (lines 214-243), replace the three inline upserts with `await sql\`select provision_local_bootstrap(${LOCAL_ORGANISATION_ID}, ${LOCAL_USER_ID})\`` (keep the surrounding `set_config` + `createSession`). In `syncLocalOwnerIdentity` (line 157), add `await sql\`select set_config('app.user_id', ${LOCAL_USER_ID}, true)\`` immediately after the org `set_config` so the self-update policy admits the identity sync.
 
-- [ ] **Step 5: Surface routing conflicts.** In `app/api/google/locations/route.ts`, wrap the `webhook_route` upsert (lines 100-115) in try/catch; on a postgres error with `code === "42501"` (RLS violation — another tenant owns the route), throw `new ApiError(409, "location_routing_conflict", "That Google location is already routed to a different organisation.")`. Add this case to `tests/integration/routing-tables.test.ts` as an HTTP-level test later in Sprint 3 (WEB-303 owns the full semantics); the SQL-level tests above are Sprint 1's evidence.
+  **Deviation:** `provisionOwner` also sets transaction-local `app.user_id`
+  immediately after `provision_google_user` returns. Without that GUC, 0005's
+  binding self-update policy rejects the subsequent
+  `default_organisation_id` update, so returning users are not associated with
+  the organisation just provisioned.
 
-- [ ] **Step 6: Migrate + run all integration suites**
+- [x] **Step 5: Surface routing conflicts.** In `app/api/google/locations/route.ts`, wrap the `webhook_route` upsert (lines 100-115) in try/catch; on a postgres error with `code === "42501"` (RLS violation — another tenant owns the route), throw `new ApiError(409, "location_routing_conflict", "That Google location is already routed to a different organisation.")`. Add this case to `tests/integration/routing-tables.test.ts` as an HTTP-level test later in Sprint 3 (WEB-303 owns the full semantics); the SQL-level tests above are Sprint 1's evidence.
+
+- [x] **Step 6: Migrate + run all integration suites**
 
 ```bash
 pnpm db:migrate
@@ -1301,9 +1307,17 @@ DIRECT_DATABASE_URL=... TEST_RUNTIME_DATABASE_URL=... pnpm test:integration
 
 Expected: PASS — including Task 4's provisioning tests (they now exercise `provision_google_user`) and Task 2's HTTP suites (session lookup now depends on `app_user_session_read`; if `GET /api/session` breaks, the policy above is wrong — fix the policy, not the test).
 
-- [ ] **Step 7: Migration-contract additions** — extend `tests/migration-contract.test.ts` with string assertions for 0005: contains `alter table app_user enable row level security`, `security definer` (×3 functions), `webhook_route_claim`. Run `pnpm test`.
+- [x] **Step 7: Migration-contract additions** — extend `tests/migration-contract.test.ts` with string assertions for 0005: contains `alter table app_user enable row level security`, `security definer` (×3 functions), `webhook_route_claim`. Run `pnpm test`.
 
-- [ ] **Step 8: Full gates** — `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration && pnpm test:a11y`. Expected: PASS.
+- [x] **Step 8: Full gates** — `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration && pnpm test:a11y`. Expected: PASS.
+
+  **Deviation:** The 100k-review performance fixture now runs
+  `ANALYZE review` after its bulk insert. Without explicit planner statistics,
+  repeated local gate runs alternated between a passing P95 and a 4.46-second
+  P95 depending on whether autovacuum analyzed the just-loaded fixture first;
+  its 100k-row cascade cleanup also uses the setup's existing 120-second
+  timeout rather than Vitest's 10-second hook default. The dataset, query, and
+  1.5-second threshold are unchanged.
 
 ---
 
