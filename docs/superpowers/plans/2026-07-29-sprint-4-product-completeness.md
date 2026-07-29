@@ -179,8 +179,8 @@ if (PROMOTION_PATTERN.test(promotionCandidate)) {
 **Interfaces:**
 - Produces: bucket SQL shape `date_trunc(${granularity}, r.create_time, ${timezone})` (PostgreSQL 14+ 3-arg form; PG17 in every environment) where `timezone` = `organisation.default_timezone` (overview) / `location.timezone` (per-location); series zero-filled via `generate_series` over the requested range in the same zone; responses gain `timezone: string`; client formatters pass `timeZone: response.timezone` to `Intl.DateTimeFormat`.
 
-- [ ] **Step 1: Failing DST fixture test** — `tests/integration/routes/analytics-timezone.test.ts`: set the tenant org's `default_timezone = 'Europe/London'` (admin); seed reviews (via `seedLinkedReview` + admin `update review set create_time = …`) at `2026-03-29T00:30:00Z` (= 00:30 GMT, pre-transition day start) and `2026-03-28T23:30:00Z` (= 23:30 GMT March 28); with UTC bucketing both land on different UTC days than London days — assert `GET /api/analytics/overview?granularity=day&…` buckets them under `2026-03-29` and `2026-03-28` **London** days respectively; repeat for the autumn transition (`2026-10-25T00:30:00Z` → London `01:30 BST`, day `2026-10-25`). Second case: zero-fill — a 7-day range with reviews on days 1 and 7 returns 7 series points, days 2–6 with `reviewCount: 0`. Third: `America/New_York` org — a review at `2026-09-15T02:00:00Z` buckets to `2026-09-14`. Run — FAIL (UTC buckets, sparse series).
-- [ ] **Step 2: Implement** — overview route: read `default_timezone` in the existing org-settings select; bucket + zero-fill:
+- [x] **Step 1: Failing DST fixture test** — `tests/integration/routes/analytics-timezone.test.ts`: set the tenant org's `default_timezone = 'Europe/London'` (admin); seed reviews (via `seedLinkedReview` + admin `update review set create_time = …`) at `2026-03-29T00:30:00Z` (= 00:30 GMT, pre-transition day start) and `2026-03-28T23:30:00Z` (= 23:30 GMT March 28); with UTC bucketing both land on different UTC days than London days — assert `GET /api/analytics/overview?granularity=day&…` buckets them under `2026-03-29` and `2026-03-28` **London** days respectively; repeat for the autumn transition (`2026-10-25T00:30:00Z` → London `01:30 BST`, day `2026-10-25`). Second case: zero-fill — a 7-day range with reviews on days 1 and 7 returns 7 series points, days 2–6 with `reviewCount: 0`. Third: `America/New_York` org — a review at `2026-09-15T02:00:00Z` buckets to `2026-09-14`. Run — FAIL (UTC buckets, sparse series).
+- [x] **Step 2: Implement** — overview route: read `default_timezone` in the existing org-settings select; bucket + zero-fill:
 
 ```ts
 const series = await sql`
@@ -205,7 +205,9 @@ const series = await sql`
 ```
 
 Per-location route mirrors it with `location.timezone` (already selected at L36). Client: both formatters gain `timeZone` from the payload.
-- [ ] **Step 3: Run** the fixture suite + `pnpm test:a11y` (analytics scenario's mocked payload gains `timezone` — update the fixture). Expected: PASS.
+- [x] **Step 3: Run** the fixture suite + `pnpm test:a11y` (analytics scenario's mocked payload gains `timezone` — update the fixture). Expected: PASS.
+
+**Deviation:** The binding's zero-fill example names the count field `reviewCount`, while the existing analytics and overview clients consume `reviews` and `replies`. The series now exposes `reviewCount` as required and retains zero-filled `reviews`/`replies` aliases for backwards compatibility.
 
 ---
 

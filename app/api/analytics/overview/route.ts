@@ -26,12 +26,18 @@ export async function GET(request: Request) {
       const from =
         query.from ?? new Date(Date.now() - 30 * 86400000).toISOString()
       const to = query.to ?? new Date().toISOString()
-      const period =
+      const [organisation] = await sql<{ timezone: string }[]>`
+        select default_timezone as timezone
+        from organisation
+        where id = ${session.organisationId}
+      `
+      const timezone = organisation?.timezone ?? "UTC"
+      const bucketInterval =
         query.granularity === "month"
-          ? sql`date_trunc('month', r.create_time)`
+          ? "1 month"
           : query.granularity === "week"
-            ? sql`date_trunc('week', r.create_time)`
-            : sql`date_trunc('day', r.create_time)`
+            ? "1 week"
+            : "1 day"
       const [summary] = await sql`
         select
           count(*)::integer as "reviewVolume",
@@ -99,35 +105,64 @@ export async function GET(request: Request) {
           }
       `
       const series = await sql`
+        with buckets as (
+          select generate_series(
+            date_trunc(
+              ${query.granularity},
+              ${from}::timestamptz,
+              ${timezone}
+            ),
+            date_trunc(
+              ${query.granularity},
+              ${to}::timestamptz,
+              ${timezone}
+            ),
+            ${bucketInterval}::interval
+          ) as period
+        ),
+        counted as (
+          select
+            date_trunc(
+              ${query.granularity},
+              r.create_time,
+              ${timezone}
+            ) as period,
+            count(*)::integer as "reviewCount",
+            count(rr.id) filter (
+              where rr.publish_status in ('accepted', 'published')
+            )::integer as replies,
+            round(avg(r.star_rating)::numeric, 2)::float as "averageRating"
+          from review r
+          left join review_reply rr on rr.review_id = r.id
+          where r.provider_deleted_at is null
+            and r.create_time >= ${from}
+            and r.create_time <= ${to}
+            ${
+              session.role === "owner" || session.role === "admin"
+                ? sql``
+                : sql`and (
+                    not exists (
+                      select 1 from location_member lm
+                      where lm.user_id = ${session.userId}
+                    )
+                    or exists (
+                      select 1 from location_member lm
+                      where lm.user_id = ${session.userId}
+                        and lm.location_id = r.location_id
+                    )
+                  )`
+            }
+          group by 1
+        )
         select
-          ${period} as period,
-          count(*)::integer as reviews,
-          count(rr.id) filter (
-            where rr.publish_status in ('accepted', 'published')
-          )::integer as replies,
-          round(avg(r.star_rating)::numeric, 2)::float as "averageRating"
-        from review r
-        left join review_reply rr on rr.review_id = r.id
-        where r.provider_deleted_at is null
-          and r.create_time >= ${from}
-          and r.create_time <= ${to}
-          ${
-            session.role === "owner" || session.role === "admin"
-              ? sql``
-              : sql`and (
-                  not exists (
-                    select 1 from location_member lm
-                    where lm.user_id = ${session.userId}
-                  )
-                  or exists (
-                    select 1 from location_member lm
-                    where lm.user_id = ${session.userId}
-                      and lm.location_id = r.location_id
-                  )
-                )`
-          }
-        group by 1
-        order by 1
+          b.period,
+          coalesce(c."reviewCount", 0)::integer as "reviewCount",
+          coalesce(c."reviewCount", 0)::integer as reviews,
+          coalesce(c.replies, 0)::integer as replies,
+          c."averageRating"
+        from buckets b
+        left join counted c using (period)
+        order by b.period
       `
       const locations = await sql`
         select
@@ -197,7 +232,7 @@ export async function GET(request: Request) {
         group by l.id, l.name
         order by "averageRating" desc
       `
-      return { from, to, summary, series, locations }
+      return { from, to, timezone, summary, series, locations }
     })
     return NextResponse.json(analytics)
   } catch (error) {

@@ -93,6 +93,7 @@ export function AnalyticsView() {
         day: granularity === "month" ? undefined : "numeric",
         month: "short",
         year: granularity === "month" ? "2-digit" : undefined,
+        timeZone: liveAnalytics.timezone,
       }).format(new Date(point.period)),
       reviews: point.reviews,
       replies: point.replies,

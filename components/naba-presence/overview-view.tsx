@@ -127,6 +127,7 @@ export function OverviewView({
       label: new Intl.DateTimeFormat("en-GB", {
         day: "numeric",
         month: "short",
+        timeZone: overviewData.analytics.timezone,
       }).format(new Date(point.period)),
       reviews: point.reviews,
       replies: point.replies,

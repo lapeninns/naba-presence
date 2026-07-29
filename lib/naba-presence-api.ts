@@ -628,6 +628,7 @@ export async function createPrivacyRequest(input: {
 export type AnalyticsOverview = {
   from: string
   to: string
+  timezone: string
   summary: {
     reviewVolume: number
     averageRating: number | null
@@ -640,6 +641,7 @@ export type AnalyticsOverview = {
   }
   series: Array<{
     period: string
+    reviewCount: number
     reviews: number
     replies: number
     averageRating: number | null

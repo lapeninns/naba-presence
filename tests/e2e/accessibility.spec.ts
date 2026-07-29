@@ -139,6 +139,7 @@ for (const viewport of [
             json: {
               from: "2026-07-22T00:00:00.000Z",
               to: "2026-07-29T00:00:00.000Z",
+              timezone: "Europe/London",
               summary: {
                 reviewVolume: 8,
                 averageRating: 4.6,
@@ -232,6 +233,7 @@ for (const viewport of [
             json: {
               from: "2026-06-29T00:00:00.000Z",
               to: "2026-07-29T00:00:00.000Z",
+              timezone: "Europe/London",
               summary: {
                 reviewVolume: 8,
                 averageRating: 4.6,
