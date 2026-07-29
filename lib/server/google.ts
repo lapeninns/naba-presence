@@ -175,6 +175,16 @@ export function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url")
 }
 
+function googleApiTarget(url: string): string {
+  const proxyBase = process.env.GOOGLE_API_PROXY_BASE
+  if (!proxyBase) return url
+  const providerUrl = new URL(url)
+  return new URL(
+    `${providerUrl.pathname}${providerUrl.search}`,
+    proxyBase
+  ).toString()
+}
+
 export async function exchangeGoogleCode(
   code: string,
   verifier: string
@@ -187,22 +197,25 @@ export async function exchangeGoogleCode(
       "Google OAuth credentials are not configured."
     )
   }
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
-      code,
-      code_verifier: verifier,
-      grant_type: "authorization_code",
-      redirect_uri: new URL(
-        GOOGLE_OAUTH_CALLBACK_PATH,
-        env.NEXTAUTH_URL ?? "http://localhost:3000"
-      ).toString(),
-    }),
-    cache: "no-store",
-  })
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        code,
+        code_verifier: verifier,
+        grant_type: "authorization_code",
+        redirect_uri: new URL(
+          GOOGLE_OAUTH_CALLBACK_PATH,
+          env.NEXTAUTH_URL ?? "http://localhost:3000"
+        ).toString(),
+      }),
+      cache: "no-store",
+    }
+  )
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
     error_description?: string
@@ -240,17 +253,20 @@ async function refreshAccessToken(
     )
   }
   const env = getServerEnv()
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: decryptSecret(connection.refresh_token_ciphertext),
-      grant_type: "refresh_token",
-    }),
-    cache: "no-store",
-  })
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID ?? "",
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+        refresh_token: decryptSecret(connection.refresh_token_ciphertext),
+        grant_type: "refresh_token",
+      }),
+      cache: "no-store",
+    }
+  )
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
   }
@@ -306,7 +322,11 @@ export async function googleRequest<T>(
   url: string,
   accessToken: string,
   init: RequestInit = {},
-  options: { mode?: "safe" | "mutation"; maxAttempts?: number } = {}
+  options: {
+    mode?: "safe" | "mutation"
+    maxAttempts?: number
+    timeoutMs?: number
+  } = {}
 ): Promise<T> {
   const mode = options.mode ?? "safe"
   const maxAttempts = options.maxAttempts ?? 5
@@ -332,7 +352,7 @@ export async function googleRequest<T>(
           await paceGoogleRequest()
           let response: Response
           try {
-            response = await fetch(url, {
+            response = await fetch(googleApiTarget(url), {
               ...init,
               headers: {
                 accept: "application/json",
@@ -341,6 +361,10 @@ export async function googleRequest<T>(
                 ...init.headers,
               },
               cache: "no-store",
+              signal:
+                options.timeoutMs !== undefined
+                  ? AbortSignal.timeout(options.timeoutMs)
+                  : undefined,
             })
           } catch (error) {
             if (mode === "mutation") {

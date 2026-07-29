@@ -32,6 +32,12 @@ version, and added a contract test requiring unique migration prefixes. The
 binding `0004_runtime_role.sql`, `0005_tenant_hardening.sql`, and Sprint 2
 `0006_reply_lifecycle.sql` names remain unchanged.
 
+Task 1's shared admin cleanup also temporarily disables and restores the
+append-only `publish_attempt_event` trigger alongside `audit_log`; reply
+lifecycle route tests now create attempt events, so organisation cascades
+otherwise fail during teardown. This affects test cleanup only and preserves
+the binding `destroyTenants(admin, organisationIds)` signature.
+
 **Files:**
 - Create: `tests/integration/helpers/google-stub.ts`
 - Create: `tests/integration/helpers/env-defaults.ts`
@@ -49,7 +55,7 @@ binding `0004_runtime_role.sql`, `0005_tenant_hardening.sql`, and Sprint 2
   - `saveHumanDraft(baseUrl, cookie, reviewId, body)` → `{ draftId, expectedReviewUpdateTime }` — `POST /api/reviews/{id}/drafts` with `{ tone: "professional", body }` (the human-draft path skips OpenAI; deterministic verification runs, semantic is skipped when `OPENAI_API_KEY` is unset), then `GET /api/reviews/{id}` to read `updateTime` and the draft id.
 - These helpers are reused by Sprint 3 (webhook/sync tests) and Sprint 5 (failure-injection): keep signatures stable.
 
-- [ ] **Step 1: Env defaults for direct lib imports.** `tests/integration/helpers/env-defaults.ts` (imported first by any test that imports `lib/server/*` directly):
+- [x] **Step 1: Env defaults for direct lib imports.** `tests/integration/helpers/env-defaults.ts` (imported first by any test that imports `lib/server/*` directly):
 
 ```ts
 process.env.NEXTAUTH_SECRET ??= "route-harness-secret-value-32-characters!"
@@ -58,7 +64,7 @@ process.env.CRON_SECRET ??= "route-harness-cron-secret"
 process.env.DATABASE_URL ??= process.env.TEST_RUNTIME_DATABASE_URL ?? ""
 ```
 
-- [ ] **Step 2: The proxy seam.** In `lib/server/google.ts`, inside `googleRequest` where the `fetch` is issued (L335-344), rewrite the origin when the seam is set, and add an abort timeout:
+- [x] **Step 2: The proxy seam.** In `lib/server/google.ts`, inside `googleRequest` where the `fetch` is issued (L335-344), rewrite the origin when the seam is set, and add an abort timeout:
 
 ```ts
 const proxyBase = process.env.GOOGLE_API_PROXY_BASE
@@ -78,7 +84,7 @@ const response = await fetch(target, {
 
 Add `timeoutMs?: number` to `googleRequest`'s options type. Apply the same `GOOGLE_API_PROXY_BASE` rewrite to the two raw token fetches (`exchangeGoogleCode` L190-205, `refreshAccessToken` L243-253) so no test can ever hit the real Google. Behavior is unchanged when the env var is absent; `pnpm test` must stay green.
 
-- [ ] **Step 3: Write the stub server.** `tests/integration/helpers/google-stub.ts`:
+- [x] **Step 3: Write the stub server.** `tests/integration/helpers/google-stub.ts`:
 
 ```ts
 import { createServer, type Server } from "node:http"
@@ -150,9 +156,9 @@ function defaultResponse(call: Call) {
 }
 ```
 
-- [ ] **Step 4: Seeding helpers.** Extend `tests/integration/helpers/tenant.ts` with `seedGoogleConnection` / `seedLinkedReview` / `saveHumanDraft` per the Interfaces block. `seedLinkedReview` inserts, in order: `external_location (id, organisation_id, google_connection_id, google_account_name, google_location_name, verified, …)`, `location`, `location_link (organisation_id, external_location_id, location_id, is_active)`, then a `review` exactly like `seedReview` plus `external_location_id` and `google_review_name_hash = sha256(googleReviewName)` with `google_review_name_ciphertext = encryptSecret(googleReviewName)` (import `encryptSecret` from `@/lib/server/crypto` after `./env-defaults`). Use `googleReviewName = \`accounts/stub-account/locations/stub-location/reviews/${reviewId}\``. Column lists must match `supabase/migrations/0001_initial.sql:66-166` — adjust NOT NULL columns there while implementing.
+- [x] **Step 4: Seeding helpers.** Extend `tests/integration/helpers/tenant.ts` with `seedGoogleConnection` / `seedLinkedReview` / `saveHumanDraft` per the Interfaces block. `seedLinkedReview` inserts, in order: `external_location (id, organisation_id, google_connection_id, google_account_name, google_location_name, verified, …)`, `location`, `location_link (organisation_id, external_location_id, location_id, is_active)`, then a `review` exactly like `seedReview` plus `external_location_id` and `google_review_name_hash = sha256(googleReviewName)` with `google_review_name_ciphertext = encryptSecret(googleReviewName)` (import `encryptSecret` from `@/lib/server/crypto` after `./env-defaults`). Use `googleReviewName = \`accounts/stub-account/locations/stub-location/reviews/${reviewId}\``. Column lists must match `supabase/migrations/0001_initial.sql:66-166` — adjust NOT NULL columns there while implementing.
 
-- [ ] **Step 5: Migration `0006_reply_lifecycle.sql`**
+- [x] **Step 5: Migration `0006_reply_lifecycle.sql`**
 
 ```sql
 begin;
@@ -196,7 +202,7 @@ commit;
 
 Add migration-contract assertions (0006 contains `operation`, `publish_generation`, `approval_decision`, and the grant).
 
-- [ ] **Step 6: Smoke the seams.** New test `tests/integration/routes/reply-harness.test.ts`: boot `startAppServer({ GOOGLE_API_PROXY_BASE: stub.baseUrl })`, seed tenant + connection + linked review, `saveHumanDraft`, then `POST /api/reviews/{id}/publish` `{ draftId, expectedReviewUpdateTime }` with the owner cookie → expect 200 and `stub.calls` to contain one `PUT` ending `/reply`. Run:
+- [x] **Step 6: Smoke the seams.** New test `tests/integration/routes/reply-harness.test.ts`: boot `startAppServer({ GOOGLE_API_PROXY_BASE: stub.baseUrl })`, seed tenant + connection + linked review, `saveHumanDraft`, then `POST /api/reviews/{id}/publish` `{ draftId, expectedReviewUpdateTime }` with the owner cookie → expect 200 and `stub.calls` to contain one `PUT` ending `/reply`. Run:
 
 ```bash
 pnpm db:migrate && pnpm build

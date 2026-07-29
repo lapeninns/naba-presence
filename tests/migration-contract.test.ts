@@ -100,16 +100,11 @@ describe("database migration contract", () => {
 
   it("0004 creates the runtime grants role and protects schema_migration", async () => {
     const runtimeRoleMigration = await readFile(
-      new URL(
-        "../supabase/migrations/0004_runtime_role.sql",
-        import.meta.url
-      ),
+      new URL("../supabase/migrations/0004_runtime_role.sql", import.meta.url),
       "utf8"
     )
     expect(runtimeRoleMigration).toContain("create role naba_app_runtime")
-    expect(runtimeRoleMigration).toContain(
-      "nologin nosuperuser nobypassrls"
-    )
+    expect(runtimeRoleMigration).toContain("nologin nosuperuser nobypassrls")
     expect(runtimeRoleMigration).toContain(
       "revoke insert, update, delete on schema_migration from naba_app_runtime"
     )
@@ -127,11 +122,25 @@ describe("database migration contract", () => {
       "alter table app_user enable row level security"
     )
     expect(
-      tenantHardeningMigration.match(
-        /language plpgsql security definer/g
-      )
+      tenantHardeningMigration.match(/language plpgsql security definer/g)
     ).toHaveLength(3)
     expect(tenantHardeningMigration).toContain("webhook_route_claim")
+  })
+
+  it("0006 establishes the reply lifecycle schema", async () => {
+    const replyLifecycleMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0006_reply_lifecycle.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(replyLifecycleMigration).toContain("operation text")
+    expect(replyLifecycleMigration).toContain("publish_generation")
+    expect(replyLifecycleMigration).toContain("create table approval_decision")
+    expect(replyLifecycleMigration).toMatch(
+      /grant[\s\S]+on approval_decision[\s\S]+to naba_app_runtime/
+    )
   })
 
   it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
@@ -141,15 +150,12 @@ describe("database migration contract", () => {
     )
     for (const file of files) {
       const text = await readFile(new URL(file, directory), "utf8")
-      const created = [...text.matchAll(/create table (?:if not exists )?(\w+)/g)]
+      const created = [
+        ...text.matchAll(/create table (?:if not exists )?(\w+)/g),
+      ]
       for (const [, table] of created) {
-        expect(
-          text,
-          `${file} must grant ${table} to naba_app_runtime`
-        ).toMatch(
-          new RegExp(
-            `grant[^;]+on ${table}[^;]+to naba_app_runtime`
-          )
+        expect(text, `${file} must grant ${table} to naba_app_runtime`).toMatch(
+          new RegExp(`grant[^;]+on ${table}[^;]+to naba_app_runtime`)
         )
       }
     }
