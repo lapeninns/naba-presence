@@ -11,6 +11,7 @@
     "start": "node .next/standalone/server.js",
     "start:scheduler": "node scripts/scheduler.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
+    "db:runtime-role": "node scripts/db-create-runtime-role.mjs",
     "db:status": "node scripts/db-status.mjs",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
 
 import { PGlite } from "@electric-sql/pglite"
 import { describe, expect, it } from "vitest"
@@ -28,6 +29,7 @@ const tenantTables = [
   "sync_checkpoint",
   "processed_webhook_event",
   "audit_log",
+  "connection_task",
 ]
 
 describe("database migration contract", () => {
@@ -81,5 +83,43 @@ describe("database migration contract", () => {
   it("enforces workflow transitions in PostgreSQL", () => {
     expect(migration).toContain("enforce_review_workflow_transition")
     expect(migration).toContain("invalid review workflow transition")
+  })
+
+  it("0004 creates the runtime grants role and protects schema_migration", async () => {
+    const runtimeRoleMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0004_runtime_role.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(runtimeRoleMigration).toContain("create role naba_app_runtime")
+    expect(runtimeRoleMigration).toContain(
+      "nologin nosuperuser nobypassrls"
+    )
+    expect(runtimeRoleMigration).toContain(
+      "revoke insert, update, delete on schema_migration from naba_app_runtime"
+    )
+  })
+
+  it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
+    const directory = new URL("../supabase/migrations/", import.meta.url)
+    const files = (await readdir(directory)).filter(
+      (file) => file.endsWith(".sql") && file > "0004"
+    )
+    for (const file of files) {
+      const text = await readFile(new URL(file, directory), "utf8")
+      const created = [...text.matchAll(/create table (?:if not exists )?(\w+)/g)]
+      for (const [, table] of created) {
+        expect(
+          text,
+          `${file} must grant ${table} to naba_app_runtime`
+        ).toMatch(
+          new RegExp(
+            `grant[^;]+on ${table}[^;]+to naba_app_runtime`
+          )
+        )
+      }
+    }
   })
 })

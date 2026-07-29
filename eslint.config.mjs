@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     ".design-sync/**",
     ".ds-sync/**",
     "ds-bundle/**",
+    // Local Git worktrees contain independent source and generated output.
+    ".worktrees/**",
   ]),
 ])
 

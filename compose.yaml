@@ -26,6 +26,12 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
       DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
+    command:
+      [
+        "sh",
+        "-c",
+        "node scripts/db-migrate.mjs && RUNTIME_ROLE_NAME=naba_app RUNTIME_ROLE_PASSWORD=naba_app node scripts/db-create-runtime-role.mjs",
+      ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,7 +46,7 @@ services:
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
+      DATABASE_URL: postgresql://naba_app:naba_app@postgres:5432/nabapresence
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: local-compose-session-secret-at-least-32-characters
       TOKEN_ENCRYPTION_KEY: local-compose-encryption-key-at-least-32-characters

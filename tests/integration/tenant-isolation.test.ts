@@ -20,20 +20,22 @@ describeDatabase("database tenant isolation", () => {
     }
     admin = postgres(adminUrl, { max: 1 })
     runtime = postgres(runtimeUrl, { max: 1 })
-    await admin`
-      do $$
-      begin
-        if not exists (
-          select 1 from pg_roles where rolname = 'naba_test_runtime'
-        ) then
-          create role naba_test_runtime login password 'naba_test_runtime';
-        end if;
-      end
-      $$
+    const [group] = await admin`
+      select 1 as present from pg_roles where rolname = 'naba_app_runtime'
     `
-    await admin`grant usage on schema public to naba_test_runtime`
-    await admin`grant select, insert, update, delete on all tables in schema public to naba_test_runtime`
-    await admin`grant usage, select on all sequences in schema public to naba_test_runtime`
+    if (!group) {
+      throw new Error(
+        "naba_app_runtime missing - run pnpm db:migrate before test:integration"
+      )
+    }
+    const [grant] = await admin`
+      select has_table_privilege(
+        'naba_app_runtime',
+        'review',
+        'select'
+      ) as ok
+    `
+    expect(grant.ok).toBe(true)
     await admin`
       insert into organisation (id, slug, name)
       values

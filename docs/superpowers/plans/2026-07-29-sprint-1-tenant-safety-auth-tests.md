@@ -25,6 +25,11 @@
 
 ### Task 1: SEC-101 — Least-privilege runtime role with migration-managed grants
 
+**Deviation:** The baseline contains an ignored local `.worktrees/` checkout, but
+the flat ESLint configuration did not ignore it and `pnpm lint` traversed its
+generated `.next` output. Added `.worktrees/**` to `globalIgnores` so the
+documented repository gate evaluates only this checkout.
+
 **Files:**
 - Create: `supabase/migrations/0004_runtime_role.sql`
 - Create: `scripts/db-create-runtime-role.mjs`
@@ -37,7 +42,7 @@
 **Interfaces:**
 - Produces: DB role `naba_app_runtime` (NOLOGIN grants holder); script `node scripts/db-create-runtime-role.mjs` (idempotent; env `RUNTIME_ROLE_NAME` default `naba_test_runtime`, `RUNTIME_ROLE_PASSWORD` default `naba_test_runtime`, connects via `DIRECT_DATABASE_URL ?? DATABASE_URL`). Every later task's "runtime" connection means a LOGIN member of `naba_app_runtime`.
 
-- [ ] **Step 1: Write the failing integration test** — replace the grant bootstrapping in `tests/integration/tenant-isolation.test.ts` `beforeAll` (lines 23-36) so the test *asserts* migration-managed grants instead of creating them:
+- [x] **Step 1: Write the failing integration test** — replace the grant bootstrapping in `tests/integration/tenant-isolation.test.ts` `beforeAll` (lines 23-36) so the test *asserts* migration-managed grants instead of creating them:
 
 ```ts
   beforeAll(async () => {
@@ -65,7 +70,7 @@
 
 Apply the same replacement to `inbox-performance.test.ts`'s role-creation block.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 pnpm supabase:start
@@ -74,7 +79,7 @@ DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres TEST
 
 Expected: FAIL with "naba_app_runtime missing".
 
-- [ ] **Step 3: Write `supabase/migrations/0004_runtime_role.sql`**
+- [x] **Step 3: Write `supabase/migrations/0004_runtime_role.sql`**
 
 ```sql
 begin;
@@ -106,7 +111,7 @@ commit;
 
 Rule going forward (enforced in Step 6): every later migration that creates a table adds its own `grant select, insert, update, delete on <table> to naba_app_runtime;` — do not rely on default privileges, because the migration-admin role differs per environment.
 
-- [ ] **Step 4: Write `scripts/db-create-runtime-role.mjs`**
+- [x] **Step 4: Write `scripts/db-create-runtime-role.mjs`**
 
 ```js
 import { dirname } from "node:path"
@@ -151,7 +156,7 @@ try {
 
 Add the package script in `package.json`: `"db:runtime-role": "node scripts/db-create-runtime-role.mjs"`.
 
-- [ ] **Step 5: Apply and verify**
+- [x] **Step 5: Apply and verify**
 
 ```bash
 pnpm db:migrate && pnpm db:runtime-role
@@ -160,7 +165,7 @@ DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres TEST
 
 Expected: PASS — including the three pre-existing tenant-isolation cases, now under migration-managed grants.
 
-- [ ] **Step 6: Extend `tests/migration-contract.test.ts`** — add `"connection_task"` to the `tenantTables` array (it is in the real RLS loop but missing from the test list), and add:
+- [x] **Step 6: Extend `tests/migration-contract.test.ts`** — add `"connection_task"` to the `tenantTables` array (it is in the real RLS loop but missing from the test list), and add:
 
 ```ts
 it("0004 creates the runtime grants role and protects schema_migration", async () => {
@@ -192,7 +197,7 @@ it("every migration after 0003 grants new tables to naba_app_runtime", async () 
 })
 ```
 
-- [ ] **Step 7: Update `compose.yaml` and `.env.example`.** In `compose.yaml`: give the `migrate` service a second command step so it also creates the runtime login role, and repoint `web` at it. Change the `migrate` service to:
+- [x] **Step 7: Update `compose.yaml` and `.env.example`.** In `compose.yaml`: give the `migrate` service a second command step so it also creates the runtime login role, and repoint `web` at it. Change the `migrate` service to:
 
 ```yaml
     command:
@@ -212,7 +217,7 @@ DATABASE_URL=postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:54322/po
 DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 ```
 
-- [ ] **Step 8: Run static + unit gates**
+- [x] **Step 8: Run static + unit gates**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test
