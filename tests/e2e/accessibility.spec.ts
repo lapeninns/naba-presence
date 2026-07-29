@@ -574,11 +574,61 @@ for (const viewport of [
     })
 
     test("settings", async ({ page }) => {
+      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            session: {
+              sessionId: "session-settings-a11y",
+              userId: "user-settings-a11y",
+              organisationId: "org-settings-a11y",
+              organisationName: "Naba Review",
+              displayName: "Alex Morgan",
+              email: "alex@example.com",
+              role: "owner",
+              canPublish: true,
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            settings: {
+              approvalRequired: true,
+              rawContentRetentionDays: 30,
+              defaultLanguageCode: "en",
+              defaultTimezone: "Europe/London",
+              directPublishConsent: false,
+              directPublishConsentAt: null,
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            members: [
+              {
+                userId: "user-settings-a11y",
+                email: "alex@example.com",
+                displayName: "Alex Morgan",
+                role: "owner",
+                canPublish: true,
+                locations: [],
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+        await route.fulfill({ json: { locations: [] } })
+      })
       await page.goto("/")
       await openNavigationSurface(page, "Settings", viewport.name === "mobile")
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()
+      await expect(page.getByText("Team access", { exact: true })).toBeVisible()
       await expectAccessible(page, `${viewport.name} settings`)
     })
   })

@@ -64,6 +64,8 @@ import {
 } from "@/lib/naba-review-api"
 import {
   LiveDataError,
+  PageFrame,
+  PageHeader,
   readControlValue,
 } from "@/components/naba-review/shared"
 
@@ -149,15 +151,11 @@ export function SettingsView() {
 
   if (settingsStatus !== "ready") {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-            Reply policy
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Human approval, verification and retention controls.
-          </p>
-        </div>
+      <PageFrame>
+        <PageHeader
+          title="Reply policy"
+          description="Human approval, verification and retention controls."
+        />
         {settingsStatus === "loading" ? (
           <>
             <Skeleton className="h-72 w-full" />
@@ -166,7 +164,7 @@ export function SettingsView() {
         ) : (
           <LiveDataError onRetry={reloadSettings} />
         )}
-      </div>
+      </PageFrame>
     )
   }
 
@@ -297,15 +295,11 @@ export function SettingsView() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-          Reply policy
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Human approval, verification and retention controls.
-        </p>
-      </div>
+    <PageFrame>
+      <PageHeader
+        title="Reply policy"
+        description="Human approval, verification and retention controls."
+      />
 
       <Card>
         <CardHeader>
@@ -431,9 +425,7 @@ export function SettingsView() {
                       setNewMemberRole(value as OrganisationMember["role"])
                     }
                   >
-                    <NativeSelectOption value="admin">
-                      Admin
-                    </NativeSelectOption>
+                    <NativeSelectOption value="admin">Admin</NativeSelectOption>
                     <NativeSelectOption value="member">
                       Member
                     </NativeSelectOption>
@@ -630,8 +622,8 @@ export function SettingsView() {
             <ItemContent>
               <ItemTitle>Keep derived aggregates</ItemTitle>
               <ItemDescription>
-                Rating, response-time and volume metrics remain available
-                after raw text is purged.
+                Rating, response-time and volume metrics remain available after
+                raw text is purged.
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -785,6 +777,6 @@ export function SettingsView() {
             : "Only authorised roles and location grants may publish. Every response still records the actor, verification result and Google outcome."}
         </AlertDescription>
       </Alert>
-    </div>
+    </PageFrame>
   )
 }
