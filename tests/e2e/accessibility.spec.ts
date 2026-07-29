@@ -222,6 +222,13 @@ for (const viewport of [
       await expect(
         page.getByRole("heading", { name: "Analytics", level: 1 })
       ).toBeVisible()
+      const camdenRow = page.getByRole("row").filter({ hasText: "Camden" })
+      await expect(camdenRow).toBeVisible()
+      await expect(
+        camdenRow.getByRole("progressbar", {
+          name: "Response rate for Camden",
+        })
+      ).toBeVisible()
       await expectAccessible(page, `${viewport.name} analytics`)
     })
 
