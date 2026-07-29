@@ -2,6 +2,7 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import {
@@ -124,11 +125,11 @@ export async function upsertGoogleReview(
   const createTime = String(payload.createTime ?? payload.updateTime ?? "")
   const updateTime = String(payload.updateTime ?? payload.createTime ?? "")
   if (!createTime || !updateTime) return null
-  const providerReply = objectValue(payload.reviewReply)
+  const moderation = parseReplyModeration(payload)
   const providerWorkflow =
-    providerReply.state === "REJECTED"
+    moderation.state === "REJECTED"
       ? "rejected"
-      : Object.keys(providerReply).length
+      : moderation.comment !== null
         ? "published"
         : "new"
 
@@ -232,8 +233,7 @@ export async function upsertGoogleReview(
     `
   }
 
-  const reply = providerReply
-  if (Object.keys(reply).length) {
+  if (moderation.comment !== null) {
     await sql`
       insert into review_reply (
         organisation_id,
@@ -247,17 +247,17 @@ export async function upsertGoogleReview(
       values (
         ${organisationId},
         ${review.id},
-        ${reply.comment ? String(reply.comment) : null},
-        ${reply.state ? String(reply.state) : null},
-        ${reply.policyViolation ? JSON.stringify(reply.policyViolation) : null},
+        ${moderation.comment},
+        ${moderation.state},
+        ${moderation.policyViolation},
         ${
-          reply.state === "REJECTED"
+          moderation.state === "REJECTED"
             ? "rejected"
-            : reply.state === "APPROVED"
+            : moderation.state === "APPROVED"
               ? "published"
               : "accepted"
         },
-        ${reply.updateTime ? String(reply.updateTime) : null}
+        ${moderation.updateTime}
       )
       on conflict (organisation_id, review_id) do update
       set

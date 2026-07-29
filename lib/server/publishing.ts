@@ -2,6 +2,7 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
@@ -661,22 +662,28 @@ export async function executePublish(input: {
 
   return withTenant(input.organisationId, async (sql) => {
     if (provider) {
-      const googleState = String(provider.state ?? "PENDING")
-      const violation = provider.policyViolation
-        ? JSON.stringify(provider.policyViolation)
-        : null
+      const moderation = parseReplyModeration({
+        reviewReply: provider,
+        reviewReplyState:
+          typeof provider.state === "string" ? provider.state : undefined,
+      })
+      const googleState = moderation.state ?? "PENDING"
       const publishStatus =
         googleState === "REJECTED" ? "rejected" : "published"
       await sql`
         update review_reply
         set
           google_reply_state = ${googleState},
-          google_policy_violation = ${violation},
+          google_policy_violation = ${moderation.policyViolation},
           google_reply_updated_at = ${
-            provider.updateTime ? String(provider.updateTime) : new Date()
+            moderation.updateTime ?? new Date()
           },
           publish_status = ${publishStatus},
-          first_published_at = coalesce(first_published_at, now())
+          first_published_at = case
+            when ${publishStatus} = 'published'
+              then coalesce(first_published_at, now())
+            else first_published_at
+          end
         where id = ${phaseOne.reviewReplyId}
       `
       await sql`

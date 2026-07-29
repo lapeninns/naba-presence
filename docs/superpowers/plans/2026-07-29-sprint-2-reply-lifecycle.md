@@ -498,7 +498,7 @@ export async function recoverAttempt(input: {
 **Interfaces:**
 - Produces: `parseReplyModeration(review: Record<string, unknown>): { state: "PENDING" | "APPROVED" | "REJECTED" | null; policyViolation: string | null; comment: string | null; updateTime: string | null }` in `lib/domain/reply-state.ts` — the **only** code path that reads moderation fields, used by both ingestion and publication. Sprint 5 GGL-502/503 freezes the fixture file with live captures; if live casing differs, only this module changes.
 
-- [ ] **Step 1: Build the fixture file** `tests/fixtures/google/review-reply-states.json` with five entries (shape per current v4 docs; the audit finding is that moderation arrives as review-level `reviewReplyState`):
+- [x] **Step 1: Build the fixture file** `tests/fixtures/google/review-reply-states.json` with five entries (shape per current v4 docs; the audit finding is that moderation arrives as review-level `reviewReplyState`):
 
 ```json
 {
@@ -521,7 +521,7 @@ export async function recoverAttempt(input: {
 }
 ```
 
-- [ ] **Step 2: Unit tests** — `tests/reply-state-parsing.test.ts`: for each fixture assert `parseReplyModeration` returns the right `{state, policyViolation}`; assert unknown state strings (e.g. `"REVIEW_REPLY_STATE_UNSPECIFIED"`, `"SOMETHING_NEW"`) map to `state: null` with the raw value preserved nowhere fatal (they must never reach the CHECK-constrained column). Run — FAIL. Implement `lib/domain/reply-state.ts`:
+- [x] **Step 2: Unit tests** — `tests/reply-state-parsing.test.ts`: for each fixture assert `parseReplyModeration` returns the right `{state, policyViolation}`; assert unknown state strings (e.g. `"REVIEW_REPLY_STATE_UNSPECIFIED"`, `"SOMETHING_NEW"`) map to `state: null` with the raw value preserved nowhere fatal (they must never reach the CHECK-constrained column). Run — FAIL. Implement `lib/domain/reply-state.ts`:
 
 ```ts
 const KNOWN_STATES = new Set(["PENDING", "APPROVED", "REJECTED"])
@@ -551,11 +551,11 @@ export function parseReplyModeration(review: Record<string, unknown>) {
 
 Run — PASS.
 
-- [ ] **Step 3: Rewire ingestion.** In `lib/server/reviews.ts` `upsertGoogleReview`: replace the `providerReply.state` reads (L127-134) and the reply-upsert value derivations (L235-269) with `const moderation = parseReplyModeration(payload)`; `providerWorkflow` becomes `moderation.state === "REJECTED" ? "rejected" : moderation.comment !== null ? "published" : "new"`; the reply upsert writes `moderation.state`, `moderation.policyViolation`, `publish_status` = `rejected`/`published`/`accepted` by the same mapping as today.
+- [x] **Step 3: Rewire ingestion.** In `lib/server/reviews.ts` `upsertGoogleReview`: replace the `providerReply.state` reads (L127-134) and the reply-upsert value derivations (L235-269) with `const moderation = parseReplyModeration(payload)`; `providerWorkflow` becomes `moderation.state === "REJECTED" ? "rejected" : moderation.comment !== null ? "published" : "new"`; the reply upsert writes `moderation.state`, `moderation.policyViolation`, `publish_status` = `rejected`/`published`/`accepted` by the same mapping as today.
 
-- [ ] **Step 4: Rewire publication.** In `executePublish` phase 3, the success path maps the provider response with `parseReplyModeration({ reviewReply: provider, reviewReplyState: (provider as Record<string, unknown>)?.state ?? providerTopLevelState })` — concretely: the PUT response is the reply object; also issue the phase-3 decision from the PUT response alone, defaulting `google_reply_state` to `'PENDING'` **only when the parsed state is null** (today's fallback, now safe because unknown strings can no longer hit the CHECK constraint). `REJECTED` → `publish_status='rejected'`, review workflow `'rejected'`, outcome `"rejected"` (existing L451-489 mapping).
+- [x] **Step 4: Rewire publication.** In `executePublish` phase 3, the success path maps the provider response with `parseReplyModeration({ reviewReply: provider, reviewReplyState: (provider as Record<string, unknown>)?.state ?? providerTopLevelState })` — concretely: the PUT response is the reply object; also issue the phase-3 decision from the PUT response alone, defaulting `google_reply_state` to `'PENDING'` **only when the parsed state is null** (today's fallback, now safe because unknown strings can no longer hit the CHECK constraint). `REJECTED` → `publish_status='rejected'`, review workflow `'rejected'`, outcome `"rejected"` (existing L451-489 mapping).
 
-- [ ] **Step 5: Route test with moderation fixtures.** Add to `publish-lifecycle.test.ts`: stub `PUT` returns `{ comment, updateTime, state: "REJECTED", policyViolation: "SPAM" }` → response body `googleReplyState: "REJECTED"`, DB `review_reply.publish_status = 'rejected'`, review `workflow_status = 'rejected'`, and the reply never counts as published (assert `first_published_at is null`). Second case: ingestion — POST a stubbed sync (`seedLinkedReview` + call `POST /api/sync/backfill` with the stub's `GET /reviews` returning the `rejected` fixture) → `review_reply.google_reply_state = 'REJECTED'`. Run — PASS. Run `pnpm test` — PASS.
+- [x] **Step 5: Route test with moderation fixtures.** Add to `publish-lifecycle.test.ts`: stub `PUT` returns `{ comment, updateTime, state: "REJECTED", policyViolation: "SPAM" }` → response body `googleReplyState: "REJECTED"`, DB `review_reply.publish_status = 'rejected'`, review `workflow_status = 'rejected'`, and the reply never counts as published (assert `first_published_at is null`). Second case: ingestion — POST a stubbed sync (`seedLinkedReview` + call `POST /api/sync/backfill` with the stub's `GET /reviews` returning the `rejected` fixture) → `review_reply.google_reply_state = 'REJECTED'`. Run — PASS. Run `pnpm test` — PASS.
 
 ---
 

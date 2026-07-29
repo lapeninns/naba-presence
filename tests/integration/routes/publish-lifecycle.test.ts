@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { sha256 } from "@/lib/server/crypto"
 
+import moderationFixtures from "../../fixtures/google/review-reply-states.json"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -298,6 +299,95 @@ describeDatabase("durable publish lifecycle", () => {
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(
       putsAfterFirst
     )
+  })
+
+  it("records a provider-rejected publish without counting it as published", async () => {
+    const fixture = await createFixture()
+    stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+      status: 200,
+      json: {
+        comment: fixture.body,
+        updateTime: "2026-08-20T10:00:00.000Z",
+        state: "REJECTED",
+        policyViolation: "SPAM",
+      },
+    }))
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(200)
+    expect((await response.json()).googleReplyState).toBe("REJECTED")
+    const [state] = await admin<
+      {
+        publish_status: string
+        first_published_at: Date | null
+        workflow_status: string
+      }[]
+    >`
+      select
+        rr.publish_status,
+        rr.first_published_at,
+        r.workflow_status
+      from review_reply rr
+      join review r on r.id = rr.review_id
+      where rr.review_id = ${fixture.review.reviewId}
+    `
+    expect(state).toEqual({
+      publish_status: "rejected",
+      first_published_at: null,
+      workflow_status: "rejected",
+    })
+  })
+
+  it("ingests review-level moderation state from a backfill", async () => {
+    const fixture = await createFixture()
+    const [providerLocation] = await admin<
+      { google_location_name: string; google_account_name: string }[]
+    >`
+      select google_location_name, google_account_name
+      from external_location
+      where id = ${fixture.review.externalLocationId}
+    `
+    stub.respond(
+      { method: "POST", pathIncludes: "locations:batchGetReviews" },
+      () => ({
+        status: 200,
+        json: {
+          locationReviews: [
+            {
+              name: `${providerLocation.google_account_name}/${providerLocation.google_location_name}`,
+              review: {
+                ...moderationFixtures.rejected,
+                name: fixture.review.googleReviewName,
+              },
+            },
+          ],
+        },
+      })
+    )
+
+    const response = await fetch(`${server.baseUrl}/api/sync/backfill`, {
+      method: "POST",
+      headers: {
+        cookie: fixture.owner.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        externalLocationIds: [fixture.review.externalLocationId],
+        maxPagesPerLocation: 1,
+      }),
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const [reply] = await admin<
+      { google_reply_state: string; publish_status: string }[]
+    >`
+      select google_reply_state, publish_status
+      from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(reply).toEqual({
+      google_reply_state: "REJECTED",
+      publish_status: "rejected",
+    })
   })
 
   it("settles an ambiguous attempt when Google has the intended reply", async () => {
