@@ -985,7 +985,9 @@ function ReviewDetail({
           verification: saved.verification.verdict,
           status,
           googleState: published.googleReplyState ?? undefined,
-          responseTime: "Just now",
+          ...(status === "published"
+            ? { publishedReply: saved.body, responseTime: "Just now" }
+            : {}),
         })
         toast.add({
           type: "success",

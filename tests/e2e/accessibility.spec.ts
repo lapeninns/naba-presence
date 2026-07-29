@@ -228,6 +228,17 @@ for (const viewport of [
           },
         })
       })
+      await page.route(
+        /\/api\/reviews\/review-a11y\/publish$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              status: "published",
+              googleReplyState: "APPROVED",
+            },
+          })
+        }
+      )
       await page.goto("/")
       await expect(
         page.getByRole("heading", { name: "Reviews", level: 1 })
@@ -273,6 +284,13 @@ for (const viewport of [
       await expect(
         selectedReview.getByRole("button", { name: "Update reply" })
       ).toBeVisible()
+      await selectedReview.getByRole("button", { name: "Update reply" }).click()
+      await expect(publishedReply).toContainText(
+        "Updated draft reply for Jordan."
+      )
+      await expect(publishedReply).not.toContainText(
+        "Published reply for Jordan."
+      )
       await expect(
         selectedReview.getByText(
           "Published replies are public on Google; approval may be required.",
