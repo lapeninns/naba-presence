@@ -13,6 +13,10 @@ const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
     )
   )
   .join("\n")
+const shared = readFileSync(
+  new URL("../components/naba-review/shared.tsx", import.meta.url),
+  "utf8"
+)
 const tokens = [
   "--nr-space-1",
   "--nr-space-14",
@@ -51,5 +55,10 @@ describe("NabaReview design system", () => {
     expect(primitiveSource).toContain("--nr-radius-card")
     expect(primitiveSource).toContain("--nr-radius-field")
     expect(primitiveSource).toContain("--nr-duration-fast")
+  })
+  it("owns shared product compositions", () => {
+    expect(shared).toContain("export function PageFrame")
+    expect(shared).toContain("export function PageHeader")
+    expect(shared).toContain("export function BusinessContext")
   })
 })

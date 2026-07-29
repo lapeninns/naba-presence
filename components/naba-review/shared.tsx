@@ -37,6 +37,88 @@ export type View =
   | "connections"
   | "settings"
 
+export function PageFrame({
+  width = "standard",
+  className,
+  children,
+}: {
+  width?: "standard" | "wide" | "workspace"
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <main
+      className={cn(
+        "mx-auto flex w-full flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)",
+        width === "standard" && "max-w-(--nr-page-max-width)",
+        width === "wide" && "max-w-7xl",
+        width === "workspace" && "max-w-none",
+        className
+      )}
+    >
+      {children}
+    </main>
+  )
+}
+
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow?: React.ReactNode
+  title: string
+  description: React.ReactNode
+  actions?: React.ReactNode
+}) {
+  return (
+    <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <div className="flex min-w-0 flex-col gap-1">
+        {eyebrow}
+        <h1 className="font-heading text-[22px] font-semibold tracking-[-0.01em]">
+          {title}
+        </h1>
+        <p className="max-w-2xl text-[13px] text-muted-foreground">
+          {description}
+        </p>
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+      ) : null}
+    </header>
+  )
+}
+
+export function BusinessContext({
+  organisationName,
+  detail,
+  status,
+}: {
+  organisationName: string
+  detail?: React.ReactNode
+  status?: { label: string; value: React.ReactNode }
+}) {
+  return (
+    <Card className="bg-[var(--nr-surface-card-translucent)] backdrop-blur-xl">
+      <CardContent className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="truncate font-medium">{organisationName}</p>
+          {detail ? (
+            <p className="text-sm text-muted-foreground">{detail}</p>
+          ) : null}
+        </div>
+        {status ? (
+          <div className="flex shrink-0 flex-col gap-1 sm:items-end">
+            <span className="text-xs text-muted-foreground">{status.label}</span>
+            <span className="text-sm font-medium">{status.value}</span>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function readControlValue(event: { currentTarget: unknown }) {
   return (event.currentTarget as { value: string }).value
 }
@@ -156,7 +238,7 @@ export function MetricCard({
   icon: typeof Star
 }) {
   return (
-    <Card>
+    <Card className="bg-[var(--nr-surface-card-translucent)] backdrop-blur-xl">
       <CardHeader className="flex-row items-center justify-between pb-2">
         <CardDescription>{title}</CardDescription>
         <Icon className="size-4 text-muted-foreground" aria-hidden />
