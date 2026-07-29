@@ -595,6 +595,86 @@ for (const viewport of [
     })
 
     test("menu assistant", async ({ page }) => {
+      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            session: {
+              sessionId: "session-menu-a11y",
+              userId: "user-menu-a11y",
+              organisationId: "org-menu-a11y",
+              organisationName: "Naba Review",
+              displayName: "Alex Morgan",
+              email: "alex@example.com",
+              role: "owner",
+              canPublish: true,
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            locations: [
+              {
+                locationId: "location-menu-a11y",
+                name: "Camden Hotel",
+                timezone: "Europe/London",
+                address: null,
+                linkId: "link-menu-a11y",
+                externalLocationId: "locations/camden-menu-a11y",
+                googleLocationName: "locations/camden-menu-a11y",
+                googleTitle: "Camden Hotel",
+                verified: true,
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/menus(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            menus: [
+              {
+                id: "menu-a11y",
+                locationId: "location-menu-a11y",
+                locationName: "Camden Hotel",
+                publicSlug: "camden-menu-a11y",
+                name: "Camden Dinner Menu",
+                sourceFilename: "camden-menu.pdf",
+                sourceMediaType: "application/pdf",
+                sourceBytes: 245760,
+                currencyCode: "GBP",
+                content: {
+                  menuName: "Camden Dinner Menu",
+                  currencyCode: "GBP",
+                  notes: ["Please ask staff about allergens."],
+                  categories: [
+                    {
+                      name: "Mains",
+                      description: null,
+                      items: [
+                        {
+                          name: "Garden Risotto",
+                          description: "Seasonal vegetables and herbs",
+                          price: "£18",
+                          dietaryTags: ["Vegetarian"],
+                          allergens: ["Milk"],
+                          allergenInformationExplicit: true,
+                        },
+                      ],
+                    },
+                  ],
+                },
+                extractionModel: "menu-a11y-model",
+                version: 1,
+                isPublished: false,
+                publishedAt: null,
+                updatedAt: "2026-07-29T10:00:00.000Z",
+              },
+            ],
+          },
+        })
+      })
       await page.goto("/")
       await openNavigationSurface(
         page,
@@ -603,6 +683,9 @@ for (const viewport of [
       )
       await expect(
         page.getByRole("heading", { name: "Menu assistant" })
+      ).toBeVisible()
+      await expect(
+        page.getByText("Garden Risotto", { exact: true })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} menu assistant`)
     })
