@@ -1,16 +1,16 @@
-name: nabareview-local
+name: nabapresence-local
 
 services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: nabareview
+      POSTGRES_DB: nabapresence
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:54329:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d nabareview"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nabapresence"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -22,10 +22,10 @@ services:
       context: .
       target: migrate
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
-      DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,11 +36,11 @@ services:
       context: .
       target: runtime
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: local-compose-session-secret-at-least-32-characters
       TOKEN_ENCRYPTION_KEY: local-compose-encryption-key-at-least-32-characters
@@ -83,7 +83,7 @@ services:
       context: .
       target: runtime
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     command: ["node", "scripts/scheduler.mjs"]
     environment:
       CRON_SECRET: local-compose-cron-secret

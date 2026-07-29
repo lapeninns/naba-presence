@@ -8,7 +8,7 @@ Use for settings rows, search results, and file lists — anywhere a full `Card`
 
 ## Parts
 
-Composed inside `<Item>`, each importable from `window.NabaReview.*`:
+Composed inside `<Item>`, each importable from `window.NabaPresence.*`:
 
 - `ItemActions`
 - `ItemContent`

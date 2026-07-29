@@ -8,6 +8,6 @@ Use for constrained scrolling regions. Give it an explicit height, or it will no
 
 ## Parts
 
-Composed inside `<ScrollArea>`, each importable from `window.NabaReview.*`:
+Composed inside `<ScrollArea>`, each importable from `window.NabaPresence.*`:
 
 - `ScrollBar`

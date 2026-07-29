@@ -42,6 +42,6 @@ export class ApiError extends Error {
 
 export function requestId(request: Request): string {
   const id = request.headers.get("x-request-id") ?? crypto.randomUUID()
-  trace.getActiveSpan()?.setAttribute("nabareview.request_id", id)
+  trace.getActiveSpan()?.setAttribute("nabapresence.request_id", id)
   return id
 }

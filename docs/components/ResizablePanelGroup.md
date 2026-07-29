@@ -10,7 +10,7 @@ A numeric `defaultSize` on `ResizablePanel` means **pixels**; percentages must b
 
 ## Parts
 
-Composed inside `<ResizablePanelGroup>`, each importable from `window.NabaReview.*`:
+Composed inside `<ResizablePanelGroup>`, each importable from `window.NabaPresence.*`:
 
 - `ResizableHandle`
 - `ResizablePanel`

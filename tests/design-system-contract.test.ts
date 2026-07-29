@@ -14,7 +14,7 @@ const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
   )
   .join("\n")
 const shared = readFileSync(
-  new URL("../components/naba-review/shared.tsx", import.meta.url),
+  new URL("../components/naba-presence/shared.tsx", import.meta.url),
   "utf8"
 )
 const card = readFileSync(
@@ -51,7 +51,7 @@ const tokens = [
   "--nr-ease-standard",
 ]
 
-describe("NabaReview design system", () => {
+describe("NabaPresence design system", () => {
   it.each(tokens)("defines %s", (token) =>
     expect(globals).toContain(`${token}:`)
   )
@@ -138,7 +138,7 @@ describe("NabaReview design system", () => {
     ]) {
       expect(proof).toMatch(
         new RegExp(
-          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/naba-review/shared\\"`
+          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/naba-presence/shared\\"`
         )
       )
       expect(proof).toContain(`<${component}`)

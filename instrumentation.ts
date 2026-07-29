@@ -4,7 +4,7 @@ import { registerOTel } from "@vercel/otel"
 import { redactForLog } from "@/lib/domain/redaction"
 
 export function register() {
-  registerOTel({ serviceName: "nabareview" })
+  registerOTel({ serviceName: "nabapresence" })
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (
@@ -18,7 +18,7 @@ export const onRequestError: Instrumentation.onRequestError = async (
         timestamp: new Date().toISOString(),
         level: "error",
         event: "next.request_error",
-        service: "nabareview",
+        service: "nabapresence",
         error,
         digest:
           error && typeof error === "object" && "digest" in error

@@ -1,10 +1,10 @@
-# NabaReview Full Design-System Replacement Implementation Plan
+# NabaPresence Full Design-System Replacement Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace every shipping NabaReview surface with the approved floating-depth design language while preserving shadcn/ui, Base UI, product behavior, and API contracts.
+**Goal:** Replace every shipping NabaPresence surface with the approved floating-depth design language while preserving shadcn/ui, Base UI, product behavior, and API contracts.
 
-**Architecture:** Keep `components/ui/*` as the generic accessible primitive layer and carry the replacement primarily through semantic CSS variables and shared variants. Compose business-specific presentation in `components/naba-review/*`, then migrate the shell and six views in reviewable stages without importing the reference package's prototype runtime.
+**Architecture:** Keep `components/ui/*` as the generic accessible primitive layer and carry the replacement primarily through semantic CSS variables and shared variants. Compose business-specific presentation in `components/naba-presence/*`, then migrate the shell and six views in reviewable stages without importing the reference package's prototype runtime.
 
 **Tech Stack:** Next.js 16.2, React 19.2, TypeScript 5, Tailwind CSS 4, shadcn/ui base-rhea, Base UI, Vitest 4, Playwright 1.62, axe-core.
 
@@ -27,9 +27,9 @@
 - `app/globals.css`: color, typography, spacing, radius, elevation, glass, motion, layout, and shell atmosphere tokens.
 - `app/design-system/page.tsx`: production proof sheet.
 - `components/ui/{button,card,input,textarea,badge,item,sidebar}.tsx`: generic primitive appearance only.
-- `components/naba-review/app-shell.tsx`: global shell and responsive navigation.
-- `components/naba-review/shared.tsx`: shared page, business context, metric, status, empty, and error compositions.
-- `components/naba-review/*-view.tsx`: view-specific composition without API changes.
+- `components/naba-presence/app-shell.tsx`: global shell and responsive navigation.
+- `components/naba-presence/shared.tsx`: shared page, business context, metric, status, empty, and error compositions.
+- `components/naba-presence/*-view.tsx`: view-specific composition without API changes.
 - `tests/design-system-contract.test.ts`: static foundation/runtime contract.
 - `tests/e2e/accessibility.spec.ts`: semantic, responsive, keyboard, and axe coverage.
 
@@ -73,7 +73,7 @@ const tokens = [
   "--nr-duration-overlay", "--nr-ease-standard",
 ]
 
-describe("NabaReview design system", () => {
+describe("NabaPresence design system", () => {
   it.each(tokens)("defines %s", (token) => expect(globals).toContain(`${token}:`))
   it("provides motion and blur fallbacks", () => {
     expect(globals).toContain("prefers-reduced-motion: reduce")
@@ -141,7 +141,7 @@ Add `--color-info`, `--color-info-foreground`, and `--shadow-nr-*` mappings unde
 pnpm vitest run tests/design-system-contract.test.ts
 pnpm typecheck
 git add app/globals.css tests/design-system-contract.test.ts
-git commit -m "feat: add NabaReview design foundations"
+git commit -m "feat: add NabaPresence design foundations"
 ```
 
 Expected: tests and typecheck pass; only the two named files are committed.
@@ -216,7 +216,7 @@ Expected: all checks pass.
 
 **Files:**
 - Modify: `components/ui/sidebar.tsx`
-- Modify: `components/naba-review/app-shell.tsx`
+- Modify: `components/naba-presence/app-shell.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -261,9 +261,9 @@ Give navigation `aria-label="Primary"`. Preserve exactly Overview, Reviews, Menu
 
 ```bash
 pnpm typecheck
-pnpm lint components/ui/sidebar.tsx components/naba-review/app-shell.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/ui/sidebar.tsx components/naba-presence/app-shell.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "application shell|connections|settings"
-git add components/ui/sidebar.tsx components/naba-review/app-shell.tsx tests/e2e/accessibility.spec.ts
+git add components/ui/sidebar.tsx components/naba-presence/app-shell.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace the application shell"
 ```
 
@@ -274,7 +274,7 @@ Expected: desktop and mobile tests pass; mobile navigation still closes after se
 ### Task 4: Shared Product Compositions
 
 **Files:**
-- Modify: `components/naba-review/shared.tsx`
+- Modify: `components/naba-presence/shared.tsx`
 - Modify: `tests/design-system-contract.test.ts`
 
 **Interfaces:**
@@ -283,7 +283,7 @@ Expected: desktop and mobile tests pass; mobile navigation still closes after se
 - [ ] **Step 1: Add a failing export contract**
 
 ```ts
-const shared = readFileSync(new URL("../components/naba-review/shared.tsx", import.meta.url), "utf8")
+const shared = readFileSync(new URL("../components/naba-presence/shared.tsx", import.meta.url), "utf8")
 it("owns shared product compositions", () => {
   expect(shared).toContain("export function PageFrame")
   expect(shared).toContain("export function PageHeader")
@@ -328,9 +328,9 @@ BusinessContext accepts `organisationName`, optional `detail`, and optional labe
 ```bash
 pnpm vitest run tests/design-system-contract.test.ts
 pnpm typecheck
-pnpm lint components/naba-review/shared.tsx
-git add components/naba-review/shared.tsx tests/design-system-contract.test.ts
-git commit -m "feat: add shared NabaReview compositions"
+pnpm lint components/naba-presence/shared.tsx
+git add components/naba-presence/shared.tsx tests/design-system-contract.test.ts
+git commit -m "feat: add shared NabaPresence compositions"
 ```
 
 ---
@@ -338,7 +338,7 @@ git commit -m "feat: add shared NabaReview compositions"
 ### Task 5: Overview Replacement
 
 **Files:**
-- Modify: `components/naba-review/overview-view.tsx`
+- Modify: `components/naba-presence/overview-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -366,9 +366,9 @@ Use `PageFrame width="wide"`, PageHeader, and BusinessContext. Keep the computed
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/overview-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/overview-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "overview"
-git add components/naba-review/overview-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/overview-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace the overview design"
 ```
 
@@ -377,7 +377,7 @@ git commit -m "feat: replace the overview design"
 ### Task 6: Reviews Queue and Filters
 
 **Files:**
-- Modify: `components/naba-review/reviews-view.tsx`
+- Modify: `components/naba-presence/reviews-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -404,9 +404,9 @@ Keep one visible mobile pane, back action, ScrollArea, cursor pagination, Empty 
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/reviews-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/reviews-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "inbox, review detail"
-git add components/naba-review/reviews-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/reviews-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace review queue design"
 ```
 
@@ -415,7 +415,7 @@ git commit -m "feat: replace review queue design"
 ### Task 7: Review Conversation and Publication Lifecycle
 
 **Files:**
-- Modify: `components/naba-review/reviews-view.tsx`
+- Modify: `components/naba-presence/reviews-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -438,10 +438,10 @@ Keep tone Label/Select, textarea Label/count, policy hints/errors, Regenerate, S
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/reviews-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/reviews-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "inbox, review detail"
 pnpm test
-git add components/naba-review/reviews-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/reviews-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace review reply workspace design"
 ```
 
@@ -452,7 +452,7 @@ Expected: UI, domain, reply-policy, and workflow tests pass.
 ### Task 8: Menu Assistant Replacement
 
 **Files:**
-- Modify: `components/naba-review/menu-assistant-view.tsx`
+- Modify: `components/naba-presence/menu-assistant-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -480,9 +480,9 @@ Use PageFrame/PageHeader, preserve location and connect behavior, keep a 360px s
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/menu-assistant-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/menu-assistant-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "menu assistant"
-git add components/naba-review/menu-assistant-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/menu-assistant-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace menu assistant design"
 ```
 
@@ -491,7 +491,7 @@ git commit -m "feat: replace menu assistant design"
 ### Task 9: Analytics Replacement
 
 **Files:**
-- Modify: `components/naba-review/analytics-view.tsx`
+- Modify: `components/naba-presence/analytics-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -510,9 +510,9 @@ Use PageFrame/PageHeader; keep range/granularity in header actions. Use transluc
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/analytics-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/analytics-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "analytics"
-git add components/naba-review/analytics-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/analytics-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace analytics design"
 ```
 
@@ -521,7 +521,7 @@ git commit -m "feat: replace analytics design"
 ### Task 10: Connections Replacement
 
 **Files:**
-- Modify: `components/naba-review/connections-view.tsx`
+- Modify: `components/naba-presence/connections-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -540,9 +540,9 @@ Use PageFrame/PageHeader and preserve the current heading. Use opaque major pane
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/connections-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/connections-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "connections"
-git add components/naba-review/connections-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/connections-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace connections design"
 ```
 
@@ -551,7 +551,7 @@ git commit -m "feat: replace connections design"
 ### Task 11: Settings Replacement
 
 **Files:**
-- Modify: `components/naba-review/settings-view.tsx`
+- Modify: `components/naba-presence/settings-view.tsx`
 - Modify: `tests/e2e/accessibility.spec.ts`
 
 **Interfaces:**
@@ -570,9 +570,9 @@ Use PageFrame/PageHeader; keep one opaque Card per responsibility; use shared se
 
 ```bash
 pnpm typecheck
-pnpm lint components/naba-review/settings-view.tsx tests/e2e/accessibility.spec.ts
+pnpm lint components/naba-presence/settings-view.tsx tests/e2e/accessibility.spec.ts
 pnpm playwright test tests/e2e/accessibility.spec.ts --grep "settings"
-git add components/naba-review/settings-view.tsx tests/e2e/accessibility.spec.ts
+git add components/naba-presence/settings-view.tsx tests/e2e/accessibility.spec.ts
 git commit -m "feat: replace settings design"
 ```
 
@@ -641,7 +641,7 @@ Load and follow `react-best-practices` because multiple TSX files changed. Fix o
 
 ```bash
 git add app/design-system/page.tsx docs/specs/2026-07-28-design-system.md README.md tests/design-system-contract.test.ts tests/e2e/accessibility.spec.ts
-git commit -m "docs: publish the NabaReview design system"
+git commit -m "docs: publish the NabaPresence design system"
 git status --short
 git log --oneline -12
 ```

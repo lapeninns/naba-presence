@@ -8,7 +8,7 @@ Pass the trigger via `DropdownMenuTrigger`'s `render` prop. Mark destructive ent
 
 ## Parts
 
-Composed inside `<DropdownMenu>`, each importable from `window.NabaReview.*`:
+Composed inside `<DropdownMenu>`, each importable from `window.NabaPresence.*`:
 
 - `DropdownMenuCheckboxItem`
 - `DropdownMenuContent`

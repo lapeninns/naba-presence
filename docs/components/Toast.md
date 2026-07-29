@@ -8,7 +8,7 @@ Requires `ToastProvider` and a `ToastViewport` mounted once near the app root (o
 
 ## Parts
 
-Composed inside `<Toast>`, each importable from `window.NabaReview.*`:
+Composed inside `<Toast>`, each importable from `window.NabaPresence.*`:
 
 - `ToastAction`
 - `ToastClose`

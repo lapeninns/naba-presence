@@ -8,7 +8,7 @@ Compose `PaginationPrevious`, `PaginationLink` items, `PaginationEllipsis`, and 
 
 ## Parts
 
-Composed inside `<Pagination>`, each importable from `window.NabaReview.*`:
+Composed inside `<Pagination>`, each importable from `window.NabaPresence.*`:
 
 - `PaginationContent`
 - `PaginationEllipsis`

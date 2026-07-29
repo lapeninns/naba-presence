@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------------
-   NabaReview design system
+   NabaPresence design system
    shadcn/ui (base-rhea, Base UI primitives) + the Google Business Profile palette.
 
    Component shapes, radius and density are stock base-rhea. Only colour and
@@ -44,7 +44,7 @@
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
 
-  /* NabaReview additions — not part of the stock shadcn token contract. */
+  /* NabaPresence additions — not part of the stock shadcn token contract. */
   --color-rating: var(--rating);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);

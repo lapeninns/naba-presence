@@ -1,6 +1,6 @@
 # Local development stack managed by the Supabase CLI. The CLI runs these
 # services in Docker; this file contains no production credentials.
-project_id = "nabareview"
+project_id = "nabapresence"
 
 [api]
 enabled = true

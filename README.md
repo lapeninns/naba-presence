@@ -1,6 +1,6 @@
-# NabaReview
+# NabaPresence
 
-NabaReview is a Google-only reputation operations SaaS. It connects authorised
+**Nab a Presence.** NabaPresence is a Google-only reputation operations SaaS. It connects authorised
 Google Business Profile accounts, ingests reviews, drafts and verifies replies,
 keeps a human approval boundary, publishes to Google, and exposes tenant-scoped
 analytics.
@@ -23,8 +23,9 @@ analytics.
 - OpenTelemetry request/provider/database spans and metrics, plus redacted
   structured logs with request and tenant correlation
 
-The interface keeps a preview dataset available if the configured database is
-offline. The “Live data” indicator appears when API-backed data is active.
+The interface only displays tenant-scoped, API-backed records from the
+configured database. It does not substitute preview or mock reviews when the
+database is unavailable.
 
 ## Local setup
 
@@ -96,7 +97,7 @@ scheduler. Use it to exercise the production container topology; normal local
 development uses Supabase CLI above. PostgreSQL is exposed only on
 `127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
 session, so it does not require hosted Supabase or Google OAuth.
-`NABAREVIEW_NODE_IMAGE` can override the default `node:22-alpine` build image.
+`NABAPRESENCE_NODE_IMAGE` can override the default `node:22-alpine` build image.
 Remove this disposable Compose database with:
 
 ```bash

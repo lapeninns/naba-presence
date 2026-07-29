@@ -8,7 +8,7 @@ Compose `DialogHeader` (with `DialogTitle`, `DialogDescription`), body content, 
 
 ## Parts
 
-Composed inside `<Dialog>`, each importable from `window.NabaReview.*`:
+Composed inside `<Dialog>`, each importable from `window.NabaPresence.*`:
 
 - `DialogClose`
 - `DialogContent`

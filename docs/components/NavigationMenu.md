@@ -8,7 +8,7 @@ Use for marketing or multi-section navigation where items need descriptions. For
 
 ## Parts
 
-Composed inside `<NavigationMenu>`, each importable from `window.NabaReview.*`:
+Composed inside `<NavigationMenu>`, each importable from `window.NabaPresence.*`:
 
 - `NavigationMenuContent`
 - `NavigationMenuIndicator`

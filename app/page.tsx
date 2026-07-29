@@ -1,5 +1,5 @@
-import { NabaReviewApp } from "@/components/naba-review/review-app"
+import { redirect } from "next/navigation"
 
 export default function Page() {
-  return <NabaReviewApp />
+  redirect("/reviews")
 }

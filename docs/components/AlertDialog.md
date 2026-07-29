@@ -8,7 +8,7 @@ Use this — never `Dialog` — for destructive confirmation. `AlertDialogAction
 
 ## Parts
 
-Composed inside `<AlertDialog>`, each importable from `window.NabaReview.*`:
+Composed inside `<AlertDialog>`, each importable from `window.NabaPresence.*`:
 
 - `AlertDialogAction`
 - `AlertDialogCancel`

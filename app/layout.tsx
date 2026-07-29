@@ -21,9 +21,9 @@ const fontMono = localFont({
 })
 
 export const metadata = {
-  title: "NabaReview · Google review operations",
+  title: "NabaPresence · Google review operations",
   description:
-    "Review, verify and publish trusted Google Business Profile responses.",
+    "Nab a Presence. Review, verify and publish trusted Google Business Profile responses.",
 }
 
 export default function RootLayout({

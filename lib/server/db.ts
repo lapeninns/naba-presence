@@ -9,17 +9,17 @@ declare global {
   var __nabaSql: Sql | undefined
 }
 
-const tracer = trace.getTracer("nabareview.database")
-const meter = metrics.getMeter("nabareview.database")
+const tracer = trace.getTracer("nabapresence.database")
+const meter = metrics.getMeter("nabapresence.database")
 const tenantTransactionDuration = meter.createHistogram(
-  "nabareview.tenant_transaction.duration",
+  "nabapresence.tenant_transaction.duration",
   {
     description: "Tenant-scoped PostgreSQL transaction duration",
     unit: "ms",
   }
 )
 const tenantTransactionCount = meter.createCounter(
-  "nabareview.tenant_transaction.count",
+  "nabapresence.tenant_transaction.count",
   {
     description: "Tenant-scoped PostgreSQL transaction outcomes",
   }

@@ -8,7 +8,7 @@ Always provide `AvatarFallback` — it shows while the image loads and when it f
 
 ## Parts
 
-Composed inside `<Avatar>`, each importable from `window.NabaReview.*`:
+Composed inside `<Avatar>`, each importable from `window.NabaPresence.*`:
 
 - `AvatarBadge`
 - `AvatarFallback`

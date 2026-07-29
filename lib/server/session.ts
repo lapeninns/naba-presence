@@ -224,7 +224,7 @@ export async function ensureDevelopmentSession(): Promise<Session> {
       insert into app_user (id, email, display_name)
       values (
         ${LOCAL_USER_ID},
-        'local-owner@nabareview.local',
+        'local-owner@nabapresence.local',
         'Local owner'
       )
       on conflict (id) do nothing

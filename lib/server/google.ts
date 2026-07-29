@@ -27,17 +27,17 @@ const OAUTH_SCOPE = [
 export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
 
 let nextGoogleRequestAt = 0
-const googleTracer = trace.getTracer("nabareview.google")
-const googleMeter = metrics.getMeter("nabareview.google")
+const googleTracer = trace.getTracer("nabapresence.google")
+const googleMeter = metrics.getMeter("nabapresence.google")
 const googleRequestDuration = googleMeter.createHistogram(
-  "nabareview.google.request.duration",
+  "nabapresence.google.request.duration",
   {
     description: "Google API request duration including retry pacing",
     unit: "ms",
   }
 )
 const googleRequestCount = googleMeter.createCounter(
-  "nabareview.google.request.count",
+  "nabapresence.google.request.count",
   {
     description: "Google API request outcomes",
   }
@@ -318,7 +318,7 @@ export async function googleRequest<T>(
       attributes: {
         "server.address": providerHost,
         "http.request.method": method,
-        "nabareview.google.mode": mode,
+        "nabapresence.google.mode": mode,
       },
     },
     async (span) => {
@@ -396,14 +396,14 @@ export async function googleRequest<T>(
           "server.address": providerHost,
           "http.request.method": method,
           "http.response.status_code": finalStatus,
-          "nabareview.google.mode": mode,
+          "nabapresence.google.mode": mode,
           outcome,
         }
         googleRequestDuration.record(performance.now() - startedAt, attributes)
         googleRequestCount.add(1, attributes)
         span.setAttributes({
           ...attributes,
-          "nabareview.google.attempts": attempts,
+          "nabapresence.google.attempts": attempts,
         })
         span.end()
       }

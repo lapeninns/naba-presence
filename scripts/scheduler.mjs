@@ -27,7 +27,7 @@ function log(level, event, context = {}) {
     timestamp: new Date().toISOString(),
     level,
     event,
-    service: "nabareview-scheduler",
+    service: "nabapresence-scheduler",
     ...context,
   })
   if (level === "error") console.error(record)

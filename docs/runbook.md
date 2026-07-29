@@ -14,7 +14,7 @@ and `WEBHOOKS_ENABLED`. Roll back to read-only by disabling publishing and
 drafting first; pause sync/webhooks only when data ingestion itself is unsafe.
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
-histograms and redacted structured error logs use the `nabareview` service name.
+histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
 
 ## Scheduled work

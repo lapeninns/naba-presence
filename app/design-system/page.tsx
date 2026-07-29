@@ -9,7 +9,7 @@ import {
   MetricCard,
   Stars,
   StatusBadge,
-} from "@/components/naba-review/shared"
+} from "@/components/naba-presence/shared"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -119,7 +119,7 @@ export default function Page() {
             <Badge variant="secondary">Base UI</Badge>
           </div>
           <h1 className="font-heading text-[28px] font-bold tracking-tight">
-            NabaReview design system
+            NabaPresence design system
           </h1>
           <p className="max-w-2xl text-[13.5px] text-muted-foreground">
             Production foundations and shipping compositions for auditable
@@ -349,7 +349,7 @@ export default function Page() {
             aria-label="Proof primary navigation"
             className="border-b bg-[var(--nr-surface-glass-strong)] p-4 backdrop-blur-xl md:border-r md:border-b-0"
           >
-            <p className="mb-3 font-heading font-semibold">NabaReview</p>
+            <p className="mb-3 font-heading font-semibold">NabaPresence</p>
             <div className="grid gap-1">
               <Button variant="secondary" className="justify-start">
                 <Inbox data-icon="inline-start" /> Reviews
@@ -377,7 +377,7 @@ export default function Page() {
               </Button>
             </div>
             <BusinessContext
-              organisationName="Naba Review Hospitality"
+              organisationName="Naba Presence Hospitality"
               detail="3 connected locations"
               status={{ label: "Google connection", value: "Healthy" }}
             />

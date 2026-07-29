@@ -8,7 +8,7 @@ Use inside prose to reference a source or footnote. `MarkerIcon` is decorative a
 
 ## Parts
 
-Composed inside `<Marker>`, each importable from `window.NabaReview.*`:
+Composed inside `<Marker>`, each importable from `window.NabaPresence.*`:
 
 - `MarkerContent`
 - `MarkerIcon`

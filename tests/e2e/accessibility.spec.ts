@@ -33,20 +33,6 @@ async function expectAccessible(page: Page, surface: string) {
   ).toEqual([])
 }
 
-async function openNavigationSurface(
-  page: Page,
-  name: string,
-  mobile: boolean
-) {
-  if (mobile) {
-    await page.getByRole("button", { name: "Toggle navigation" }).click()
-  }
-  await page.getByRole("button", { name, exact: true }).click()
-  if (mobile) {
-    await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeHidden()
-  }
-}
-
 for (const viewport of [
   { name: "desktop", width: 1440, height: 1000 },
   { name: "mobile", width: 390, height: 844 },
@@ -59,7 +45,7 @@ for (const viewport of [
       await page.goto("/design-system")
       await expect(
         page.getByRole("heading", {
-          name: "NabaReview design system",
+          name: "NabaPresence design system",
           level: 1,
         })
       ).toBeVisible()
@@ -80,7 +66,7 @@ for (const viewport of [
     })
 
     test("application shell", async ({ page }) => {
-      await page.goto("/")
+      await page.goto("/reviews")
       if (viewport.name === "desktop") {
         await expect(page.locator('[data-variant="floating"]')).toBeVisible()
       } else {
@@ -106,7 +92,7 @@ for (const viewport of [
               sessionId: "session-overview-a11y",
               userId: "user-overview-a11y",
               organisationId: "org-overview-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -179,8 +165,7 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/")
-      await openNavigationSurface(page, "Overview", viewport.name === "mobile")
+      await page.goto("/overview")
       await expect(
         page.getByRole("heading", {
           name: /Good (morning|afternoon|evening)/,
@@ -200,7 +185,7 @@ for (const viewport of [
               sessionId: "session-analytics-a11y",
               userId: "user-analytics-a11y",
               organisationId: "org-analytics-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -251,8 +236,7 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/")
-      await openNavigationSurface(page, "Analytics", viewport.name === "mobile")
+      await page.goto("/analytics")
       await expect(
         page.getByRole("heading", { name: "Analytics", level: 1 })
       ).toBeVisible()
@@ -274,7 +258,7 @@ for (const viewport of [
               sessionId: "session-reviews-a11y",
               userId: "user-reviews-a11y",
               organisationId: "org-reviews-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -351,7 +335,7 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/")
+      await page.goto("/reviews")
       await expect(
         page.getByRole("heading", { name: "Reviews", level: 1 })
       ).toBeVisible()
@@ -439,7 +423,7 @@ for (const viewport of [
               sessionId: "session-connections-a11y",
               userId: "user-connections-a11y",
               organisationId: "org-connections-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -477,7 +461,7 @@ for (const viewport of [
               {
                 id: "account-connections-a11y",
                 googleAccountName: "accounts/123456789",
-                accountName: "Naba Review Hospitality",
+                accountName: "Naba Presence Hospitality",
                 type: "ORGANIZATION",
                 role: "OWNER",
                 permissionLevel: "OWNER_LEVEL",
@@ -569,17 +553,12 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/")
-      await openNavigationSurface(
-        page,
-        "Connections",
-        viewport.name === "mobile"
-      )
+      await page.goto("/connections")
       await expect(
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
       await expect(page.getByLabel("Connection setup progress")).toBeVisible()
-      await expect(page.getByText("Naba Review Hospitality")).toBeVisible()
+      await expect(page.getByText("Naba Presence Hospitality")).toBeVisible()
       await expect(
         page.getByLabel("Google location import").getByText("Camden Hotel")
       ).toBeVisible()
@@ -594,19 +573,6 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} connections`)
     })
 
-    test("menu assistant", async ({ page }) => {
-      await page.goto("/")
-      await openNavigationSurface(
-        page,
-        "Menu assistant",
-        viewport.name === "mobile"
-      )
-      await expect(
-        page.getByRole("heading", { name: "Menu assistant" })
-      ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} menu assistant`)
-    })
-
     test("settings", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
@@ -615,7 +581,7 @@ for (const viewport of [
               sessionId: "session-settings-a11y",
               userId: "user-settings-a11y",
               organisationId: "org-settings-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -656,8 +622,7 @@ for (const viewport of [
       await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
         await route.fulfill({ json: { locations: [] } })
       })
-      await page.goto("/")
-      await openNavigationSurface(page, "Settings", viewport.name === "mobile")
+      await page.goto("/settings")
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()

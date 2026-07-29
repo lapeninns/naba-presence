@@ -8,7 +8,7 @@ Wrap two or more controls to merge their borders and radii. Accepts `Button`, `I
 
 ## Parts
 
-Composed inside `<ButtonGroup>`, each importable from `window.NabaReview.*`:
+Composed inside `<ButtonGroup>`, each importable from `window.NabaPresence.*`:
 
 - `ButtonGroupSeparator`
 - `ButtonGroupText`

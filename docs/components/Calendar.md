@@ -8,6 +8,6 @@ Use inside a `Popover` for a date input, or inline for a persistent picker. Supp
 
 ## Parts
 
-Composed inside `<Calendar>`, each importable from `window.NabaReview.*`:
+Composed inside `<Calendar>`, each importable from `window.NabaPresence.*`:
 
 - `CalendarDayButton`

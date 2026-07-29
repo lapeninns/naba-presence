@@ -8,7 +8,7 @@ Use for desktop-style app chrome with multiple top-level menus. For a single tri
 
 ## Parts
 
-Composed inside `<Menubar>`, each importable from `window.NabaReview.*`:
+Composed inside `<Menubar>`, each importable from `window.NabaPresence.*`:
 
 - `MenubarCheckboxItem`
 - `MenubarContent`

@@ -8,7 +8,7 @@ Only as an accelerator — every action must also be reachable from a visible co
 
 ## Parts
 
-Composed inside `<ContextMenu>`, each importable from `window.NabaReview.*`:
+Composed inside `<ContextMenu>`, each importable from `window.NabaPresence.*`:
 
 - `ContextMenuCheckboxItem`
 - `ContextMenuContent`

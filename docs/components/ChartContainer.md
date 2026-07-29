@@ -8,7 +8,7 @@ Pass a `config` mapping each series key to a label and colour, using the `--char
 
 ## Parts
 
-Composed inside `<ChartContainer>`, each importable from `window.NabaReview.*`:
+Composed inside `<ChartContainer>`, each importable from `window.NabaPresence.*`:
 
 - `ChartLegend`
 - `ChartLegendContent`

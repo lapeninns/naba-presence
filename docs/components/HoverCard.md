@@ -8,7 +8,7 @@ Use for non-essential enrichment (profile or link previews). Never gate required
 
 ## Parts
 
-Composed inside `<HoverCard>`, each importable from `window.NabaReview.*`:
+Composed inside `<HoverCard>`, each importable from `window.NabaPresence.*`:
 
 - `HoverCardContent`
 - `HoverCardTrigger`
