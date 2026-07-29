@@ -54,6 +54,19 @@ function arrayValue(value: unknown): Array<Record<string, unknown>> {
     : []
 }
 
+function maxReviewUpdateTime(
+  reviews: Array<Record<string, unknown>>
+): Date | null {
+  const timestamps = reviews
+    .map((review) =>
+      typeof review.updateTime === "string"
+        ? Date.parse(review.updateTime)
+        : Number.NaN
+    )
+    .filter(Number.isFinite)
+  return timestamps.length ? new Date(Math.max(...timestamps)) : null
+}
+
 function detectLanguage(text: string | null): {
   code: string | null
   confidence: number | null
@@ -413,6 +426,7 @@ export async function syncLinkedLocation(input: {
         pageToken
       )
       const nextPageToken = page.nextPageToken
+      const pageHighWater = maxReviewUpdateTime(page.reviews ?? [])
       const pageUpserted = await withTenant(
         input.organisationId,
         async (sql) => {
@@ -431,7 +445,19 @@ export async function syncLinkedLocation(input: {
           }
           await sql`
             update sync_checkpoint
-            set page_token = ${nextPageToken ?? null}
+            set
+              page_token = ${nextPageToken ?? null},
+              high_water_update_time = case
+                when ${pageHighWater}::timestamptz is null
+                  then high_water_update_time
+                else greatest(
+                  coalesce(
+                    high_water_update_time,
+                    'epoch'::timestamptz
+                  ),
+                  ${pageHighWater}
+                )
+              end
             where id = ${header.checkpointId}
           `
           return committed

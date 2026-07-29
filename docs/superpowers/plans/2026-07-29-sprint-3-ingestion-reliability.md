@@ -125,7 +125,7 @@ binding column.
 - Consumes: Task 2's `syncLinkedLocation`.
 - Produces: migration columns `sync_checkpoint.high_water_update_time timestamptz` (Task 2 already writes it — migration lands here, so Tasks 2+3 merge into one PR in practice; keep the checklist order for review clarity).
 
-- [ ] **Step 1: Migration** — begin `0007_sync_reliability.sql`:
+- [x] **Step 1: Migration** — begin `0007_sync_reliability.sql`:
 
 ```sql
 begin;
@@ -148,9 +148,18 @@ commit;
 
 (`review.provider_deleted_at` is used by Task 8; both tables already carry `naba_app_runtime` DML grants from 0004's blanket grant — no new tables yet.)
 
-- [ ] **Step 2: Failing test** — `tests/integration/routes/backfill-checkpoints.test.ts`: seed **two** linked locations under one connection; stub serves per-location pages where location A has 3 pages (tokens `A2`, `A3`) and location B has 1 page — keyed by the location id in the request path. Run backfill with `maxPagesPerLocation: 2`: assert checkpoint A has `page_token = 'A3'`, `status='pending'`; checkpoint B `page_token is null`, `status='succeeded'` (today both rows share whichever token the batch loop last saw). Then run backfill again (continuation): assert the stub's next `GET` for A carries `pageToken=A3` — no skipped and no re-fetched pages (stub records query strings). Interruption case: stub 500s on A's page 2 → A `failed` with `page_token='A2'` retained; B untouched `succeeded`. Run — FAIL (shared-token behavior).
-- [ ] **Step 3: Implement** — backfill route iterates `linkedLocations()` results sequentially, calling `syncLinkedLocation({type:"backfill", maxPages})` per location; delete `syncLinkedLocationBatch` and its exports; `pnpm typecheck` locates any leftover references. Batch-size guard (≤50 locations per request) stays in the route.
-- [ ] **Step 4: Run** — Step 2 PASS; whole `pnpm test:integration` green.
+- [x] **Step 2: Failing test** — `tests/integration/routes/backfill-checkpoints.test.ts`: seed **two** linked locations under one connection; stub serves per-location pages where location A has 3 pages (tokens `A2`, `A3`) and location B has 1 page — keyed by the location id in the request path. Run backfill with `maxPagesPerLocation: 2`: assert checkpoint A has `page_token = 'A3'`, `status='pending'`; checkpoint B `page_token is null`, `status='succeeded'` (today both rows share whichever token the batch loop last saw). Then run backfill again (continuation): assert the stub's next `GET` for A carries `pageToken=A3` — no skipped and no re-fetched pages (stub records query strings). Interruption case: stub 500s on A's page 2 → A `failed` with `page_token='A2'` retained; B untouched `succeeded`. Run — FAIL (shared-token behavior).
+- [x] **Step 3: Implement** — backfill route iterates `linkedLocations()` results sequentially, calling `syncLinkedLocation({type:"backfill", maxPages})` per location; delete `syncLinkedLocationBatch` and its exports; `pnpm typecheck` locates any leftover references. Batch-size guard (≤50 locations per request) stays in the route.
+- [x] **Step 4: Run** — Step 2 PASS; whole `pnpm test:integration` green.
+
+**Deviation (Task 3):** Task 2's binding signature and required plain
+per-location backfill loop necessarily removed the shared-token behavior before
+Task 3 began, so the planned token-continuity and interruption assertions were
+already green and were not artificially regressed. Task 3's red assertion used
+its other binding output: both per-location
+`high_water_update_time` values were null after successful pages. The
+implementation now advances each watermark from that location's committed page;
+the full planned token and interruption matrix remains green.
 
 ---
 
