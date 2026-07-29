@@ -301,6 +301,73 @@ describeDatabase("durable publish lifecycle", () => {
     )
   })
 
+  it("permits republishing identical text after a delete", async () => {
+    const body = "Thank you for the kind words about our breakfast."
+    const fixture = await createFixture(body)
+
+    const first = await publish(fixture)
+    expect(first.status).toBe(200)
+    const deleted = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/reply`,
+      {
+        method: "DELETE",
+        headers: { cookie: fixture.owner.cookie },
+      }
+    )
+    expect(deleted.status).toBe(200)
+    const detailResponse = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    const detail = (await detailResponse.json()) as {
+      review: { updateTime: string }
+    }
+    const secondDraft = await saveHumanDraft(
+      server.baseUrl,
+      fixture.owner.cookie,
+      fixture.review.reviewId,
+      body
+    )
+    const republish = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/publish`,
+      {
+        method: "POST",
+        headers: {
+          cookie: fixture.owner.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draftId: secondDraft.draftId,
+          expectedReviewUpdateTime: detail.review.updateTime,
+        }),
+      }
+    )
+
+    expect(republish.status).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(2)
+    const attempts = await admin<
+      { idempotency_key: string; operation: string; status: string }[]
+    >`
+      select
+        pa.idempotency_key,
+        pa.operation,
+        pa.status
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      where rr.review_id = ${fixture.review.reviewId}
+      order by pa.started_at
+    `
+    expect(attempts).toHaveLength(3)
+    expect(attempts.map((attempt) => attempt.operation)).toEqual([
+      "publish",
+      "delete",
+      "publish",
+    ])
+    expect(attempts[0].idempotency_key).not.toBe(
+      attempts[2].idempotency_key
+    )
+  })
+
   it("rejects publish without expectedReviewUpdateTime", async () => {
     const fixture = await createFixture()
     const response = await fetch(

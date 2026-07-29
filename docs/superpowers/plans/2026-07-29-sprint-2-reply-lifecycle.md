@@ -669,7 +669,7 @@ Verification here is that **no new transitions are actually needed** once delete
 **Interfaces:**
 - Consumes: Task 2's generation-scoped idempotency key + Task 6's generation increment. This task is proof, not new mechanism.
 
-- [ ] **Step 1: Write the spec scenario as a route test:**
+- [x] **Step 1: Write the spec scenario as a route test:**
 
 ```ts
 it("permits republishing identical text after a delete", async () => {
@@ -692,9 +692,9 @@ it("permits republishing identical text after a delete", async () => {
 })
 ```
 
-- [ ] **Step 2: Run.** Expected: PASS directly if Tasks 2/6 are correct (generation 0 → key A; delete increments to 1 → republish key B). If it fails with `previous_publish_failed` or an idempotent short-circuit, the generation is not in the key — fix `executePublish`'s key derivation, not the test.
+- [x] **Step 2: Run.** Expected: PASS directly if Tasks 2/6 are correct (generation 0 → key A; delete increments to 1 → republish key B). If it fails with `previous_publish_failed` or an idempotent short-circuit, the generation is not in the key — fix `executePublish`'s key derivation, not the test.
 
-- [ ] **Step 3: Guard the old behavior too:** same-generation identical retry still short-circuits idempotently (one PUT total) — already covered in Task 2; re-run to confirm.
+- [x] **Step 3: Guard the old behavior too:** same-generation identical retry still short-circuits idempotently (one PUT total) — already covered in Task 2; re-run to confirm.
 
 ---
 
