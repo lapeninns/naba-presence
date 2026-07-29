@@ -18,6 +18,7 @@ export type Review = {
   status: ReviewStatus
   verification: VerificationStatus
   draft: string
+  publishedReply?: string
   draftId?: string
   sourceUpdateTime?: string
   sourceCreateTime?: string

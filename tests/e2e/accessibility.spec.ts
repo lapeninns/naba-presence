@@ -202,12 +202,12 @@ for (const viewport of [
                 updateTime: "2026-07-28T10:00:00.000Z",
                 detectedLanguageCode: "en",
                 languageConfidence: 1,
-                workflowStatus: "new",
-                verificationStatus: "pending",
-                draftBody: "Thank you for your thoughtful review.",
-                replyBody: null,
+                workflowStatus: "published",
+                verificationStatus: "pass",
+                draftBody: "Updated draft reply for Jordan.",
+                replyBody: "Published reply for Jordan.",
                 draftId: "draft-a11y",
-                replyStatus: "not_published",
+                replyStatus: "published",
                 syncStatus: "succeeded",
                 googleReplyState: null,
                 googlePolicyViolation: null,
@@ -262,10 +262,20 @@ for (const viewport of [
       await expect(selectedReview.getByRole("heading").first()).toBeVisible()
       await expect(
         selectedReview.getByRole("textbox", { name: "Reply draft" })
+      ).toHaveValue("Updated draft reply for Jordan.")
+      const publishedReply = selectedReview
+        .getByText(/Published business reply/)
+        .locator("..")
+      await expect(publishedReply).toContainText("Published reply for Jordan.")
+      await expect(publishedReply).not.toContainText(
+        "Updated draft reply for Jordan."
+      )
+      await expect(
+        selectedReview.getByRole("button", { name: "Update reply" })
       ).toBeVisible()
       await expect(
         selectedReview.getByText(
-          "Publishing makes this reply public on Google.",
+          "Published replies are public on Google; approval may be required.",
           { exact: true }
         )
       ).toBeVisible()

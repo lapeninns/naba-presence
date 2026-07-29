@@ -1067,10 +1067,10 @@ function ReviewDetail({
           <span>{review.language}</span>
         </div>
 
-        {review.status === "published" && review.draft ? (
+        {review.status === "published" && review.publishedReply ? (
           <div className="flex max-w-[92%] flex-col gap-2 self-end md:max-w-[82%]">
             <div className="rounded-(--nr-radius-card) rounded-tr-md border border-primary/25 bg-primary/12 p-4 text-foreground md:p-5">
-              <p className="text-sm leading-7">{review.draft}</p>
+              <p className="text-sm leading-7">{review.publishedReply}</p>
             </div>
             <p className="pr-1 text-right text-xs text-muted-foreground">
               Published business reply · {review.responseTime ?? "Published"}
@@ -1236,7 +1236,8 @@ function ReviewDetail({
             </Button>
             <div className="flex w-full flex-col items-stretch gap-1.5 sm:ml-auto sm:w-auto sm:items-end">
               <p className="text-[11px] text-muted-foreground">
-                Publishing makes this reply public on Google.
+                Published replies are public on Google; approval may be
+                required.
               </p>
               <Button
                 onClick={publish}

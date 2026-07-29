@@ -181,6 +181,7 @@ export async function loadReviewsPage(
         status: statusOf(item.workflowStatus),
         verification: verificationOf(item.verificationStatus),
         draft: item.draftBody ?? item.replyBody ?? "",
+        publishedReply: item.replyBody ?? undefined,
         draftId: item.draftId ?? undefined,
         sourceUpdateTime: item.updateTime,
         sourceCreateTime: item.createTime,
