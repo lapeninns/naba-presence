@@ -624,7 +624,7 @@ The third case is the one the client-supplied version check can never catch. Run
 - Consumes: Task 2/3 engine internals (`recoverAttempt`, phase helpers).
 - Produces: `executeReplyDelete(input: { organisationId: string; session: Session; reviewId: string; serverRequestId: string }): Promise<{ status: "deleted" | "cancelled" | "ambiguous"; attemptId: string | null }>`. Sprint 4 UI-401's delete button calls the route; Sprint 3's worker recovers its ambiguous attempts exactly like publish ones (same table, `operation='delete'`).
 
-- [ ] **Step 1: Enumerate reachable states and write the matrix test.** Reachable `(review.workflow_status, review_reply.publish_status)` pairs with a reply row, from the Sprint-2 codebase: `('published','published')`, `('published','accepted')` (moderation pending), `('rejected','rejected')`, `('awaiting_approval','awaiting_approval')`, `('publish_requested','accepted')` (attempt unsettled), `('failed','accepted')`, plus ingestion-created `('published','published')` with no draft. `tests/integration/routes/delete-lifecycle.test.ts` covers each:
+- [x] **Step 1: Enumerate reachable states and write the matrix test.** Reachable `(review.workflow_status, review_reply.publish_status)` pairs with a reply row, from the Sprint-2 codebase: `('published','published')`, `('published','accepted')` (moderation pending), `('rejected','rejected')`, `('awaiting_approval','awaiting_approval')`, `('publish_requested','accepted')` (attempt unsettled), `('failed','accepted')`, plus ingestion-created `('published','published')` with no draft. `tests/integration/routes/delete-lifecycle.test.ts` covers each:
 
 ```ts
 const cases = [
@@ -638,13 +638,13 @@ const cases = [
 
 For each: seed the pair via admin (plus a settled/unsettled `publish_attempt` as appropriate), `DELETE /api/reviews/{id}/reply` with an owner cookie, assert status; when `google: true` assert exactly one stub `DELETE` call and final DB `publish_status='deleted'`, `workflow_status` per Step 3's table, `publish_generation` incremented; when `google: false` assert **zero** Google calls (local cancel → `publish_status='not_published'`, workflow `'drafted'`); the 409 case asserts `publish_in_progress` (delete refuses while an attempt is `started`/`ambiguous` until recovery settles it). Add divergence cases: stub `DELETE` returns 404 → treated as success (already gone — idempotent); stub `DELETE` times out → 502 `google_mutation_ambiguous`, attempt row `operation='delete'` status `ambiguous`, and a follow-up `DELETE` after stub `GET` shows no reply → 200 via recovery with no second Google `DELETE`. Run — Expected: FAIL comprehensively (today: no ledger, no idempotency, `workflow_status='new'` unconditionally, transitions rejected by the trigger, ambiguity rolls back silently).
 
-- [ ] **Step 2: Implement `executeReplyDelete`** in `lib/server/publishing.ts`, same three-phase shape:
+- [x] **Step 2: Implement `executeReplyDelete`** in `lib/server/publishing.ts`, same three-phase shape:
 
 - Phase 1 (`withTenant`): load review ⋈ reply ⋈ external_location; `requireLocationAccess` + `canPublishLocation` (as `reply/route.ts:54-61` today); if no reply row or `publish_status in ('deleted','not_published')` → `ApiError(404, "reply_not_found", …)`. If an attempt for this review is `started`/`ambiguous` → run recovery first (Task 3), else 409. **Local-cancel branch:** `publish_status in ('awaiting_approval')` or (`'accepted'` with no `succeeded` publish attempt and `google_reply_updated_at is null`) → update reply to `'not_published'`, workflow → `'drafted'`, audit `review.reply.cancelled`, return `{status:"cancelled"}` — no Google call, no attempt row. **Remote branch:** insert `publish_attempt` `operation='delete'`, `status='started'`, `idempotency_key = sha256(\`${orgId}:${reviewId}:delete:${publish_generation}\`)`, `intended_body = null`; audit `review.reply.delete_requested`; return connection material.
 - Phase 2: `deleteGoogleReply(accessToken, reviewName, { timeoutMs: 20_000 })`; catch: HTTP 404 → treat as applied; ambiguous/timeout → fault.
 - Phase 3 (`withTenant`): applied → reply `publish_status='deleted'`, `google_reply_state=null`, `google_policy_violation=null`, `publish_generation = publish_generation + 1`, `google_reply_updated_at = now()`; workflow per table below; attempt `succeeded`; audit `review.reply.deleted`. Fault → attempt `ambiguous`/`failed` (+ `next_attempt_at` for retryable), audit `review.reply.delete_failed`, rethrow mapped error.
 
-- [ ] **Step 3: Workflow transitions.** Extend `ALLOWED_TRANSITIONS` in `lib/domain/workflow.ts` and the SQL trigger identically (append to `supabase/migrations/0006_reply_lifecycle.sql` — it is still this sprint's open migration — a `create or replace function enforce_review_workflow_transition()` with the full updated body):
+- [x] **Step 3: Workflow transitions.** Extend `ALLOWED_TRANSITIONS` in `lib/domain/workflow.ts` and the SQL trigger identically (append to `supabase/migrations/0006_reply_lifecycle.sql` — it is still this sprint's open migration — a `create or replace function enforce_review_workflow_transition()` with the full updated body):
 
 | From | Added target | Used by |
 |---|---|---|
@@ -655,9 +655,9 @@ For each: seed the pair via admin (plus a settled/unsettled `publish_attempt` as
 
 Verification here is that **no new transitions are actually needed** once delete stops writing `'new'` unconditionally — the engine picks the target per branch: remote delete → `'new'`; local cancel → `'drafted'`. Update `tests/workflow.test.ts` to assert the engine's two mappings (`deleteWorkflowTarget(branch)` helper exported from `lib/domain/workflow.ts`).
 
-- [ ] **Step 4: Route shell.** `app/api/reviews/[id]/reply/route.ts` DELETE becomes: session + `PUBLISH_ENABLED` gate + `executeReplyDelete` + map `{deleted→200, cancelled→200, ambiguous→502}`.
+- [x] **Step 4: Route shell.** `app/api/reviews/[id]/reply/route.ts` DELETE becomes: session + `PUBLISH_ENABLED` gate + `executeReplyDelete` + map `{deleted→200, cancelled→200, ambiguous→502}`.
 
-- [ ] **Step 5: Run the matrix** — Expected: PASS. Re-run the publish suite (recovery is shared — no regressions), then full gates.
+- [x] **Step 5: Run the matrix** — Expected: PASS. Re-run the publish suite (recovery is shared — no regressions), then full gates.
 
 ---
 

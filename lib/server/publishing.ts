@@ -4,12 +4,14 @@ import type { TransactionSql } from "postgres"
 
 import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
+import { deleteWorkflowTarget } from "@/lib/domain/workflow"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { buildEvidenceHash } from "@/lib/server/drafts"
 import {
   connectionAccessToken,
+  deleteGoogleReply,
   getGoogleReview,
   GoogleMutationAmbiguousError,
   updateGoogleReply,
@@ -190,17 +192,17 @@ export async function recoverAttempt(input: {
   }
 
   const providerReply = googleReplyFromReview(review)
-  const applied =
+  const result =
     context.operation === "delete"
       ? providerReply === null
+        ? "succeeded"
+        : "not_applied"
       : context.intended_body !== null &&
-        googleReplyMatches(review, context.intended_body)
-  const result =
-    applied
-      ? "succeeded"
-      : providerReply === null
-        ? "not_applied"
-        : "diverged"
+          googleReplyMatches(review, context.intended_body)
+        ? "succeeded"
+        : providerReply === null
+          ? "not_applied"
+          : "diverged"
 
   await withTenant(input.organisationId, async (sql) => {
     await writePublishAttemptEvent(sql, {
@@ -230,6 +232,27 @@ export async function recoverAttempt(input: {
           publish_status = ${
             context.operation === "delete" ? "deleted" : "published"
           },
+          current_body = case
+            when ${context.operation} = 'delete' then null
+            else current_body
+          end,
+          google_reply_state = case
+            when ${context.operation} = 'delete' then null
+            else google_reply_state
+          end,
+          google_policy_violation = case
+            when ${context.operation} = 'delete' then null
+            else google_policy_violation
+          end,
+          publish_generation = case
+            when ${context.operation} = 'delete'
+              then publish_generation + 1
+            else publish_generation
+          end,
+          google_reply_updated_at = case
+            when ${context.operation} = 'delete' then now()
+            else google_reply_updated_at
+          end,
           first_published_at = case
             when ${context.operation} = 'publish'
               then coalesce(first_published_at, now())
@@ -239,9 +262,9 @@ export async function recoverAttempt(input: {
       `
       await sql`
         update review
-        set workflow_status = ${
-          context.operation === "delete" ? "new" : "published"
-        }
+        set workflow_status = ${context.operation === "delete"
+          ? deleteWorkflowTarget("remote")
+          : "published"}
         where id = ${context.review_id}
       `
       await writePublishAttemptEvent(sql, {
@@ -861,4 +884,447 @@ export async function executePublish(input: {
       },
     } as PublishOutcome
   })
+}
+
+type DeleteRecord = {
+  review_id: string
+  workflow_status: string
+  google_review_name_ciphertext: Buffer
+  location_id: string
+  connection_id: string
+  review_reply_id: string
+  publish_status: string
+  publish_generation: number
+  google_reply_updated_at: Date | null
+  has_succeeded_publish: boolean
+}
+
+type DeletePhaseOne =
+  | {
+      kind: "outcome"
+      outcome: {
+        status: "deleted" | "cancelled"
+        attemptId: string | null
+      }
+    }
+  | {
+      kind: "needs_recovery"
+      attemptId: string
+      operation: "publish" | "delete"
+    }
+  | {
+      kind: "proceed"
+      attemptId: string
+      attemptNo: number
+      reviewReplyId: string
+      connectionId: string
+      googleReviewName: string
+    }
+
+export async function executeReplyDelete(input: {
+  organisationId: string
+  session: Session
+  reviewId: string
+  serverRequestId: string
+}): Promise<{
+  status: "deleted" | "cancelled" | "ambiguous"
+  attemptId: string | null
+}> {
+  const phaseOne = await withTenant<DeletePhaseOne>(
+    input.organisationId,
+    async (sql) => {
+      const [record] = await sql<DeleteRecord[]>`
+        select
+          r.id::text as review_id,
+          r.workflow_status,
+          r.google_review_name_ciphertext,
+          r.location_id::text as location_id,
+          el.google_connection_id::text as connection_id,
+          rr.id::text as review_reply_id,
+          rr.publish_status,
+          rr.publish_generation,
+          rr.google_reply_updated_at,
+          exists (
+            select 1
+            from publish_attempt succeeded
+            where succeeded.review_reply_id = rr.id
+              and succeeded.operation = 'publish'
+              and succeeded.status = 'succeeded'
+          ) as has_succeeded_publish
+        from review r
+        join external_location el on el.id = r.external_location_id
+        join review_reply rr on rr.review_id = r.id
+        where r.id = ${input.reviewId}
+        limit 1
+      `
+      if (!record) {
+        throw new ApiError(
+          404,
+          "reply_not_found",
+          "Published reply not found."
+        )
+      }
+      await requireLocationAccess(
+        sql,
+        input.session,
+        record.location_id
+      )
+      if (
+        !(await canPublishLocation(
+          sql,
+          input.session,
+          record.location_id
+        ))
+      ) {
+        throw new ApiError(
+          403,
+          "publish_permission_required",
+          "You do not have publish permission for this location."
+        )
+      }
+
+      const [activeAttempt] = await sql<
+        { id: string; operation: "publish" | "delete" }[]
+      >`
+        select id::text as id, operation
+        from publish_attempt
+        where review_reply_id = ${record.review_reply_id}
+          and status in ('started', 'ambiguous')
+        order by started_at desc
+        limit 1
+      `
+      if (activeAttempt) {
+        return {
+          kind: "needs_recovery",
+          attemptId: activeAttempt.id,
+          operation: activeAttempt.operation,
+        }
+      }
+      if (
+        ["deleted", "not_published"].includes(record.publish_status)
+      ) {
+        throw new ApiError(
+          404,
+          "reply_not_found",
+          "Published reply not found."
+        )
+      }
+
+      const localCancel =
+        record.publish_status === "awaiting_approval" ||
+        (record.publish_status === "accepted" &&
+          !record.has_succeeded_publish &&
+          record.google_reply_updated_at === null)
+      if (localCancel) {
+        await sql`
+          update review_reply
+          set
+            publish_status = 'not_published',
+            google_reply_state = null,
+            google_policy_violation = null,
+            published_by = null
+          where id = ${record.review_reply_id}
+        `
+        await sql`
+          update review
+          set workflow_status = ${deleteWorkflowTarget("local_cancel")}
+          where id = ${record.review_id}
+        `
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          actorUserId: input.session.userId,
+          action: "review.reply.cancelled",
+          subjectType: "review",
+          subjectId: record.review_id,
+          requestId: input.serverRequestId,
+        })
+        return {
+          kind: "outcome",
+          outcome: { status: "cancelled", attemptId: null },
+        }
+      }
+
+      const idempotencyKey = sha256(
+        `${input.organisationId}:${record.review_id}:delete:${record.publish_generation}`
+      )
+      const [existing] = await sql<ExistingAttempt[]>`
+        select
+          id::text as id,
+          status,
+          review_reply_id::text as review_reply_id,
+          attempt_no,
+          next_attempt_at
+        from publish_attempt
+        where organisation_id = ${input.organisationId}
+          and idempotency_key = ${idempotencyKey}
+        limit 1
+      `
+      if (existing?.status === "succeeded") {
+        return {
+          kind: "outcome",
+          outcome: { status: "deleted", attemptId: existing.id },
+        }
+      }
+      if (existing?.status === "failed") {
+        throw new ApiError(
+          409,
+          "previous_delete_failed",
+          "The previous provider rejection is permanent."
+        )
+      }
+      if (
+        existing?.next_attempt_at &&
+        existing.next_attempt_at.getTime() > Date.now()
+      ) {
+        throw new ApiError(
+          429,
+          "delete_retry_not_ready",
+          `Retry after ${existing.next_attempt_at.toISOString()}.`
+        )
+      }
+      const [attempt] = existing
+        ? await sql<{ id: string; attempt_no: number }[]>`
+            update publish_attempt
+            set
+              status = 'started',
+              attempt_no = attempt_no + 1,
+              provider_http_status = null,
+              provider_error_code = null,
+              provider_error_body = null,
+              next_attempt_at = null,
+              started_at = now(),
+              finished_at = null
+            where id = ${existing.id}
+            returning id::text as id, attempt_no
+          `
+        : await sql<{ id: string; attempt_no: number }[]>`
+            insert into publish_attempt (
+              organisation_id,
+              review_reply_id,
+              idempotency_key,
+              request_body_hash,
+              intended_body,
+              status,
+              attempt_no,
+              operation
+            )
+            values (
+              ${input.organisationId},
+              ${record.review_reply_id},
+              ${idempotencyKey},
+              ${sha256("")},
+              null,
+              'started',
+              1,
+              'delete'
+            )
+            returning id::text as id, attempt_no
+          `
+      await writePublishAttemptEvent(sql, {
+        organisationId: input.organisationId,
+        publishAttemptId: attempt.id,
+        eventType: "started",
+        payload: { attemptNo: attempt.attempt_no, operation: "delete" },
+      })
+      await writeAudit(sql, {
+        organisationId: input.organisationId,
+        actorUserId: input.session.userId,
+        action: "review.reply.delete_requested",
+        subjectType: "review",
+        subjectId: record.review_id,
+        requestId: input.serverRequestId,
+        metadata: { publishAttemptId: attempt.id },
+      })
+      return {
+        kind: "proceed",
+        attemptId: attempt.id,
+        attemptNo: attempt.attempt_no,
+        reviewReplyId: record.review_reply_id,
+        connectionId: record.connection_id,
+        googleReviewName: decryptSecret(
+          record.google_review_name_ciphertext
+        ),
+      }
+    }
+  )
+
+  if (phaseOne.kind === "outcome") return phaseOne.outcome
+  if (phaseOne.kind === "needs_recovery") {
+    let recovery: Awaited<ReturnType<typeof recoverAttempt>>
+    try {
+      recovery = await recoverAttempt({
+        organisationId: input.organisationId,
+        attemptId: phaseOne.attemptId,
+      })
+    } catch (error) {
+      if (error instanceof GoogleMutationAmbiguousError) {
+        return {
+          status: "ambiguous",
+          attemptId: phaseOne.attemptId,
+        }
+      }
+      throw error
+    }
+    if (recovery === "diverged") {
+      throw new ApiError(
+        409,
+        "reply_diverged",
+        "The live Google reply differs from the intended reply."
+      )
+    }
+    if (
+      phaseOne.operation === "delete" &&
+      recovery === "succeeded"
+    ) {
+      return { status: "deleted", attemptId: phaseOne.attemptId }
+    }
+    return executeReplyDelete(input)
+  }
+
+  let applied = false
+  let providerError: unknown
+  try {
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      input.organisationId,
+      phaseOne.connectionId
+    )
+    await deleteGoogleReply(
+      accessToken,
+      phaseOne.googleReviewName,
+      { timeoutMs: 20_000 }
+    )
+    applied = true
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      applied = true
+    } else {
+      providerError = error
+    }
+  }
+
+  const settlement = await withTenant(
+    input.organisationId,
+    async (sql) => {
+      if (applied) {
+        await sql`
+          update review_reply
+          set
+            current_body = null,
+            google_reply_state = null,
+            google_policy_violation = null,
+            publish_status = 'deleted',
+            publish_generation = publish_generation + 1,
+            google_reply_updated_at = now()
+          where id = ${phaseOne.reviewReplyId}
+        `
+        await sql`
+          update review
+          set workflow_status = ${deleteWorkflowTarget("remote")}
+          where id = ${input.reviewId}
+        `
+        await sql`
+          update publish_attempt
+          set
+            status = 'succeeded',
+            provider_http_status = 200,
+            provider_error_code = null,
+            next_attempt_at = null,
+            finished_at = now()
+          where id = ${phaseOne.attemptId}
+        `
+        await writePublishAttemptEvent(sql, {
+          organisationId: input.organisationId,
+          publishAttemptId: phaseOne.attemptId,
+          eventType: "provider_accepted",
+          payload: { operation: "delete" },
+        })
+        await writePublishAttemptEvent(sql, {
+          organisationId: input.organisationId,
+          publishAttemptId: phaseOne.attemptId,
+          eventType: "completed",
+          payload: { status: "deleted" },
+        })
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          actorUserId: input.session.userId,
+          action: "review.reply.deleted",
+          subjectType: "review",
+          subjectId: input.reviewId,
+          requestId: input.serverRequestId,
+          metadata: { publishAttemptId: phaseOne.attemptId },
+        })
+        return { kind: "outcome" as const }
+      }
+
+      const ambiguous =
+        providerError instanceof GoogleMutationAmbiguousError
+      const retryable =
+        providerError instanceof ApiError && providerError.status === 429
+      const status = ambiguous
+        ? "ambiguous"
+        : retryable
+          ? "retryable"
+          : "failed"
+      const nextAttemptAt = retryable
+        ? new Date(Date.now() + retryDelayMs(phaseOne.attemptNo))
+        : null
+      const errorCode =
+        providerError instanceof ApiError
+          ? providerError.code
+          : "network_error"
+      await sql`
+        update publish_attempt
+        set
+          status = ${status},
+          provider_http_status = ${providerError instanceof ApiError
+            ? providerError.status
+            : null},
+          provider_error_code = ${errorCode},
+          next_attempt_at = ${nextAttemptAt},
+          finished_at = now()
+        where id = ${phaseOne.attemptId}
+      `
+      await writePublishAttemptEvent(sql, {
+        organisationId: input.organisationId,
+        publishAttemptId: phaseOne.attemptId,
+        eventType: retryable
+          ? "retry_scheduled"
+          : "provider_rejected",
+        payload: {
+          operation: "delete",
+          code: errorCode,
+          nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+        },
+      })
+      await writeAudit(sql, {
+        organisationId: input.organisationId,
+        actorUserId: input.session.userId,
+        action: "review.reply.delete_failed",
+        subjectType: "review",
+        subjectId: input.reviewId,
+        requestId: input.serverRequestId,
+        metadata: {
+          publishAttemptId: phaseOne.attemptId,
+          status,
+        },
+      })
+      return {
+        kind: "fault" as const,
+        ambiguous,
+        providerError,
+      }
+    }
+  )
+
+  if (settlement.kind === "outcome") {
+    return { status: "deleted", attemptId: phaseOne.attemptId }
+  }
+  if (settlement.ambiguous) {
+    return { status: "ambiguous", attemptId: phaseOne.attemptId }
+  }
+  if (settlement.providerError instanceof ApiError) {
+    throw settlement.providerError
+  }
+  throw new ApiError(502, "google_delete_failed", "Google delete failed.")
 }

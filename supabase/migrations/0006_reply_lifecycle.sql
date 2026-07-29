@@ -41,6 +41,36 @@ create policy tenant_isolation on approval_decision using (
 grant select, insert, update, delete on approval_decision
   to naba_app_runtime;
 
+create or replace function enforce_review_workflow_transition()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.workflow_status = new.workflow_status then
+    return new;
+  end if;
+  if current_setting('app.provider_reconciliation', true) = 'true'
+    and new.workflow_status in ('new', 'published', 'rejected') then
+    return new;
+  end if;
+  if not (
+    (old.workflow_status = 'new' and new.workflow_status in ('drafted', 'escalated', 'published'))
+    or (old.workflow_status = 'drafted' and new.workflow_status in ('verified', 'drafted', 'escalated'))
+    or (old.workflow_status = 'verified' and new.workflow_status in ('drafted', 'awaiting_approval', 'publish_requested', 'escalated'))
+    or (old.workflow_status = 'awaiting_approval' and new.workflow_status in ('drafted', 'publish_requested', 'escalated'))
+    or (old.workflow_status = 'publish_requested' and new.workflow_status in ('published', 'rejected', 'failed'))
+    or (old.workflow_status = 'published' and new.workflow_status in ('drafted', 'new', 'rejected'))
+    or (old.workflow_status = 'rejected' and new.workflow_status in ('drafted', 'publish_requested', 'new'))
+    or (old.workflow_status = 'failed' and new.workflow_status in ('drafted', 'publish_requested', 'new'))
+    or (old.workflow_status = 'escalated' and new.workflow_status in ('drafted', 'awaiting_approval', 'publish_requested'))
+  ) then
+    raise exception 'invalid review workflow transition: % -> %',
+      old.workflow_status, new.workflow_status;
+  end if;
+  return new;
+end;
+$$;
+
 insert into schema_migration (version) values ('0006_reply_lifecycle')
 on conflict (version) do nothing;
 

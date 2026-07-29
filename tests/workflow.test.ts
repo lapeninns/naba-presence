@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  deleteWorkflowTarget,
   isAllowedReviewTransition,
   REVIEW_WORKFLOW_STATES,
 } from "@/lib/domain/workflow"
@@ -35,5 +36,10 @@ describe("review workflow", () => {
     for (const state of REVIEW_WORKFLOW_STATES) {
       expect(isAllowedReviewTransition(state, state)).toBe(true)
     }
+  })
+
+  it("maps delete branches to their valid workflow targets", () => {
+    expect(deleteWorkflowTarget("remote")).toBe("new")
+    expect(deleteWorkflowTarget("local_cancel")).toBe("drafted")
   })
 })

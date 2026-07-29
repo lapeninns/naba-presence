@@ -138,6 +138,9 @@ describe("database migration contract", () => {
     expect(replyLifecycleMigration).toContain("operation text")
     expect(replyLifecycleMigration).toContain("intended_body text")
     expect(replyLifecycleMigration).toContain("draft_policy_version text")
+    expect(replyLifecycleMigration).toContain(
+      "create or replace function enforce_review_workflow_transition()"
+    )
     expect(replyLifecycleMigration).toContain("publish_generation")
     expect(replyLifecycleMigration).toContain("create table approval_decision")
     expect(replyLifecycleMigration).toMatch(
