@@ -386,7 +386,7 @@ export function ReviewsWorkspace({
           <TabsList
             variant="line"
             aria-label="Review queues"
-            className="grid h-auto! w-full grid-cols-2 justify-stretch gap-1 sm:flex sm:h-8! sm:[scrollbar-width:none] sm:justify-start sm:overflow-x-auto sm:[&::-webkit-scrollbar]:hidden"
+            className="grid h-auto! w-full grid-cols-2 justify-stretch gap-1 sm:grid-cols-3 xl:flex xl:h-8! xl:[scrollbar-width:none] xl:justify-start xl:overflow-x-auto xl:[&::-webkit-scrollbar]:hidden"
           >
             {QUEUES.map((item) => {
               const count =
@@ -404,7 +404,7 @@ export function ReviewsWorkspace({
                   // 4.5:1). `text-muted-foreground` is the theme's tuned
                   // secondary-text token; the component's own
                   // `data-active:text-foreground` still wins once active.
-                  className="w-full min-w-0 px-2 text-xs text-muted-foreground sm:w-auto sm:flex-none sm:shrink-0 sm:px-3 sm:text-sm"
+                  className="w-full min-w-0 px-2 text-xs text-muted-foreground xl:w-auto xl:flex-none xl:shrink-0 xl:px-3 xl:text-sm"
                 >
                   {item.label}
                   <span className="font-mono text-[10px] text-muted-foreground">

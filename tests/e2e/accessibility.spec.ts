@@ -372,9 +372,11 @@ for (const viewport of [
             .locator('section[aria-label="Review list"] button')
             .filter({ hasText: "Jordan Lee" })
         ).toHaveAttribute("aria-current", "true")
-        await expect(
-          page.getByRole("button", { name: "Back to review list" })
-        ).toBeVisible()
+        const backButton = page.getByRole("button", {
+          name: "Back to review list",
+        })
+        await expect(backButton).toBeVisible()
+        await expect(backButton).toBeFocused()
       } else {
         await expect(row).toHaveAttribute("aria-current", "true")
       }
@@ -428,6 +430,7 @@ for (const viewport of [
         await page.getByRole("button", { name: "Back to review list" }).click()
         await expect(reviewList).toBeVisible()
         await expect(selectedReview).toBeHidden()
+        await expect(row).toBeFocused()
       }
     })
 
@@ -599,9 +602,9 @@ for (const viewport of [
         await route.fulfill({
           json: {
             session: {
-              sessionId: "session-menu-a11y",
-              userId: "user-menu-a11y",
-              organisationId: "org-menu-a11y",
+              sessionId: "a1111111-1111-4111-8111-111111111111",
+              userId: "a2222222-2222-4222-8222-222222222222",
+              organisationId: "a3333333-3333-4333-8333-333333333333",
               organisationName: "Naba Review",
               displayName: "Alex Morgan",
               email: "alex@example.com",
@@ -616,12 +619,12 @@ for (const viewport of [
           json: {
             locations: [
               {
-                locationId: "location-menu-a11y",
+                locationId: "a4444444-4444-4444-8444-444444444444",
                 name: "Camden Hotel",
                 timezone: "Europe/London",
                 address: null,
-                linkId: "link-menu-a11y",
-                externalLocationId: "locations/camden-menu-a11y",
+                linkId: "a5555555-5555-4555-8555-555555555555",
+                externalLocationId: "a6666666-6666-4666-8666-666666666666",
                 googleLocationName: "locations/camden-menu-a11y",
                 googleTitle: "Camden Hotel",
                 verified: true,
@@ -635,8 +638,8 @@ for (const viewport of [
           json: {
             menus: [
               {
-                id: "menu-a11y",
-                locationId: "location-menu-a11y",
+                id: "a7777777-7777-4777-8777-777777777777",
+                locationId: "a4444444-4444-4444-8444-444444444444",
                 locationName: "Camden Hotel",
                 publicSlug: "camden-menu-a11y",
                 name: "Camden Dinner Menu",
