@@ -69,6 +69,17 @@ export function OverviewView({
     "loading" | "ready" | "error"
   >("loading")
   const [reloadKey, setReloadKey] = useState(0)
+  const [greeting, setGreeting] = useState<"morning" | "afternoon" | "evening">(
+    "morning"
+  )
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const hour = new Date().getHours()
+      setGreeting(hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening")
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -105,8 +116,6 @@ export function OverviewView({
   const needsAttention = reviews.filter(
     (review) => review.status === "needs_reply" || review.status === "escalated"
   ).length
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"
   const summary = overviewData?.analytics.summary
   const connection =
     overviewData?.connections.find((item) => item.status === "active") ??

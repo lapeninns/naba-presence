@@ -72,6 +72,9 @@ for (const viewport of [
           name: /Good (morning|afternoon|evening)/,
         })
       ).toBeVisible()
+      await expect(
+        page.getByText("Google connection", { exact: true })
+      ).toBeVisible()
       await expectAccessible(page, `${viewport.name} overview`)
     })
 
