@@ -3,12 +3,19 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
-import { withTenant } from "@/lib/server/db"
+import {
+  encryptSecret,
+  sha256,
+  verifySignedValue,
+} from "@/lib/server/crypto"
+import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { provisionOwner } from "@/lib/server/provisioning"
+import {
+  provisionMember,
+  provisionOwner,
+} from "@/lib/server/provisioning"
 import { getSession, setSessionCookie } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -18,6 +25,7 @@ const stateSchema = z.object({
   verifier: z.string().min(43),
   organisationId: z.uuid().nullable(),
   userId: z.uuid().nullable(),
+  inviteToken: z.string().nullable(),
   expiresAt: z.number(),
 })
 
@@ -72,7 +80,47 @@ async function completeOAuth(request: Request) {
   let session = await getSession()
   let sessionToken: string | undefined
   if (!session) {
-    const provisioned = await provisionOwner(profile)
+    const inviteToken = state.inviteToken
+    let invitedRole:
+      | "owner"
+      | "admin"
+      | "member"
+      | "viewer"
+      | undefined
+    let invitedCanPublish = true
+    const provisioned = inviteToken
+      ? await (async () => {
+          const [invitation] = await getDatabase()<
+            {
+              id: string
+              organisationId: string
+              role: "owner" | "admin" | "member" | "viewer"
+              canPublish: boolean
+            }[]
+          >`
+            select
+              id::text as id,
+              organisation_id::text as "organisationId",
+              role,
+              can_publish as "canPublish"
+            from resolve_invitation_for_acceptance(
+              ${sha256(inviteToken)}
+            )
+          `
+          if (!invitation) {
+            throw new ApiError(
+              410,
+              "invitation_expired",
+              "This invitation is invalid or expired."
+            )
+          }
+          invitedRole = invitation.role
+          invitedCanPublish = invitation.canPublish
+          // The invited address and Google address may differ by product
+          // policy; provisionMember records both in the acceptance audit.
+          return provisionMember(profile, invitation)
+        })()
+      : await provisionOwner(profile)
     sessionToken = provisioned.token
     session = {
       sessionId: "",
@@ -81,8 +129,8 @@ async function completeOAuth(request: Request) {
       organisationName: "",
       displayName: profile.name ?? profile.email ?? "Google user",
       email: profile.email ?? "",
-      role: "owner",
-      canPublish: true,
+      role: invitedRole ?? "owner",
+      canPublish: invitedCanPublish,
     }
   }
   if (
@@ -206,9 +254,18 @@ export async function GET(request: Request) {
   } catch (error) {
     const response = apiError(error)
     if (response.status >= 400) {
+      const status =
+        error instanceof ApiError &&
+        [
+          "invitation_expired",
+          "invitation_already_used",
+          "invitation_not_found",
+        ].includes(error.code)
+          ? "invite_expired"
+          : String(response.status)
       return NextResponse.redirect(
         new URL(
-          `/sign-in?google=error&status=${response.status}`,
+          `/sign-in?google=error&status=${status}`,
           baseUrl
         )
       )

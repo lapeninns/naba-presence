@@ -4,36 +4,18 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
 const roleSchema = z.enum(["owner", "admin", "member", "viewer"])
-const createSchema = z.object({
-  email: z.email().transform((value) => value.toLowerCase()),
-  displayName: z.string().trim().min(1).max(120),
-  role: roleSchema,
-  canPublish: z.boolean().default(false),
-})
 const updateSchema = z.object({
   userId: z.uuid(),
   role: roleSchema,
   canPublish: z.boolean(),
 })
 const deleteSchema = z.object({ userId: z.uuid() })
-
-function assertRoleChangeAllowed(
-  actorRole: "owner" | "admin" | "member" | "viewer",
-  targetRole: z.infer<typeof roleSchema>
-) {
-  if (actorRole !== "owner" && targetRole === "owner") {
-    throw new ApiError(
-      403,
-      "owner_role_required",
-      "Only an owner can grant or change the owner role."
-    )
-  }
-}
 
 export async function GET() {
   try {
@@ -79,72 +61,14 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = createSchema.parse(await request.json())
-    assertRoleChangeAllowed(session.role, input.role)
-    const member = await withTenant(session.organisationId, async (sql) => {
-      const [user] = await sql<{ id: string }[]>`
-        select attach_member_user(
-          ${input.email},
-          ${input.displayName}
-        )::text as id
-      `
-      const [existing] = await sql<{ role: z.infer<typeof roleSchema> }[]>`
-        select role
-        from member
-        where user_id = ${user.id}
-        limit 1
-      `
-      if (existing) {
-        throw new ApiError(
-          409,
-          "member_exists",
-          "That user is already a member of this organisation."
-        )
-      }
-      const [row] = await sql`
-        insert into member (
-          organisation_id,
-          user_id,
-          role,
-          can_publish
-        )
-        values (
-          ${session.organisationId},
-          ${user.id},
-          ${input.role},
-          ${input.canPublish}
-        )
-        returning
-          user_id::text as "userId",
-          role,
-          can_publish as "canPublish",
-          created_at as "createdAt"
-      `
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "member.added",
-        subjectType: "member",
-        subjectId: user.id,
-        requestId: rid.id,
-        metadata: {
-          role: input.role,
-          canPublish: input.canPublish,
-          clientRequestId: rid.clientId,
-        },
-      })
-      const [profileRow] = await sql`
-        select email, display_name as "displayName"
-        from app_user
-        where id = ${user.id}
-      `
-      return { ...row, ...profileRow }
-    })
-    return NextResponse.json({ member }, { status: 201 })
+    requireRole(await requireSession(), ["owner", "admin"])
+    throw new ApiError(
+      410,
+      "use_invitations",
+      "Create an invitation instead of adding a user directly."
+    )
   } catch (error) {
     return apiError(error)
   }

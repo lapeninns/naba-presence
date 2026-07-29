@@ -3,6 +3,7 @@
 import {
   BarChart3,
   Building2,
+  ChevronsUpDown,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -14,6 +15,7 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
+import { useEffect, useState } from "react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -40,8 +42,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
+  loadOrganisations,
   signOut,
+  switchOrganisation,
   type AppSession,
+  type OrganisationMembership,
 } from "@/lib/naba-presence-api"
 import { cn } from "@/lib/utils"
 
@@ -63,6 +68,9 @@ export function AppShell({
   children: React.ReactNode
 }) {
   const organisationName = session?.organisationName ?? "Your organisation"
+  const [organisations, setOrganisations] = useState<
+    OrganisationMembership[]
+  >([])
   const displayName = session?.displayName ?? "Account"
   const userInitials =
     displayName
@@ -71,9 +79,30 @@ export function AppShell({
       .map((part) => part[0]?.toUpperCase())
       .join("") || "AC"
 
+  useEffect(() => {
+    if (!session?.userId) return
+    let active = true
+    void loadOrganisations()
+      .then(({ items }) => {
+        if (active) setOrganisations(items)
+      })
+      .catch(() => {
+        if (active) setOrganisations([])
+      })
+    return () => {
+      active = false
+    }
+  }, [session?.userId])
+
   async function handleSignOut() {
     await signOut()
     window.location.assign("/sign-in")
+  }
+
+  async function handleOrganisationSwitch(organisationId: string) {
+    if (organisationId === session?.organisationId) return
+    await switchOrganisation(organisationId)
+    window.location.assign("/reviews")
   }
 
   return (
@@ -93,12 +122,53 @@ export function AppShell({
               </span>
             </span>
           </div>
-          <div className="flex min-w-0 items-center gap-2 text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-            <Building2 className="size-3.5 shrink-0" aria-hidden />
-            <span className="truncate text-xs font-medium">
-              {organisationName}
-            </span>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start px-0 text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden"
+                  aria-label={`Switch organisation, current: ${organisationName}`}
+                />
+              }
+            >
+              <Building2 className="size-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">
+                {organisationName}
+              </span>
+              <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56">
+              {(organisations.length
+                ? organisations
+                : session
+                  ? [
+                      {
+                        organisationId: session.organisationId,
+                        name: organisationName,
+                        role: session.role,
+                      },
+                    ]
+                  : []
+              ).map((organisation) => (
+                <DropdownMenuItem
+                  key={organisation.organisationId}
+                  onClick={() =>
+                    handleOrganisationSwitch(organisation.organisationId)
+                  }
+                >
+                  <Building2 aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">
+                    {organisation.name}
+                  </span>
+                  <span className="text-xs capitalize text-muted-foreground">
+                    {organisation.role}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </SidebarHeader>
         <SidebarContent>
           <ShellNav />

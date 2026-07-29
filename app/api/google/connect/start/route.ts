@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { randomToken, signValue } from "@/lib/server/crypto"
 import {
@@ -12,8 +13,15 @@ import { getSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
-export async function POST() {
+const inputSchema = z.object({
+  inviteToken: z.string().min(1).optional(),
+})
+
+export async function POST(request: Request) {
   try {
+    const input = inputSchema.parse(
+      await request.json().catch(() => ({}))
+    )
     const session = await getSession()
     const nonce = randomToken(24)
     const verifier = randomToken(64)
@@ -23,6 +31,7 @@ export async function POST() {
         verifier,
         organisationId: session?.organisationId ?? null,
         userId: session?.userId ?? null,
+        inviteToken: input.inviteToken ?? null,
         expiresAt: Date.now() + 10 * 60 * 1000,
       })
     ).toString("base64url")

@@ -1,6 +1,6 @@
 "use client"
 
-import { Sparkles } from "lucide-react"
+import { Copy, Sparkles } from "lucide-react"
 import { useEffect, useState, useTransition } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -51,11 +51,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/toast"
 import {
-  addMember,
+  createInvitation,
   createPrivacyRequest,
+  loadInvitations,
   loadInternalLocations,
   loadMembers,
   loadSettings,
+  type Invitation,
   type InternalLocation,
   type OrganisationMember,
   saveLocationAssignments,
@@ -89,10 +91,11 @@ export function SettingsView() {
   const [internalLocations, setInternalLocations] = useState<
     InternalLocation[]
   >([])
-  const [newMemberName, setNewMemberName] = useState("")
+  const [invitations, setInvitations] = useState<Invitation[]>([])
   const [newMemberEmail, setNewMemberEmail] = useState("")
   const [newMemberRole, setNewMemberRole] =
     useState<OrganisationMember["role"]>("member")
+  const [newMemberCanPublish, setNewMemberCanPublish] = useState(false)
   const [privacySubject, setPrivacySubject] = useState("")
   const [privacyRequestType, setPrivacyRequestType] = useState<
     "access" | "rectification" | "erasure" | "restriction"
@@ -133,11 +136,16 @@ export function SettingsView() {
 
   useEffect(() => {
     let active = true
-    void Promise.all([loadMembers(), loadInternalLocations()])
-      .then(([memberResult, locationResult]) => {
+    void Promise.all([
+      loadMembers(),
+      loadInternalLocations(),
+      loadInvitations(),
+    ])
+      .then(([memberResult, locationResult, invitationResult]) => {
         if (!active) return
         setMembers(memberResult.members)
         setInternalLocations(locationResult.locations)
+        setInvitations(invitationResult.items)
         setTeamStatus("ready")
       })
       .catch(() => {
@@ -199,25 +207,40 @@ export function SettingsView() {
     setMessage("")
     startTransition(async () => {
       try {
-        const { member } = await addMember({
+        const { invitation, inviteUrl } = await createInvitation({
           email: newMemberEmail,
-          displayName: newMemberName,
           role: newMemberRole,
-          canPublish: false,
+          canPublish: newMemberCanPublish,
         })
-        setMembers((current) => [...current, { ...member, locations: [] }])
-        setNewMemberName("")
+        setInvitations((current) => [
+          { ...invitation, inviteUrl },
+          ...current,
+        ])
         setNewMemberEmail("")
         toast.add({
           type: "success",
-          title: "Member added. Their access change is in the audit trail.",
+          title: "Invitation created. Copy the link to share it securely.",
         })
       } catch (error) {
         setMessage(
-          error instanceof Error ? error.message : "Add member failed."
+          error instanceof Error ? error.message : "Invitation failed."
         )
       }
     })
+  }
+
+  function copyInvitation(invitation: Invitation) {
+    void navigator.clipboard
+      .writeText(invitation.inviteUrl)
+      .then(() => {
+        toast.add({
+          type: "success",
+          title: `Invitation link copied for ${invitation.email}.`,
+        })
+      })
+      .catch(() => {
+        setMessage("The invitation link could not be copied.")
+      })
   }
 
   function changeMember(
@@ -421,19 +444,6 @@ export function SettingsView() {
             <>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field>
-                  <FieldLabel htmlFor="new-member-name">
-                    Display name
-                  </FieldLabel>
-                  <Input
-                    id="new-member-name"
-                    value={newMemberName}
-                    onChange={(event) =>
-                      setNewMemberName(readControlValue(event))
-                    }
-                    placeholder="Display name"
-                  />
-                </Field>
-                <Field>
                   <FieldLabel htmlFor="new-member-email">Email</FieldLabel>
                   <Input
                     id="new-member-email"
@@ -454,6 +464,7 @@ export function SettingsView() {
                       setNewMemberRole(value as OrganisationMember["role"])
                     }
                   >
+                    <NativeSelectOption value="owner">Owner</NativeSelectOption>
                     <NativeSelectOption value="admin">Admin</NativeSelectOption>
                     <NativeSelectOption value="member">
                       Member
@@ -463,14 +474,71 @@ export function SettingsView() {
                     </NativeSelectOption>
                   </NativeSelect>
                 </Field>
+                <Field orientation="horizontal" className="self-end">
+                  <FieldContent>
+                    <FieldTitle>Publish all locations</FieldTitle>
+                    <FieldDescription>
+                      Viewers cannot be granted publish access.
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    checked={newMemberCanPublish}
+                    disabled={newMemberRole === "viewer"}
+                    onCheckedChange={setNewMemberCanPublish}
+                    aria-label="Publish all locations for new invitation"
+                  />
+                </Field>
               </div>
               <Button
                 onClick={inviteMember}
-                disabled={isPending || !newMemberName || !newMemberEmail}
+                disabled={isPending || !newMemberEmail}
                 className="self-start"
               >
-                Add member
+                Create invitation
               </Button>
+              <p className="text-sm text-muted-foreground">
+                NabaPresence does not send invitation emails. Copy a pending
+                link and share it with the invited person.
+              </p>
+              {invitations.length > 0 ? (
+                <div className="space-y-2">
+                  <h3 className="font-heading text-sm font-semibold">
+                    Pending invitations
+                  </h3>
+                  <ItemGroup className="gap-2" aria-label="Pending invitations">
+                    {invitations.map((invitation) => (
+                      <Item
+                        key={invitation.id}
+                        role="listitem"
+                        variant="outline"
+                        size="sm"
+                      >
+                        <ItemContent>
+                          <ItemTitle>{invitation.email}</ItemTitle>
+                          <ItemDescription>
+                            {invitation.role} · expires{" "}
+                            {new Intl.DateTimeFormat(undefined, {
+                              dateStyle: "medium",
+                            }).format(new Date(invitation.expiresAt))}
+                          </ItemDescription>
+                        </ItemContent>
+                        <ItemActions>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyInvitation(invitation)}
+                            aria-label={`Copy invitation link for ${invitation.email}`}
+                          >
+                            <Copy aria-hidden />
+                            Copy link
+                          </Button>
+                        </ItemActions>
+                      </Item>
+                    ))}
+                  </ItemGroup>
+                </div>
+              ) : null}
               <ItemGroup className="gap-2">
                 {members.map((member) => {
                   const memberInitials = memberInitialsOf(member.displayName)

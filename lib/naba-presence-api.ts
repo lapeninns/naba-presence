@@ -353,9 +353,12 @@ export async function loadConnections() {
   )
 }
 
-export async function beginGoogleConnect() {
+export async function beginGoogleConnect(options?: {
+  inviteToken?: string
+}) {
   return apiFetch<{ authorizationUrl: string }>("/api/google/connect/start", {
     method: "POST",
+    body: JSON.stringify(options ?? {}),
   })
 }
 
@@ -510,15 +513,58 @@ export async function loadMembers() {
   return apiFetch<{ members: OrganisationMember[] }>("/api/members")
 }
 
-export async function addMember(input: {
+export type Invitation = {
+  id: string
   email: string
-  displayName: string
+  role: OrganisationMember["role"]
+  canPublish: boolean
+  expiresAt: string
+  acceptedAt?: string | null
+  createdAt: string
+  inviteUrl: string
+}
+
+export async function loadInvitations() {
+  await requireApiSession()
+  return apiFetch<{ items: Invitation[] }>("/api/invitations")
+}
+
+export async function createInvitation(input: {
+  email: string
   role: OrganisationMember["role"]
   canPublish: boolean
 }) {
-  return apiFetch<{ member: OrganisationMember }>("/api/members", {
+  return apiFetch<{ invitation: Invitation; inviteUrl: string }>(
+    "/api/invitations",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export async function lookupInvitation(token: string) {
+  return apiFetch<{
+    organisationName: string
+    email: string
+    expired: boolean
+  }>(`/api/invitations/${encodeURIComponent(token)}`)
+}
+
+export type OrganisationMembership = {
+  organisationId: string
+  name: string
+  role: OrganisationMember["role"]
+}
+
+export async function loadOrganisations() {
+  return apiFetch<{ items: OrganisationMembership[] }>("/api/organisations")
+}
+
+export async function switchOrganisation(organisationId: string) {
+  return apiFetch<{ session: AppSession }>("/api/session/switch", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ organisationId }),
   })
 }
 

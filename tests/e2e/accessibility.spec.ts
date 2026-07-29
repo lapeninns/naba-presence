@@ -92,6 +92,29 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} sign-in`)
     })
 
+    test("invitation", async ({ page }) => {
+      await page.route(
+        /\/api\/invitations\/invite-token-a11y(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              organisationName: "Naba Presence",
+              email: "invitee@example.com",
+              expired: false,
+            },
+          })
+        }
+      )
+      await page.goto("/invite/invite-token-a11y")
+      await expect(
+        page.getByRole("heading", { name: "Join Naba Presence" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Continue with Google" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} invitation`)
+    })
+
     test("overview", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
@@ -630,6 +653,38 @@ for (const viewport of [
       await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
         await route.fulfill({ json: { locations: [] } })
       })
+      await page.route(/\/api\/invitations(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                id: "invitation-settings-a11y",
+                email: "invitee@example.com",
+                role: "member",
+                canPublish: false,
+                expiresAt: "2026-08-05T09:00:00.000Z",
+                acceptedAt: null,
+                createdAt: "2026-07-29T09:00:00.000Z",
+                inviteUrl:
+                  "http://localhost:3000/invite/invitation-settings-a11y",
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                organisationId: "org-settings-a11y",
+                name: "Naba Presence",
+                role: "owner",
+              },
+            ],
+          },
+        })
+      })
       await page.goto("/settings")
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
@@ -637,6 +692,11 @@ for (const viewport of [
       await expect(page.getByText("Team access", { exact: true })).toBeVisible()
       await expect(
         page.getByRole("combobox", { name: "Role for Alex Morgan" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", {
+          name: "Copy invitation link for invitee@example.com",
+        })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} settings`)
     })

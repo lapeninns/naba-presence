@@ -20,8 +20,14 @@ import { beginGoogleConnect } from "@/lib/naba-presence-api"
 
 export function SignInView({
   errorStatus,
+  inviteToken,
+  title = "Sign in to NabaPresence",
+  description = "Connect the Google account that manages your Business Profile.",
 }: {
   errorStatus?: string
+  inviteToken?: string
+  title?: string
+  description?: string
 }) {
   const [pending, setPending] = useState(false)
   const [localError, setLocalError] = useState<string>()
@@ -30,7 +36,9 @@ export function SignInView({
     setPending(true)
     setLocalError(undefined)
     try {
-      const { authorizationUrl } = await beginGoogleConnect()
+      const { authorizationUrl } = await beginGoogleConnect(
+        inviteToken ? { inviteToken } : undefined
+      )
       window.location.assign(authorizationUrl)
     } catch (error) {
       setPending(false)
@@ -54,13 +62,14 @@ export function SignInView({
             <MessageSquareText className="size-5" aria-hidden />
           </span>
           <div className="space-y-1.5">
-            <CardTitle className="font-heading text-2xl">
-              Sign in to NabaPresence
+            <CardTitle
+              role="heading"
+              aria-level={1}
+              className="font-heading text-2xl"
+            >
+              {title}
             </CardTitle>
-            <CardDescription>
-              Connect the Google account that manages your Business
-              Profile.
-            </CardDescription>
+            <CardDescription>{description}</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
