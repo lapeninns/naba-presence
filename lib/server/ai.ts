@@ -158,6 +158,7 @@ export async function semanticVerification(input: {
   reviewerName?: string | null
   locationName: string
   rating: number
+  expectedLanguage: string
 }): Promise<VerificationReason[]> {
   if (!getServerEnv().OPENAI_API_KEY) return []
   const result = await openAiStructured(
@@ -181,6 +182,7 @@ export async function semanticVerification(input: {
       "Verify the proposed reply using only the supplied review evidence.",
       "List claims not supported by the review, reviewer name, or location name.",
       "Flag unsafe escalation (threats, legal conclusions, promises) and tone mismatch.",
+      `The proposed reply must be written in ${input.expectedLanguage}.`,
       `Location: ${input.locationName}. Rating: ${input.rating}/5.`,
       `Reviewer display name: ${input.reviewerName ?? "anonymous"}.`,
       `Review: ${input.reviewText ?? "[rating-only review]"}`,

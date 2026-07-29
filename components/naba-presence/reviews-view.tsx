@@ -137,6 +137,21 @@ const QUEUES: { id: Queue; label: string }[] = [
   { id: "published", label: "Published" },
 ]
 
+const REPLY_LANGUAGES = [
+  ["auto", "Auto (detected)"],
+  ["en", "EN"],
+  ["de", "DE"],
+  ["es", "ES"],
+  ["fr", "FR"],
+  ["it", "IT"],
+  ["pt", "PT"],
+  ["nl", "NL"],
+  ["ar", "AR"],
+  ["ru", "RU"],
+  ["ja", "JA"],
+  ["hi", "HI"],
+] as const
+
 export function ReviewsWorkspace({
   reviews,
   setReviews,
@@ -891,6 +906,7 @@ function ReviewDetail({
 }) {
   const [draft, setDraft] = useState(review.draft)
   const [tone, setTone] = useState<DraftTone>("warm_professional")
+  const [replyLanguage, setReplyLanguage] = useState("auto")
   const [feedback, setFeedback] = useState("")
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectionNote, setRejectionNote] = useState("")
@@ -901,6 +917,8 @@ function ReviewDetail({
   } | null>(null)
   const [detailError, setDetailError] = useState("")
   const detail = detailState?.reviewId === review.id ? detailState.data : null
+  const languageOverride =
+    replyLanguage === "auto" ? undefined : replyLanguage
 
   useEffect(() => {
     let active = true
@@ -925,7 +943,11 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        const generated = await generateDraft(review.id, tone)
+        const generated = await generateDraft(
+          review.id,
+          tone,
+          languageOverride
+        )
         setDraft(generated.body)
         onUpdate({
           draft: generated.body,
@@ -948,7 +970,12 @@ function ReviewDetail({
     setFeedback("")
     startTransition(async () => {
       try {
-        const saved = await saveDraftToApi(review.id, draft, tone)
+        const saved = await saveDraftToApi(
+          review.id,
+          draft,
+          tone,
+          languageOverride
+        )
         onUpdate({
           draft: saved.body,
           draftId: saved.draftId,
@@ -970,8 +997,15 @@ function ReviewDetail({
     startTransition(async () => {
       try {
         const saved =
-          !review.draftId || draft !== review.draft
-            ? await saveDraftToApi(review.id, draft, tone)
+          !review.draftId ||
+          draft !== review.draft ||
+          languageOverride !== undefined
+            ? await saveDraftToApi(
+                review.id,
+                draft,
+                tone,
+                languageOverride
+              )
             : {
                 draftId: review.draftId,
                 body: draft,
@@ -1213,34 +1247,64 @@ function ReviewDetail({
                 Reply draft
               </h3>
             </div>
-            <Field orientation="horizontal" className="w-auto gap-2">
-              <FieldLabel htmlFor="reply-tone">Tone</FieldLabel>
-              <Select
-                value={tone}
-                onValueChange={(value) => {
-                  if (value) setTone(value as DraftTone)
-                }}
-              >
-                <SelectTrigger id="reply-tone" size="sm">
-                  <SelectValue>
-                    {tone === "warm_professional"
-                      ? "Warm professional"
-                      : tone === "concise"
-                        ? "Concise"
-                        : "Empathetic"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="warm_professional">
-                      Warm professional
-                    </SelectItem>
-                    <SelectItem value="concise">Concise</SelectItem>
-                    <SelectItem value="empathetic">Empathetic</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
+            <div className="flex flex-wrap items-center gap-3">
+              <Field orientation="horizontal" className="w-auto gap-2">
+                <FieldLabel htmlFor="reply-language">
+                  Reply language
+                </FieldLabel>
+                <Select
+                  value={replyLanguage}
+                  onValueChange={(value) => {
+                    if (value) setReplyLanguage(value)
+                  }}
+                >
+                  <SelectTrigger id="reply-language" size="sm">
+                    <SelectValue>
+                      {REPLY_LANGUAGES.find(
+                        ([code]) => code === replyLanguage
+                      )?.[1] ?? "Auto (detected)"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {REPLY_LANGUAGES.map(([code, label]) => (
+                        <SelectItem key={code} value={code}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field orientation="horizontal" className="w-auto gap-2">
+                <FieldLabel htmlFor="reply-tone">Tone</FieldLabel>
+                <Select
+                  value={tone}
+                  onValueChange={(value) => {
+                    if (value) setTone(value as DraftTone)
+                  }}
+                >
+                  <SelectTrigger id="reply-tone" size="sm">
+                    <SelectValue>
+                      {tone === "warm_professional"
+                        ? "Warm professional"
+                        : tone === "concise"
+                          ? "Concise"
+                          : "Empathetic"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="warm_professional">
+                        Warm professional
+                      </SelectItem>
+                      <SelectItem value="concise">Concise</SelectItem>
+                      <SelectItem value="empathetic">Empathetic</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
           </div>
 
           <Field>

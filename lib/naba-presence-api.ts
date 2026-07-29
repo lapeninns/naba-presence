@@ -244,7 +244,8 @@ export async function loadReviewDetail(
 
 export async function generateDraft(
   reviewId: string,
-  tone: DraftTone = "warm_professional"
+  tone: DraftTone = "warm_professional",
+  languageOverride?: string | null
 ) {
   const result = await apiFetch<{
     draftId: string
@@ -252,7 +253,7 @@ export async function generateDraft(
     verification: { verdict: VerificationStatus }
   }>(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
-    body: JSON.stringify({ tone }),
+    body: JSON.stringify({ tone, languageOverride }),
   })
   return result
 }
@@ -260,7 +261,8 @@ export async function generateDraft(
 export async function saveDraft(
   reviewId: string,
   body: string,
-  tone: DraftTone = "warm_professional"
+  tone: DraftTone = "warm_professional",
+  languageOverride?: string | null
 ) {
   return apiFetch<{
     draftId: string
@@ -268,7 +270,7 @@ export async function saveDraft(
     verification: { verdict: VerificationStatus }
   }>(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
-    body: JSON.stringify({ tone, body }),
+    body: JSON.stringify({ tone, body, languageOverride }),
   })
 }
 

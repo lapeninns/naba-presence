@@ -1,3 +1,5 @@
+import { detectLanguage } from "@/lib/domain/language"
+
 export type VerificationReason = {
   code: string
   severity: "warn" | "fail"
@@ -86,10 +88,22 @@ export function deterministicVerification(input: {
       "The reply may be too long for the selected tone."
     )
   }
+  const expectedLanguage = input.expectedLanguage
+  const nonLatinLanguage =
+    expectedLanguage === "ar" ||
+    expectedLanguage === "ru" ||
+    expectedLanguage === "ja" ||
+    expectedLanguage === "hi"
+  const detectedLanguage =
+    expectedLanguage && expectedLanguage !== "en" && !nonLatinLanguage
+      ? detectLanguage(body)
+      : null
   if (
-    input.expectedLanguage &&
-    input.expectedLanguage !== "en" &&
-    /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)
+    (nonLatinLanguage &&
+      /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)) ||
+    (detectedLanguage &&
+      (detectedLanguage.confidence ?? 0) >= 0.7 &&
+      detectedLanguage.code !== expectedLanguage)
   ) {
     add(
       "language_mismatch",

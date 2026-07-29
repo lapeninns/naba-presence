@@ -158,7 +158,7 @@ export async function POST(
         reviewer_name: review.reviewer_name,
         location_name: review.location_name,
         rating: review.rating,
-        detected_language_code: review.language,
+        detected_language_code: language,
       })
       await sql`
         update review

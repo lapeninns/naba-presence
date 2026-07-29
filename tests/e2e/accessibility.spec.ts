@@ -401,6 +401,9 @@ for (const viewport of [
       await expect(
         selectedReview.getByRole("textbox", { name: "Reply draft" })
       ).toHaveValue("Updated draft reply for Jordan.")
+      await expect(
+        selectedReview.getByRole("combobox", { name: "Reply language" })
+      ).toBeVisible()
       const publishedReply = selectedReview
         .getByText(/Published business reply/)
         .locator("..")

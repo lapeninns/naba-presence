@@ -67,6 +67,7 @@ export async function verifyStoredDraft(
       reviewerName: draft.reviewer_name,
       locationName: draft.location_name,
       rating: draft.rating,
+      expectedLanguage: draft.detected_language_code ?? "en",
     })),
   ]
   const verdict = verificationVerdict(reasons)

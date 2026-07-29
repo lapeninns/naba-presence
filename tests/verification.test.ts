@@ -86,4 +86,25 @@ describe("deterministic reply verification", () => {
       expect.objectContaining({ code: "language_mismatch", severity: "warn" })
     )
   })
+
+  it("warns when an English reply is supplied for a German review", () => {
+    const reasons = verify("Thank you for your kind feedback.", {
+      expectedLanguage: "de",
+    })
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "language_mismatch", severity: "warn" })
+    )
+  })
+
+  it("accepts an ASCII German reply for a German review", () => {
+    const reasons = verify(
+      "Vielen Dank fuer Ihre freundliche Rueckmeldung.",
+      {
+        expectedLanguage: "de",
+      }
+    )
+    expect(reasons.map((reason) => reason.code)).not.toContain(
+      "language_mismatch"
+    )
+  })
 })

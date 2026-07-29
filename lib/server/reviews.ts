@@ -2,6 +2,7 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import { detectLanguage } from "@/lib/domain/language"
 import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
@@ -79,18 +80,6 @@ function minReviewUpdateTime(
     )
     .filter(Number.isFinite)
   return timestamps.length ? new Date(Math.min(...timestamps)) : null
-}
-
-function detectLanguage(text: string | null): {
-  code: string | null
-  confidence: number | null
-} {
-  if (!text?.trim()) return { code: null, confidence: null }
-  if (/[\u0600-\u06ff]/u.test(text)) return { code: "ar", confidence: 0.92 }
-  if (/[\u0400-\u04ff]/u.test(text)) return { code: "ru", confidence: 0.9 }
-  if (/[\u3040-\u30ff\u3400-\u9fff]/u.test(text))
-    return { code: "ja", confidence: 0.88 }
-  return { code: "en", confidence: 0.72 }
 }
 
 function ratingNumber(value: unknown): number {
