@@ -79,7 +79,8 @@ export async function GET(request: Request) {
           order by created_at desc
           limit 1
         ) d on true
-        where r.create_time >= ${from}
+        where r.provider_deleted_at is null
+          and r.create_time >= ${from}
           and r.create_time <= ${to}
           ${
             session.role === "owner" || session.role === "admin"
@@ -107,7 +108,8 @@ export async function GET(request: Request) {
           round(avg(r.star_rating)::numeric, 2)::float as "averageRating"
         from review r
         left join review_reply rr on rr.review_id = r.id
-        where r.create_time >= ${from}
+        where r.provider_deleted_at is null
+          and r.create_time >= ${from}
           and r.create_time <= ${to}
           ${
             session.role === "owner" || session.role === "admin"
@@ -174,7 +176,8 @@ export async function GET(request: Request) {
           order by created_at desc
           limit 1
         ) d on true
-        where r.create_time >= ${from}
+        where r.provider_deleted_at is null
+          and r.create_time >= ${from}
           and r.create_time <= ${to}
           ${
             session.role === "owner" || session.role === "admin"

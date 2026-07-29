@@ -151,7 +151,7 @@ export async function GET(request: Request) {
         order by updated_at desc
         limit 1
       ) sc on true
-      where 1 = 1
+      where r.provider_deleted_at is null
         ${
           query.locationId
             ? sql`and r.location_id = ${query.locationId}`

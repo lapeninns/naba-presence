@@ -26,6 +26,15 @@ alter table processed_webhook_event
     )
   );
 
+alter table sync_checkpoint
+  drop constraint if exists sync_checkpoint_sync_type_check;
+
+alter table sync_checkpoint
+  add constraint sync_checkpoint_sync_type_check
+  check (
+    sync_type in ('backfill', 'reconcile', 'notification', 'sweep')
+  );
+
 create index review_provider_deleted_idx
   on review (organisation_id, provider_deleted_at)
   where provider_deleted_at is not null;

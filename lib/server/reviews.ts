@@ -4,6 +4,7 @@ import type { TransactionSql } from "postgres"
 
 import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
+import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import {
   connectionAccessToken,
@@ -65,6 +66,19 @@ function maxReviewUpdateTime(
     )
     .filter(Number.isFinite)
   return timestamps.length ? new Date(Math.max(...timestamps)) : null
+}
+
+function minReviewUpdateTime(
+  reviews: Array<Record<string, unknown>>
+): Date | null {
+  const timestamps = reviews
+    .map((review) =>
+      typeof review.updateTime === "string"
+        ? Date.parse(review.updateTime)
+        : Number.NaN
+    )
+    .filter(Number.isFinite)
+  return timestamps.length ? new Date(Math.min(...timestamps)) : null
 }
 
 function detectLanguage(text: string | null): {
@@ -217,7 +231,8 @@ export async function upsertGoogleReview(
         else review.workflow_status
       end,
       raw_payload = excluded.raw_payload,
-      raw_content_expires_at = excluded.raw_content_expires_at
+      raw_content_expires_at = excluded.raw_content_expires_at,
+      provider_deleted_at = null
     returning id::text as id
   `
 
@@ -310,6 +325,7 @@ type SyncHeader = {
   checkpointId: string
   attemptCount: number
   pageToken: string | null
+  highWaterUpdateTime: Date | null
   errorCode: string | null
 }
 
@@ -361,11 +377,19 @@ export async function syncLinkedLocation(input: {
           last_error_code = null
         returning id::text as id, page_token, attempt_count
       `
+      const [watermark] = await sql<
+        { highWaterUpdateTime: Date | null }[]
+      >`
+        select max(high_water_update_time) as "highWaterUpdateTime"
+        from sync_checkpoint
+        where external_location_id = ${input.externalLocationId}
+      `
       return {
         linked,
         checkpointId: checkpoint.id,
         attemptCount: checkpoint.attempt_count,
         pageToken: checkpoint.page_token,
+        highWaterUpdateTime: watermark.highWaterUpdateTime,
         errorCode: linked.verified ? null : "location_not_verified",
       }
     }
@@ -385,6 +409,8 @@ export async function syncLinkedLocation(input: {
     input.type === "backfill" ? (header.pageToken ?? undefined) : undefined
   let pages = 0
   let upserted = 0
+  const sweepStartedAt = new Date()
+  const sweepSeenReviewNames = new Set<string>()
 
   const settleFailure = async (errorCode: string): Promise<SyncOutcome> => {
     const retryAt = syncRetryAt(header.checkpointId, header.attemptCount)
@@ -427,6 +453,14 @@ export async function syncLinkedLocation(input: {
       )
       const nextPageToken = page.nextPageToken
       const pageHighWater = maxReviewUpdateTime(page.reviews ?? [])
+      const pageOldestUpdateTime = minReviewUpdateTime(page.reviews ?? [])
+      if (input.type === "sweep") {
+        for (const review of page.reviews ?? []) {
+          if (typeof review.name === "string" && review.name) {
+            sweepSeenReviewNames.add(sha256(review.name))
+          }
+        }
+      }
       const pageUpserted = await withTenant(
         input.organisationId,
         async (sql) => {
@@ -465,11 +499,48 @@ export async function syncLinkedLocation(input: {
       )
       upserted += pageUpserted
       pages += 1
-      pageToken = nextPageToken
+      const crossedReconcileFloor =
+        input.type === "reconcile" &&
+        header.highWaterUpdateTime !== null &&
+        pageOldestUpdateTime !== null &&
+        pageOldestUpdateTime.getTime() <
+          header.highWaterUpdateTime.getTime() - 24 * 60 * 60 * 1000
+      pageToken = crossedReconcileFloor ? undefined : nextPageToken
     } while (pageToken && pages < input.maxPages)
 
     const hasMore = Boolean(pageToken)
+    if (input.type === "sweep" && hasMore) {
+      return settleFailure("sweep_incomplete")
+    }
     await withTenant(input.organisationId, async (sql) => {
+      if (input.type === "sweep") {
+        const seenHashes = [...sweepSeenReviewNames]
+        const tombstoned = await sql<{ id: string }[]>`
+          update review
+          set provider_deleted_at = now()
+          where external_location_id = ${input.externalLocationId}
+            and provider_deleted_at is null
+            and update_time < ${sweepStartedAt}
+            ${
+              seenHashes.length
+                ? sql`and google_review_name_hash
+                    not in ${sql(seenHashes)}`
+                : sql``
+            }
+          returning id::text as id
+        `
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          action: "review.provider_deleted",
+          subjectType: "external_location",
+          subjectId: input.externalLocationId,
+          requestId: crypto.randomUUID(),
+          metadata: {
+            tombstoned: tombstoned.length,
+            locationId: header.linked.locationId,
+          },
+        })
+      }
       await sql`
         update sync_checkpoint
         set

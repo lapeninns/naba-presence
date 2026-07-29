@@ -84,6 +84,7 @@ export async function GET(
         join location l on l.id = r.location_id
         join external_location e on e.id = r.external_location_id
         where r.id = ${id}
+          and r.provider_deleted_at is null
           ${
             session.role === "owner" || session.role === "admin"
               ? sql``

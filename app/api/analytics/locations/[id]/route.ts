@@ -64,6 +64,7 @@ export async function GET(
           )::integer as "unresolvedComplaints"
         from location l
         left join review r on r.location_id = l.id
+          and r.provider_deleted_at is null
           and r.create_time >= ${from}
           and r.create_time <= ${to}
         left join review_reply rr on rr.review_id = r.id
@@ -77,6 +78,7 @@ export async function GET(
         select star_rating as rating, count(*)::integer as count
         from review
         where location_id = ${id}
+          and provider_deleted_at is null
           and create_time >= ${from}
           and create_time <= ${to}
         group by star_rating

@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { writeAudit } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { log } from "@/lib/server/logger"
+import { ApiError, apiError } from "@/lib/server/http"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -21,9 +19,10 @@ const inputSchema = z.object({
   externalLocationIds: z.array(z.uuid()).max(50).optional(),
   organisationCursor: z.uuid().optional(),
   maxOrganisations: z.number().int().min(1).max(100).default(25),
+  maxPagesPerLocation: z.number().int().min(1).max(50).default(50),
 })
 
-type ReconcileFailure = {
+type SweepFailure = {
   organisationId: string
   externalLocationId: string | null
   errorCode: string
@@ -31,7 +30,6 @@ type ReconcileFailure = {
 
 export async function POST(request: Request) {
   try {
-    const rid = serverRequestId(request)
     const session = await getSession()
     const cronToken = request.headers
       .get("authorization")
@@ -48,7 +46,6 @@ export async function POST(request: Request) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = rid.id
     const organisationIds = session
       ? [session.organisationId]
       : (
@@ -64,124 +61,65 @@ export async function POST(request: Request) {
             limit ${input.maxOrganisations}
           `
         ).map((organisation) => organisation.id)
-    const failures: ReconcileFailure[] = []
-    const organisations = []
-    let processed = 0
+    const failures: SweepFailure[] = []
+    const organisations: Array<{
+      organisationId: string
+      locations: Array<{ externalLocationId: string } & SyncOutcome>
+    }> = []
+
     for (const organisationId of organisationIds) {
-      let linked: Awaited<ReturnType<typeof linkedLocations>>
+      let locations: Awaited<ReturnType<typeof linkedLocations>>
       try {
-        linked = await withTenant(organisationId, async (sql) => {
-          const locations = await linkedLocations(
-            sql,
-            session ? input.externalLocationIds : undefined
-          )
-          await writeAudit(sql, {
-            organisationId,
-            actorUserId: session?.userId ?? null,
-            action: "sync.reconcile.started",
-            subjectType: "organisation",
-            subjectId: organisationId,
-            requestId: `${correlationId}:${organisationId}:started`,
-            metadata: {
-              externalLocationIds: locations.map(
-                (location) => location.externalLocationId
-              ),
-              clientRequestId: rid.clientId,
-            },
-          })
-          return locations
-        })
-      } catch (error) {
-        const errorCode =
-          error instanceof ApiError ? error.code : "internal_error"
+        locations = await withTenant(organisationId, (sql) =>
+          linkedLocations(sql, input.externalLocationIds)
+        )
+      } catch {
         failures.push({
           organisationId,
           externalLocationId: null,
-          errorCode,
+          errorCode: "location_discovery_failed",
         })
-        log.error("reconcile.organisation_failed", {
-          organisationId,
-          error,
-        })
-        processed += 1
         continue
       }
       const results: Array<
         { externalLocationId: string } & SyncOutcome
       > = []
-      for (const location of linked) {
+      for (const location of locations) {
         try {
-          const sync = await syncLinkedLocation({
+          const outcome = await syncLinkedLocation({
             organisationId,
             externalLocationId: location.externalLocationId,
-            type: "reconcile",
-            maxPages: 20,
+            type: "sweep",
+            maxPages: input.maxPagesPerLocation,
           })
           results.push({
             externalLocationId: location.externalLocationId,
-            ...sync,
+            ...outcome,
           })
-          if (sync.status === "failed") {
+          if (outcome.status === "failed") {
             failures.push({
               organisationId,
               externalLocationId: location.externalLocationId,
-              errorCode: sync.errorCode ?? "sync_failed",
+              errorCode: outcome.errorCode ?? "sweep_failed",
             })
           }
-        } catch (error) {
-          const errorCode =
-            error instanceof ApiError ? error.code : "internal_error"
+        } catch {
           failures.push({
             organisationId,
             externalLocationId: location.externalLocationId,
-            errorCode,
-          })
-          log.error("reconcile.location_failed", {
-            organisationId,
-            externalLocationId: location.externalLocationId,
-            error,
+            errorCode: "sweep_failed",
           })
         }
       }
-      try {
-        await withTenant(organisationId, async (sql) => {
-          await writeAudit(sql, {
-            organisationId,
-            actorUserId: session?.userId ?? null,
-            action: results.some(
-              (location) => location.status === "failed"
-            )
-              ? "sync.reconcile.failed"
-              : "sync.reconcile.completed",
-            subjectType: "organisation",
-            subjectId: organisationId,
-            requestId: `${correlationId}:${organisationId}:finished`,
-            metadata: {
-              locations: results,
-              clientRequestId: rid.clientId,
-            },
-          })
-        })
-      } catch (error) {
-        failures.push({
-          organisationId,
-          externalLocationId: null,
-          errorCode: "audit_failed",
-        })
-        log.error("reconcile.audit_failed", {
-          organisationId,
-          error,
-        })
-      }
       organisations.push({ organisationId, locations: results })
-      processed += 1
     }
+
     const nextCursor =
       !session && organisationIds.length === input.maxOrganisations
         ? (organisationIds.at(-1) ?? null)
         : null
     return NextResponse.json({
-      processed,
+      processed: organisationIds.length,
       nextCursor,
       failures,
       ...(session ? { locations: organisations[0]?.locations ?? [] } : {}),
