@@ -24,7 +24,11 @@ async function expectAccessible(page: Page, surface: string) {
   ).toEqual([])
 }
 
-async function openNavigationSurface(page: Page, name: string, mobile: boolean) {
+async function openNavigationSurface(
+  page: Page,
+  name: string,
+  mobile: boolean
+) {
   if (mobile) {
     await page.getByRole("button", { name: "Toggle navigation" }).click()
   }
@@ -60,6 +64,17 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} application shell`)
     })
 
+    test("overview", async ({ page }) => {
+      await page.goto("/")
+      await openNavigationSurface(page, "Overview", viewport.name === "mobile")
+      await expect(
+        page.getByRole("heading", {
+          name: /Good (morning|afternoon|evening)/,
+        })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} overview`)
+    })
+
     test("inbox, review detail, and reply editor", async ({ page }) => {
       await page.goto("/")
       const row = page
@@ -82,7 +97,11 @@ for (const viewport of [
 
     test("connections", async ({ page }) => {
       await page.goto("/")
-      await openNavigationSurface(page, "Connections", viewport.name === "mobile")
+      await openNavigationSurface(
+        page,
+        "Connections",
+        viewport.name === "mobile"
+      )
       await expect(
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()

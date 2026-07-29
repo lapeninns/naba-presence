@@ -36,12 +36,15 @@ import {
 } from "@/lib/naba-review-api"
 import { Review } from "@/lib/naba-review-data"
 import {
+  BusinessContext,
   chartConfig,
   EmptyData,
   formatDuration,
   formatTimestamp,
   LiveDataError,
   MetricCard,
+  PageFrame,
+  PageHeader,
 } from "@/components/naba-review/shared"
 
 type Navigate = (view: "reviews" | "analytics" | "connections") => void
@@ -102,6 +105,8 @@ export function OverviewView({
   const needsAttention = reviews.filter(
     (review) => review.status === "needs_reply" || review.status === "escalated"
   ).length
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"
   const summary = overviewData?.analytics.summary
   const connection =
     overviewData?.connections.find((item) => item.status === "active") ??
@@ -125,24 +130,28 @@ export function OverviewView({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-            Good morning, {displayName.split(/\s+/)[0] || "there"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {organisationName} has {needsAttention} reviews that need attention
-            today.
-          </p>
-        </div>
-        <Button onClick={() => onNavigate("reviews")}>
-          Open review inbox
-          <ArrowRight data-icon="inline-end" />
-        </Button>
-      </div>
+    <PageFrame width="wide">
+      <PageHeader
+        title={`Good ${greeting}, ${displayName.split(/\s+/)[0] || "there"}`}
+        description="Review and reply operations across your connected Google Business Profiles."
+        actions={
+          <Button onClick={() => onNavigate("reviews")}>
+            Open review inbox
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        }
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <BusinessContext
+        organisationName={organisationName}
+        detail="Google review operations"
+        status={{
+          label: "Needs attention",
+          value: `${needsAttention} reviews today`,
+        }}
+      />
+
+      <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Average rating"
           value={
@@ -177,7 +186,7 @@ export function OverviewView({
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.7fr)]">
+      <div className="grid gap-(--nr-gap-card) xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.7fr)]">
         <Card>
           <CardHeader className="flex-row items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
@@ -324,7 +333,7 @@ export function OverviewView({
           </CardFooter>
         </Card>
       </div>
-    </div>
+    </PageFrame>
   )
 }
 
