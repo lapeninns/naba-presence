@@ -18,6 +18,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react"
@@ -166,6 +167,8 @@ export function ReviewsWorkspace({
   )
   const [isFiltering, startFiltering] = useTransition()
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list")
+  const selectedRowRef = useRef<HTMLButtonElement>(null)
+  const backButtonRef = useRef<HTMLButtonElement>(null)
   const deferredQuery = useDeferredValue(query)
   const locationDirectory = useMemo(
     () => mergeLocationDirectory(knownLocations, reviews),
@@ -332,6 +335,14 @@ export function ReviewsWorkspace({
   function selectReview(id: string) {
     setSelectedId(id)
     setMobilePane("detail")
+    if (window.matchMedia("(max-width: 1279px)").matches) {
+      window.requestAnimationFrame(() => backButtonRef.current?.focus())
+    }
+  }
+
+  function returnToList() {
+    setMobilePane("list")
+    window.requestAnimationFrame(() => selectedRowRef.current?.focus())
   }
 
   return (
@@ -375,7 +386,7 @@ export function ReviewsWorkspace({
           <TabsList
             variant="line"
             aria-label="Review queues"
-            className="w-full [scrollbar-width:none] justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden"
+            className="grid h-auto! w-full grid-cols-2 justify-stretch gap-1 sm:flex sm:h-8! sm:[scrollbar-width:none] sm:justify-start sm:overflow-x-auto sm:[&::-webkit-scrollbar]:hidden"
           >
             {QUEUES.map((item) => {
               const count =
@@ -386,13 +397,14 @@ export function ReviewsWorkspace({
                 <TabsTrigger
                   key={item.id}
                   value={item.id}
+                  aria-label={`${item.label}, ${count}`}
                   // `TabsTrigger`'s inactive-state `text-foreground/60` fails
                   // WCAG AA contrast against a white surface in light mode
                   // (confirmed via axe: color-contrast, 4.29:1 vs required
                   // 4.5:1). `text-muted-foreground` is the theme's tuned
                   // secondary-text token; the component's own
                   // `data-active:text-foreground` still wins once active.
-                  className="flex-none shrink-0 px-3 text-muted-foreground"
+                  className="w-full min-w-0 px-2 text-xs text-muted-foreground sm:w-auto sm:flex-none sm:shrink-0 sm:px-3 sm:text-sm"
                 >
                   {item.label}
                   <span className="font-mono text-[10px] text-muted-foreground">
@@ -704,13 +716,13 @@ export function ReviewsWorkspace({
 
       <TabsContent
         value={queue}
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(340px,0.78fr)_minmax(520px,1.4fr)]"
+        className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(340px,0.78fr)_minmax(520px,1.4fr)]"
       >
         <section
           aria-label="Review list"
           className={cn(
             "min-h-0 border-r",
-            mobilePane === "detail" ? "hidden lg:block" : "block"
+            mobilePane === "detail" ? "hidden xl:block" : "block"
           )}
         >
           <ScrollArea className="h-full">
@@ -721,6 +733,11 @@ export function ReviewsWorkspace({
                     key={review.id}
                     review={review}
                     selected={review.id === selectedReview?.id}
+                    buttonRef={
+                      review.id === selectedReview?.id
+                        ? selectedRowRef
+                        : undefined
+                    }
                     onSelect={() => selectReview(review.id)}
                   />
                 ))}
@@ -765,7 +782,7 @@ export function ReviewsWorkspace({
           aria-label="Selected review"
           className={cn(
             "min-h-0",
-            mobilePane === "list" ? "hidden lg:block" : "block"
+            mobilePane === "list" ? "hidden xl:block" : "block"
           )}
         >
           <ScrollArea className="h-full">
@@ -773,7 +790,8 @@ export function ReviewsWorkspace({
               <ReviewDetail
                 key={selectedReview.id}
                 review={selectedReview}
-                onBack={() => setMobilePane("list")}
+                onBack={returnToList}
+                backButtonRef={backButtonRef}
                 onUpdate={(patch) =>
                   setReviews((current) =>
                     current.map((review) =>
@@ -810,10 +828,12 @@ export function ReviewsWorkspace({
 function ReviewRow({
   review,
   selected,
+  buttonRef,
   onSelect,
 }: {
   review: Review
   selected: boolean
+  buttonRef?: React.Ref<HTMLButtonElement>
   onSelect: () => void
 }) {
   return (
@@ -828,6 +848,7 @@ function ReviewRow({
       <Item
         render={
           <button
+            ref={buttonRef}
             type="button"
             onClick={onSelect}
             aria-current={selected ? "true" : undefined}
@@ -870,10 +891,12 @@ function ReviewRow({
 function ReviewDetail({
   review,
   onBack,
+  backButtonRef,
   onUpdate,
 }: {
   review: Review
   onBack: () => void
+  backButtonRef: React.Ref<HTMLButtonElement>
   onUpdate: (patch: Partial<Review>) => void
 }) {
   const [draft, setDraft] = useState(review.draft)
@@ -1006,10 +1029,11 @@ function ReviewDetail({
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 md:px-7 md:py-7">
       <header className="flex items-start gap-3 rounded-(--nr-radius-panel) border bg-card p-4 shadow-(--nr-shadow-card) md:p-5">
         <Button
+          ref={backButtonRef}
           variant="ghost"
           size="icon-sm"
           onClick={onBack}
-          className="lg:hidden"
+          className="xl:hidden"
           aria-label="Back to review list"
         >
           <ArrowLeft />
