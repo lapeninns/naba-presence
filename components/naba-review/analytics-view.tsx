@@ -42,6 +42,8 @@ import {
   formatDuration,
   LiveDataError,
   MetricCard,
+  PageFrame,
+  PageHeader,
 } from "@/components/naba-review/shared"
 
 export function AnalyticsView() {
@@ -126,46 +128,44 @@ export function AnalyticsView() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-7 px-5 py-7 md:px-8 md:py-9">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-            Analytics
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Google review and reply performance for the last {rangeLabel}.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <NativeSelect
-            size="sm"
-            value={dateRange}
-            onValueChange={(value) => {
-              beginAnalyticsLoad()
-              setDateRange(value as "7d" | "30d" | "90d" | "365d")
-            }}
-            aria-label="Analytics date range"
-          >
-            <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
-            <NativeSelectOption value="30d">Last 30 days</NativeSelectOption>
-            <NativeSelectOption value="90d">Last 90 days</NativeSelectOption>
-            <NativeSelectOption value="365d">Last 12 months</NativeSelectOption>
-          </NativeSelect>
-          <NativeSelect
-            size="sm"
-            value={granularity}
-            onValueChange={(value) => {
-              beginAnalyticsLoad()
-              setGranularity(value as "day" | "week" | "month")
-            }}
-            aria-label="Analytics granularity"
-          >
-            <NativeSelectOption value="day">Daily</NativeSelectOption>
-            <NativeSelectOption value="week">Weekly</NativeSelectOption>
-            <NativeSelectOption value="month">Monthly</NativeSelectOption>
-          </NativeSelect>
-        </div>
-      </div>
+    <PageFrame width="wide">
+      <PageHeader
+        title="Analytics"
+        description={`Google review and reply performance for the last ${rangeLabel}.`}
+        actions={
+          <>
+            <NativeSelect
+              size="sm"
+              value={dateRange}
+              onValueChange={(value) => {
+                beginAnalyticsLoad()
+                setDateRange(value as "7d" | "30d" | "90d" | "365d")
+              }}
+              aria-label="Analytics date range"
+            >
+              <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
+              <NativeSelectOption value="30d">Last 30 days</NativeSelectOption>
+              <NativeSelectOption value="90d">Last 90 days</NativeSelectOption>
+              <NativeSelectOption value="365d">
+                Last 12 months
+              </NativeSelectOption>
+            </NativeSelect>
+            <NativeSelect
+              size="sm"
+              value={granularity}
+              onValueChange={(value) => {
+                beginAnalyticsLoad()
+                setGranularity(value as "day" | "week" | "month")
+              }}
+              aria-label="Analytics granularity"
+            >
+              <NativeSelectOption value="day">Daily</NativeSelectOption>
+              <NativeSelectOption value="week">Weekly</NativeSelectOption>
+              <NativeSelectOption value="month">Monthly</NativeSelectOption>
+            </NativeSelect>
+          </>
+        }
+      />
 
       {analyticsStatus === "error" ? (
         <LiveDataError onRetry={retryAnalytics} />
@@ -316,7 +316,7 @@ export function AnalyticsView() {
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          <Table className="min-w-[1080px]">
+          <Table className="min-w-[1080px]" tabIndex={0}>
             <TableHeader>
               <TableRow>
                 <TableHead>Location</TableHead>
@@ -334,9 +334,7 @@ export function AnalyticsView() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.location}>
-                  <TableCell className="font-medium">
-                    {row.location}
-                  </TableCell>
+                  <TableCell className="font-medium">{row.location}</TableCell>
                   <TableCell className="font-mono text-xs">
                     <span className="inline-flex items-center gap-1">
                       <Star
@@ -398,6 +396,6 @@ export function AnalyticsView() {
           policy.
         </AlertDescription>
       </Alert>
-    </div>
+    </PageFrame>
   )
 }
