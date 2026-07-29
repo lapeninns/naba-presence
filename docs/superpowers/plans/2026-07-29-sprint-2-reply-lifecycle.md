@@ -24,6 +24,14 @@
 
 ### Task 1: Harness seams — Google stub server, connection/review seeding, migration 0006
 
+**Baseline deviation:** Supabase CLI derives its migration version from the
+filename prefix and rejected the two pre-Sprint-2 `0004_*` files on a fresh
+stack. Renamed only the non-binding local-demo cleanup migration to
+`20260729000400_remove_local_demo_data.sql`, updated its internal bookkeeping
+version, and added a contract test requiring unique migration prefixes. The
+binding `0004_runtime_role.sql`, `0005_tenant_hardening.sql`, and Sprint 2
+`0006_reply_lifecycle.sql` names remain unchanged.
+
 **Files:**
 - Create: `tests/integration/helpers/google-stub.ts`
 - Create: `tests/integration/helpers/env-defaults.ts`

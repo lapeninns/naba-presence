@@ -33,6 +33,19 @@ const tenantTables = [
 ]
 
 describe("database migration contract", () => {
+  it("uses unique Supabase migration versions", async () => {
+    const directory = new URL("../supabase/migrations/", import.meta.url)
+    const files = (await readdir(directory))
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+    const versions = files.map((file) => file.split("_", 1)[0])
+
+    expect(
+      new Set(versions).size,
+      `Duplicate migration versions: ${versions.join(", ")}`
+    ).toBe(versions.length)
+  })
+
   it("applies cleanly to a fresh PostgreSQL-compatible database", async () => {
     const database = new PGlite()
     try {

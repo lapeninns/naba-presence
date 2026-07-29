@@ -30,7 +30,7 @@ where (
   );
 
 insert into schema_migration (version)
-values ('0004_remove_local_demo_data')
+values ('20260729000400_remove_local_demo_data')
 on conflict (version) do nothing;
 
 commit;

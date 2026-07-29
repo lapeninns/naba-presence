@@ -9,7 +9,7 @@ const initialMigration = readFileSync(
 ).replace("create extension if not exists pgcrypto;", "")
 const cleanupMigration = readFileSync(
   new URL(
-    "../supabase/migrations/0004_remove_local_demo_data.sql",
+    "../supabase/migrations/20260729000400_remove_local_demo_data.sql",
     import.meta.url
   ),
   "utf8"
@@ -185,10 +185,10 @@ describe("local demo cleanup migration", () => {
       ])
 
       const versions = await database.query<{ version: string }>(
-        "select version from schema_migration where version = '0004_remove_local_demo_data'"
+        "select version from schema_migration where version = '20260729000400_remove_local_demo_data'"
       )
       expect(versions.rows).toEqual([
-        { version: "0004_remove_local_demo_data" },
+        { version: "20260729000400_remove_local_demo_data" },
       ])
     } finally {
       await database.close()
