@@ -2,7 +2,8 @@ begin;
 
 alter table publish_attempt
   add column operation text not null default 'publish'
-    check (operation in ('publish', 'delete'));
+    check (operation in ('publish', 'delete')),
+  add column intended_body text;
 
 alter table review_reply
   add column publish_generation integer not null default 0,

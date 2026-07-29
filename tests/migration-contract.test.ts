@@ -136,6 +136,7 @@ describe("database migration contract", () => {
       "utf8"
     )
     expect(replyLifecycleMigration).toContain("operation text")
+    expect(replyLifecycleMigration).toContain("intended_body text")
     expect(replyLifecycleMigration).toContain("publish_generation")
     expect(replyLifecycleMigration).toContain("create table approval_decision")
     expect(replyLifecycleMigration).toMatch(

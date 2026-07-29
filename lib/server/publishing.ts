@@ -8,6 +8,7 @@ import { decryptSecret, sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import {
   connectionAccessToken,
+  getGoogleReview,
   GoogleMutationAmbiguousError,
   updateGoogleReply,
 } from "@/lib/server/google"
@@ -101,6 +102,190 @@ type ExistingAttempt = {
   review_reply_id: string
   attempt_no: number
   next_attempt_at: Date | null
+}
+
+type AttemptRecoveryContext = {
+  id: string
+  status: string
+  operation: "publish" | "delete"
+  intended_body: string | null
+  started_at: Date
+  review_id: string
+  review_reply_id: string
+  google_review_name_ciphertext: Buffer
+  google_connection_id: string
+}
+
+const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000
+
+export async function recoverAttempt(input: {
+  organisationId: string
+  attemptId: string
+}): Promise<"succeeded" | "not_applied" | "diverged"> {
+  const context = await withTenant(
+    input.organisationId,
+    async (sql) => {
+      const [attempt] = await sql<AttemptRecoveryContext[]>`
+        select
+          pa.id::text as id,
+          pa.status,
+          pa.operation,
+          pa.intended_body,
+          pa.started_at,
+          rr.review_id::text as review_id,
+          rr.id::text as review_reply_id,
+          r.google_review_name_ciphertext,
+          el.google_connection_id::text as google_connection_id
+        from publish_attempt pa
+        join review_reply rr on rr.id = pa.review_reply_id
+        join review r on r.id = rr.review_id
+        join external_location el on el.id = r.external_location_id
+        where pa.id = ${input.attemptId}
+        limit 1
+      `
+      return attempt ?? null
+    }
+  )
+  if (!context || !["started", "ambiguous"].includes(context.status)) {
+    return "not_applied"
+  }
+  if (
+    context.status === "started" &&
+    Date.now() - context.started_at.getTime() < IN_FLIGHT_GRACE_MS
+  ) {
+    throw new ApiError(
+      409,
+      "publish_in_progress",
+      "A publish is in flight."
+    )
+  }
+
+  let review: Record<string, unknown>
+  try {
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      input.organisationId,
+      context.google_connection_id
+    )
+    review = await getGoogleReview(
+      accessToken,
+      decryptSecret(context.google_review_name_ciphertext),
+      { timeoutMs: 15_000, maxAttempts: 1 }
+    )
+  } catch (error) {
+    if (error instanceof GoogleMutationAmbiguousError) throw error
+    throw new GoogleMutationAmbiguousError(
+      error instanceof Error ? error.message : undefined
+    )
+  }
+
+  const providerReply = googleReplyFromReview(review)
+  const applied =
+    context.operation === "delete"
+      ? providerReply === null
+      : context.intended_body !== null &&
+        googleReplyMatches(review, context.intended_body)
+  const result =
+    applied
+      ? "succeeded"
+      : providerReply === null
+        ? "not_applied"
+        : "diverged"
+
+  await withTenant(input.organisationId, async (sql) => {
+    await writePublishAttemptEvent(sql, {
+      organisationId: input.organisationId,
+      publishAttemptId: context.id,
+      eventType: "ambiguity_checked",
+      payload: {
+        result,
+        operation: context.operation,
+        providerReplyPresent: providerReply !== null,
+      },
+    })
+    if (result === "succeeded") {
+      await sql`
+        update publish_attempt
+        set
+          status = 'succeeded',
+          provider_http_status = 200,
+          provider_error_code = null,
+          next_attempt_at = null,
+          finished_at = now()
+        where id = ${context.id}
+      `
+      await sql`
+        update review_reply
+        set
+          publish_status = ${
+            context.operation === "delete" ? "deleted" : "published"
+          },
+          first_published_at = case
+            when ${context.operation} = 'publish'
+              then coalesce(first_published_at, now())
+            else first_published_at
+          end
+        where id = ${context.review_reply_id}
+      `
+      await sql`
+        update review
+        set workflow_status = ${
+          context.operation === "delete" ? "new" : "published"
+        }
+        where id = ${context.review_id}
+      `
+      await writePublishAttemptEvent(sql, {
+        organisationId: input.organisationId,
+        publishAttemptId: context.id,
+        eventType: "completed",
+        payload: { result },
+      })
+      return
+    }
+    if (result === "not_applied") {
+      await sql`
+        update publish_attempt
+        set
+          status = 'retryable',
+          next_attempt_at = now(),
+          finished_at = now()
+        where id = ${context.id}
+      `
+      await writePublishAttemptEvent(sql, {
+        organisationId: input.organisationId,
+        publishAttemptId: context.id,
+        eventType: "retry_scheduled",
+        payload: { result },
+      })
+      return
+    }
+    await sql`
+      update publish_attempt
+      set
+        status = 'failed',
+        provider_error_code = 'reply_diverged',
+        next_attempt_at = null,
+        finished_at = now()
+      where id = ${context.id}
+    `
+    await writePublishAttemptEvent(sql, {
+      organisationId: input.organisationId,
+      publishAttemptId: context.id,
+      eventType: "completed",
+      payload: { result },
+    })
+    await writeAudit(sql, {
+      organisationId: input.organisationId,
+      action: "review.reply.diverged",
+      subjectType: "review",
+      subjectId: context.review_id,
+      metadata: {
+        publishAttemptId: context.id,
+        operation: context.operation,
+      },
+    })
+  })
+  return result
 }
 
 type PublishPhaseOne =
@@ -355,6 +540,7 @@ export async function executePublish(input: {
               provider_error_code = null,
               provider_error_body = null,
               next_attempt_at = null,
+              intended_body = ${record.body},
               started_at = now(),
               finished_at = null
             where id = ${existing.id}
@@ -369,7 +555,8 @@ export async function executePublish(input: {
               request_body_hash,
               status,
               attempt_no,
-              operation
+              operation,
+              intended_body
             )
             values (
               ${input.organisationId},
@@ -379,7 +566,8 @@ export async function executePublish(input: {
               ${bodyHash},
               'started',
               1,
-              'publish'
+              'publish',
+              ${record.body}
             )
             returning id::text as id, attempt_no
           `
@@ -427,11 +615,30 @@ export async function executePublish(input: {
     return phaseOne.outcome
   }
   if (phaseOne.kind === "needs_recovery") {
-    return {
-      status: "ambiguous",
-      googleReplyState: null,
-      attemptId: phaseOne.attemptId,
+    let recovery: Awaited<ReturnType<typeof recoverAttempt>>
+    try {
+      recovery = await recoverAttempt({
+        organisationId: input.organisationId,
+        attemptId: phaseOne.attemptId,
+      })
+    } catch (error) {
+      if (error instanceof GoogleMutationAmbiguousError) {
+        return {
+          status: "ambiguous",
+          googleReplyState: null,
+          attemptId: phaseOne.attemptId,
+        }
+      }
+      throw error
     }
+    if (recovery === "diverged") {
+      throw new ApiError(
+        409,
+        "reply_diverged",
+        "The live Google reply differs from the intended reply."
+      )
+    }
+    return executePublish(input)
   }
 
   let provider: Record<string, unknown> | null = null

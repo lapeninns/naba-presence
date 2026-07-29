@@ -581,13 +581,16 @@ export function updateGoogleReply(
 export function getGoogleReview(
   accessToken: string,
   reviewName: string,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; maxAttempts?: number } = {}
 ) {
   return googleRequest<Record<string, unknown>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}`,
     accessToken,
     {},
-    { timeoutMs: options.timeoutMs }
+    {
+      timeoutMs: options.timeoutMs,
+      maxAttempts: options.maxAttempts,
+    }
   )
 }
 

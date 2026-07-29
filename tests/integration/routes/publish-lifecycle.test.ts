@@ -98,6 +98,83 @@ describeDatabase("durable publish lifecycle", () => {
     return value
   }
 
+  async function seedPublishAttempt(
+    fixture: Fixture,
+    input: {
+      status: "started" | "ambiguous"
+      startedAt?: Date
+    }
+  ) {
+    const bodyHash = sha256(fixture.body)
+    const idempotencyKey = sha256(
+      `${fixture.owner.organisationId}:${fixture.review.reviewId}:0:${bodyHash}`
+    )
+    const [reply] = await admin<{ id: string }[]>`
+      insert into review_reply (
+        organisation_id,
+        review_id,
+        current_body,
+        publish_status
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${fixture.review.reviewId},
+        ${fixture.body},
+        'accepted'
+      )
+      returning id::text as id
+    `
+    const [attempt] = await admin<{ id: string }[]>`
+      insert into publish_attempt (
+        organisation_id,
+        review_reply_id,
+        draft_id,
+        idempotency_key,
+        request_body_hash,
+        status,
+        attempt_no,
+        operation,
+        intended_body,
+        started_at
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${reply.id},
+        ${fixture.draft.draftId},
+        ${idempotencyKey},
+        ${bodyHash},
+        ${input.status},
+        1,
+        'publish',
+        ${fixture.body},
+        ${input.startedAt ?? new Date()}
+      )
+      returning id::text as id
+    `
+    await admin`
+      update review
+      set workflow_status = 'publish_requested'
+      where id = ${fixture.review.reviewId}
+    `
+    return { attemptId: attempt.id, idempotencyKey }
+  }
+
+  function respondWithGoogleReply(comment: string | null) {
+    stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+      status: 200,
+      json:
+        comment === null
+          ? { reviewId: "stub" }
+          : {
+              reviewId: "stub",
+              reviewReply: {
+                comment,
+                updateTime: "2026-08-20T10:00:00.000Z",
+              },
+            },
+    }))
+  }
+
   it("records durable intent before calling Google", async () => {
     const fixture = await createFixture()
     stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
@@ -133,7 +210,7 @@ describeDatabase("durable publish lifecycle", () => {
       status: "started",
       operation: "publish",
     })
-    expect(response.status).toBe(200)
+    expect(response.status, await response.clone().text()).toBe(200)
     const [settled] = await admin<{ status: string }[]>`
       select pa.status
       from publish_attempt pa
@@ -170,7 +247,7 @@ describeDatabase("durable publish lifecycle", () => {
     const response = await publishPromise
 
     expect(count).toBe(0)
-    expect(response.status).toBe(200)
+    expect(response.status, await response.clone().text()).toBe(200)
   }, 20_000)
 
   it("marks the attempt ambiguous when Google times out", async () => {
@@ -223,74 +300,108 @@ describeDatabase("durable publish lifecycle", () => {
     )
   })
 
-  it.fails(
-    "recovers a crashed publish after Google already applied it",
+  it("settles an ambiguous attempt when Google has the intended reply", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, {
+      status: "ambiguous",
+    })
+    respondWithGoogleReply(fixture.body)
+
+    const response = await publish(fixture)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const [attempt] = await admin<{ status: string }[]>`
+      select status from publish_attempt where id = ${seeded.attemptId}
+    `
+    expect(attempt.status).toBe("succeeded")
+  })
+
+  it("re-sends once when an ambiguous publish was not applied", async () => {
+    const fixture = await createFixture()
+    await seedPublishAttempt(fixture, { status: "ambiguous" })
+    respondWithGoogleReply(null)
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+  })
+
+  it("fails safely when the provider reply diverged", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, {
+      status: "ambiguous",
+    })
+    respondWithGoogleReply("A different reply is live.")
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("reply_diverged")
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const [attempt] = await admin<{ status: string }[]>`
+      select status from publish_attempt where id = ${seeded.attemptId}
+    `
+    expect(attempt.status).toBe("failed")
+  })
+
+  it("recovers a crashed publish after Google already applied it", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, {
+      status: "started",
+      startedAt: new Date(Date.now() - 10 * 60 * 1000),
+    })
+    respondWithGoogleReply(fixture.body)
+
+    const response = await publish(fixture)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const [attempt] = await admin<{ status: string }[]>`
+      select status from publish_attempt where id = ${seeded.attemptId}
+    `
+    expect(attempt.status).toBe("succeeded")
+  })
+
+  it("does not interfere with a fresh in-flight publish", async () => {
+    const fixture = await createFixture()
+    await seedPublishAttempt(fixture, { status: "started" })
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("publish_in_progress")
+    expect(stub.calls).toHaveLength(0)
+  })
+
+  it(
+    "leaves an ambiguous attempt unresolved when the recovery GET times out",
     async () => {
       const fixture = await createFixture()
-      const bodyHash = sha256(fixture.body)
-      const idempotencyKey = sha256(
-        `${fixture.owner.organisationId}:${fixture.review.reviewId}:0:${bodyHash}`
-      )
-      const [reply] = await admin<{ id: string }[]>`
-        insert into review_reply (
-          organisation_id,
-          review_id,
-          current_body,
-          publish_status
-        )
-        values (
-          ${fixture.owner.organisationId},
-          ${fixture.review.reviewId},
-          ${fixture.body},
-          'accepted'
-        )
-        returning id::text as id
-      `
-      await admin`
-        insert into publish_attempt (
-          organisation_id,
-          review_reply_id,
-          draft_id,
-          idempotency_key,
-          request_body_hash,
-          status,
-          attempt_no,
-          operation,
-          started_at
-        )
-        values (
-          ${fixture.owner.organisationId},
-          ${reply.id},
-          ${fixture.draft.draftId},
-          ${idempotencyKey},
-          ${bodyHash},
-          'started',
-          1,
-          'publish',
-          now() - interval '10 minutes'
-        )
-      `
+      const seeded = await seedPublishAttempt(fixture, {
+        status: "ambiguous",
+      })
       stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
         status: 200,
-        json: {
-          reviewReply: {
-            comment: fixture.body,
-            updateTime: "2026-08-20T10:00:00.000Z",
-          },
-        },
+        json: {},
+        delayMs: 20_000,
       }))
 
       const response = await publish(fixture)
-      expect(response.status).toBe(200)
-      expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
-      expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+      expect(response.status).toBe(502)
+      expect((await response.json()).error).toBe(
+        "google_mutation_ambiguous"
+      )
+      expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(
+        1
+      )
+      expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(
+        0
+      )
       const [attempt] = await admin<{ status: string }[]>`
-        select status
-        from publish_attempt
-        where organisation_id = ${fixture.owner.organisationId}
-          and idempotency_key = ${idempotencyKey}
+        select status from publish_attempt where id = ${seeded.attemptId}
       `
-      expect(attempt.status).toBe("succeeded")
-    }
+      expect(attempt.status).toBe("ambiguous")
+    },
+    25_000
   )
 })

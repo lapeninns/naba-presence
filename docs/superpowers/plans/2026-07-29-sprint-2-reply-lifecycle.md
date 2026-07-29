@@ -417,7 +417,7 @@ The route (`publish/route.ts`) shrinks to: parse input (`expectedReviewUpdateTim
 - Consumes: `getGoogleReview` (`lib/server/google.ts:499`), `googleReplyMatches` (`lib/server/publishing.ts:36-48`).
 - Produces: `recoverAttempt(input: { organisationId: string; attemptId: string }): Promise<"succeeded" | "not_applied" | "diverged">` — reads the review from Google **outside any transaction**, compares `reviewReply.comment` to the attempt's intended body (or absence, for deletes), then settles the attempt in a fresh transaction; if the probe `GET` itself times out, it throws `GoogleMutationAmbiguousError` and the attempt stays `ambiguous`. Sprint 3's `JOB-301` worker calls this exact function for stale attempts.
 
-- [ ] **Step 1: Extend the route tests** with the recovery matrix (each case seeds its own tenant):
+- [x] **Step 1: Extend the route tests** with the recovery matrix (each case seeds its own tenant):
 
 | Seed state | Google state (stub `GET`) | Expected |
 |---|---|---|
@@ -430,7 +430,7 @@ The route (`publish/route.ts`) shrinks to: parse input (`expectedReviewUpdateTim
 
 Write these as explicit tests following Task 2's shape. Run — Expected: FAIL (recovery not implemented; today `started` rows are unreachable states).
 
-- [ ] **Step 2: Implement `recoverAttempt`** in `lib/server/publishing.ts`:
+- [x] **Step 2: Implement `recoverAttempt`** in `lib/server/publishing.ts`:
 
 ```ts
 const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000
@@ -480,7 +480,9 @@ export async function recoverAttempt(input: {
 
 (`intended_body`: store the draft body on the attempt at phase 1 — add `intended_body text` to `publish_attempt` in migration 0006 while it is still this sprint's open migration; the hash alone cannot be compared against Google's returned comment.) Wire it into `executePublish`: the `needs_recovery` branch from Task 2 calls `recoverAttempt` first; `succeeded` → idempotent success; `not_applied` → proceed to a fresh PUT; `diverged` → 409.
 
-- [ ] **Step 3: Run the matrix** — Expected: PASS, including Task 2 Step 5's un-`.fails`-ed crash case.
+- [x] **Step 3: Run the matrix** — Expected: PASS, including Task 2 Step 5's un-`.fails`-ed crash case.
+
+**Deviation (Task 3):** The existing schema relates attempts to reviews through `publish_attempt.review_reply_id → review_reply.review_id` rather than a direct `publish_attempt.review_id`, so `recoverAttempt` uses that join while preserving the binding interface. The recovery probe also sets `maxAttempts: 1` explicitly; a timed-out read remains ambiguous and must not multiply a route request into five 15-second probes.
 
 ---
 
