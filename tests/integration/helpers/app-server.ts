@@ -58,6 +58,10 @@ export async function startAppServer(
     if (child.exitCode !== null) {
       throw new Error(`Server exited ${child.exitCode}: ${stderr}`)
     }
+    if (stderr.includes("Failed to prepare server")) {
+      child.kill("SIGKILL")
+      throw new Error(`Server failed to prepare: ${stderr}`)
+    }
     try {
       const response = await fetch(`${baseUrl}/api/session`)
       if (response.status < 500) break

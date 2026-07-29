@@ -523,6 +523,18 @@ Expected: PASS, with the app server booting on the **runtime role** URL. If the 
 
 ### Task 3: SEC-102 — Startup assertion that the runtime identity cannot bypass RLS
 
+**Deviation:** With the installed Zod 4.4, a missing object key is rejected
+before `z.unknown().transform(...)` runs. Added `.optional()` to the internal
+feature-flag input schema so missing flags reach `parseFeatureFlag` and use the
+binding per-flag fallbacks. Next 16 reports an instrumentation rejection as
+`Failed to prepare server` while leaving the process alive but unready; the
+route harness now treats that stderr signal as boot failure and terminates the
+test child, preserving `expectBootFailure`'s binding contract. This Supabase
+version's `postgres` login is `rolsuper=false, rolbypassrls=true`, so the
+DIRECT_DATABASE_URL boot test asserts the actual `BYPASSRLS` refusal rather
+than the plan's assumed superuser message; the startup code still checks both,
+and Task 7's unit test covers both identity flags.
+
 **Files:**
 - Create: `lib/server/startup.ts`
 - Create: `tests/env-flags.test.ts`
@@ -533,7 +545,7 @@ Expected: PASS, with the app server booting on the **runtime role** URL. If the 
 **Interfaces:**
 - Produces: `assertProductionSafety(options?: { enforce?: boolean }): Promise<void>` and `collectSafetyViolations(env: ServerEnv, identity: DbIdentity): string[]` where `type DbIdentity = { rolSuper: boolean; rolBypassRls: boolean; rowSecurity: string }`. Task 7 (WEB-101) adds one more violation rule to `collectSafetyViolations`; Sprint 3+ startup checks extend the same module.
 
-- [ ] **Step 1: Write the failing unit test** — `tests/env-flags.test.ts`:
+- [x] **Step 1: Write the failing unit test** — `tests/env-flags.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest"
@@ -551,9 +563,9 @@ describe("feature flags", () => {
 })
 ```
 
-- [ ] **Step 2: Run it** — `pnpm test tests/env-flags.test.ts` — Expected: FAIL (`parseFeatureFlag` not exported).
+- [x] **Step 2: Run it** — `pnpm test tests/env-flags.test.ts` — Expected: FAIL (`parseFeatureFlag` not exported).
 
-- [ ] **Step 3: Fix the flag parser in `lib/server/env.ts`.** Replace the current `featureFlag` const (lines 5-10) with:
+- [x] **Step 3: Fix the flag parser in `lib/server/env.ts`.** Replace the current `featureFlag` const (lines 5-10) with:
 
 ```ts
 export function parseFeatureFlag(
@@ -572,7 +584,7 @@ const featureFlag = (fallback: boolean) =>
 
 and update the five usages: `DRAFTS_ENABLED: featureFlag(true)`, `PUBLISH_ENABLED: featureFlag(true)`, `SYNC_ENABLED: featureFlag(true)`, `WEBHOOKS_ENABLED: featureFlag(true)`, `LOCAL_BOOTSTRAP_ENABLED: featureFlag(false)` (drop the old `.default(false)` chain). Run Step 1's test again — Expected: PASS. Run `pnpm test` — the previously-verified quirk (`LOCAL_BOOTSTRAP_ENABLED=""` ⇒ `true`) is now dead.
 
-- [ ] **Step 4: Write `lib/server/startup.ts`**
+- [x] **Step 4: Write `lib/server/startup.ts`**
 
 ```ts
 import "server-only"
@@ -650,7 +662,7 @@ export async function assertProductionSafety(
 }
 ```
 
-- [ ] **Step 5: Wire it into `instrumentation.ts`** — extend `register()`:
+- [x] **Step 5: Wire it into `instrumentation.ts`** — extend `register()`:
 
 ```ts
 export async function register() {
@@ -664,7 +676,7 @@ export async function register() {
 
 A thrown error here aborts `next start` — that is the intended behavior.
 
-- [ ] **Step 6: Write the integration proof** — `tests/integration/startup-assertion.test.ts` (uses the Task 2 helpers; gated on `RUN_DB_TESTS`):
+- [x] **Step 6: Write the integration proof** — `tests/integration/startup-assertion.test.ts` (uses the Task 2 helpers; gated on `RUN_DB_TESTS`):
 
 ```ts
 it("boots on the runtime role", async () => {
@@ -680,7 +692,7 @@ it("refuses to boot as a superuser", async () => {
 })
 ```
 
-- [ ] **Step 7: Rebuild and run**
+- [x] **Step 7: Rebuild and run**
 
 ```bash
 pnpm build

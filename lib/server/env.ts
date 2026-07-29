@@ -2,12 +2,23 @@ import "server-only"
 
 import { z } from "zod"
 
-const featureFlag = z
-  .preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.enum(["true", "false"]).default("true")
+export function parseFeatureFlag(
+  value: unknown,
+  fallback: boolean
+): boolean {
+  if (value === undefined || value === "") return fallback
+  if (value === "true") return true
+  if (value === "false") return false
+  throw new Error(
+    `Feature flag must be "true" or "false", got: ${value}`
   )
-  .transform((value) => value === "true")
+}
+
+const featureFlag = (fallback: boolean) =>
+  z
+    .unknown()
+    .optional()
+    .transform((value) => parseFeatureFlag(value, fallback))
 
 const optionalText = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -55,11 +66,11 @@ const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL: optionalEmail,
   GOOGLE_PUBSUB_VERIFICATION_TOKEN: optionalSecret(16),
   GOOGLE_REQUESTS_PER_SECOND: z.coerce.number().min(1).max(100).default(8),
-  DRAFTS_ENABLED: featureFlag,
-  PUBLISH_ENABLED: featureFlag,
-  SYNC_ENABLED: featureFlag,
-  WEBHOOKS_ENABLED: featureFlag,
-  LOCAL_BOOTSTRAP_ENABLED: featureFlag.default(false),
+  DRAFTS_ENABLED: featureFlag(true),
+  PUBLISH_ENABLED: featureFlag(true),
+  SYNC_ENABLED: featureFlag(true),
+  WEBHOOKS_ENABLED: featureFlag(true),
+  LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

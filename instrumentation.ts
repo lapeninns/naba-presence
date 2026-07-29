@@ -3,8 +3,14 @@ import { registerOTel } from "@vercel/otel"
 
 import { redactForLog } from "@/lib/domain/redaction"
 
-export function register() {
+export async function register() {
   registerOTel({ serviceName: "nabapresence" })
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { assertProductionSafety } = await import(
+      "@/lib/server/startup"
+    )
+    await assertProductionSafety()
+  }
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (
