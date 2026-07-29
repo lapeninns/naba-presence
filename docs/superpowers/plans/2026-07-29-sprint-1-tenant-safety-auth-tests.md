@@ -229,6 +229,21 @@ Expected: PASS (migration-contract additions green).
 
 ### Task 2: TST-101 — Route integration-test harness on the real runtime role
 
+**Deviation:** The plan's illustrative `seedReview` insert omits the current
+schema's required `external_location_id`, and its raw marker buffers cannot be
+decrypted by the real review routes. The helper seeds the minimal
+`google_connection`/`external_location` rows and valid harness-key ciphertext;
+the binding helper name, parameters, and return shape are unchanged. The draft
+IDOR request uses the route's current valid tone `warm_professional` rather
+than the plan's invalid `professional`, so request validation does not mask the
+intended cross-tenant 404 assertion.
+The current Node `ProcessEnv` typing requires an explicit return annotation on
+the internal `serverEnv` helper after spreading string overrides; this does not
+change the binding `startAppServer` interface. Because organisation cascade
+cleanup reaches the intentionally append-only `audit_log`, `destroyTenants`
+temporarily disables only its delete-blocking trigger inside the admin cleanup
+transaction, then re-enables it; production/runtime behavior is unchanged.
+
 **Files:**
 - Create: `tests/integration/helpers/app-server.ts`
 - Create: `tests/integration/helpers/tenant.ts`
@@ -242,7 +257,7 @@ Expected: PASS (migration-contract additions green).
 - Consumes: `naba_test_runtime` from Task 1.
 - Produces: `startAppServer(overrides?: Record<string, string>): Promise<{ baseUrl: string; stop(): Promise<void> }>` and `expectBootFailure(overrides: Record<string, string>): Promise<string>` (returns stderr) from `helpers/app-server.ts`; `createTestTenant(admin, options?: { role?: "owner"|"admin"|"member"|"viewer"; canPublish?: boolean })` returning `{ organisationId, userId, email, cookie }`, `seedReview(admin, { organisationId, text?, rating? })` returning `{ reviewId, locationId }`, and `destroyTenants(admin, organisationIds)` from `helpers/tenant.ts`. Every later sprint's route tests build on these exact signatures.
 
-- [ ] **Step 1: Stub `server-only` for Vitest.** `tests/helpers/server-only-stub.ts` contains only `export {}`. In `vitest.config.ts` add:
+- [x] **Step 1: Stub `server-only` for Vitest.** `tests/helpers/server-only-stub.ts` contains only `export {}`. In `vitest.config.ts` add:
 
 ```ts
   resolve: {
@@ -255,7 +270,7 @@ Expected: PASS (migration-contract additions green).
   },
 ```
 
-- [ ] **Step 2: Write `tests/integration/helpers/app-server.ts`**
+- [x] **Step 2: Write `tests/integration/helpers/app-server.ts`**
 
 ```ts
 import { spawn, type ChildProcess } from "node:child_process"
@@ -351,7 +366,7 @@ export async function expectBootFailure(overrides: Record<string, string>) {
 }
 ```
 
-- [ ] **Step 3: Write `tests/integration/helpers/tenant.ts`** (admin-seeded tenants + minted session cookies; mirrors `createSession`'s `sha256(token)` storage from `lib/server/session.ts:103-133`):
+- [x] **Step 3: Write `tests/integration/helpers/tenant.ts`** (admin-seeded tenants + minted session cookies; mirrors `createSession`'s `sha256(token)` storage from `lib/server/session.ts:103-133`):
 
 ```ts
 import { createHash, randomBytes, randomUUID } from "node:crypto"
@@ -441,7 +456,7 @@ export async function destroyTenants(
 
 (If a NOT NULL column added by a later migration breaks `seedReview`, extend the insert here — this helper is the single seam every route suite uses.)
 
-- [ ] **Step 4: Write the first three route suites.** All follow this shape — `auth.test.ts`:
+- [x] **Step 4: Write the first three route suites.** All follow this shape — `auth.test.ts`:
 
 ```ts
 import postgres from "postgres"
@@ -495,7 +510,7 @@ describeDatabase("route auth", () => {
 
 `tenant-isolation-http.test.ts` — seed a review in tenant A and tenant B, then: A's `GET /api/reviews` items contain only A's review id; A's `GET /api/reviews/{B.reviewId}` is **404** (IDOR); A's `POST /api/reviews/{B.reviewId}/drafts` with `{"tone":"professional"}` is **404**. `roles.test.ts` — viewer `PATCH /api/settings` body `{"approvalRequired":true}` is **403 permission_denied**; member `GET /api/audit-log` is **403**; owner `PATCH /api/settings` is **200**.
 
-- [ ] **Step 5: Run to verify red→green.** These should pass immediately against current behavior except the null-session case, which passes too (`app/api/session/route.ts:13-19` calls `getSession()` in production). The suite's value is the harness itself:
+- [x] **Step 5: Run to verify red→green.** These should pass immediately against current behavior except the null-session case, which passes too (`app/api/session/route.ts:13-19` calls `getSession()` in production). The suite's value is the harness itself:
 
 ```bash
 pnpm build
