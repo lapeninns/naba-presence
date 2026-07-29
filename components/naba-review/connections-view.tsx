@@ -528,7 +528,11 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
     <PageFrame width="wide">
       <PageHeader
         eyebrow={<Badge variant="outline">Merchant setup</Badge>}
-        title="Google Business Profile"
+        title={
+          setupComplete
+            ? "Google Business Profile"
+            : "Connect Google Business Profile"
+        }
         description={
           setupComplete
             ? "Your locations, review history, and reply policy are ready."
@@ -623,6 +627,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                           key={account.id}
                           role="listitem"
                           variant="outline"
+                          className="bg-card"
                         >
                           <ItemMedia className="flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground">
                             <Building2 className="size-4" aria-hidden />
@@ -746,6 +751,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                 role="listitem"
                                 variant="outline"
                                 size="sm"
+                                className="bg-card"
                               >
                                 <ItemMedia>
                                   <Checkbox
@@ -912,6 +918,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                         key={item.externalLocationId}
                         role="listitem"
                         variant="outline"
+                        className="bg-card"
                       >
                         <ItemContent>
                           <ItemTitle>{item.locationName}</ItemTitle>

@@ -398,6 +398,143 @@ for (const viewport of [
     })
 
     test("connections", async ({ page }) => {
+      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            session: {
+              sessionId: "session-connections-a11y",
+              userId: "user-connections-a11y",
+              organisationId: "org-connections-a11y",
+              organisationName: "Naba Review",
+              displayName: "Alex Morgan",
+              email: "alex@example.com",
+              role: "owner",
+              canPublish: true,
+            },
+          },
+        })
+      })
+      await page.route(
+        /\/api\/google\/connections(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              connections: [
+                {
+                  id: "connection-connections-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope: "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+            },
+          })
+        }
+      )
+      await page.route(/\/api\/google\/accounts(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            accounts: [
+              {
+                id: "account-connections-a11y",
+                googleAccountName: "accounts/123456789",
+                accountName: "Naba Review Hospitality",
+                type: "ORGANIZATION",
+                role: "OWNER",
+                permissionLevel: "OWNER_LEVEL",
+                isActive: true,
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/google\/locations(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            locations: [
+              {
+                id: "locations/camden-a11y",
+                name: "locations/camden-a11y",
+                title: "Camden Hotel",
+                accountName: "accounts/123456789",
+                verified: true,
+                storefrontAddress: {
+                  addressLines: ["10 Camden High Street"],
+                  locality: "London",
+                  administrativeArea: "England",
+                  postalCode: "NW1 0JH",
+                  regionCode: "GB",
+                },
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            locations: [
+              {
+                locationId: "location-connections-a11y",
+                name: "Camden Hotel",
+                timezone: "Europe/London",
+                address: {
+                  addressLines: ["10 Camden High Street"],
+                  locality: "London",
+                  administrativeArea: "England",
+                  postalCode: "NW1 0JH",
+                  regionCode: "GB",
+                },
+                linkId: "link-connections-a11y",
+                externalLocationId: "locations/camden-a11y",
+                googleLocationName: "locations/camden-a11y",
+                googleTitle: "Camden Hotel",
+                verified: true,
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/sync\/backfill(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            progress: {
+              items: [
+                {
+                  externalLocationId: "locations/camden-a11y",
+                  locationName: "Camden Hotel",
+                  status: "succeeded",
+                  attemptCount: 1,
+                  hasMorePages: false,
+                  lastErrorCode: null,
+                  startedAt: "2026-07-29T09:00:00.000Z",
+                  finishedAt: "2026-07-29T09:01:00.000Z",
+                  nextAttemptAt: null,
+                },
+              ],
+              counts: { succeeded: 1 },
+              total: 1,
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            settings: {
+              approvalRequired: true,
+              rawContentRetentionDays: 30,
+              defaultLanguageCode: "en",
+              defaultTimezone: "Europe/London",
+            },
+          },
+        })
+      })
       await page.goto("/")
       await openNavigationSurface(
         page,
@@ -408,6 +545,15 @@ for (const viewport of [
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
       await expect(page.getByLabel("Connection setup progress")).toBeVisible()
+      await expect(page.getByText("Naba Review Hospitality")).toBeVisible()
+      await expect(
+        page.getByLabel("Google location import").getByText("Camden Hotel")
+      ).toBeVisible()
+      await expect(page.getByLabel("Historical review backfill")).toContainText(
+        "Complete"
+      )
+      await expect(page.getByLabel("Notification management")).toBeVisible()
+      await expect(page.getByLabel("Connection management")).toBeVisible()
       await expect(
         page.getByLabel("Connection status and guidance")
       ).toBeVisible()
