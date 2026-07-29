@@ -1,5 +1,10 @@
 import { detectLanguage } from "@/lib/domain/language"
 
+const PROMOTION_ALLOWLIST =
+  /\b[\w]+-free\b|\bfeel free\b|\bfree of charge\b|\bfree from\b/giu
+const PROMOTION_PATTERN =
+  /\b(free|discount|promo code|voucher|coupon|% off|bogo)\b/iu
+
 export type VerificationReason = {
   code: string
   severity: "warn" | "fail"
@@ -39,7 +44,8 @@ export function deterministicVerification(input: {
       "The reply contains an email address or phone number."
     )
   }
-  if (/\b(free|discount|promo code|voucher|coupon)\b/iu.test(body)) {
+  const promotionCandidate = body.replace(PROMOTION_ALLOWLIST, " ")
+  if (PROMOTION_PATTERN.test(promotionCandidate)) {
     add(
       "forbidden_promotion",
       "fail",

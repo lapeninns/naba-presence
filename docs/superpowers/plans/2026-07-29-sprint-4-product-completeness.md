@@ -119,7 +119,7 @@
 - Modify: `lib/domain/verification.ts:40-46`
 - Modify: `tests/verification.test.ts`
 
-- [ ] **Step 1: Failing tests** (extend `tests/verification.test.ts`):
+- [x] **Step 1: Failing tests** (extend `tests/verification.test.ts`):
 
 ```ts
 const passes = [
@@ -146,7 +146,7 @@ for (const body of fails) { /* mirror: toContainEqual fail severity */ }
 ```
 
 Run — the four `passes` FAIL today (`\bfree\b` matches across `-` and after "feel").
-- [ ] **Step 2: Implement** — replace `verification.ts:40-46` with allowlist-strip-then-match:
+- [x] **Step 2: Implement** — replace `verification.ts:40-46` with allowlist-strip-then-match:
 
 ```ts
 const PROMOTION_ALLOWLIST =
@@ -164,7 +164,7 @@ if (PROMOTION_PATTERN.test(promotionCandidate)) {
 }
 ```
 
-- [ ] **Step 3: Run** `pnpm test` — all pass/fail cases green; no other verification tests regress.
+- [x] **Step 3: Run** `pnpm test` — all pass/fail cases green; no other verification tests regress.
 
 ---
 
