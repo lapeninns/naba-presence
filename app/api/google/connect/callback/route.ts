@@ -2,17 +2,14 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { encryptSecret, sha256, verifySignedValue } from "@/lib/server/crypto"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { writeAudit } from "@/lib/server/audit"
+import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
+import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
 import { ApiError, apiError, requestId } from "@/lib/server/http"
-import {
-  createSession,
-  getSession,
-  setSessionCookie,
-} from "@/lib/server/session"
-import { writeAudit } from "@/lib/server/audit"
+import { provisionOwner } from "@/lib/server/provisioning"
+import { getSession, setSessionCookie } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
@@ -39,71 +36,6 @@ async function oauthParameters(request: Request) {
     state: typeof body.state === "string" ? body.state : null,
     error: typeof body.error === "string" ? body.error : null,
   }
-}
-
-async function provisionOwner(profile: {
-  sub: string
-  email?: string
-  name?: string
-}) {
-  return getDatabase().begin(async (sql) => {
-    const slugBase = (profile.email?.split("@")[0] ?? profile.sub)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 40)
-    const [user] = await sql<
-      { id: string; default_organisation_id: string | null }[]
-    >`
-      insert into app_user (email, display_name, google_subject)
-      values (
-        ${profile.email ?? `${profile.sub}@google.invalid`},
-        ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub}
-      )
-      on conflict (email) do update
-      set google_subject = excluded.google_subject,
-          display_name = excluded.display_name
-      returning
-        id::text as id,
-        default_organisation_id::text as default_organisation_id
-    `
-    let organisationId = user.default_organisation_id
-    if (!organisationId) {
-      const [organisation] = await sql<{ id: string }[]>`
-        insert into organisation (slug, name)
-        values (
-          ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
-        )
-        returning id::text as id
-      `
-      organisationId = organisation.id
-      await sql`
-        select set_config('app.organisation_id', ${organisationId}, true)
-      `
-      await sql`
-        insert into member (
-          organisation_id,
-          user_id,
-          role,
-          can_publish
-        )
-        values (${organisationId}, ${user.id}, 'owner', true)
-      `
-      await sql`
-        update app_user
-        set default_organisation_id = ${organisationId}
-        where id = ${user.id}
-      `
-    } else {
-      await sql`
-        select set_config('app.organisation_id', ${organisationId}, true)
-      `
-    }
-    const token = await createSession(sql, user.id, organisationId)
-    return { organisationId, userId: user.id, token }
-  })
 }
 
 async function completeOAuth(request: Request) {

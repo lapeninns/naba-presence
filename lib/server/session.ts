@@ -1,12 +1,14 @@
 import "server-only"
 
 import { cookies } from "next/headers"
-import type { TransactionSql } from "postgres"
 
-import { randomToken, sha256 } from "@/lib/server/crypto"
+import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { createSession } from "@/lib/server/session-store"
+
+export { createSession }
 
 const SESSION_COOKIE = "naba_session"
 const LOCAL_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -98,38 +100,6 @@ export function requireRole(
     throw new ApiError(403, "permission_denied", "You do not have permission.")
   }
   return session
-}
-
-export async function createSession(
-  sql: TransactionSql,
-  userId: string,
-  organisationId: string,
-  options: {
-    supportActor?: string
-    impersonationReason?: string
-    maxAgeDays?: number
-  } = {}
-): Promise<string> {
-  const token = randomToken()
-  await sql`
-    insert into app_session (
-      token_hash,
-      user_id,
-      organisation_id,
-      support_actor,
-      impersonation_reason,
-      expires_at
-    )
-    values (
-      ${sha256(token)},
-      ${userId},
-      ${organisationId},
-      ${options.supportActor ?? null},
-      ${options.impersonationReason ?? null},
-      now() + (${options.maxAgeDays ?? 30} * interval '1 day')
-    )
-  `
-  return token
 }
 
 export async function setSessionCookie(token: string) {

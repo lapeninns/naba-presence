@@ -705,6 +705,11 @@ Expected: PASS. Also run `pnpm test && pnpm typecheck && pnpm lint`.
 
 ### Task 4: AUTH-101 — Provision the first tenant with tenant context established before `INSERT … RETURNING`
 
+**Deviation:** Focused Vitest integration runs do not load the application
+`.env`; the provisioning suite supplies deterministic test-only values for the
+three required server secrets so the P0 reproduction reaches PostgreSQL rather
+than failing environment validation.
+
 **Files:**
 - Create: `lib/server/provisioning.ts`
 - Create: `lib/server/session-store.ts` (move `createSession` out of the `next/headers` module)
@@ -716,9 +721,9 @@ Expected: PASS. Also run `pnpm test && pnpm typecheck && pnpm lint`.
 - Consumes: `withTenant` (`lib/server/db.ts:40`), `sha256` (`lib/server/crypto.ts:46`).
 - Produces: `provisionOwner(profile: { sub: string; email?: string; name?: string }): Promise<{ organisationId: string; userId: string; token: string }>` from `lib/server/provisioning.ts`; `createSession(sql: TransactionSql, userId, organisationId, options?)` re-exported unchanged from `lib/server/session.ts`. Task 6 swaps this module's `app_user` upsert for `provision_google_user(...)`; Sprint 4 MEM-401 adds `provisionMember(profile, invitation)` beside it.
 
-- [ ] **Step 1: Move `createSession`.** Create `lib/server/session-store.ts` containing exactly the current `createSession` function body (`lib/server/session.ts:103-133`) plus its imports (`randomToken`, `sha256` from crypto; `TransactionSql` type). In `lib/server/session.ts`, delete the function and add `export { createSession } from "@/lib/server/session-store"`. No other import site changes (verify with `grep -rn "createSession" app lib`).
+- [x] **Step 1: Move `createSession`.** Create `lib/server/session-store.ts` containing exactly the current `createSession` function body (`lib/server/session.ts:103-133`) plus its imports (`randomToken`, `sha256` from crypto; `TransactionSql` type). In `lib/server/session.ts`, delete the function and add `export { createSession } from "@/lib/server/session-store"`. No other import site changes (verify with `grep -rn "createSession" app lib`).
 
-- [ ] **Step 2: Write the failing integration test** — `tests/integration/provisioning.test.ts`. This is the direct P0 reproduction: it must run as the **runtime role**:
+- [x] **Step 2: Write the failing integration test** — `tests/integration/provisioning.test.ts`. This is the direct P0 reproduction: it must run as the **runtime role**:
 
 ```ts
 import postgres from "postgres"
@@ -778,7 +783,7 @@ describeDatabase("first-tenant provisioning under RLS", () => {
 })
 ```
 
-- [ ] **Step 3: Run to verify it fails for the *right* reason.** Temporarily create `lib/server/provisioning.ts` as a re-export of the current inline logic copied verbatim from the callback route. Run:
+- [x] **Step 3: Run to verify it fails for the *right* reason.** Temporarily create `lib/server/provisioning.ts` as a re-export of the current inline logic copied verbatim from the callback route. Run:
 
 ```bash
 DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres TEST_RUNTIME_DATABASE_URL=postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:54322/postgres RUN_DB_TESTS=true pnpm exec vitest run tests/integration/provisioning.test.ts
@@ -786,7 +791,7 @@ DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres TEST
 
 Expected: FAIL with `new row violates row-level security policy for table "organisation"` — the audited P0, now reproduced in CI-runnable form.
 
-- [ ] **Step 4: Write the fixed `lib/server/provisioning.ts`**
+- [x] **Step 4: Write the fixed `lib/server/provisioning.ts`**
 
 ```ts
 import "server-only"
@@ -858,11 +863,11 @@ export async function provisionOwner(profile: GoogleProfile) {
 
 Note what changed versus `app/api/google/connect/callback/route.ts:71-84`: the org id is generated app-side, `set_config` moves **before** the insert, and the insert carries the explicit `id` with no `RETURNING`.
 
-- [ ] **Step 5: Update the callback route.** In `app/api/google/connect/callback/route.ts`: delete the inline `provisionOwner` (lines 44-107), add `import { provisionOwner } from "@/lib/server/provisioning"`, and keep the call site at line 143 identical (`const provisioned = await provisionOwner(profile)`).
+- [x] **Step 5: Update the callback route.** In `app/api/google/connect/callback/route.ts`: delete the inline `provisionOwner` (lines 44-107), add `import { provisionOwner } from "@/lib/server/provisioning"`, and keep the call site at line 143 identical (`const provisioned = await provisionOwner(profile)`).
 
-- [ ] **Step 6: Run the provisioning test again** — Expected: PASS (both cases) as the runtime role.
+- [x] **Step 6: Run the provisioning test again** — Expected: PASS (both cases) as the runtime role.
 
-- [ ] **Step 7: Full gates + rebuild for the harness**
+- [x] **Step 7: Full gates + rebuild for the harness**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
