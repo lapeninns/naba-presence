@@ -1437,9 +1437,9 @@ it("boots with webhooks enabled once the audience is set", async () => {
 **Interfaces:**
 - Consumes: everything above. Produces: the CI contract all later sprints extend (their route suites land in `tests/integration/routes/**` and run automatically).
 
-- [ ] **Step 1: Add the e2e script** — `package.json`: `"test:e2e": "playwright test"` (runs both `routing.spec.ts` and `accessibility.spec.ts`; `test:a11y` remains for the focused local loop).
+- [x] **Step 1: Add the e2e script** — `package.json`: `"test:e2e": "playwright test"` (runs both `routing.spec.ts` and `accessibility.spec.ts`; `test:a11y` remains for the focused local loop).
 
-- [ ] **Step 2: Rewrite the `quality` job steps** in `.github/workflows/ci.yml` (env block unchanged except one addition):
+- [x] **Step 2: Rewrite the `quality` job steps** in `.github/workflows/ci.yml` (env block unchanged except one addition):
 
 ```yaml
     env:
@@ -1475,7 +1475,12 @@ it("boots with webhooks enabled once the audience is set", async () => {
 
 Ordering rationale (each was a latent break): the role now exists **before** anything connects as it; `build` precedes `test:integration` because the route harness boots the standalone server; `test:e2e` runs with `LOCAL_BOOTSTRAP_ENABLED=true` so the Task 5 dashboard gate admits the browser and `/api/session` self-provisions the local owner (the pre-existing behavior the a11y specs assume); the e2e step now also executes `routing.spec.ts`, which CI previously never ran.
 
-- [ ] **Step 3: Verify the full pipeline locally in CI order**
+  **Deviation:** The e2e step also sets `WEBHOOKS_ENABLED: "false"`.
+  Task 7 intentionally makes production boot fail when webhooks default to true
+  without an OIDC audience; this browser suite does not exercise webhooks, so
+  explicitly disabling them keeps the fail-closed production contract intact.
+
+- [x] **Step 3: Verify the full pipeline locally in CI order**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test && pnpm db:migrate && pnpm db:runtime-role && pnpm build && \
@@ -1485,7 +1490,13 @@ LOCAL_BOOTSTRAP_ENABLED=true pnpm test:e2e
 
 Expected: all PASS.
 
+  **Deviation:** Local Playwright verification uses an isolated
+  `PLAYWRIGHT_PORT`/matching `NEXTAUTH_URL` because port 3000 belongs to a
+  pre-existing user development server; CI continues to use port 3000.
+
 - [ ] **Step 4: Push a PR and watch CI run** (requires master-plan parallel Task P1 — the git remote — to be done). Expected: `quality` green end-to-end. If P1 hasn't landed, mark this step BLOCKED rather than done.
+
+  **BLOCKED — no git remote (parallel-track P1)**
 
 ---
 

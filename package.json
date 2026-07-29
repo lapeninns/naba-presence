@@ -19,6 +19,7 @@
     "supabase:reset": "supabase db reset --local",
     "test": "vitest run",
     "test:a11y": "playwright test tests/e2e/accessibility.spec.ts",
+    "test:e2e": "playwright test",
     "test:integration": "RUN_DB_TESTS=true vitest run tests/integration",
     "test:watch": "vitest",
     "lint": "eslint",
