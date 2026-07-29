@@ -134,6 +134,17 @@ grant update (
   provider_totals_refreshed_at
 ) on external_location to naba_app_runtime;
 
+drop index if exists review_search_idx;
+create index review_search_idx on review using gin (
+  to_tsvector(
+    'simple',
+    coalesce(review_text, '') || ' ' ||
+    coalesce(reviewer_display_name, '')
+  )
+);
+create index review_google_id_hash_idx
+  on review (organisation_id, google_review_id_hash);
+
 insert into schema_migration (version)
 values ('0008_product_completeness')
 on conflict (version) do nothing;

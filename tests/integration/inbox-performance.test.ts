@@ -1,6 +1,8 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { buildInboxQuery } from "@/lib/server/reviews-query"
+
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 const adminUrl = process.env.DIRECT_DATABASE_URL
@@ -125,7 +127,11 @@ describeDatabase("100k-review inbox performance", () => {
         'review-id-' || series.number,
         'Reviewer ' || series.number,
         ((series.number - 1) % 5) + 1,
-        'Performance fixture review ' || series.number,
+        case
+          when series.number % 100 = 0
+            then 'Excellent breakfast performance fixture ' || series.number
+          else 'Performance fixture review ' || series.number
+        end,
         'en',
         0.99,
         now() - (series.number * interval '1 second'),
@@ -138,6 +144,13 @@ describeDatabase("100k-review inbox performance", () => {
     `
     await admin`analyze review`
   }, 120_000)
+
+  const inboxFilters = {
+    sort: "updated_desc" as const,
+    pageSize: 50,
+    role: "owner" as const,
+    userId: crypto.randomUUID(),
+  }
 
   afterAll(async () => {
     if (admin) {
@@ -158,34 +171,58 @@ describeDatabase("100k-review inbox performance", () => {
               true
             )
           `
-        return sql<{ id: string }[]>`
-            select r.id::text as id
-            from review r
-            join location l on l.id = r.location_id
-            left join lateral (
-              select id
-              from draft
-              where review_id = r.id
-              order by created_at desc
-              limit 1
-            ) d on true
-            left join review_reply rr on rr.review_id = r.id
-            left join lateral (
-              select status
-              from sync_checkpoint
-              where external_location_id = r.external_location_id
-              order by updated_at desc
-              limit 1
-            ) sc on true
-            order by r.update_time desc, r.id desc
-            limit 50
-          `
+        return buildInboxQuery(sql, inboxFilters)
       })
-      expect(rows).toHaveLength(50)
+      expect(rows).toHaveLength(51)
       if (iteration) durations.push(performance.now() - startedAt)
     }
     durations.sort((left, right) => left - right)
     const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
     expect(p95).toBeLessThan(1500)
   }, 60_000)
+
+  it("keeps the P95 production search query below 1.5 seconds", async () => {
+    const durations: number[] = []
+    for (let iteration = 0; iteration < 21; iteration += 1) {
+      const startedAt = performance.now()
+      const rows = await runtime.begin(async (sql) => {
+        await sql`
+          select set_config(
+            'app.organisation_id',
+            ${organisationId},
+            true
+          )
+        `
+        return buildInboxQuery(sql, {
+          ...inboxFilters,
+          search: "excellent breakfast",
+        })
+      })
+      expect(rows).toHaveLength(51)
+      if (iteration) durations.push(performance.now() - startedAt)
+    }
+    durations.sort((left, right) => left - right)
+    const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
+    expect(p95).toBeLessThan(1500)
+  }, 60_000)
+
+  it("uses review_search_idx for the real production search query", async () => {
+    const plan = await admin.begin(async (sql) => {
+      await sql`
+        select set_config(
+          'app.organisation_id',
+          ${organisationId},
+          true
+        )
+      `
+      const query = buildInboxQuery(sql, {
+        ...inboxFilters,
+        search: "excellent breakfast",
+      })
+      return sql`explain (format json) ${query}`
+    })
+    expect(JSON.stringify(plan)).toContain(
+      '"Index Name":"review_search_idx"'
+    )
+  })
 })

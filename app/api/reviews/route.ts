@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { decryptSecret, sha256 } from "@/lib/server/crypto"
+import { decryptSecret } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { apiError } from "@/lib/server/http"
+import { ApiError, apiError } from "@/lib/server/http"
+import { buildInboxQuery } from "@/lib/server/reviews-query"
 import { requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -73,11 +74,27 @@ function commaStrings(value: string | null) {
   return value?.split(",").filter(Boolean)
 }
 
-function decodeCursor(value: string | null) {
+function decodeCursor(value: string | null, sort: string | null) {
   if (!value) return undefined
   try {
-    return JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
-  } catch {
+    const cursor = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8")
+    )
+    if (
+      (sort === "rating_desc" || sort === "rating_asc") &&
+      (typeof cursor !== "object" ||
+        cursor === null ||
+        typeof cursor.rating !== "number")
+    ) {
+      throw new ApiError(
+        400,
+        "invalid_cursor",
+        "Rating cursors must include a rating."
+      )
+    }
+    return cursor
+  } catch (error) {
+    if (error instanceof ApiError) throw error
     return undefined
   }
 }
@@ -101,167 +118,16 @@ export async function GET(request: Request) {
       pageSize: params.get("page_size")
         ? Number(params.get("page_size"))
         : undefined,
-      cursor: decodeCursor(params.get("cursor")),
+      cursor: decodeCursor(params.get("cursor"), params.get("sort")),
     })
     const rawRows = await withTenant(
       session.organisationId,
-      (sql) => sql`
-      select
-        r.id::text as id,
-        r.google_review_name_ciphertext as "googleReviewNameCiphertext",
-        r.google_review_id_ciphertext as "googleReviewIdCiphertext",
-        json_build_object(
-          'id', l.id::text,
-          'name', l.name
-        ) as location,
-        json_build_object(
-          'displayName', r.reviewer_display_name,
-          'isAnonymous', r.reviewer_is_anonymous
-        ) as reviewer,
-        r.star_rating as rating,
-        r.review_text as text,
-        r.detected_language_code as "detectedLanguageCode",
-        r.language_confidence::float as "languageConfidence",
-        r.create_time as "createTime",
-        r.update_time as "updateTime",
-        r.has_media as "hasMedia",
-        r.workflow_status as "workflowStatus",
-        d.id::text as "draftId",
-        d.body as "draftBody",
-        d.verification_status as "verificationStatus",
-        rr.publish_status as "replyStatus",
-        rr.google_reply_state as "googleReplyState",
-        rr.google_policy_violation as "googlePolicyViolation",
-        rr.current_body as "replyBody",
-        sc.status as "syncStatus"
-      from review r
-      join location l on l.id = r.location_id
-      left join lateral (
-        select id, body, verification_status
-        from draft
-        where review_id = r.id
-        order by created_at desc
-        limit 1
-      ) d on true
-      left join review_reply rr on rr.review_id = r.id
-      left join lateral (
-        select status
-        from sync_checkpoint
-        where external_location_id = r.external_location_id
-        order by updated_at desc
-        limit 1
-      ) sc on true
-      where r.provider_deleted_at is null
-        ${
-          query.locationId
-            ? sql`and r.location_id = ${query.locationId}`
-            : sql``
-        }
-        ${
-          query.ratings?.length
-            ? sql`and r.star_rating in ${sql(query.ratings)}`
-            : sql``
-        }
-        ${
-          query.statuses?.length
-            ? sql`and r.workflow_status in ${sql(query.statuses)}`
-            : sql``
-        }
-        ${
-          query.replyStates?.length === 1
-            ? query.replyStates[0] === "replied"
-              ? sql`and rr.current_body is not null`
-              : sql`and rr.current_body is null`
-            : sql``
-        }
-        ${
-          query.verificationStatuses?.length
-            ? sql`and coalesce(d.verification_status, 'pending')
-                in ${sql(query.verificationStatuses)}`
-            : sql``
-        }
-        ${
-          query.publishStatuses?.length
-            ? sql`and coalesce(rr.publish_status, 'not_published')
-                in ${sql(query.publishStatuses)}`
-            : sql``
-        }
-        ${
-          query.syncStatuses?.length
-            ? sql`and sc.status in ${sql(query.syncStatuses)}`
-            : sql``
-        }
-        ${query.dateFrom ? sql`and r.update_time >= ${query.dateFrom}` : sql``}
-        ${query.dateTo ? sql`and r.update_time <= ${query.dateTo}` : sql``}
-        ${
-          query.search
-            ? sql`and (
-                to_tsvector(
-                  'simple',
-                  coalesce(r.review_text, '') || ' ' ||
-                  coalesce(r.reviewer_display_name, '') || ' ' ||
-                  l.name
-                ) @@ websearch_to_tsquery('simple', ${query.search})
-                or r.google_review_id_hash = ${sha256(query.search)}
-                or r.google_review_name_hash = ${sha256(query.search)}
-              )`
-            : sql``
-        }
-        ${
-          query.cursor && query.sort === "updated_desc"
-            ? sql`and (r.update_time, r.id) < (
-                ${query.cursor.updateTime}, ${query.cursor.id}
-              )`
-            : query.cursor &&
-                query.sort === "rating_desc" &&
-                query.cursor.rating
-              ? sql`and (
-                  r.star_rating < ${query.cursor.rating}
-                  or (
-                    r.star_rating = ${query.cursor.rating}
-                    and (r.update_time, r.id) < (
-                      ${query.cursor.updateTime}, ${query.cursor.id}
-                    )
-                  )
-                )`
-              : query.cursor &&
-                  query.sort === "rating_asc" &&
-                  query.cursor.rating
-                ? sql`and (
-                    r.star_rating > ${query.cursor.rating}
-                    or (
-                      r.star_rating = ${query.cursor.rating}
-                      and (r.update_time, r.id) < (
-                        ${query.cursor.updateTime}, ${query.cursor.id}
-                      )
-                    )
-                  )`
-                : sql``
-        }
-        ${
-          session.role === "owner" || session.role === "admin"
-            ? sql``
-            : sql`and (
-                not exists (
-                  select 1 from location_member lm
-                  where lm.user_id = ${session.userId}
-                )
-                or exists (
-                  select 1 from location_member lm
-                  where lm.user_id = ${session.userId}
-                    and lm.location_id = r.location_id
-                )
-              )`
-        }
-      ${
-        query.sort === "rating_desc"
-          ? sql`order by r.star_rating desc, r.update_time desc, r.id desc`
-          : query.sort === "rating_asc"
-            ? sql`order by r.star_rating asc, r.update_time desc, r.id desc`
-            : sql`order by r.update_time desc, r.id desc`
-      }
-      limit ${query.pageSize + 1}
-    `
+      (sql) =>
+        buildInboxQuery(sql, {
+          ...query,
+          role: session.role,
+          userId: session.userId,
+        })
     )
     const rows = rawRows.map((row) => {
       const record = row as Record<string, unknown> & {
