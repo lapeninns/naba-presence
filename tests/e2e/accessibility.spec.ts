@@ -159,23 +159,102 @@ for (const viewport of [
     })
 
     test("inbox, review detail, and reply editor", async ({ page }) => {
+      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            session: {
+              sessionId: "session-reviews-a11y",
+              userId: "user-reviews-a11y",
+              organisationId: "org-reviews-a11y",
+              organisationName: "Naba Review",
+              displayName: "Alex Morgan",
+              email: "alex@example.com",
+              role: "owner",
+              canPublish: true,
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            settings: {
+              defaultLanguageCode: "en",
+              defaultTimezone: "Europe/London",
+            },
+          },
+        })
+      })
+      await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                id: "review-a11y",
+                reviewer: { displayName: "Jordan Lee" },
+                rating: 5,
+                location: { id: "location-a11y", name: "Camden" },
+                text: "A thoughtful and accessible review.",
+                createTime: "2026-07-28T10:00:00.000Z",
+                updateTime: "2026-07-28T10:00:00.000Z",
+                detectedLanguageCode: "en",
+                languageConfidence: 1,
+                workflowStatus: "new",
+                verificationStatus: "pending",
+                draftBody: "Thank you for your thoughtful review.",
+                replyBody: null,
+                draftId: "draft-a11y",
+                replyStatus: "not_published",
+                syncStatus: "succeeded",
+                googleReplyState: null,
+              },
+            ],
+            nextCursor: null,
+          },
+        })
+      })
+      await page.route(/\/api\/reviews\/review-a11y$/, async (route) => {
+        await route.fulfill({
+          json: {
+            review: {
+              media: [],
+              reply: null,
+              timeline: [],
+            },
+          },
+        })
+      })
       await page.goto("/")
-      const row = page
-        .getByRole("region", { name: "Review list" })
-        .getByRole("button")
-        .first()
+      await expect(
+        page.getByRole("heading", { name: "Reviews", level: 1 })
+      ).toBeVisible()
+      await expect(page.getByRole("button", { name: /Filters/ })).toBeVisible()
+      const reviewList = page.getByRole("region", { name: "Review list" })
+      await expect(reviewList).toBeVisible()
+      const row = reviewList.getByRole("button", { name: /Jordan Lee/ })
       await expect(row).toBeVisible()
       if (viewport.name === "mobile") {
+        await expect(
+          page.getByRole("region", { name: "Selected review" })
+        ).toBeHidden()
         await expectAccessible(page, "mobile review inbox")
         await row.click()
+        await expect(reviewList).toBeHidden()
+        await expect(
+          page.getByRole("button", { name: "Back to review list" })
+        ).toBeVisible()
       }
-      await expect(
-        page
-          .getByRole("region", { name: "Selected review" })
-          .getByRole("heading")
-          .first()
-      ).toBeVisible()
+      const selectedReview = page.getByRole("region", {
+        name: "Selected review",
+      })
+      await expect(selectedReview).toBeVisible()
+      await expect(selectedReview.getByRole("heading").first()).toBeVisible()
       await expectAccessible(page, `${viewport.name} review detail and editor`)
+      if (viewport.name === "mobile") {
+        await page.getByRole("button", { name: "Back to review list" }).click()
+        await expect(reviewList).toBeVisible()
+        await expect(selectedReview).toBeHidden()
+      }
     })
 
     test("connections", async ({ page }) => {

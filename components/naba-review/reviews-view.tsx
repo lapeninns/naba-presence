@@ -97,6 +97,7 @@ import {
   saveDraft as saveDraftToApi,
 } from "@/lib/naba-review-api"
 import {
+  PageHeader,
   readControlValue,
   Stars,
   StatusBadge,
@@ -339,25 +340,25 @@ export function ReviewsWorkspace({
       onValueChange={(value) => setQueue(value as Queue)}
       className="flex h-[calc(100svh-4rem)] min-h-0 flex-col gap-0"
     >
-      <div className="flex shrink-0 flex-col gap-4 border-b px-4 py-5 md:px-6">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-          <div className="flex flex-col gap-1">
-            <h1 className="font-heading text-2xl font-medium tracking-tight">
-              Reviews
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Review, verify and publish Google responses.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => void onRefresh()}>
-            <RefreshCw data-icon="inline-start" />
-            {apiStatus === "connected"
-              ? "Live data"
-              : apiStatus === "loading"
-                ? "Connecting"
-                : "Retry live data"}
-          </Button>
-        </div>
+      <div className="flex shrink-0 flex-col gap-4 px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)">
+        <PageHeader
+          title="Reviews"
+          description="Review, verify and publish Google responses."
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void onRefresh()}
+            >
+              <RefreshCw data-icon="inline-start" />
+              {apiStatus === "connected"
+                ? "Live data"
+                : apiStatus === "loading"
+                  ? "Connecting"
+                  : "Retry live data"}
+            </Button>
+          }
+        />
 
         {apiStatus === "error" ? (
           <Alert variant="destructive">
@@ -374,6 +375,7 @@ export function ReviewsWorkspace({
           <TabsList
             variant="line"
             aria-label="Review queues"
+            tabIndex={0}
             className="w-full [scrollbar-width:none] justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden"
           >
             {QUEUES.map((item) => {
@@ -714,7 +716,7 @@ export function ReviewsWorkspace({
         >
           <ScrollArea className="h-full">
             {filteredReviews.length ? (
-              <ItemGroup className="gap-1 p-2">
+              <ItemGroup className="gap-2.5 p-3 md:p-4">
                 {filteredReviews.map((review) => (
                   <ReviewRow
                     key={review.id}
@@ -834,8 +836,10 @@ function ReviewRow({
         }
         size="sm"
         className={cn(
-          "text-left transition-colors",
-          selected ? "bg-accent/70" : "hover:bg-muted/60"
+          "border-[var(--nr-surface-glass-border)] bg-[var(--nr-surface-card-translucent)] text-left shadow-(--nr-shadow-card) transition-[color,background-color,border-color,box-shadow,transform] hover:-translate-y-px hover:shadow-(--nr-shadow-hover) motion-reduce:transform-none",
+          selected
+            ? "border-primary/45 bg-card"
+            : "hover:border-border hover:bg-card/85"
         )}
       >
         <ItemMedia>
@@ -1043,9 +1047,7 @@ function ReviewDetail({
                   .then(() =>
                     toast.add({ type: "success", title: "Review ID copied" })
                   )
-                  .catch(() =>
-                    setFeedback("Review ID could not be copied.")
-                  )
+                  .catch(() => setFeedback("Review ID could not be copied."))
               }}
             >
               Copy review ID
