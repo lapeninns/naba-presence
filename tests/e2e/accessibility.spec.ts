@@ -65,6 +65,86 @@ for (const viewport of [
     })
 
     test("overview", async ({ page }) => {
+      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            session: {
+              sessionId: "session-overview-a11y",
+              userId: "user-overview-a11y",
+              organisationId: "org-overview-a11y",
+              organisationName: "Naba Review",
+              displayName: "Alex Morgan",
+              email: "alex@example.com",
+              role: "owner",
+              canPublish: true,
+            },
+          },
+        })
+      })
+      await page.route(
+        /\/api\/analytics\/overview(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              from: "2026-07-22T00:00:00.000Z",
+              to: "2026-07-29T00:00:00.000Z",
+              summary: {
+                reviewVolume: 8,
+                averageRating: 4.6,
+                responseRate: 88,
+                unresolvedComplaints: 1,
+                verificationFailures: 0,
+                verificationRejectionRate: 0,
+                medianResponseSeconds: 1800,
+                p95ResponseSeconds: 5400,
+              },
+              series: [
+                {
+                  period: "2026-07-29T00:00:00.000Z",
+                  reviews: 8,
+                  replies: 7,
+                  averageRating: 4.6,
+                },
+              ],
+              locations: [],
+            },
+          })
+        }
+      )
+      await page.route(
+        /\/api\/google\/connections(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              connections: [
+                {
+                  id: "connection-overview-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope: "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+            },
+          })
+        }
+      )
+      await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            settings: {
+              approvalRequired: true,
+              rawContentRetentionDays: 30,
+              defaultLanguageCode: "en",
+              defaultTimezone: "Europe/London",
+            },
+          },
+        })
+      })
       await page.goto("/")
       await openNavigationSurface(page, "Overview", viewport.name === "mobile")
       await expect(
