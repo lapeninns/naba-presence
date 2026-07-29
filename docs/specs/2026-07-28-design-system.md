@@ -163,8 +163,9 @@ owner of the family names.
   oklch to three decimals). The probe was validated against known hex literals first.
 - The shipped hover `color-mix` resolves in-browser to `#1F69CE`, matching the predicted
   value used for the 5.29:1 calculation.
-- `app/page.tsx` is a proof sheet rendering every token on real surfaces, checked in both
-  themes. Keep it working — it is the regression test for this palette.
+- `app/design-system/page.tsx`, served at `/design-system`, is the production proof for
+  the system's foundations and production compositions, checked in both themes. Keep it
+  working — it is the regression surface for this palette and its component hierarchy.
 
 ## Accepted limitations
 
