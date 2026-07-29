@@ -323,6 +323,233 @@ export async function recoverAttempt(input: {
   return result
 }
 
+type RetryAttemptContext = {
+  id: string
+  operation: "publish" | "delete"
+  intendedBody: string | null
+  attemptNo: number
+  reviewId: string
+  reviewReplyId: string
+  googleReviewNameCiphertext: Buffer
+  connectionId: string
+}
+
+export async function retryPublishAttempt(
+  organisationId: string,
+  attemptId: string
+): Promise<"succeeded" | "retryable" | "ambiguous" | "failed" | "skipped"> {
+  const context = await withTenant<RetryAttemptContext | null>(
+    organisationId,
+    async (sql) => {
+      const [claimed] = await sql<{ attemptNo: number }[]>`
+        update publish_attempt
+        set
+          status = 'started',
+          attempt_no = attempt_no + 1,
+          provider_http_status = null,
+          provider_error_code = null,
+          provider_error_body = null,
+          next_attempt_at = null,
+          started_at = now(),
+          finished_at = null
+        where id = ${attemptId}
+          and status = 'retryable'
+          and next_attempt_at <= now()
+        returning attempt_no as "attemptNo"
+      `
+      if (!claimed) return null
+      const [attempt] = await sql<
+        Omit<RetryAttemptContext, "attemptNo">[]
+      >`
+        select
+          pa.id::text as id,
+          pa.operation,
+          pa.intended_body as "intendedBody",
+          rr.review_id::text as "reviewId",
+          rr.id::text as "reviewReplyId",
+          r.google_review_name_ciphertext as "googleReviewNameCiphertext",
+          e.google_connection_id::text as "connectionId"
+        from publish_attempt pa
+        join review_reply rr on rr.id = pa.review_reply_id
+        join review r on r.id = rr.review_id
+        join external_location e on e.id = r.external_location_id
+        where pa.id = ${attemptId}
+        limit 1
+      `
+      if (!attempt) {
+        throw new Error(`Publish attempt ${attemptId} was not found`)
+      }
+      await writePublishAttemptEvent(sql, {
+        organisationId,
+        publishAttemptId: attemptId,
+        eventType: "started",
+        payload: { attemptNo: claimed.attemptNo, source: "job_runner" },
+      })
+      return { ...attempt, attemptNo: claimed.attemptNo }
+    }
+  )
+  if (!context) return "skipped"
+
+  let provider: Record<string, unknown> | null = null
+  let providerError: unknown
+  try {
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      organisationId,
+      context.connectionId
+    )
+    if (context.operation === "delete") {
+      await deleteGoogleReply(
+        accessToken,
+        decryptSecret(context.googleReviewNameCiphertext)
+      )
+      provider = {}
+    } else {
+      if (context.intendedBody === null) {
+        throw new Error("Publish retry is missing intended_body")
+      }
+      provider = await updateGoogleReply(
+        accessToken,
+        decryptSecret(context.googleReviewNameCiphertext),
+        context.intendedBody
+      )
+    }
+  } catch (error) {
+    providerError = error
+  }
+
+  return withTenant(organisationId, async (sql) => {
+    if (provider) {
+      if (context.operation === "delete") {
+        await sql`
+          update review_reply
+          set
+            current_body = null,
+            google_reply_state = null,
+            google_policy_violation = null,
+            publish_status = 'deleted',
+            publish_generation = publish_generation + 1,
+            google_reply_updated_at = now()
+          where id = ${context.reviewReplyId}
+        `
+      } else {
+        const moderation = parseReplyModeration({
+          reviewReply: provider,
+          reviewReplyState:
+            typeof provider.state === "string" ? provider.state : undefined,
+        })
+        const googleState = moderation.state ?? "PENDING"
+        await sql`
+          update review_reply
+          set
+            google_reply_state = ${googleState},
+            google_policy_violation = ${moderation.policyViolation},
+            google_reply_updated_at = ${
+              moderation.updateTime ?? new Date()
+            },
+            publish_status = ${
+              googleState === "REJECTED" ? "rejected" : "published"
+            },
+            first_published_at = case
+              when ${googleState} <> 'REJECTED'
+                then coalesce(first_published_at, now())
+              else first_published_at
+            end
+          where id = ${context.reviewReplyId}
+        `
+      }
+      await sql`
+        update publish_attempt
+        set
+          status = 'succeeded',
+          provider_http_status = 200,
+          provider_error_code = null,
+          next_attempt_at = null,
+          finished_at = now()
+        where id = ${context.id}
+      `
+      await sql`
+        update review
+        set workflow_status = ${
+          context.operation === "delete"
+            ? deleteWorkflowTarget("remote")
+            : "published"
+        }
+        where id = ${context.reviewId}
+      `
+      await writePublishAttemptEvent(sql, {
+        organisationId,
+        publishAttemptId: context.id,
+        eventType: "provider_accepted",
+        payload: { source: "job_runner" },
+      })
+      await writePublishAttemptEvent(sql, {
+        organisationId,
+        publishAttemptId: context.id,
+        eventType: "completed",
+        payload: { source: "job_runner" },
+      })
+      return "succeeded"
+    }
+
+    const ambiguous =
+      providerError instanceof GoogleMutationAmbiguousError
+    const retryable =
+      providerError instanceof ApiError && providerError.status === 429
+    const status = ambiguous
+      ? "ambiguous"
+      : retryable
+        ? "retryable"
+        : "failed"
+    const nextAttemptAt = retryable
+      ? new Date(Date.now() + retryDelayMs(context.attemptNo))
+      : null
+    const errorCode =
+      providerError instanceof ApiError
+        ? providerError.code
+        : "network_error"
+    await sql`
+      update publish_attempt
+      set
+        status = ${status},
+        provider_http_status = ${
+          providerError instanceof ApiError
+            ? providerError.status
+            : null
+        },
+        provider_error_code = ${errorCode},
+        next_attempt_at = ${nextAttemptAt},
+        finished_at = now()
+      where id = ${context.id}
+    `
+    await writePublishAttemptEvent(sql, {
+      organisationId,
+      publishAttemptId: context.id,
+      eventType: retryable
+        ? "retry_scheduled"
+        : "provider_rejected",
+      payload: {
+        code: errorCode,
+        source: "job_runner",
+        nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+      },
+    })
+    if (!ambiguous && !retryable) {
+      await sql`
+        update review_reply
+        set publish_status = 'failed'
+        where id = ${context.reviewReplyId}
+      `
+      await sql`
+        update review
+        set workflow_status = 'failed'
+        where id = ${context.reviewId}
+      `
+    }
+    return status
+  })
+}
+
 type PublishPhaseOne =
   | { kind: "outcome"; outcome: PublishOutcome }
   | { kind: "needs_recovery"; attemptId: string }

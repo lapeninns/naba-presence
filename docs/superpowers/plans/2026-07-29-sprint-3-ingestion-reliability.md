@@ -417,7 +417,7 @@ existing value.
 - Consumes: `syncLinkedLocation` (Tasks 2/3), `recoverAttempt` + `retryPublishAttempt` (Sprint 2 — `retryPublishAttempt(organisationId, attemptId)` re-runs phases 2–3 from the stored `intended_body`; add it to `lib/server/publishing.ts` now if Sprint 2 shipped without it), `settleWebhookEvent` (Task 6).
 - Produces: `runDueJobs(options: { budgetMs: number }): Promise<{ webhooks: number; checkpoints: number; attempts: number; dead: number }>` in `lib/server/jobs.ts`; `POST /api/jobs/run` (CRON_SECRET bearer only) → that summary; scheduler drives it every `JOBS_INTERVAL_SECONDS`.
 
-- [ ] **Step 1: Failing tests** — `tests/integration/routes/jobs-runner.test.ts`:
+- [x] **Step 1: Failing tests** — `tests/integration/routes/jobs-runner.test.ts`:
 
 ```ts
 it("retries a failed webhook event and marks it processed", async () => {
@@ -459,7 +459,7 @@ it("claims work exclusively (skip locked)", async () => {
 
 Run — FAIL (no runner exists; today every one of these requires a human).
 
-- [ ] **Step 2: Implement `lib/server/jobs.ts`.** Claim pattern per queue (short transactions, work outside them):
+- [x] **Step 2: Implement `lib/server/jobs.ts`.** Claim pattern per queue (short transactions, work outside them):
 
 ```ts
 async function claimWebhookEvents(limit: number) {
@@ -480,8 +480,14 @@ async function claimWebhookEvents(limit: number) {
 ```
 
 `runDueJobs` loops three queues round-robin under the `budgetMs` deadline: (a) claimed webhook events → resolve their location from the event's stored payload/route (persist `external_location_id` on the event row at Task 6 tx1 to make this a column read — add the column to 0007: `alter table processed_webhook_event add column external_location_id uuid`), re-run `syncLinkedLocation({type:"notification"})`, settle `processed`/`failed`+backoff/`dead`+audit at `retry_count >= 5`; (b) `sync_checkpoint` rows `status in ('pending','failed') and next_attempt_at <= now() and sync_type in ('backfill','sweep')` → `syncLinkedLocation` continuation (`maxPages 5` per claim); (c) `publish_attempt` rows `status in ('retryable') and next_attempt_at <= now()` → `retryPublishAttempt`; `status='ambiguous'` or stale `'started'` (> 10 min) → `recoverAttempt`. Every item is individually try/caught; failures re-schedule with `retryDelayMs(retry_count)`.
-- [ ] **Step 3: Route + scheduler.** `app/api/jobs/run/route.ts`: `runtime="nodejs"`, `maxDuration=60`, CRON_SECRET bearer via `secretEqual` (same as reconcile), calls `runDueJobs({budgetMs: 45_000})` under the Task 10 advisory lock (stub the lock as a no-op until Task 10 lands, then tighten). `scripts/scheduler.mjs`: add `recurring("jobs", runJobsTask, jobsIntervalMs, 10_000)` posting `/api/jobs/run`.
-- [ ] **Step 4: Run** the suite — PASS. The spec criterion "failed work progresses without a human repeating the API request" is this task's evidence.
+- [x] **Step 3: Route + scheduler.** `app/api/jobs/run/route.ts`: `runtime="nodejs"`, `maxDuration=60`, CRON_SECRET bearer via `secretEqual` (same as reconcile), calls `runDueJobs({budgetMs: 45_000})` under the Task 10 advisory lock (stub the lock as a no-op until Task 10 lands, then tighten). `scripts/scheduler.mjs`: add `recurring("jobs", runJobsTask, jobsIntervalMs, 10_000)` posting `/api/jobs/run`.
+- [x] **Step 4: Run** the suite — PASS. The spec criterion "failed work progresses without a human repeating the API request" is this task's evidence.
+
+**Deviation (Task 9):** `processed_webhook_event.external_location_id` already
+exists in 0001, so migration 0007 does not add a duplicate column. Its Task 9
+extension adds partial due-work indexes for webhook and publish claims instead.
+Sprint 2 did not ship `retryPublishAttempt`, so the plan-sanctioned exact
+`retryPublishAttempt(organisationId, attemptId)` binding was added here.
 
 ---
 

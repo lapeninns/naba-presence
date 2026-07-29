@@ -39,6 +39,14 @@ create index review_provider_deleted_idx
   on review (organisation_id, provider_deleted_at)
   where provider_deleted_at is not null;
 
+create index webhook_job_due_idx
+  on processed_webhook_event (organisation_id, next_attempt_at)
+  where status = 'failed';
+
+create index publish_attempt_job_due_idx
+  on publish_attempt (organisation_id, next_attempt_at)
+  where status in ('retryable', 'ambiguous', 'started');
+
 insert into schema_migration (version)
 values ('0007_sync_reliability')
 on conflict (version) do nothing;

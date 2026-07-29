@@ -79,6 +79,7 @@ const serverEnvSchema = z.object({
   GOOGLE_REQUESTS_PER_SECOND: z.coerce.number().min(1).max(100).default(8),
   GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
   GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
+  JOBS_INTERVAL_SECONDS: timeoutWithDefault(60),
   DRAFTS_ENABLED: featureFlag(true),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),

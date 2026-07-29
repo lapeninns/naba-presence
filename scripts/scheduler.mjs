@@ -21,6 +21,8 @@ const reconcileIntervalMs =
   interval("RECONCILE_INTERVAL_SECONDS", 900, 60) * 1000
 const retentionIntervalMs =
   interval("RETENTION_INTERVAL_SECONDS", 86400, 3600) * 1000
+const jobsIntervalMs =
+  interval("JOBS_INTERVAL_SECONDS", 60, 10) * 1000
 
 function log(level, event, context = {}) {
   const record = JSON.stringify({
@@ -106,6 +108,15 @@ async function runRetention() {
   })
 }
 
+async function runJobs() {
+  const startedAt = performance.now()
+  const result = await post("/api/jobs/run", {})
+  log("info", "jobs.completed", {
+    ...result,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
 function recurring(name, task, everyMs, initialDelayMs) {
   let running = false
   const execute = async () => {
@@ -144,10 +155,12 @@ const stopRetention = recurring(
   retentionIntervalMs,
   30_000
 )
+const stopJobs = recurring("jobs", runJobs, jobsIntervalMs, 10_000)
 
 function shutdown(signal) {
   stopReconciliation()
   stopRetention()
+  stopJobs()
   log("info", "scheduler.stopped", { signal })
   process.exit(0)
 }
@@ -157,4 +170,5 @@ process.on("SIGTERM", () => shutdown("SIGTERM"))
 log("info", "scheduler.started", {
   reconcileIntervalSeconds: reconcileIntervalMs / 1000,
   retentionIntervalSeconds: retentionIntervalMs / 1000,
+  jobsIntervalSeconds: jobsIntervalMs / 1000,
 })
