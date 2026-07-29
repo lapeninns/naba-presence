@@ -47,3 +47,6 @@ next-env.d.ts
 
 # local pnpm content-addressable store
 /.pnpm-store/
+
+# local git worktrees
+/.worktrees/
