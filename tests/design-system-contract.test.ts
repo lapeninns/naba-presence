@@ -81,10 +81,15 @@ describe("NabaReview design system", () => {
   it("limits the semantic translucent surface to business and metric cards", () => {
     const businessContext = sharedFunction("BusinessContext", "readControlValue")
     const metricCard = sharedFunction("MetricCard", "chartConfig")
+    const translucentSurfaceOccurrences = shared.match(
+      /--nr-surface-card-translucent/g
+    )
 
     expect(businessContext).toContain("--nr-surface-card-translucent")
     expect(metricCard).toContain("--nr-surface-card-translucent")
-    expect(card).toContain("bg-card")
+    expect(translucentSurfaceOccurrences).toHaveLength(2)
+    expect(card).toMatch(/(?:^|\s)bg-card(?=\s|")/)
+    expect(card).not.toMatch(/\bbg-card\//)
     expect(card).not.toContain("--nr-surface-card-translucent")
   })
   it("requires a labelled textual BusinessContext status", () => {
