@@ -6,6 +6,26 @@ alter table sync_checkpoint
 alter table review
   add column provider_deleted_at timestamptz;
 
+alter table processed_webhook_event
+  add column last_error_code text;
+
+alter table processed_webhook_event
+  drop constraint if exists processed_webhook_event_status_check;
+
+alter table processed_webhook_event
+  add constraint processed_webhook_event_status_check
+  check (
+    status in (
+      'received',
+      'processing',
+      'processed',
+      'ignored',
+      'failed',
+      'discarded',
+      'dead'
+    )
+  );
+
 create index review_provider_deleted_idx
   on review (organisation_id, provider_deleted_at)
   where provider_deleted_at is not null;

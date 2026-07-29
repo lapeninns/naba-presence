@@ -51,7 +51,9 @@ export async function startAppServer(
     env: serverEnv(port, overrides),
     stdio: ["ignore", "pipe", "pipe"],
   })
+  let stdout = ""
   let stderr = ""
+  child.stdout?.on("data", (chunk) => (stdout += chunk))
   child.stderr?.on("data", (chunk) => (stderr += chunk))
   const baseUrl = `http://127.0.0.1:${port}`
   const deadline = Date.now() + 30_000
@@ -77,6 +79,12 @@ export async function startAppServer(
   }
   return {
     baseUrl,
+    get stdout() {
+      return stdout
+    },
+    get stderr() {
+      return stderr
+    },
     stop: async () => {
       child.kill("SIGTERM")
       await Promise.race([

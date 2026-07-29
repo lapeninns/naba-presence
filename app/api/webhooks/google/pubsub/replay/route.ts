@@ -7,6 +7,7 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
 import { requireRole, requireSession } from "@/lib/server/session"
+import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -61,34 +62,27 @@ export async function POST(request: Request) {
       type: "notification",
       maxPages: 1,
     })
-    const failed = sync.status === "failed"
     const result = await withTenant(session.organisationId, async (sql) => {
       await sql`
         update processed_webhook_event
         set
-          status = ${failed ? "failed" : "processed"},
-          processed_at = now(),
-          retry_count = retry_count + 1,
-          next_attempt_at = ${
-            failed
-              ? new Date(
-                  Date.now() +
-                    Math.min(3_600_000, 30_000 * 2 ** event.retryCount)
-                )
-              : null
-          }
+          retry_count = retry_count + 1
         where id = ${event.id}
       `
+      const status = await settleWebhookEvent(sql, event.id, sync)
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action: failed ? "webhook.replay.failed" : "webhook.replay.completed",
+        action:
+          status === "failed"
+            ? "webhook.replay.failed"
+            : "webhook.replay.completed",
         subjectType: "webhook_event",
         subjectId: event.id,
         requestId: rid.id,
         metadata: { sync, clientRequestId: rid.clientId },
       })
-      return { status: failed ? "failed" : "processed", sync }
+      return { status, sync }
     })
     return NextResponse.json(result, {
       status: result.status === "failed" ? 502 : 200,

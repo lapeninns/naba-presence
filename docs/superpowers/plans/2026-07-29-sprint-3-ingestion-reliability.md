@@ -281,7 +281,7 @@ alter table processed_webhook_event
 
 (Reconcile the pre-existing value list against `0001_initial.sql:351-368` when implementing — keep every value 0001 allows plus the two new ones.) Also: `GET /api/webhooks/google/pubsub/failures` (owner/admin) → `{ items: Array<{ id, eventType, status, retryCount, nextAttemptAt, lastErrorCode, receivedAt }> }` for statuses `failed|dead`, newest first, limit 100.
 
-- [ ] **Step 1: Failing route tests** — `tests/integration/routes/webhook-acks.test.ts` (server as Task 5):
+- [x] **Step 1: Failing route tests** — `tests/integration/routes/webhook-acks.test.ts` (server as Task 5):
 
 | Case | POST body | Expected HTTP | Expected persistence |
 |---|---|---|---|
@@ -296,7 +296,7 @@ alter table processed_webhook_event
 
 Assert also that discarded cases emit the OTel counter (`nabapresence.webhook.discarded`) via a log line assertion (`stderr` capture from `startAppServer` — extend the helper to expose collected stdout/stderr). Run — FAIL (garbage → 500-loop, invalid → 400-loop, sync-fail currently drops with no `next_attempt_at`).
 
-- [ ] **Step 2: Implement the matrix.** Route structure after Task 2's split:
+- [x] **Step 2: Implement the matrix.** Route structure after Task 2's split:
 
 ```
 1. flags + verifyPubSubRequest (unchanged; auth failures stay 401 → nack, correct)
@@ -315,8 +315,15 @@ Assert also that discarded cases emit the OTel counter (`nabapresence.webhook.di
 
 The subscription-level dead-letter topic (parallel-track P3) catches persistent 500s; in-app `'dead'` is set by the worker after max retries (Task 9).
 
-- [ ] **Step 3: Failures listing route** — thin owner/admin `withTenant` select as per Interfaces; add to `lib/naba-review-api.ts` later only if Sprint 4 UI wants it (ops can curl; document in runbook — Sprint 5 DOC-501).
-- [ ] **Step 4: Run** — matrix PASS; replay route still works (`replay/route.ts` now re-drives `syncLinkedLocation` and updates the event row through the same tx2 helper — extract `settleWebhookEvent(sql, eventId, outcome)` to share).
+- [x] **Step 3: Failures listing route** — thin owner/admin `withTenant` select as per Interfaces; add to `lib/naba-review-api.ts` later only if Sprint 4 UI wants it (ops can curl; document in runbook — Sprint 5 DOC-501).
+- [x] **Step 4: Run** — matrix PASS; replay route still works (`replay/route.ts` now re-drives `syncLinkedLocation` and updates the event row through the same tx2 helper — extract `settleWebhookEvent(sql, eventId, outcome)` to share).
+
+**Deviation (Task 6):** The exact failures-listing response includes
+`lastErrorCode`, but the plan's migration snippet did not add its backing
+column. Migration 0007 therefore adds `processed_webhook_event.last_error_code
+text`. The replacement status constraint keeps all four 0001 values, adds the
+two required terminal values, and also adds the plan's intermediate
+`processing` lifecycle value.
 
 ---
 
