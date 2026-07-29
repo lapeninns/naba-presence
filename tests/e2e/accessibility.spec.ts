@@ -228,13 +228,17 @@ for (const viewport of [
           },
         })
       })
+      let publishRequestCount = 0
       await page.route(
         /\/api\/reviews\/review-a11y\/publish$/,
         async (route) => {
+          publishRequestCount += 1
           await route.fulfill({
             json: {
-              status: "published",
-              googleReplyState: "APPROVED",
+              status:
+                publishRequestCount === 1 ? "published" : "awaiting_approval",
+              googleReplyState:
+                publishRequestCount === 1 ? "APPROVED" : "PENDING",
             },
           })
         }
@@ -291,6 +295,13 @@ for (const viewport of [
       await expect(publishedReply).not.toContainText(
         "Published reply for Jordan."
       )
+      await selectedReview.getByRole("button", { name: "Update reply" }).click()
+      await expect(
+        selectedReview.getByRole("button", { name: "Approve and publish" })
+      ).toBeVisible()
+      await expect(publishedReply).toContainText(
+        "Updated draft reply for Jordan."
+      )
       await expect(
         selectedReview.getByText(
           "Published replies are public on Google; approval may be required.",
@@ -303,6 +314,7 @@ for (const viewport of [
       await expect(
         selectedReview.getByRole("heading", { name: "Activity" })
       ).toBeVisible()
+      await page.waitForTimeout(500)
       await expectAccessible(page, `${viewport.name} review detail and editor`)
       if (viewport.name === "mobile") {
         await page.getByRole("button", { name: "Back to review list" }).click()
