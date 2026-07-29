@@ -1069,7 +1069,7 @@ function ReviewDetail({
 
         {review.status === "published" && review.publishedReply ? (
           <div className="flex max-w-[92%] flex-col gap-2 self-end md:max-w-[82%]">
-            <div className="rounded-(--nr-radius-card) rounded-tr-md border border-primary/25 bg-primary/12 p-4 text-foreground md:p-5">
+            <div className="rounded-(--nr-radius-card) rounded-tr-md border border-primary/25 bg-accent p-4 text-accent-foreground md:p-5">
               <p className="text-sm leading-7">{review.publishedReply}</p>
             </div>
             <p className="pr-1 text-right text-xs text-muted-foreground">
