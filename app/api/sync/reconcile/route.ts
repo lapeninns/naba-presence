@@ -6,7 +6,11 @@ import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
+import {
+  linkedLocations,
+  syncLinkedLocation,
+  type SyncOutcome,
+} from "@/lib/server/reviews"
 import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -55,7 +59,7 @@ export async function POST(request: Request) {
         ).map((organisation) => organisation.id)
     const organisations = []
     for (const organisationId of organisationIds) {
-      const locations = await withTenant(organisationId, async (sql) => {
+      const linked = await withTenant(organisationId, async (sql) => {
         const linked = await linkedLocations(
           sql,
           session ? input.externalLocationIds : undefined
@@ -74,21 +78,28 @@ export async function POST(request: Request) {
             clientRequestId: rid.clientId,
           },
         })
-        const results = []
-        for (const location of linked) {
-          const sync = await syncLinkedLocation(sql, organisationId, location, {
-            type: "reconcile",
-            maxPages: 2,
-          })
-          results.push({
-            externalLocationId: location.externalLocationId,
-            ...sync,
-          })
-        }
+        return linked
+      })
+      const results: Array<
+        { externalLocationId: string } & SyncOutcome
+      > = []
+      for (const location of linked) {
+        const sync = await syncLinkedLocation({
+          organisationId,
+          externalLocationId: location.externalLocationId,
+          type: "reconcile",
+          maxPages: 2,
+        })
+        results.push({
+          externalLocationId: location.externalLocationId,
+          ...sync,
+        })
+      }
+      await withTenant(organisationId, async (sql) => {
         await writeAudit(sql, {
           organisationId,
           actorUserId: session?.userId ?? null,
-          action: results.some((location) => "error" in location)
+          action: results.some((location) => location.status === "failed")
             ? "sync.reconcile.failed"
             : "sync.reconcile.completed",
           subjectType: "organisation",
@@ -99,9 +110,8 @@ export async function POST(request: Request) {
             clientRequestId: rid.clientId,
           },
         })
-        return results
       })
-      organisations.push({ organisationId, locations })
+      organisations.push({ organisationId, locations: results })
     }
     return NextResponse.json({
       organisations,

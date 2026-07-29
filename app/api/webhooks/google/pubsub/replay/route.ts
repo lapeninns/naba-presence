@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json())
-    const result = await withTenant(session.organisationId, async (sql) => {
+    const event = await withTenant(session.organisationId, async (sql) => {
       const [event] = await sql<
         {
           id: string
@@ -53,13 +53,16 @@ export async function POST(request: Request) {
           "The event location is no longer linked."
         )
       }
-      const sync = await syncLinkedLocation(
-        sql,
-        session.organisationId,
-        location,
-        { type: "notification", maxPages: 1 }
-      )
-      const failed = "error" in sync
+      return event
+    })
+    const sync = await syncLinkedLocation({
+      organisationId: session.organisationId,
+      externalLocationId: event.externalLocationId!,
+      type: "notification",
+      maxPages: 1,
+    })
+    const failed = sync.status === "failed"
+    const result = await withTenant(session.organisationId, async (sql) => {
       await sql`
         update processed_webhook_event
         set

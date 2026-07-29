@@ -8,8 +8,8 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import {
   linkedLocations,
-  syncLinkedLocationBatch,
-  type LinkedLocation,
+  syncLinkedLocation,
+  type SyncOutcome,
 } from "@/lib/server/reviews"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -106,48 +106,49 @@ export async function POST(request: Request) {
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
     const correlationId = rid.id
-    const result = await withTenant(session.organisationId, async (sql) => {
-      const locations = await linkedLocations(sql, input.externalLocationIds)
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "sync.backfill.started",
-        subjectType: "organisation",
-        subjectId: session.organisationId,
-        requestId: `${correlationId}:started`,
-        metadata: {
-          externalLocationIds: locations.map(
-            (location) => location.externalLocationId
-          ),
-          clientRequestId: rid.clientId,
-        },
-      })
-      const byAccount = new Map<string, LinkedLocation[]>()
-      for (const location of locations) {
-        const key = `${location.connectionId}:${location.googleAccountName}`
-        byAccount.set(key, [...(byAccount.get(key) ?? []), location])
-      }
-      const results = []
-      for (const accountLocations of byAccount.values()) {
-        for (let index = 0; index < accountLocations.length; index += 50) {
-          const batch = accountLocations.slice(index, index + 50)
-          results.push({
-            externalLocationIds: batch.map(
+    const locations = await withTenant(
+      session.organisationId,
+      async (sql) => {
+        const locations = await linkedLocations(
+          sql,
+          input.externalLocationIds
+        )
+        await writeAudit(sql, {
+          organisationId: session.organisationId,
+          actorUserId: session.userId,
+          action: "sync.backfill.started",
+          subjectType: "organisation",
+          subjectId: session.organisationId,
+          requestId: `${correlationId}:started`,
+          metadata: {
+            externalLocationIds: locations.map(
               (location) => location.externalLocationId
             ),
-            ...(await syncLinkedLocationBatch(
-              sql,
-              session.organisationId,
-              batch,
-              input.maxPagesPerLocation
-            )),
-          })
-        }
+            clientRequestId: rid.clientId,
+          },
+        })
+        return locations
       }
+    )
+    const results: Array<
+      { externalLocationIds: string[] } & SyncOutcome
+    > = []
+    for (const location of locations) {
+      results.push({
+        externalLocationIds: [location.externalLocationId],
+        ...(await syncLinkedLocation({
+          organisationId: session.organisationId,
+          externalLocationId: location.externalLocationId,
+          type: "backfill",
+          maxPages: input.maxPagesPerLocation,
+        })),
+      })
+    }
+    const result = await withTenant(session.organisationId, async (sql) => {
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action: results.some((batch) => "error" in batch)
+        action: results.some((location) => location.status === "failed")
           ? "sync.backfill.failed"
           : "sync.backfill.completed",
         subjectType: "organisation",

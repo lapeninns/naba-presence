@@ -44,15 +44,14 @@
   - `lib/server/db.ts`: pool options gain `connection: { statement_timeout: 30_000, idle_in_transaction_session_timeout: 60_000 }` — safe now because Sprint 2 removed provider calls from mutation transactions and Task 2 removes them from sync transactions; the 100k-row retention deletes run batched (existing `batch_size=100` loop) under 30 s.
 - [x] **Step 3: Run** the new test + full suites (`pnpm test` — `tests/retry.test.ts` unchanged; `pnpm test:integration` — Sprint 2 suites must stay green with the new defaults). Expected: PASS.
 
-**Deviation (Task 1):** Before Task 2 removes the legacy batch path, the
-backfill route reaches Google through `POST locations:batchGetReviews`, so the
-timeout test delays that actual endpoint rather than the plan's post-Task-2
-`GET …/reviews` endpoint. `googleRequest` treats the configured timeout as the
-budget for the whole retry operation (each retry receives only the remaining
-budget), which preserves safe retry classification without allowing five
-attempts to violate the route-level `< 10s` contract. Sprint 2's explicit
-15/20-second publish constants were also removed so its read and mutation
-calls consume the binding `GOOGLE_TIMEOUT_MS` and
+**Deviation (Task 1):** The initial red run delayed the baseline route's
+`POST locations:batchGetReviews`; Task 2 then moved the same assertion to the
+planned `GET …/reviews` endpoint. `googleRequest` treats the configured timeout
+as the budget for the whole retry operation (each retry receives only the
+remaining budget), which preserves safe retry classification without allowing
+five attempts to violate the route-level `< 10s` contract. Sprint 2's explicit
+15/20-second publish constants were also removed so its read and mutation calls
+consume the binding `GOOGLE_TIMEOUT_MS` and
 `GOOGLE_MUTATION_TIMEOUT_MS` defaults.
 
 ---
@@ -68,8 +67,8 @@ calls consume the binding `GOOGLE_TIMEOUT_MS` and
 - Consumes: `connectionAccessToken(sql: Sql | TransactionSql, …)` (widened in Sprint 2), `upsertGoogleReview(sql, …)` (unchanged — runs inside the per-page transaction).
 - Produces: `syncLinkedLocation(input: { organisationId: string; externalLocationId: string; type: "backfill" | "reconcile" | "notification" | "sweep"; maxPages: number }): Promise<SyncOutcome>` where `SyncOutcome = { status: "succeeded" | "partial" | "failed"; pages: number; upserted: number; hasMore: boolean; errorCode?: string }`. **No `TransactionSql` parameter** — the function owns its transactions. `syncLinkedLocationBatch` is deleted (Task 3 removes its only reason to exist); the Google `locations:batchGetReviews` contract builder stays in `lib/domain/google-contract.ts` (tested, unused).
 
-- [ ] **Step 1: Failing test** — `tests/integration/routes/sync-transactions.test.ts`: stub `GET …/reviews` pages with `delayMs: 1_000` each (2 pages); during a running `POST /api/sync/backfill`, poll `pg_stat_activity` as in Sprint 2's publish test and assert **zero** `idle in transaction` sessions for `naba_test_runtime` while the stub delay elapses; after completion assert reviews upserted and `sync_checkpoint.status='succeeded'`. Second case — mid-run crash durability: stub page 1 OK, page 2 returns 500 repeatedly; after the route returns, assert page 1's reviews **are persisted** and `sync_checkpoint.page_token` equals page 1's `nextPageToken` (today the whole transaction rolls back and nothing survives). Run — FAIL on both.
-- [ ] **Step 2: Restructure `syncLinkedLocation`:**
+- [x] **Step 1: Failing test** — `tests/integration/routes/sync-transactions.test.ts`: stub `GET …/reviews` pages with `delayMs: 1_000` each (2 pages); during a running `POST /api/sync/backfill`, poll `pg_stat_activity` as in Sprint 2's publish test and assert **zero** `idle in transaction` sessions for `naba_test_runtime` while the stub delay elapses; after completion assert reviews upserted and `sync_checkpoint.status='succeeded'`. Second case — mid-run crash durability: stub page 1 OK, page 2 returns 500 repeatedly; after the route returns, assert page 1's reviews **are persisted** and `sync_checkpoint.page_token` equals page 1's `nextPageToken` (today the whole transaction rolls back and nothing survives). Run — FAIL on both.
+- [x] **Step 2: Restructure `syncLinkedLocation`:**
 
 ```
 syncLinkedLocation(input):
@@ -99,8 +98,18 @@ syncLinkedLocation(input):
 
 Token-refresh failures (`google_reconnect_required`) and unverified-location are **returned** as `{status:"failed", errorCode}` too — Task 4 depends on this function never throwing for per-location conditions (it may still throw for programmer errors).
 
-- [ ] **Step 3: Adapt call sites.** Backfill route: replace the single `withTenant` wrapping (route L108) with session/role checks, then a plain `for` over target locations calling `syncLinkedLocation` (progress GET/DELETE unchanged). Reconcile route: same per-location call (org loop restructures further in Task 4). Webhook + replay: call with `{type:"notification", maxPages:1}` (event-row handling restructures in Task 6 — for now keep the existing dedupe insert in its own small `withTenant` **before** the sync call so the poison-rollback coupling dies here).
-- [ ] **Step 4: Run** Step 1's tests (PASS), Sprint 2 suites, and `pnpm test`. The `tests/integration/inbox-performance.test.ts` suite is unaffected (inline SQL). Expected: all PASS.
+- [x] **Step 3: Adapt call sites.** Backfill route: replace the single `withTenant` wrapping (route L108) with session/role checks, then a plain `for` over target locations calling `syncLinkedLocation` (progress GET/DELETE unchanged). Reconcile route: same per-location call (org loop restructures further in Task 4). Webhook + replay: call with `{type:"notification", maxPages:1}` (event-row handling restructures in Task 6 — for now keep the existing dedupe insert in its own small `withTenant` **before** the sync call so the poison-rollback coupling dies here).
+- [x] **Step 4: Run** Step 1's tests (PASS), Sprint 2 suites, and `pnpm test`. The `tests/integration/inbox-performance.test.ts` suite is unaffected (inline SQL). Expected: all PASS.
+
+**Deviation (Task 2):** The baseline batch implementation catches an HTTP 500
+inside its transaction and commits the already-upserted first page, so that
+fixture did not reproduce the plan's predicted rollback. The durability test
+uses an invalid page-2 provider timestamp instead, which aborts the page
+transaction exactly like a process/database failure: red was HTTP 500 with
+page 1 rolled back; green is HTTP 200 with page 1 committed, its continuation
+token retained, and the checkpoint settled `failed` in a fresh transaction.
+`high_water_update_time` writes remain deferred until Task 3 creates the
+binding column.
 
 ---
 

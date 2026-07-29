@@ -33,10 +33,10 @@ describeDatabase("provider request timeouts", () => {
       googleAccountName: connection.googleAccountName,
     })
     stub.respond(
-      { method: "POST", pathIncludes: "locations:batchGetReviews" },
+      { method: "GET", pathIncludes: "/reviews" },
       () => ({
         status: 200,
-        json: { locationReviews: [] },
+        json: { reviews: [] },
         delayMs: 20_000,
       })
     )

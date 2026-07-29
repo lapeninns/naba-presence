@@ -470,25 +470,15 @@ describeDatabase("durable publish lifecycle", () => {
 
   it("ingests review-level moderation state from a backfill", async () => {
     const fixture = await createFixture()
-    const [providerLocation] = await admin<
-      { google_location_name: string; google_account_name: string }[]
-    >`
-      select google_location_name, google_account_name
-      from external_location
-      where id = ${fixture.review.externalLocationId}
-    `
     stub.respond(
-      { method: "POST", pathIncludes: "locations:batchGetReviews" },
+      { method: "GET", pathIncludes: "/reviews" },
       () => ({
         status: 200,
         json: {
-          locationReviews: [
+          reviews: [
             {
-              name: `${providerLocation.google_account_name}/${providerLocation.google_location_name}`,
-              review: {
-                ...moderationFixtures.rejected,
-                name: fixture.review.googleReviewName,
-              },
+              ...moderationFixtures.rejected,
+              name: fixture.review.googleReviewName,
             },
           ],
         },

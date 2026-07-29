@@ -7,9 +7,9 @@ import { retryDelayMs } from "@/lib/domain/retry"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import {
   connectionAccessToken,
-  googleBatchReviews,
   googleReviews,
 } from "@/lib/server/google"
+import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 
 const RATINGS: Record<string, number> = {
@@ -283,148 +283,99 @@ export async function upsertGoogleReview(
   return review.id
 }
 
-export async function syncLinkedLocationBatch(
-  sql: TransactionSql,
-  organisationId: string,
-  locations: LinkedLocation[],
-  maxPages = 20
-) {
-  if (!locations.length) {
-    return { upserted: 0, pages: 0, complete: true, locations: 0 }
-  }
-  if (locations.length > 50) {
-    throw new ApiError(
-      400,
-      "batch_too_large",
-      "Google review batches are limited to 50 locations."
-    )
-  }
-  const [first] = locations
-  if (
-    locations.some(
-      (location) =>
-        location.connectionId !== first.connectionId ||
-        location.googleAccountName !== first.googleAccountName
-    )
-  ) {
-    throw new ApiError(
-      400,
-      "mixed_google_account_batch",
-      "A review batch must contain locations from one Google account."
-    )
-  }
-  const unverified = locations.find((location) => !location.verified)
-  if (unverified) {
-    throw new ApiError(
-      409,
-      "location_not_verified",
-      "Google review operations require verified locations."
-    )
-  }
+export type SyncOutcome = {
+  status: "succeeded" | "partial" | "failed"
+  pages: number
+  upserted: number
+  hasMore: boolean
+  errorCode?: string
+}
 
-  const checkpoints = new Map<
-    string,
-    { id: string; attemptCount: number; pageToken: string | null }
-  >()
-  for (const location of locations) {
-    const [checkpoint] = await sql<
-      { id: string; attempt_count: number; page_token: string | null }[]
-    >`
-      insert into sync_checkpoint (
-        organisation_id,
-        external_location_id,
-        sync_type,
-        status,
-        started_at,
-        attempt_count
-      )
-      values (
-        ${organisationId},
-        ${location.externalLocationId},
-        'backfill',
-        'running',
-        now(),
-        1
-      )
-      on conflict (organisation_id, external_location_id, sync_type) do update
-      set
-        status = 'running',
-        started_at = now(),
-        finished_at = null,
-        attempt_count = sync_checkpoint.attempt_count + 1,
-        last_error_code = null
-      returning id::text as id, attempt_count, page_token
-    `
-    checkpoints.set(location.externalLocationId, {
-      id: checkpoint.id,
-      attemptCount: checkpoint.attempt_count,
-      pageToken: checkpoint.page_token,
-    })
-  }
+type SyncType = "backfill" | "reconcile" | "notification" | "sweep"
+type SyncHeader = {
+  linked: LinkedLocation
+  checkpointId: string
+  attemptCount: number
+  pageToken: string | null
+  errorCode: string | null
+}
 
-  const locationByName = new Map(
-    locations.flatMap((location) => [
-      [location.googleLocationName, location] as const,
-      [
-        `${location.googleAccountName}/${location.googleLocationName}`,
-        location,
-      ] as const,
-    ])
+export async function syncLinkedLocation(input: {
+  organisationId: string
+  externalLocationId: string
+  type: SyncType
+  maxPages: number
+}): Promise<SyncOutcome> {
+  const header = await withTenant<SyncHeader | null>(
+    input.organisationId,
+    async (sql) => {
+      const [linked] = await linkedLocations(sql, [
+        input.externalLocationId,
+      ])
+      if (!linked) {
+        return null
+      }
+      const [checkpoint] = await sql<
+        {
+          id: string
+          page_token: string | null
+          attempt_count: number
+        }[]
+      >`
+        insert into sync_checkpoint (
+          organisation_id,
+          external_location_id,
+          sync_type,
+          status,
+          started_at,
+          attempt_count
+        )
+        values (
+          ${input.organisationId},
+          ${input.externalLocationId},
+          ${input.type},
+          'running',
+          now(),
+          1
+        )
+        on conflict (organisation_id, external_location_id, sync_type) do update
+        set
+          status = 'running',
+          started_at = now(),
+          finished_at = null,
+          next_attempt_at = null,
+          attempt_count = sync_checkpoint.attempt_count + 1,
+          last_error_code = null
+        returning id::text as id, page_token, attempt_count
+      `
+      return {
+        linked,
+        checkpointId: checkpoint.id,
+        attemptCount: checkpoint.attempt_count,
+        pageToken: checkpoint.page_token,
+        errorCode: linked.verified ? null : "location_not_verified",
+      }
+    }
   )
-  const accessToken = await connectionAccessToken(sql, first.connectionId)
+
+  if (!header) {
+    return {
+      status: "failed",
+      pages: 0,
+      upserted: 0,
+      hasMore: false,
+      errorCode: "location_not_linked",
+    }
+  }
+
   let pageToken =
-    [...checkpoints.values()].find((checkpoint) => checkpoint.pageToken)
-      ?.pageToken ?? undefined
+    input.type === "backfill" ? (header.pageToken ?? undefined) : undefined
   let pages = 0
   let upserted = 0
-  try {
-    do {
-      const page = await googleBatchReviews(
-        accessToken,
-        first.googleAccountName,
-        locations.map((location) => location.googleLocationName),
-        pageToken
-      )
-      for (const item of page.locationReviews ?? []) {
-        const location = item.name ? locationByName.get(item.name) : undefined
-        if (
-          location &&
-          item.review &&
-          (await upsertGoogleReview(sql, organisationId, location, item.review))
-        ) {
-          upserted += 1
-        }
-      }
-      pageToken = page.nextPageToken
-      pages += 1
-      await sql`
-        update sync_checkpoint
-        set page_token = ${pageToken ?? null}
-        where id in ${sql([...checkpoints.values()].map((item) => item.id))}
-      `
-    } while (pageToken && pages < maxPages)
 
-    const complete = !pageToken
-    await sql`
-      update sync_checkpoint
-      set
-        status = ${complete ? "succeeded" : "pending"},
-        page_token = ${pageToken ?? null},
-        finished_at = ${complete ? new Date() : null},
-        last_review_update_time = now()
-      where id in ${sql([...checkpoints.values()].map((item) => item.id))}
-    `
-    return {
-      upserted,
-      pages,
-      complete,
-      locations: locations.length,
-      nextPageToken: pageToken ?? null,
-    }
-  } catch (error) {
-    const errorCode = error instanceof ApiError ? error.code : "sync_failed"
-    for (const checkpoint of checkpoints.values()) {
-      const retryAt = syncRetryAt(checkpoint.id, checkpoint.attemptCount)
+  const settleFailure = async (errorCode: string): Promise<SyncOutcome> => {
+    const retryAt = syncRetryAt(header.checkpointId, header.attemptCount)
+    await withTenant(input.organisationId, async (sql) => {
       await sql`
         update sync_checkpoint
         set
@@ -432,124 +383,91 @@ export async function syncLinkedLocationBatch(
           last_error_code = ${errorCode},
           next_attempt_at = ${retryAt},
           finished_at = now()
-        where id = ${checkpoint.id}
+        where id = ${header.checkpointId}
       `
-    }
+    })
     return {
-      upserted,
+      status: "failed",
       pages,
-      complete: false,
-      locations: locations.length,
-      nextPageToken: pageToken ?? null,
-      error: {
-        code: errorCode,
-        message: error instanceof Error ? error.message : "Review sync failed.",
-      },
+      upserted,
+      hasMore: pageToken !== undefined,
+      errorCode,
     }
   }
-}
 
-export async function syncLinkedLocation(
-  sql: TransactionSql,
-  organisationId: string,
-  linked: LinkedLocation,
-  input: { type: "backfill" | "reconcile" | "notification"; maxPages?: number }
-) {
-  if (!linked.verified) {
-    throw new ApiError(
-      409,
-      "location_not_verified",
-      "Google review operations require a verified location."
-    )
+  if (header.errorCode) {
+    return settleFailure(header.errorCode)
   }
-  const accessToken = await connectionAccessToken(sql, linked.connectionId)
-  const [checkpoint] = await sql<
-    { id: string; page_token: string | null; attempt_count: number }[]
-  >`
-    insert into sync_checkpoint (
-      organisation_id,
-      external_location_id,
-      sync_type,
-      status,
-      started_at,
-      attempt_count
-    )
-    values (
-      ${organisationId},
-      ${linked.externalLocationId},
-      ${input.type},
-      'running',
-      now(),
-      1
-    )
-    on conflict (organisation_id, external_location_id, sync_type) do update
-    set
-      status = 'running',
-      started_at = now(),
-      finished_at = null,
-      attempt_count = sync_checkpoint.attempt_count + 1,
-      last_error_code = null
-    returning id::text as id, page_token, attempt_count
-  `
-  let pageToken =
-    input.type === "backfill" ? (checkpoint.page_token ?? undefined) : undefined
-  let pages = 0
-  let upserted = 0
+
   try {
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      input.organisationId,
+      header.linked.connectionId
+    )
     do {
       const page = await googleReviews(
         accessToken,
-        linked.googleAccountName,
-        linked.googleLocationName,
+        header.linked.googleAccountName,
+        header.linked.googleLocationName,
         pageToken
       )
-      for (const review of page.reviews ?? []) {
-        if (await upsertGoogleReview(sql, organisationId, linked, review)) {
-          upserted += 1
+      const nextPageToken = page.nextPageToken
+      const pageUpserted = await withTenant(
+        input.organisationId,
+        async (sql) => {
+          let committed = 0
+          for (const review of page.reviews ?? []) {
+            if (
+              await upsertGoogleReview(
+                sql,
+                input.organisationId,
+                header.linked,
+                review
+              )
+            ) {
+              committed += 1
+            }
+          }
+          await sql`
+            update sync_checkpoint
+            set page_token = ${nextPageToken ?? null}
+            where id = ${header.checkpointId}
+          `
+          return committed
         }
-      }
-      pageToken = page.nextPageToken
+      )
+      upserted += pageUpserted
       pages += 1
+      pageToken = nextPageToken
+    } while (pageToken && pages < input.maxPages)
+
+    const hasMore = Boolean(pageToken)
+    await withTenant(input.organisationId, async (sql) => {
       await sql`
         update sync_checkpoint
-        set page_token = ${pageToken ?? null}
-        where id = ${checkpoint.id}
+        set
+          status = ${hasMore ? "pending" : "succeeded"},
+          page_token = ${pageToken ?? null},
+          next_attempt_at = ${
+            hasMore
+              ? syncRetryAt(header.checkpointId, header.attemptCount)
+              : null
+          },
+          finished_at = ${hasMore ? null : new Date()},
+          last_review_update_time = now()
+        where id = ${header.checkpointId}
       `
-    } while (pageToken && pages < (input.maxPages ?? 10))
-
-    const complete = !pageToken
-    await sql`
-      update sync_checkpoint
-      set
-        status = ${complete ? "succeeded" : "pending"},
-        page_token = ${pageToken ?? null},
-        finished_at = ${complete ? new Date() : null},
-        last_review_update_time = now()
-      where id = ${checkpoint.id}
-    `
-    return { upserted, pages, complete, nextPageToken: pageToken ?? null }
-  } catch (error) {
-    const errorCode = error instanceof ApiError ? error.code : "sync_failed"
-    const retryAt = syncRetryAt(checkpoint.id, checkpoint.attempt_count)
-    await sql`
-      update sync_checkpoint
-      set
-        status = 'failed',
-        last_error_code = ${errorCode},
-        next_attempt_at = ${retryAt},
-        finished_at = now()
-      where id = ${checkpoint.id}
-    `
+    })
     return {
-      upserted,
+      status: hasMore ? "partial" : "succeeded",
       pages,
-      complete: false,
-      nextPageToken: pageToken ?? null,
-      error: {
-        code: errorCode,
-        message: error instanceof Error ? error.message : "Review sync failed.",
-      },
-      retryAt: retryAt.toISOString(),
+      upserted,
+      hasMore,
     }
+  } catch (error) {
+    return settleFailure(
+      error instanceof ApiError ? error.code : "sync_failed"
+    )
   }
 }
