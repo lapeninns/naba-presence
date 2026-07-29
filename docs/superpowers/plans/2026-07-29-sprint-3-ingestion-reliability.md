@@ -265,7 +265,7 @@ alter table processed_webhook_event
 | database unavailable (simulate: stop… not practical in harness) | — | *unit-level only:* the route's catch classifies unexpected internal errors as 500 | nack |
 | duplicate messageId of a `processed` event | valid | 200 `{status:"duplicate"}` | unchanged |
 
-Assert also that discarded cases emit the OTel counter (`nabareview.webhook.discarded`) via a log line assertion (`stderr` capture from `startAppServer` — extend the helper to expose collected stdout/stderr). Run — FAIL (garbage → 500-loop, invalid → 400-loop, sync-fail currently drops with no `next_attempt_at`).
+Assert also that discarded cases emit the OTel counter (`nabapresence.webhook.discarded`) via a log line assertion (`stderr` capture from `startAppServer` — extend the helper to expose collected stdout/stderr). Run — FAIL (garbage → 500-loop, invalid → 400-loop, sync-fail currently drops with no `next_attempt_at`).
 
 - [ ] **Step 2: Implement the matrix.** Route structure after Task 2's split:
 

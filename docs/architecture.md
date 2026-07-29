@@ -60,3 +60,31 @@ exports contain only still-retained content.
 Disconnect immediately destroys stored OAuth tokens and disables notifications.
 External location data is scheduled for deletion within seven days. Audit rows
 are append-only by database trigger.
+
+## Naming
+
+The product's display name is NabaPresence (renamed from NabaReview on
+2026-07-29). The rename covers the presentation and telemetry layer only:
+user-facing copy and metadata, documentation, the `package.json` name, the
+OpenTelemetry service name, the structured-log `service` field, and the
+`nabapresence.*` metric, tracer, and span-attribute prefixes.
+
+Wire and infrastructure contracts keep their existing names on purpose;
+renaming them breaks live installs or local environments for no user value.
+Do not "finish" the rename on any of these:
+
+- Cookies `naba_session` and `naba_google_oauth` — renaming signs every user
+  out; the `naba` prefix is brand-neutral.
+- Database roles `naba_app_runtime`, `naba_app`, and `naba_test_runtime`, the
+  `app.*` GUC namespace, and any future `naba:*` advisory-lock keys.
+- The CI database `nabareview_test` in `.github/workflows/ci.yml`.
+- Historical plan and evidence documents under `docs/superpowers/`, which keep
+  pre-rename spellings except where they specify a not-yet-implemented metric
+  name or user-facing string.
+
+Identifiers already migrated alongside the design-system replacement stay in
+their new form (do not rename back): module paths `lib/naba-presence-api.ts`
+and `components/naba-presence/`, the compose project `nabapresence-local` with
+local database `nabapresence`, the Supabase local project id `nabapresence`,
+and harness/bootstrap addresses (`harness-…@nabapresence.test`,
+`local-owner@nabapresence.local`).
