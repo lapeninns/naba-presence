@@ -32,6 +32,7 @@ function serverEnv(
     CRON_SECRET: "route-harness-cron-secret",
     LOCAL_BOOTSTRAP_ENABLED: "false",
     WEBHOOKS_ENABLED: "false",
+    OPENAI_API_KEY: "",
     ...overrides,
   }
 }

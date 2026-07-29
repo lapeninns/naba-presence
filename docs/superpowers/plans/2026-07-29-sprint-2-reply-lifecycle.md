@@ -226,7 +226,7 @@ Expected: PASS — the current (pre-redesign) publish route works end-to-end aga
 - Consumes: Task 1 seams; `withTenant`; `connectionAccessToken` (`lib/server/google.ts:278`, signature widened to accept a plain `Sql` — it opens its own short transaction internally when given the pool).
 - Produces: `executePublish(input: { organisationId: string; session: Session; reviewId: string; draftId: string; expectedReviewUpdateTime: string; serverRequestId: string }): Promise<PublishOutcome>` where `PublishOutcome = { status: "published" | "rejected" | "pending" | "awaiting_approval" | "failed" | "ambiguous"; googleReplyState: string | null; attemptId: string }`. Sprint 3's retry worker and Task 9's approval route call `executePublish` — the route must stay a thin shell.
 
-- [ ] **Step 1: Mutation classification unit test** — `tests/retry-classification.test.ts`. The current behavior (blind 5×  retry of a 500 on PUT, `google.ts:364-378`) is the bug:
+- [x] **Step 1: Mutation classification unit test** — `tests/retry-classification.test.ts`. The current behavior (blind 5×  retry of a 500 on PUT, `google.ts:364-378`) is the bug:
 
 ```ts
 import { describe, expect, it } from "vitest"
@@ -273,7 +273,7 @@ export function classifyMutationFailure(
 
 Then change `googleRequest` (`lib/server/google.ts`): when `mode === "mutation"`, set attempts to 1 (no retry loop), map outcomes through `classifyMutationFailure` — HTTP 5xx/408 and transport/`TimeoutError` throw `GoogleMutationAmbiguousError`; 429 throws `ApiError(429, "google_rate_limited", …)`; other 4xx keep today's terminal `ApiError`. Safe-mode reads keep the existing 5-attempt loop. Run the unit test — PASS.
 
-- [ ] **Step 2: Route test for the three-phase shape** — `tests/integration/routes/publish-lifecycle.test.ts`, first cases:
+- [x] **Step 2: Route test for the three-phase shape** — `tests/integration/routes/publish-lifecycle.test.ts`, first cases:
 
 ```ts
 it("records durable intent before calling Google", async () => {
@@ -362,7 +362,7 @@ it("short-circuits a retried identical request", async () => {
 
 (Write the elided fetch bodies in full in the test file; each test seeds a fresh tenant/review to stay independent.) Run — Expected: FAIL — today intent+call+outcome share one transaction, so the in-flight queries see nothing and timeouts roll everything back.
 
-- [ ] **Step 3: Implement the engine.** In `lib/server/publishing.ts` add `executePublish`. Structure (all reused validation logic moves verbatim from `app/api/reviews/[id]/publish/route.ts:50-308`):
+- [x] **Step 3: Implement the engine.** In `lib/server/publishing.ts` add `executePublish`. Structure (all reused validation logic moves verbatim from `app/api/reviews/[id]/publish/route.ts:50-308`):
 
 ```
 executePublish(input):
@@ -399,9 +399,11 @@ executePublish(input):
 
 The route (`publish/route.ts`) shrinks to: parse input (`expectedReviewUpdateTime` still optional until Task 5 makes it required), `requireSession`, `PUBLISH_ENABLED` gate, `const outcome = await executePublish(…)`, map `outcome.status` to HTTP exactly as today (200 / 202 / 502-with-`google_mutation_ambiguous` / 409 / 429). `connectionAccessToken`'s signature changes from `(sql: TransactionSql, …)` to `(sql: Sql | TransactionSql, …)`; when handed the pool it wraps its own `begin` for the refresh-persist path — update its two other call sites (`app/api/reviews/[id]/reply/route.ts:62`, `lib/server/reviews.ts:465`) to compile unchanged.
 
-- [ ] **Step 4: Run the suite** — Expected: PASS all Step 2 cases. Also re-run Task 1's smoke test (still green) and `pnpm test` (classification + existing `tests/retry.test.ts` — update its expectations if they assert the old mutation-retry behavior).
+- [x] **Step 4: Run the suite** — Expected: PASS all Step 2 cases. Also re-run Task 1's smoke test (still green) and `pnpm test` (classification + existing `tests/retry.test.ts` — update its expectations if they assert the old mutation-retry behavior).
 
-- [ ] **Step 5: Crash-recovery scenario (the "Google succeeds and the process fails before local completion" spec case).** Simulate the crash by driving phases directly: insert via admin a `publish_attempt` row `status='started'`, `operation='publish'` with the correct idempotency key for a body already live on the stub (`GET …/reviews/{id}` returns that comment), plus `review_reply` `accepted`. Then `POST /publish` again with the same draft: expect 200, `stub.calls` to contain **one `GET`** (the read-back) and **zero PUTs**, and the attempt settled `succeeded`. This lands fully in Task 3's recovery implementation — write the test now, mark it `.fails` (Vitest `it.fails`) to document the red state, and flip it in Task 3.
+- [x] **Step 5: Crash-recovery scenario (the "Google succeeds and the process fails before local completion" spec case).** Simulate the crash by driving phases directly: insert via admin a `publish_attempt` row `status='started'`, `operation='publish'` with the correct idempotency key for a body already live on the stub (`GET …/reviews/{id}` returns that comment), plus `review_reply` `accepted`. Then `POST /publish` again with the same draft: expect 200, `stub.calls` to contain **one `GET`** (the read-back) and **zero PUTs**, and the attempt settled `succeeded`. This lands fully in Task 3's recovery implementation — write the test now, mark it `.fails` (Vitest `it.fails`) to document the red state, and flip it in Task 3.
+
+**Deviation (Task 2):** The integration lifecycle tests synchronize on the committed attempt/provider call rather than assuming the request reaches phase 1 within a fixed 300 ms; this preserves the same in-flight assertions under parallel CI load. The standalone harness also explicitly sets `OPENAI_API_KEY` empty so workspace dotenv files cannot introduce live, nondeterministic semantic-verification traffic.
 
 ---
 

@@ -68,7 +68,7 @@ describeDatabase("reply lifecycle harness", () => {
       }
     )
 
-    expect(response.status).toBe(200)
+    expect(response.status, await response.text()).toBe(200)
     expect(
       stub.calls.some(
         (call) => call.method === "PUT" && call.path.endsWith("/reply")

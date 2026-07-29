@@ -3,7 +3,7 @@ import "server-only"
 import { createHash } from "node:crypto"
 
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
-import type { TransactionSql } from "postgres"
+import type { Sql, TransactionSql } from "postgres"
 
 import {
   googleAccountsRequest,
@@ -11,7 +11,11 @@ import {
   googleNotificationSettingRequest,
   googleReplyRequest,
 } from "@/lib/domain/google-contract"
-import { isRetryableGoogleStatus, retryDelayMs } from "@/lib/domain/retry"
+import {
+  classifyMutationFailure,
+  isRetryableGoogleStatus,
+  retryDelayMs,
+} from "@/lib/domain/retry"
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -291,10 +295,10 @@ async function refreshAccessToken(
   return body.access_token
 }
 
-export async function connectionAccessToken(
+async function connectionAccessTokenInTransaction(
   sql: TransactionSql,
   connectionId: string
-): Promise<string> {
+) {
   const [connection] = await sql<GoogleConnectionRow[]>`
     select *
     from google_connection
@@ -318,6 +322,41 @@ export async function connectionAccessToken(
   return decryptSecret(connection.access_token_ciphertext)
 }
 
+export function connectionAccessToken(
+  sql: TransactionSql,
+  connectionId: string
+): Promise<string>
+export function connectionAccessToken(
+  sql: Sql,
+  organisationId: string,
+  connectionId: string
+): Promise<string>
+export async function connectionAccessToken(
+  sql: Sql | TransactionSql,
+  organisationOrConnectionId: string,
+  connectionId?: string
+): Promise<string> {
+  if (connectionId !== undefined) {
+    return (sql as Sql).begin(async (transaction) => {
+      await transaction`
+        select set_config(
+          'app.organisation_id',
+          ${organisationOrConnectionId},
+          true
+        )
+      `
+      return connectionAccessTokenInTransaction(
+        transaction,
+        connectionId
+      )
+    }) as Promise<string>
+  }
+  return connectionAccessTokenInTransaction(
+    sql as TransactionSql,
+    organisationOrConnectionId
+  )
+}
+
 export async function googleRequest<T>(
   url: string,
   accessToken: string,
@@ -329,7 +368,7 @@ export async function googleRequest<T>(
   } = {}
 ): Promise<T> {
   const mode = options.mode ?? "safe"
-  const maxAttempts = options.maxAttempts ?? 5
+  const maxAttempts = mode === "mutation" ? 1 : (options.maxAttempts ?? 5)
   const providerHost = new URL(url).hostname
   const method = init.method ?? "GET"
   return googleTracer.startActiveSpan(
@@ -368,8 +407,14 @@ export async function googleRequest<T>(
             })
           } catch (error) {
             if (mode === "mutation") {
+              const timeout =
+                error instanceof Error && error.name === "TimeoutError"
               throw new GoogleMutationAmbiguousError(
-                error instanceof Error ? error.message : undefined
+                timeout
+                  ? "Google mutation timed out."
+                  : error instanceof Error
+                    ? error.message
+                    : undefined
               )
             }
             if (attempt === maxAttempts) throw error
@@ -405,6 +450,18 @@ export async function googleRequest<T>(
             body?.error_description ??
             "Google request failed."
           const code = body?.error?.status ?? body?.error ?? "google_api_error"
+          if (mode === "mutation") {
+            const classification = classifyMutationFailure({
+              kind: "http",
+              status: response.status,
+            })
+            if (classification === "ambiguous") {
+              throw new GoogleMutationAmbiguousError(String(reason))
+            }
+            if (classification === "retryable") {
+              throw new ApiError(429, "google_rate_limited", String(reason))
+            }
+          }
           throw new ApiError(response.status, String(code), String(reason))
         }
         throw new ApiError(
@@ -509,30 +566,41 @@ export function googleBatchReviews(
 export function updateGoogleReply(
   accessToken: string,
   reviewName: string,
-  body: string
+  body: string,
+  options: { timeoutMs?: number } = {}
 ) {
   const request = googleReplyRequest(reviewName, body)
   return googleRequest<Record<string, unknown>>(
     request.url,
     accessToken,
     request.init,
-    { mode: "mutation" }
+    { mode: "mutation", timeoutMs: options.timeoutMs }
   )
 }
 
-export function getGoogleReview(accessToken: string, reviewName: string) {
+export function getGoogleReview(
+  accessToken: string,
+  reviewName: string,
+  options: { timeoutMs?: number } = {}
+) {
   return googleRequest<Record<string, unknown>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}`,
-    accessToken
+    accessToken,
+    {},
+    { timeoutMs: options.timeoutMs }
   )
 }
 
-export function deleteGoogleReply(accessToken: string, reviewName: string) {
+export function deleteGoogleReply(
+  accessToken: string,
+  reviewName: string,
+  options: { timeoutMs?: number } = {}
+) {
   return googleRequest<Record<string, never>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}/reply`,
     accessToken,
     { method: "DELETE" },
-    { mode: "mutation" }
+    { mode: "mutation", timeoutMs: options.timeoutMs }
   )
 }
 
