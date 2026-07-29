@@ -78,12 +78,17 @@ describe("NabaReview design system", () => {
     const pageFrame = sharedFunction("PageFrame", "PageHeader")
 
     expect(pageFrame).toContain('width?: "standard" | "wide" | "workspace"')
-    expect(pageFrame).toContain('width === "standard" && "max-w-(--nr-page-max-width)"')
+    expect(pageFrame).toContain(
+      'width === "standard" && "max-w-(--nr-page-max-width)"'
+    )
     expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
     expect(pageFrame).toContain('width === "workspace" && "max-w-none"')
   })
   it("limits the semantic translucent surface to business and metric cards", () => {
-    const businessContext = sharedFunction("BusinessContext", "readControlValue")
+    const businessContext = sharedFunction(
+      "BusinessContext",
+      "readControlValue"
+    )
     const metricCard = sharedFunction("MetricCard", "chartConfig")
     const translucentSurfaceOccurrences = shared.match(
       /--nr-surface-card-translucent/g
@@ -97,14 +102,19 @@ describe("NabaReview design system", () => {
     expect(card).not.toContain("--nr-surface-card-translucent")
   })
   it("requires a labelled textual BusinessContext status", () => {
-    const businessContext = sharedFunction("BusinessContext", "readControlValue")
+    const businessContext = sharedFunction(
+      "BusinessContext",
+      "readControlValue"
+    )
 
-    expect(businessContext).toContain("status?: { label: string; value: string }")
+    expect(businessContext).toContain(
+      "status?: { label: string; value: string }"
+    )
     expect(businessContext).toContain("{status.label}</span>")
     expect(businessContext).toContain("{status.value}</span>")
   })
   it("documents production foundations", () => {
-    for (const section of [
+    const sections = [
       "Foundations",
       "Typography",
       "Spacing and radius",
@@ -112,8 +122,49 @@ describe("NabaReview design system", () => {
       "Controls",
       "Status and feedback",
       "Product compositions",
+    ]
+
+    for (const section of sections) {
+      expect(proof).toContain(`<Section title="${section}">`)
+    }
+    expect(proof.match(/<Section title=/g)).toHaveLength(7)
+  })
+  it("builds proof specimens from required shipping components", () => {
+    for (const component of [
+      "BusinessContext",
+      "MetricCard",
+      "Stars",
+      "StatusBadge",
     ]) {
-      expect(proof).toContain(section)
+      expect(proof).toMatch(
+        new RegExp(
+          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/naba-review/shared\\"`
+        )
+      )
+      expect(proof).toContain(`<${component}`)
+    }
+    for (const component of [
+      "Table",
+      "TableBody",
+      "TableCell",
+      "TableHead",
+      "TableHeader",
+      "TableRow",
+    ]) {
+      expect(proof).toMatch(
+        new RegExp(
+          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/ui/table\\"`
+        )
+      )
+      expect(proof).toContain(`<${component}`)
+    }
+    for (const component of ["Tooltip", "TooltipContent", "TooltipTrigger"]) {
+      expect(proof).toMatch(
+        new RegExp(
+          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/ui/tooltip\\"`
+        )
+      )
+      expect(proof).toContain(`<${component}`)
     }
   })
 })

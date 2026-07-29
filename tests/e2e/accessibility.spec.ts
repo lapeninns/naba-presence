@@ -55,6 +55,7 @@ for (const viewport of [
     test.use({ viewport })
 
     test("design-system proof", async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem("theme", "light"))
       await page.goto("/design-system")
       await expect(
         page.getByRole("heading", {
@@ -62,12 +63,20 @@ for (const viewport of [
           level: 1,
         })
       ).toBeVisible()
+      const sectionHeadings = page.getByRole("heading", { level: 2 })
+      await expect(sectionHeadings).toHaveCount(7)
+      await expect(sectionHeadings).toHaveText(proofSections)
       for (const section of proofSections) {
         await expect(
           page.getByRole("heading", { name: section, level: 2 })
         ).toBeVisible()
       }
       await expectAccessible(page, `${viewport.name} design-system proof`)
+      await page.getByRole("button", { name: "Toggle theme" }).click()
+      await expect(page.locator("html")).toHaveClass(/dark/)
+      if (viewport.name === "desktop") {
+        await expectAccessible(page, "dark desktop design-system proof")
+      }
     })
 
     test("application shell", async ({ page }) => {
@@ -583,6 +592,19 @@ for (const viewport of [
         page.getByLabel("Connection status and guidance")
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} connections`)
+    })
+
+    test("menu assistant", async ({ page }) => {
+      await page.goto("/")
+      await openNavigationSurface(
+        page,
+        "Menu assistant",
+        viewport.name === "mobile"
+      )
+      await expect(
+        page.getByRole("heading", { name: "Menu assistant" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} menu assistant`)
     })
 
     test("settings", async ({ page }) => {
