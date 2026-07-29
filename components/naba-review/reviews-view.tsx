@@ -375,7 +375,6 @@ export function ReviewsWorkspace({
           <TabsList
             variant="line"
             aria-label="Review queues"
-            tabIndex={0}
             className="w-full [scrollbar-width:none] justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden"
           >
             {QUEUES.map((item) => {
@@ -836,7 +835,7 @@ function ReviewRow({
         }
         size="sm"
         className={cn(
-          "border-[var(--nr-surface-glass-border)] bg-[var(--nr-surface-card-translucent)] text-left shadow-(--nr-shadow-card) transition-[color,background-color,border-color,box-shadow,transform] hover:-translate-y-px hover:shadow-(--nr-shadow-hover) motion-reduce:transform-none",
+          "rounded-(--nr-radius-card) border-[var(--nr-surface-glass-border)] bg-[var(--nr-surface-card-translucent)] text-left shadow-(--nr-shadow-card) transition-[color,background-color,border-color,box-shadow,transform] hover:-translate-y-px hover:shadow-(--nr-shadow-hover) motion-reduce:transform-none",
           selected
             ? "border-primary/45 bg-card"
             : "hover:border-border hover:bg-card/85"

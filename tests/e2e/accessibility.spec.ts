@@ -191,7 +191,10 @@ for (const viewport of [
             items: [
               {
                 id: "review-a11y",
-                reviewer: { displayName: "Jordan Lee" },
+                reviewer: {
+                  displayName: "Jordan Lee",
+                  isAnonymous: false,
+                },
                 rating: 5,
                 location: { id: "location-a11y", name: "Camden" },
                 text: "A thoughtful and accessible review.",
@@ -207,6 +210,7 @@ for (const viewport of [
                 replyStatus: "not_published",
                 syncStatus: "succeeded",
                 googleReplyState: null,
+                googlePolicyViolation: null,
               },
             ],
             nextCursor: null,
@@ -241,8 +245,15 @@ for (const viewport of [
         await row.click()
         await expect(reviewList).toBeHidden()
         await expect(
+          page
+            .locator('section[aria-label="Review list"] button')
+            .filter({ hasText: "Jordan Lee" })
+        ).toHaveAttribute("aria-current", "true")
+        await expect(
           page.getByRole("button", { name: "Back to review list" })
         ).toBeVisible()
+      } else {
+        await expect(row).toHaveAttribute("aria-current", "true")
       }
       const selectedReview = page.getByRole("region", {
         name: "Selected review",
