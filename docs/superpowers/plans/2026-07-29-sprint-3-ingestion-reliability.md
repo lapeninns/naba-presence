@@ -173,8 +173,8 @@ the full planned token and interruption matrix remains green.
 **Interfaces:**
 - Produces: reconcile response shape `{ processed: number; nextCursor: string | null; failures: Array<{ organisationId: string; externalLocationId: string | null; errorCode: string }> }` — HTTP 200 even when some organisations fail. `scripts/scheduler.mjs` keeps walking the cursor on 200; it aborts only on non-2xx (auth/config errors).
 
-- [ ] **Step 1: Failing test** — `tests/integration/routes/reconcile-isolation.test.ts`: seed three orgs, each with one linked location; org B's `google_connection` has **no refresh token and an expired access token** (forces `google_reconnect_required` from `connectionAccessToken`); stub serves org A and C reviews normally. `POST /api/sync/reconcile` with `authorization: Bearer route-harness-cron-secret`: expect 200; A and C reviews upserted; response `failures` contains org B with `errorCode: "google_reconnect_required"`; org B's connection `status='expired'|'revoked'` and a `connection_task` row `open`; A and C checkpoints `succeeded`. Today: 401 aborts everything at whichever org sorts first. Run — FAIL.
-- [ ] **Step 2: Implement isolation.** In the reconcile route: enumeration query unchanged (`organisation_job_route` cursor walk); the per-org body becomes:
+- [x] **Step 1: Failing test** — `tests/integration/routes/reconcile-isolation.test.ts`: seed three orgs, each with one linked location; org B's `google_connection` has **no refresh token and an expired access token** (forces `google_reconnect_required` from `connectionAccessToken`); stub serves org A and C reviews normally. `POST /api/sync/reconcile` with `authorization: Bearer route-harness-cron-secret`: expect 200; A and C reviews upserted; response `failures` contains org B with `errorCode: "google_reconnect_required"`; org B's connection `status='expired'|'revoked'` and a `connection_task` row `open`; A and C checkpoints `succeeded`. Today: 401 aborts everything at whichever org sorts first. Run — FAIL.
+- [x] **Step 2: Implement isolation.** In the reconcile route: enumeration query unchanged (`organisation_job_route` cursor walk); the per-org body becomes:
 
 ```ts
 const failures: ReconcileFailure[] = []
@@ -204,9 +204,9 @@ for (const organisationId of organisationIds) {
 
 The start/complete audit writes (`route.ts:62-96`) move to per-org `withTenant` blocks around the location loop.
 
-- [ ] **Step 3: Connection-failure persistence.** `persistConnectionFailure` (`google.ts:85`) opening a second pool connection while the caller held a transaction was a deadlock risk; after Task 2 the caller holds none — keep the function as-is but add a comment stating the invariant ("callers must not hold an open transaction"), and in `connectionAccessToken` verify both call paths comply (`executePublish` phase 2 ✓, `syncLinkedLocation` header phase runs it outside ✓).
-- [ ] **Step 4: Scheduler behavior.** `scripts/scheduler.mjs:48-52`: on non-2xx keep the current abort; on 200 with `failures.length`, log a warning line with the count (`log("warn", "reconcile.partial", { failures: body.failures.length })`) and continue the cursor. Add this as an assertion to the test by invoking the scheduler's `runReconciliation` in-process? No — the scheduler is a script; cover it in Task 10's budget test instead. Here, assert route semantics only.
-- [ ] **Step 5: Run** — PASS; full suites green.
+- [x] **Step 3: Connection-failure persistence.** `persistConnectionFailure` (`google.ts:85`) opening a second pool connection while the caller held a transaction was a deadlock risk; after Task 2 the caller holds none — keep the function as-is but add a comment stating the invariant ("callers must not hold an open transaction"), and in `connectionAccessToken` verify both call paths comply (`executePublish` phase 2 ✓, `syncLinkedLocation` header phase runs it outside ✓).
+- [x] **Step 4: Scheduler behavior.** `scripts/scheduler.mjs:48-52`: on non-2xx keep the current abort; on 200 with `failures.length`, log a warning line with the count (`log("warn", "reconcile.partial", { failures: body.failures.length })`) and continue the cursor. Add this as an assertion to the test by invoking the scheduler's `runReconciliation` in-process? No — the scheduler is a script; cover it in Task 10's budget test instead. Here, assert route semantics only.
+- [x] **Step 5: Run** — PASS; full suites green.
 
 ---
 

@@ -64,8 +64,13 @@ async function runReconciliation() {
       organisationCursor,
       maxOrganisations: 100,
     })
-    organisations += result.organisations?.length ?? 0
-    organisationCursor = result.nextOrganisationCursor ?? undefined
+    organisations += result.processed ?? 0
+    if (result.failures?.length) {
+      log("warn", "reconcile.partial", {
+        failures: result.failures.length,
+      })
+    }
+    organisationCursor = result.nextCursor ?? undefined
     pages += 1
     if (pages > 1000) {
       throw new Error("Reconciliation cursor exceeded 1000 pages.")

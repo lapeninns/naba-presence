@@ -97,10 +97,66 @@ export type GoogleConnectionRow = {
   status: string
 }
 
+async function recordConnectionFailure(
+  sql: TransactionSql,
+  connection: GoogleConnectionRow,
+  errorCode: string
+) {
+  await sql`
+    update google_connection
+    set
+      status = ${errorCode === "invalid_grant" ? "revoked" : "expired"},
+      last_error_code = ${errorCode}
+    where id = ${connection.id}
+  `
+  await sql`
+    insert into connection_task (
+      organisation_id,
+      google_connection_id,
+      task_type,
+      status,
+      reason_code
+    )
+    values (
+      ${connection.organisation_id},
+      ${connection.id},
+      'reconnect',
+      'open',
+      ${errorCode}
+    )
+    on conflict (
+      organisation_id,
+      google_connection_id,
+      task_type
+    ) where status = 'open' do update
+    set reason_code = excluded.reason_code
+  `
+  await sql`
+    insert into audit_log (
+      organisation_id,
+      actor_user_id,
+      action,
+      subject_type,
+      subject_id,
+      metadata
+    )
+    values (
+      ${connection.organisation_id},
+      null,
+      'google.connection.reconnect_required',
+      'google_connection',
+      ${connection.id},
+      ${sql.json({ reasonCode: errorCode })}
+    )
+  `
+}
+
 async function persistConnectionFailure(
   connection: GoogleConnectionRow,
   errorCode: string
 ) {
+  // Invariant: callers must not hold an open transaction. This helper owns
+  // the short tenant-scoped transaction that persists reconnect state.
   await getDatabase().begin(async (sql) => {
     await sql`
       select set_config(
@@ -109,53 +165,7 @@ async function persistConnectionFailure(
         true
       )
     `
-    await sql`
-      update google_connection
-      set
-        status = ${errorCode === "invalid_grant" ? "revoked" : "expired"},
-        last_error_code = ${errorCode}
-      where id = ${connection.id}
-    `
-    await sql`
-      insert into connection_task (
-        organisation_id,
-        google_connection_id,
-        task_type,
-        status,
-        reason_code
-      )
-      values (
-        ${connection.organisation_id},
-        ${connection.id},
-        'reconnect',
-        'open',
-        ${errorCode}
-      )
-      on conflict (
-        organisation_id,
-        google_connection_id,
-        task_type
-      ) where status = 'open' do update
-      set reason_code = excluded.reason_code
-    `
-    await sql`
-      insert into audit_log (
-        organisation_id,
-        actor_user_id,
-        action,
-        subject_type,
-        subject_id,
-        metadata
-      )
-      values (
-        ${connection.organisation_id},
-        null,
-        'google.connection.reconnect_required',
-        'google_connection',
-        ${connection.id},
-        ${sql.json({ reasonCode: errorCode })}
-      )
-    `
+    await recordConnectionFailure(sql, connection, errorCode)
   })
 }
 
@@ -269,6 +279,105 @@ async function refreshAccessToken(
   connection: GoogleConnectionRow
 ): Promise<string> {
   if (!connection.refresh_token_ciphertext) {
+    await recordConnectionFailure(
+      sql,
+      connection,
+      "refresh_token_missing"
+    )
+    throw new ApiError(
+      401,
+      "google_reconnect_required",
+      "Google access has expired. Reconnect this account."
+    )
+  }
+  const env = getServerEnv()
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID ?? "",
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+        refresh_token: decryptSecret(connection.refresh_token_ciphertext),
+        grant_type: "refresh_token",
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
+    }
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
+  })
+  const body = (await response.json()) as GoogleTokenResponse & {
+    error?: string
+  }
+  if (!response.ok) {
+    await recordConnectionFailure(
+      sql,
+      connection,
+      body.error ?? "refresh_failed"
+    )
+    throw new ApiError(
+      401,
+      "google_reconnect_required",
+      "Google access has expired. Reconnect this account."
+    )
+  }
+  await sql`
+    update google_connection
+    set
+      access_token_ciphertext = ${encryptSecret(body.access_token)},
+      access_token_expires_at = now() + (${body.expires_in} * interval '1 second'),
+      last_refresh_at = now(),
+      status = 'active',
+      last_error_code = null
+    where id = ${connection.id}
+  `
+  return body.access_token
+}
+
+async function loadConnection(
+  sql: TransactionSql,
+  connectionId: string
+): Promise<GoogleConnectionRow> {
+  const [connection] = await sql<GoogleConnectionRow[]>`
+    select *
+    from google_connection
+    where id = ${connectionId}
+      and status = 'active'
+    limit 1
+  `
+  if (!connection) {
+    throw new ApiError(
+      404,
+      "connection_not_found",
+      "Google connection not found."
+    )
+  }
+  return connection
+}
+
+async function connectionAccessTokenInTransaction(
+  sql: TransactionSql,
+  connectionId: string
+) {
+  const connection = await loadConnection(sql, connectionId)
+  if (
+    !connection.access_token_expires_at ||
+    connection.access_token_expires_at.getTime() <= Date.now() + 60_000
+  ) {
+    return refreshAccessToken(sql, connection)
+  }
+  return decryptSecret(connection.access_token_ciphertext)
+}
+
+async function refreshAccessTokenOutsideTransaction(
+  sql: Sql,
+  connection: GoogleConnectionRow
+) {
+  if (!connection.refresh_token_ciphertext) {
+    await persistConnectionFailure(connection, "refresh_token_missing")
     throw new ApiError(
       401,
       "google_reconnect_required",
@@ -305,44 +414,27 @@ async function refreshAccessToken(
       "Google access has expired. Reconnect this account."
     )
   }
-  await sql`
-    update google_connection
-    set
-      access_token_ciphertext = ${encryptSecret(body.access_token)},
-      access_token_expires_at = now() + (${body.expires_in} * interval '1 second'),
-      last_refresh_at = now(),
-      status = 'active',
-      last_error_code = null
-    where id = ${connection.id}
-  `
+  await sql.begin(async (transaction) => {
+    await transaction`
+      select set_config(
+        'app.organisation_id',
+        ${connection.organisation_id},
+        true
+      )
+    `
+    await transaction`
+      update google_connection
+      set
+        access_token_ciphertext = ${encryptSecret(body.access_token)},
+        access_token_expires_at =
+          now() + (${body.expires_in} * interval '1 second'),
+        last_refresh_at = now(),
+        status = 'active',
+        last_error_code = null
+      where id = ${connection.id}
+    `
+  })
   return body.access_token
-}
-
-async function connectionAccessTokenInTransaction(
-  sql: TransactionSql,
-  connectionId: string
-) {
-  const [connection] = await sql<GoogleConnectionRow[]>`
-    select *
-    from google_connection
-    where id = ${connectionId}
-      and status = 'active'
-    limit 1
-  `
-  if (!connection) {
-    throw new ApiError(
-      404,
-      "connection_not_found",
-      "Google connection not found."
-    )
-  }
-  if (
-    !connection.access_token_expires_at ||
-    connection.access_token_expires_at.getTime() <= Date.now() + 60_000
-  ) {
-    return refreshAccessToken(sql, connection)
-  }
-  return decryptSecret(connection.access_token_ciphertext)
 }
 
 export function connectionAccessToken(
@@ -360,7 +452,7 @@ export async function connectionAccessToken(
   connectionId?: string
 ): Promise<string> {
   if (connectionId !== undefined) {
-    return (sql as Sql).begin(async (transaction) => {
+    const connection = await (sql as Sql).begin(async (transaction) => {
       await transaction`
         select set_config(
           'app.organisation_id',
@@ -368,11 +460,15 @@ export async function connectionAccessToken(
           true
         )
       `
-      return connectionAccessTokenInTransaction(
-        transaction,
-        connectionId
-      )
-    }) as Promise<string>
+      return loadConnection(transaction, connectionId)
+    })
+    if (
+      !connection.access_token_expires_at ||
+      connection.access_token_expires_at.getTime() <= Date.now() + 60_000
+    ) {
+      return refreshAccessTokenOutsideTransaction(sql as Sql, connection)
+    }
+    return decryptSecret(connection.access_token_ciphertext)
   }
   return connectionAccessTokenInTransaction(
     sql as TransactionSql,

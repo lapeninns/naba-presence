@@ -6,6 +6,7 @@ import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -21,6 +22,12 @@ const inputSchema = z.object({
   organisationCursor: z.uuid().optional(),
   maxOrganisations: z.number().int().min(1).max(100).default(25),
 })
+
+type ReconcileFailure = {
+  organisationId: string
+  externalLocationId: string | null
+  errorCode: string
+}
 
 export async function POST(request: Request) {
   try {
@@ -57,68 +64,126 @@ export async function POST(request: Request) {
             limit ${input.maxOrganisations}
           `
         ).map((organisation) => organisation.id)
+    const failures: ReconcileFailure[] = []
     const organisations = []
+    let processed = 0
     for (const organisationId of organisationIds) {
-      const linked = await withTenant(organisationId, async (sql) => {
-        const linked = await linkedLocations(
-          sql,
-          session ? input.externalLocationIds : undefined
-        )
-        await writeAudit(sql, {
-          organisationId,
-          actorUserId: session?.userId ?? null,
-          action: "sync.reconcile.started",
-          subjectType: "organisation",
-          subjectId: organisationId,
-          requestId: `${correlationId}:${organisationId}:started`,
-          metadata: {
-            externalLocationIds: linked.map(
-              (location) => location.externalLocationId
-            ),
-            clientRequestId: rid.clientId,
-          },
+      let linked: Awaited<ReturnType<typeof linkedLocations>>
+      try {
+        linked = await withTenant(organisationId, async (sql) => {
+          const locations = await linkedLocations(
+            sql,
+            session ? input.externalLocationIds : undefined
+          )
+          await writeAudit(sql, {
+            organisationId,
+            actorUserId: session?.userId ?? null,
+            action: "sync.reconcile.started",
+            subjectType: "organisation",
+            subjectId: organisationId,
+            requestId: `${correlationId}:${organisationId}:started`,
+            metadata: {
+              externalLocationIds: locations.map(
+                (location) => location.externalLocationId
+              ),
+              clientRequestId: rid.clientId,
+            },
+          })
+          return locations
         })
-        return linked
-      })
+      } catch (error) {
+        const errorCode =
+          error instanceof ApiError ? error.code : "internal_error"
+        failures.push({
+          organisationId,
+          externalLocationId: null,
+          errorCode,
+        })
+        log.error("reconcile.organisation_failed", {
+          organisationId,
+          error,
+        })
+        processed += 1
+        continue
+      }
       const results: Array<
         { externalLocationId: string } & SyncOutcome
       > = []
       for (const location of linked) {
-        const sync = await syncLinkedLocation({
-          organisationId,
-          externalLocationId: location.externalLocationId,
-          type: "reconcile",
-          maxPages: 2,
+        try {
+          const sync = await syncLinkedLocation({
+            organisationId,
+            externalLocationId: location.externalLocationId,
+            type: "reconcile",
+            maxPages: 2,
+          })
+          results.push({
+            externalLocationId: location.externalLocationId,
+            ...sync,
+          })
+          if (sync.status === "failed") {
+            failures.push({
+              organisationId,
+              externalLocationId: location.externalLocationId,
+              errorCode: sync.errorCode ?? "sync_failed",
+            })
+          }
+        } catch (error) {
+          const errorCode =
+            error instanceof ApiError ? error.code : "internal_error"
+          failures.push({
+            organisationId,
+            externalLocationId: location.externalLocationId,
+            errorCode,
+          })
+          log.error("reconcile.location_failed", {
+            organisationId,
+            externalLocationId: location.externalLocationId,
+            error,
+          })
+        }
+      }
+      try {
+        await withTenant(organisationId, async (sql) => {
+          await writeAudit(sql, {
+            organisationId,
+            actorUserId: session?.userId ?? null,
+            action: results.some(
+              (location) => location.status === "failed"
+            )
+              ? "sync.reconcile.failed"
+              : "sync.reconcile.completed",
+            subjectType: "organisation",
+            subjectId: organisationId,
+            requestId: `${correlationId}:${organisationId}:finished`,
+            metadata: {
+              locations: results,
+              clientRequestId: rid.clientId,
+            },
+          })
         })
-        results.push({
-          externalLocationId: location.externalLocationId,
-          ...sync,
+      } catch (error) {
+        failures.push({
+          organisationId,
+          externalLocationId: null,
+          errorCode: "audit_failed",
+        })
+        log.error("reconcile.audit_failed", {
+          organisationId,
+          error,
         })
       }
-      await withTenant(organisationId, async (sql) => {
-        await writeAudit(sql, {
-          organisationId,
-          actorUserId: session?.userId ?? null,
-          action: results.some((location) => location.status === "failed")
-            ? "sync.reconcile.failed"
-            : "sync.reconcile.completed",
-          subjectType: "organisation",
-          subjectId: organisationId,
-          requestId: `${correlationId}:${organisationId}:finished`,
-          metadata: {
-            locations: results,
-            clientRequestId: rid.clientId,
-          },
-        })
-      })
       organisations.push({ organisationId, locations: results })
+      processed += 1
     }
+    const nextCursor =
+      !session && organisationIds.length === input.maxOrganisations
+        ? (organisationIds.at(-1) ?? null)
+        : null
     return NextResponse.json({
-      organisations,
-      nextOrganisationCursor:
-        !session && organisationIds.length === input.maxOrganisations
-          ? organisationIds.at(-1)
-          : null,
+      processed,
+      nextCursor,
+      failures,
       ...(session ? { locations: organisations[0]?.locations ?? [] } : {}),
     })
   } catch (error) {
