@@ -571,7 +571,7 @@ Run — PASS.
 - Consumes: the evidence-hash inputs from `app/api/reviews/[id]/drafts/route.ts:87-99` — `{ reviewId, updateTime, reviewText, rating, location, language, tone, businessContext, draftPolicyVersion }`.
 - Produces: `buildEvidenceHash(input: EvidenceInput): string` exported from `lib/server/drafts.ts` and used by **both** draft creation and publish phase 1 (single definition; move the existing object construction out of the drafts route into this function so the two cannot drift).
 
-- [ ] **Step 1: Route tests first:**
+- [x] **Step 1: Route tests first:**
 
 ```ts
 it("rejects publish without expectedReviewUpdateTime", async () => {
@@ -602,11 +602,13 @@ it("rejects publish when the evidence hash no longer matches (server-side)", asy
 
 The third case is the one the client-supplied version check can never catch. Run — FAIL (today: first passes silently, third publishes).
 
-- [ ] **Step 2: Implement.** (a) In the publish route schema, change `expectedReviewUpdateTime` from optional to `z.string().min(1)`. (b) In `lib/server/drafts.ts`, extract the evidence-object construction currently inlined in `drafts/route.ts:87-99` into `export function buildEvidenceHash(input: {reviewId: string; updateTime: string; reviewText: string | null; rating: number; location: string; language: string; tone: string; businessContext: string | null; draftPolicyVersion: string}): string` (`sha256(JSON.stringify(…))`, identical key order — move, don't duplicate), and update the drafts route to call it. (c) In `executePublish` phase 1, after loading review+draft+org, recompute with the **current** review values and the draft's stored parameters (`draft.tone`, `draft.language`, org business context — extend the phase-1 select with the columns the builder needs) and compare to `draft.evidence_hash`; mismatch → `ApiError(409, "stale_draft_evidence", "The review changed since this draft was verified. Re-verify the draft.")`. Keep the existing `expectedReviewUpdateTime` comparison (`publish/route.ts:114-123` logic) as `409 review_changed`.
+- [x] **Step 2: Implement.** (a) In the publish route schema, change `expectedReviewUpdateTime` from optional to `z.string().min(1)`. (b) In `lib/server/drafts.ts`, extract the evidence-object construction currently inlined in `drafts/route.ts:87-99` into `export function buildEvidenceHash(input: {reviewId: string; updateTime: string; reviewText: string | null; rating: number; location: string; language: string; tone: string; businessContext: string | null; draftPolicyVersion: string}): string` (`sha256(JSON.stringify(…))`, identical key order — move, don't duplicate), and update the drafts route to call it. (c) In `executePublish` phase 1, after loading review+draft+org, recompute with the **current** review values and the draft's stored parameters (`draft.tone`, `draft.language`, org business context — extend the phase-1 select with the columns the builder needs) and compare to `draft.evidence_hash`; mismatch → `ApiError(409, "stale_draft_evidence", "The review changed since this draft was verified. Re-verify the draft.")`. Keep the existing `expectedReviewUpdateTime` comparison (`publish/route.ts:114-123` logic) as `409 review_changed`.
 
-- [ ] **Step 3: Update the client.** `lib/naba-presence-api.ts:271` `publishDraft` already always sends `expectedReviewUpdateTime` (`reviews-view.tsx:973`) — no UI change; verify by grep and by running `pnpm test:a11y` (the mocked inbox spec includes a publish flow).
+- [x] **Step 3: Update the client.** `lib/naba-presence-api.ts:271` `publishDraft` already always sends `expectedReviewUpdateTime` (`reviews-view.tsx:973`) — no UI change; verify by grep and by running `pnpm test:a11y` (the mocked inbox spec includes a publish flow).
 
-- [ ] **Step 4: Run** the suite + full gates. Expected: PASS.
+- [x] **Step 4: Run** the suite + full gates. Expected: PASS.
+
+**Deviation (Task 5):** The existing `draft` schema had no persisted tone, resolved language, business context, or policy-version fields despite the plan referring to those stored parameters. Open migration 0006 now adds those four evidence inputs, and draft creation writes them so publish can recompute the hash without trusting client data.
 
 ---
 

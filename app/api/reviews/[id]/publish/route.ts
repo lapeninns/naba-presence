@@ -11,7 +11,7 @@ export const maxDuration = 60
 
 const inputSchema = z.object({
   draftId: z.uuid(),
-  expectedReviewUpdateTime: z.iso.datetime().optional(),
+  expectedReviewUpdateTime: z.string().min(1),
 })
 
 export async function POST(
@@ -34,7 +34,7 @@ export async function POST(
       session,
       reviewId: id,
       draftId: input.draftId,
-      expectedReviewUpdateTime: input.expectedReviewUpdateTime ?? "",
+      expectedReviewUpdateTime: input.expectedReviewUpdateTime,
       serverRequestId: requestId(request),
     })
 

@@ -7,6 +7,7 @@ import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { buildEvidenceHash } from "@/lib/server/drafts"
 import {
   connectionAccessToken,
   getGoogleReview,
@@ -88,10 +89,18 @@ type PublishRecord = {
   review_id: string
   google_review_name_ciphertext: Buffer
   update_time: Date
+  review_text: string | null
+  rating: number
+  location_name: string
   location_id: string
   verified: boolean
   connection_id: string
   body: string
+  evidence_hash: string
+  tone: string
+  language: string
+  business_context: string | null
+  draft_policy_version: string
   verification_status: string
   approval_required: boolean
   publish_generation: number
@@ -320,14 +329,23 @@ export async function executePublish(input: {
           r.id::text as review_id,
           r.google_review_name_ciphertext,
           r.update_time,
+          r.review_text,
+          r.star_rating::integer as rating,
+          l.name as location_name,
           r.location_id::text as location_id,
           e.verified,
           e.google_connection_id::text as connection_id,
           d.body,
+          d.evidence_hash,
+          d.tone,
+          d.language,
+          d.business_context,
+          d.draft_policy_version,
           d.verification_status,
           o.approval_required,
           coalesce(rr.publish_generation, 0) as publish_generation
         from review r
+        join location l on l.id = r.location_id
         join external_location e on e.id = r.external_location_id
         join draft d on d.review_id = r.id
         join organisation o on o.id = r.organisation_id
@@ -372,14 +390,31 @@ export async function executePublish(input: {
         )
       }
       if (
-        input.expectedReviewUpdateTime &&
         record.update_time.toISOString() !==
-          input.expectedReviewUpdateTime
+        input.expectedReviewUpdateTime
       ) {
         throw new ApiError(
           409,
           "review_changed",
           "The review changed after this draft was prepared."
+        )
+      }
+      const currentEvidenceHash = buildEvidenceHash({
+        reviewId: record.review_id,
+        updateTime: record.update_time.toISOString(),
+        reviewText: record.review_text,
+        rating: record.rating,
+        location: record.location_name,
+        language: record.language,
+        tone: record.tone,
+        businessContext: record.business_context,
+        draftPolicyVersion: record.draft_policy_version,
+      })
+      if (currentEvidenceHash !== record.evidence_hash) {
+        throw new ApiError(
+          409,
+          "stale_draft_evidence",
+          "The review changed since this draft was verified. Re-verify the draft."
         )
       }
 

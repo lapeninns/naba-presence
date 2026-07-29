@@ -10,6 +10,12 @@ alter table review_reply
   add column approval_requested_by uuid references app_user(id) on delete set null,
   add column first_published_at timestamptz;
 
+alter table draft
+  add column tone text,
+  add column language text,
+  add column business_context text,
+  add column draft_policy_version text;
+
 alter table organisation
   add column require_two_person_approval boolean not null default false;
 

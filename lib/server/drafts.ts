@@ -7,6 +7,35 @@ import {
   verificationVerdict,
 } from "@/lib/domain/verification"
 import { semanticVerification } from "@/lib/server/ai"
+import { sha256 } from "@/lib/server/crypto"
+
+export type EvidenceInput = {
+  reviewId: string
+  updateTime: string
+  reviewText: string | null
+  rating: number
+  location: string
+  language: string
+  tone: string
+  businessContext: string | null
+  draftPolicyVersion: string
+}
+
+export function buildEvidenceHash(input: EvidenceInput): string {
+  return sha256(
+    JSON.stringify({
+      reviewId: input.reviewId,
+      updateTime: input.updateTime,
+      reviewText: input.reviewText,
+      rating: input.rating,
+      location: input.location,
+      language: input.language,
+      tone: input.tone,
+      businessContext: input.businessContext,
+      draftPolicyVersion: input.draftPolicyVersion,
+    })
+  )
+}
 
 export async function verifyStoredDraft(
   sql: TransactionSql,

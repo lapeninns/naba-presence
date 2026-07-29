@@ -5,9 +5,11 @@ import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
 import { generateReply } from "@/lib/server/ai"
 import { writeAudit } from "@/lib/server/audit"
-import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { verifyStoredDraft } from "@/lib/server/drafts"
+import {
+  buildEvidenceHash,
+  verifyStoredDraft,
+} from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, requestId } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
@@ -84,19 +86,17 @@ export async function POST(
         (review.language && (review.language_confidence ?? 0) >= 0.7
           ? review.language
           : review.default_language)
-      const evidenceHash = sha256(
-        JSON.stringify({
-          reviewId: id,
-          updateTime: review.update_time,
-          reviewText: review.review_text,
-          rating: review.rating,
-          location: review.location_name,
-          language,
-          tone: input.tone,
-          businessContext: input.businessContext,
-          draftPolicyVersion: DRAFT_POLICY_VERSION,
-        })
-      )
+      const evidenceHash = buildEvidenceHash({
+        reviewId: id,
+        updateTime: review.update_time.toISOString(),
+        reviewText: review.review_text,
+        rating: review.rating,
+        location: review.location_name,
+        language,
+        tone: input.tone,
+        businessContext: input.businessContext,
+        draftPolicyVersion: DRAFT_POLICY_VERSION,
+      })
       const isRatingOnly = !review.review_text?.trim()
       const generated = input.body
         ? { reply: input.body, language }
@@ -120,6 +120,10 @@ export async function POST(
           body,
           body_bytes,
           evidence_hash,
+          tone,
+          language,
+          business_context,
+          draft_policy_version,
           model_name,
           verification_status,
           created_by
@@ -131,6 +135,10 @@ export async function POST(
           ${generated.reply},
           ${Buffer.byteLength(generated.reply, "utf8")},
           ${evidenceHash},
+          ${input.tone},
+          ${language},
+          ${input.businessContext},
+          ${DRAFT_POLICY_VERSION},
           ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
           'pending',
           ${session.userId}

@@ -301,6 +301,69 @@ describeDatabase("durable publish lifecycle", () => {
     )
   })
 
+  it("rejects publish without expectedReviewUpdateTime", async () => {
+    const fixture = await createFixture()
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/publish`,
+      {
+        method: "POST",
+        headers: {
+          cookie: fixture.owner.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ draftId: fixture.draft.draftId }),
+      }
+    )
+
+    expect(response.status).toBe(400)
+  })
+
+  it("rejects publish when the review version changed after drafting", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review
+      set update_time = now(), review_text = 'edited!'
+      where id = ${fixture.review.reviewId}
+    `
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("review_changed")
+  })
+
+  it("rejects publish when the server-side evidence hash changed", async () => {
+    const fixture = await createFixture()
+    const detailResponse = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    const detail = (await detailResponse.json()) as {
+      review: { updateTime: string }
+    }
+    await admin`
+      update review
+      set review_text = 'silently different'
+      where id = ${fixture.review.reviewId}
+    `
+
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/publish`,
+      {
+        method: "POST",
+        headers: {
+          cookie: fixture.owner.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draftId: fixture.draft.draftId,
+          expectedReviewUpdateTime: detail.review.updateTime,
+        }),
+      }
+    )
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("stale_draft_evidence")
+  })
+
   it("records a provider-rejected publish without counting it as published", async () => {
     const fixture = await createFixture()
     stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
