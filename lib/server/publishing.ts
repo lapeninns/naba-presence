@@ -184,7 +184,10 @@ export async function recoverAttempt(input: {
     review = await getGoogleReview(
       accessToken,
       decryptSecret(context.google_review_name_ciphertext),
-      { maxAttempts: 1 }
+      {
+        connectionKey: context.google_connection_id,
+        maxAttempts: 1,
+      }
     )
   } catch (error) {
     if (error instanceof GoogleMutationAmbiguousError) throw error
@@ -401,7 +404,8 @@ export async function retryPublishAttempt(
     if (context.operation === "delete") {
       await deleteGoogleReply(
         accessToken,
-        decryptSecret(context.googleReviewNameCiphertext)
+        decryptSecret(context.googleReviewNameCiphertext),
+        { connectionKey: context.connectionId }
       )
       provider = {}
     } else {
@@ -411,7 +415,8 @@ export async function retryPublishAttempt(
       provider = await updateGoogleReply(
         accessToken,
         decryptSecret(context.googleReviewNameCiphertext),
-        context.intendedBody
+        context.intendedBody,
+        { connectionKey: context.connectionId }
       )
     }
   } catch (error) {
@@ -956,7 +961,8 @@ export async function executePublish(input: {
     provider = await updateGoogleReply(
       accessToken,
       phaseOne.googleReviewName,
-      phaseOne.body
+      phaseOne.body,
+      { connectionKey: phaseOne.connectionId }
     )
   } catch (error) {
     providerError = error
@@ -1435,7 +1441,8 @@ export async function executeReplyDelete(input: {
     )
     await deleteGoogleReply(
       accessToken,
-      phaseOne.googleReviewName
+      phaseOne.googleReviewName,
+      { connectionKey: phaseOne.connectionId }
     )
     applied = true
   } catch (error) {

@@ -237,4 +237,72 @@ describeDatabase("sync transaction boundaries", () => {
       page_token: "page-2",
     })
   }, 20_000)
+
+  it("keeps the database pool healthy during a slow backfill", async () => {
+    const fixture = await createFixture()
+    const [connection] = await admin<
+      { id: string; google_account_name: string }[]
+    >`
+      select
+        gc.id::text as id,
+        ga.google_account_name
+      from google_connection gc
+      join google_account ga on ga.google_connection_id = gc.id
+      where gc.organisation_id = ${fixture.owner.organisationId}
+      limit 1
+    `
+    const additionalLocations = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        seedLinkedReview(admin, {
+          organisationId: fixture.owner.organisationId,
+          connectionId: connection.id,
+          googleAccountName: connection.google_account_name,
+        })
+      )
+    )
+    const externalLocationIds = [
+      fixture.externalLocationId,
+      ...additionalLocations.map((location) => location.externalLocationId),
+    ]
+    stub.reset()
+    stub.respond(
+      { method: "GET", pathIncludes: "/reviews" },
+      () => ({
+        status: 200,
+        json: { reviews: [] },
+        delayMs: 250,
+      })
+    )
+
+    const backfill = fetch(`${server.baseUrl}/api/sync/backfill`, {
+      method: "POST",
+      headers: {
+        cookie: fixture.owner.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        externalLocationIds,
+        maxPagesPerLocation: 1,
+      }),
+    })
+    await waitForProviderCall()
+    const inboxDurations = await Promise.all(
+      Array.from({ length: 20 }, async () => {
+        const startedAt = performance.now()
+        const response = await fetch(`${server.baseUrl}/api/reviews`, {
+          headers: { cookie: fixture.owner.cookie },
+        })
+        expect(response.status, await response.clone().text()).toBe(200)
+        await response.arrayBuffer()
+        return performance.now() - startedAt
+      })
+    )
+    const backfillResponse = await backfill
+
+    expect(backfillResponse.status, await backfillResponse.clone().text()).toBe(
+      200
+    )
+    expect(stub.calls).toHaveLength(4)
+    expect(inboxDurations.every((duration) => duration < 2_000)).toBe(true)
+  }, 20_000)
 })

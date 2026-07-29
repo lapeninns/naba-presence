@@ -4,6 +4,7 @@ import { secretEqual } from "@/lib/server/crypto"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError } from "@/lib/server/http"
 import { runDueJobs } from "@/lib/server/jobs"
+import { withAdvisoryLock } from "@/lib/server/leases"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -20,7 +21,11 @@ export async function POST(request: Request) {
         "Authentication required."
       )
     }
-    return NextResponse.json(await runDueJobs({ budgetMs: 45_000 }))
+    return NextResponse.json(
+      await withAdvisoryLock("naba:jobs", () =>
+        runDueJobs({ budgetMs: 45_000 })
+      )
+    )
   } catch (error) {
     return apiError(error)
   }

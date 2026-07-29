@@ -7,6 +7,7 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { withAdvisoryLock } from "@/lib/server/leases"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -29,7 +30,7 @@ type ReconcileFailure = {
   errorCode: string
 }
 
-export async function POST(request: Request) {
+async function reconcile(request: Request) {
   try {
     const rid = serverRequestId(request)
     const session = await getSession()
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
     const correlationId = rid.id
+    const configuredBudget = Number(
+      process.env.RECONCILE_BUDGET_MS ?? 45_000
+    )
+    const deadline =
+      Date.now() +
+      (Number.isFinite(configuredBudget) && configuredBudget >= 0
+        ? configuredBudget
+        : 45_000)
     const organisationIds = session
       ? [session.organisationId]
       : (
@@ -67,7 +76,13 @@ export async function POST(request: Request) {
     const failures: ReconcileFailure[] = []
     const organisations = []
     let processed = 0
+    let budgetExhausted = false
+    let lastProcessedOrganisationId: string | null = null
     for (const organisationId of organisationIds) {
+      if (processed > 0 && Date.now() >= deadline) {
+        budgetExhausted = true
+        break
+      }
       let linked: Awaited<ReturnType<typeof linkedLocations>>
       try {
         linked = await withTenant(organisationId, async (sql) => {
@@ -104,6 +119,7 @@ export async function POST(request: Request) {
           error,
         })
         processed += 1
+        lastProcessedOrganisationId = organisationId
         continue
       }
       const results: Array<
@@ -175,10 +191,13 @@ export async function POST(request: Request) {
       }
       organisations.push({ organisationId, locations: results })
       processed += 1
+      lastProcessedOrganisationId = organisationId
     }
     const nextCursor =
-      !session && organisationIds.length === input.maxOrganisations
-        ? (organisationIds.at(-1) ?? null)
+      !session &&
+      (budgetExhausted ||
+        organisationIds.length === input.maxOrganisations)
+        ? lastProcessedOrganisationId
         : null
     return NextResponse.json({
       processed,
@@ -186,6 +205,19 @@ export async function POST(request: Request) {
       failures,
       ...(session ? { locations: organisations[0]?.locations ?? [] } : {}),
     })
+  } catch (error) {
+    return apiError(error)
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const result = await withAdvisoryLock("naba:reconcile", () =>
+      reconcile(request)
+    )
+    return result instanceof NextResponse
+      ? result
+      : NextResponse.json(result)
   } catch (error) {
     return apiError(error)
   }

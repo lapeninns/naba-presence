@@ -160,4 +160,36 @@ describeDatabase("reconcile tenant isolation", () => {
     `
     expect(task.status).toBe("open")
   })
+
+  it("returns a continuation cursor when the runtime budget is exhausted", async () => {
+    await createFixture("budget-A")
+    await createFixture("budget-B")
+    await createFixture("budget-C")
+    const budgetServer = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      RECONCILE_BUDGET_MS: "1",
+    })
+    try {
+      const response = await fetch(
+        `${budgetServer.baseUrl}/api/sync/reconcile`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer route-harness-cron-secret",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ maxOrganisations: 100 }),
+        }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const body = (await response.json()) as {
+        processed: number
+        nextCursor: string | null
+      }
+      expect(body.processed).toBeLessThanOrEqual(1)
+      expect(body.nextCursor).not.toBeNull()
+    } finally {
+      await budgetServer.stop()
+    }
+  })
 })

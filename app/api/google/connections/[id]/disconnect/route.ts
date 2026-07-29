@@ -48,7 +48,8 @@ export async function POST(
             await updateGoogleNotificationSetting(
               accessToken,
               account.google_account_name,
-              ""
+              "",
+              { connectionKey: id }
             )
           }
         } catch (error) {

@@ -20,6 +20,7 @@ FROM dependencies AS migrate
 WORKDIR /opt/nabapresence
 COPY supabase/migrations ./supabase/migrations
 COPY scripts/db-migrate.mjs ./scripts/db-migrate.mjs
+COPY scripts/db-create-runtime-role.mjs ./scripts/db-create-runtime-role.mjs
 CMD ["pnpm", "db:migrate"]
 
 FROM ${NODE_IMAGE} AS runtime

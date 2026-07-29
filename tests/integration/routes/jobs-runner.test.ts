@@ -335,9 +335,15 @@ describeDatabase("durable background jobs", () => {
     const summaries = await Promise.all(
       responses.map(
         (response) =>
-          response.json() as Promise<{ webhooks: number }>
+          response.json() as Promise<{
+            skipped?: true
+            webhooks?: number
+          }>
       )
     )
-    expect(summaries.reduce((sum, item) => sum + item.webhooks, 0)).toBe(1)
+    expect(summaries.filter((item) => item.skipped)).toHaveLength(1)
+    expect(
+      summaries.reduce((sum, item) => sum + (item.webhooks ?? 0), 0)
+    ).toBe(1)
   })
 })

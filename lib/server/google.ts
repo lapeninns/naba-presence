@@ -31,6 +31,7 @@ const OAUTH_SCOPE = [
 export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
 
 let nextGoogleRequestAt = 0
+const nextGoogleConnectionRequestAt = new Map<string, number>()
 const googleTracer = trace.getTracer("nabapresence.google")
 const googleMeter = metrics.getMeter("nabapresence.google")
 const googleRequestDuration = googleMeter.createHistogram(
@@ -47,11 +48,27 @@ const googleRequestCount = googleMeter.createCounter(
   }
 )
 
-async function paceGoogleRequest() {
+/**
+ * Scheduled Google work is single-flight via withAdvisoryLock, so this
+ * process-local limiter is fleet pacing for sync. Interactive publishes are
+ * per-process and individually rare.
+ */
+async function paceGoogleRequest(connectionKey?: string) {
   const interval = 1000 / getServerEnv().GOOGLE_REQUESTS_PER_SECOND
   const now = Date.now()
-  const wait = Math.max(0, nextGoogleRequestAt - now)
-  nextGoogleRequestAt = Math.max(now, nextGoogleRequestAt) + interval
+  const connectionNextAt = connectionKey
+    ? (nextGoogleConnectionRequestAt.get(connectionKey) ?? 0)
+    : 0
+  const requestAt = Math.max(now, nextGoogleRequestAt, connectionNextAt)
+  const wait = requestAt - now
+  nextGoogleRequestAt =
+    requestAt + interval * (0.9 + Math.random() * 0.2)
+  if (connectionKey) {
+    nextGoogleConnectionRequestAt.set(
+      connectionKey,
+      requestAt + 4 * interval
+    )
+  }
   if (wait > 0) {
     await new Promise((resolve) => setTimeout(resolve, wait))
   }
@@ -481,6 +498,7 @@ export async function googleRequest<T>(
   accessToken: string,
   init: RequestInit = {},
   options: {
+    connectionKey?: string
     mode?: "safe" | "mutation"
     maxAttempts?: number
     timeoutMs?: number
@@ -513,7 +531,7 @@ export async function googleRequest<T>(
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
           attempts = attempt
-          await paceGoogleRequest()
+          await paceGoogleRequest(options.connectionKey)
           const remainingMs = deadline - Date.now()
           if (remainingMs <= 0) {
             throw googleTimeoutError()
@@ -618,18 +636,23 @@ export async function googleRequest<T>(
   )
 }
 
-export function googleAccounts(accessToken: string, pageToken?: string) {
+export function googleAccounts(
+  accessToken: string,
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
+) {
   const request = googleAccountsRequest(pageToken)
   return googleRequest<{
     accounts?: Array<Record<string, unknown>>
     nextPageToken?: string
-  }>(request.url, accessToken, request.init)
+  }>(request.url, accessToken, request.init, options)
 }
 
 export function googleLocations(
   accessToken: string,
   accountName: string,
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const params = new URLSearchParams({
     readMask:
@@ -642,7 +665,9 @@ export function googleLocations(
     nextPageToken?: string
   }>(
     `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?${params}`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
@@ -650,7 +675,8 @@ export function googleReviews(
   accessToken: string,
   accountName: string,
   locationName: string,
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const params = new URLSearchParams({
     pageSize: "50",
@@ -665,7 +691,9 @@ export function googleReviews(
     totalReviewCount?: number
   }>(
     `https://mybusiness.googleapis.com/v4/${accountName}/locations/${locationId}/reviews?${params}`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
@@ -673,7 +701,8 @@ export function googleBatchReviews(
   accessToken: string,
   accountName: string,
   locationNames: string[],
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const request = googleBatchReviewsRequest(
     accountName,
@@ -686,34 +715,43 @@ export function googleBatchReviews(
       review?: Record<string, unknown>
     }>
     nextPageToken?: string
-  }>(request.url, accessToken, request.init)
+  }>(request.url, accessToken, request.init, options)
 }
 
 export function updateGoogleReply(
   accessToken: string,
   reviewName: string,
   body: string,
-  options: { timeoutMs?: number } = {}
+  options: { connectionKey?: string; timeoutMs?: number } = {}
 ) {
   const request = googleReplyRequest(reviewName, body)
   return googleRequest<Record<string, unknown>>(
     request.url,
     accessToken,
     request.init,
-    { mode: "mutation", timeoutMs: options.timeoutMs }
+    {
+      connectionKey: options.connectionKey,
+      mode: "mutation",
+      timeoutMs: options.timeoutMs,
+    }
   )
 }
 
 export function getGoogleReview(
   accessToken: string,
   reviewName: string,
-  options: { timeoutMs?: number; maxAttempts?: number } = {}
+  options: {
+    connectionKey?: string
+    timeoutMs?: number
+    maxAttempts?: number
+  } = {}
 ) {
   return googleRequest<Record<string, unknown>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}`,
     accessToken,
     {},
     {
+      connectionKey: options.connectionKey,
       timeoutMs: options.timeoutMs,
       maxAttempts: options.maxAttempts,
     }
@@ -723,19 +761,24 @@ export function getGoogleReview(
 export function deleteGoogleReply(
   accessToken: string,
   reviewName: string,
-  options: { timeoutMs?: number } = {}
+  options: { connectionKey?: string; timeoutMs?: number } = {}
 ) {
   return googleRequest<Record<string, never>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}/reply`,
     accessToken,
     { method: "DELETE" },
-    { mode: "mutation", timeoutMs: options.timeoutMs }
+    {
+      connectionKey: options.connectionKey,
+      mode: "mutation",
+      timeoutMs: options.timeoutMs,
+    }
   )
 }
 
 export function getGoogleNotificationSetting(
   accessToken: string,
-  accountName: string
+  accountName: string,
+  options: { connectionKey?: string } = {}
 ) {
   return googleRequest<{
     name: string
@@ -743,19 +786,25 @@ export function getGoogleNotificationSetting(
     notificationTypes?: string[]
   }>(
     `https://mybusinessnotifications.googleapis.com/v1/${accountName}/notificationSetting`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
 export function updateGoogleNotificationSetting(
   accessToken: string,
   accountName: string,
-  pubsubTopic: string
+  pubsubTopic: string,
+  options: { connectionKey?: string } = {}
 ) {
   const request = googleNotificationSettingRequest(accountName, pubsubTopic)
   return googleRequest<{
     name: string
     pubsubTopic?: string
     notificationTypes?: string[]
-  }>(request.url, accessToken, request.init, { mode: "mutation" })
+  }>(request.url, accessToken, request.init, {
+    connectionKey: options.connectionKey,
+    mode: "mutation",
+  })
 }

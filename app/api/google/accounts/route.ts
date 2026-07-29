@@ -40,7 +40,9 @@ export async function GET(request: Request) {
       const seenPageTokens = new Set<string>()
       let pageToken: string | undefined
       do {
-        const response = await googleAccounts(accessToken, pageToken)
+        const response = await googleAccounts(accessToken, pageToken, {
+          connectionKey: connection.id,
+        })
         discovered.push(...(response.accounts ?? []))
         pageToken = response.nextPageToken
         if (pageToken) {

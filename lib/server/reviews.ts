@@ -449,7 +449,8 @@ export async function syncLinkedLocation(input: {
         accessToken,
         header.linked.googleAccountName,
         header.linked.googleLocationName,
-        pageToken
+        pageToken,
+        { connectionKey: header.linked.connectionId }
       )
       const nextPageToken = page.nextPageToken
       const pageHighWater = maxReviewUpdateTime(page.reviews ?? [])

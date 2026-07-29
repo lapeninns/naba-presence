@@ -55,7 +55,8 @@ export async function GET(request: Request) {
           const response = await googleLocations(
             accessToken,
             account.google_account_name,
-            pageToken
+            pageToken,
+            { connectionKey: account.google_connection_id }
           )
           for (const location of response.locations ?? []) {
             const googleLocationName = String(location.name ?? "")

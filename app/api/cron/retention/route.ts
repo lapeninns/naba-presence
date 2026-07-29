@@ -5,11 +5,12 @@ import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { withAdvisoryLock } from "@/lib/server/leases"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function POST(request: Request) {
+async function retain(request: Request) {
   try {
     const rid = serverRequestId(request)
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "")
@@ -124,6 +125,19 @@ export async function POST(request: Request) {
       nextCursor:
         organisations.length === batchSize ? organisations.at(-1)?.id : null,
     })
+  } catch (error) {
+    return apiError(error)
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const result = await withAdvisoryLock("naba:retention", () =>
+      retain(request)
+    )
+    return result instanceof NextResponse
+      ? result
+      : NextResponse.json(result)
   } catch (error) {
     return apiError(error)
   }

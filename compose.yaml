@@ -55,7 +55,7 @@ services:
       DRAFTS_ENABLED: "true"
       PUBLISH_ENABLED: "true"
       SYNC_ENABLED: "true"
-      WEBHOOKS_ENABLED: "true"
+      WEBHOOKS_ENABLED: ${WEBHOOKS_ENABLED:-false}
       LOCAL_BOOTSTRAP_ENABLED: "true"
       GOOGLE_REQUESTS_PER_SECOND: "8"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

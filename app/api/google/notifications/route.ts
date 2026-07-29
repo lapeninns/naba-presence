@@ -65,7 +65,8 @@ export async function GET(request: Request) {
       )
       return getGoogleNotificationSetting(
         accessToken,
-        account.google_account_name
+        account.google_account_name,
+        { connectionKey: account.connection_id }
       )
     })
     return NextResponse.json({ setting })
@@ -88,7 +89,8 @@ export async function PATCH(request: Request) {
       const updated = await updateGoogleNotificationSetting(
         accessToken,
         account.google_account_name,
-        input.pubsubTopic
+        input.pubsubTopic,
+        { connectionKey: account.connection_id }
       )
       await sql`
         update google_connection
