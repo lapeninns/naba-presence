@@ -1,0 +1,9 @@
+{
+  "message": {
+    "data": "eyJsb2NhdGlvbiI6ImFjY291bnRzLzEwMDEvbG9jYXRpb25zLzIwMDIiLCJyZXZpZXciOiJhY2NvdW50cy8xMDAxL2xvY2F0aW9ucy8yMDAyL3Jldmlld3Mvci03NzciLCJ0eXBlIjoiTkVXX1JFVklFVyJ9",
+    "messageId": "1234567890",
+    "publishTime": "2026-09-01T08:00:00.000Z",
+    "attributes": {}
+  },
+  "subscription": "projects/naba-staging/subscriptions/reviews-push"
+}

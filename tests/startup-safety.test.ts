@@ -57,6 +57,32 @@ describe("collectSafetyViolations", () => {
     ).toEqual([])
   })
 
+  it("accepts webhooks with a strong verification token", () => {
+    expect(
+      collectSafetyViolations(
+        {
+          ...baseEnv,
+          WEBHOOKS_ENABLED: true,
+          GOOGLE_PUBSUB_VERIFICATION_TOKEN:
+            "harness-pubsub-token-32-characters!!",
+        },
+        safeIdentity
+      )
+    ).toEqual([])
+  })
+
+  it("rejects a short verification token without an audience", () => {
+    const violations = collectSafetyViolations(
+      {
+        ...baseEnv,
+        WEBHOOKS_ENABLED: true,
+        GOOGLE_PUBSUB_VERIFICATION_TOKEN: "sixteen-char-key",
+      },
+      safeIdentity
+    )
+    expect(violations.join(" ")).toContain("GOOGLE_PUBSUB_AUDIENCE")
+  })
+
   it("flags LOCAL_BOOTSTRAP_ENABLED off localhost", () => {
     expect(
       collectSafetyViolations(

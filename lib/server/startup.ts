@@ -13,6 +13,9 @@ export type DbIdentity = {
   rowSecurity: string
 }
 
+// A high-entropy shared token is a strong webhook-auth option for controlled
+// harness deployments. Staging and production still use Google OIDC identity
+// verification as defined by the parallel operations track.
 export function collectSafetyViolations(
   env: ServerEnv,
   identity: DbIdentity
@@ -33,7 +36,13 @@ export function collectSafetyViolations(
       `row_security is '${identity.rowSecurity}', expected 'on'.`
     )
   }
-  if (env.WEBHOOKS_ENABLED && !env.GOOGLE_PUBSUB_AUDIENCE) {
+  const hasStrongWebhookToken =
+    (env.GOOGLE_PUBSUB_VERIFICATION_TOKEN?.length ?? 0) >= 32
+  if (
+    env.WEBHOOKS_ENABLED &&
+    !env.GOOGLE_PUBSUB_AUDIENCE &&
+    !hasStrongWebhookToken
+  ) {
     violations.push(
       "WEBHOOKS_ENABLED requires GOOGLE_PUBSUB_AUDIENCE (OIDC push verification) in production."
     )

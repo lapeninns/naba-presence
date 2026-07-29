@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { parsePubSubNotification } from "@/lib/domain/pubsub-payload"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -21,19 +22,6 @@ const envelopeSchema = z.object({
   subscription: z.string().optional(),
 })
 
-function notificationLocation(payload: Record<string, unknown>): string | null {
-  const direct = payload.locationName ?? payload.location
-  if (typeof direct === "string") {
-    const match = direct.match(/locations\/[^/]+/)
-    return match?.[0] ?? direct
-  }
-  const reviewName = payload.reviewName ?? payload.review
-  if (typeof reviewName === "string") {
-    return reviewName.match(/locations\/[^/]+/)?.[0] ?? null
-  }
-  return null
-}
-
 export async function POST(request: Request) {
   try {
     const env = getServerEnv()
@@ -50,7 +38,8 @@ export async function POST(request: Request) {
       "utf8"
     )
     const payload = JSON.parse(decoded) as Record<string, unknown>
-    const locationName = notificationLocation(payload)
+    const notification = parsePubSubNotification(payload)
+    const locationName = notification.locationName
     if (!locationName) {
       throw new ApiError(
         400,
@@ -97,7 +86,7 @@ export async function POST(request: Request) {
             ${route.external_location_id},
             'google_pubsub',
             ${envelope.message.messageId},
-            ${String(payload.type ?? payload.notificationType ?? "review_update")},
+            ${notification.type},
             ${sha256(decoded)},
             ${sql.json(JSON.parse(JSON.stringify(payload)))},
             now() + interval '30 days',

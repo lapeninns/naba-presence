@@ -221,7 +221,7 @@ The start/complete audit writes (`route.ts:62-96`) move to per-org `withTenant` 
 **Interfaces:**
 - Produces: `parsePubSubNotification(decoded: unknown): { type: string; locationName: string | null; reviewName: string | null }` in `lib/domain/pubsub-payload.ts`. Fixtures are the documented Business Profile notification shape; Sprint 5 GGL-501 replaces them with a live capture and re-runs this suite — only the fixture files and (if casing differs) this one module may change then.
 
-- [ ] **Step 1: Fixtures.** `new-review.json` (documented camelCase shape):
+- [x] **Step 1: Fixtures.** `new-review.json` (documented camelCase shape):
 
 ```json
 {
@@ -237,7 +237,7 @@ The start/complete audit writes (`route.ts:62-96`) move to per-org `withTenant` 
 
 with decoded `data`: `{"location":"accounts/1001/locations/2002","review":"accounts/1001/locations/2002/reviews/r-777","type":"NEW_REVIEW"}`. `updated-review.json`: same with `"type":"UPDATED_REVIEW"`. `unknown-shape.json`: decoded `{"somethingElse":true}`.
 
-- [ ] **Step 2: Unit tests** — `tests/pubsub-payload.test.ts`: for each fixture decode and assert `parsePubSubNotification` returns `{type:"NEW_REVIEW", locationName:"locations/2002"…}` etc.; the unknown shape returns `{type:"review_update", locationName:null, reviewName:null}`; legacy keys (`locationName`, `reviewName`, `notificationType`) still parse (current code's fallbacks, kept). Run — FAIL; implement the module by moving `notificationLocation` (`route.ts:24-35`) and the type derivation (`route.ts:98`) into it with a Zod schema accepting both key sets:
+- [x] **Step 2: Unit tests** — `tests/pubsub-payload.test.ts`: for each fixture decode and assert `parsePubSubNotification` returns `{type:"NEW_REVIEW", locationName:"locations/2002"…}` etc.; the unknown shape returns `{type:"review_update", locationName:null, reviewName:null}`; legacy keys (`locationName`, `reviewName`, `notificationType`) still parse (current code's fallbacks, kept). Run — FAIL; implement the module by moving `notificationLocation` (`route.ts:24-35`) and the type derivation (`route.ts:98`) into it with a Zod schema accepting both key sets:
 
 ```ts
 const notificationSchema = z
@@ -254,8 +254,8 @@ const notificationSchema = z
 
 `locationName` extraction: prefer explicit location keys, else derive from the review resource name via the existing `/locations\/[^/]+/` match. Run — PASS.
 
-- [ ] **Step 3: Harness auth decision (amends WEB-101).** `verifyPubSubRequest` runs *both* checks when both are configured, so a harness server with `GOOGLE_PUBSUB_AUDIENCE` set could never pass (tests cannot mint Google OIDC tokens) — yet Sprint 1's boot rule requires the audience whenever webhooks are on. Resolve it by widening the rule: in `collectSafetyViolations`, "strong webhook auth" is satisfied by `GOOGLE_PUBSUB_AUDIENCE` **or** a `GOOGLE_PUBSUB_VERIFICATION_TOKEN` of ≥ 32 chars. Update `tests/startup-safety.test.ts` accordingly (existing audience cases unchanged; add: 32-char token + no audience → no violation; 16-char token + no audience → violation). Staging/production still use OIDC (parallel track P3); document that in the module comment.
-- [ ] **Step 4: Route rewire + route test.** The webhook route uses `parsePubSubNotification`; add `tests/integration/routes/webhook-payload.test.ts`: server env `WEBHOOKS_ENABLED:"true"`, `GOOGLE_PUBSUB_VERIFICATION_TOKEN:"harness-pubsub-token-32-characters!!"`, no audience. POST the `new-review.json` fixture (with `x-goog-pubsub-token` header, `data` re-encoded to reference the seeded location's `google_location_name`): expect 200 `{status:"processed"}` and one stub `GET …/reviews` call. OIDC-path coverage stays at the unit level over `verifyPubSubRequest` (existing behavior, unchanged) and live in Sprint 5. Run — PASS after wiring.
+- [x] **Step 3: Harness auth decision (amends WEB-101).** `verifyPubSubRequest` runs *both* checks when both are configured, so a harness server with `GOOGLE_PUBSUB_AUDIENCE` set could never pass (tests cannot mint Google OIDC tokens) — yet Sprint 1's boot rule requires the audience whenever webhooks are on. Resolve it by widening the rule: in `collectSafetyViolations`, "strong webhook auth" is satisfied by `GOOGLE_PUBSUB_AUDIENCE` **or** a `GOOGLE_PUBSUB_VERIFICATION_TOKEN` of ≥ 32 chars. Update `tests/startup-safety.test.ts` accordingly (existing audience cases unchanged; add: 32-char token + no audience → no violation; 16-char token + no audience → violation). Staging/production still use OIDC (parallel track P3); document that in the module comment.
+- [x] **Step 4: Route rewire + route test.** The webhook route uses `parsePubSubNotification`; add `tests/integration/routes/webhook-payload.test.ts`: server env `WEBHOOKS_ENABLED:"true"`, `GOOGLE_PUBSUB_VERIFICATION_TOKEN:"harness-pubsub-token-32-characters!!"`, no audience. POST the `new-review.json` fixture (with `x-goog-pubsub-token` header, `data` re-encoded to reference the seeded location's `google_location_name`): expect 200 `{status:"processed"}` and one stub `GET …/reviews` call. OIDC-path coverage stays at the unit level over `verifyPubSubRequest` (existing behavior, unchanged) and live in Sprint 5. Run — PASS after wiring.
 
 *(Seam note: 3a/3b split point is here.)*
 
