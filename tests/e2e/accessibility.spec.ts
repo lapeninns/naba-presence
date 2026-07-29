@@ -598,7 +598,6 @@ for (const viewport of [
               rawContentRetentionDays: 30,
               defaultLanguageCode: "en",
               defaultTimezone: "Europe/London",
-              directPublishConsent: false,
               directPublishConsentAt: null,
             },
           },
@@ -629,6 +628,9 @@ for (const viewport of [
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()
       await expect(page.getByText("Team access", { exact: true })).toBeVisible()
+      await expect(
+        page.getByRole("combobox", { name: "Role for Alex Morgan" })
+      ).toBeVisible()
       await expectAccessible(page, `${viewport.name} settings`)
     })
   })
