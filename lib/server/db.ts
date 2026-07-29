@@ -32,6 +32,10 @@ export function getDatabase(): Sql {
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false,
+      connection: {
+        statement_timeout: 30_000,
+        idle_in_transaction_session_timeout: 60_000,
+      },
     })
   }
   return globalThis.__nabaSql

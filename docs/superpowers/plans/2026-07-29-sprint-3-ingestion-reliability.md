@@ -35,14 +35,25 @@
 **Interfaces:**
 - Produces: env vars `GOOGLE_TIMEOUT_MS` (default 15000), `GOOGLE_MUTATION_TIMEOUT_MS` (default 20000, already used by Sprint 2 call sites), `OPENAI_TIMEOUT_MS` (default 30000) — `z.coerce.number()` with defaults in `serverEnvSchema`; `googleRequest` applies `timeoutMs ?? (mode === "mutation" ? env.GOOGLE_MUTATION_TIMEOUT_MS : env.GOOGLE_TIMEOUT_MS)`.
 
-- [ ] **Step 1: Failing test.** `tests/integration/routes/timeouts.test.ts`: stub `GET …/reviews` with `delayMs: 20_000`; server started with `GOOGLE_TIMEOUT_MS: "1500"`; `POST /api/sync/backfill` (owner cookie, one linked location) must return within ~5 s with a sync failure recorded (`sync_checkpoint.status = 'failed'`, `last_error_code` containing `timeout` or `google`), not hang to `maxDuration`. Assert wall-clock `< 10_000` ms. A second case: OpenAI — with `OPENAI_API_KEY` set to a dummy and `GOOGLE_API_PROXY_BASE` also serving `/v1/responses` with `delayMs: 20_000` and `OPENAI_TIMEOUT_MS: "1000"`… OpenAI has no proxy seam yet, so add one in Step 2 (`OPENAI_BASE_URL`, default `https://api.openai.com`). The test asserts `POST /api/reviews/{id}/drafts` `{tone}` (the AI path) fails fast with 502, not a 60 s stall. Run — FAIL (no timeouts exist; requests hang the full stub delay).
-- [ ] **Step 2: Implement.**
+- [x] **Step 1: Failing test.** `tests/integration/routes/timeouts.test.ts`: stub `GET …/reviews` with `delayMs: 20_000`; server started with `GOOGLE_TIMEOUT_MS: "1500"`; `POST /api/sync/backfill` (owner cookie, one linked location) must return within ~5 s with a sync failure recorded (`sync_checkpoint.status = 'failed'`, `last_error_code` containing `timeout` or `google`), not hang to `maxDuration`. Assert wall-clock `< 10_000` ms. A second case: OpenAI — with `OPENAI_API_KEY` set to a dummy and `GOOGLE_API_PROXY_BASE` also serving `/v1/responses` with `delayMs: 20_000` and `OPENAI_TIMEOUT_MS: "1000"`… OpenAI has no proxy seam yet, so add one in Step 2 (`OPENAI_BASE_URL`, default `https://api.openai.com`). The test asserts `POST /api/reviews/{id}/drafts` `{tone}` (the AI path) fails fast with 502, not a 60 s stall. Run — FAIL (no timeouts exist; requests hang the full stub delay).
+- [x] **Step 2: Implement.**
   - `lib/server/google.ts`: `googleRequest` already accepts `timeoutMs` (Sprint 2); make it default from env as in Interfaces. Give `exchangeGoogleCode` and `refreshAccessToken` `AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS)` on their raw fetches. Map `TimeoutError`/`AbortError` in safe mode to a retryable transport fault (existing backoff loop), in mutation mode to `GoogleMutationAmbiguousError` (Sprint 2's classifier already treats `kind:"timeout"` as ambiguous).
   - Cap the honoured `retry-after` at 30 s (`google.ts:368-376` currently honours it unbounded): `Math.min(retryAfterMs, 30_000)`.
   - `lib/server/ai.ts`: `const base = process.env.OPENAI_BASE_URL ?? "https://api.openai.com"`; fetch `${base}/v1/responses` with `signal: AbortSignal.timeout(getServerEnv().OPENAI_TIMEOUT_MS)`; on abort throw `ApiError(502, "ai_timeout", "The AI provider timed out.")`.
   - `scripts/scheduler.mjs`: add `signal: AbortSignal.timeout(55_000)` to the fetch at line 38 (under the 60 s route budget).
   - `lib/server/db.ts`: pool options gain `connection: { statement_timeout: 30_000, idle_in_transaction_session_timeout: 60_000 }` — safe now because Sprint 2 removed provider calls from mutation transactions and Task 2 removes them from sync transactions; the 100k-row retention deletes run batched (existing `batch_size=100` loop) under 30 s.
-- [ ] **Step 3: Run** the new test + full suites (`pnpm test` — `tests/retry.test.ts` unchanged; `pnpm test:integration` — Sprint 2 suites must stay green with the new defaults). Expected: PASS.
+- [x] **Step 3: Run** the new test + full suites (`pnpm test` — `tests/retry.test.ts` unchanged; `pnpm test:integration` — Sprint 2 suites must stay green with the new defaults). Expected: PASS.
+
+**Deviation (Task 1):** Before Task 2 removes the legacy batch path, the
+backfill route reaches Google through `POST locations:batchGetReviews`, so the
+timeout test delays that actual endpoint rather than the plan's post-Task-2
+`GET …/reviews` endpoint. `googleRequest` treats the configured timeout as the
+budget for the whole retry operation (each retry receives only the remaining
+budget), which preserves safe retry classification without allowing five
+attempts to violate the route-level `< 10s` contract. Sprint 2's explicit
+15/20-second publish constants were also removed so its read and mutation
+calls consume the binding `GOOGLE_TIMEOUT_MS` and
+`GOOGLE_MUTATION_TIMEOUT_MS` defaults.
 
 ---
 

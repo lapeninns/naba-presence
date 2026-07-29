@@ -47,6 +47,15 @@ const optionalTextWithDefault = (fallback: string) =>
     z.string().min(1).default(fallback)
   )
 
+const urlWithDefault = (fallback: string) =>
+  z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.url().default(fallback)
+  )
+
+const timeoutWithDefault = (fallback: number) =>
+  z.coerce.number().int().positive().default(fallback)
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DIRECT_DATABASE_URL: optionalText,
@@ -59,6 +68,8 @@ const serverEnvSchema = z.object({
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
+  OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
+  OPENAI_TIMEOUT_MS: timeoutWithDefault(30_000),
   GOOGLE_CLIENT_ID: optionalText,
   GOOGLE_CLIENT_SECRET: optionalText,
   GOOGLE_PLACES_API_KEY: optionalText,
@@ -66,6 +77,8 @@ const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL: optionalEmail,
   GOOGLE_PUBSUB_VERIFICATION_TOKEN: optionalSecret(16),
   GOOGLE_REQUESTS_PER_SECOND: z.coerce.number().min(1).max(100).default(8),
+  GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
+  GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
   DRAFTS_ENABLED: featureFlag(true),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),

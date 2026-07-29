@@ -63,6 +63,21 @@ export class GoogleMutationAmbiguousError extends ApiError {
   }
 }
 
+function isAbortError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  )
+}
+
+function googleTimeoutError() {
+  return new ApiError(
+    502,
+    "google_timeout",
+    "The Google provider timed out."
+  )
+}
+
 export type GoogleTokenResponse = {
   access_token: string
   expires_in: number
@@ -218,8 +233,12 @@ export async function exchangeGoogleCode(
         ).toString(),
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
     }
-  )
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
+  })
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
     error_description?: string
@@ -269,8 +288,12 @@ async function refreshAccessToken(
         grant_type: "refresh_token",
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
     }
-  )
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
+  })
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
   }
@@ -369,6 +392,12 @@ export async function googleRequest<T>(
 ): Promise<T> {
   const mode = options.mode ?? "safe"
   const maxAttempts = mode === "mutation" ? 1 : (options.maxAttempts ?? 5)
+  const timeoutMs =
+    options.timeoutMs ??
+    (mode === "mutation"
+      ? getServerEnv().GOOGLE_MUTATION_TIMEOUT_MS
+      : getServerEnv().GOOGLE_TIMEOUT_MS)
+  const deadline = Date.now() + timeoutMs
   const providerHost = new URL(url).hostname
   const method = init.method ?? "GET"
   return googleTracer.startActiveSpan(
@@ -389,6 +418,10 @@ export async function googleRequest<T>(
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
           attempts = attempt
           await paceGoogleRequest()
+          const remainingMs = deadline - Date.now()
+          if (remainingMs <= 0) {
+            throw googleTimeoutError()
+          }
           let response: Response
           try {
             response = await fetch(googleApiTarget(url), {
@@ -400,22 +433,20 @@ export async function googleRequest<T>(
                 ...init.headers,
               },
               cache: "no-store",
-              signal:
-                options.timeoutMs !== undefined
-                  ? AbortSignal.timeout(options.timeoutMs)
-                  : undefined,
+              signal: AbortSignal.timeout(remainingMs),
             })
           } catch (error) {
             if (mode === "mutation") {
-              const timeout =
-                error instanceof Error && error.name === "TimeoutError"
               throw new GoogleMutationAmbiguousError(
-                timeout
+                isAbortError(error)
                   ? "Google mutation timed out."
                   : error instanceof Error
                     ? error.message
                     : undefined
               )
+            }
+            if (isAbortError(error) && Date.now() >= deadline) {
+              throw googleTimeoutError()
             }
             if (attempt === maxAttempts) throw error
             await new Promise((resolve) =>
@@ -435,13 +466,12 @@ export async function googleRequest<T>(
             attempt < maxAttempts
           ) {
             const retryAfter = Number(response.headers.get("retry-after"))
+            const retryAfterMs =
+              Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(retryAfter * 1000, 30_000)
+                : retryDelayMs(attempt)
             await new Promise((resolve) =>
-              setTimeout(
-                resolve,
-                Number.isFinite(retryAfter) && retryAfter > 0
-                  ? retryAfter * 1000
-                  : retryDelayMs(attempt)
-              )
+              setTimeout(resolve, Math.min(retryAfterMs, timeoutMs))
             )
             continue
           }

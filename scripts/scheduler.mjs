@@ -43,6 +43,7 @@ async function post(path, body) {
       "x-request-id": crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(55_000),
   })
   const result = await response.json().catch(() => null)
   if (!response.ok) {

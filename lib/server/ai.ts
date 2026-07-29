@@ -54,33 +54,52 @@ async function openAiStructured<T>(
       options.unavailableMessage ?? "AI features are not configured."
     )
   }
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      "content-type": "application/json",
-      ...(env.OPENAI_ORG_ID
-        ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
-        : {}),
-    },
-    body: JSON.stringify({
-      model,
-      input,
-      store: false,
-      ...(options.reasoningEffort
-        ? { reasoning: { effort: options.reasoningEffort } }
-        : {}),
-      text: {
-        format: {
-          type: "json_schema",
-          name,
-          strict: true,
-          schema,
+  let response: Response
+  try {
+    response = await fetch(
+      new URL("/v1/responses", env.OPENAI_BASE_URL),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "content-type": "application/json",
+          ...(env.OPENAI_ORG_ID
+            ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
+            : {}),
         },
-      },
-    }),
-    cache: "no-store",
-  })
+        body: JSON.stringify({
+          model,
+          input,
+          store: false,
+          ...(options.reasoningEffort
+            ? { reasoning: { effort: options.reasoningEffort } }
+            : {}),
+          text: {
+            format: {
+              type: "json_schema",
+              name,
+              strict: true,
+              schema,
+            },
+          },
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
+      }
+    )
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError")
+    ) {
+      throw new ApiError(
+        502,
+        "ai_timeout",
+        "The AI provider timed out."
+      )
+    }
+    throw error
+  }
   const payload = (await response.json()) as Record<string, unknown>
   if (!response.ok) {
     const error =

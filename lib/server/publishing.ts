@@ -184,7 +184,7 @@ export async function recoverAttempt(input: {
     review = await getGoogleReview(
       accessToken,
       decryptSecret(context.google_review_name_ciphertext),
-      { timeoutMs: 15_000, maxAttempts: 1 }
+      { maxAttempts: 1 }
     )
   } catch (error) {
     if (error instanceof GoogleMutationAmbiguousError) throw error
@@ -729,8 +729,7 @@ export async function executePublish(input: {
     provider = await updateGoogleReply(
       accessToken,
       phaseOne.googleReviewName,
-      phaseOne.body,
-      { timeoutMs: 20_000 }
+      phaseOne.body
     )
   } catch (error) {
     providerError = error
@@ -1209,8 +1208,7 @@ export async function executeReplyDelete(input: {
     )
     await deleteGoogleReply(
       accessToken,
-      phaseOne.googleReviewName,
-      { timeoutMs: 20_000 }
+      phaseOne.googleReviewName
     )
     applied = true
   } catch (error) {

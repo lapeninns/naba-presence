@@ -50,8 +50,12 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     )
     const result = rule ? rule.handler(call) : defaultResponse(call)
     if (result.delayMs) {
-      await new Promise((resolve) => setTimeout(resolve, result.delayMs))
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, result.delayMs)),
+        once(response, "close"),
+      ])
     }
+    if (response.destroyed) return
     response.writeHead(result.status, {
       "content-type": "application/json",
     })
