@@ -20,4 +20,20 @@ describeDatabase("startup safety assertion", () => {
     })
     expect(message).toContain("BYPASSRLS")
   })
+
+  it("refuses to boot with webhooks enabled and no OIDC audience", async () => {
+    const message = await expectBootFailure({
+      WEBHOOKS_ENABLED: "true",
+    })
+    expect(message).toContain("GOOGLE_PUBSUB_AUDIENCE")
+  })
+
+  it("boots with webhooks enabled once the audience is set", async () => {
+    const server = await startAppServer({
+      WEBHOOKS_ENABLED: "true",
+      GOOGLE_PUBSUB_AUDIENCE:
+        "https://harness.invalid/api/webhooks/google/pubsub",
+    })
+    await server.stop()
+  })
 })

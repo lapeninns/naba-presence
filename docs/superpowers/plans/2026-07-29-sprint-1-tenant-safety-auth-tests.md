@@ -1332,7 +1332,7 @@ Expected: PASS — including Task 4's provisioning tests (they now exercise `pro
 - Consumes: Task 3's `collectSafetyViolations(env, identity)`.
 - Produces: the rule "production + `WEBHOOKS_ENABLED` ⇒ `GOOGLE_PUBSUB_AUDIENCE` required" (OIDC is mandatory; the shared token remains an optional *additional* check — `verifyPubSubRequest` in `lib/server/pubsub.ts:21-68` already enforces whatever is configured per request and stays unchanged).
 
-- [ ] **Step 1: Write the failing unit test** — `tests/startup-safety.test.ts`:
+- [x] **Step 1: Write the failing unit test** — `tests/startup-safety.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest"
@@ -1389,9 +1389,9 @@ describe("collectSafetyViolations", () => {
 })
 ```
 
-- [ ] **Step 2: Run** — `pnpm test tests/startup-safety.test.ts` — Expected: FAIL on the audience case only.
+- [x] **Step 2: Run** — `pnpm test tests/startup-safety.test.ts` — Expected: FAIL on the audience case only.
 
-- [ ] **Step 3: Add the rule** to `collectSafetyViolations` in `lib/server/startup.ts`:
+- [x] **Step 3: Add the rule** to `collectSafetyViolations` in `lib/server/startup.ts`:
 
 ```ts
   if (env.WEBHOOKS_ENABLED && !env.GOOGLE_PUBSUB_AUDIENCE) {
@@ -1403,7 +1403,7 @@ describe("collectSafetyViolations", () => {
 
 Run Step 1's test — Expected: PASS.
 
-- [ ] **Step 4: Boot-level proof.** Add to `tests/integration/startup-assertion.test.ts`:
+- [x] **Step 4: Boot-level proof.** Add to `tests/integration/startup-assertion.test.ts`:
 
 ```ts
 it("refuses to boot with webhooks enabled and no OIDC audience", async () => {
@@ -1420,7 +1420,11 @@ it("boots with webhooks enabled once the audience is set", async () => {
 })
 ```
 
-- [ ] **Step 5: Rebuild + run** — `pnpm build && pnpm test:integration` (with the env vars) — Expected: PASS.
+- [x] **Step 5: Rebuild + run** — `pnpm build && pnpm test:integration` (with the env vars) — Expected: PASS.
+
+  **Deviation:** The unit fixture is cast to the binding `ServerEnv` type
+  instead of the plan snippet's `never`; this repository's TypeScript version
+  rejects spreading a `never` value. Test inputs and assertions are unchanged.
 
 ---
 

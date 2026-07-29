@@ -33,6 +33,11 @@ export function collectSafetyViolations(
       `row_security is '${identity.rowSecurity}', expected 'on'.`
     )
   }
+  if (env.WEBHOOKS_ENABLED && !env.GOOGLE_PUBSUB_AUDIENCE) {
+    violations.push(
+      "WEBHOOKS_ENABLED requires GOOGLE_PUBSUB_AUDIENCE (OIDC push verification) in production."
+    )
+  }
   if (env.LOCAL_BOOTSTRAP_ENABLED) {
     const hostname = env.NEXTAUTH_URL
       ? new URL(env.NEXTAUTH_URL).hostname
