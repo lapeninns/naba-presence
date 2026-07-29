@@ -149,6 +149,8 @@ general availability.
 - [Architecture and data controls](docs/architecture.md)
 - [Operations runbook](docs/runbook.md)
 - [Requirement traceability matrix](docs/requirements-matrix.md)
-- [Design system decision](docs/specs/2026-07-28-design-system.md)
-- Original design-system proof sheet: `/design-system`
+- [Design-system palette specification](docs/specs/2026-07-28-design-system.md)
+- [Full design-system replacement specification](docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md)
+- [Full design-system replacement plan](docs/superpowers/plans/2026-07-29-full-design-system-replacement.md)
+- Production design-system proof surface: [`/design-system`](/design-system)
 - [UI DS-idiom rebuild design](docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)

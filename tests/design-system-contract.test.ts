@@ -21,6 +21,10 @@ const card = readFileSync(
   new URL("../components/ui/card.tsx", import.meta.url),
   "utf8"
 )
+const proof = readFileSync(
+  new URL("../app/design-system/page.tsx", import.meta.url),
+  "utf8"
+)
 const sharedFunction = (name: string, nextName: string) =>
   shared.slice(
     shared.indexOf(`export function ${name}`),
@@ -98,5 +102,18 @@ describe("NabaReview design system", () => {
     expect(businessContext).toContain("status?: { label: string; value: string }")
     expect(businessContext).toContain("{status.label}</span>")
     expect(businessContext).toContain("{status.value}</span>")
+  })
+  it("documents production foundations", () => {
+    for (const section of [
+      "Foundations",
+      "Typography",
+      "Spacing and radius",
+      "Elevation and glass",
+      "Controls",
+      "Status and feedback",
+      "Product compositions",
+    ]) {
+      expect(proof).toContain(section)
+    }
   })
 })

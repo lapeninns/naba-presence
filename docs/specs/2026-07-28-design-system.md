@@ -5,6 +5,10 @@
 Google Business Profile palette. Colour and type are ours; radius, density, sizing and
 component structure stay stock.
 
+> **Ownership:** This document's palette rationale remains authoritative. The full
+> production system lives in
+> [NabaReview full design-system replacement](../superpowers/specs/2026-07-29-full-design-system-replacement-design.md).
+
 ## Why this shape
 
 The repo began as a bare shadcn starter on the `olive` base colour — warm grey-green

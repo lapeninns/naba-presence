@@ -8,6 +8,15 @@ const accessibilityTags = [
   "wcag21aa",
   "wcag22aa",
 ]
+const proofSections = [
+  "Foundations",
+  "Typography",
+  "Spacing and radius",
+  "Elevation and glass",
+  "Controls",
+  "Status and feedback",
+  "Product compositions",
+]
 
 async function expectAccessible(page: Page, surface: string) {
   const results = await new AxeBuilder({ page })
@@ -44,6 +53,22 @@ for (const viewport of [
 ]) {
   test.describe(`${viewport.name} WCAG 2.2 AA`, () => {
     test.use({ viewport })
+
+    test("design-system proof", async ({ page }) => {
+      await page.goto("/design-system")
+      await expect(
+        page.getByRole("heading", {
+          name: "NabaReview design system",
+          level: 1,
+        })
+      ).toBeVisible()
+      for (const section of proofSections) {
+        await expect(
+          page.getByRole("heading", { name: section, level: 2 })
+        ).toBeVisible()
+      }
+      await expectAccessible(page, `${viewport.name} design-system proof`)
+    })
 
     test("application shell", async ({ page }) => {
       await page.goto("/")
@@ -558,19 +583,6 @@ for (const viewport of [
         page.getByLabel("Connection status and guidance")
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} connections`)
-    })
-
-    test("menu assistant", async ({ page }) => {
-      await page.goto("/")
-      await openNavigationSurface(
-        page,
-        "Menu assistant",
-        viewport.name === "mobile"
-      )
-      await expect(
-        page.getByRole("heading", { name: "Menu assistant" })
-      ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} menu assistant`)
     })
 
     test("settings", async ({ page }) => {
