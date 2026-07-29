@@ -7,7 +7,7 @@ import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { provisionOwner } from "@/lib/server/provisioning"
 import { getSession, setSessionCookie } from "@/lib/server/session"
 
@@ -39,7 +39,7 @@ async function oauthParameters(request: Request) {
 }
 
 async function completeOAuth(request: Request) {
-  const correlationId = requestId(request)
+  const rid = serverRequestId(request)
   const params = await oauthParameters(request)
   if (params.error) {
     throw new ApiError(400, "google_oauth_denied", params.error)
@@ -171,10 +171,11 @@ async function completeOAuth(request: Request) {
         : "google.connection.connected",
       subjectType: "google_connection",
       subjectId: row.id,
-      requestId: `${correlationId}:connection`,
+      requestId: `${rid.id}:connection`,
       metadata: {
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
+        clientRequestId: rid.clientId,
       },
     })
     if (sessionToken) {
@@ -184,8 +185,11 @@ async function completeOAuth(request: Request) {
         action: "user.signed_in",
         subjectType: "user",
         subjectId: session.userId,
-        requestId: `${correlationId}:signin`,
-        metadata: { provider: "google" },
+        requestId: `${rid.id}:signin`,
+        metadata: {
+          provider: "google",
+          clientRequestId: rid.clientId,
+        },
       })
     }
     return row

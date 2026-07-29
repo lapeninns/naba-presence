@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -81,6 +81,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = createSchema.parse(await request.json())
     assertRoleChangeAllowed(session.role, input.role)
@@ -129,8 +130,12 @@ export async function POST(request: Request) {
         action: "member.added",
         subjectType: "member",
         subjectId: user.id,
-        requestId: requestId(request),
-        metadata: { role: input.role, canPublish: input.canPublish },
+        requestId: rid.id,
+        metadata: {
+          role: input.role,
+          canPublish: input.canPublish,
+          clientRequestId: rid.clientId,
+        },
       })
       const [profileRow] = await sql`
         select email, display_name as "displayName"
@@ -147,6 +152,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = updateSchema.parse(await request.json())
     assertRoleChangeAllowed(session.role, input.role)
@@ -196,10 +202,11 @@ export async function PATCH(request: Request) {
         action: "member.role_changed",
         subjectType: "member",
         subjectId: input.userId,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           before: current,
           after: { role: input.role, canPublish: input.canPublish },
+          clientRequestId: rid.clientId,
         },
       })
       return row
@@ -212,6 +219,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = deleteSchema.parse(await request.json())
     if (input.userId === session.userId) {
@@ -252,8 +260,11 @@ export async function DELETE(request: Request) {
         action: "member.removed",
         subjectType: "member",
         subjectId: input.userId,
-        requestId: requestId(request),
-        metadata: { previousRole: current.role },
+        requestId: rid.id,
+        metadata: {
+          previousRole: current.role,
+          clientRequestId: rid.clientId,
+        },
       })
     })
     return NextResponse.json({ removed: true })

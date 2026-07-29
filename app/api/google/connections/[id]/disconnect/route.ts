@@ -6,7 +6,7 @@ import {
   connectionAccessToken,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -16,6 +16,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const { id } = await context.params
     await withTenant(session.organisationId, async (sql) => {
@@ -99,10 +100,11 @@ export async function POST(
         action: "google.connection.disconnected",
         subjectType: "google_connection",
         subjectId: id,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           purgeDueWithinDays: 7,
           notificationCleanupErrors: cleanupErrors,
+          clientRequestId: rid.clientId,
         },
       })
     })

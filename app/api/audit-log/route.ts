@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { apiError, requestId } from "@/lib/server/http"
+import { apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -37,6 +37,7 @@ function csvCell(value: unknown) {
 
 export async function GET(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const params = new URL(request.url).searchParams
     const query = querySchema.parse({
@@ -83,13 +84,14 @@ export async function GET(request: Request) {
         action: "audit.exported",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           from: query.from ?? null,
           to: query.to ?? null,
           action: query.action ?? null,
           format: params.get("format") === "csv" ? "csv" : "json",
           records: Math.min(records.length, query.pageSize),
+          clientRequestId: rid.clientId,
         },
       })
       return records

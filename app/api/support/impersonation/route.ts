@@ -6,7 +6,7 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { createSession, setSessionCookie } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -45,6 +45,7 @@ function authenticateSupport(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const support = authenticateSupport(request)
     const input = inputSchema.parse(await request.json())
     const token = await withTenant(input.organisationId, async (sql) => {
@@ -76,11 +77,12 @@ export async function POST(request: Request) {
         action: "support.impersonation.started",
         subjectType: "user",
         subjectId: input.userId,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           supportActor: support.actor,
           reason: support.reason,
           expiresWithinMinutes: 60,
+          clientRequestId: rid.clientId,
         },
       })
       return sessionToken

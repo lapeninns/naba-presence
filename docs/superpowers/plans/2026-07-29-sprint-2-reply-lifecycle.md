@@ -708,7 +708,7 @@ it("permits republishing identical text after a delete", async () => {
 **Interfaces:**
 - Produces: `serverRequestId(request: Request): { id: string; clientId: string | null }` — `id` is always `crypto.randomUUID()`, `clientId` is the `x-request-id` header if present (recorded in audit `metadata.clientRequestId`, used for trace correlation only). `writeAudit` keeps its signature; callers pass `requestId: serverId.id` and spread `clientRequestId` into metadata. The existing `requestId()` export is deleted (compile errors locate every call site).
 
-- [ ] **Step 1: Failing route test** — `tests/integration/routes/audit-integrity.test.ts`:
+- [x] **Step 1: Failing route test** — `tests/integration/routes/audit-integrity.test.ts`:
 
 ```ts
 it("audits every attempt even when the client pins x-request-id", async () => {
@@ -744,7 +744,7 @@ it("correlates one request's audit events under one server id", async () => {
 
 Run — Expected: FAIL — today the pinned header makes the second publish's rows vanish via `on conflict do nothing`, and unpinned requests get four different UUIDs per publish.
 
-- [ ] **Step 2: Implement.** In `lib/server/http.ts` replace `requestId` with:
+- [x] **Step 2: Implement.** In `lib/server/http.ts` replace `requestId` with:
 
 ```ts
 export function serverRequestId(request: Request): {
@@ -761,9 +761,9 @@ export function serverRequestId(request: Request): {
 }
 ```
 
-- [ ] **Step 3: Sweep the call sites.** `grep -rn "requestId(request)" app lib` — in each handler compute `const rid = serverRequestId(request)` **once** at the top and pass `rid.id` (with `:connection`/`:signin`-style suffixes preserved where the callback route uses them) to every `writeAudit`; add `clientRequestId: rid.clientId` into each audit `metadata`. The engine functions (`executePublish`, `executeReplyDelete`) already take `serverRequestId: string` — thread `rid.id` through.
+- [x] **Step 3: Sweep the call sites.** `grep -rn "requestId(request)" app lib` — in each handler compute `const rid = serverRequestId(request)` **once** at the top and pass `rid.id` (with `:connection`/`:signin`-style suffixes preserved where the callback route uses them) to every `writeAudit`; add `clientRequestId: rid.clientId` into each audit `metadata`. The engine functions (`executePublish`, `executeReplyDelete`) already take `serverRequestId: string` — thread `rid.id` through.
 
-- [ ] **Step 4: Run** Step 1's tests + the full integration suite (publish/delete suites assert audit rows too — update any that assumed the old per-event UUIDs). Expected: PASS.
+- [x] **Step 4: Run** Step 1's tests + the full integration suite (publish/delete suites assert audit rows too — update any that assumed the old per-event UUIDs). Expected: PASS.
 
 ---
 

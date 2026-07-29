@@ -11,7 +11,7 @@ import {
   verifyStoredDraft,
 } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -32,6 +32,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), [
       "owner",
       "admin",
@@ -46,7 +47,7 @@ export async function POST(
     }
     const { id } = await context.params
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = requestId(request)
+    const correlationId = rid.id
     const result = await withTenant(session.organisationId, async (sql) => {
       const [review] = await sql<
         {
@@ -179,6 +180,7 @@ export async function POST(
           source,
           language: generated.language,
           verificationVerdict: verification.verdict,
+          clientRequestId: rid.clientId,
         },
       })
       await writeAudit(sql, {
@@ -192,6 +194,7 @@ export async function POST(
           draftId: draft.id,
           verdict: verification.verdict,
           reasons: verification.reasons,
+          clientRequestId: rid.clientId,
         },
       })
       return {

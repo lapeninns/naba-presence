@@ -4,7 +4,7 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { connectionAccessToken, googleAccounts } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -115,6 +115,7 @@ const selectionSchema = z.object({
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = selectionSchema.parse(await request.json())
     const accounts = await withTenant(session.organisationId, async (sql) => {
@@ -130,8 +131,11 @@ export async function PATCH(request: Request) {
         action: "google.accounts.activated",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: requestId(request),
-        metadata: { accountIds: input.accountIds },
+        requestId: rid.id,
+        metadata: {
+          accountIds: input.accountIds,
+          clientRequestId: rid.clientId,
+        },
       })
       return sql`
         select

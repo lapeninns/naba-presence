@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -57,6 +57,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = createSchema.parse(await request.json())
     const privacyRequest = await withTenant(
@@ -90,10 +91,11 @@ export async function POST(request: Request) {
           action: "privacy.request.created",
           subjectType: "privacy_request",
           subjectId: String(row.id),
-          requestId: requestId(request),
+          requestId: rid.id,
           metadata: {
             requestType: input.requestType,
             subjectReference: input.subjectReference,
+            clientRequestId: rid.clientId,
           },
         })
         return row
@@ -107,6 +109,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner"])
     const input = updateSchema.parse(await request.json())
     const privacyRequest = await withTenant(
@@ -148,10 +151,11 @@ export async function PATCH(request: Request) {
           action: "privacy.request.status_changed",
           subjectType: "privacy_request",
           subjectId: input.id,
-          requestId: requestId(request),
+          requestId: rid.id,
           metadata: {
             status: input.status,
             resolutionNote: input.resolutionNote,
+            clientRequestId: rid.clientId,
           },
         })
         return row

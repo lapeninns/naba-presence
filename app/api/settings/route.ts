@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -62,6 +62,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = settingsSchema.parse(await request.json())
     if (
@@ -107,8 +108,8 @@ export async function PATCH(request: Request) {
         action: "organisation.settings.updated",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: requestId(request),
-        metadata: input,
+        requestId: rid.id,
+        metadata: { ...input, clientRequestId: rid.clientId },
       })
       return row
     })

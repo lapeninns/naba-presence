@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { executeReplyDelete } from "@/lib/server/publishing"
 import { requireSession } from "@/lib/server/session"
 
@@ -13,6 +13,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = await requireSession()
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
@@ -26,7 +27,7 @@ export async function DELETE(
       organisationId: session.organisationId,
       session,
       reviewId: id,
-      serverRequestId: requestId(request),
+      serverRequestId: rid.id,
     })
     if (outcome.status === "ambiguous") {
       throw new ApiError(

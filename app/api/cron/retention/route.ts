@@ -4,13 +4,14 @@ import { writeAudit } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "")
     if (!secretEqual(token, getServerEnv().CRON_SECRET)) {
       throw new ApiError(401, "invalid_cron_token", "Invalid cron token.")
@@ -107,8 +108,11 @@ export async function POST(request: Request) {
             action: "retention.purge.completed",
             subjectType: "organisation",
             subjectId: organisation.id,
-            requestId: `${requestId(request)}:${organisation.id}`,
-            metadata: counts,
+            requestId: `${rid.id}:${organisation.id}`,
+            metadata: {
+              ...counts,
+              clientRequestId: rid.clientId,
+            },
           })
         }
         return counts

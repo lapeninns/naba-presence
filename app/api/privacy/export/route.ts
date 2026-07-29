@@ -4,7 +4,7 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -15,6 +15,7 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner"])
     const query = querySchema.parse({
       subject: new URL(request.url).searchParams.get("subject"),
@@ -86,8 +87,11 @@ export async function GET(request: Request) {
         action: "privacy.data.exported",
         subjectType: "privacy_subject",
         subjectId: query.subject,
-        requestId: requestId(request),
-        metadata: { records: reviews.length },
+        requestId: rid.id,
+        metadata: {
+          records: reviews.length,
+          clientRequestId: rid.clientId,
+        },
       })
       return {
         generatedAt: new Date().toISOString(),

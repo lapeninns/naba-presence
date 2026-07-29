@@ -5,7 +5,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
 import { getSession, requireRole } from "@/lib/server/session"
 
@@ -20,6 +20,7 @@ const inputSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = await getSession()
     const cronToken = request.headers
       .get("authorization")
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = requestId(request)
+    const correlationId = rid.id
     const organisationIds = session
       ? [session.organisationId]
       : (
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
             externalLocationIds: linked.map(
               (location) => location.externalLocationId
             ),
+            clientRequestId: rid.clientId,
           },
         })
         const results = []
@@ -92,7 +94,10 @@ export async function POST(request: Request) {
           subjectType: "organisation",
           subjectId: organisationId,
           requestId: `${correlationId}:${organisationId}:finished`,
-          metadata: { locations: results },
+          metadata: {
+            locations: results,
+            clientRequestId: rid.clientId,
+          },
         })
         return results
       })

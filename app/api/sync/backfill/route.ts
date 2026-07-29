@@ -5,7 +5,7 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import {
   linkedLocations,
   syncLinkedLocationBatch,
@@ -99,12 +99,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = requestId(request)
+    const correlationId = rid.id
     const result = await withTenant(session.organisationId, async (sql) => {
       const locations = await linkedLocations(sql, input.externalLocationIds)
       await writeAudit(sql, {
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
           externalLocationIds: locations.map(
             (location) => location.externalLocationId
           ),
+          clientRequestId: rid.clientId,
         },
       })
       const byAccount = new Map<string, LinkedLocation[]>()
@@ -151,7 +153,10 @@ export async function POST(request: Request) {
         subjectType: "organisation",
         subjectId: session.organisationId,
         requestId: `${correlationId}:finished`,
-        metadata: { locations: results },
+        metadata: {
+          locations: results,
+          clientRequestId: rid.clientId,
+        },
       })
       return {
         batches: results,
@@ -166,9 +171,10 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = cancellationSchema.parse(await request.json())
-    const correlationId = requestId(request)
+    const correlationId = rid.id
     const result = await withTenant(session.organisationId, async (sql) => {
       const running = await sql<{ location_name: string }[]>`
         select e.title as location_name
@@ -209,6 +215,7 @@ export async function DELETE(request: Request) {
           cancelledExternalLocationIds: cancelled.map(
             (item) => item.externalLocationId
           ),
+          clientRequestId: rid.clientId,
         },
       })
       return {

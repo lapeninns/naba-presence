@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { executePublish } from "@/lib/server/publishing"
 import { requireSession } from "@/lib/server/session"
 
@@ -19,6 +19,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = await requireSession()
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
@@ -35,7 +36,7 @@ export async function POST(
       reviewId: id,
       draftId: input.draftId,
       expectedReviewUpdateTime: input.expectedReviewUpdateTime,
-      serverRequestId: requestId(request),
+      serverRequestId: rid.id,
     })
 
     if (outcome.status === "awaiting_approval") {

@@ -4,7 +4,7 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -15,6 +15,7 @@ const inputSchema = z.object({ eventId: z.uuid() })
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
@@ -81,8 +82,8 @@ export async function POST(request: Request) {
         action: failed ? "webhook.replay.failed" : "webhook.replay.completed",
         subjectType: "webhook_event",
         subjectId: event.id,
-        requestId: requestId(request),
-        metadata: { sync },
+        requestId: rid.id,
+        metadata: { sync, clientRequestId: rid.clientId },
       })
       return { status: failed ? "failed" : "processed", sync }
     })
