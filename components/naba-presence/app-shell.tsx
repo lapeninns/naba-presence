@@ -5,6 +5,7 @@ import {
   Building2,
   LayoutDashboard,
   Link2,
+  LogOut,
   MessageSquareText,
   Moon,
   Settings,
@@ -38,8 +39,11 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
+import {
+  signOut,
+  type AppSession,
+} from "@/lib/naba-presence-api"
 import { cn } from "@/lib/utils"
-import { type AppSession } from "@/lib/naba-presence-api"
 
 const NAV_ITEMS = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -67,6 +71,11 @@ export function AppShell({
       .map((part) => part[0]?.toUpperCase())
       .join("") || "AC"
 
+  async function handleSignOut() {
+    await signOut()
+    window.location.assign("/sign-in")
+  }
+
   return (
     <SidebarProvider>
       <Sidebar variant="floating" collapsible="icon">
@@ -79,7 +88,7 @@ export function AppShell({
               <span className="font-heading text-base font-semibold tracking-tight">
                 NabaPresence
               </span>
-              <span className="text-[10px] font-medium tracking-wide text-sidebar-foreground/60">
+              <span className="text-[10px] font-medium tracking-wide text-sidebar-foreground/70">
                 Nab a Presence
               </span>
             </span>
@@ -108,6 +117,17 @@ export function AppShell({
               </span>
             </div>
           </div>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip="Sign out"
+                onClick={handleSignOut}
+              >
+                <LogOut aria-hidden />
+                <span>Sign out</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>

@@ -880,6 +880,14 @@ Expected: all PASS.
 
 ### Task 5: AUTH-102 — Signed-out production entry point that can begin Google OAuth
 
+**Deviation:** A user-owned `next dev` process was already listening on port
+3000, and Playwright's local `reuseExistingServer` tested that stale process
+instead of the fresh standalone build. Added an opt-in `PLAYWRIGHT_PORT`
+override (default and CI behavior unchanged) so local production-build gates
+can use an isolated port without stopping the user's server. The isolated axe
+run also found the existing 10px mobile sidebar tagline at 4.24:1 contrast;
+raised its existing foreground opacity token from 60% to 70% to meet WCAG AA.
+
 **Files:**
 - Create: `app/sign-in/page.tsx`
 - Create: `components/naba-presence/sign-in-view.tsx`
@@ -895,7 +903,7 @@ Expected: all PASS.
 - Consumes: `beginGoogleConnect()` (`lib/naba-presence-api.ts:332`, already session-optional), `getSession`/`isLocalBootstrapEnabled` (`lib/server/session.ts`).
 - Produces: route `/sign-in`; `signOut(): Promise<void>` in `lib/naba-presence-api.ts` (calls `DELETE /api/session`). Sprint 4 MEM-401's invitation page reuses `SignInView` with an `inviteToken` prop — keep the component prop-ready (`{ errorStatus?: string }` today).
 
-- [ ] **Step 1: Write the failing route test** — `tests/integration/routes/sign-in.test.ts` (harness helpers; production server, bootstrap off):
+- [x] **Step 1: Write the failing route test** — `tests/integration/routes/sign-in.test.ts` (harness helpers; production server, bootstrap off):
 
 ```ts
 it("redirects anonymous dashboard traffic to /sign-in", async () => {
@@ -933,9 +941,9 @@ it("still lets a signed-out caller start OAuth", async () => {
 })
 ```
 
-- [ ] **Step 2: Run it** (after `pnpm build`) — Expected: FAIL — `/reviews` returns 200 for anonymous users today.
+- [x] **Step 2: Run it** (after `pnpm build`) — Expected: FAIL — `/reviews` returns 200 for anonymous users today.
 
-- [ ] **Step 3: Implement the gate.** `app/(dashboard)/layout.tsx` becomes:
+- [x] **Step 3: Implement the gate.** `app/(dashboard)/layout.tsx` becomes:
 
 ```tsx
 import { redirect } from "next/navigation"
@@ -958,7 +966,7 @@ export default async function DashboardLayout({
 
 `app/page.tsx` becomes the same check redirecting to `/reviews` or `/sign-in`.
 
-- [ ] **Step 4: Build the page.** `app/sign-in/page.tsx`:
+- [x] **Step 4: Build the page.** `app/sign-in/page.tsx`:
 
 ```tsx
 import type { Metadata } from "next"
@@ -1000,13 +1008,13 @@ async function continueWithGoogle() {
 }
 ```
 
-- [ ] **Step 5: Route callback errors to the page.** In `app/api/google/connect/callback/route.ts` `GET` (lines 270-277), change the error redirect target from `/?google=error&status=${response.status}` to `/sign-in?google=error&status=${response.status}`.
+- [x] **Step 5: Route callback errors to the page.** In `app/api/google/connect/callback/route.ts` `GET` (lines 270-277), change the error redirect target from `/?google=error&status=${response.status}` to `/sign-in?google=error&status=${response.status}`.
 
-- [ ] **Step 6: Sign-out.** Add to `lib/naba-presence-api.ts`: `export async function signOut(): Promise<void> { await apiFetch("/api/session", { method: "DELETE" }) }` (note: `apiFetch` throws on non-2xx; `DELETE /api/session` returns 204). In `components/naba-presence/app-shell.tsx`, make the footer identity block include a "Sign out" `SidebarMenuButton` that calls `signOut()` then `window.location.assign("/sign-in")`.
+- [x] **Step 6: Sign-out.** Add to `lib/naba-presence-api.ts`: `export async function signOut(): Promise<void> { await apiFetch("/api/session", { method: "DELETE" }) }` (note: `apiFetch` throws on non-2xx; `DELETE /api/session` returns 204). In `components/naba-presence/app-shell.tsx`, make the footer identity block include a "Sign out" `SidebarMenuButton` that calls `signOut()` then `window.location.assign("/sign-in")`.
 
-- [ ] **Step 7: Accessibility coverage.** In `tests/e2e/accessibility.spec.ts`, add one scenario (both viewports, following the existing per-test shape at line 43): navigate to `/sign-in`, `expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible()`, run the same `AxeBuilder` scan with zero violations. No API mocks are needed. (CI runs the e2e server with `LOCAL_BOOTSTRAP_ENABLED=true`; `/sign-in` renders regardless of session because CI's bootstrap session only exists after `/api/session` is called — the page itself must not crash either way.)
+- [x] **Step 7: Accessibility coverage.** In `tests/e2e/accessibility.spec.ts`, add one scenario (both viewports, following the existing per-test shape at line 43): navigate to `/sign-in`, `expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible()`, run the same `AxeBuilder` scan with zero violations. No API mocks are needed. (CI runs the e2e server with `LOCAL_BOOTSTRAP_ENABLED=true`; `/sign-in` renders regardless of session because CI's bootstrap session only exists after `/api/session` is called — the page itself must not crash either way.)
 
-- [ ] **Step 8: Verify**
+- [x] **Step 8: Verify**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm build

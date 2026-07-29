@@ -84,6 +84,14 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} application shell`)
     })
 
+    test("sign-in", async ({ page }) => {
+      await page.goto("/sign-in")
+      await expect(
+        page.getByRole("button", { name: "Continue with Google" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} sign-in`)
+    })
+
     test("overview", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({

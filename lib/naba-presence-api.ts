@@ -104,6 +104,10 @@ export async function loadSession() {
   return apiFetch<{ session: AppSession | null }>("/api/session")
 }
 
+export async function signOut(): Promise<void> {
+  await apiFetch("/api/session", { method: "DELETE" })
+}
+
 async function requireApiSession() {
   const { session } = await loadSession()
   if (!session) {

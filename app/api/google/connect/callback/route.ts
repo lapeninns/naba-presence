@@ -203,7 +203,10 @@ export async function GET(request: Request) {
     const response = apiError(error)
     if (response.status >= 400) {
       return NextResponse.redirect(
-        new URL(`/?google=error&status=${response.status}`, baseUrl)
+        new URL(
+          `/sign-in?google=error&status=${response.status}`,
+          baseUrl
+        )
       )
     }
     return response

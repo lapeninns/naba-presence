@@ -1,5 +1,14 @@
 import { redirect } from "next/navigation"
 
-export default function Page() {
-  redirect("/reviews")
+import {
+  getSession,
+  isLocalBootstrapEnabled,
+} from "@/lib/server/session"
+
+export default async function Page() {
+  const session = await getSession()
+  const allowAnonymous =
+    process.env.NODE_ENV !== "production" ||
+    isLocalBootstrapEnabled()
+  redirect(session || allowAnonymous ? "/reviews" : "/sign-in")
 }
