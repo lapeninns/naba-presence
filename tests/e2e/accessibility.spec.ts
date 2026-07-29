@@ -260,6 +260,21 @@ for (const viewport of [
       })
       await expect(selectedReview).toBeVisible()
       await expect(selectedReview.getByRole("heading").first()).toBeVisible()
+      await expect(
+        selectedReview.getByRole("textbox", { name: "Reply draft" })
+      ).toBeVisible()
+      await expect(
+        selectedReview.getByText(
+          "Publishing makes this reply public on Google.",
+          { exact: true }
+        )
+      ).toBeVisible()
+      await expect(
+        selectedReview.getByRole("heading", { name: "Verification" })
+      ).toBeVisible()
+      await expect(
+        selectedReview.getByRole("heading", { name: "Activity" })
+      ).toBeVisible()
       await expectAccessible(page, `${viewport.name} review detail and editor`)
       if (viewport.name === "mobile") {
         await page.getByRole("button", { name: "Back to review list" }).click()

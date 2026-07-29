@@ -1001,8 +1001,8 @@ function ReviewDetail({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-5 md:px-7 md:py-7">
-      <div className="flex items-start gap-3">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 md:px-7 md:py-7">
+      <header className="flex items-start gap-3 rounded-(--nr-radius-panel) border bg-card p-4 shadow-(--nr-shadow-card) md:p-5">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1053,18 +1053,31 @@ function ReviewDetail({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </header>
 
-      <div className="rounded-xl border bg-muted/35 p-4 md:p-5">
-        <p className="text-sm leading-7">{review.text}</p>
-        <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+      <section aria-label="Review conversation" className="flex flex-col gap-4">
+        <div className="max-w-[92%] self-start rounded-(--nr-radius-card) rounded-tl-md border bg-muted p-4 md:max-w-[82%] md:p-5">
+          <p className="text-sm leading-7">{review.text}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 pl-1 text-xs text-muted-foreground">
           <span className="font-mono text-[11px]">
             Updated {review.updatedAt.toLowerCase()}
           </span>
           <span>·</span>
           <span>{review.language}</span>
         </div>
-      </div>
+
+        {review.status === "published" && review.draft ? (
+          <div className="flex max-w-[92%] flex-col gap-2 self-end md:max-w-[82%]">
+            <div className="rounded-(--nr-radius-card) rounded-tr-md border border-primary/25 bg-primary/12 p-4 text-foreground md:p-5">
+              <p className="text-sm leading-7">{review.draft}</p>
+            </div>
+            <p className="pr-1 text-right text-xs text-muted-foreground">
+              Published business reply · {review.responseTime ?? "Published"}
+            </p>
+          </div>
+        ) : null}
+      </section>
 
       {detail?.media.length ? (
         <section className="flex flex-col gap-3" aria-label="Review media">
@@ -1124,53 +1137,70 @@ function ReviewDetail({
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_240px]">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+        <section
+          aria-labelledby="reply-draft-heading"
+          className="flex min-w-0 flex-col gap-4 rounded-(--nr-radius-panel) border bg-card p-4 shadow-(--nr-shadow-card) md:p-5"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <WandSparkles className="size-4 text-primary" aria-hidden />
-              <h3 className="text-sm font-medium">Reply draft</h3>
+              <h3 id="reply-draft-heading" className="text-sm font-semibold">
+                Reply draft
+              </h3>
             </div>
-            <Select
-              value={tone}
-              onValueChange={(value) => {
-                if (value) setTone(value as DraftTone)
-              }}
-            >
-              <SelectTrigger size="sm" aria-label="Reply tone">
-                <SelectValue>
-                  {tone === "warm_professional"
-                    ? "Warm professional"
-                    : tone === "concise"
-                      ? "Concise"
-                      : "Empathetic"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="warm_professional">
-                    Warm professional
-                  </SelectItem>
-                  <SelectItem value="concise">Concise</SelectItem>
-                  <SelectItem value="empathetic">Empathetic</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <Field orientation="horizontal" className="w-auto gap-2">
+              <FieldLabel htmlFor="reply-tone">Tone</FieldLabel>
+              <Select
+                value={tone}
+                onValueChange={(value) => {
+                  if (value) setTone(value as DraftTone)
+                }}
+              >
+                <SelectTrigger id="reply-tone" size="sm">
+                  <SelectValue>
+                    {tone === "warm_professional"
+                      ? "Warm professional"
+                      : tone === "concise"
+                        ? "Concise"
+                        : "Empathetic"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="warm_professional">
+                      Warm professional
+                    </SelectItem>
+                    <SelectItem value="concise">Concise</SelectItem>
+                    <SelectItem value="empathetic">Empathetic</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
           </div>
 
-          <Textarea
-            key={review.id}
-            value={draft}
-            onChange={(event) => {
-              setDraft(readControlValue(event))
-              setFeedback("")
-            }}
-            rows={8}
-            aria-label="Reply draft"
-            className="min-h-44 resize-y text-sm leading-6"
-          />
+          <Field>
+            <FieldLabel htmlFor={`reply-draft-${review.id}`}>
+              Reply draft
+            </FieldLabel>
+            <Textarea
+              id={`reply-draft-${review.id}`}
+              key={review.id}
+              value={draft}
+              onChange={(event) => {
+                setDraft(readControlValue(event))
+                setFeedback("")
+              }}
+              rows={8}
+              aria-describedby={`reply-count-${review.id}`}
+              className="min-h-44 resize-y bg-background text-sm leading-6"
+            />
+          </Field>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span
+              id={`reply-count-${review.id}`}
+              className="font-mono text-[11px] text-muted-foreground"
+            >
               {new TextEncoder().encode(draft).length} / 4096 bytes
             </span>
             <span className="text-[11px] text-muted-foreground">
@@ -1188,7 +1218,7 @@ function ReviewDetail({
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2 border-t pt-4">
             <Button variant="outline" onClick={regenerate} disabled={isPending}>
               {isPending ? (
                 <Spinner data-icon="inline-start" />
@@ -1204,31 +1234,38 @@ function ReviewDetail({
             >
               Save draft
             </Button>
-            <Button
-              className="sm:ml-auto"
-              onClick={publish}
-              disabled={
-                isPending ||
-                review.verification === "pending" ||
-                review.verification === "fail" ||
-                !draft.trim()
-              }
-            >
-              <Send data-icon="inline-start" />
-              {review.status === "published"
-                ? "Update reply"
-                : review.status === "awaiting_approval"
-                  ? "Approve and publish"
-                  : "Publish reply"}
-            </Button>
+            <div className="flex w-full flex-col items-stretch gap-1.5 sm:ml-auto sm:w-auto sm:items-end">
+              <p className="text-[11px] text-muted-foreground">
+                Publishing makes this reply public on Google.
+              </p>
+              <Button
+                onClick={publish}
+                disabled={
+                  isPending ||
+                  review.verification === "pending" ||
+                  review.verification === "fail" ||
+                  !draft.trim()
+                }
+              >
+                <Send data-icon="inline-start" />
+                {review.status === "published"
+                  ? "Update reply"
+                  : review.status === "awaiting_approval"
+                    ? "Approve and publish"
+                    : "Publish reply"}
+              </Button>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-col gap-5 border-t pt-5 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
+        <aside
+          aria-label="Reply lifecycle"
+          className="flex flex-col gap-5 rounded-(--nr-radius-panel) border bg-card p-4 shadow-(--nr-shadow-card) md:p-5"
+        >
           <VerificationPanel review={review} />
           <Separator />
           <ActivityTimeline events={detail?.timeline} error={detailError} />
-        </div>
+        </aside>
       </div>
     </div>
   )
