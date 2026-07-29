@@ -64,9 +64,14 @@ continue normal operations until the RLS context path is validated.
 
 ## Current environment note
 
-The local Docker stack applies `0001_initial.sql` to PostgreSQL 17 and passes the
-runtime-role tenant-isolation and 100k-review performance suites. Start it with
-`docker compose up --build`; the database is available only on
+The default development database is the Supabase CLI stack running in Docker.
+Start it with `pnpm supabase:start`; the CLI applies the committed
+`supabase/migrations` chain to PostgreSQL 17. The database is available on
+`127.0.0.1:54322`, the local API on `127.0.0.1:54321`, and Studio on
+`127.0.0.1:54323`. `pnpm supabase:reset` is destructive to local data.
+
+The separate production-style stack remains available through
+`docker compose up --build`; its plain PostgreSQL database is available only on
 `127.0.0.1:54329`.
 
 The separately configured hosted PostgreSQL URLs were previously rejected by

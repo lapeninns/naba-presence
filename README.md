@@ -28,13 +28,26 @@ offline. The “Live data” indicator appears when API-backed data is active.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and fill the values.
-2. Apply the database schema:
+1. Install dependencies, copy `.env.example` to `.env`, and fill the application
+   secrets:
 
    ```bash
-   pnpm db:migrate
-   pnpm db:status
+   pnpm install
+   cp .env.example .env
    ```
+
+2. Start Docker Desktop (or another Docker-compatible runtime), then start the
+   local Supabase stack:
+
+   ```bash
+   pnpm supabase:start
+   pnpm supabase:status
+   ```
+
+   Supabase CLI runs PostgreSQL 17 and the Supabase services in Docker, then
+   automatically applies every migration in `supabase/migrations`. The local
+   database is at `127.0.0.1:54322`, the API at `127.0.0.1:54321`, Studio at
+   `127.0.0.1:54323`, and the test email inbox at `127.0.0.1:54324`.
 
 3. Start the application:
 
@@ -53,7 +66,23 @@ offline. The “Live data” indicator appears when API-backed data is active.
    creates a local owner session. Production users are provisioned on their first
    successful Google OAuth connection.
 
-### Docker Compose
+To rebuild the local database from the committed migrations, or to stop the
+local stack while preserving its Docker volume:
+
+```bash
+pnpm supabase:reset
+pnpm supabase:stop
+```
+
+`supabase:reset` destroys local database data. The local Supabase stack is for
+development only and must not be exposed publicly.
+
+For a hosted Supabase project, link it explicitly with `pnpm supabase link`,
+review with `pnpm supabase db push --dry-run`, and then use
+`pnpm supabase db push`. The existing `pnpm db:migrate` command remains
+available for deployments to a direct PostgreSQL URL.
+
+### Production-style Docker Compose
 
 Run the complete local production stack without changing `.env`:
 
@@ -61,13 +90,14 @@ Run the complete local production stack without changing `.env`:
 docker compose up --build
 ```
 
-This starts PostgreSQL 17, applies migrations once, starts the standalone web
-image, and starts the reconciliation/retention scheduler. PostgreSQL is exposed
-only on `127.0.0.1:54329`. The loopback-only stack enables a local owner
-bootstrap session, so the production web container uses the Docker database
-without requiring Supabase or Google OAuth. `NABAREVIEW_NODE_IMAGE` can override
-the default `node:22-alpine` build image when using a registry mirror or
-compatible cached Node 22 image. Remove the disposable database with:
+This separate stack starts a plain PostgreSQL 17 container, applies migrations
+once, starts the standalone web image, and starts the reconciliation/retention
+scheduler. Use it to exercise the production container topology; normal local
+development uses Supabase CLI above. PostgreSQL is exposed only on
+`127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
+session, so it does not require hosted Supabase or Google OAuth.
+`NABAREVIEW_NODE_IMAGE` can override the default `node:22-alpine` build image.
+Remove this disposable Compose database with:
 
 ```bash
 docker compose down --volumes

@@ -12,6 +12,10 @@
     "start:scheduler": "node scripts/scheduler.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:status": "node scripts/db-status.mjs",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:status": "supabase status",
+    "supabase:reset": "supabase db reset --local",
     "test": "vitest run",
     "test:a11y": "playwright test tests/e2e/accessibility.spec.ts",
     "test:integration": "RUN_DB_TESTS=true vitest run tests/integration",
@@ -63,6 +67,7 @@
     "eslint-config-next": "16.2.6",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
+    "supabase": "2.106.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

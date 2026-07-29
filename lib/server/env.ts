@@ -48,6 +48,8 @@ const serverEnvSchema = z.object({
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
+  OPENAI_MODEL_MENU_EXTRACT: optionalTextWithDefault("gpt-5.6-terra"),
+  OPENAI_MODEL_MENU_CHAT: optionalTextWithDefault("gpt-5.6-luna"),
   GOOGLE_CLIENT_ID: optionalText,
   GOOGLE_CLIENT_SECRET: optionalText,
   GOOGLE_PLACES_API_KEY: optionalText,

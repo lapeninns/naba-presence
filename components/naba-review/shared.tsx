@@ -30,7 +30,12 @@ import { cn } from "@/lib/utils"
 import { ReviewStatus } from "@/lib/naba-review-data"
 
 export type View =
-  "overview" | "reviews" | "analytics" | "connections" | "settings"
+  | "overview"
+  | "reviews"
+  | "menu"
+  | "analytics"
+  | "connections"
+  | "settings"
 
 export function readControlValue(event: { currentTarget: unknown }) {
   return (event.currentTarget as { value: string }).value

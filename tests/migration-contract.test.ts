@@ -4,7 +4,7 @@ import { PGlite } from "@electric-sql/pglite"
 import { describe, expect, it } from "vitest"
 
 const migration = readFileSync(
-  new URL("../db/migrations/0001_initial.sql", import.meta.url),
+  new URL("../supabase/migrations/0001_initial.sql", import.meta.url),
   "utf8"
 )
 

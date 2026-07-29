@@ -18,7 +18,7 @@ RUN pnpm build
 
 FROM dependencies AS migrate
 WORKDIR /opt/nabareview
-COPY db ./db
+COPY supabase/migrations ./supabase/migrations
 COPY scripts/db-migrate.mjs ./scripts/db-migrate.mjs
 CMD ["pnpm", "db:migrate"]
 

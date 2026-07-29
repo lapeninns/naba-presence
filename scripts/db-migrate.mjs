@@ -13,7 +13,7 @@ if (!process.env.DIRECT_DATABASE_URL && !process.env.DATABASE_URL) {
   throw new Error("DIRECT_DATABASE_URL or DATABASE_URL is required")
 }
 
-const migrationsDirectory = join(root, "db", "migrations")
+const migrationsDirectory = join(root, "supabase", "migrations")
 const migrationFiles = (await readdir(migrationsDirectory))
   .filter((file) => file.endsWith(".sql"))
   .sort()

@@ -6,6 +6,7 @@ import { AnalyticsView } from "@/components/naba-review/analytics-view"
 import { AppShell } from "@/components/naba-review/app-shell"
 import { ConnectionsView } from "@/components/naba-review/connections-view"
 import { OverviewView } from "@/components/naba-review/overview-view"
+import { MenuAssistantView } from "@/components/naba-review/menu-assistant-view"
 import { ReviewsWorkspace } from "@/components/naba-review/reviews-view"
 import { SettingsView } from "@/components/naba-review/settings-view"
 import { type View } from "@/components/naba-review/shared"
@@ -98,6 +99,9 @@ export function NabaReviewApp() {
           apiStatus={apiStatus}
           onRefresh={refreshReviews}
         />
+      ) : null}
+      {activeView === "menu" ? (
+        <MenuAssistantView onNavigate={() => navigate("connections")} />
       ) : null}
       {activeView === "analytics" ? <AnalyticsView /> : null}
       {activeView === "connections" ? (

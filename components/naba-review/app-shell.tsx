@@ -9,6 +9,7 @@ import {
   Moon,
   Settings,
   Sun,
+  UtensilsCrossed,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 
@@ -43,6 +44,7 @@ import { type AppSession } from "@/lib/naba-review-api"
 const NAV_ITEMS: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "reviews", label: "Reviews", icon: MessageSquareText },
+  { id: "menu", label: "Menu assistant", icon: UtensilsCrossed },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "connections", label: "Connections", icon: Link2 },
   { id: "settings", label: "Settings", icon: Settings },

@@ -4,6 +4,7 @@ import type {
   VerificationStatus,
 } from "@/lib/naba-review-data"
 import type { DraftTone } from "@/lib/domain/reply-policy"
+import type { MenuContent } from "@/lib/domain/menu"
 
 type ApiReview = {
   id: string
@@ -527,6 +528,51 @@ export type InternalLocation = {
 export async function loadInternalLocations() {
   await requireApiSession()
   return apiFetch<{ locations: InternalLocation[] }>("/api/location-links")
+}
+
+export type ManagedMenu = {
+  id: string
+  locationId: string
+  locationName: string
+  publicSlug: string
+  name: string
+  sourceFilename: string
+  sourceMediaType: string
+  sourceBytes: number
+  currencyCode: string | null
+  content: MenuContent
+  extractionModel: string
+  version: number
+  isPublished: boolean
+  publishedAt: string | null
+  updatedAt: string
+}
+
+export async function loadMenus() {
+  await requireApiSession()
+  return apiFetch<{ menus: ManagedMenu[] }>("/api/menus")
+}
+
+export async function importMenu(locationId: string, file: File) {
+  const formData = new FormData()
+  formData.set("locationId", locationId)
+  formData.set("file", file)
+  const response = await fetch("/api/menus", {
+    method: "POST",
+    body: formData,
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(apiMessage(payload, "The menu could not be imported."))
+  }
+  return payload as { menuId: string }
+}
+
+export async function setMenuPublished(menuId: string, isPublished: boolean) {
+  return apiFetch<{ menu: { id: string } }>(`/api/menus/${menuId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isPublished }),
+  })
 }
 
 export async function createPrivacyRequest(input: {
