@@ -23,6 +23,17 @@ import {
 } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -89,11 +100,13 @@ import type { DraftTone } from "@/lib/domain/reply-policy"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-presence-data"
 import {
+  approveReply,
   generateDraft,
   loadReviewDetail,
   type ReviewDetailData,
   loadReviewsPage,
   publishDraft,
+  rejectReply,
   saveDraft as saveDraftToApi,
 } from "@/lib/naba-presence-api"
 import {
@@ -879,6 +892,8 @@ function ReviewDetail({
   const [draft, setDraft] = useState(review.draft)
   const [tone, setTone] = useState<DraftTone>("warm_professional")
   const [feedback, setFeedback] = useState("")
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectionNote, setRejectionNote] = useState("")
   const [isPending, startTransition] = useTransition()
   const [detailState, setDetailState] = useState<{
     reviewId: string
@@ -998,6 +1013,53 @@ function ReviewDetail({
         })
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : "Publish failed.")
+      }
+    })
+  }
+
+  function approve() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        const approved = await approveReply(review.id)
+        const status =
+          approved.status === "rejected" ? "escalated" : "published"
+        onUpdate({
+          status,
+          googleState: approved.googleReplyState ?? undefined,
+          ...(status === "published"
+            ? { publishedReply: draft, responseTime: "Just now" }
+            : {}),
+        })
+        toast.add({
+          type: "success",
+          title:
+            status === "published"
+              ? "Reply approved and sent to Google."
+              : "Google rejected the approved reply.",
+        })
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : "Approval failed.")
+      }
+    })
+  }
+
+  function rejectApproval() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        await rejectReply(review.id, rejectionNote.trim() || undefined)
+        onUpdate({ status: "needs_reply" })
+        setRejectOpen(false)
+        setRejectionNote("")
+        toast.add({
+          type: "success",
+          title: "Reply returned to draft.",
+        })
+      } catch (error) {
+        setFeedback(
+          error instanceof Error ? error.message : "Rejection failed."
+        )
       }
     })
   }
@@ -1241,22 +1303,65 @@ function ReviewDetail({
                 Published replies are public on Google; approval may be
                 required.
               </p>
-              <Button
-                onClick={publish}
-                disabled={
-                  isPending ||
-                  review.verification === "pending" ||
-                  review.verification === "fail" ||
-                  !draft.trim()
-                }
-              >
-                <Send data-icon="inline-start" />
-                {review.status === "published"
-                  ? "Update reply"
-                  : review.status === "awaiting_approval"
-                    ? "Approve and publish"
+              {review.status === "awaiting_approval" ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <AlertDialog
+                    open={rejectOpen}
+                    onOpenChange={setRejectOpen}
+                  >
+                    <AlertDialogTrigger
+                      render={
+                        <Button variant="outline" disabled={isPending}>
+                          <X data-icon="inline-start" />
+                          Reject
+                        </Button>
+                      }
+                    />
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Return reply to draft?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Add an optional note so the author knows what to
+                          revise.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <Textarea
+                        value={rejectionNote}
+                        onChange={(event) =>
+                          setRejectionNote(event.target.value)
+                        }
+                        placeholder="Optional rejection note"
+                        aria-label="Rejection note"
+                      />
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={rejectApproval}>
+                          Return to draft
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <Button onClick={approve} disabled={isPending}>
+                    <Check data-icon="inline-start" />
+                    Approve and publish
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  onClick={publish}
+                  disabled={
+                    isPending ||
+                    review.verification === "pending" ||
+                    review.verification === "fail" ||
+                    !draft.trim()
+                  }
+                >
+                  <Send data-icon="inline-start" />
+                  {review.status === "published"
+                    ? "Update reply"
                     : "Publish reply"}
-              </Button>
+                </Button>
+              )}
             </div>
           </div>
         </section>

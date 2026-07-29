@@ -289,6 +289,26 @@ export async function publishDraft(
   })
 }
 
+export async function approveReply(reviewId: string) {
+  return apiFetch<{
+    status: "published" | "rejected" | "pending"
+    googleReplyState: "PENDING" | "APPROVED" | "REJECTED" | null
+  }>(`/api/reviews/${reviewId}/approval`, {
+    method: "POST",
+    body: JSON.stringify({ decision: "approve" }),
+  })
+}
+
+export async function rejectReply(reviewId: string, note?: string) {
+  return apiFetch<{ status: "returned_to_draft" }>(
+    `/api/reviews/${reviewId}/approval`,
+    {
+      method: "POST",
+      body: JSON.stringify({ decision: "reject", note }),
+    }
+  )
+}
+
 export type GoogleConnection = {
   id: string
   googleEmail: string | null
@@ -448,6 +468,7 @@ export async function configureGoogleNotifications(
 
 export type OrganisationSettings = {
   approvalRequired: boolean
+  requireTwoPersonApproval?: boolean
   rawContentRetentionDays: number
   defaultLanguageCode: string
   defaultTimezone: string

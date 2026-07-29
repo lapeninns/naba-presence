@@ -782,7 +782,7 @@ export function serverRequestId(request: Request): {
 - Consumes: `executePublish` (Task 2), migration 0006 columns (`approval_requested_by`, `require_two_person_approval`, `approval_decision`).
 - Produces: `POST /api/reviews/{id}/approval` body `{ decision: "approve" | "reject", note?: string }` → 200 `{ status: "published" | "rejected" | … }` for approve (the publish outcome), 200 `{ status: "returned_to_draft" }` for reject. Client: `approveReply(reviewId)`, `rejectReply(reviewId, note?)`.
 
-- [ ] **Step 1: Product rules (write into the route's doc comment — these are the "explicit product rules" the spec demands):**
+- [x] **Step 1: Product rules (write into the route's doc comment — these are the "explicit product rules" the spec demands):**
   1. A publish by a user without publish authority while `organisation.approval_required` routes to `awaiting_approval` and records `approval_requested_by` (existing fork, now attributed).
   2. Approving requires `canPublishLocation` — viewers and unassigned members cannot approve.
   3. If `require_two_person_approval` is on, the approver must differ from `approval_requested_by` (403 `second_approver_required`); this applies **even to owners**.
@@ -790,15 +790,15 @@ export function serverRequestId(request: Request): {
   5. Approve executes the standard publish pipeline (all Task 2–5 gates: verification, staleness, evidence, idempotency); `published_by` = approver; an `approval_decision` row records the decision.
   6. Reject returns the review to `drafted`, reply to `not_published`, records the decision + note, audits `review.approval.rejected`.
 
-- [ ] **Step 2: Failing route tests** — `tests/integration/routes/approval.test.ts` covering: member-without-publish POST publish → 202 + `approval_requested_by` set; owner approve → 200 + stub PUT + `approval_decision (decision='approved')` + `published_by = owner.userId`; reject → draft state restored + decision row with note; viewer approve → 403; **two-person on:** requester-with-publish-rights publish → 202 (rule 4), same user approve → 403 `second_approver_required`, second admin approve → 200; cross-tenant approval → 404. Run — FAIL (route absent; rule 4 not implemented).
+- [x] **Step 2: Failing route tests** — `tests/integration/routes/approval.test.ts` covering: member-without-publish POST publish → 202 + `approval_requested_by` set; owner approve → 200 + stub PUT + `approval_decision (decision='approved')` + `published_by = owner.userId`; reject → draft state restored + decision row with note; viewer approve → 403; **two-person on:** requester-with-publish-rights publish → 202 (rule 4), same user approve → 403 `second_approver_required`, second admin approve → 200; cross-tenant approval → 404. Run — FAIL (route absent; rule 4 not implemented).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - Publish fork (`executePublish` phase 1): condition becomes `(!canPublish && record.approval_required) || (record.require_two_person_approval && no prior approval_decision('approved') by another user for this draft)` → on routing to `awaiting_approval`, set `review_reply.approval_requested_by = session.userId`.
   - New route `app/api/reviews/[id]/approval/route.ts`: session; load review+reply+org inside `withTenant`; require `workflow_status = 'awaiting_approval'` else 409; `canPublishLocation` else 403; two-person check per rule 3; insert `approval_decision`; audit `review.approval.approved`/`.rejected`; approve → call `executePublish` with the requester's stored draft (latest verified draft id — same lateral select the publish route uses) and the **current** review `update_time` as `expectedReviewUpdateTime` recomputed server-side (the approver approves what is on screen; the evidence-hash gate from Task 5 still protects content drift); reject → reply `'not_published'`, workflow `'drafted'`.
   - Settings: `PATCH /api/settings` accepts `requireTwoPersonApproval: z.boolean().optional()` (owner-only, same consent pattern as `approvalRequired` at `settings/route.ts:63-76`); `GET` returns it.
   - Client + UI: `approveReply`/`rejectReply` in `lib/naba-presence-api.ts`; in `reviews-view.tsx`, when `review.status === "awaiting_approval"` replace the current relabeled publish button (L1246-1259) with two buttons — **Approve and publish** → `approveReply`, **Reject** → `rejectReply` with a note prompt (reuse the existing dialog idiom); settings toggle beside the approval switch.
 
-- [ ] **Step 4: Run** the approval suite, the publish suite (fork attribution regressions), `pnpm test:a11y` (settings + inbox scenarios re-render), and full gates. Expected: PASS.
+- [x] **Step 4: Run** the approval suite, the publish suite (fork attribution regressions), `pnpm test:a11y` (settings + inbox scenarios re-render), and full gates. Expected: PASS.
 
 ---
 

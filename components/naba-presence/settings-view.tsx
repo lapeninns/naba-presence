@@ -79,6 +79,8 @@ function memberInitialsOf(displayName: string) {
 
 export function SettingsView() {
   const [approvalRequired, setApprovalRequired] = useState(true)
+  const [requireTwoPersonApproval, setRequireTwoPersonApproval] =
+    useState(false)
   const [retentionDays, setRetentionDays] = useState(30)
   const [defaultLanguage, setDefaultLanguage] = useState("en")
   const [defaultTimezone, setDefaultTimezone] = useState("Europe/London")
@@ -112,6 +114,9 @@ export function SettingsView() {
       .then(({ settings }) => {
         if (!active) return
         setApprovalRequired(settings.approvalRequired)
+        setRequireTwoPersonApproval(
+          Boolean(settings.requireTwoPersonApproval)
+        )
         setRetentionDays(settings.rawContentRetentionDays)
         setDefaultLanguage(settings.defaultLanguageCode)
         setDefaultTimezone(settings.defaultTimezone)
@@ -174,6 +179,7 @@ export function SettingsView() {
       try {
         await saveSettings({
           approvalRequired,
+          requireTwoPersonApproval,
           rawContentRetentionDays: retentionDays,
           defaultLanguageCode: defaultLanguage,
           defaultTimezone,
@@ -322,12 +328,35 @@ export function SettingsView() {
                 checked={approvalRequired}
                 onCheckedChange={(checked) => {
                   setApprovalRequired(checked)
-                  if (checked) setDirectPublishConsent(false)
+                  if (checked) {
+                    setDirectPublishConsent(false)
+                  } else {
+                    setRequireTwoPersonApproval(false)
+                  }
                 }}
                 aria-label="Require human approval"
               />
             </Field>
             <FieldSeparator />
+            {approvalRequired ? (
+              <>
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldTitle>Require two people</FieldTitle>
+                    <FieldDescription>
+                      The person requesting publication cannot approve their
+                      own reply, including owners and admins.
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    checked={requireTwoPersonApproval}
+                    onCheckedChange={setRequireTwoPersonApproval}
+                    aria-label="Require two-person approval"
+                  />
+                </Field>
+                <FieldSeparator />
+              </>
+            ) : null}
             {!approvalRequired ? (
               <>
                 <Field orientation="horizontal">

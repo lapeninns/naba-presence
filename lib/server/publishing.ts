@@ -105,6 +105,8 @@ type PublishRecord = {
   draft_policy_version: string
   verification_status: string
   approval_required: boolean
+  require_two_person_approval: boolean
+  has_qualifying_approval: boolean
   publish_generation: number
 }
 
@@ -366,6 +368,15 @@ export async function executePublish(input: {
           d.draft_policy_version,
           d.verification_status,
           o.approval_required,
+          o.require_two_person_approval,
+          exists (
+            select 1
+            from approval_decision ad
+            where ad.review_id = r.id
+              and ad.draft_id = d.id
+              and ad.decision = 'approved'
+              and ad.decided_by is distinct from rr.approval_requested_by
+          ) as has_qualifying_approval,
           coalesce(rr.publish_generation, 0) as publish_generation
         from review r
         join location l on l.id = r.location_id
@@ -446,7 +457,11 @@ export async function executePublish(input: {
         input.session,
         record.location_id
       )
-      if (!canPublish && record.approval_required) {
+      if (
+        (!canPublish && record.approval_required) ||
+        (record.require_two_person_approval &&
+          !record.has_qualifying_approval)
+      ) {
         await sql`
           update review
           set workflow_status = 'awaiting_approval'
@@ -457,18 +472,21 @@ export async function executePublish(input: {
             organisation_id,
             review_id,
             current_body,
-            publish_status
+            publish_status,
+            approval_requested_by
           )
           values (
             ${input.organisationId},
             ${input.reviewId},
             ${record.body},
-            'awaiting_approval'
+            'awaiting_approval',
+            ${input.session.userId}
           )
           on conflict (organisation_id, review_id) do update
           set
             current_body = excluded.current_body,
-            publish_status = 'awaiting_approval'
+            publish_status = 'awaiting_approval',
+            approval_requested_by = excluded.approval_requested_by
           returning id::text as id
         `
         await writeAudit(sql, {
