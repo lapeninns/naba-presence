@@ -94,6 +94,25 @@ export async function POST(
         )
           and status in ('pending', 'running', 'failed')
       `
+      const removedRoutes = await sql`
+        delete from webhook_route
+        where organisation_id = ${session.organisationId}
+          and external_location_id in (
+            select id
+            from external_location
+            where google_connection_id = ${id}
+          )
+        returning google_location_name
+      `
+      await sql`
+        update location_link
+        set is_active = false
+        where external_location_id in (
+          select id
+          from external_location
+          where google_connection_id = ${id}
+        )
+      `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
@@ -104,6 +123,7 @@ export async function POST(
         metadata: {
           purgeDueWithinDays: 7,
           notificationCleanupErrors: cleanupErrors,
+          routesRemoved: removedRoutes.length,
           clientRequestId: rid.clientId,
         },
       })

@@ -84,6 +84,7 @@ import {
   type InternalLocation,
   type OrganisationSettings,
   runBackfill,
+  unlinkLocation,
 } from "@/lib/naba-presence-api"
 import {
   PageFrame,
@@ -491,6 +492,30 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
     })
   }
 
+  function unlinkGoogleLocation(location: GoogleLocation) {
+    setMessageKind("info")
+    setMessage("")
+    startTransition(async () => {
+      try {
+        await unlinkLocation(location.id)
+        const refreshed = await loadInternalLocations()
+        setInternalLocations(refreshed.locations)
+        setMessageKind("info")
+        setMessage(`${location.title ?? location.name} was unlinked.`)
+        toast.add({
+          type: "success",
+          title: "Location unlinked",
+          description: "Review sync and notifications stopped for this location.",
+        })
+      } catch (error) {
+        setMessageKind("error")
+        setMessage(
+          error instanceof Error ? error.message : "Unlink failed."
+        )
+      }
+    })
+  }
+
   function disconnect() {
     if (!connection) return
     setMessageKind("info")
@@ -829,6 +854,50 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                           </NativeSelectOption>
                                         ))}
                                     </NativeSelect>
+                                  </ItemActions>
+                                ) : null}
+                                {isLinked ? (
+                                  <ItemActions>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger
+                                        render={
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={isPending}
+                                          />
+                                        }
+                                      >
+                                        <Unplug data-icon="inline-start" />
+                                        Unlink
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Unlink{" "}
+                                            {location.title ?? location.name}?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Review sync and notifications stop
+                                            for this location. Existing review
+                                            history stays in the workspace.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            variant="destructive"
+                                            onClick={() =>
+                                              unlinkGoogleLocation(location)
+                                            }
+                                          >
+                                            Unlink
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
                                   </ItemActions>
                                 ) : null}
                               </Item>

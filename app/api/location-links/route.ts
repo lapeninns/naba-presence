@@ -204,3 +204,61 @@ export async function POST(request: Request) {
     return apiError(error)
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const rid = serverRequestId(request)
+    const session = requireRole(await requireSession(), ["owner", "admin"])
+    const externalLocationId = z
+      .uuid()
+      .parse(new URL(request.url).searchParams.get("externalLocationId"))
+    await withTenant(session.organisationId, async (sql) => {
+      const [link] = await sql<{ id: string; locationId: string }[]>`
+        update location_link
+        set is_active = false
+        where external_location_id = ${externalLocationId}
+        returning
+          id::text as id,
+          location_id::text as "locationId"
+      `
+      if (!link) {
+        throw new ApiError(
+          404,
+          "location_link_not_found",
+          "Linked location not found."
+        )
+      }
+      const removedRoutes = await sql`
+        delete from webhook_route
+        where external_location_id = ${externalLocationId}
+        returning google_location_name
+      `
+      await sql`
+        update sync_checkpoint
+        set
+          status = 'cancelled',
+          finished_at = now(),
+          next_attempt_at = null
+        where external_location_id = ${externalLocationId}
+          and status in ('pending', 'running', 'failed')
+      `
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "location.unlinked",
+        subjectType: "location_link",
+        subjectId: link.id,
+        requestId: rid.id,
+        metadata: {
+          locationId: link.locationId,
+          externalLocationId,
+          routesRemoved: removedRoutes.length,
+          clientRequestId: rid.clientId,
+        },
+      })
+    })
+    return NextResponse.json({ unlinked: true })
+  } catch (error) {
+    return apiError(error)
+  }
+}

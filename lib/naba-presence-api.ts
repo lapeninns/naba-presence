@@ -397,6 +397,14 @@ export async function linkGoogleLocation(
   })
 }
 
+export async function unlinkLocation(externalLocationId: string) {
+  const params = new URLSearchParams({ externalLocationId })
+  return apiFetch<{ unlinked: true }>(
+    `/api/location-links?${params.toString()}`,
+    { method: "DELETE" }
+  )
+}
+
 export type BackfillProgress = {
   items: Array<{
     externalLocationId: string

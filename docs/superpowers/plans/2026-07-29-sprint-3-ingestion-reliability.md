@@ -340,7 +340,7 @@ two required terminal values, and also adds the plan's intermediate
 - Consumes: Sprint 1's RLS policies on `webhook_route` (cross-tenant claims already 409 as `location_routing_conflict` at discovery).
 - Produces: `DELETE /api/location-links?externalLocationId=<uuid>` (owner/admin) → 200 `{ unlinked: true }`; client `unlinkLocation(externalLocationId: string)`.
 
-- [ ] **Step 1: Failing tests** — `tests/integration/routes/unlink-disconnect.test.ts`:
+- [x] **Step 1: Failing tests** — `tests/integration/routes/unlink-disconnect.test.ts`:
 
 ```ts
 it("unlink deactivates the link and removes webhook routing", async () => {
@@ -369,8 +369,13 @@ it("re-discovery after another tenant's unlink can claim the freed route", async
 
 Run — FAIL (no DELETE handler; disconnect leaves routes in place — verified gap).
 
-- [ ] **Step 2: Implement.** `DELETE` handler in `app/api/location-links/route.ts`: owner/admin; `withTenant`: `update location_link set is_active = false where external_location_id = ${id}` (404 if zero rows), `delete from webhook_route where external_location_id = ${id}` (RLS delete policy permits own-org rows), cancel open `sync_checkpoint` rows for the location (`status='cancelled'`), audit `location.unlinked`. Disconnect route: after the existing token-nulling block, add `delete from webhook_route where organisation_id = ${session.organisationId} and external_location_id in (select id from external_location where google_connection_id = ${connectionId})` and `update location_link set is_active = false where external_location_id in (…)`; extend the existing audit metadata with `routesRemoved` count. Client + a small "Unlink" button with confirm dialog in the linked-locations list of `connections-view.tsx` (same idiom as the link action at L425).
-- [ ] **Step 3: Run** — PASS + `pnpm test:a11y` (connections scenario mocks unchanged — update the mocked location-links fixture if the view now renders the unlink control unconditionally).
+- [x] **Step 2: Implement.** `DELETE` handler in `app/api/location-links/route.ts`: owner/admin; `withTenant`: `update location_link set is_active = false where external_location_id = ${id}` (404 if zero rows), `delete from webhook_route where external_location_id = ${id}` (RLS delete policy permits own-org rows), cancel open `sync_checkpoint` rows for the location (`status='cancelled'`), audit `location.unlinked`. Disconnect route: after the existing token-nulling block, add `delete from webhook_route where organisation_id = ${session.organisationId} and external_location_id in (select id from external_location where google_connection_id = ${connectionId})` and `update location_link set is_active = false where external_location_id in (…)`; extend the existing audit metadata with `routesRemoved` count. Client + a small "Unlink" button with confirm dialog in the linked-locations list of `connections-view.tsx` (same idiom as the link action at L425).
+- [x] **Step 3: Run** — PASS + `pnpm test:a11y` (connections scenario mocks unchanged — update the mocked location-links fixture if the view now renders the unlink control unconditionally).
+
+**Deviation (Task 7):** The rebrand moved the planned client and component
+paths to `lib/naba-presence-api.ts` and
+`components/naba-presence/connections-view.tsx`; the binding remains exactly
+`unlinkLocation(externalLocationId: string)`.
 
 ---
 
