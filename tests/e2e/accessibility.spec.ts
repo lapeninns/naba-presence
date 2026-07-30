@@ -33,6 +33,145 @@ async function expectAccessible(page: Page, surface: string) {
   ).toEqual([])
 }
 
+async function mockReviewWorkspace(
+  page: Page,
+  options: { disconnected?: boolean } = {}
+) {
+  let countsShouldFail = false
+  await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        session: {
+          sessionId: "session-review-state-a11y",
+          userId: "user-review-state-a11y",
+          organisationId: "org-review-state-a11y",
+          organisationName: "Naba Presence",
+          displayName: "Alex Morgan",
+          email: "alex@example.com",
+          role: "owner",
+          canPublish: true,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        settings: {
+          defaultLanguageCode: "en",
+          defaultTimezone: "Europe/London",
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+    if (countsShouldFail) {
+      await route.abort("failed")
+      return
+    }
+    await route.fulfill({
+      json: {
+        total: 1,
+        byStatus: {
+          new: 0,
+          drafted: 0,
+          verified: 0,
+          awaiting_approval: 0,
+          publish_requested: 0,
+          published: 1,
+          rejected: 0,
+          failed: 0,
+          escalated: 0,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "review-state-a11y",
+            reviewer: { displayName: "Jordan Lee", isAnonymous: false },
+            rating: 5,
+            location: { id: "location-state-a11y", name: "Camden" },
+            text: "A thoughtful and accessible review.",
+            createTime: "2026-07-28T10:00:00.000Z",
+            updateTime: "2026-07-28T10:00:00.000Z",
+            detectedLanguageCode: "en",
+            languageConfidence: 1,
+            workflowStatus: "published",
+            verificationStatus: "pass",
+            draftBody: "Thank you for your thoughtful review.",
+            replyBody: "Thank you for your thoughtful review.",
+            draftId: "draft-state-a11y",
+            replyStatus: "published",
+            syncStatus: "succeeded",
+            googleReplyState: "APPROVED",
+            googlePolicyViolation: null,
+          },
+        ],
+        nextCursor: null,
+      },
+    })
+  })
+  await page.route(/\/api\/reviews\/review-state-a11y$/, async (route) => {
+    await route.fulfill({
+      json: {
+        review: {
+          media: [],
+          reply: {
+            publishStatus: "published",
+            googleReplyState: "APPROVED",
+            googlePolicyViolation: null,
+          },
+          timeline: [],
+        },
+      },
+    })
+  })
+  await page.route(
+    /\/api\/google\/connections(?:\?.*)?$/,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          connections: options.disconnected
+            ? []
+            : [
+                {
+                  id: "connection-review-state-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope:
+                    "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+        },
+      })
+    }
+  )
+  await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        locations: [{ id: "location-state-a11y", name: "Camden" }],
+      },
+    })
+  })
+  await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
+  return {
+    failCounts() {
+      countsShouldFail = true
+    },
+  }
+}
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 1000 },
   { name: "mobile", width: 390, height: 844 },
@@ -315,6 +454,54 @@ for (const viewport of [
           },
         })
       })
+      await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            total: 1,
+            byStatus: {
+              new: 0,
+              drafted: 0,
+              verified: 0,
+              awaiting_approval: 0,
+              publish_requested: 0,
+              published: 1,
+              rejected: 0,
+              failed: 0,
+              escalated: 0,
+            },
+          },
+        })
+      })
+      await page.route(
+        /\/api\/google\/connections(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              connections: [
+                {
+                  id: "connection-reviews-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope:
+                    "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+            },
+          })
+        }
+      )
+      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            locations: [{ id: "location-a11y", name: "Camden" }],
+          },
+        })
+      })
       await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
         await route.fulfill({
           json: {
@@ -454,6 +641,57 @@ for (const viewport of [
         await expect(reviewList).toBeVisible()
         await expect(selectedReview).toBeHidden()
       }
+    })
+
+    test("stale review data banner", async ({ page }) => {
+      const controls = await mockReviewWorkspace(page)
+      await page.goto("/reviews")
+      await expect(
+        page.getByRole("button", { name: "Live data" })
+      ).toBeVisible()
+      controls.failCounts()
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+      await expect(page.getByText("Data may be out of date")).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Retry", exact: true })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} stale review data`)
+    })
+
+    test("disconnected review data state", async ({ page }) => {
+      await mockReviewWorkspace(page, { disconnected: true })
+      await page.goto("/reviews")
+      await expect(
+        page.getByText("No active Google connection")
+      ).toBeVisible()
+      await expect(
+        page.getByRole("link", { name: "Manage connections" })
+      ).toHaveAttribute("href", "/connections")
+      await expectAccessible(page, `${viewport.name} disconnected review data`)
+    })
+
+    test("delete published reply confirmation", async ({ page }) => {
+      await mockReviewWorkspace(page)
+      await page.goto("/reviews")
+      const reviewList = page.getByRole("region", { name: "Review list" })
+      if (viewport.name === "mobile") {
+        await reviewList.getByRole("button", { name: /Jordan Lee/ }).click()
+      }
+      await page.getByRole("button", { name: "Review actions" }).click()
+      await page
+        .getByRole("menuitem", { name: "Delete published reply" })
+        .click()
+      const dialog = page.getByRole("alertdialog", {
+        name: "Delete published reply?",
+      })
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText(
+        "This removes the reply on Google. The review returns to the inbox as unreplied."
+      )
+      await expectAccessible(
+        page,
+        `${viewport.name} delete published reply dialog`
+      )
     })
 
     test("connections", async ({ page }) => {

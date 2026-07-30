@@ -30,6 +30,10 @@ export function ReviewsRoute() {
     selectedId,
     setSelectedId,
     apiStatus,
+    counts,
+    refreshCounts,
+    connectionState,
+    lastRefreshedAt,
     refreshReviews,
   } = useNabaPresenceDashboard()
 
@@ -40,6 +44,10 @@ export function ReviewsRoute() {
       selectedId={selectedId}
       setSelectedId={setSelectedId}
       apiStatus={apiStatus}
+      counts={counts}
+      refreshCounts={refreshCounts}
+      connectionState={connectionState}
+      lastRefreshedAt={lastRefreshedAt}
       onRefresh={refreshReviews}
     />
   )

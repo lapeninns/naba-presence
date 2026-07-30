@@ -16,9 +16,12 @@ const linkSchema = z.object({
   confirmRelink: z.boolean().default(false),
 })
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
+    const session = await requireSession()
+    const managementView =
+      new URL(request.url).searchParams.get("view") === "management"
+    if (managementView) requireRole(session, ["owner", "admin"])
     const locations = await withTenant(
       session.organisationId,
       (sql) => sql`
@@ -37,10 +40,43 @@ export async function GET() {
           on ll.location_id = l.id
          and ll.is_active = true
         left join external_location e on e.id = ll.external_location_id
+        ${
+          session.role === "owner" || session.role === "admin"
+            ? sql``
+            : sql`
+                where not exists (
+                  select 1
+                  from location_member lm
+                  where lm.user_id = ${session.userId}
+                )
+                or exists (
+                  select 1
+                  from location_member lm
+                  where lm.user_id = ${session.userId}
+                    and lm.location_id = l.id
+                )
+              `
+        }
         order by lower(l.name)
       `
     )
-    return NextResponse.json({ locations })
+    if (managementView) return NextResponse.json({ locations })
+    return NextResponse.json({
+      locations: locations.map((location) => {
+        const record = location as {
+          locationId: string
+          name: string
+          googleLocationName: string | null
+        }
+        return {
+          id: record.locationId,
+          name: record.name,
+          ...(session.role === "owner" || session.role === "admin"
+            ? { googleLocationName: record.googleLocationName }
+            : {}),
+        }
+      }),
+    })
   } catch (error) {
     return apiError(error)
   }

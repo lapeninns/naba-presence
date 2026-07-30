@@ -4,6 +4,7 @@ import type {
   VerificationStatus,
 } from "@/lib/naba-presence-data"
 import type { DraftTone } from "@/lib/domain/reply-policy"
+import type { ReviewWorkflowState } from "@/lib/domain/workflow"
 
 type ApiReview = {
   id: string
@@ -203,6 +204,21 @@ export async function loadReviews(): Promise<Review[]> {
   return (await loadReviewsPage()).items
 }
 
+export type ReviewCounts = {
+  total: number
+  byStatus: Record<ReviewWorkflowState, number>
+}
+
+export async function loadReviewCounts(
+  locationId?: string
+): Promise<ReviewCounts> {
+  await requireApiSession()
+  const params = new URLSearchParams()
+  if (locationId) params.set("locationId", locationId)
+  const query = params.size ? `?${params.toString()}` : ""
+  return apiFetch<ReviewCounts>(`/api/reviews/counts${query}`)
+}
+
 export type ReviewDetailData = {
   media: Array<{
     id: string
@@ -309,6 +325,13 @@ export async function rejectReply(reviewId: string, note?: string) {
       body: JSON.stringify({ decision: "reject", note }),
     }
   )
+}
+
+export async function deleteReply(reviewId: string) {
+  return apiFetch<{
+    status: "remote_deleted" | "local_cancelled"
+    publishAttemptId: string
+  }>(`/api/reviews/${reviewId}/reply`, { method: "DELETE" })
 }
 
 export type GoogleConnection = {
@@ -606,9 +629,24 @@ export type InternalLocation = {
   verified: boolean | null
 }
 
+export type LocationDirectoryItem = {
+  id: string
+  name: string
+  googleLocationName?: string | null
+}
+
+export async function loadLocations() {
+  await requireApiSession()
+  return apiFetch<{ locations: LocationDirectoryItem[] }>(
+    "/api/location-links"
+  )
+}
+
 export async function loadInternalLocations() {
   await requireApiSession()
-  return apiFetch<{ locations: InternalLocation[] }>("/api/location-links")
+  return apiFetch<{ locations: InternalLocation[] }>(
+    "/api/location-links?view=management"
+  )
 }
 
 export async function createPrivacyRequest(input: {

@@ -49,6 +49,7 @@ import {
   type OrganisationMembership,
 } from "@/lib/naba-presence-api"
 import { cn } from "@/lib/utils"
+import type { ApiStatus } from "@/components/naba-presence/review-app"
 
 const NAV_ITEMS = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -63,7 +64,7 @@ export function AppShell({
   session,
   children,
 }: {
-  apiStatus: "loading" | "connected" | "error"
+  apiStatus: ApiStatus
   session: AppSession | null
   children: React.ReactNode
 }) {
@@ -213,6 +214,8 @@ export function AppShell({
                     ? "bg-success"
                     : apiStatus === "loading"
                       ? "bg-rating"
+                      : apiStatus === "stale"
+                        ? "bg-rating"
                       : "bg-muted-foreground"
                 )}
               />
@@ -220,7 +223,11 @@ export function AppShell({
                 ? "Live data"
                 : apiStatus === "loading"
                   ? "Checking live data"
-                  : "Live data unavailable"}
+                  : apiStatus === "stale"
+                    ? "Live data may be stale"
+                    : apiStatus === "disconnected"
+                      ? "Google disconnected"
+                      : "Live data unavailable"}
             </div>
             <ThemeToggle />
           </div>

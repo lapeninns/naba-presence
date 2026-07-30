@@ -11,9 +11,11 @@ import {
   Send,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   WandSparkles,
   X,
 } from "lucide-react"
+import Link from "next/link"
 import {
   useDeferredValue,
   useEffect,
@@ -96,13 +98,20 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
+import type {
+  ApiStatus,
+  ConnectionState,
+} from "@/components/naba-presence/review-app"
 import type { DraftTone } from "@/lib/domain/reply-policy"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-presence-data"
 import {
   approveReply,
+  deleteReply,
   generateDraft,
+  loadLocations,
   loadReviewDetail,
+  type ReviewCounts,
   type ReviewDetailData,
   loadReviewsPage,
   publishDraft,
@@ -117,6 +126,42 @@ import {
 } from "@/components/naba-presence/shared"
 
 type Queue = "all" | ReviewStatus
+
+function queueCount(queue: Queue, counts: ReviewCounts) {
+  if (queue === "all") return counts.total
+  if (queue === "needs_reply") {
+    return (
+      counts.byStatus.new +
+      counts.byStatus.drafted +
+      counts.byStatus.verified
+    )
+  }
+  if (queue === "awaiting_approval") {
+    return (
+      counts.byStatus.awaiting_approval + counts.byStatus.publish_requested
+    )
+  }
+  if (queue === "escalated") {
+    return (
+      counts.byStatus.escalated +
+      counts.byStatus.rejected +
+      counts.byStatus.failed
+    )
+  }
+  return counts.byStatus.published
+}
+
+function relativeRefreshTime(value: number | null) {
+  if (!value) return "never"
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - value) / 1000))
+  if (elapsedSeconds < 60) return "just now"
+  const elapsedMinutes = Math.round(elapsedSeconds / 60)
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`
+  }
+  const elapsedHours = Math.round(elapsedMinutes / 60)
+  return `${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`
+}
 
 function mergeLocationDirectory(
   current: Map<string, string>,
@@ -158,13 +203,21 @@ export function ReviewsWorkspace({
   selectedId,
   setSelectedId,
   apiStatus,
+  counts,
+  refreshCounts,
+  connectionState,
+  lastRefreshedAt,
   onRefresh,
 }: {
   reviews: Review[]
   setReviews: React.Dispatch<React.SetStateAction<Review[]>>
   selectedId: string
   setSelectedId: (id: string) => void
-  apiStatus: "loading" | "connected" | "error"
+  apiStatus: ApiStatus
+  counts: ReviewCounts
+  refreshCounts: (locationId?: string) => Promise<void>
+  connectionState: ConnectionState
+  lastRefreshedAt: number | null
   onRefresh: () => Promise<void>
 }) {
   const [queue, setQueue] = useState<Queue>("all")
@@ -205,6 +258,10 @@ export function ReviewsWorkspace({
   )
   const selectedLocationId =
     location === "All locations" ? undefined : locationDirectory.get(location)
+  const hasServerData =
+    apiStatus === "connected" ||
+    apiStatus === "stale" ||
+    apiStatus === "disconnected"
 
   const serverFilters = useMemo(() => {
     const workflowByQueue: Record<Queue, string[] | undefined> = {
@@ -244,7 +301,29 @@ export function ReviewsWorkspace({
   ])
 
   useEffect(() => {
-    if (apiStatus !== "connected") return
+    let active = true
+    void loadLocations()
+      .then(({ locations }) => {
+        if (!active) return
+        setKnownLocations(
+          new Map(locations.map((item) => [item.name, item.id]))
+        )
+      })
+      .catch(() => {
+        // Reviews remain a safe directory fallback while this request loads.
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasServerData) return
+    void refreshCounts(selectedLocationId)
+  }, [hasServerData, refreshCounts, selectedLocationId])
+
+  useEffect(() => {
+    if (!hasServerData) return
     const timeout = window.setTimeout(() => {
       startFiltering(async () => {
         try {
@@ -261,30 +340,30 @@ export function ReviewsWorkspace({
       })
     }, 250)
     return () => window.clearTimeout(timeout)
-  }, [apiStatus, serverFilters, setReviews, setSelectedId])
+  }, [hasServerData, serverFilters, setReviews, setSelectedId])
 
   const filteredReviews = useMemo(() => {
     const normalizedQuery = deferredQuery.trim().toLowerCase()
     return reviews.filter((review) => {
       const matchesQueue =
-        apiStatus === "connected" || queue === "all" || review.status === queue
+        hasServerData || queue === "all" || review.status === queue
       const matchesLocation =
-        apiStatus === "connected" ||
+        hasServerData ||
         location === "All locations" ||
         review.location === location
       const matchesRating =
-        apiStatus === "connected" ||
+        hasServerData ||
         rating === "all" ||
         review.rating === Number.parseInt(rating)
       const matchesQuery =
-        apiStatus === "connected" ||
+        hasServerData ||
         !normalizedQuery ||
         `${review.reviewer} ${review.text} ${review.location}`
           .toLowerCase()
           .includes(normalizedQuery)
       return matchesQueue && matchesLocation && matchesRating && matchesQuery
     })
-  }, [apiStatus, deferredQuery, location, queue, rating, reviews])
+  }, [deferredQuery, hasServerData, location, queue, rating, reviews])
 
   const activeFilterCount = [
     dateRange !== "all",
@@ -383,6 +462,8 @@ export function ReviewsWorkspace({
                 ? "Live data"
                 : apiStatus === "loading"
                   ? "Connecting"
+                  : apiStatus === "disconnected"
+                    ? "Google disconnected"
                   : "Retry live data"}
             </Button>
           }
@@ -399,6 +480,45 @@ export function ReviewsWorkspace({
           </Alert>
         ) : null}
 
+        {apiStatus === "stale" ? (
+          <Alert className="border-rating/45 bg-rating/10">
+            <Activity className="text-rating" />
+            <AlertTitle>Data may be out of date</AlertTitle>
+            <AlertDescription className="flex flex-col items-start gap-3">
+              <span>
+                Last updated {relativeRefreshTime(lastRefreshedAt)}.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void onRefresh()}
+              >
+                <RefreshCw data-icon="inline-start" />
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {connectionState === "disconnected" ? (
+          <Alert variant="destructive">
+            <Activity />
+            <AlertTitle>No active Google connection</AlertTitle>
+            <AlertDescription className="flex flex-col items-start gap-3">
+              <span>
+                Connect Google Business Profile to resume live review updates.
+              </span>
+              <Button
+                render={<Link href="/connections" />}
+                variant="outline"
+                size="sm"
+              >
+                Manage connections
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
           <TabsList
             variant="line"
@@ -406,10 +526,7 @@ export function ReviewsWorkspace({
             className="w-full [scrollbar-width:none] justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden"
           >
             {QUEUES.map((item) => {
-              const count =
-                item.id === "all"
-                  ? reviews.length
-                  : reviews.filter((review) => review.status === item.id).length
+              const count = queueCount(item.id, counts)
               return (
                 <TabsTrigger
                   key={item.id}
@@ -773,7 +890,7 @@ export function ReviewsWorkspace({
                 </EmptyContent>
               </Empty>
             )}
-            {apiStatus === "connected" && nextCursor ? (
+            {hasServerData && nextCursor ? (
               <div className="p-4">
                 <Button
                   variant="outline"
@@ -802,6 +919,12 @@ export function ReviewsWorkspace({
                 key={selectedReview.id}
                 review={selectedReview}
                 onBack={() => setMobilePane("list")}
+                onRefreshData={async () => {
+                  await Promise.all([
+                    onRefresh(),
+                    refreshCounts(selectedLocationId),
+                  ])
+                }}
                 onUpdate={(patch) =>
                   setReviews((current) =>
                     current.map((review) =>
@@ -899,16 +1022,19 @@ function ReviewDetail({
   review,
   onBack,
   onUpdate,
+  onRefreshData,
 }: {
   review: Review
   onBack: () => void
   onUpdate: (patch: Partial<Review>) => void
+  onRefreshData: () => Promise<void>
 }) {
   const [draft, setDraft] = useState(review.draft)
   const [tone, setTone] = useState<DraftTone>("warm_professional")
   const [replyLanguage, setReplyLanguage] = useState("auto")
   const [feedback, setFeedback] = useState("")
   const [rejectOpen, setRejectOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [rejectionNote, setRejectionNote] = useState("")
   const [isPending, startTransition] = useTransition()
   const [detailState, setDetailState] = useState<{
@@ -1098,6 +1224,34 @@ function ReviewDetail({
     })
   }
 
+  function removePublishedReply() {
+    setFeedback("")
+    startTransition(async () => {
+      try {
+        await deleteReply(review.id)
+        const refreshedDetail = await loadReviewDetail(review.id)
+        setDetailState({ reviewId: review.id, data: refreshedDetail })
+        onUpdate({
+          status: "needs_reply",
+          publishedReply: undefined,
+          responseTime: undefined,
+          googleState: undefined,
+        })
+        await onRefreshData()
+        setDeleteOpen(false)
+        toast.add({
+          type: "success",
+          title: "Published reply deleted",
+          description: "The review is ready for a new reply.",
+        })
+      } catch (error) {
+        setFeedback(
+          error instanceof Error ? error.message : "Reply deletion failed."
+        )
+      }
+    })
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 md:px-7 md:py-7">
       <header className="flex items-start gap-3 rounded-(--nr-radius-panel) border bg-card p-4 shadow-(--nr-shadow-card) md:p-5">
@@ -1149,8 +1303,39 @@ function ReviewDetail({
             >
               Copy review ID
             </DropdownMenuItem>
+            {review.status === "published" || review.googleState ? (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 />
+                Delete published reply
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete published reply?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the reply on Google. The review returns to the
+                inbox as unreplied.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={removePublishedReply}
+                disabled={isPending}
+              >
+                {isPending ? <Spinner data-icon="inline-start" /> : null}
+                Delete reply
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </header>
 
       <section aria-label="Review conversation" className="flex flex-col gap-4">
