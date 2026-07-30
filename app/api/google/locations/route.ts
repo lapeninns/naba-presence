@@ -71,6 +71,7 @@ export async function GET(request: Request) {
           sql,
           account.google_connection_id
         )
+        const seenPageTokens = new Set<string>()
         let pageToken: string | undefined
         do {
           const response = await googleLocations(
@@ -161,6 +162,16 @@ export async function GET(request: Request) {
             })
           }
           pageToken = response.nextPageToken
+          if (pageToken) {
+            if (seenPageTokens.has(pageToken)) {
+              throw new ApiError(
+                502,
+                "google_pagination_cycle",
+                "Google returned a repeated location page token."
+              )
+            }
+            seenPageTokens.add(pageToken)
+          }
         } while (pageToken)
       }
       return discovered

@@ -10,7 +10,7 @@ type ApiReview = {
   id: string
   location: { id: string; name: string }
   reviewer: { displayName: string | null; isAnonymous: boolean }
-  rating: number
+  rating: number | null
   text: string | null
   detectedLanguageCode: string | null
   languageConfidence: number | null

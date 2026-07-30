@@ -31,7 +31,7 @@ export async function POST(
           review_text: string | null
           reviewer_name: string | null
           location_name: string
-          rating: number
+          rating: number | null
           detected_language_code: string | null
           location_id: string
         }[]

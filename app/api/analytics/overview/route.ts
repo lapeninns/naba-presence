@@ -49,7 +49,8 @@ export async function GET(request: Request) {
             1
           )::float as "responseRate",
           count(*) filter (
-            where r.star_rating <= 2
+            where r.star_rating is not null
+              and r.star_rating <= 2
               and coalesce(rr.publish_status, 'not_published')
                 not in ('accepted', 'published')
           )::integer as "unresolvedComplaints",
@@ -211,7 +212,8 @@ export async function GET(request: Request) {
               and rr.publish_status not in ('deleted', 'not_published')
           )::float as "medianLatestEditSeconds",
           count(*) filter (
-            where r.star_rating <= 2
+            where r.star_rating is not null
+              and r.star_rating <= 2
               and coalesce(rr.publish_status, 'not_published')
                 not in ('accepted', 'published')
           )::integer as "unresolvedComplaints",

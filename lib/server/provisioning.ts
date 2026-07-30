@@ -10,6 +10,21 @@ export type GoogleProfile = {
   sub: string
   email?: string
   name?: string
+  email_verified?: boolean
+}
+
+function mapIdentityProvisioningError(error: unknown): never {
+  if (
+    error instanceof Error &&
+    error.message.includes("unverified_email_conflict")
+  ) {
+    throw new ApiError(
+      403,
+      "unverified_google_email",
+      "Google has not verified this email address."
+    )
+  }
+  throw error
 }
 
 export async function provisionOwner(profile: GoogleProfile) {
@@ -20,15 +35,21 @@ export async function provisionOwner(profile: GoogleProfile) {
       .replace(/(^-|-$)/g, "")
       .slice(0, 40)
     const [user] = await sql<
-      { id: string; default_organisation_id: string | null }[]
+      {
+        id: string
+        default_organisation_id: string | null
+        email_change_held: boolean
+      }[]
     >`
       select
         id::text as id,
-        default_organisation_id::text as default_organisation_id
+        default_organisation_id::text as default_organisation_id,
+        email_change_held
       from provision_google_user(
         ${profile.email ?? `${profile.sub}@google.invalid`},
         ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub}
+        ${profile.sub},
+        ${profile.email_verified === true}
       )
     `
     await sql`select set_config('app.user_id', ${user.id}, true)`
@@ -71,9 +92,23 @@ export async function provisionOwner(profile: GoogleProfile) {
         select set_config('app.organisation_id', ${organisationId}, true)
       `
     }
+    if (user.email_change_held) {
+      await writeAudit(sql, {
+        organisationId,
+        actorUserId: user.id,
+        action: "identity.email_change_held",
+        subjectType: "app_user",
+        subjectId: user.id,
+        requestId: crypto.randomUUID(),
+        metadata: {
+          requestedEmail: profile.email ?? null,
+          googleSubject: profile.sub,
+        },
+      })
+    }
     const token = await createSession(sql, user.id, organisationId)
     return { organisationId, userId: user.id, token }
-  })
+  }).catch(mapIdentityProvisioningError)
 }
 
 export async function provisionMember(
@@ -147,15 +182,21 @@ export async function provisionMember(
       )
     }
     const [user] = await sql<
-      { id: string; defaultOrganisationId: string | null }[]
+      {
+        id: string
+        defaultOrganisationId: string | null
+        emailChangeHeld: boolean
+      }[]
     >`
       select
         id::text as id,
-        default_organisation_id::text as "defaultOrganisationId"
+        default_organisation_id::text as "defaultOrganisationId",
+        email_change_held as "emailChangeHeld"
       from provision_google_user(
         ${profile.email ?? `${profile.sub}@google.invalid`},
         ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub}
+        ${profile.sub},
+        ${profile.email_verified === true}
       )
     `
     await sql`select set_config('app.user_id', ${user.id}, true)`
@@ -199,6 +240,7 @@ export async function provisionMember(
       metadata: {
         invitedEmail: pending.email,
         googleEmail: profile.email ?? null,
+        emailChangeHeld: user.emailChangeHeld,
         role: pending.role,
         canPublish: pending.canPublish,
       },
@@ -213,5 +255,5 @@ export async function provisionMember(
       userId: user.id,
       token,
     }
-  })
+  }).catch(mapIdentityProvisioningError)
 }

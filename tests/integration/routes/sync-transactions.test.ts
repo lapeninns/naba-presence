@@ -238,6 +238,33 @@ describeDatabase("sync transaction boundaries", () => {
     })
   }, 20_000)
 
+  it("deduplicates repeated review keys within one provider page", async () => {
+    const fixture = await createFixture()
+    const duplicate = providerReview(
+      `${fixture.googleAccountName}/${fixture.googleLocationName}/reviews/duplicate-key`,
+      "2026-08-03T10:00:00.000Z"
+    )
+    const handler = (): GoogleStubResponse => ({
+      status: 200,
+      json: { reviews: [duplicate, duplicate] },
+    })
+    stub.respond(
+      { method: "POST", pathIncludes: "locations:batchGetReviews" },
+      handler
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: "/reviews" },
+      handler
+    )
+
+    const response = await runBackfill(fixture)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const payload = (await response.json()) as {
+      batches: Array<{ upserted: number }>
+    }
+    expect(payload.batches[0]?.upserted).toBe(1)
+  })
+
   it("keeps the database pool healthy during a slow backfill", async () => {
     const fixture = await createFixture()
     const [connection] = await admin<

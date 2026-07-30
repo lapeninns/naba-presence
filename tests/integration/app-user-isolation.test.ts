@@ -102,7 +102,8 @@ describeDatabase("app_user isolation", () => {
       from provision_google_user(
         ${definerEmail},
         'Def',
-        ${`sub-${suffix}`}
+        ${`sub-${suffix}`},
+        true
       )
     `
     expect(user.id).toBeTruthy()

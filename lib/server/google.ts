@@ -284,6 +284,7 @@ export async function googleUserInfo(accessToken: string): Promise<{
   sub: string
   email?: string
   name?: string
+  email_verified?: boolean
 }> {
   return googleRequest(
     "https://openidconnect.googleapis.com/v1/userinfo",

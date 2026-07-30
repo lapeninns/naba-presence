@@ -13,7 +13,7 @@ const toneGuidance: Record<DraftTone, string> = {
 
 export function buildReplyPrompt(input: {
   reviewText: string | null
-  rating: number
+  rating: number | null
   reviewerName: string | null
   locationName: string
   language: string

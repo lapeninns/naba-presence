@@ -122,7 +122,7 @@ const draftResultSchema = z.object({
 
 export async function generateReply(input: {
   reviewText: string | null
-  rating: number
+  rating: number | null
   reviewerName: string | null
   locationName: string
   language: string
@@ -157,7 +157,7 @@ export type SemanticInput = {
   reviewText: string | null
   reviewerName?: string | null
   locationName: string
-  rating: number
+  rating: number | null
   expectedLanguage: string
 }
 

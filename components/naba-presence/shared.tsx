@@ -119,9 +119,16 @@ export function Stars({
   value,
   compact = false,
 }: {
-  value: number
+  value: number | null
   compact?: boolean
 }) {
+  if (value === null) {
+    return (
+      <span className="text-sm text-muted-foreground" aria-label="No rating">
+        No rating
+      </span>
+    )
+  }
   return (
     <span
       className="inline-flex items-center gap-0.5"

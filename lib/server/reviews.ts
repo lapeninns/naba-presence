@@ -20,7 +20,6 @@ const RATINGS: Record<string, number> = {
   THREE: 3,
   FOUR: 4,
   FIVE: 5,
-  STAR_RATING_UNSPECIFIED: 1,
 }
 
 export type LinkedLocation = {
@@ -82,9 +81,9 @@ function minReviewUpdateTime(
   return timestamps.length ? new Date(Math.min(...timestamps)) : null
 }
 
-function ratingNumber(value: unknown): number {
+export function ratingValue(value: unknown): number | null {
   if (typeof value === "number") return Math.min(5, Math.max(1, value))
-  return RATINGS[String(value)] ?? 1
+  return RATINGS[String(value)] ?? null
 }
 
 export async function linkedLocations(
@@ -186,7 +185,7 @@ export async function upsertGoogleReview(
       ${sha256(reviewId)},
       ${reviewer.displayName ? String(reviewer.displayName) : null},
       ${reviewer.isAnonymous === true || !reviewer.displayName},
-      ${ratingNumber(payload.starRating)},
+      ${ratingValue(payload.starRating)},
       ${text},
       ${language.code},
       ${language.confidence},
@@ -461,7 +460,13 @@ export async function syncLinkedLocation(input: {
         input.organisationId,
         async (sql) => {
           let committed = 0
+          const seen = new Set<string>()
           for (const review of page.reviews ?? []) {
+            const hash = sha256(
+              String(review.name ?? review.reviewId)
+            )
+            if (seen.has(hash)) continue
+            seen.add(hash)
             if (
               await upsertGoogleReview(
                 sql,

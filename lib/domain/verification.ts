@@ -16,7 +16,7 @@ export function deterministicVerification(input: {
   reviewText: string | null
   locationName: string
   otherLocationNames: string[]
-  rating: number
+  rating: number | null
   expectedLanguage?: string | null
 }): VerificationReason[] {
   const reasons: VerificationReason[] = []
@@ -80,7 +80,11 @@ export function deterministicVerification(input: {
       `The reply mentions a different location: ${wrongLocation}.`
     )
   }
-  if (input.rating <= 2 && !/\b(sorry|apolog|regret)\b/iu.test(body)) {
+  if (
+    input.rating !== null &&
+    input.rating <= 2 &&
+    !/\b(sorry|apolog|regret)\b/iu.test(body)
+  ) {
     add(
       "complaint_not_acknowledged",
       "warn",

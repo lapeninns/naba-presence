@@ -13,7 +13,7 @@ export type EvidenceInput = {
   reviewId: string
   updateTime: string
   reviewText: string | null
-  rating: number
+  rating: number | null
   location: string
   language: string
   tone: string
@@ -45,7 +45,7 @@ export async function verifyStoredDraft(
     review_text: string | null
     reviewer_name?: string | null
     location_name: string
-    rating: number
+    rating: number | null
     detected_language_code?: string | null
   }
 ) {

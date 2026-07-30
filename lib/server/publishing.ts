@@ -92,7 +92,7 @@ type PublishRecord = {
   google_review_name_ciphertext: Buffer
   update_time: Date
   review_text: string | null
-  rating: number
+  rating: number | null
   location_name: string
   location_id: string
   verified: boolean

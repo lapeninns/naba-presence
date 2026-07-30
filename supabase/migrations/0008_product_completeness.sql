@@ -152,6 +152,95 @@ alter table organisation
 alter table review
   add column restricted_at timestamptz;
 
+alter table review
+  drop constraint review_star_rating_check,
+  alter column star_rating drop not null,
+  add constraint review_star_rating_check
+    check (star_rating is null or star_rating between 1 and 5);
+
+drop function provision_google_user(text, text, text);
+
+create or replace function provision_google_user(
+  p_email text,
+  p_display_name text,
+  p_google_subject text,
+  p_email_verified boolean
+) returns table (
+  id uuid,
+  default_organisation_id uuid,
+  email_change_held boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user app_user%rowtype;
+  v_email_change_held boolean := false;
+begin
+  select u.*
+  into v_user
+  from app_user u
+  where u.google_subject = p_google_subject
+  limit 1;
+
+  if found then
+    if p_email_verified
+      and v_user.email is distinct from p_email then
+      if exists (
+        select 1
+        from app_user u
+        where u.email = p_email
+          and u.id <> v_user.id
+      ) then
+        v_email_change_held := true;
+      else
+        update app_user
+        set email = p_email
+        where app_user.id = v_user.id;
+      end if;
+    end if;
+    update app_user
+    set display_name = p_display_name
+    where app_user.id = v_user.id
+    returning * into v_user;
+  else
+    select u.*
+    into v_user
+    from app_user u
+    where u.email = p_email
+    limit 1;
+
+    if found then
+      if p_email_verified is not true then
+        raise exception 'unverified_email_conflict';
+      end if;
+      update app_user
+      set
+        google_subject = p_google_subject,
+        display_name = p_display_name
+      where app_user.id = v_user.id
+      returning * into v_user;
+    else
+      insert into app_user (email, display_name, google_subject)
+      values (p_email, p_display_name, p_google_subject)
+      returning * into v_user;
+    end if;
+  end if;
+
+  return query
+  select
+    v_user.id,
+    v_user.default_organisation_id,
+    v_email_change_held;
+end;
+$$;
+
+revoke all on function provision_google_user(text, text, text, boolean)
+  from public;
+grant execute on function provision_google_user(text, text, text, boolean)
+  to naba_app_runtime;
+
 create or replace function reject_audit_mutation()
 returns trigger
 language plpgsql

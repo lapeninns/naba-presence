@@ -7,7 +7,7 @@ export type Review = {
   id: string
   reviewer: string
   initials: string
-  rating: number
+  rating: number | null
   location: string
   locationId?: string
   excerpt: string

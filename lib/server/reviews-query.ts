@@ -21,7 +21,7 @@ export type InboxFilters = {
   cursor?: {
     updateTime: string
     id: string
-    rating?: number
+    rating?: number | null
   }
   role: Session["role"]
   userId: string
@@ -141,30 +141,38 @@ export function buildInboxQuery(
           ? sql`and (r.update_time, r.id) < (
               ${filters.cursor.updateTime}, ${filters.cursor.id}
             )`
-          : filters.cursor &&
-              filters.sort === "rating_desc" &&
-              filters.cursor.rating
-            ? sql`and (
-                r.star_rating < ${filters.cursor.rating}
-                or (
-                  r.star_rating = ${filters.cursor.rating}
+          : filters.cursor && filters.sort === "rating_desc"
+            ? filters.cursor.rating === null
+              ? sql`and r.star_rating is null
                   and (r.update_time, r.id) < (
                     ${filters.cursor.updateTime}, ${filters.cursor.id}
-                  )
-                )
-              )`
-            : filters.cursor &&
-                filters.sort === "rating_asc" &&
-                filters.cursor.rating
-              ? sql`and (
-                  r.star_rating > ${filters.cursor.rating}
+                  )`
+              : sql`and (
+                  r.star_rating < ${filters.cursor.rating!}
+                  or r.star_rating is null
                   or (
-                    r.star_rating = ${filters.cursor.rating}
+                    r.star_rating = ${filters.cursor.rating!}
                     and (r.update_time, r.id) < (
                       ${filters.cursor.updateTime}, ${filters.cursor.id}
                     )
                   )
                 )`
+            : filters.cursor && filters.sort === "rating_asc"
+              ? filters.cursor.rating === null
+                ? sql`and r.star_rating is null
+                    and (r.update_time, r.id) < (
+                      ${filters.cursor.updateTime}, ${filters.cursor.id}
+                    )`
+                : sql`and (
+                    r.star_rating > ${filters.cursor.rating!}
+                    or r.star_rating is null
+                    or (
+                      r.star_rating = ${filters.cursor.rating!}
+                      and (r.update_time, r.id) < (
+                        ${filters.cursor.updateTime}, ${filters.cursor.id}
+                      )
+                    )
+                  )`
               : sql``
       }
       ${
@@ -184,9 +192,15 @@ export function buildInboxQuery(
       }
     ${
       filters.sort === "rating_desc"
-        ? sql`order by r.star_rating desc, r.update_time desc, r.id desc`
+        ? sql`order by
+            r.star_rating desc nulls last,
+            r.update_time desc,
+            r.id desc`
         : filters.sort === "rating_asc"
-          ? sql`order by r.star_rating asc, r.update_time desc, r.id desc`
+          ? sql`order by
+              r.star_rating asc nulls last,
+              r.update_time desc,
+              r.id desc`
           : sql`order by r.update_time desc, r.id desc`
     }
     limit ${filters.pageSize + 1}

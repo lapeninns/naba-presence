@@ -225,4 +225,37 @@ describeDatabase("privacy-safe API serialization", () => {
     expect(ownerConnection.googleEmail).toBe("stub@example.test")
     expect(ownerConnection.scope).toBe("business.manage")
   })
+
+  it("rejects a repeated Google locations page token", async () => {
+    stub.reset()
+    let pageCalls = 0
+    stub.respond(
+      { method: "GET", pathIncludes: "/locations?" },
+      () => {
+        pageCalls += 1
+        return {
+          status: 200,
+          json: {
+            locations: [
+              {
+                name: "locations/cycle-guard",
+                title: "Cycle Guard Hotel",
+                metadata: { hasVoiceOfMerchant: true },
+              },
+            ],
+            ...(pageCalls < 3 ? { nextPageToken: "cycle-token" } : {}),
+          },
+        }
+      }
+    )
+
+    const response = await fetch(`${server.baseUrl}/api/google/locations`, {
+      headers: { cookie: ownerCookie },
+    })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({
+      error: "google_pagination_cycle",
+    })
+    expect(pageCalls).toBe(2)
+  })
 })

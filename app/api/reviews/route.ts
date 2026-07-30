@@ -55,7 +55,7 @@ const querySchema = z.object({
     .object({
       updateTime: z.iso.datetime(),
       id: z.uuid(),
-      rating: z.number().int().min(1).max(5).optional(),
+      rating: z.number().int().min(1).max(5).nullable().optional(),
     })
     .optional(),
 })
@@ -83,7 +83,8 @@ function decodeCursor(value: string | null, sort: string | null) {
       (sort === "rating_desc" || sort === "rating_asc") &&
       (typeof cursor !== "object" ||
         cursor === null ||
-        typeof cursor.rating !== "number")
+        !Object.hasOwn(cursor, "rating") ||
+        (typeof cursor.rating !== "number" && cursor.rating !== null))
     ) {
       throw new ApiError(
         400,
@@ -132,7 +133,8 @@ export async function GET(request: Request) {
     const hasMore = rows.length > query.pageSize
     const items = hasMore ? rows.slice(0, query.pageSize) : rows
     const last = items.at(-1) as
-      { id: string; updateTime: string | Date; rating: number } | undefined
+      { id: string; updateTime: string | Date; rating: number | null }
+      | undefined
     const nextCursor =
       hasMore && last
         ? Buffer.from(

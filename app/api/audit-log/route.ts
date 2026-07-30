@@ -32,7 +32,8 @@ function csvCell(value: unknown) {
       : typeof value === "string"
         ? value
         : JSON.stringify(value)
-  return `"${text.replaceAll('"', '""')}"`
+  const guarded = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
+  return `"${guarded.replaceAll('"', '""')}"`
 }
 
 export async function GET(request: Request) {

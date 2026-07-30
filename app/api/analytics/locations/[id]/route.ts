@@ -89,7 +89,8 @@ export async function GET(
               and rr.publish_status not in ('deleted', 'not_published')
           )::float as "medianLatestEditSeconds",
           count(r.id) filter (
-            where r.star_rating <= 2
+            where r.star_rating is not null
+              and r.star_rating <= 2
               and coalesce(rr.publish_status, 'not_published')
                 not in ('accepted', 'published')
           )::integer as "unresolvedComplaints"
@@ -106,6 +107,7 @@ export async function GET(
         from review
         where location_id = ${id}
           and provider_deleted_at is null
+          and star_rating is not null
           and create_time >= ${from}
           and create_time <= ${to}
         group by star_rating

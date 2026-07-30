@@ -52,7 +52,7 @@ export async function POST(
       const [review] = await sql<
         {
           review_text: string | null
-          rating: number
+          rating: number | null
           reviewer_name: string | null
           language: string | null
           language_confidence: number | null
