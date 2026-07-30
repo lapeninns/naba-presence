@@ -134,6 +134,7 @@ The 879-line settings page splits by concern:
 | `/connections` | `/settings/connections` | Setup wizard becomes a flow inside the page, not a navigation slot |
 | `/settings` | `/settings` + three siblings | Split by concern |
 | `/design-system` | unchanged | Already outside navigation |
+| `route-views.tsx` | **kept** | Remains the context-to-props bridge for views that read dashboard state; it gains the new route wrappers rather than being removed |
 
 `/overview` is deleted rather than kept because it is derived from
 `/analytics`: its chart calls `loadAnalytics` with a hardcoded seven-day window
@@ -254,8 +255,8 @@ New view files:
 | `locations-index-view.tsx` | `/locations` |
 | `location-workspace-header.tsx` | `/locations/[id]/*` layout |
 | `location-profile-view.tsx` | `/locations/[id]` |
-| `location-hours-view.tsx` | `/locations/[id]/hours` |
-| `capability-placeholder.tsx` | Photos, Posts, Menu, Q&A, Booking, Performance tabs |
+| `location-hours-view.tsx` | `/locations/[id]/hours` — Phase 4 only |
+| `capability-placeholder.tsx` | Hours, Photos, Posts, Menu, Q&A, Booking, Performance tabs until their workstream lands |
 | `performance-view.tsx` | `/performance`, wrapping today's analytics as one tab |
 | `settings-policy-view.tsx` | `/settings` |
 | `settings-team-view.tsx` | `/settings/team` |
@@ -339,9 +340,15 @@ review count, response rate, and unresolved complaints), `loadInternalLocations`
 ### 9.4 Route deletion
 
 `/api/analytics/locations/[id]/route.ts` has no caller anywhere in `app`,
-`components`, `lib`, or `hooks`, and is deleted. `/api/legal-holds` and
-`/api/support/impersonation` also have no UI caller but gain one in
-`/settings/compliance`; they are kept.
+`components`, `lib`, or `hooks`, and is deleted.
+
+`/api/legal-holds` and `/api/support/impersonation` also have no UI caller, but
+they are **kept without one**. Legal holds are an API-level retention control
+documented in `docs/architecture.md`, and support impersonation is a
+flag-gated internal tool that writes an `support.impersonation.started` audit
+event. Building an operator UI for either — particularly for impersonation — is
+a separate change with its own authorisation and audit review, not part of a
+navigation redesign. This design does not add one.
 
 ## 10. Density
 
