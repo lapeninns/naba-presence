@@ -8,7 +8,7 @@ import { useNabaPresenceDashboard } from "@/components/naba-presence/review-app"
 import { ReviewsWorkspace } from "@/components/naba-presence/reviews-view"
 import { SettingsView } from "@/components/naba-presence/settings-view"
 
-export function ReviewsRoute() {
+export function InboxRoute() {
   const {
     reviews,
     setReviews,

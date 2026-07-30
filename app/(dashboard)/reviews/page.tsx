@@ -1,7 +1,5 @@
-import { ReviewsRoute } from "@/components/naba-presence/route-views"
-
-export const metadata = { title: "Reviews · NabaPresence" }
+import { redirect } from "next/navigation"
 
 export default function ReviewsPage() {
-  return <ReviewsRoute />
+  redirect("/inbox")
 }

@@ -182,7 +182,9 @@ export function NabaPresenceDashboard({
         setApiStatus("stale")
       }
       if (document.visibilityState !== "visible") return
-      void refreshDashboard(pathname === "/reviews")
+      void refreshDashboard(
+        pathname === "/inbox" || pathname.endsWith("/reviews")
+      )
     }
     const interval = window.setInterval(refreshVisibleData, 60_000)
     window.addEventListener("focus", refreshVisibleData)

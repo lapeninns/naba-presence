@@ -464,8 +464,8 @@ export function ReviewsWorkspace({
     >
       <div className="flex shrink-0 flex-col gap-4 px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)">
         <PageHeader
-          title="Reviews"
-          description="Review, verify and publish Google responses."
+          title="Inbox"
+          description="Google reviews awaiting a reply, approval, or publication across every linked location."
           actions={
             <Button
               variant="outline"
