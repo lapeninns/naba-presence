@@ -377,7 +377,7 @@ export default function Page() {
               </Button>
             </div>
             <BusinessContext
-              organisationName="Naba Presence Hospitality"
+              name="Naba Presence Hospitality"
               detail="3 connected locations"
               status={{ label: "Google connection", value: "Healthy" }}
             />

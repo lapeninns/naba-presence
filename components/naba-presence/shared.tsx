@@ -83,11 +83,11 @@ export function PageHeader({
 }
 
 export function BusinessContext({
-  organisationName,
+  name,
   detail,
   status,
 }: {
-  organisationName: string
+  name: string
   detail?: React.ReactNode
   status?: { label: string; value: string }
 }) {
@@ -95,7 +95,7 @@ export function BusinessContext({
     <Card className="bg-[var(--nr-surface-card-translucent)] backdrop-blur-xl">
       <CardContent className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-col gap-1">
-          <p className="truncate font-medium">{organisationName}</p>
+          <p className="truncate font-medium">{name}</p>
           {detail ? (
             <p className="text-sm text-muted-foreground">{detail}</p>
           ) : null}

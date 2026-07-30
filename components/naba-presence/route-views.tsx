@@ -36,6 +36,40 @@ export function InboxRoute() {
   )
 }
 
+export function LocationReviewsRoute({
+  locationId,
+}: {
+  locationId: string
+}) {
+  const {
+    reviews,
+    setReviews,
+    selectedId,
+    setSelectedId,
+    apiStatus,
+    counts,
+    refreshCounts,
+    connectionState,
+    lastRefreshedAt,
+    refreshReviews,
+  } = useNabaPresenceDashboard()
+
+  return (
+    <ReviewsWorkspace
+      reviews={reviews.filter((review) => review.locationId === locationId)}
+      setReviews={setReviews}
+      selectedId={selectedId}
+      setSelectedId={setSelectedId}
+      apiStatus={apiStatus}
+      counts={counts}
+      refreshCounts={refreshCounts}
+      connectionState={connectionState}
+      lastRefreshedAt={lastRefreshedAt}
+      onRefresh={refreshReviews}
+    />
+  )
+}
+
 export function ConnectionsSettingsRoute() {
   const router = useRouter()
   return <ConnectionsView onNavigate={() => router.push("/settings")} />
