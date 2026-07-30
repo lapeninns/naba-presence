@@ -36,7 +36,7 @@ export function InboxRoute() {
   )
 }
 
-export function ConnectionsRoute() {
+export function ConnectionsSettingsRoute() {
   const router = useRouter()
   return <ConnectionsView onNavigate={() => router.push("/settings")} />
 }

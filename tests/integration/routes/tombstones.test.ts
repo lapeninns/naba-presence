@@ -164,23 +164,14 @@ describeDatabase("provider-deleted review tombstones", () => {
       "/api/analytics/overview?from=2026-05-01T00:00:00.000Z&to=2026-08-01T00:00:00.000Z"
     )
     expect(analytics.status, await analytics.clone().text()).toBe(200)
-    expect(
-      (await analytics.json()) as {
-        summary: { reviewVolume: number }
-      }
-    ).toMatchObject({ summary: { reviewVolume: 90 } })
-    const locationAnalytics = await appGet(
-      `/api/analytics/locations/${locationId}?from=2026-05-01T00:00:00.000Z&to=2026-08-01T00:00:00.000Z`
+    const analyticsBody = (await analytics.json()) as {
+      summary: { reviewVolume: number }
+      locations: Array<{ id: string; reviews: number }>
+    }
+    expect(analyticsBody.summary.reviewVolume).toBe(90)
+    expect(analyticsBody.locations).toContainEqual(
+      expect.objectContaining({ id: locationId, reviews: 90 })
     )
-    expect(
-      locationAnalytics.status,
-      await locationAnalytics.clone().text()
-    ).toBe(200)
-    expect(
-      (await locationAnalytics.json()) as {
-        location: { reviewVolume: number }
-      }
-    ).toMatchObject({ location: { reviewVolume: 90 } })
     const [audit] = await admin<
       { metadata: { tombstoned: number; locationId: string } }[]
     >`

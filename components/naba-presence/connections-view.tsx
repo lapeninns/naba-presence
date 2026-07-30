@@ -64,6 +64,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
+import { SettingsNav } from "@/components/naba-presence/settings/settings-nav"
 import {
   beginGoogleConnect,
   activateGoogleAccounts,
@@ -89,6 +90,7 @@ import {
   unlinkLocation,
 } from "@/lib/naba-presence-api"
 import {
+  formatTimestamp,
   PageFrame,
   PageHeader,
   readControlValue,
@@ -577,6 +579,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             : "Set up your review workspace in a few guided steps. You stay in control of every location we import."
         }
       />
+      <SettingsNav />
 
       <SetupProgress
         connected={connection?.status === "active"}
@@ -1142,6 +1145,43 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
               </CardFooter>
             </Card>
 
+            <Card>
+              <CardHeader>
+                <CardTitle>Operations health</CardTitle>
+                <CardDescription>
+                  Google connection and review-sync status
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-5">
+                <HealthRow
+                  label="Google connection"
+                  detail={
+                    connection
+                      ? connection.status === "active" &&
+                        !connection.reconnectRequired
+                        ? `Active${connection.lastRefreshAt ? ` · refreshed ${formatTimestamp(connection.lastRefreshAt)}` : ""}`
+                        : connection.reconnectRequired
+                          ? "Reconnect required"
+                          : connection.status
+                      : "Not connected"
+                  }
+                  healthy={
+                    connection?.status === "active" &&
+                    !connection.reconnectRequired
+                  }
+                />
+                <HealthRow
+                  label="Google notifications"
+                  detail={
+                    connection?.notificationsEnabled
+                      ? "Configured"
+                      : "Not configured · scheduled sync remains available"
+                  }
+                  healthy={Boolean(connection?.notificationsEnabled)}
+                />
+              </CardContent>
+            </Card>
+
             {activeAccount ? (
               <Card aria-label="Notification management" className="bg-card">
                 <CardHeader>
@@ -1238,6 +1278,32 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         </Card>
       ) : null}
     </PageFrame>
+  )
+}
+
+function HealthRow({
+  label,
+  detail,
+  healthy,
+}: {
+  label: string
+  detail: string
+  healthy: boolean
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+        {healthy ? (
+          <CheckCircle2 className="size-4" aria-hidden />
+        ) : (
+          <Activity className="size-4" aria-hidden />
+        )}
+      </span>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
+      </div>
+    </div>
   )
 }
 

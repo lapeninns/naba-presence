@@ -1,7 +1,5 @@
-import { ConnectionsRoute } from "@/components/naba-presence/route-views"
-
-export const metadata = { title: "Connections · NabaPresence" }
+import { redirect } from "next/navigation"
 
 export default function ConnectionsPage() {
-  return <ConnectionsRoute />
+  redirect("/settings/connections")
 }
