@@ -321,6 +321,12 @@ export async function runDueJobs(options: {
   attempts: number
   dead: number
 }> {
+  await getDatabase()`
+    insert into ops_heartbeat (name, beat_at)
+    values ('scheduler', now())
+    on conflict (name) do update
+    set beat_at = excluded.beat_at
+  `
   const deadline = Date.now() + Math.max(0, options.budgetMs)
   const organisationIds = await jobOrganisationIds()
   const summary = {

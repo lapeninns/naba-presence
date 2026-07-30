@@ -107,9 +107,9 @@
 | Dead letters | `deadWebhookEvents > 0` | ticket |
 | Scheduler silent | `now() - schedulerHeartbeatAt > 5 min` | page |
 
-- [ ] **Step 1:** Implement the health fields + heartbeat (+ migration) with a harness test (`tests/integration/routes/health-alerting.test.ts`: seed one failed event + one ambiguous attempt → fields reflect them).
-- [ ] **Step 2:** Wire staging monitoring (the OTLP collector from `OTEL_EXPORTER_OTLP_ENDPOINT` + a scraper hitting `/api/operations/health` with an owner service session or a new `CRON_SECRET`-authed `GET /api/operations/health?scope=platform` variant — implement the cron-auth variant so no browser session is needed for monitors).
-- [ ] **Step 3: Alert-firing drill on staging** (spec acceptance "alerts fire in staging for intentionally injected failures"): stop the scheduler → scheduler-silent alert fires; poison one webhook (bad location, forced sync failure via revoked token) → backlog alert; force one ambiguous publish (Task 2 Step 3's drill) → ambiguous alert. Evidence: screenshots/alert payloads in `evidence/obs-501.md`.
+- [x] **Step 1:** Implement the health fields + heartbeat (+ migration) with a harness test (`tests/integration/routes/health-alerting.test.ts`: seed one failed event + one ambiguous attempt → fields reflect them).
+- [ ] **Step 2:** Wire staging monitoring (the OTLP collector from `OTEL_EXPORTER_OTLP_ENDPOINT` + a scraper hitting `/api/operations/health` with an owner service session or a new `CRON_SECRET`-authed `GET /api/operations/health?scope=platform` variant — implement the cron-auth variant so no browser session is needed for monitors). **BLOCKED — local cron-authenticated platform endpoint and scraper documentation are complete; wiring requires `STAGING_BASE_URL`, deployed staging credentials/collector, and P1/P4 infrastructure.**
+- [ ] **Step 3: Alert-firing drill on staging** (spec acceptance "alerts fire in staging for intentionally injected failures"): stop the scheduler → scheduler-silent alert fires; poison one webhook (bad location, forced sync failure via revoked token) → backlog alert; force one ambiguous publish (Task 2 Step 3's drill) → ambiguous alert. Evidence: screenshots/alert payloads in `evidence/obs-501.md`. **BLOCKED — requires staging P1/P4 plus pilot Google P2 and Pub/Sub P3.**
 
 ### Task 7: A11Y-501 — Manual keyboard and screen-reader pass
 
