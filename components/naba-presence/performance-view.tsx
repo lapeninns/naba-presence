@@ -1,11 +1,8 @@
 "use client"
 
 import { AnalyticsView } from "@/components/naba-presence/analytics-view"
-import {
-  EmptyData,
-  PageFrame,
-  PageHeader,
-} from "@/components/naba-presence/shared"
+import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
+import { PageFrame, PageHeader } from "@/components/naba-presence/shared"
 import {
   Tabs,
   TabsContent,
@@ -37,12 +34,11 @@ export function PerformanceView({
           <AnalyticsView />
         </TabsContent>
         <TabsContent value="google">
-          <EmptyData
-            message={
-              googlePerformanceEnabled
-                ? "Google performance ingestion is enabled, but this view has not shipped yet."
-                : "Google performance ingestion is not enabled yet."
-            }
+          <CapabilityPlaceholder
+            capability="Google performance"
+            flag="GBP_PERFORMANCE_ENABLED"
+            enabled={googlePerformanceEnabled}
+            description="Impressions, searches, calls, direction requests, and website clicks from the Business Profile Performance API."
           />
         </TabsContent>
       </Tabs>
