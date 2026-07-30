@@ -8,7 +8,7 @@ Put text in `BubbleContent` and group consecutive bubbles in `BubbleGroup` — t
 
 ## Parts
 
-Composed inside `<Bubble>`, each importable from `window.NabaReview.*`:
+Composed inside `<Bubble>`, each importable from `window.NabaPresence.*`:
 
 - `BubbleContent`
 - `BubbleGroup`

@@ -8,7 +8,7 @@ Put the control in `InputGroupInput`/`InputGroupTextarea` and affixes in `InputG
 
 ## Parts
 
-Composed inside `<InputGroup>`, each importable from `window.NabaReview.*`:
+Composed inside `<InputGroup>`, each importable from `window.NabaPresence.*`:
 
 - `InputGroupAddon`
 - `InputGroupButton`

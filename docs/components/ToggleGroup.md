@@ -8,6 +8,6 @@ Set `toggleMultiple` for multi-select, otherwise it behaves as a radio set. Chil
 
 ## Parts
 
-Composed inside `<ToggleGroup>`, each importable from `window.NabaReview.*`:
+Composed inside `<ToggleGroup>`, each importable from `window.NabaPresence.*`:
 
 - `ToggleGroupItem`

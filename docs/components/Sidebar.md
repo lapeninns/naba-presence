@@ -8,7 +8,7 @@ Requires `SidebarProvider` at the app root; `SidebarTrigger` toggles it and `Sid
 
 ## Parts
 
-Composed inside `<Sidebar>`, each importable from `window.NabaReview.*`:
+Composed inside `<Sidebar>`, each importable from `window.NabaPresence.*`:
 
 - `SidebarContent`
 - `SidebarFooter`

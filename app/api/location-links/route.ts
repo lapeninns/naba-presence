@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -16,9 +16,12 @@ const linkSchema = z.object({
   confirmRelink: z.boolean().default(false),
 })
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
+    const session = await requireSession()
+    const managementView =
+      new URL(request.url).searchParams.get("view") === "management"
+    if (managementView) requireRole(session, ["owner", "admin"])
     const locations = await withTenant(
       session.organisationId,
       (sql) => sql`
@@ -37,10 +40,43 @@ export async function GET() {
           on ll.location_id = l.id
          and ll.is_active = true
         left join external_location e on e.id = ll.external_location_id
+        ${
+          session.role === "owner" || session.role === "admin"
+            ? sql``
+            : sql`
+                where not exists (
+                  select 1
+                  from location_member lm
+                  where lm.user_id = ${session.userId}
+                )
+                or exists (
+                  select 1
+                  from location_member lm
+                  where lm.user_id = ${session.userId}
+                    and lm.location_id = l.id
+                )
+              `
+        }
         order by lower(l.name)
       `
     )
-    return NextResponse.json({ locations })
+    if (managementView) return NextResponse.json({ locations })
+    return NextResponse.json({
+      locations: locations.map((location) => {
+        const record = location as {
+          locationId: string
+          name: string
+          googleLocationName: string | null
+        }
+        return {
+          id: record.locationId,
+          name: record.name,
+          ...(session.role === "owner" || session.role === "admin"
+            ? { googleLocationName: record.googleLocationName }
+            : {}),
+        }
+      }),
+    })
   } catch (error) {
     return apiError(error)
   }
@@ -48,6 +84,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = linkSchema.parse(await request.json())
     const link = await withTenant(session.organisationId, async (sql) => {
@@ -187,17 +224,76 @@ export async function POST(request: Request) {
         action: isRelink ? "location.relinked" : "location.linked",
         subjectType: "location_link",
         subjectId: String(row.id),
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           locationId,
           externalLocationId: external.id,
           previousLocationId: external.currentLocationId,
           historicalReviewsMoved: isRelink,
+          clientRequestId: rid.clientId,
         },
       })
       return row
     })
     return NextResponse.json({ link }, { status: 201 })
+  } catch (error) {
+    return apiError(error)
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const rid = serverRequestId(request)
+    const session = requireRole(await requireSession(), ["owner", "admin"])
+    const externalLocationId = z
+      .uuid()
+      .parse(new URL(request.url).searchParams.get("externalLocationId"))
+    await withTenant(session.organisationId, async (sql) => {
+      const [link] = await sql<{ id: string; locationId: string }[]>`
+        update location_link
+        set is_active = false
+        where external_location_id = ${externalLocationId}
+        returning
+          id::text as id,
+          location_id::text as "locationId"
+      `
+      if (!link) {
+        throw new ApiError(
+          404,
+          "location_link_not_found",
+          "Linked location not found."
+        )
+      }
+      const removedRoutes = await sql`
+        delete from webhook_route
+        where external_location_id = ${externalLocationId}
+        returning google_location_name
+      `
+      await sql`
+        update sync_checkpoint
+        set
+          status = 'cancelled',
+          finished_at = now(),
+          next_attempt_at = null
+        where external_location_id = ${externalLocationId}
+          and status in ('pending', 'running', 'failed')
+      `
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "location.unlinked",
+        subjectType: "location_link",
+        subjectId: link.id,
+        requestId: rid.id,
+        metadata: {
+          locationId: link.locationId,
+          externalLocationId,
+          routesRemoved: removedRoutes.length,
+          clientRequestId: rid.clientId,
+        },
+      })
+    })
+    return NextResponse.json({ unlinked: true })
   } catch (error) {
     return apiError(error)
   }

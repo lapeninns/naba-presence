@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { verifyStoredDraft } from "@/lib/server/drafts"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -15,6 +15,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), [
       "owner",
       "admin",
@@ -30,7 +31,7 @@ export async function POST(
           review_text: string | null
           reviewer_name: string | null
           location_name: string
-          rating: number
+          rating: number | null
           detected_language_code: string | null
           location_id: string
         }[]
@@ -62,8 +63,12 @@ export async function POST(
         action: "review.draft.verified",
         subjectType: "review",
         subjectId: draft.review_id,
-        requestId: requestId(request),
-        metadata: { draftId: id, verdict: verification.verdict },
+        requestId: rid.id,
+        metadata: {
+          draftId: id,
+          verdict: verification.verdict,
+          clientRequestId: rid.clientId,
+        },
       })
       return verification
     })

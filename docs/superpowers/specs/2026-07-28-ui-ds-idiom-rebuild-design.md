@@ -1,15 +1,15 @@
-# NabaReview UI/UX redesign — DS-idiom rebuild
+# NabaPresence UI/UX redesign — DS-idiom rebuild
 
 **Date:** 2026-07-28
 **Status:** Approved
 **Decision:** Rebuild all five application views onto the components and conventions the
-NabaReview design system prescribes (`docs/specs/2026-07-28-design-system.md`,
+NabaPresence design system prescribes (`docs/specs/2026-07-28-design-system.md`,
 `.design-sync/conventions.md`, `docs/components/*.md`). The five-view information
 architecture, all behaviour, and all API contracts stay unchanged.
 
 ## Why
 
-The application UI in `components/naba-review/` predates the design system's component
+The application UI in `components/naba-presence/` predates the design system's component
 library and conventions. It hand-rolls what the library provides (sidebar, tabs, list
 rows, empty states) and breaks stated conventions (no Toast feedback, destructive
 disconnect without AlertDialog, Select where Combobox is intended, a nine-select filter
@@ -119,12 +119,12 @@ Two alternatives were rejected:
 
 ## 7. Code structure
 
-`components/naba-review/` is split by view; `review-app.tsx` remains the entry so
+`components/naba-presence/` is split by view; `review-app.tsx` remains the entry so
 `app/page.tsx` is unchanged:
 
 | File | Contents |
 |---|---|
-| `review-app.tsx` | `NabaReviewApp`: session/reviews bootstrap, view switching, composes shell + views |
+| `review-app.tsx` | `NabaPresenceApp`: session/reviews bootstrap, view switching, composes shell + views |
 | `app-shell.tsx` | Sidebar family, header, theme toggle, live-data chip |
 | `reviews-view.tsx` | Inbox: tabs, filters + Sheet, list, detail, verification, timeline |
 | `overview-view.tsx` | Overview |
@@ -133,7 +133,7 @@ Two alternatives were rejected:
 | `settings-view.tsx` | Settings |
 | `shared.tsx` | `Stars`, `StatusBadge`, formatters, `LiveDataError`-equivalent, shared types |
 
-Existing state management (component-local state, `lib/naba-review-api.ts` calls,
+Existing state management (component-local state, `lib/naba-presence-api.ts` calls,
 transitions, deferred search) carries over as-is.
 
 ## Error handling

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { randomToken, signValue } from "@/lib/server/crypto"
 import {
@@ -8,21 +9,24 @@ import {
   pkceChallenge,
 } from "@/lib/server/google"
 import { apiError } from "@/lib/server/http"
-import { getSession } from "@/lib/server/session"
+import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
-export async function POST() {
+const inputSchema = z.object({})
+
+export async function POST(request: Request) {
   try {
-    const session = await getSession()
+    inputSchema.parse(await request.json().catch(() => ({})))
+    const session = requireRole(await requireSession(), ["owner", "admin"])
     const nonce = randomToken(24)
     const verifier = randomToken(64)
     const statePayload = Buffer.from(
       JSON.stringify({
         nonce,
         verifier,
-        organisationId: session?.organisationId ?? null,
-        userId: session?.userId ?? null,
+        organisationId: session.organisationId,
+        userId: session.userId,
         expiresAt: Date.now() + 10 * 60 * 1000,
       })
     ).toString("base64url")

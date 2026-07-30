@@ -3,7 +3,7 @@ import "server-only"
 import { createHash } from "node:crypto"
 
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
-import type { TransactionSql } from "postgres"
+import type { Sql, TransactionSql } from "postgres"
 
 import {
   googleAccountsRequest,
@@ -11,7 +11,11 @@ import {
   googleNotificationSettingRequest,
   googleReplyRequest,
 } from "@/lib/domain/google-contract"
-import { isRetryableGoogleStatus, retryDelayMs } from "@/lib/domain/retry"
+import {
+  classifyMutationFailure,
+  isRetryableGoogleStatus,
+  retryDelayMs,
+} from "@/lib/domain/retry"
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -27,27 +31,44 @@ const OAUTH_SCOPE = [
 export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
 
 let nextGoogleRequestAt = 0
-const googleTracer = trace.getTracer("nabareview.google")
-const googleMeter = metrics.getMeter("nabareview.google")
+const nextGoogleConnectionRequestAt = new Map<string, number>()
+const googleTracer = trace.getTracer("nabapresence.google")
+const googleMeter = metrics.getMeter("nabapresence.google")
 const googleRequestDuration = googleMeter.createHistogram(
-  "nabareview.google.request.duration",
+  "nabapresence.google.request.duration",
   {
     description: "Google API request duration including retry pacing",
     unit: "ms",
   }
 )
 const googleRequestCount = googleMeter.createCounter(
-  "nabareview.google.request.count",
+  "nabapresence.google.request.count",
   {
     description: "Google API request outcomes",
   }
 )
 
-async function paceGoogleRequest() {
+/**
+ * Scheduled Google work is single-flight via withAdvisoryLock, so this
+ * process-local limiter is fleet pacing for sync. Interactive publishes are
+ * per-process and individually rare.
+ */
+async function paceGoogleRequest(connectionKey?: string) {
   const interval = 1000 / getServerEnv().GOOGLE_REQUESTS_PER_SECOND
   const now = Date.now()
-  const wait = Math.max(0, nextGoogleRequestAt - now)
-  nextGoogleRequestAt = Math.max(now, nextGoogleRequestAt) + interval
+  const connectionNextAt = connectionKey
+    ? (nextGoogleConnectionRequestAt.get(connectionKey) ?? 0)
+    : 0
+  const requestAt = Math.max(now, nextGoogleRequestAt, connectionNextAt)
+  const wait = requestAt - now
+  nextGoogleRequestAt =
+    requestAt + interval * (0.9 + Math.random() * 0.2)
+  if (connectionKey) {
+    nextGoogleConnectionRequestAt.set(
+      connectionKey,
+      requestAt + 4 * interval
+    )
+  }
   if (wait > 0) {
     await new Promise((resolve) => setTimeout(resolve, wait))
   }
@@ -57,6 +78,21 @@ export class GoogleMutationAmbiguousError extends ApiError {
   constructor(message = "Google did not confirm whether the write succeeded.") {
     super(502, "google_mutation_ambiguous", message)
   }
+}
+
+function isAbortError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  )
+}
+
+function googleTimeoutError() {
+  return new ApiError(
+    502,
+    "google_timeout",
+    "The Google provider timed out."
+  )
 }
 
 export type GoogleTokenResponse = {
@@ -78,10 +114,66 @@ export type GoogleConnectionRow = {
   status: string
 }
 
+async function recordConnectionFailure(
+  sql: TransactionSql,
+  connection: GoogleConnectionRow,
+  errorCode: string
+) {
+  await sql`
+    update google_connection
+    set
+      status = ${errorCode === "invalid_grant" ? "revoked" : "expired"},
+      last_error_code = ${errorCode}
+    where id = ${connection.id}
+  `
+  await sql`
+    insert into connection_task (
+      organisation_id,
+      google_connection_id,
+      task_type,
+      status,
+      reason_code
+    )
+    values (
+      ${connection.organisation_id},
+      ${connection.id},
+      'reconnect',
+      'open',
+      ${errorCode}
+    )
+    on conflict (
+      organisation_id,
+      google_connection_id,
+      task_type
+    ) where status = 'open' do update
+    set reason_code = excluded.reason_code
+  `
+  await sql`
+    insert into audit_log (
+      organisation_id,
+      actor_user_id,
+      action,
+      subject_type,
+      subject_id,
+      metadata
+    )
+    values (
+      ${connection.organisation_id},
+      null,
+      'google.connection.reconnect_required',
+      'google_connection',
+      ${connection.id},
+      ${sql.json({ reasonCode: errorCode })}
+    )
+  `
+}
+
 async function persistConnectionFailure(
   connection: GoogleConnectionRow,
   errorCode: string
 ) {
+  // Invariant: callers must not hold an open transaction. This helper owns
+  // the short tenant-scoped transaction that persists reconnect state.
   await getDatabase().begin(async (sql) => {
     await sql`
       select set_config(
@@ -90,53 +182,7 @@ async function persistConnectionFailure(
         true
       )
     `
-    await sql`
-      update google_connection
-      set
-        status = ${errorCode === "invalid_grant" ? "revoked" : "expired"},
-        last_error_code = ${errorCode}
-      where id = ${connection.id}
-    `
-    await sql`
-      insert into connection_task (
-        organisation_id,
-        google_connection_id,
-        task_type,
-        status,
-        reason_code
-      )
-      values (
-        ${connection.organisation_id},
-        ${connection.id},
-        'reconnect',
-        'open',
-        ${errorCode}
-      )
-      on conflict (
-        organisation_id,
-        google_connection_id,
-        task_type
-      ) where status = 'open' do update
-      set reason_code = excluded.reason_code
-    `
-    await sql`
-      insert into audit_log (
-        organisation_id,
-        actor_user_id,
-        action,
-        subject_type,
-        subject_id,
-        metadata
-      )
-      values (
-        ${connection.organisation_id},
-        null,
-        'google.connection.reconnect_required',
-        'google_connection',
-        ${connection.id},
-        ${sql.json({ reasonCode: errorCode })}
-      )
-    `
+    await recordConnectionFailure(sql, connection, errorCode)
   })
 }
 
@@ -175,6 +221,16 @@ export function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url")
 }
 
+function googleApiTarget(url: string): string {
+  const proxyBase = process.env.GOOGLE_API_PROXY_BASE
+  if (!proxyBase) return url
+  const providerUrl = new URL(url)
+  return new URL(
+    `${providerUrl.pathname}${providerUrl.search}`,
+    proxyBase
+  ).toString()
+}
+
 export async function exchangeGoogleCode(
   code: string,
   verifier: string
@@ -187,21 +243,28 @@ export async function exchangeGoogleCode(
       "Google OAuth credentials are not configured."
     )
   }
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
-      code,
-      code_verifier: verifier,
-      grant_type: "authorization_code",
-      redirect_uri: new URL(
-        GOOGLE_OAUTH_CALLBACK_PATH,
-        env.NEXTAUTH_URL ?? "http://localhost:3000"
-      ).toString(),
-    }),
-    cache: "no-store",
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        code,
+        code_verifier: verifier,
+        grant_type: "authorization_code",
+        redirect_uri: new URL(
+          GOOGLE_OAUTH_CALLBACK_PATH,
+          env.NEXTAUTH_URL ?? "http://localhost:3000"
+        ).toString(),
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
+    }
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
   })
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
@@ -221,6 +284,7 @@ export async function googleUserInfo(accessToken: string): Promise<{
   sub: string
   email?: string
   name?: string
+  email_verified?: boolean
 }> {
   return googleRequest(
     "https://openidconnect.googleapis.com/v1/userinfo",
@@ -233,6 +297,11 @@ async function refreshAccessToken(
   connection: GoogleConnectionRow
 ): Promise<string> {
   if (!connection.refresh_token_ciphertext) {
+    await recordConnectionFailure(
+      sql,
+      connection,
+      "refresh_token_missing"
+    )
     throw new ApiError(
       401,
       "google_reconnect_required",
@@ -240,22 +309,33 @@ async function refreshAccessToken(
     )
   }
   const env = getServerEnv()
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: decryptSecret(connection.refresh_token_ciphertext),
-      grant_type: "refresh_token",
-    }),
-    cache: "no-store",
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID ?? "",
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+        refresh_token: decryptSecret(connection.refresh_token_ciphertext),
+        grant_type: "refresh_token",
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
+    }
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
   })
   const body = (await response.json()) as GoogleTokenResponse & {
     error?: string
   }
   if (!response.ok) {
-    await persistConnectionFailure(connection, body.error ?? "refresh_failed")
+    await recordConnectionFailure(
+      sql,
+      connection,
+      body.error ?? "refresh_failed"
+    )
     throw new ApiError(
       401,
       "google_reconnect_required",
@@ -275,10 +355,10 @@ async function refreshAccessToken(
   return body.access_token
 }
 
-export async function connectionAccessToken(
+async function loadConnection(
   sql: TransactionSql,
   connectionId: string
-): Promise<string> {
+): Promise<GoogleConnectionRow> {
   const [connection] = await sql<GoogleConnectionRow[]>`
     select *
     from google_connection
@@ -293,6 +373,14 @@ export async function connectionAccessToken(
       "Google connection not found."
     )
   }
+  return connection
+}
+
+async function connectionAccessTokenInTransaction(
+  sql: TransactionSql,
+  connectionId: string
+) {
+  const connection = await loadConnection(sql, connectionId)
   if (
     !connection.access_token_expires_at ||
     connection.access_token_expires_at.getTime() <= Date.now() + 60_000
@@ -302,14 +390,129 @@ export async function connectionAccessToken(
   return decryptSecret(connection.access_token_ciphertext)
 }
 
+async function refreshAccessTokenOutsideTransaction(
+  sql: Sql,
+  connection: GoogleConnectionRow
+) {
+  if (!connection.refresh_token_ciphertext) {
+    await persistConnectionFailure(connection, "refresh_token_missing")
+    throw new ApiError(
+      401,
+      "google_reconnect_required",
+      "Google access has expired. Reconnect this account."
+    )
+  }
+  const env = getServerEnv()
+  const response = await fetch(
+    googleApiTarget("https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID ?? "",
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+        refresh_token: decryptSecret(connection.refresh_token_ciphertext),
+        grant_type: "refresh_token",
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(env.GOOGLE_TIMEOUT_MS),
+    }
+  ).catch((error) => {
+    if (isAbortError(error)) throw googleTimeoutError()
+    throw error
+  })
+  const body = (await response.json()) as GoogleTokenResponse & {
+    error?: string
+  }
+  if (!response.ok) {
+    await persistConnectionFailure(connection, body.error ?? "refresh_failed")
+    throw new ApiError(
+      401,
+      "google_reconnect_required",
+      "Google access has expired. Reconnect this account."
+    )
+  }
+  await sql.begin(async (transaction) => {
+    await transaction`
+      select set_config(
+        'app.organisation_id',
+        ${connection.organisation_id},
+        true
+      )
+    `
+    await transaction`
+      update google_connection
+      set
+        access_token_ciphertext = ${encryptSecret(body.access_token)},
+        access_token_expires_at =
+          now() + (${body.expires_in} * interval '1 second'),
+        last_refresh_at = now(),
+        status = 'active',
+        last_error_code = null
+      where id = ${connection.id}
+    `
+  })
+  return body.access_token
+}
+
+export function connectionAccessToken(
+  sql: TransactionSql,
+  connectionId: string
+): Promise<string>
+export function connectionAccessToken(
+  sql: Sql,
+  organisationId: string,
+  connectionId: string
+): Promise<string>
+export async function connectionAccessToken(
+  sql: Sql | TransactionSql,
+  organisationOrConnectionId: string,
+  connectionId?: string
+): Promise<string> {
+  if (connectionId !== undefined) {
+    const connection = await (sql as Sql).begin(async (transaction) => {
+      await transaction`
+        select set_config(
+          'app.organisation_id',
+          ${organisationOrConnectionId},
+          true
+        )
+      `
+      return loadConnection(transaction, connectionId)
+    })
+    if (
+      !connection.access_token_expires_at ||
+      connection.access_token_expires_at.getTime() <= Date.now() + 60_000
+    ) {
+      return refreshAccessTokenOutsideTransaction(sql as Sql, connection)
+    }
+    return decryptSecret(connection.access_token_ciphertext)
+  }
+  return connectionAccessTokenInTransaction(
+    sql as TransactionSql,
+    organisationOrConnectionId
+  )
+}
+
 export async function googleRequest<T>(
   url: string,
   accessToken: string,
   init: RequestInit = {},
-  options: { mode?: "safe" | "mutation"; maxAttempts?: number } = {}
+  options: {
+    connectionKey?: string
+    mode?: "safe" | "mutation"
+    maxAttempts?: number
+    timeoutMs?: number
+  } = {}
 ): Promise<T> {
   const mode = options.mode ?? "safe"
-  const maxAttempts = options.maxAttempts ?? 5
+  const maxAttempts = mode === "mutation" ? 1 : (options.maxAttempts ?? 5)
+  const timeoutMs =
+    options.timeoutMs ??
+    (mode === "mutation"
+      ? getServerEnv().GOOGLE_MUTATION_TIMEOUT_MS
+      : getServerEnv().GOOGLE_TIMEOUT_MS)
+  const deadline = Date.now() + timeoutMs
   const providerHost = new URL(url).hostname
   const method = init.method ?? "GET"
   return googleTracer.startActiveSpan(
@@ -318,7 +521,7 @@ export async function googleRequest<T>(
       attributes: {
         "server.address": providerHost,
         "http.request.method": method,
-        "nabareview.google.mode": mode,
+        "nabapresence.google.mode": mode,
       },
     },
     async (span) => {
@@ -329,10 +532,14 @@ export async function googleRequest<T>(
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
           attempts = attempt
-          await paceGoogleRequest()
+          await paceGoogleRequest(options.connectionKey)
+          const remainingMs = deadline - Date.now()
+          if (remainingMs <= 0) {
+            throw googleTimeoutError()
+          }
           let response: Response
           try {
-            response = await fetch(url, {
+            response = await fetch(googleApiTarget(url), {
               ...init,
               headers: {
                 accept: "application/json",
@@ -341,12 +548,20 @@ export async function googleRequest<T>(
                 ...init.headers,
               },
               cache: "no-store",
+              signal: AbortSignal.timeout(remainingMs),
             })
           } catch (error) {
             if (mode === "mutation") {
               throw new GoogleMutationAmbiguousError(
-                error instanceof Error ? error.message : undefined
+                isAbortError(error)
+                  ? "Google mutation timed out."
+                  : error instanceof Error
+                    ? error.message
+                    : undefined
               )
+            }
+            if (isAbortError(error) && Date.now() >= deadline) {
+              throw googleTimeoutError()
             }
             if (attempt === maxAttempts) throw error
             await new Promise((resolve) =>
@@ -366,13 +581,12 @@ export async function googleRequest<T>(
             attempt < maxAttempts
           ) {
             const retryAfter = Number(response.headers.get("retry-after"))
+            const retryAfterMs =
+              Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(retryAfter * 1000, 30_000)
+                : retryDelayMs(attempt)
             await new Promise((resolve) =>
-              setTimeout(
-                resolve,
-                Number.isFinite(retryAfter) && retryAfter > 0
-                  ? retryAfter * 1000
-                  : retryDelayMs(attempt)
-              )
+              setTimeout(resolve, Math.min(retryAfterMs, timeoutMs))
             )
             continue
           }
@@ -381,6 +595,18 @@ export async function googleRequest<T>(
             body?.error_description ??
             "Google request failed."
           const code = body?.error?.status ?? body?.error ?? "google_api_error"
+          if (mode === "mutation") {
+            const classification = classifyMutationFailure({
+              kind: "http",
+              status: response.status,
+            })
+            if (classification === "ambiguous") {
+              throw new GoogleMutationAmbiguousError(String(reason))
+            }
+            if (classification === "retryable") {
+              throw new ApiError(429, "google_rate_limited", String(reason))
+            }
+          }
           throw new ApiError(response.status, String(code), String(reason))
         }
         throw new ApiError(
@@ -396,14 +622,14 @@ export async function googleRequest<T>(
           "server.address": providerHost,
           "http.request.method": method,
           "http.response.status_code": finalStatus,
-          "nabareview.google.mode": mode,
+          "nabapresence.google.mode": mode,
           outcome,
         }
         googleRequestDuration.record(performance.now() - startedAt, attributes)
         googleRequestCount.add(1, attributes)
         span.setAttributes({
           ...attributes,
-          "nabareview.google.attempts": attempts,
+          "nabapresence.google.attempts": attempts,
         })
         span.end()
       }
@@ -411,18 +637,23 @@ export async function googleRequest<T>(
   )
 }
 
-export function googleAccounts(accessToken: string, pageToken?: string) {
+export function googleAccounts(
+  accessToken: string,
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
+) {
   const request = googleAccountsRequest(pageToken)
   return googleRequest<{
     accounts?: Array<Record<string, unknown>>
     nextPageToken?: string
-  }>(request.url, accessToken, request.init)
+  }>(request.url, accessToken, request.init, options)
 }
 
 export function googleLocations(
   accessToken: string,
   accountName: string,
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const params = new URLSearchParams({
     readMask:
@@ -435,7 +666,9 @@ export function googleLocations(
     nextPageToken?: string
   }>(
     `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?${params}`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
@@ -443,7 +676,8 @@ export function googleReviews(
   accessToken: string,
   accountName: string,
   locationName: string,
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const params = new URLSearchParams({
     pageSize: "50",
@@ -458,7 +692,9 @@ export function googleReviews(
     totalReviewCount?: number
   }>(
     `https://mybusiness.googleapis.com/v4/${accountName}/locations/${locationId}/reviews?${params}`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
@@ -466,7 +702,8 @@ export function googleBatchReviews(
   accessToken: string,
   accountName: string,
   locationNames: string[],
-  pageToken?: string
+  pageToken?: string,
+  options: { connectionKey?: string } = {}
 ) {
   const request = googleBatchReviewsRequest(
     accountName,
@@ -479,42 +716,70 @@ export function googleBatchReviews(
       review?: Record<string, unknown>
     }>
     nextPageToken?: string
-  }>(request.url, accessToken, request.init)
+  }>(request.url, accessToken, request.init, options)
 }
 
 export function updateGoogleReply(
   accessToken: string,
   reviewName: string,
-  body: string
+  body: string,
+  options: { connectionKey?: string; timeoutMs?: number } = {}
 ) {
   const request = googleReplyRequest(reviewName, body)
   return googleRequest<Record<string, unknown>>(
     request.url,
     accessToken,
     request.init,
-    { mode: "mutation" }
+    {
+      connectionKey: options.connectionKey,
+      mode: "mutation",
+      timeoutMs: options.timeoutMs,
+    }
   )
 }
 
-export function getGoogleReview(accessToken: string, reviewName: string) {
+export function getGoogleReview(
+  accessToken: string,
+  reviewName: string,
+  options: {
+    connectionKey?: string
+    timeoutMs?: number
+    maxAttempts?: number
+  } = {}
+) {
   return googleRequest<Record<string, unknown>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}`,
-    accessToken
+    accessToken,
+    {},
+    {
+      connectionKey: options.connectionKey,
+      timeoutMs: options.timeoutMs,
+      maxAttempts: options.maxAttempts,
+    }
   )
 }
 
-export function deleteGoogleReply(accessToken: string, reviewName: string) {
+export function deleteGoogleReply(
+  accessToken: string,
+  reviewName: string,
+  options: { connectionKey?: string; timeoutMs?: number } = {}
+) {
   return googleRequest<Record<string, never>>(
     `https://mybusiness.googleapis.com/v4/${reviewName}/reply`,
     accessToken,
     { method: "DELETE" },
-    { mode: "mutation" }
+    {
+      connectionKey: options.connectionKey,
+      mode: "mutation",
+      timeoutMs: options.timeoutMs,
+    }
   )
 }
 
 export function getGoogleNotificationSetting(
   accessToken: string,
-  accountName: string
+  accountName: string,
+  options: { connectionKey?: string } = {}
 ) {
   return googleRequest<{
     name: string
@@ -522,19 +787,25 @@ export function getGoogleNotificationSetting(
     notificationTypes?: string[]
   }>(
     `https://mybusinessnotifications.googleapis.com/v1/${accountName}/notificationSetting`,
-    accessToken
+    accessToken,
+    {},
+    options
   )
 }
 
 export function updateGoogleNotificationSetting(
   accessToken: string,
   accountName: string,
-  pubsubTopic: string
+  pubsubTopic: string,
+  options: { connectionKey?: string } = {}
 ) {
   const request = googleNotificationSettingRequest(accountName, pubsubTopic)
   return googleRequest<{
     name: string
     pubsubTopic?: string
     notificationTypes?: string[]
-  }>(request.url, accessToken, request.init, { mode: "mutation" })
+  }>(request.url, accessToken, request.init, {
+    connectionKey: options.connectionKey,
+    mode: "mutation",
+  })
 }

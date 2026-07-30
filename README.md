@@ -1,9 +1,10 @@
-# NabaReview
+# NabaPresence
 
-NabaReview is a Google-only reputation operations SaaS. It connects authorised
-Google Business Profile accounts, ingests reviews, drafts and verifies replies,
-keeps a human approval boundary, publishes to Google, and exposes tenant-scoped
-analytics.
+**Nab a Presence.** NabaPresence is a reputation operations SaaS. Users sign in
+with an email and password; an organisation owner or admin separately connects
+the organisation's authorised Google Business Profile account. NabaPresence
+ingests reviews, drafts and verifies replies, keeps a human approval boundary,
+publishes to Google, and exposes tenant-scoped analytics.
 
 ## What is implemented
 
@@ -23,8 +24,9 @@ analytics.
 - OpenTelemetry request/provider/database spans and metrics, plus redacted
   structured logs with request and tenant correlation
 
-The interface keeps a preview dataset available if the configured database is
-offline. The “Live data” indicator appears when API-backed data is active.
+The interface only displays tenant-scoped, API-backed records from the
+configured database. It does not substitute preview or mock reviews when the
+database is unavailable.
 
 ## Local setup
 
@@ -37,17 +39,22 @@ offline. The “Live data” indicator appears when API-backed data is active.
    ```
 
 2. Start Docker Desktop (or another Docker-compatible runtime), then start the
-   local Supabase stack:
+   local Supabase stack and create the non-superuser runtime login:
 
    ```bash
    pnpm supabase:start
    pnpm supabase:status
+   pnpm db:runtime-role
    ```
 
    Supabase CLI runs PostgreSQL 17 and the Supabase services in Docker, then
    automatically applies every migration in `supabase/migrations`. The local
    database is at `127.0.0.1:54322`, the API at `127.0.0.1:54321`, Studio at
    `127.0.0.1:54323`, and the test email inbox at `127.0.0.1:54324`.
+   `DIRECT_DATABASE_URL` is the migration/admin connection only.
+   `DATABASE_URL` must use the `naba_test_runtime` login locally, or another
+   non-superuser member of `naba_app_runtime` in a deployment. The application
+   refuses an RLS-bypassing production identity at startup.
 
 3. Start the application:
 
@@ -62,9 +69,20 @@ offline. The “Live data” indicator appears when API-backed data is active.
    pnpm start:scheduler
    ```
 
-4. Open `http://localhost:3000`. In non-production environments, `/api/session`
-   creates a local owner session. Production users are provisioned on their first
-   successful Google OAuth connection.
+   The scheduler runs reconciliation, retention, and a third jobs tick that
+   drains due webhook, checkpoint, and publish-recovery work through
+   `/api/jobs/run`.
+
+4. Open `http://localhost:3000`. Production users start at `/sign-in`, create
+   an email/password account, and confirm ownership of the email address.
+   Invited users open the one-time `/invite/{token}` URL and continue with the
+   invited email; acceptance adds them to the inviting organisation rather than
+   creating a new one. Google OAuth is not an application sign-in method: an
+   owner or admin connects it once from `/connections`, and the resulting
+   connection remains attached to the organisation when users sign in from
+   other devices.
+   Local development may enable `LOCAL_BOOTSTRAP_ENABLED=true`, which lets
+   `/api/session` create a local owner session without Google.
 
 To rebuild the local database from the committed migrations, or to stop the
 local stack while preserving its Docker volume:
@@ -92,11 +110,12 @@ docker compose up --build
 
 This separate stack starts a plain PostgreSQL 17 container, applies migrations
 once, starts the standalone web image, and starts the reconciliation/retention
-scheduler. Use it to exercise the production container topology; normal local
+scheduler with its jobs worker tick. Use it to exercise the production
+container topology; normal local
 development uses Supabase CLI above. PostgreSQL is exposed only on
 `127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
 session, so it does not require hosted Supabase or Google OAuth.
-`NABAREVIEW_NODE_IMAGE` can override the default `node:22-alpine` build image.
+`NABAPRESENCE_NODE_IMAGE` can override the default `node:22-alpine` build image.
 Remove this disposable Compose database with:
 
 ```bash
@@ -113,18 +132,39 @@ pnpm build
 pnpm test:a11y
 ```
 
-`pnpm test` applies the full migration to an embedded PostgreSQL runtime. CI
-also applies it to PostgreSQL 17 and runs `pnpm test:integration` as a
-non-owner runtime role to prove cross-tenant RLS behaviour.
+`pnpm test` runs the unit and contract suites; its embedded PGlite migration
+contract applies only `0001_initial.sql`. CI separately runs `pnpm db:migrate`
+against PostgreSQL 17, creates a non-superuser runtime login with
+`pnpm db:runtime-role`, builds the standalone server, and runs the integration
+and browser suites through that runtime role.
 
 Development and production builds intentionally use Next.js 16’s supported
 webpack path because Turbopack can spawn runaway PostCSS workers in this
 project.
 
+## Email and password authentication
+
+Supabase Auth is the credential authority. NabaPresence never receives or
+stores a password hash; after Supabase verifies an email/password or email
+token, NabaPresence provisions the identity and issues its own opaque,
+HTTP-only, database-backed session.
+
+Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, enable email confirmations,
+configure the application URL and redirect allow list, and use the committed
+confirmation and recovery templates. The local Supabase CLI reads those
+settings from `supabase/config.toml`; messages appear in Inbucket at
+`http://127.0.0.1:54324`. For a hosted project, copy the templates from
+`supabase/templates/` into Authentication → Email Templates and configure
+custom SMTP before production. The templates deliberately send token hashes to
+`/auth/confirm`, allowing the server to verify the link without exposing a
+provider session in a URL fragment.
+
 ## Google configuration
 
 Enable the Account Management, Business Information, Business Profile, and
-Notifications APIs. Add this OAuth redirect URI:
+Notifications APIs. Google OAuth connects organisation data and is restricted
+to signed-in owners/admins; it does not create an application account. Add this
+OAuth redirect URI:
 
 ```text
 {NEXTAUTH_URL}/api/auth/callback/google

@@ -1,10 +1,10 @@
-# NabaReview UI/UX DS-Idiom Rebuild Implementation Plan
+# NabaPresence UI/UX DS-Idiom Rebuild Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild all five NabaReview views onto the design system's components and conventions (spec: `docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md`) with zero behaviour or API change.
+**Goal:** Rebuild all five NabaPresence views onto the design system's components and conventions (spec: `docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md`) with zero behaviour or API change.
 
-**Architecture:** The two UI monoliths (`components/naba-review/review-app.tsx`, `components/naba-review/dashboard-views.tsx`) are progressively split into per-view files, each rebuilt on DS idioms as it moves: `Sidebar` family shell, `Tabs` queues, `Item` rows, `Empty` states, Toast success feedback, `AlertDialog` destructive confirms, `Combobox` location picker, filter `Sheet`, `Progress` bars. State management, handlers, and `lib/naba-review-api.ts` calls move verbatim.
+**Architecture:** The two UI monoliths (`components/naba-presence/review-app.tsx`, `components/naba-presence/dashboard-views.tsx`) are progressively split into per-view files, each rebuilt on DS idioms as it moves: `Sidebar` family shell, `Tabs` queues, `Item` rows, `Empty` states, Toast success feedback, `AlertDialog` destructive confirms, `Combobox` location picker, filter `Sheet`, `Progress` bars. State management, handlers, and `lib/naba-presence-api.ts` calls move verbatim.
 
 **Tech Stack:** Next.js 16 (webpack path), React 19, Tailwind v4, shadcn/ui base-rhea on **Base UI** primitives (`render` prop — `asChild` does not exist), lucide-react, next-themes, Playwright + axe.
 
@@ -25,9 +25,9 @@
 ### Task 1: Shared primitives module (verbatim moves, no visual change)
 
 **Files:**
-- Create: `components/naba-review/shared.tsx`
-- Modify: `components/naba-review/review-app.tsx` (delete moved decls, import from shared)
-- Modify: `components/naba-review/dashboard-views.tsx` (delete moved decls, import from shared)
+- Create: `components/naba-presence/shared.tsx`
+- Modify: `components/naba-presence/review-app.tsx` (delete moved decls, import from shared)
+- Modify: `components/naba-presence/dashboard-views.tsx` (delete moved decls, import from shared)
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -42,7 +42,7 @@
   - `export function EmptyData({ message }: { message: string })` (dashboard-views.tsx:404)
   - `export const chartConfig` + its `satisfies ChartConfig` (dashboard-views.tsx:89)
 
-- [ ] **Step 1: Create `components/naba-review/shared.tsx`**
+- [ ] **Step 1: Create `components/naba-presence/shared.tsx`**
 
 Move each declaration listed under Produces verbatim (body unchanged). File header:
 
@@ -55,7 +55,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { type ChartConfig } from "@/components/ui/chart"
 import { cn } from "@/lib/utils"
-import { ReviewStatus } from "@/lib/naba-review-data"
+import { ReviewStatus } from "@/lib/naba-presence-data"
 ```
 
 Adjust the icon import list to exactly what the moved bodies use (Stars uses `Star`; StatusBadge uses `CheckCircle2`, `FileCheck2`, `Inbox`; LiveDataError uses `Activity` and `RefreshCw` — check its body when moving). Add `export` to every moved declaration.
@@ -63,9 +63,9 @@ Adjust the icon import list to exactly what the moved bodies use (Stars uses `St
 - [ ] **Step 2: Update both source files**
 
 In `review-app.tsx`: delete the moved declarations and the now-local `type View`; add
-`import { readControlValue, Stars, StatusBadge, type View } from "@/components/naba-review/shared"`.
+`import { readControlValue, Stars, StatusBadge, type View } from "@/components/naba-presence/shared"`.
 In `dashboard-views.tsx`: delete moved declarations; add
-`import { chartConfig, EmptyData, formatDuration, formatTimestamp, LiveDataError } from "@/components/naba-review/shared"`.
+`import { chartConfig, EmptyData, formatDuration, formatTimestamp, LiveDataError } from "@/components/naba-presence/shared"`.
 Replace the private `type Navigate = (view: …) => void` (dashboard-views.tsx:100) usage as-is (it stays local). Remove icon/component imports that became unused in both files (lint will flag them).
 
 - [ ] **Step 3: Gates**
@@ -76,8 +76,8 @@ Expected: clean. If lint flags unused imports, remove them.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add components/naba-review/shared.tsx components/naba-review/review-app.tsx components/naba-review/dashboard-views.tsx
-git commit -m "refactor: extract shared naba-review primitives module"
+git add components/naba-presence/shared.tsx components/naba-presence/review-app.tsx components/naba-presence/dashboard-views.tsx
+git commit -m "refactor: extract shared naba-presence primitives module"
 ```
 
 ---
@@ -87,11 +87,11 @@ git commit -m "refactor: extract shared naba-review primitives module"
 **Files:**
 - Modify: `tests/e2e/accessibility.spec.ts:27-35` (nav helper)
 - Modify: `app/layout.tsx` (mount Toaster)
-- Create: `components/naba-review/app-shell.tsx`
-- Modify: `components/naba-review/review-app.tsx` (use AppShell; delete hand-rolled shell)
+- Create: `components/naba-presence/app-shell.tsx`
+- Modify: `components/naba-presence/review-app.tsx` (use AppShell; delete hand-rolled shell)
 
 **Interfaces:**
-- Consumes: `type View` from `shared.tsx`; `type AppSession` from `@/lib/naba-review-api`.
+- Consumes: `type View` from `shared.tsx`; `type AppSession` from `@/lib/naba-presence-api`.
 - Produces: `export function AppShell({ activeView, onNavigate, apiStatus, session, children }: { activeView: View; onNavigate: (view: View) => void; apiStatus: "loading" | "connected" | "error"; session: AppSession | null; children: React.ReactNode })`.
 
 - [ ] **Step 1: Update the a11y nav helper first (this is the failing test)**
@@ -136,7 +136,7 @@ and change the body to:
 
 (`Toaster` wraps the Base UI `ToastProvider` bound to the module-global `toast` manager plus portal/viewport/list; any component may call `toast.add(...)`.)
 
-- [ ] **Step 4: Create `components/naba-review/app-shell.tsx`**
+- [ ] **Step 4: Create `components/naba-presence/app-shell.tsx`**
 
 ```tsx
 "use client"
@@ -153,7 +153,7 @@ import {
 } from "lucide-react"
 import { useTheme } from "next-themes"
 
-import { type View } from "@/components/naba-review/shared"
+import { type View } from "@/components/naba-presence/shared"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -179,7 +179,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
-import { type AppSession } from "@/lib/naba-review-api"
+import { type AppSession } from "@/lib/naba-presence-api"
 
 const NAV_ITEMS: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -220,7 +220,7 @@ export function AppShell({
               <MessageSquareText className="size-4" aria-hidden />
             </span>
             <span className="font-heading text-base font-semibold tracking-tight">
-              NabaReview
+              NabaPresence
             </span>
           </div>
         </SidebarHeader>
@@ -338,9 +338,9 @@ function ThemeToggle() {
 
 Notes for the implementer: the removed Bell button, org chevron, and mobile nav `Sheet` are deliberate (spec §1). `SidebarInset` renders the page `<main>`, so the content wrapper here is a `div` — do not nest another `main`. `SidebarMenuButton` renders a real `<button>` whose accessible name is the label text, which the a11y helper clicks by exact name.
 
-- [ ] **Step 5: Rewire `components/naba-review/review-app.tsx`**
+- [ ] **Step 5: Rewire `components/naba-presence/review-app.tsx`**
 
-In `NabaReviewApp`, replace everything from `return (` down (the outer `div`, `aside`, mobile `Sheet`, header) with:
+In `NabaPresenceApp`, replace everything from `return (` down (the outer `div`, `aside`, mobile `Sheet`, header) with:
 
 ```tsx
 return (
@@ -388,7 +388,7 @@ Browser: sidebar collapses via trigger on desktop; at 390px the trigger opens th
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/e2e/accessibility.spec.ts app/layout.tsx components/naba-review/app-shell.tsx components/naba-review/review-app.tsx
+git add tests/e2e/accessibility.spec.ts app/layout.tsx components/naba-presence/app-shell.tsx components/naba-presence/review-app.tsx
 git commit -m "feat: DS Sidebar app shell, theme toggle, root Toaster"
 ```
 
@@ -397,15 +397,15 @@ git commit -m "feat: DS Sidebar app shell, theme toggle, root Toaster"
 ### Task 3: Extract the Reviews workspace (verbatim move)
 
 **Files:**
-- Create: `components/naba-review/reviews-view.tsx`
-- Modify: `components/naba-review/review-app.tsx`
+- Create: `components/naba-presence/reviews-view.tsx`
+- Modify: `components/naba-presence/review-app.tsx`
 
 **Interfaces:**
 - Produces: `export function ReviewsWorkspace(props)` with the exact current prop type from review-app.tsx:401-415 (`reviews`, `setReviews`, `selectedId`, `setSelectedId`, `apiStatus`, `onRefresh`). Internal (unexported, moved along): `ReviewRow`, `ReviewDetail`, `VerificationPanel`, `ActivityTimeline`, `QUEUES`, `mergeLocationDirectory`, `type Queue`.
 
 - [ ] **Step 1: Move**
 
-Create `reviews-view.tsx` with `"use client"` and move from review-app.tsx, bodies unchanged: `mergeLocationDirectory`, `QUEUES`, `type Queue`, `ReviewsWorkspace`, `ReviewRow`, `ReviewDetail`, `VerificationPanel`, `ActivityTimeline`. Bring their imports (lucide icons, ui components, `cn`, `Review`/`ReviewStatus`, api functions `generateDraft`/`loadReviewDetail`/`loadReviewsPage`/`publishDraft`/`saveDraft as saveDraftToApi`, and `readControlValue`/`Stars`/`StatusBadge` from `./shared`). In review-app.tsx add `import { ReviewsWorkspace } from "@/components/naba-review/reviews-view"` and delete everything moved plus newly unused imports.
+Create `reviews-view.tsx` with `"use client"` and move from review-app.tsx, bodies unchanged: `mergeLocationDirectory`, `QUEUES`, `type Queue`, `ReviewsWorkspace`, `ReviewRow`, `ReviewDetail`, `VerificationPanel`, `ActivityTimeline`. Bring their imports (lucide icons, ui components, `cn`, `Review`/`ReviewStatus`, api functions `generateDraft`/`loadReviewDetail`/`loadReviewsPage`/`publishDraft`/`saveDraft as saveDraftToApi`, and `readControlValue`/`Stars`/`StatusBadge` from `./shared`). In review-app.tsx add `import { ReviewsWorkspace } from "@/components/naba-presence/reviews-view"` and delete everything moved plus newly unused imports.
 
 - [ ] **Step 2: Gates**
 
@@ -415,7 +415,7 @@ Expected: clean.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add components/naba-review/reviews-view.tsx components/naba-review/review-app.tsx
+git add components/naba-presence/reviews-view.tsx components/naba-presence/review-app.tsx
 git commit -m "refactor: move reviews workspace into reviews-view module"
 ```
 
@@ -424,7 +424,7 @@ git commit -m "refactor: move reviews workspace into reviews-view module"
 ### Task 4: Reviews list UX — Tabs queues, filter Sheet, Combobox, Item rows, Empty states **[a11y gate]**
 
 **Files:**
-- Modify: `components/naba-review/reviews-view.tsx`
+- Modify: `components/naba-presence/reviews-view.tsx`
 
 **Interfaces:**
 - Consumes: `Tabs/TabsList/TabsTrigger/TabsContent` (`@/components/ui/tabs`), `Sheet` family, `Combobox` family, `Item` family, `Empty` family, `Badge`, `Field`/`FieldLabel` (for Sheet controls).
@@ -686,7 +686,7 @@ Browser: queue tabs switch with arrow keys; filter Sheet opens right, changing a
 - [ ] **Step 7: Commit**
 
 ```bash
-git add components/naba-review/reviews-view.tsx
+git add components/naba-presence/reviews-view.tsx
 git commit -m "feat: rebuild review inbox on Tabs, filter Sheet, Combobox, Item and Empty"
 ```
 
@@ -695,7 +695,7 @@ git commit -m "feat: rebuild review inbox on Tabs, filter Sheet, Combobox, Item 
 ### Task 5: Review detail — toasts, mono metadata, honest controls **[a11y gate]**
 
 **Files:**
-- Modify: `components/naba-review/reviews-view.tsx` (`ReviewDetail` only)
+- Modify: `components/naba-presence/reviews-view.tsx` (`ReviewDetail` only)
 
 **Interfaces:**
 - Consumes: `toast` from `@/components/ui/toast` (`toast.add({ type, title, description? })`).
@@ -734,7 +734,7 @@ Browser: save a draft (with dev DB or preview data: expect a toast bottom-right)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/naba-review/reviews-view.tsx
+git add components/naba-presence/reviews-view.tsx
 git commit -m "feat: toast success feedback and honest controls in review detail"
 ```
 
@@ -743,8 +743,8 @@ git commit -m "feat: toast success feedback and honest controls in review detail
 ### Task 6: Overview view — extract + state polish
 
 **Files:**
-- Create: `components/naba-review/overview-view.tsx`
-- Modify: `components/naba-review/dashboard-views.tsx`, `components/naba-review/review-app.tsx`, `components/naba-review/shared.tsx`
+- Create: `components/naba-presence/overview-view.tsx`
+- Modify: `components/naba-presence/dashboard-views.tsx`, `components/naba-presence/review-app.tsx`, `components/naba-presence/shared.tsx`
 
 **Interfaces:**
 - Produces: `export function OverviewView({ reviews, onNavigate, displayName, organisationName })` — exact current prop type (dashboard-views.tsx:106). Moves along (unexported): `MetricCard`, `HealthRow`, `type Navigate`.
@@ -752,7 +752,7 @@ git commit -m "feat: toast success feedback and honest controls in review detail
 
 - [ ] **Step 1: Move `OverviewView` + `MetricCard` + `HealthRow` + `type Navigate`**
 
-Verbatim into `overview-view.tsx` (`"use client"`, imports incl. recharts `Area/AreaChart/CartesianGrid/XAxis/YAxis`, chart components, `chartConfig`/`EmptyData`/`formatTimestamp`/`LiveDataError`/`Stars` from `./shared` as needed). Update `review-app.tsx` import to `@/components/naba-review/overview-view`; delete moved code + unused imports from dashboard-views.tsx.
+Verbatim into `overview-view.tsx` (`"use client"`, imports incl. recharts `Area/AreaChart/CartesianGrid/XAxis/YAxis`, chart components, `chartConfig`/`EmptyData`/`formatTimestamp`/`LiveDataError`/`Stars` from `./shared` as needed). Update `review-app.tsx` import to `@/components/naba-presence/overview-view`; delete moved code + unused imports from dashboard-views.tsx.
 
 - [ ] **Step 2: Rebuild `EmptyData` in `shared.tsx` on the Empty family**
 
@@ -786,7 +786,7 @@ Browser: Overview renders with metric values in mono; kill the API to see `LiveD
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/naba-review/overview-view.tsx components/naba-review/dashboard-views.tsx components/naba-review/review-app.tsx components/naba-review/shared.tsx
+git add components/naba-presence/overview-view.tsx components/naba-presence/dashboard-views.tsx components/naba-presence/review-app.tsx components/naba-presence/shared.tsx
 git commit -m "feat: overview view on shared Empty states and mono numerals"
 ```
 
@@ -795,8 +795,8 @@ git commit -m "feat: overview view on shared Empty states and mono numerals"
 ### Task 7: Analytics view — extract + Progress bars
 
 **Files:**
-- Create: `components/naba-review/analytics-view.tsx`
-- Modify: `components/naba-review/dashboard-views.tsx`, `components/naba-review/review-app.tsx`
+- Create: `components/naba-presence/analytics-view.tsx`
+- Modify: `components/naba-presence/dashboard-views.tsx`, `components/naba-presence/review-app.tsx`
 
 **Interfaces:**
 - Produces: `export function AnalyticsView()` (no props, unchanged). Moves along: nothing else (uses shared `formatDuration`, `chartConfig`, `EmptyData`, `LiveDataError`).
@@ -835,7 +835,7 @@ Browser: table shows progress bars scaled to response rate; switching date range
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/naba-review/analytics-view.tsx components/naba-review/dashboard-views.tsx components/naba-review/review-app.tsx
+git add components/naba-presence/analytics-view.tsx components/naba-presence/dashboard-views.tsx components/naba-presence/review-app.tsx
 git commit -m "feat: analytics view with response-rate progress and mono numerals"
 ```
 
@@ -844,8 +844,8 @@ git commit -m "feat: analytics view with response-rate progress and mono numeral
 ### Task 8: Connections view — AlertDialog disconnect, Item rows, Progress backfill **[a11y gate]**
 
 **Files:**
-- Create: `components/naba-review/connections-view.tsx`
-- Modify: `components/naba-review/dashboard-views.tsx`, `components/naba-review/review-app.tsx`
+- Create: `components/naba-presence/connections-view.tsx`
+- Modify: `components/naba-presence/dashboard-views.tsx`, `components/naba-presence/review-app.tsx`
 
 **Interfaces:**
 - Consumes: `AlertDialog` family, `Item` family, `Progress`/`ProgressLabel`/`ProgressValue`, `toast`.
@@ -923,7 +923,7 @@ Browser: Disconnect now confirms before acting; cancel does nothing; location ro
 - [ ] **Step 7: Commit**
 
 ```bash
-git add components/naba-review/connections-view.tsx components/naba-review/dashboard-views.tsx components/naba-review/review-app.tsx
+git add components/naba-presence/connections-view.tsx components/naba-presence/dashboard-views.tsx components/naba-presence/review-app.tsx
 git commit -m "feat: connections view with confirmed disconnect, Item rows and Progress"
 ```
 
@@ -932,9 +932,9 @@ git commit -m "feat: connections view with confirmed disconnect, Item rows and P
 ### Task 9: Settings view — Field completion, Item members, honest retention, confirmed privacy actions **[a11y gate]**
 
 **Files:**
-- Create: `components/naba-review/settings-view.tsx`
-- Delete: `components/naba-review/dashboard-views.tsx` (empty after this move)
-- Modify: `components/naba-review/review-app.tsx`
+- Create: `components/naba-presence/settings-view.tsx`
+- Delete: `components/naba-presence/dashboard-views.tsx` (empty after this move)
+- Modify: `components/naba-presence/review-app.tsx`
 
 **Interfaces:**
 - Produces: `export function SettingsView()` (no props, unchanged).
@@ -1002,8 +1002,8 @@ Browser: save settings → toast; retention rows read as enforced facts; member 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add components/naba-review/settings-view.tsx components/naba-review/review-app.tsx
-git rm components/naba-review/dashboard-views.tsx
+git add components/naba-presence/settings-view.tsx components/naba-presence/review-app.tsx
+git rm components/naba-presence/dashboard-views.tsx
 git commit -m "feat: settings view on Field, Item and confirmed privacy actions"
 ```
 

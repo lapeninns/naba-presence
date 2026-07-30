@@ -86,4 +86,59 @@ describe("deterministic reply verification", () => {
       expect.objectContaining({ code: "language_mismatch", severity: "warn" })
     )
   })
+
+  it("warns when an English reply is supplied for a German review", () => {
+    const reasons = verify("Thank you for your kind feedback.", {
+      expectedLanguage: "de",
+    })
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "language_mismatch", severity: "warn" })
+    )
+  })
+
+  it("accepts an ASCII German reply for a German review", () => {
+    const reasons = verify(
+      "Vielen Dank fuer Ihre freundliche Rueckmeldung.",
+      {
+        expectedLanguage: "de",
+      }
+    )
+    expect(reasons.map((reason) => reason.code)).not.toContain(
+      "language_mismatch"
+    )
+  })
+
+  const allowedPromotionPhrases = [
+    "Our menu is fully gluten-free and nut-free.",
+    "Feel free to reach out to our front desk anytime.",
+    "The whole property is smoke-free.",
+    "Breakfast is free of charge for members.",
+  ]
+
+  for (const body of allowedPromotionPhrases) {
+    it(`does not flag: ${body}`, () => {
+      expect(verify(body)).not.toContainEqual(
+        expect.objectContaining({ code: "forbidden_promotion" })
+      )
+    })
+  }
+
+  const forbiddenPromotions = [
+    "Next time your dessert is free!",
+    "We'd love to offer you a discount on your next stay.",
+    "Use promo code SAVE10.",
+    "We'll send you a voucher.",
+    "Here's a coupon for 20% off.",
+  ]
+
+  for (const body of forbiddenPromotions) {
+    it(`flags: ${body}`, () => {
+      expect(verify(body)).toContainEqual(
+        expect.objectContaining({
+          code: "forbidden_promotion",
+          severity: "fail",
+        })
+      )
+    })
+  }
 })

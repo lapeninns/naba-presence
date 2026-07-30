@@ -1,15 +1,15 @@
-# NabaReview full design-system replacement
+# NabaPresence full design-system replacement
 
 **Date:** 2026-07-29  
 **Status:** Approved for planning  
 **Decision:** Replace the complete product-facing visual system with the supplied
-NabaReview design language while retaining shadcn/ui and Base UI as the implementation
+NabaPresence design language while retaining shadcn/ui and Base UI as the implementation
 and accessibility foundation.
 
 ## Goal
 
 The application should no longer look like stock base-rhea with a Google palette. It
-should present one coherent NabaReview system across the shell, all six product views,
+should present one coherent NabaPresence system across the shell, all six product views,
 states, overlays, and responsive layouts: Google Business Profile clarity, restrained
 floating depth, and a review-operations identity centered on verified public replies.
 
@@ -33,12 +33,12 @@ The ownership stack is:
 1. React 19, Next.js 16, and Tailwind CSS 4.
 2. Base UI for focus, keyboard interaction, overlays, positioning, and semantics.
 3. `components/ui/*` for generic shadcn controls and composition primitives.
-4. NabaReview semantic tokens, variants, and product compositions.
+4. NabaPresence semantic tokens, variants, and product compositions.
 5. Product views and workflows.
 
 The complete `components/ui/*` collection remains available. Existing primitives are
 restyled and extended rather than replaced by a parallel `.nr-*` library. New shadcn
-components remain installable through `components.json` and receive a focused NabaReview
+components remain installable through `components.json` and receive a focused NabaPresence
 visual and accessibility review when introduced.
 
 ## Explicit non-goals
@@ -148,7 +148,7 @@ collapses nonessential durations without weakening state communication.
 
 ## Product signature
 
-Glass is supporting chrome, not the identity. The signature NabaReview pattern is the
+Glass is supporting chrome, not the identity. The signature NabaPresence pattern is the
 auditable public-response flow:
 
 `customer review → assisted reply → safeguards and verification → approval → published reply`
@@ -164,12 +164,12 @@ remain visibly connected to the reply.
 
 Generic controls remain in `components/ui/*`. They contain no business terminology and
 own accessibility behavior. Token changes should carry most of the visual replacement.
-NabaReview-specific variants are added only when a semantic token cannot express the
+NabaPresence-specific variants are added only when a semantic token cannot express the
 required distinction.
 
 ### Product compositions
 
-Business-specific compositions remain in `components/naba-review/*` and are assembled
+Business-specific compositions remain in `components/naba-presence/*` and are assembled
 from generic primitives. Introduce a named composition only when it is reused or owns a
 coherent responsibility. Candidate responsibilities include:
 
@@ -351,7 +351,7 @@ Each stage receives the narrowest relevant checks. The completed replacement req
 
 ## Acceptance criteria
 
-- Every shipping view visibly belongs to one NabaReview system.
+- Every shipping view visibly belongs to one NabaPresence system.
 - No incoming `.nr-*` runtime implementation is present.
 - shadcn/ui and Base UI remain the generic component and interaction foundation.
 - Existing product behavior and API contracts are preserved.

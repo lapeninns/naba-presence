@@ -21,13 +21,15 @@ const reconcileIntervalMs =
   interval("RECONCILE_INTERVAL_SECONDS", 900, 60) * 1000
 const retentionIntervalMs =
   interval("RETENTION_INTERVAL_SECONDS", 86400, 3600) * 1000
+const jobsIntervalMs =
+  interval("JOBS_INTERVAL_SECONDS", 60, 10) * 1000
 
 function log(level, event, context = {}) {
   const record = JSON.stringify({
     timestamp: new Date().toISOString(),
     level,
     event,
-    service: "nabareview-scheduler",
+    service: "nabapresence-scheduler",
     ...context,
   })
   if (level === "error") console.error(record)
@@ -43,6 +45,7 @@ async function post(path, body) {
       "x-request-id": crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(55_000),
   })
   const result = await response.json().catch(() => null)
   if (!response.ok) {
@@ -63,8 +66,13 @@ async function runReconciliation() {
       organisationCursor,
       maxOrganisations: 100,
     })
-    organisations += result.organisations?.length ?? 0
-    organisationCursor = result.nextOrganisationCursor ?? undefined
+    organisations += result.processed ?? 0
+    if (result.failures?.length) {
+      log("warn", "reconcile.partial", {
+        failures: result.failures.length,
+      })
+    }
+    organisationCursor = result.nextCursor ?? undefined
     pages += 1
     if (pages > 1000) {
       throw new Error("Reconciliation cursor exceeded 1000 pages.")
@@ -96,6 +104,15 @@ async function runRetention() {
   log("info", "retention.completed", {
     organisations,
     pages,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
+async function runJobs() {
+  const startedAt = performance.now()
+  const result = await post("/api/jobs/run", {})
+  log("info", "jobs.completed", {
+    ...result,
     durationMs: Math.round(performance.now() - startedAt),
   })
 }
@@ -138,10 +155,12 @@ const stopRetention = recurring(
   retentionIntervalMs,
   30_000
 )
+const stopJobs = recurring("jobs", runJobs, jobsIntervalMs, 10_000)
 
 function shutdown(signal) {
   stopReconciliation()
   stopRetention()
+  stopJobs()
   log("info", "scheduler.stopped", { signal })
   process.exit(0)
 }
@@ -151,4 +170,5 @@ process.on("SIGTERM", () => shutdown("SIGTERM"))
 log("info", "scheduler.started", {
   reconcileIntervalSeconds: reconcileIntervalMs / 1000,
   retentionIntervalSeconds: retentionIntervalMs / 1000,
+  jobsIntervalSeconds: jobsIntervalMs / 1000,
 })

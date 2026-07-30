@@ -1,0 +1,85 @@
+<h2>Fresh concepts for Local Business + AI</h2>
+<p class="subtitle">Clean slate — no awning constraint. Each is a standalone mark on a 100×100 grid.</p>
+
+<style>
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:8px; }
+  .opt { border:1px solid #d1d5db; border-radius:16px; padding:14px; background:#fff; cursor:pointer; text-align:center; transition:border-color .15s, box-shadow .15s; }
+  .opt:hover { border-color:#2563EB; box-shadow:0 8px 24px rgba(16,24,40,.08); }
+  .opt.selected { border-color:#2563EB; outline:3px solid rgba(37,99,235,.25); }
+  .tile { background:#F8FAFC; border-radius:12px; padding:18px 12px; margin-bottom:10px; display:flex; align-items:center; justify-content:center; }
+  .name { font-weight:600; font-size:14px; }
+  .desc { color:#5F6368; font-size:12.5px; margin-top:3px; line-height:1.35; }
+</style>
+
+<div class="grid options">
+
+  <div class="opt option" data-choice="beacon-pin" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <path d="M50 10 C66 10 80 24 80 42 C80 62 62 80 50 92 C38 80 20 62 20 42 C20 24 34 10 50 10 Z" fill="#2563EB"/>
+        <path d="M38 52 A18 18 0 0 1 62 52" stroke="#FFFFFF" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <path d="M31 45 A26 26 0 0 1 69 45" stroke="#FFFFFF" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.7"/>
+        <circle cx="50" cy="52" r="5" fill="#FBBC04"/>
+      </svg>
+    </div>
+    <div class="name">Beacon</div>
+    <div class="desc">Map pin broadcasting presence. Local + reach, with AI at the center.</div>
+  </div>
+
+  <div class="opt option" data-choice="spark-chat" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <path d="M20 14 H80 A12 12 0 0 1 92 26 V58 A12 12 0 0 1 80 70 H40 L26 86 V70 H20 A12 12 0 0 1 8 58 V26 A12 12 0 0 1 20 14 Z" fill="#14B8A6"/>
+        <path d="M50 26 L55 39 L68 39 L57 47.5 L61 60.5 L50 52.5 L39 60.5 L43 47.5 L32 39 L45 39 Z" fill="#FFFFFF"/>
+      </svg>
+    </div>
+    <div class="name">Spark Chat</div>
+    <div class="desc">Review bubble with an AI star. Conversations + intelligence.</div>
+  </div>
+
+  <div class="opt option" data-choice="district" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <rect x="14" y="46" width="24" height="34" rx="4" fill="#2563EB"/>
+        <rect x="42" y="28" width="24" height="52" rx="4" fill="#1D4ED8"/>
+        <rect x="70" y="56" width="16" height="24" rx="4" fill="#60A5FA"/>
+        <path d="M70 20 L72 27 L79 29 L72 31 L70 38 L68 31 L61 29 L68 27 Z" fill="#FBBC04"/>
+        <path d="M80 14 A10 10 0 0 1 88 22" stroke="#14B8A6" stroke-width="4" fill="none" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="name">District</div>
+    <div class="desc">City blocks as a local skyline, AI spark overhead.</div>
+  </div>
+
+  <div class="opt option" data-choice="star-node" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <circle cx="30" cy="32" r="6" fill="#2563EB"/>
+        <circle cx="72" cy="26" r="6" fill="#2563EB"/>
+        <circle cx="82" cy="56" r="6" fill="#2563EB"/>
+        <circle cx="26" cy="64" r="6" fill="#2563EB"/>
+        <path d="M30 32 L50 50 M72 26 L50 50 M82 56 L50 50 M26 64 L50 50" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/>
+        <path d="M50 34 L56 44 L67 44 L58 51 L61 62 L50 55 L39 62 L42 51 L33 44 L44 44 Z" fill="#FBBC04"/>
+      </svg>
+    </div>
+    <div class="name">Star Node</div>
+    <div class="desc">Network of local points orbiting one AI star.</div>
+  </div>
+
+  <div class="opt option" data-choice="growth-chart" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <rect x="22" y="58" width="14" height="26" rx="4" fill="#60A5FA"/>
+        <rect x="43" y="46" width="14" height="38" rx="4" fill="#2563EB"/>
+        <rect x="64" y="32" width="14" height="52" rx="4" fill="#1D4ED8"/>
+        <path d="M84 20 L86 26 L92 28 L86 30 L84 36 L82 30 L76 28 L82 26 Z" fill="#FBBC04"/>
+        <path d="M78 44 A8 8 0 0 1 86 52" stroke="#14B8A6" stroke-width="4" fill="none" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="name">Growth Bars</div>
+    <div class="desc">City silhouette as a rising chart — presence growing with AI.</div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;color:#5F6368;font-size:13px">Click to pick a direction — or tell me which idea to push further.</p>

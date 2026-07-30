@@ -8,7 +8,7 @@ import {
   getGoogleNotificationSetting,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -65,7 +65,8 @@ export async function GET(request: Request) {
       )
       return getGoogleNotificationSetting(
         accessToken,
-        account.google_account_name
+        account.google_account_name,
+        { connectionKey: account.connection_id }
       )
     })
     return NextResponse.json({ setting })
@@ -76,6 +77,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = notificationSchema.parse(await request.json())
     const setting = await withTenant(session.organisationId, async (sql) => {
@@ -87,7 +89,8 @@ export async function PATCH(request: Request) {
       const updated = await updateGoogleNotificationSetting(
         accessToken,
         account.google_account_name,
-        input.pubsubTopic
+        input.pubsubTopic,
+        { connectionKey: account.connection_id }
       )
       await sql`
         update google_connection
@@ -104,11 +107,12 @@ export async function PATCH(request: Request) {
           : "google.notifications.disabled",
         subjectType: "google_account",
         subjectId: account.id,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           notificationTypes: input.pubsubTopic
             ? ["NEW_REVIEW", "UPDATED_REVIEW"]
             : [],
+          clientRequestId: rid.clientId,
         },
       })
       return updated

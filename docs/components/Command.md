@@ -8,7 +8,7 @@ Use `CommandDialog` for the ⌘K surface. Compose `CommandInput`, `CommandList`,
 
 ## Parts
 
-Composed inside `<Command>`, each importable from `window.NabaReview.*`:
+Composed inside `<Command>`, each importable from `window.NabaPresence.*`:
 
 - `CommandDialog`
 - `CommandEmpty`

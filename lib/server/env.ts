@@ -2,12 +2,34 @@ import "server-only"
 
 import { z } from "zod"
 
-const featureFlag = z
-  .preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.enum(["true", "false"]).default("true")
+export function parseFeatureFlag(
+  value: unknown,
+  fallback: boolean
+): boolean {
+  if (value === undefined || value === "") return fallback
+  if (value === "true") return true
+  if (value === "false") return false
+  throw new Error(
+    `Feature flag must be "true" or "false", got: ${value}`
   )
-  .transform((value) => value === "true")
+}
+
+export function parseDatabasePoolMax(value: unknown): number {
+  if (value === undefined || value === "") return 10
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new Error(
+      `DATABASE_POOL_MAX must be an integer from 1 to 100, got: ${value}`
+    )
+  }
+  return parsed
+}
+
+const featureFlag = (fallback: boolean) =>
+  z
+    .unknown()
+    .optional()
+    .transform((value) => parseFeatureFlag(value, fallback))
 
 const optionalText = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -36,20 +58,36 @@ const optionalTextWithDefault = (fallback: string) =>
     z.string().min(1).default(fallback)
   )
 
+const urlWithDefault = (fallback: string) =>
+  z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.url().default(fallback)
+  )
+
+const timeoutWithDefault = (fallback: number) =>
+  z.coerce.number().int().positive().default(fallback)
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
+  DATABASE_POOL_MAX: z
+    .unknown()
+    .optional()
+    .transform(parseDatabasePoolMax),
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
   CRON_SECRET: z.string().min(16),
   SUPPORT_IMPERSONATION_SECRET: optionalSecret(32),
+  SUPABASE_URL: optionalUrl,
+  SUPABASE_PUBLISHABLE_KEY: optionalText,
+  AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
   OPENAI_API_KEY: optionalText,
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
-  OPENAI_MODEL_MENU_EXTRACT: optionalTextWithDefault("gpt-5.6-terra"),
-  OPENAI_MODEL_MENU_CHAT: optionalTextWithDefault("gpt-5.6-luna"),
+  OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
+  OPENAI_TIMEOUT_MS: timeoutWithDefault(30_000),
   GOOGLE_CLIENT_ID: optionalText,
   GOOGLE_CLIENT_SECRET: optionalText,
   GOOGLE_PLACES_API_KEY: optionalText,
@@ -57,11 +95,15 @@ const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL: optionalEmail,
   GOOGLE_PUBSUB_VERIFICATION_TOKEN: optionalSecret(16),
   GOOGLE_REQUESTS_PER_SECOND: z.coerce.number().min(1).max(100).default(8),
-  DRAFTS_ENABLED: featureFlag,
-  PUBLISH_ENABLED: featureFlag,
-  SYNC_ENABLED: featureFlag,
-  WEBHOOKS_ENABLED: featureFlag,
-  LOCAL_BOOTSTRAP_ENABLED: featureFlag.default(false),
+  GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
+  GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
+  JOBS_INTERVAL_SECONDS: timeoutWithDefault(60),
+  DRAFTS_ENABLED: featureFlag(true),
+  PUBLISH_ENABLED: featureFlag(true),
+  SYNC_ENABLED: featureFlag(true),
+  WEBHOOKS_ENABLED: featureFlag(true),
+  PASSWORD_AUTH_ENABLED: featureFlag(true),
+  LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

@@ -1,0 +1,73 @@
+<h2>Local + AI-forward — three stronger takes</h2>
+<p class="subtitle">Less “cute icon,” more product mark. Click the one that feels closest.</p>
+
+<style>
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; margin-top:8px; }
+  .opt { border:1px solid #d1d5db; border-radius:16px; padding:16px; background:#fff; cursor:pointer; text-align:center; transition:border-color .15s, box-shadow .15s; }
+  .opt:hover { border-color:#2563EB; box-shadow:0 8px 24px rgba(16,24,40,.08); }
+  .opt.selected { border-color:#2563EB; outline:3px solid rgba(37,99,235,.25); }
+  .tile { background:linear-gradient(160deg,#0B1220 0%,#101828 100%); border-radius:14px; padding:22px 12px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; }
+  .name { font-weight:600; font-size:15px; }
+  .desc { color:#5F6368; font-size:13px; margin-top:4px; line-height:1.4; }
+  .tag { display:inline-block; margin-top:8px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:#14B8A6; font-weight:600; }
+</style>
+
+<div class="grid options">
+
+  <div class="opt option" data-choice="neural-pin" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="140" height="140">
+        <!-- Pin silhouette as neural mesh -->
+        <path d="M50 8 C68 8 84 24 84 44 C84 66 62 84 50 98 C38 84 16 66 16 44 C16 24 32 8 50 8 Z" fill="none" stroke="#2563EB" stroke-width="5"/>
+        <!-- Nodes -->
+        <circle cx="50" cy="28" r="5.5" fill="#A8C7FA"/>
+        <circle cx="36" cy="42" r="5.5" fill="#14B8A6"/>
+        <circle cx="64" cy="42" r="5.5" fill="#14B8A6"/>
+        <circle cx="42" cy="60" r="5.5" fill="#60A5FA"/>
+        <circle cx="58" cy="60" r="5.5" fill="#60A5FA"/>
+        <circle cx="50" cy="76" r="5.5" fill="#FBBC04"/>
+        <!-- Links -->
+        <path d="M50 28 L36 42 L42 60 L50 76 L58 60 L64 42 Z M36 42 L64 42 M42 60 L58 60 M50 28 L42 60 M50 28 L58 60" stroke="#94A3B8" stroke-width="2.5" fill="none" opacity="0.85"/>
+      </svg>
+    </div>
+    <div class="name">Neural Pin</div>
+    <div class="desc">A location pin drawn as an AI network. Place that thinks.</div>
+    <div class="tag">Recommended</div>
+  </div>
+
+  <div class="opt option" data-choice="orbit-core" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="140" height="140">
+        <!-- Outer orbit -->
+        <ellipse cx="50" cy="50" rx="38" ry="16" fill="none" stroke="#14B8A6" stroke-width="3.5" transform="rotate(-28 50 50)"/>
+        <ellipse cx="50" cy="50" rx="38" ry="16" fill="none" stroke="#2563EB" stroke-width="3.5" transform="rotate(32 50 50)" opacity="0.85"/>
+        <!-- Core = local place -->
+        <circle cx="50" cy="50" r="16" fill="#2563EB"/>
+        <circle cx="50" cy="50" r="7" fill="#FBBC04"/>
+        <!-- Orbit nodes -->
+        <circle cx="82" cy="36" r="5" fill="#14B8A6"/>
+        <circle cx="22" cy="62" r="5" fill="#A8C7FA"/>
+      </svg>
+    </div>
+    <div class="name">Orbit Core</div>
+    <div class="desc">Local core with AI orbits — presence radiating intelligence.</div>
+  </div>
+
+  <div class="opt option" data-choice="n-cut" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="140" height="140">
+        <!-- Geometric N -->
+        <path d="M18 84 V16 H36 L64 58 V16 H82 V84 H64 L36 42 V84 Z" fill="#2563EB"/>
+        <!-- AI cut / negative spark at top-right -->
+        <path d="M74 10 L77 18 L85 21 L77 24 L74 32 L71 24 L63 21 L71 18 Z" fill="#FBBC04"/>
+        <!-- Small location tip under N -->
+        <path d="M50 88 L56 96 L44 96 Z" fill="#14B8A6"/>
+      </svg>
+    </div>
+    <div class="name">N Cut</div>
+    <div class="desc">Bold N monogram with AI spark + local tip. Lettermark-first.</div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;color:#5F6368;font-size:13px">Pick one to refine into the full set (symbol · wordmark · favicon · app icon).</p>

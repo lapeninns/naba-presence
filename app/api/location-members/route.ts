@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -22,6 +22,7 @@ const assignmentSchema = z.object({
 
 export async function PUT(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = assignmentSchema.parse(await request.json())
     const assignments = await withTenant(
@@ -88,8 +89,11 @@ export async function PUT(request: Request) {
           action: "member.location_permissions_changed",
           subjectType: "member",
           subjectId: input.userId,
-          requestId: requestId(request),
-          metadata: { assignments: input.assignments },
+          requestId: rid.id,
+          metadata: {
+            assignments: input.assignments,
+            clientRequestId: rid.clientId,
+          },
         })
         return input.assignments
       }

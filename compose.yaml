@@ -1,16 +1,24 @@
-name: nabareview-local
+name: nabapresence-local
 
 services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./scripts/load/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:${NABAPRESENCE_OTEL_PORT:-9464}:9464"
+
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: nabareview
+      POSTGRES_DB: nabapresence
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:54329:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d nabareview"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nabapresence"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -22,10 +30,16 @@ services:
       context: .
       target: migrate
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
-      DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabapresence
+    command:
+      [
+        "sh",
+        "-c",
+        "node scripts/db-migrate.mjs && RUNTIME_ROLE_NAME=naba_app RUNTIME_ROLE_PASSWORD=naba_app node scripts/db-create-runtime-role.mjs",
+      ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,12 +50,13 @@ services:
       context: .
       target: runtime
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nabareview
-      NEXTAUTH_URL: http://localhost:3000
+      DATABASE_URL: postgresql://naba_app:naba_app@postgres:5432/nabapresence
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      NEXTAUTH_URL: http://localhost:${NABAPRESENCE_WEB_PORT:-3000}
       NEXTAUTH_SECRET: local-compose-session-secret-at-least-32-characters
       TOKEN_ENCRYPTION_KEY: local-compose-encryption-key-at-least-32-characters
       CRON_SECRET: local-compose-cron-secret
@@ -49,9 +64,12 @@ services:
       DRAFTS_ENABLED: "true"
       PUBLISH_ENABLED: "true"
       SYNC_ENABLED: "true"
-      WEBHOOKS_ENABLED: "true"
+      WEBHOOKS_ENABLED: ${WEBHOOKS_ENABLED:-false}
       LOCAL_BOOTSTRAP_ENABLED: "true"
-      GOOGLE_REQUESTS_PER_SECOND: "8"
+      GOOGLE_REQUESTS_PER_SECOND: ${GOOGLE_REQUESTS_PER_SECOND:-8}
+      GOOGLE_TIMEOUT_MS: ${GOOGLE_TIMEOUT_MS:-15000}
+      GOOGLE_MUTATION_TIMEOUT_MS: ${GOOGLE_MUTATION_TIMEOUT_MS:-20000}
+      GOOGLE_API_PROXY_BASE: ${GOOGLE_API_PROXY_BASE:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_PUBSUB_AUDIENCE: ${GOOGLE_PUBSUB_AUDIENCE:-}
@@ -60,12 +78,18 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL_DRAFT: ${OPENAI_MODEL_DRAFT:-gpt-5-mini}
       OPENAI_MODEL_VERIFY: ${OPENAI_MODEL_VERIFY:-gpt-5-mini}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-5000}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${NABAPRESENCE_WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -83,7 +107,7 @@ services:
       context: .
       target: runtime
       args:
-        NODE_IMAGE: ${NABAREVIEW_NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NABAPRESENCE_NODE_IMAGE:-node:22-alpine}
     command: ["node", "scripts/scheduler.mjs"]
     environment:
       CRON_SECRET: local-compose-cron-secret

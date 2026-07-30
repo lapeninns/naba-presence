@@ -8,7 +8,7 @@ Pass `value` 0–100. Rendering `<Progress value={n} />` alone is enough — it 
 
 ## Parts
 
-Composed inside `<Progress>`, each importable from `window.NabaReview.*`:
+Composed inside `<Progress>`, each importable from `window.NabaPresence.*`:
 
 - `ProgressIndicator`
 - `ProgressLabel`

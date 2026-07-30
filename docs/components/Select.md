@@ -8,7 +8,7 @@ Pass `items` to the root so `SelectValue` renders the option label instead of th
 
 ## Parts
 
-Composed inside `<Select>`, each importable from `window.NabaReview.*`:
+Composed inside `<Select>`, each importable from `window.NabaPresence.*`:
 
 - `SelectContent`
 - `SelectGroup`

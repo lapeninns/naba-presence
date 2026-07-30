@@ -1,6 +1,6 @@
 # Local development stack managed by the Supabase CLI. The CLI runs these
 # services in Docker; this file contains no production credentials.
-project_id = "nabareview"
+project_id = "nabapresence"
 
 [api]
 enabled = true
@@ -44,6 +44,19 @@ site_url = "http://127.0.0.1:3000"
 additional_redirect_urls = ["http://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+[auth.email.template.confirmation]
+subject = "Confirm your NabaPresence account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your NabaPresence password"
+content_path = "./supabase/templates/recovery.html"
 
 [edge_runtime]
 enabled = true

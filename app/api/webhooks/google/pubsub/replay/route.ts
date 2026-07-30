@@ -4,9 +4,10 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
 import { requireRole, requireSession } from "@/lib/server/session"
+import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -15,12 +16,13 @@ const inputSchema = z.object({ eventId: z.uuid() })
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json())
-    const result = await withTenant(session.organisationId, async (sql) => {
+    const event = await withTenant(session.organisationId, async (sql) => {
       const [event] = await sql<
         {
           id: string
@@ -52,39 +54,35 @@ export async function POST(request: Request) {
           "The event location is no longer linked."
         )
       }
-      const sync = await syncLinkedLocation(
-        sql,
-        session.organisationId,
-        location,
-        { type: "notification", maxPages: 1 }
-      )
-      const failed = "error" in sync
+      return event
+    })
+    const sync = await syncLinkedLocation({
+      organisationId: session.organisationId,
+      externalLocationId: event.externalLocationId!,
+      type: "notification",
+      maxPages: 1,
+    })
+    const result = await withTenant(session.organisationId, async (sql) => {
       await sql`
         update processed_webhook_event
         set
-          status = ${failed ? "failed" : "processed"},
-          processed_at = now(),
-          retry_count = retry_count + 1,
-          next_attempt_at = ${
-            failed
-              ? new Date(
-                  Date.now() +
-                    Math.min(3_600_000, 30_000 * 2 ** event.retryCount)
-                )
-              : null
-          }
+          retry_count = retry_count + 1
         where id = ${event.id}
       `
+      const status = await settleWebhookEvent(sql, event.id, sync)
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action: failed ? "webhook.replay.failed" : "webhook.replay.completed",
+        action:
+          status === "failed"
+            ? "webhook.replay.failed"
+            : "webhook.replay.completed",
         subjectType: "webhook_event",
         subjectId: event.id,
-        requestId: requestId(request),
-        metadata: { sync },
+        requestId: rid.id,
+        metadata: { sync, clientRequestId: rid.clientId },
       })
-      return { status: failed ? "failed" : "processed", sync }
+      return { status, sync }
     })
     return NextResponse.json(result, {
       status: result.status === "failed" ? 502 : 200,

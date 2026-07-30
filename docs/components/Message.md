@@ -8,7 +8,7 @@ Compose `MessageAvatar`, `MessageHeader`, `MessageContent`, and `MessageFooter`;
 
 ## Parts
 
-Composed inside `<Message>`, each importable from `window.NabaReview.*`:
+Composed inside `<Message>`, each importable from `window.NabaPresence.*`:
 
 - `MessageAvatar`
 - `MessageContent`

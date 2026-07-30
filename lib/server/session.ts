@@ -1,12 +1,14 @@
 import "server-only"
 
 import { cookies } from "next/headers"
-import type { TransactionSql } from "postgres"
 
-import { randomToken, sha256 } from "@/lib/server/crypto"
+import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { createSession } from "@/lib/server/session-store"
+
+export { createSession }
 
 const SESSION_COOKIE = "naba_session"
 const LOCAL_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -100,38 +102,6 @@ export function requireRole(
   return session
 }
 
-export async function createSession(
-  sql: TransactionSql,
-  userId: string,
-  organisationId: string,
-  options: {
-    supportActor?: string
-    impersonationReason?: string
-    maxAgeDays?: number
-  } = {}
-): Promise<string> {
-  const token = randomToken()
-  await sql`
-    insert into app_session (
-      token_hash,
-      user_id,
-      organisation_id,
-      support_actor,
-      impersonation_reason,
-      expires_at
-    )
-    values (
-      ${sha256(token)},
-      ${userId},
-      ${organisationId},
-      ${options.supportActor ?? null},
-      ${options.impersonationReason ?? null},
-      now() + (${options.maxAgeDays ?? 30} * interval '1 day')
-    )
-  `
-  return token
-}
-
 export async function setSessionCookie(token: string) {
   ;(await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -162,6 +132,7 @@ async function syncLocalOwnerIdentity(session: Session): Promise<Session> {
         true
       )
     `
+    await sql`select set_config('app.user_id', ${LOCAL_USER_ID}, true)`
     const [googleIdentity] = await sql<
       { email: string | null; displayName: string | null }[]
     >`
@@ -216,29 +187,10 @@ export async function ensureDevelopmentSession(): Promise<Session> {
       select set_config('app.organisation_id', ${LOCAL_ORGANISATION_ID}, true)
     `
     await sql`
-      insert into organisation (id, slug, name)
-      values (${LOCAL_ORGANISATION_ID}, 'lapen-inns', 'Lapen Inns')
-      on conflict (id) do update set name = excluded.name
-    `
-    await sql`
-      insert into app_user (id, email, display_name)
-      values (
-        ${LOCAL_USER_ID},
-        'local-owner@nabareview.local',
-        'Local owner'
+      select provision_local_bootstrap(
+        ${LOCAL_ORGANISATION_ID},
+        ${LOCAL_USER_ID}
       )
-      on conflict (id) do nothing
-    `
-    await sql`
-      insert into member (
-        organisation_id,
-        user_id,
-        role,
-        can_publish
-      )
-      values (${LOCAL_ORGANISATION_ID}, ${LOCAL_USER_ID}, 'owner', true)
-      on conflict (organisation_id, user_id)
-      do update set role = 'owner', can_publish = true
     `
     return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })

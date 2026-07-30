@@ -8,7 +8,7 @@ Needs a `TooltipProvider` above it — mount one once at the app root. Pass the 
 
 ## Parts
 
-Composed inside `<Tooltip>`, each importable from `window.NabaReview.*`:
+Composed inside `<Tooltip>`, each importable from `window.NabaPresence.*`:
 
 - `TooltipContent`
 - `TooltipProvider`

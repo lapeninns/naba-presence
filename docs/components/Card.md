@@ -8,7 +8,7 @@ Compose `CardHeader` (with `CardTitle`, `CardDescription`, and optionally `CardA
 
 ## Parts
 
-Composed inside `<Card>`, each importable from `window.NabaReview.*`:
+Composed inside `<Card>`, each importable from `window.NabaPresence.*`:
 
 - `CardAction`
 - `CardContent`

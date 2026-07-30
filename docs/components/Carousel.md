@@ -8,7 +8,7 @@ Compose `CarouselContent` with `CarouselItem` children, plus `CarouselPrevious`/
 
 ## Parts
 
-Composed inside `<Carousel>`, each importable from `window.NabaReview.*`:
+Composed inside `<Carousel>`, each importable from `window.NabaPresence.*`:
 
 - `CarouselContent`
 - `CarouselItem`

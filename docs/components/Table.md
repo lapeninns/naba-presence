@@ -8,7 +8,7 @@ Compose `TableHeader`/`TableBody` with `TableRow`, `TableHead`, and `TableCell`.
 
 ## Parts
 
-Composed inside `<Table>`, each importable from `window.NabaReview.*`:
+Composed inside `<Table>`, each importable from `window.NabaPresence.*`:
 
 - `TableBody`
 - `TableCaption`

@@ -3,13 +3,14 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
 const settingsSchema = z.object({
   approvalRequired: z.boolean(),
+  requireTwoPersonApproval: z.boolean().optional(),
   rawContentRetentionDays: z.number().int().min(1).max(30),
   defaultLanguageCode: z
     .string()
@@ -38,6 +39,7 @@ export async function GET() {
       const [row] = await sql`
         select
           approval_required as "approvalRequired",
+          require_two_person_approval as "requireTwoPersonApproval",
           raw_content_retention_days as "rawContentRetentionDays",
           default_language_code as "defaultLanguageCode",
           default_timezone as "defaultTimezone",
@@ -62,6 +64,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const input = settingsSchema.parse(await request.json())
     if (
@@ -79,6 +82,10 @@ export async function PATCH(request: Request) {
         update organisation
         set
           approval_required = ${input.approvalRequired},
+          require_two_person_approval = coalesce(
+            ${input.requireTwoPersonApproval ?? null},
+            require_two_person_approval
+          ),
           raw_content_retention_days = ${input.rawContentRetentionDays},
           default_language_code = ${input.defaultLanguageCode},
           default_timezone = ${input.defaultTimezone},
@@ -96,6 +103,7 @@ export async function PATCH(request: Request) {
         where id = ${session.organisationId}
         returning
           approval_required as "approvalRequired",
+          require_two_person_approval as "requireTwoPersonApproval",
           raw_content_retention_days as "rawContentRetentionDays",
           default_language_code as "defaultLanguageCode",
           default_timezone as "defaultTimezone",
@@ -107,8 +115,8 @@ export async function PATCH(request: Request) {
         action: "organisation.settings.updated",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: requestId(request),
-        metadata: input,
+        requestId: rid.id,
+        metadata: { ...input, clientRequestId: rid.clientId },
       })
       return row
     })

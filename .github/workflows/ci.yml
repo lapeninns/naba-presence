@@ -46,10 +46,15 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm db:migrate
-      - run: pnpm test:integration
+      - run: pnpm db:runtime-role
       - run: pnpm build
+      - run: pnpm test:integration
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:a11y
+      - run: pnpm test:e2e
+        env:
+          LOCAL_BOOTSTRAP_ENABLED: "true"
+          NEXTAUTH_URL: http://127.0.0.1:3000
+          WEBHOOKS_ENABLED: "false"
 
   secret-scan:
     runs-on: ubuntu-latest

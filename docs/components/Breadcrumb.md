@@ -8,7 +8,7 @@ Mark the current page with `BreadcrumbPage` (not a link) and use `BreadcrumbElli
 
 ## Parts
 
-Composed inside `<Breadcrumb>`, each importable from `window.NabaReview.*`:
+Composed inside `<Breadcrumb>`, each importable from `window.NabaPresence.*`:
 
 - `BreadcrumbEllipsis`
 - `BreadcrumbItem`

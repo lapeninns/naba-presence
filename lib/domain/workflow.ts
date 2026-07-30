@@ -33,3 +33,9 @@ export function isAllowedReviewTransition(
 ) {
   return from === to || ALLOWED_TRANSITIONS[from].includes(to)
 }
+
+export function deleteWorkflowTarget(
+  branch: "remote" | "local_cancel"
+): "new" | "drafted" {
+  return branch === "remote" ? "new" : "drafted"
+}

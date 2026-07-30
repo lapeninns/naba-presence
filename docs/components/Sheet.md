@@ -8,7 +8,7 @@ Set `side` to `top`|`right`|`bottom`|`left`. Use for filters, detail panes, and 
 
 ## Parts
 
-Composed inside `<Sheet>`, each importable from `window.NabaReview.*`:
+Composed inside `<Sheet>`, each importable from `window.NabaPresence.*`:
 
 - `SheetClose`
 - `SheetContent`

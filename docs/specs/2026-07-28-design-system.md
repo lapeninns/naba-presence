@@ -1,4 +1,4 @@
-# NabaReview design system
+# NabaPresence design system
 
 **Date:** 2026-07-28
 **Decision:** shadcn/ui component shapes (base-rhea style, Base UI primitives) with the
@@ -7,7 +7,7 @@ component structure stay stock.
 
 > **Ownership:** This document's palette rationale remains authoritative. The full
 > production system lives in
-> [NabaReview full design-system replacement](../superpowers/specs/2026-07-29-full-design-system-replacement-design.md).
+> [NabaPresence full design-system replacement](../superpowers/specs/2026-07-29-full-design-system-replacement-design.md).
 
 ## Why this shape
 

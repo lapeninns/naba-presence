@@ -8,7 +8,7 @@ Set `maxLength` to the code length; render `InputOTPSlot` per character inside `
 
 ## Parts
 
-Composed inside `<InputOTP>`, each importable from `window.NabaReview.*`:
+Composed inside `<InputOTP>`, each importable from `window.NabaPresence.*`:
 
 - `InputOTPGroup`
 - `InputOTPSeparator`

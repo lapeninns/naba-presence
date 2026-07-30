@@ -8,7 +8,7 @@ Best for mobile-first flows. Same header/footer composition as `Dialog`; `Drawer
 
 ## Parts
 
-Composed inside `<Drawer>`, each importable from `window.NabaReview.*`:
+Composed inside `<Drawer>`, each importable from `window.NabaPresence.*`:
 
 - `DrawerClose`
 - `DrawerContent`

@@ -6,7 +6,7 @@ import {
   connectionAccessToken,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -16,6 +16,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const { id } = await context.params
     await withTenant(session.organisationId, async (sql) => {
@@ -47,7 +48,8 @@ export async function POST(
             await updateGoogleNotificationSetting(
               accessToken,
               account.google_account_name,
-              ""
+              "",
+              { connectionKey: id }
             )
           }
         } catch (error) {
@@ -93,16 +95,37 @@ export async function POST(
         )
           and status in ('pending', 'running', 'failed')
       `
+      const removedRoutes = await sql`
+        delete from webhook_route
+        where organisation_id = ${session.organisationId}
+          and external_location_id in (
+            select id
+            from external_location
+            where google_connection_id = ${id}
+          )
+        returning google_location_name
+      `
+      await sql`
+        update location_link
+        set is_active = false
+        where external_location_id in (
+          select id
+          from external_location
+          where google_connection_id = ${id}
+        )
+      `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
         action: "google.connection.disconnected",
         subjectType: "google_connection",
         subjectId: id,
-        requestId: requestId(request),
+        requestId: rid.id,
         metadata: {
           purgeDueWithinDays: 7,
           notificationCleanupErrors: cleanupErrors,
+          routesRemoved: removedRoutes.length,
+          clientRequestId: rid.clientId,
         },
       })
     })

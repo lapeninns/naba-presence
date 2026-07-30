@@ -8,7 +8,7 @@ Compose `AttachmentMedia` for the thumbnail, `AttachmentContent` (with `Attachme
 
 ## Parts
 
-Composed inside `<Attachment>`, each importable from `window.NabaReview.*`:
+Composed inside `<Attachment>`, each importable from `window.NabaPresence.*`:
 
 - `AttachmentAction`
 - `AttachmentActions`

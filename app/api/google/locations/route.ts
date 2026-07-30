@@ -11,6 +11,27 @@ function titleOf(location: Record<string, unknown>) {
   return String(location.title ?? location.name ?? "Untitled location")
 }
 
+function addressOf(location: Record<string, unknown>) {
+  const address =
+    location.storefrontAddress &&
+    typeof location.storefrontAddress === "object"
+      ? (location.storefrontAddress as Record<string, unknown>)
+      : {}
+  const addressLines = Array.isArray(address.addressLines)
+    ? address.addressLines.filter(
+        (line): line is string => typeof line === "string" && Boolean(line)
+      )
+    : []
+  return [
+    ...addressLines,
+    address.locality,
+    address.administrativeArea,
+    address.postalCode,
+  ]
+    .filter((part): part is string => typeof part === "string" && Boolean(part))
+    .join(", ")
+}
+
 export async function GET(request: Request) {
   try {
     const session = requireRole(await requireSession(), ["owner", "admin"])
@@ -50,12 +71,14 @@ export async function GET(request: Request) {
           sql,
           account.google_connection_id
         )
+        const seenPageTokens = new Set<string>()
         let pageToken: string | undefined
         do {
           const response = await googleLocations(
             accessToken,
             account.google_account_name,
-            pageToken
+            pageToken,
+            { connectionKey: account.google_connection_id }
           )
           for (const location of response.locations ?? []) {
             const googleLocationName = String(location.name ?? "")
@@ -96,31 +119,59 @@ export async function GET(request: Request) {
                 raw_content_expires_at = excluded.raw_content_expires_at
               returning id::text as id
             `
-            await sql`
-              insert into webhook_route (
-                google_location_name,
-                organisation_id,
-                external_location_id
-              )
-              values (
-                ${googleLocationName},
-                ${session.organisationId},
-                ${external.id}
-              )
-              on conflict (google_location_name) do update
-              set
-                organisation_id = excluded.organisation_id,
-                external_location_id = excluded.external_location_id,
-                updated_at = now()
-            `
+            try {
+              await sql`
+                insert into webhook_route (
+                  google_location_name,
+                  organisation_id,
+                  external_location_id
+                )
+                values (
+                  ${googleLocationName},
+                  ${session.organisationId},
+                  ${external.id}
+                )
+                on conflict (google_location_name) do update
+                set
+                  organisation_id = excluded.organisation_id,
+                  external_location_id = excluded.external_location_id,
+                  updated_at = now()
+              `
+            } catch (error) {
+              if (
+                typeof error === "object" &&
+                error !== null &&
+                "code" in error &&
+                error.code === "42501"
+              ) {
+                throw new ApiError(
+                  409,
+                  "location_routing_conflict",
+                  "That Google location is already routed to a different organisation."
+                )
+              }
+              throw error
+            }
             discovered.push({
               id: external.id,
               accountName: account.google_account_name,
-              ...location,
+              googleLocationName,
+              title: titleOf(location),
+              address: addressOf(location),
               verified: metadata.hasVoiceOfMerchant === true,
             })
           }
           pageToken = response.nextPageToken
+          if (pageToken) {
+            if (seenPageTokens.has(pageToken)) {
+              throw new ApiError(
+                502,
+                "google_pagination_cycle",
+                "Google returned a repeated location page token."
+              )
+            }
+            seenPageTokens.add(pageToken)
+          }
         } while (pageToken)
       }
       return discovered

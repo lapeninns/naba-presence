@@ -8,7 +8,7 @@ Wrap a control in `Field` with `FieldLabel`, `FieldDescription`, and `FieldError
 
 ## Parts
 
-Composed inside `<Field>`, each importable from `window.NabaReview.*`:
+Composed inside `<Field>`, each importable from `window.NabaPresence.*`:
 
 - `FieldContent`
 - `FieldDescription`

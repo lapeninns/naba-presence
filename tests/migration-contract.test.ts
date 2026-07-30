@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
 
 import { PGlite } from "@electric-sql/pglite"
 import { describe, expect, it } from "vitest"
@@ -28,9 +29,23 @@ const tenantTables = [
   "sync_checkpoint",
   "processed_webhook_event",
   "audit_log",
+  "connection_task",
 ]
 
 describe("database migration contract", () => {
+  it("uses unique Supabase migration versions", async () => {
+    const directory = new URL("../supabase/migrations/", import.meta.url)
+    const files = (await readdir(directory))
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+    const versions = files.map((file) => file.split("_", 1)[0])
+
+    expect(
+      new Set(versions).size,
+      `Duplicate migration versions: ${versions.join(", ")}`
+    ).toBe(versions.length)
+  })
+
   it("applies cleanly to a fresh PostgreSQL-compatible database", async () => {
     const database = new PGlite()
     try {
@@ -81,5 +96,94 @@ describe("database migration contract", () => {
   it("enforces workflow transitions in PostgreSQL", () => {
     expect(migration).toContain("enforce_review_workflow_transition")
     expect(migration).toContain("invalid review workflow transition")
+  })
+
+  it("0004 creates the runtime grants role and protects schema_migration", async () => {
+    const runtimeRoleMigration = await readFile(
+      new URL("../supabase/migrations/0004_runtime_role.sql", import.meta.url),
+      "utf8"
+    )
+    expect(runtimeRoleMigration).toContain("create role naba_app_runtime")
+    expect(runtimeRoleMigration).toContain("nologin nosuperuser nobypassrls")
+    expect(runtimeRoleMigration).toContain(
+      "revoke insert, update, delete on schema_migration from naba_app_runtime"
+    )
+  })
+
+  it("0005 hardens app_user and content-free routing tables", async () => {
+    const tenantHardeningMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0005_tenant_hardening.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(tenantHardeningMigration).toContain(
+      "alter table app_user enable row level security"
+    )
+    expect(
+      tenantHardeningMigration.match(/language plpgsql security definer/g)
+    ).toHaveLength(3)
+    expect(tenantHardeningMigration).toContain("webhook_route_claim")
+  })
+
+  it("0006 establishes the reply lifecycle schema", async () => {
+    const replyLifecycleMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0006_reply_lifecycle.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(replyLifecycleMigration).toContain("operation text")
+    expect(replyLifecycleMigration).toContain("intended_body text")
+    expect(replyLifecycleMigration).toContain("draft_policy_version text")
+    expect(replyLifecycleMigration).toContain(
+      "create or replace function enforce_review_workflow_transition()"
+    )
+    expect(replyLifecycleMigration).toContain("publish_generation")
+    expect(replyLifecycleMigration).toContain("create table approval_decision")
+    expect(replyLifecycleMigration).toMatch(
+      /grant[\s\S]+on approval_decision[\s\S]+to naba_app_runtime/
+    )
+  })
+
+  it("0012 provisions only verified external auth identities", async () => {
+    const passwordAuthMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0012_email_password_auth.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(passwordAuthMigration).toContain(
+      "create function provision_authenticated_user"
+    )
+    expect(passwordAuthMigration).toContain("security definer")
+    expect(passwordAuthMigration).toContain("unverified_auth_email")
+    expect(passwordAuthMigration).toContain(
+      "create unique index app_user_auth_identity_unique"
+    )
+    expect(passwordAuthMigration).toMatch(
+      /grant execute on function provision_authenticated_user[\s\S]+to naba_app_runtime/
+    )
+  })
+
+  it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
+    const directory = new URL("../supabase/migrations/", import.meta.url)
+    const files = (await readdir(directory)).filter(
+      (file) => file.endsWith(".sql") && file > "0004"
+    )
+    for (const file of files) {
+      const text = await readFile(new URL(file, directory), "utf8")
+      const created = [
+        ...text.matchAll(/create table (?:if not exists )?(\w+)/g),
+      ]
+      for (const [, table] of created) {
+        expect(text, `${file} must grant ${table} to naba_app_runtime`).toMatch(
+          new RegExp(`grant[^;]+on ${table}[^;]+to naba_app_runtime`)
+        )
+      }
+    }
   })
 })

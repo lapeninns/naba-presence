@@ -8,6 +8,6 @@ Always render `RadioGroupItem` children inside the group — an item outside its
 
 ## Parts
 
-Composed inside `<RadioGroup>`, each importable from `window.NabaReview.*`:
+Composed inside `<RadioGroup>`, each importable from `window.NabaPresence.*`:
 
 - `RadioGroupItem`

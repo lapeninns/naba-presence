@@ -1,0 +1,53 @@
+{
+  "pending": {
+    "reviewId": "r1",
+    "starRating": "FOUR",
+    "createTime": "2026-08-01T09:00:00Z",
+    "updateTime": "2026-08-02T09:00:00Z",
+    "reviewReply": {
+      "comment": "Thanks for visiting.",
+      "updateTime": "2026-08-02T09:00:00Z"
+    },
+    "reviewReplyState": "PENDING"
+  },
+  "approved": {
+    "reviewId": "r2",
+    "starRating": "FOUR",
+    "createTime": "2026-08-01T09:00:00Z",
+    "updateTime": "2026-08-02T09:00:00Z",
+    "reviewReply": {
+      "comment": "Thanks for visiting.",
+      "updateTime": "2026-08-02T09:00:00Z"
+    },
+    "reviewReplyState": "APPROVED"
+  },
+  "rejected": {
+    "reviewId": "r3",
+    "starRating": "FOUR",
+    "createTime": "2026-08-01T09:00:00Z",
+    "updateTime": "2026-08-02T09:00:00Z",
+    "reviewReply": {
+      "comment": "Thanks for visiting.",
+      "updateTime": "2026-08-02T09:00:00Z"
+    },
+    "reviewReplyState": "REJECTED",
+    "policyViolation": "OFF_TOPIC"
+  },
+  "legacyNestedState": {
+    "reviewId": "r4",
+    "starRating": "FOUR",
+    "createTime": "2026-08-01T09:00:00Z",
+    "updateTime": "2026-08-02T09:00:00Z",
+    "reviewReply": {
+      "comment": "x",
+      "updateTime": "2026-08-02T09:00:00Z",
+      "state": "REJECTED",
+      "policyViolation": "SPAM"
+    }
+  },
+  "noReply": {
+    "reviewId": "r5",
+    "starRating": "FIVE",
+    "updateTime": "2026-08-02T09:00:00Z"
+  }
+}

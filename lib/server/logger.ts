@@ -20,7 +20,7 @@ function emit(
     timestamp: new Date().toISOString(),
     level,
     event,
-    service: "nabareview",
+    service: "nabapresence",
     ...context,
   })
   const line = JSON.stringify(record)

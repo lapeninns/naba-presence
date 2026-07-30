@@ -1,3 +1,10 @@
+import { detectLanguage } from "@/lib/domain/language"
+
+const PROMOTION_ALLOWLIST =
+  /\b[\w]+-free\b|\bfeel free\b|\bfree of charge\b|\bfree from\b/giu
+const PROMOTION_PATTERN =
+  /\b(free|discount|promo code|voucher|coupon|% off|bogo)\b/iu
+
 export type VerificationReason = {
   code: string
   severity: "warn" | "fail"
@@ -9,7 +16,7 @@ export function deterministicVerification(input: {
   reviewText: string | null
   locationName: string
   otherLocationNames: string[]
-  rating: number
+  rating: number | null
   expectedLanguage?: string | null
 }): VerificationReason[] {
   const reasons: VerificationReason[] = []
@@ -37,7 +44,8 @@ export function deterministicVerification(input: {
       "The reply contains an email address or phone number."
     )
   }
-  if (/\b(free|discount|promo code|voucher|coupon)\b/iu.test(body)) {
+  const promotionCandidate = body.replace(PROMOTION_ALLOWLIST, " ")
+  if (PROMOTION_PATTERN.test(promotionCandidate)) {
     add(
       "forbidden_promotion",
       "fail",
@@ -72,7 +80,11 @@ export function deterministicVerification(input: {
       `The reply mentions a different location: ${wrongLocation}.`
     )
   }
-  if (input.rating <= 2 && !/\b(sorry|apolog|regret)\b/iu.test(body)) {
+  if (
+    input.rating !== null &&
+    input.rating <= 2 &&
+    !/\b(sorry|apolog|regret)\b/iu.test(body)
+  ) {
     add(
       "complaint_not_acknowledged",
       "warn",
@@ -86,10 +98,22 @@ export function deterministicVerification(input: {
       "The reply may be too long for the selected tone."
     )
   }
+  const expectedLanguage = input.expectedLanguage
+  const nonLatinLanguage =
+    expectedLanguage === "ar" ||
+    expectedLanguage === "ru" ||
+    expectedLanguage === "ja" ||
+    expectedLanguage === "hi"
+  const detectedLanguage =
+    expectedLanguage && expectedLanguage !== "en" && !nonLatinLanguage
+      ? detectLanguage(body)
+      : null
   if (
-    input.expectedLanguage &&
-    input.expectedLanguage !== "en" &&
-    /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)
+    (nonLatinLanguage &&
+      /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)) ||
+    (detectedLanguage &&
+      (detectedLanguage.confidence ?? 0) >= 0.7 &&
+      detectedLanguage.code !== expectedLanguage)
   ) {
     add(
       "language_mismatch",

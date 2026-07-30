@@ -8,7 +8,7 @@ Compose `AlertTitle` and `AlertDescription`, plus `AlertAction` for a recovery c
 
 ## Parts
 
-Composed inside `<Alert>`, each importable from `window.NabaReview.*`:
+Composed inside `<Alert>`, each importable from `window.NabaPresence.*`:
 
 - `AlertAction`
 - `AlertDescription`

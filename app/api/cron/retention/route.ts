@@ -4,13 +4,15 @@ import { writeAudit } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { withAdvisoryLock } from "@/lib/server/leases"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function POST(request: Request) {
+async function retain(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "")
     if (!secretEqual(token, getServerEnv().CRON_SECRET)) {
       throw new ApiError(401, "invalid_cron_token", "Invalid cron token.")
@@ -32,6 +34,20 @@ export async function POST(request: Request) {
     const results = []
     for (const organisation of organisations) {
       const purged = await withTenant(organisation.id, async (sql) => {
+        await sql`
+          select set_config('app.retention_run', 'true', true)
+        `
+        const auditLogs = await sql`
+          delete from audit_log
+          where created_at < now() - make_interval(
+            days => (
+              select audit_retention_days
+              from organisation
+              where id = ${organisation.id}
+            )
+          )
+          returning id
+        `
         const media = await sql`
           delete from review_media_item m
           using review r
@@ -94,6 +110,7 @@ export async function POST(request: Request) {
           returning id
         `
         const counts = {
+          auditLogs: auditLogs.count,
           media: media.count,
           reviews: reviews.count,
           accounts: accounts.count,
@@ -107,8 +124,11 @@ export async function POST(request: Request) {
             action: "retention.purge.completed",
             subjectType: "organisation",
             subjectId: organisation.id,
-            requestId: `${requestId(request)}:${organisation.id}`,
-            metadata: counts,
+            requestId: `${rid.id}:${organisation.id}`,
+            metadata: {
+              ...counts,
+              clientRequestId: rid.clientId,
+            },
           })
         }
         return counts
@@ -120,6 +140,19 @@ export async function POST(request: Request) {
       nextCursor:
         organisations.length === batchSize ? organisations.at(-1)?.id : null,
     })
+  } catch (error) {
+    return apiError(error)
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const result = await withAdvisoryLock("naba:retention", () =>
+      retain(request)
+    )
+    return result instanceof NextResponse
+      ? result
+      : NextResponse.json(result)
   } catch (error) {
     return apiError(error)
   }

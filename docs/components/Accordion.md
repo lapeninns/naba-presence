@@ -8,7 +8,7 @@ Children are `AccordionItem` with `AccordionTrigger` and `AccordionContent`. Use
 
 ## Parts
 
-Composed inside `<Accordion>`, each importable from `window.NabaReview.*`:
+Composed inside `<Accordion>`, each importable from `window.NabaPresence.*`:
 
 - `AccordionContent`
 - `AccordionItem`

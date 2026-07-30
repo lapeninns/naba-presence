@@ -1,12 +1,16 @@
+import { metrics } from "@opentelemetry/api"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { parsePubSubNotification } from "@/lib/domain/pubsub-payload"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import { verifyPubSubRequest } from "@/lib/server/pubsub"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
+import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -21,17 +25,16 @@ const envelopeSchema = z.object({
   subscription: z.string().optional(),
 })
 
-function notificationLocation(payload: Record<string, unknown>): string | null {
-  const direct = payload.locationName ?? payload.location
-  if (typeof direct === "string") {
-    const match = direct.match(/locations\/[^/]+/)
-    return match?.[0] ?? direct
-  }
-  const reviewName = payload.reviewName ?? payload.review
-  if (typeof reviewName === "string") {
-    return reviewName.match(/locations\/[^/]+/)?.[0] ?? null
-  }
-  return null
+const discardedCounter = metrics
+  .getMeter("nabapresence.webhook")
+  .createCounter("nabapresence.webhook.discarded", {
+    description: "Permanently malformed webhook deliveries acknowledged",
+  })
+
+function discarded(reason: string) {
+  discardedCounter.add(1, { reason })
+  log.warn("nabapresence.webhook.discarded", { reason })
+  return NextResponse.json({ status: "discarded" })
 }
 
 export async function POST(request: Request) {
@@ -45,18 +48,21 @@ export async function POST(request: Request) {
       )
     }
     await verifyPubSubRequest(request, env)
-    const envelope = envelopeSchema.parse(await request.json())
-    const decoded = Buffer.from(envelope.message.data, "base64").toString(
-      "utf8"
-    )
-    const payload = JSON.parse(decoded) as Record<string, unknown>
-    const locationName = notificationLocation(payload)
+    let envelope: z.infer<typeof envelopeSchema>
+    let decoded: string
+    let payload: Record<string, unknown>
+    let notification: ReturnType<typeof parsePubSubNotification>
+    try {
+      envelope = envelopeSchema.parse(await request.json())
+      decoded = Buffer.from(envelope.message.data, "base64").toString("utf8")
+      payload = JSON.parse(decoded) as Record<string, unknown>
+      notification = parsePubSubNotification(payload)
+    } catch {
+      return discarded("invalid_payload")
+    }
+    const locationName = notification.locationName
     if (!locationName) {
-      throw new ApiError(
-        400,
-        "invalid_notification",
-        "Notification does not identify a Google location."
-      )
+      return discarded("unresolvable_location")
     }
     const [route] = await getDatabase()<
       {
@@ -77,73 +83,86 @@ export async function POST(request: Request) {
         reason: "unknown_location",
       })
     }
-    const result = await withTenant(route.organisation_id, async (sql) => {
-      const [event] = await sql<{ status: string }[]>`
-        insert into processed_webhook_event (
-          organisation_id,
-          external_location_id,
-          provider,
-          external_event_id,
-          event_type,
-          payload_hash,
-          payload,
-          payload_expires_at,
-          status
-        )
-        values (
-          ${route.organisation_id},
-          ${route.external_location_id},
-          'google_pubsub',
-          ${envelope.message.messageId},
-          ${String(payload.type ?? payload.notificationType ?? "review_update")},
-          ${sha256(decoded)},
-          ${sql.json(JSON.parse(JSON.stringify(payload)))},
-          now() + interval '30 days',
-          'received'
-        )
-        on conflict (provider, external_event_id) do update
-        set external_event_id = excluded.external_event_id
-        returning status
-      `
-      if (event.status === "processed") {
-        return { status: "duplicate" }
-      }
-      const [location] = await linkedLocations(sql, [
-        route.external_location_id,
-      ])
-      if (!location) {
+    const prepared = await withTenant(
+      route.organisation_id,
+      async (sql) => {
+        const [event] = await sql<
+          { id: string; status: string; retryCount: number }[]
+        >`
+          insert into processed_webhook_event (
+            organisation_id,
+            external_location_id,
+            provider,
+            external_event_id,
+            event_type,
+            payload_hash,
+            payload,
+            payload_expires_at,
+            status
+          )
+          values (
+            ${route.organisation_id},
+            ${route.external_location_id},
+            'google_pubsub',
+            ${envelope.message.messageId},
+            ${notification.type},
+            ${sha256(decoded)},
+            ${sql.json(JSON.parse(JSON.stringify(payload)))},
+            now() + interval '30 days',
+            'received'
+          )
+          on conflict (provider, external_event_id) do update
+          set external_event_id = excluded.external_event_id
+          returning
+            id::text as id,
+            status,
+            retry_count as "retryCount"
+        `
+        if (event.status === "processed") {
+          return { terminal: { status: "duplicate" } } as const
+        }
         await sql`
           update processed_webhook_event
-          set status = 'ignored', processed_at = now()
-          where provider = 'google_pubsub'
-            and external_event_id = ${envelope.message.messageId}
+          set
+            status = 'processing',
+            processed_at = null,
+            next_attempt_at = null,
+            last_error_code = null
+          where id = ${event.id}
         `
-        return { status: "ignored", reason: "unlinked_location" }
+        const [location] = await linkedLocations(sql, [
+          route.external_location_id,
+        ])
+        if (!location) {
+          await sql`
+            update processed_webhook_event
+            set status = 'ignored', processed_at = now()
+            where provider = 'google_pubsub'
+              and external_event_id = ${envelope.message.messageId}
+          `
+          return {
+            terminal: {
+              status: "ignored",
+              reason: "unlinked_location",
+            },
+          } as const
+        }
+        return { terminal: null, eventId: event.id } as const
       }
-      const sync = await syncLinkedLocation(
-        sql,
-        route.organisation_id,
-        location,
-        { type: "notification", maxPages: 1 }
-      )
-      if ("error" in sync) {
-        await sql`
-          update processed_webhook_event
-          set status = 'failed', processed_at = now()
-          where provider = 'google_pubsub'
-            and external_event_id = ${envelope.message.messageId}
-        `
-        return { status: "failed", sync }
-      }
-      await sql`
-        update processed_webhook_event
-        set status = 'processed', processed_at = now()
-        where provider = 'google_pubsub'
-          and external_event_id = ${envelope.message.messageId}
-      `
-      return { status: "processed", sync }
+    )
+    if (prepared.terminal) {
+      return NextResponse.json(prepared.terminal)
+    }
+    const sync = await syncLinkedLocation({
+      organisationId: route.organisation_id,
+      externalLocationId: route.external_location_id,
+      type: "notification",
+      maxPages: 1,
     })
-    return NextResponse.json(result)
+    const status = await withTenant(route.organisation_id, (sql) =>
+      settleWebhookEvent(sql, prepared.eventId, sync)
+    )
+    return NextResponse.json({ status, sync })
   } catch (error) {
     return apiError(error)
   }

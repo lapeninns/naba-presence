@@ -1,6 +1,8 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { buildInboxQuery } from "@/lib/server/reviews-query"
+
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 const adminUrl = process.env.DIRECT_DATABASE_URL
@@ -19,20 +21,22 @@ describeDatabase("100k-review inbox performance", () => {
     }
     admin = postgres(adminUrl, { max: 1, prepare: false })
     runtime = postgres(runtimeUrl, { max: 1, prepare: false })
-    await admin`
-      do $$
-      begin
-        if not exists (
-          select 1 from pg_roles where rolname = 'naba_test_runtime'
-        ) then
-          create role naba_test_runtime login password 'naba_test_runtime';
-        end if;
-      end
-      $$
+    const [group] = await admin`
+      select 1 as present from pg_roles where rolname = 'naba_app_runtime'
     `
-    await admin`grant usage on schema public to naba_test_runtime`
-    await admin`grant select, insert, update, delete on all tables in schema public to naba_test_runtime`
-    await admin`grant usage, select on all sequences in schema public to naba_test_runtime`
+    if (!group) {
+      throw new Error(
+        "naba_app_runtime missing - run pnpm db:migrate before test:integration"
+      )
+    }
+    const [grant] = await admin`
+      select has_table_privilege(
+        'naba_app_runtime',
+        'review',
+        'select'
+      ) as ok
+    `
+    expect(grant.ok).toBe(true)
     await admin`
       insert into organisation (id, slug, name)
       values (
@@ -123,7 +127,11 @@ describeDatabase("100k-review inbox performance", () => {
         'review-id-' || series.number,
         'Reviewer ' || series.number,
         ((series.number - 1) % 5) + 1,
-        'Performance fixture review ' || series.number,
+        case
+          when series.number % 100 = 0
+            then 'Excellent breakfast performance fixture ' || series.number
+          else 'Performance fixture review ' || series.number
+        end,
         'en',
         0.99,
         now() - (series.number * interval '1 second'),
@@ -134,14 +142,22 @@ describeDatabase("100k-review inbox performance", () => {
       join numbered_locations nl
         on nl.number = ((series.number - 1) % 500) + 1
     `
+    await admin`analyze review`
   }, 120_000)
+
+  const inboxFilters = {
+    sort: "updated_desc" as const,
+    pageSize: 50,
+    role: "owner" as const,
+    userId: crypto.randomUUID(),
+  }
 
   afterAll(async () => {
     if (admin) {
       await admin`delete from organisation where id = ${organisationId}`
     }
     await Promise.all([admin?.end(), runtime?.end()])
-  })
+  }, 120_000)
 
   it("keeps the P95 cursor-page query below 1.5 seconds", async () => {
     const durations: number[] = []
@@ -155,34 +171,96 @@ describeDatabase("100k-review inbox performance", () => {
               true
             )
           `
-        return sql<{ id: string }[]>`
-            select r.id::text as id
-            from review r
-            join location l on l.id = r.location_id
-            left join lateral (
-              select id
-              from draft
-              where review_id = r.id
-              order by created_at desc
-              limit 1
-            ) d on true
-            left join review_reply rr on rr.review_id = r.id
-            left join lateral (
-              select status
-              from sync_checkpoint
-              where external_location_id = r.external_location_id
-              order by updated_at desc
-              limit 1
-            ) sc on true
-            order by r.update_time desc, r.id desc
-            limit 50
-          `
+        return buildInboxQuery(sql, inboxFilters)
       })
-      expect(rows).toHaveLength(50)
+      expect(rows).toHaveLength(51)
       if (iteration) durations.push(performance.now() - startedAt)
     }
     durations.sort((left, right) => left - right)
     const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
     expect(p95).toBeLessThan(1500)
   }, 60_000)
+
+  it("keeps the P95 production search query below 1.5 seconds", async () => {
+    const durations: number[] = []
+    for (let iteration = 0; iteration < 21; iteration += 1) {
+      const startedAt = performance.now()
+      const rows = await runtime.begin(async (sql) => {
+        await sql`
+          select set_config(
+            'app.organisation_id',
+            ${organisationId},
+            true
+          )
+        `
+        return buildInboxQuery(sql, {
+          ...inboxFilters,
+          search: "excellent breakfast",
+        })
+      })
+      expect(rows).toHaveLength(51)
+      if (iteration) durations.push(performance.now() - startedAt)
+    }
+    durations.sort((left, right) => left - right)
+    const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
+    expect(p95).toBeLessThan(1500)
+  }, 60_000)
+
+  it("routes production search through the guarded indexed helper", async () => {
+    const runtimePlan = await runtime.begin(async (sql) => {
+      await sql`
+        select set_config(
+          'app.organisation_id',
+          ${organisationId},
+          true
+        )
+      `
+      const query = buildInboxQuery(sql, {
+        ...inboxFilters,
+        search: "excellent breakfast",
+      })
+      return sql`explain (format json) ${query}`
+    })
+    expect(JSON.stringify(runtimePlan)).toContain(
+      '"Function Name":"search_review_ids"'
+    )
+
+    const indexedPlan = await admin`
+      explain (format json)
+      select id
+      from review
+      where organisation_id = ${organisationId}
+        and (
+          search_document
+            @@ websearch_to_tsquery('simple', 'excellent breakfast')
+          or google_review_id_hash = 'not-a-real-hash'
+          or google_review_name_hash = 'not-a-real-hash'
+        )
+    `
+    expect(JSON.stringify(indexedPlan)).toContain(
+      '"Index Name":"review_search_idx"'
+    )
+  })
+
+  it("refuses a search helper call for a different tenant", async () => {
+    await expect(
+      runtime.begin(async (sql) => {
+        await sql`
+          select set_config(
+            'app.organisation_id',
+            ${organisationId},
+            true
+          )
+        `
+        return sql`
+          select review_id
+          from search_review_ids(
+            ${crypto.randomUUID()},
+            'excellent breakfast',
+            'not-a-real-hash'
+          )
+        `
+      })
+    ).rejects.toThrow(/tenant/i)
+  })
 })

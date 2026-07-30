@@ -2,13 +2,16 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import { detectLanguage } from "@/lib/domain/language"
+import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
+import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import {
   connectionAccessToken,
-  googleBatchReviews,
   googleReviews,
 } from "@/lib/server/google"
+import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 
 const RATINGS: Record<string, number> = {
@@ -17,7 +20,6 @@ const RATINGS: Record<string, number> = {
   THREE: 3,
   FOUR: 4,
   FIVE: 5,
-  STAR_RATING_UNSPECIFIED: 1,
 }
 
 export type LinkedLocation = {
@@ -53,21 +55,35 @@ function arrayValue(value: unknown): Array<Record<string, unknown>> {
     : []
 }
 
-function detectLanguage(text: string | null): {
-  code: string | null
-  confidence: number | null
-} {
-  if (!text?.trim()) return { code: null, confidence: null }
-  if (/[\u0600-\u06ff]/u.test(text)) return { code: "ar", confidence: 0.92 }
-  if (/[\u0400-\u04ff]/u.test(text)) return { code: "ru", confidence: 0.9 }
-  if (/[\u3040-\u30ff\u3400-\u9fff]/u.test(text))
-    return { code: "ja", confidence: 0.88 }
-  return { code: "en", confidence: 0.72 }
+function maxReviewUpdateTime(
+  reviews: Array<Record<string, unknown>>
+): Date | null {
+  const timestamps = reviews
+    .map((review) =>
+      typeof review.updateTime === "string"
+        ? Date.parse(review.updateTime)
+        : Number.NaN
+    )
+    .filter(Number.isFinite)
+  return timestamps.length ? new Date(Math.max(...timestamps)) : null
 }
 
-function ratingNumber(value: unknown): number {
+function minReviewUpdateTime(
+  reviews: Array<Record<string, unknown>>
+): Date | null {
+  const timestamps = reviews
+    .map((review) =>
+      typeof review.updateTime === "string"
+        ? Date.parse(review.updateTime)
+        : Number.NaN
+    )
+    .filter(Number.isFinite)
+  return timestamps.length ? new Date(Math.min(...timestamps)) : null
+}
+
+export function ratingValue(value: unknown): number | null {
   if (typeof value === "number") return Math.min(5, Math.max(1, value))
-  return RATINGS[String(value)] ?? 1
+  return RATINGS[String(value)] ?? null
 }
 
 export async function linkedLocations(
@@ -124,11 +140,11 @@ export async function upsertGoogleReview(
   const createTime = String(payload.createTime ?? payload.updateTime ?? "")
   const updateTime = String(payload.updateTime ?? payload.createTime ?? "")
   if (!createTime || !updateTime) return null
-  const providerReply = objectValue(payload.reviewReply)
+  const moderation = parseReplyModeration(payload)
   const providerWorkflow =
-    providerReply.state === "REJECTED"
+    moderation.state === "REJECTED"
       ? "rejected"
-      : Object.keys(providerReply).length
+      : moderation.comment !== null
         ? "published"
         : "new"
 
@@ -169,7 +185,7 @@ export async function upsertGoogleReview(
       ${sha256(reviewId)},
       ${reviewer.displayName ? String(reviewer.displayName) : null},
       ${reviewer.isAnonymous === true || !reviewer.displayName},
-      ${ratingNumber(payload.starRating)},
+      ${ratingValue(payload.starRating)},
       ${text},
       ${language.code},
       ${language.confidence},
@@ -203,7 +219,8 @@ export async function upsertGoogleReview(
         else review.workflow_status
       end,
       raw_payload = excluded.raw_payload,
-      raw_content_expires_at = excluded.raw_content_expires_at
+      raw_content_expires_at = excluded.raw_content_expires_at,
+      provider_deleted_at = null
     returning id::text as id
   `
 
@@ -232,8 +249,7 @@ export async function upsertGoogleReview(
     `
   }
 
-  const reply = providerReply
-  if (Object.keys(reply).length) {
+  if (moderation.comment !== null) {
     await sql`
       insert into review_reply (
         organisation_id,
@@ -242,22 +258,24 @@ export async function upsertGoogleReview(
         google_reply_state,
         google_policy_violation,
         publish_status,
-        google_reply_updated_at
+        google_reply_updated_at,
+        first_published_at
       )
       values (
         ${organisationId},
         ${review.id},
-        ${reply.comment ? String(reply.comment) : null},
-        ${reply.state ? String(reply.state) : null},
-        ${reply.policyViolation ? JSON.stringify(reply.policyViolation) : null},
+        ${moderation.comment},
+        ${moderation.state},
+        ${moderation.policyViolation},
         ${
-          reply.state === "REJECTED"
+          moderation.state === "REJECTED"
             ? "rejected"
-            : reply.state === "APPROVED"
+            : moderation.state === "APPROVED"
               ? "published"
               : "accepted"
         },
-        ${reply.updateTime ? String(reply.updateTime) : null}
+        ${moderation.updateTime},
+        ${moderation.updateTime}
       )
       on conflict (organisation_id, review_id) do update
       set
@@ -265,7 +283,11 @@ export async function upsertGoogleReview(
         google_reply_state = excluded.google_reply_state,
         google_policy_violation = excluded.google_policy_violation,
         publish_status = excluded.publish_status,
-      google_reply_updated_at = excluded.google_reply_updated_at
+        google_reply_updated_at = excluded.google_reply_updated_at,
+        first_published_at = coalesce(
+          review_reply.first_published_at,
+          excluded.google_reply_updated_at
+        )
     `
   } else {
     await sql`
@@ -283,148 +305,110 @@ export async function upsertGoogleReview(
   return review.id
 }
 
-export async function syncLinkedLocationBatch(
-  sql: TransactionSql,
-  organisationId: string,
-  locations: LinkedLocation[],
-  maxPages = 20
-) {
-  if (!locations.length) {
-    return { upserted: 0, pages: 0, complete: true, locations: 0 }
-  }
-  if (locations.length > 50) {
-    throw new ApiError(
-      400,
-      "batch_too_large",
-      "Google review batches are limited to 50 locations."
-    )
-  }
-  const [first] = locations
-  if (
-    locations.some(
-      (location) =>
-        location.connectionId !== first.connectionId ||
-        location.googleAccountName !== first.googleAccountName
-    )
-  ) {
-    throw new ApiError(
-      400,
-      "mixed_google_account_batch",
-      "A review batch must contain locations from one Google account."
-    )
-  }
-  const unverified = locations.find((location) => !location.verified)
-  if (unverified) {
-    throw new ApiError(
-      409,
-      "location_not_verified",
-      "Google review operations require verified locations."
-    )
-  }
+export type SyncOutcome = {
+  status: "succeeded" | "partial" | "failed"
+  pages: number
+  upserted: number
+  hasMore: boolean
+  errorCode?: string
+}
 
-  const checkpoints = new Map<
-    string,
-    { id: string; attemptCount: number; pageToken: string | null }
-  >()
-  for (const location of locations) {
-    const [checkpoint] = await sql<
-      { id: string; attempt_count: number; page_token: string | null }[]
-    >`
-      insert into sync_checkpoint (
-        organisation_id,
-        external_location_id,
-        sync_type,
-        status,
-        started_at,
-        attempt_count
-      )
-      values (
-        ${organisationId},
-        ${location.externalLocationId},
-        'backfill',
-        'running',
-        now(),
-        1
-      )
-      on conflict (organisation_id, external_location_id, sync_type) do update
-      set
-        status = 'running',
-        started_at = now(),
-        finished_at = null,
-        attempt_count = sync_checkpoint.attempt_count + 1,
-        last_error_code = null
-      returning id::text as id, attempt_count, page_token
-    `
-    checkpoints.set(location.externalLocationId, {
-      id: checkpoint.id,
-      attemptCount: checkpoint.attempt_count,
-      pageToken: checkpoint.page_token,
-    })
-  }
+type SyncType = "backfill" | "reconcile" | "notification" | "sweep"
+type SyncHeader = {
+  linked: LinkedLocation
+  checkpointId: string
+  attemptCount: number
+  pageToken: string | null
+  highWaterUpdateTime: Date | null
+  errorCode: string | null
+}
 
-  const locationByName = new Map(
-    locations.flatMap((location) => [
-      [location.googleLocationName, location] as const,
-      [
-        `${location.googleAccountName}/${location.googleLocationName}`,
-        location,
-      ] as const,
-    ])
+export async function syncLinkedLocation(input: {
+  organisationId: string
+  externalLocationId: string
+  type: SyncType
+  maxPages: number
+}): Promise<SyncOutcome> {
+  const header = await withTenant<SyncHeader | null>(
+    input.organisationId,
+    async (sql) => {
+      const [linked] = await linkedLocations(sql, [
+        input.externalLocationId,
+      ])
+      if (!linked) {
+        return null
+      }
+      const [checkpoint] = await sql<
+        {
+          id: string
+          page_token: string | null
+          attempt_count: number
+        }[]
+      >`
+        insert into sync_checkpoint (
+          organisation_id,
+          external_location_id,
+          sync_type,
+          status,
+          started_at,
+          attempt_count
+        )
+        values (
+          ${input.organisationId},
+          ${input.externalLocationId},
+          ${input.type},
+          'running',
+          now(),
+          1
+        )
+        on conflict (organisation_id, external_location_id, sync_type) do update
+        set
+          status = 'running',
+          started_at = now(),
+          finished_at = null,
+          next_attempt_at = null,
+          attempt_count = sync_checkpoint.attempt_count + 1,
+          last_error_code = null
+        returning id::text as id, page_token, attempt_count
+      `
+      const [watermark] = await sql<
+        { highWaterUpdateTime: Date | null }[]
+      >`
+        select max(high_water_update_time) as "highWaterUpdateTime"
+        from sync_checkpoint
+        where external_location_id = ${input.externalLocationId}
+      `
+      return {
+        linked,
+        checkpointId: checkpoint.id,
+        attemptCount: checkpoint.attempt_count,
+        pageToken: checkpoint.page_token,
+        highWaterUpdateTime: watermark.highWaterUpdateTime,
+        errorCode: linked.verified ? null : "location_not_verified",
+      }
+    }
   )
-  const accessToken = await connectionAccessToken(sql, first.connectionId)
+
+  if (!header) {
+    return {
+      status: "failed",
+      pages: 0,
+      upserted: 0,
+      hasMore: false,
+      errorCode: "location_not_linked",
+    }
+  }
+
   let pageToken =
-    [...checkpoints.values()].find((checkpoint) => checkpoint.pageToken)
-      ?.pageToken ?? undefined
+    input.type === "backfill" ? (header.pageToken ?? undefined) : undefined
   let pages = 0
   let upserted = 0
-  try {
-    do {
-      const page = await googleBatchReviews(
-        accessToken,
-        first.googleAccountName,
-        locations.map((location) => location.googleLocationName),
-        pageToken
-      )
-      for (const item of page.locationReviews ?? []) {
-        const location = item.name ? locationByName.get(item.name) : undefined
-        if (
-          location &&
-          item.review &&
-          (await upsertGoogleReview(sql, organisationId, location, item.review))
-        ) {
-          upserted += 1
-        }
-      }
-      pageToken = page.nextPageToken
-      pages += 1
-      await sql`
-        update sync_checkpoint
-        set page_token = ${pageToken ?? null}
-        where id in ${sql([...checkpoints.values()].map((item) => item.id))}
-      `
-    } while (pageToken && pages < maxPages)
+  const sweepStartedAt = new Date()
+  const sweepSeenReviewNames = new Set<string>()
 
-    const complete = !pageToken
-    await sql`
-      update sync_checkpoint
-      set
-        status = ${complete ? "succeeded" : "pending"},
-        page_token = ${pageToken ?? null},
-        finished_at = ${complete ? new Date() : null},
-        last_review_update_time = now()
-      where id in ${sql([...checkpoints.values()].map((item) => item.id))}
-    `
-    return {
-      upserted,
-      pages,
-      complete,
-      locations: locations.length,
-      nextPageToken: pageToken ?? null,
-    }
-  } catch (error) {
-    const errorCode = error instanceof ApiError ? error.code : "sync_failed"
-    for (const checkpoint of checkpoints.values()) {
-      const retryAt = syncRetryAt(checkpoint.id, checkpoint.attemptCount)
+  const settleFailure = async (errorCode: string): Promise<SyncOutcome> => {
+    const retryAt = syncRetryAt(header.checkpointId, header.attemptCount)
+    await withTenant(input.organisationId, async (sql) => {
       await sql`
         update sync_checkpoint
         set
@@ -432,124 +416,168 @@ export async function syncLinkedLocationBatch(
           last_error_code = ${errorCode},
           next_attempt_at = ${retryAt},
           finished_at = now()
-        where id = ${checkpoint.id}
+        where id = ${header.checkpointId}
       `
-    }
+    })
     return {
-      upserted,
+      status: "failed",
       pages,
-      complete: false,
-      locations: locations.length,
-      nextPageToken: pageToken ?? null,
-      error: {
-        code: errorCode,
-        message: error instanceof Error ? error.message : "Review sync failed.",
-      },
+      upserted,
+      hasMore: pageToken !== undefined,
+      errorCode,
     }
   }
-}
 
-export async function syncLinkedLocation(
-  sql: TransactionSql,
-  organisationId: string,
-  linked: LinkedLocation,
-  input: { type: "backfill" | "reconcile" | "notification"; maxPages?: number }
-) {
-  if (!linked.verified) {
-    throw new ApiError(
-      409,
-      "location_not_verified",
-      "Google review operations require a verified location."
-    )
+  if (header.errorCode) {
+    return settleFailure(header.errorCode)
   }
-  const accessToken = await connectionAccessToken(sql, linked.connectionId)
-  const [checkpoint] = await sql<
-    { id: string; page_token: string | null; attempt_count: number }[]
-  >`
-    insert into sync_checkpoint (
-      organisation_id,
-      external_location_id,
-      sync_type,
-      status,
-      started_at,
-      attempt_count
-    )
-    values (
-      ${organisationId},
-      ${linked.externalLocationId},
-      ${input.type},
-      'running',
-      now(),
-      1
-    )
-    on conflict (organisation_id, external_location_id, sync_type) do update
-    set
-      status = 'running',
-      started_at = now(),
-      finished_at = null,
-      attempt_count = sync_checkpoint.attempt_count + 1,
-      last_error_code = null
-    returning id::text as id, page_token, attempt_count
-  `
-  let pageToken =
-    input.type === "backfill" ? (checkpoint.page_token ?? undefined) : undefined
-  let pages = 0
-  let upserted = 0
+
   try {
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      input.organisationId,
+      header.linked.connectionId
+    )
     do {
       const page = await googleReviews(
         accessToken,
-        linked.googleAccountName,
-        linked.googleLocationName,
-        pageToken
+        header.linked.googleAccountName,
+        header.linked.googleLocationName,
+        pageToken,
+        { connectionKey: header.linked.connectionId }
       )
-      for (const review of page.reviews ?? []) {
-        if (await upsertGoogleReview(sql, organisationId, linked, review)) {
-          upserted += 1
+      const nextPageToken = page.nextPageToken
+      const pageHighWater = maxReviewUpdateTime(page.reviews ?? [])
+      const pageOldestUpdateTime = minReviewUpdateTime(page.reviews ?? [])
+      if (input.type === "sweep") {
+        for (const review of page.reviews ?? []) {
+          if (typeof review.name === "string" && review.name) {
+            sweepSeenReviewNames.add(sha256(review.name))
+          }
         }
       }
-      pageToken = page.nextPageToken
+      const pageUpserted = await withTenant(
+        input.organisationId,
+        async (sql) => {
+          let committed = 0
+          const seen = new Set<string>()
+          for (const review of page.reviews ?? []) {
+            const hash = sha256(
+              String(review.name ?? review.reviewId)
+            )
+            if (seen.has(hash)) continue
+            seen.add(hash)
+            if (
+              await upsertGoogleReview(
+                sql,
+                input.organisationId,
+                header.linked,
+                review
+              )
+            ) {
+              committed += 1
+            }
+          }
+          if (pages === 0) {
+            await sql`
+              update external_location
+              set
+                google_average_rating = ${page.averageRating ?? null},
+                google_total_review_count = ${
+                  page.totalReviewCount ?? null
+                },
+                provider_totals_refreshed_at = now()
+              where id = ${input.externalLocationId}
+            `
+          }
+          await sql`
+            update sync_checkpoint
+            set
+              page_token = ${nextPageToken ?? null},
+              high_water_update_time = case
+                when ${pageHighWater}::timestamptz is null
+                  then high_water_update_time
+                else greatest(
+                  coalesce(
+                    high_water_update_time,
+                    'epoch'::timestamptz
+                  ),
+                  ${pageHighWater}
+                )
+              end
+            where id = ${header.checkpointId}
+          `
+          return committed
+        }
+      )
+      upserted += pageUpserted
       pages += 1
+      const crossedReconcileFloor =
+        input.type === "reconcile" &&
+        header.highWaterUpdateTime !== null &&
+        pageOldestUpdateTime !== null &&
+        pageOldestUpdateTime.getTime() <
+          header.highWaterUpdateTime.getTime() - 24 * 60 * 60 * 1000
+      pageToken = crossedReconcileFloor ? undefined : nextPageToken
+    } while (pageToken && pages < input.maxPages)
+
+    const hasMore = Boolean(pageToken)
+    if (input.type === "sweep" && hasMore) {
+      return settleFailure("sweep_incomplete")
+    }
+    await withTenant(input.organisationId, async (sql) => {
+      if (input.type === "sweep") {
+        const seenHashes = [...sweepSeenReviewNames]
+        const tombstoned = await sql<{ id: string }[]>`
+          update review
+          set provider_deleted_at = now()
+          where external_location_id = ${input.externalLocationId}
+            and provider_deleted_at is null
+            and update_time < ${sweepStartedAt}
+            ${
+              seenHashes.length
+                ? sql`and google_review_name_hash
+                    not in ${sql(seenHashes)}`
+                : sql``
+            }
+          returning id::text as id
+        `
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          action: "review.provider_deleted",
+          subjectType: "external_location",
+          subjectId: input.externalLocationId,
+          requestId: crypto.randomUUID(),
+          metadata: {
+            tombstoned: tombstoned.length,
+            locationId: header.linked.locationId,
+          },
+        })
+      }
       await sql`
         update sync_checkpoint
-        set page_token = ${pageToken ?? null}
-        where id = ${checkpoint.id}
+        set
+          status = ${hasMore ? "pending" : "succeeded"},
+          page_token = ${pageToken ?? null},
+          next_attempt_at = ${
+            hasMore
+              ? syncRetryAt(header.checkpointId, header.attemptCount)
+              : null
+          },
+          finished_at = ${hasMore ? null : new Date()},
+          last_review_update_time = now()
+        where id = ${header.checkpointId}
       `
-    } while (pageToken && pages < (input.maxPages ?? 10))
-
-    const complete = !pageToken
-    await sql`
-      update sync_checkpoint
-      set
-        status = ${complete ? "succeeded" : "pending"},
-        page_token = ${pageToken ?? null},
-        finished_at = ${complete ? new Date() : null},
-        last_review_update_time = now()
-      where id = ${checkpoint.id}
-    `
-    return { upserted, pages, complete, nextPageToken: pageToken ?? null }
-  } catch (error) {
-    const errorCode = error instanceof ApiError ? error.code : "sync_failed"
-    const retryAt = syncRetryAt(checkpoint.id, checkpoint.attempt_count)
-    await sql`
-      update sync_checkpoint
-      set
-        status = 'failed',
-        last_error_code = ${errorCode},
-        next_attempt_at = ${retryAt},
-        finished_at = now()
-      where id = ${checkpoint.id}
-    `
+    })
     return {
-      upserted,
+      status: hasMore ? "partial" : "succeeded",
       pages,
-      complete: false,
-      nextPageToken: pageToken ?? null,
-      error: {
-        code: errorCode,
-        message: error instanceof Error ? error.message : "Review sync failed.",
-      },
-      retryAt: retryAt.toISOString(),
+      upserted,
+      hasMore,
     }
+  } catch (error) {
+    return settleFailure(
+      error instanceof ApiError ? error.code : "sync_failed"
+    )
   }
 }

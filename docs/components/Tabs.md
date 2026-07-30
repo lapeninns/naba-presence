@@ -8,7 +8,7 @@ Match each `TabsTrigger` `value` to its `TabsContent` `value`. Use for peer view
 
 ## Parts
 
-Composed inside `<Tabs>`, each importable from `window.NabaReview.*`:
+Composed inside `<Tabs>`, each importable from `window.NabaPresence.*`:
 
 - `TabsContent`
 - `TabsList`

@@ -33,17 +33,142 @@ async function expectAccessible(page: Page, surface: string) {
   ).toEqual([])
 }
 
-async function openNavigationSurface(
+async function mockReviewWorkspace(
   page: Page,
-  name: string,
-  mobile: boolean
+  options: { disconnected?: boolean } = {}
 ) {
-  if (mobile) {
-    await page.getByRole("button", { name: "Toggle navigation" }).click()
-  }
-  await page.getByRole("button", { name, exact: true }).click()
-  if (mobile) {
-    await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeHidden()
+  let countsShouldFail = false
+  await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        session: {
+          sessionId: "session-review-state-a11y",
+          userId: "user-review-state-a11y",
+          organisationId: "org-review-state-a11y",
+          organisationName: "Naba Presence",
+          displayName: "Alex Morgan",
+          email: "alex@example.com",
+          role: "owner",
+          canPublish: true,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        settings: {
+          defaultLanguageCode: "en",
+          defaultTimezone: "Europe/London",
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+    if (countsShouldFail) {
+      await route.abort("failed")
+      return
+    }
+    await route.fulfill({
+      json: {
+        total: 1,
+        byStatus: {
+          new: 0,
+          drafted: 0,
+          verified: 0,
+          awaiting_approval: 0,
+          publish_requested: 0,
+          published: 1,
+          rejected: 0,
+          failed: 0,
+          escalated: 0,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "review-state-a11y",
+            reviewer: { displayName: "Jordan Lee", isAnonymous: false },
+            rating: 5,
+            location: { id: "location-state-a11y", name: "Camden" },
+            text: "A thoughtful and accessible review.",
+            createTime: "2026-07-28T10:00:00.000Z",
+            updateTime: "2026-07-28T10:00:00.000Z",
+            detectedLanguageCode: "en",
+            languageConfidence: 1,
+            workflowStatus: "published",
+            verificationStatus: "pass",
+            draftBody: "Thank you for your thoughtful review.",
+            replyBody: "Thank you for your thoughtful review.",
+            draftId: "draft-state-a11y",
+            replyStatus: "published",
+            syncStatus: "succeeded",
+            googleReplyState: "APPROVED",
+            googlePolicyViolation: null,
+          },
+        ],
+        nextCursor: null,
+      },
+    })
+  })
+  await page.route(/\/api\/reviews\/review-state-a11y$/, async (route) => {
+    await route.fulfill({
+      json: {
+        review: {
+          media: [],
+          reply: {
+            publishStatus: "published",
+            googleReplyState: "APPROVED",
+            googlePolicyViolation: null,
+          },
+          timeline: [],
+        },
+      },
+    })
+  })
+  await page.route(
+    /\/api\/google\/connections(?:\?.*)?$/,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          connections: options.disconnected
+            ? []
+            : [
+                {
+                  id: "connection-review-state-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope:
+                    "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+        },
+      })
+    }
+  )
+  await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        locations: [{ id: "location-state-a11y", name: "Camden" }],
+      },
+    })
+  })
+  await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
+  return {
+    failCounts() {
+      countsShouldFail = true
+    },
   }
 }
 
@@ -59,7 +184,7 @@ for (const viewport of [
       await page.goto("/design-system")
       await expect(
         page.getByRole("heading", {
-          name: "NabaReview design system",
+          name: "NabaPresence design system",
           level: 1,
         })
       ).toBeVisible()
@@ -80,7 +205,7 @@ for (const viewport of [
     })
 
     test("application shell", async ({ page }) => {
-      await page.goto("/")
+      await page.goto("/reviews")
       if (viewport.name === "desktop") {
         await expect(page.locator('[data-variant="floating"]')).toBeVisible()
       } else {
@@ -98,6 +223,62 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} application shell`)
     })
 
+    test("sign-in", async ({ page }) => {
+      await page.goto("/sign-in")
+      await expect(
+        page
+          .locator("form")
+          .getByRole("button", { name: "Sign in", exact: true })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} sign-in`)
+      await page
+        .getByLabel("Account action")
+        .getByRole("button", { name: "Create account", exact: true })
+        .click()
+      await expect(page.getByLabel("Confirm password")).toBeVisible()
+      await page.waitForTimeout(250)
+      await expectAccessible(page, `${viewport.name} registration`)
+    })
+
+    test("password recovery", async ({ page }) => {
+      await page.goto("/forgot-password")
+      await expect(
+        page.getByRole("heading", { name: "Reset your password" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} forgot password`)
+
+      await page.goto(
+        "/reset-password?token_hash=recovery-token-hash-for-a11y"
+      )
+      await expect(page.getByLabel("Confirm password")).toBeVisible()
+      await expectAccessible(page, `${viewport.name} reset password`)
+    })
+
+    test("invitation", async ({ page }) => {
+      await page.route(
+        /\/api\/invitations\/invite-token-a11y(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              organisationName: "Naba Presence",
+              email: "invitee@example.com",
+              expired: false,
+            },
+          })
+        }
+      )
+      await page.goto("/invite/invite-token-a11y")
+      await expect(
+        page.getByRole("heading", { name: "Join Naba Presence" })
+      ).toBeVisible()
+      await expect(
+        page
+          .locator("form")
+          .getByRole("button", { name: "Create account", exact: true })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} invitation`)
+    })
+
     test("overview", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
@@ -106,7 +287,7 @@ for (const viewport of [
               sessionId: "session-overview-a11y",
               userId: "user-overview-a11y",
               organisationId: "org-overview-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -122,6 +303,7 @@ for (const viewport of [
             json: {
               from: "2026-07-22T00:00:00.000Z",
               to: "2026-07-29T00:00:00.000Z",
+              timezone: "Europe/London",
               summary: {
                 reviewVolume: 8,
                 averageRating: 4.6,
@@ -129,12 +311,14 @@ for (const viewport of [
                 unresolvedComplaints: 1,
                 verificationFailures: 0,
                 verificationRejectionRate: 0,
-                medianResponseSeconds: 1800,
-                p95ResponseSeconds: 5400,
+                medianFirstResponseSeconds: 1800,
+                p95FirstResponseSeconds: 5400,
+                medianLatestEditSeconds: 2400,
               },
               series: [
                 {
                   period: "2026-07-29T00:00:00.000Z",
+                  reviewCount: 8,
                   reviews: 8,
                   replies: 7,
                   averageRating: 4.6,
@@ -179,8 +363,7 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/")
-      await openNavigationSurface(page, "Overview", viewport.name === "mobile")
+      await page.goto("/overview")
       await expect(
         page.getByRole("heading", {
           name: /Good (morning|afternoon|evening)/,
@@ -200,7 +383,7 @@ for (const viewport of [
               sessionId: "session-analytics-a11y",
               userId: "user-analytics-a11y",
               organisationId: "org-analytics-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -216,6 +399,7 @@ for (const viewport of [
             json: {
               from: "2026-06-29T00:00:00.000Z",
               to: "2026-07-29T00:00:00.000Z",
+              timezone: "Europe/London",
               summary: {
                 reviewVolume: 8,
                 averageRating: 4.6,
@@ -223,12 +407,14 @@ for (const viewport of [
                 unresolvedComplaints: 1,
                 verificationFailures: 0,
                 verificationRejectionRate: 0,
-                medianResponseSeconds: 1800,
-                p95ResponseSeconds: 5400,
+                medianFirstResponseSeconds: 1800,
+                p95FirstResponseSeconds: 5400,
+                medianLatestEditSeconds: 2400,
               },
               series: [
                 {
                   period: "2026-07-29T00:00:00.000Z",
+                  reviewCount: 8,
                   reviews: 8,
                   replies: 7,
                   averageRating: 4.6,
@@ -241,8 +427,9 @@ for (const viewport of [
                   averageRating: 4.6,
                   reviews: 8,
                   responseRate: 88,
-                  medianResponseSeconds: 1800,
-                  p95ResponseSeconds: 5400,
+                  medianFirstResponseSeconds: 1800,
+                  p95FirstResponseSeconds: 5400,
+                  medianLatestEditSeconds: 2400,
                   unresolvedComplaints: 1,
                   verificationRejectionRate: 0,
                 },
@@ -251,8 +438,7 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/")
-      await openNavigationSurface(page, "Analytics", viewport.name === "mobile")
+      await page.goto("/analytics")
       await expect(
         page.getByRole("heading", { name: "Analytics", level: 1 })
       ).toBeVisible()
@@ -274,7 +460,7 @@ for (const viewport of [
               sessionId: "session-reviews-a11y",
               userId: "user-reviews-a11y",
               organisationId: "org-reviews-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -290,6 +476,54 @@ for (const viewport of [
               defaultLanguageCode: "en",
               defaultTimezone: "Europe/London",
             },
+          },
+        })
+      })
+      await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            total: 1,
+            byStatus: {
+              new: 0,
+              drafted: 0,
+              verified: 0,
+              awaiting_approval: 0,
+              publish_requested: 0,
+              published: 1,
+              rejected: 0,
+              failed: 0,
+              escalated: 0,
+            },
+          },
+        })
+      })
+      await page.route(
+        /\/api\/google\/connections(?:\?.*)?$/,
+        async (route) => {
+          await route.fulfill({
+            json: {
+              connections: [
+                {
+                  id: "connection-reviews-a11y",
+                  googleEmail: "reviews@example.com",
+                  status: "active",
+                  scope:
+                    "https://www.googleapis.com/auth/business.manage",
+                  notificationsEnabled: true,
+                  lastRefreshAt: "2026-07-29T09:00:00.000Z",
+                  lastErrorCode: null,
+                  reconnectRequired: false,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                },
+              ],
+            },
+          })
+        }
+      )
+      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            locations: [{ id: "location-a11y", name: "Camden" }],
           },
         })
       })
@@ -351,7 +585,7 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/")
+      await page.goto("/reviews")
       await expect(
         page.getByRole("heading", { name: "Reviews", level: 1 })
       ).toBeVisible()
@@ -388,6 +622,9 @@ for (const viewport of [
       await expect(
         selectedReview.getByRole("textbox", { name: "Reply draft" })
       ).toHaveValue("Updated draft reply for Jordan.")
+      await expect(
+        selectedReview.getByRole("combobox", { name: "Reply language" })
+      ).toBeVisible()
       const publishedReply = selectedReview
         .getByText(/Published business reply/)
         .locator("..")
@@ -434,6 +671,57 @@ for (const viewport of [
       }
     })
 
+    test("stale review data banner", async ({ page }) => {
+      const controls = await mockReviewWorkspace(page)
+      await page.goto("/reviews")
+      await expect(
+        page.getByRole("button", { name: "Live data" })
+      ).toBeVisible()
+      controls.failCounts()
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+      await expect(page.getByText("Data may be out of date")).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Retry", exact: true })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} stale review data`)
+    })
+
+    test("disconnected review data state", async ({ page }) => {
+      await mockReviewWorkspace(page, { disconnected: true })
+      await page.goto("/reviews")
+      await expect(
+        page.getByText("No active Google connection")
+      ).toBeVisible()
+      await expect(
+        page.getByRole("link", { name: "Manage connections" })
+      ).toHaveAttribute("href", "/connections")
+      await expectAccessible(page, `${viewport.name} disconnected review data`)
+    })
+
+    test("delete published reply confirmation", async ({ page }) => {
+      await mockReviewWorkspace(page)
+      await page.goto("/reviews")
+      const reviewList = page.getByRole("region", { name: "Review list" })
+      if (viewport.name === "mobile") {
+        await reviewList.getByRole("button", { name: /Jordan Lee/ }).click()
+      }
+      await page.getByRole("button", { name: "Review actions" }).click()
+      await page
+        .getByRole("menuitem", { name: "Delete published reply" })
+        .click()
+      const dialog = page.getByRole("alertdialog", {
+        name: "Delete published reply?",
+      })
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText(
+        "This removes the reply on Google. The review returns to the inbox as unreplied."
+      )
+      await expectAccessible(
+        page,
+        `${viewport.name} delete published reply dialog`
+      )
+    })
+
     test("connections", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
@@ -442,7 +730,7 @@ for (const viewport of [
               sessionId: "session-connections-a11y",
               userId: "user-connections-a11y",
               organisationId: "org-connections-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -480,7 +768,7 @@ for (const viewport of [
               {
                 id: "account-connections-a11y",
                 googleAccountName: "accounts/123456789",
-                accountName: "Naba Review Hospitality",
+                accountName: "Naba Presence Hospitality",
                 type: "ORGANIZATION",
                 role: "OWNER",
                 permissionLevel: "OWNER_LEVEL",
@@ -496,17 +784,12 @@ for (const viewport of [
             locations: [
               {
                 id: "locations/camden-a11y",
-                name: "locations/camden-a11y",
+                googleLocationName: "locations/camden-a11y",
                 title: "Camden Hotel",
                 accountName: "accounts/123456789",
                 verified: true,
-                storefrontAddress: {
-                  addressLines: ["10 Camden High Street"],
-                  locality: "London",
-                  administrativeArea: "England",
-                  postalCode: "NW1 0JH",
-                  regionCode: "GB",
-                },
+                address:
+                  "10 Camden High Street, London, England, NW1 0JH",
               },
             ],
           },
@@ -572,17 +855,12 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/")
-      await openNavigationSurface(
-        page,
-        "Connections",
-        viewport.name === "mobile"
-      )
+      await page.goto("/connections")
       await expect(
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
       await expect(page.getByLabel("Connection setup progress")).toBeVisible()
-      await expect(page.getByText("Naba Review Hospitality")).toBeVisible()
+      await expect(page.getByText("Naba Presence Hospitality")).toBeVisible()
       await expect(
         page.getByLabel("Google location import").getByText("Camden Hotel")
       ).toBeVisible()
@@ -597,102 +875,6 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} connections`)
     })
 
-    test("menu assistant", async ({ page }) => {
-      await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
-        await route.fulfill({
-          json: {
-            session: {
-              sessionId: "a1111111-1111-4111-8111-111111111111",
-              userId: "a2222222-2222-4222-8222-222222222222",
-              organisationId: "a3333333-3333-4333-8333-333333333333",
-              organisationName: "Naba Review",
-              displayName: "Alex Morgan",
-              email: "alex@example.com",
-              role: "owner",
-              canPublish: true,
-            },
-          },
-        })
-      })
-      await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
-        await route.fulfill({
-          json: {
-            locations: [
-              {
-                locationId: "a4444444-4444-4444-8444-444444444444",
-                name: "Camden Hotel",
-                timezone: "Europe/London",
-                address: null,
-                linkId: "a5555555-5555-4555-8555-555555555555",
-                externalLocationId: "a6666666-6666-4666-8666-666666666666",
-                googleLocationName: "locations/camden-menu-a11y",
-                googleTitle: "Camden Hotel",
-                verified: true,
-              },
-            ],
-          },
-        })
-      })
-      await page.route(/\/api\/menus(?:\?.*)?$/, async (route) => {
-        await route.fulfill({
-          json: {
-            menus: [
-              {
-                id: "a7777777-7777-4777-8777-777777777777",
-                locationId: "a4444444-4444-4444-8444-444444444444",
-                locationName: "Camden Hotel",
-                publicSlug: "camden-menu-a11y",
-                name: "Camden Dinner Menu",
-                sourceFilename: "camden-menu.pdf",
-                sourceMediaType: "application/pdf",
-                sourceBytes: 245760,
-                currencyCode: "GBP",
-                content: {
-                  menuName: "Camden Dinner Menu",
-                  currencyCode: "GBP",
-                  notes: ["Please ask staff about allergens."],
-                  categories: [
-                    {
-                      name: "Mains",
-                      description: null,
-                      items: [
-                        {
-                          name: "Garden Risotto",
-                          description: "Seasonal vegetables and herbs",
-                          price: "£18",
-                          dietaryTags: ["Vegetarian"],
-                          allergens: ["Milk"],
-                          allergenInformationExplicit: true,
-                        },
-                      ],
-                    },
-                  ],
-                },
-                extractionModel: "menu-a11y-model",
-                version: 1,
-                isPublished: false,
-                publishedAt: null,
-                updatedAt: "2026-07-29T10:00:00.000Z",
-              },
-            ],
-          },
-        })
-      })
-      await page.goto("/")
-      await openNavigationSurface(
-        page,
-        "Menu assistant",
-        viewport.name === "mobile"
-      )
-      await expect(
-        page.getByRole("heading", { name: "Menu assistant" })
-      ).toBeVisible()
-      await expect(
-        page.getByText("Garden Risotto", { exact: true })
-      ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} menu assistant`)
-    })
-
     test("settings", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
@@ -701,7 +883,7 @@ for (const viewport of [
               sessionId: "session-settings-a11y",
               userId: "user-settings-a11y",
               organisationId: "org-settings-a11y",
-              organisationName: "Naba Review",
+              organisationName: "Naba Presence",
               displayName: "Alex Morgan",
               email: "alex@example.com",
               role: "owner",
@@ -742,14 +924,50 @@ for (const viewport of [
       await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
         await route.fulfill({ json: { locations: [] } })
       })
-      await page.goto("/")
-      await openNavigationSurface(page, "Settings", viewport.name === "mobile")
+      await page.route(/\/api\/invitations(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                id: "invitation-settings-a11y",
+                email: "invitee@example.com",
+                role: "member",
+                canPublish: false,
+                expiresAt: "2026-08-05T09:00:00.000Z",
+                acceptedAt: null,
+                createdAt: "2026-07-29T09:00:00.000Z",
+                inviteUrl:
+                  "http://localhost:3000/invite/invitation-settings-a11y",
+              },
+            ],
+          },
+        })
+      })
+      await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                organisationId: "org-settings-a11y",
+                name: "Naba Presence",
+                role: "owner",
+              },
+            ],
+          },
+        })
+      })
+      await page.goto("/settings")
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()
       await expect(page.getByText("Team access", { exact: true })).toBeVisible()
       await expect(
         page.getByRole("combobox", { name: "Role for Alex Morgan" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", {
+          name: "Copy invitation link for invitee@example.com",
+        })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} settings`)
     })

@@ -2,25 +2,27 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { encryptSecret, sha256, verifySignedValue } from "@/lib/server/crypto"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { writeAudit } from "@/lib/server/audit"
+import {
+  encryptSecret,
+  verifySignedValue,
+} from "@/lib/server/crypto"
+import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import {
-  createSession,
-  getSession,
-  setSessionCookie,
+  requireRole,
+  requireSession,
 } from "@/lib/server/session"
-import { writeAudit } from "@/lib/server/audit"
 
 export const runtime = "nodejs"
 
 const stateSchema = z.object({
   nonce: z.string().min(1),
   verifier: z.string().min(43),
-  organisationId: z.uuid().nullable(),
-  userId: z.uuid().nullable(),
+  organisationId: z.uuid(),
+  userId: z.uuid(),
   expiresAt: z.number(),
 })
 
@@ -41,73 +43,8 @@ async function oauthParameters(request: Request) {
   }
 }
 
-async function provisionOwner(profile: {
-  sub: string
-  email?: string
-  name?: string
-}) {
-  return getDatabase().begin(async (sql) => {
-    const slugBase = (profile.email?.split("@")[0] ?? profile.sub)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 40)
-    const [user] = await sql<
-      { id: string; default_organisation_id: string | null }[]
-    >`
-      insert into app_user (email, display_name, google_subject)
-      values (
-        ${profile.email ?? `${profile.sub}@google.invalid`},
-        ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub}
-      )
-      on conflict (email) do update
-      set google_subject = excluded.google_subject,
-          display_name = excluded.display_name
-      returning
-        id::text as id,
-        default_organisation_id::text as default_organisation_id
-    `
-    let organisationId = user.default_organisation_id
-    if (!organisationId) {
-      const [organisation] = await sql<{ id: string }[]>`
-        insert into organisation (slug, name)
-        values (
-          ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
-        )
-        returning id::text as id
-      `
-      organisationId = organisation.id
-      await sql`
-        select set_config('app.organisation_id', ${organisationId}, true)
-      `
-      await sql`
-        insert into member (
-          organisation_id,
-          user_id,
-          role,
-          can_publish
-        )
-        values (${organisationId}, ${user.id}, 'owner', true)
-      `
-      await sql`
-        update app_user
-        set default_organisation_id = ${organisationId}
-        where id = ${user.id}
-      `
-    } else {
-      await sql`
-        select set_config('app.organisation_id', ${organisationId}, true)
-      `
-    }
-    const token = await createSession(sql, user.id, organisationId)
-    return { organisationId, userId: user.id, token }
-  })
-}
-
 async function completeOAuth(request: Request) {
-  const correlationId = requestId(request)
+  const rid = serverRequestId(request)
   const params = await oauthParameters(request)
   if (params.error) {
     throw new ApiError(400, "google_oauth_denied", params.error)
@@ -132,31 +69,10 @@ async function completeOAuth(request: Request) {
     throw new ApiError(400, "invalid_oauth_state", "OAuth state has expired.")
   }
 
-  const tokens = await exchangeGoogleCode(params.code, state.verifier)
-  const profile = await googleUserInfo(tokens.access_token)
-  const refreshTokenExpiresAt = tokens.refresh_token_expires_in
-    ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
-    : null
-  let session = await getSession()
-  let sessionToken: string | undefined
-  if (!session) {
-    const provisioned = await provisionOwner(profile)
-    sessionToken = provisioned.token
-    session = {
-      sessionId: "",
-      userId: provisioned.userId,
-      organisationId: provisioned.organisationId,
-      organisationName: "",
-      displayName: profile.name ?? profile.email ?? "Google user",
-      email: profile.email ?? "",
-      role: "owner",
-      canPublish: true,
-    }
-  }
+  const session = requireRole(await requireSession(), ["owner", "admin"])
   if (
-    state.organisationId &&
-    (state.organisationId !== session.organisationId ||
-      state.userId !== session.userId)
+    state.organisationId !== session.organisationId ||
+    state.userId !== session.userId
   ) {
     throw new ApiError(
       403,
@@ -165,6 +81,11 @@ async function completeOAuth(request: Request) {
     )
   }
 
+  const tokens = await exchangeGoogleCode(params.code, state.verifier)
+  const profile = await googleUserInfo(tokens.access_token)
+  const refreshTokenExpiresAt = tokens.refresh_token_expires_in
+    ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
+    : null
   const connection = await withTenant(session.organisationId, async (sql) => {
     const [existing] = await sql<{ id: string; status: string }[]>`
       select id::text as id, status
@@ -239,26 +160,15 @@ async function completeOAuth(request: Request) {
         : "google.connection.connected",
       subjectType: "google_connection",
       subjectId: row.id,
-      requestId: `${correlationId}:connection`,
+      requestId: `${rid.id}:connection`,
       metadata: {
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
+        clientRequestId: rid.clientId,
       },
     })
-    if (sessionToken) {
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "user.signed_in",
-        subjectType: "user",
-        subjectId: session.userId,
-        requestId: `${correlationId}:signin`,
-        metadata: { provider: "google" },
-      })
-    }
     return row
   })
-  if (sessionToken) await setSessionCookie(sessionToken)
   return { connection }
 }
 
@@ -266,12 +176,22 @@ export async function GET(request: Request) {
   const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
   try {
     await completeOAuth(request)
-    return NextResponse.redirect(new URL("/?google=connected", baseUrl))
+    return NextResponse.redirect(
+      new URL("/connections?google=connected", baseUrl)
+    )
   } catch (error) {
     const response = apiError(error)
     if (response.status >= 400) {
+      const status = String(response.status)
+      const path =
+        error instanceof ApiError && error.code === "authentication_required"
+          ? "/sign-in"
+          : "/connections"
       return NextResponse.redirect(
-        new URL(`/?google=error&status=${response.status}`, baseUrl)
+        new URL(
+          `${path}?google=error&status=${status}`,
+          baseUrl
+        )
       )
     }
     return response

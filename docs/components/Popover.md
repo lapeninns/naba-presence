@@ -8,7 +8,7 @@ Use for pickers and secondary controls. Pass the trigger via `render`. For a men
 
 ## Parts
 
-Composed inside `<Popover>`, each importable from `window.NabaReview.*`:
+Composed inside `<Popover>`, each importable from `window.NabaPresence.*`:
 
 - `PopoverContent`
 - `PopoverDescription`

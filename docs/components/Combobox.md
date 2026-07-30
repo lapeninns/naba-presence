@@ -8,7 +8,7 @@ Use when the option list is long enough to need search. `ComboboxChips` plus `Co
 
 ## Parts
 
-Composed inside `<Combobox>`, each importable from `window.NabaReview.*`:
+Composed inside `<Combobox>`, each importable from `window.NabaPresence.*`:
 
 - `ComboboxChip`
 - `ComboboxChips`

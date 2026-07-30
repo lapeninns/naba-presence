@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -40,6 +40,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner"])
     const input = createSchema.parse(await request.json())
     const hold = await withTenant(session.organisationId, async (sql) => {
@@ -81,8 +82,11 @@ export async function POST(request: Request) {
         action: "legal_hold.applied",
         subjectType: "review",
         subjectId: input.reviewId,
-        requestId: requestId(request),
-        metadata: { reason: input.reason },
+        requestId: rid.id,
+        metadata: {
+          reason: input.reason,
+          clientRequestId: rid.clientId,
+        },
       })
       return row
     })
@@ -94,6 +98,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner"])
     const input = releaseSchema.parse(await request.json())
     const released = await withTenant(session.organisationId, async (sql) => {
@@ -117,7 +122,8 @@ export async function DELETE(request: Request) {
         action: "legal_hold.released",
         subjectType: "review",
         subjectId: input.reviewId,
-        requestId: requestId(request),
+        requestId: rid.id,
+        metadata: { clientRequestId: rid.clientId },
       })
       return true
     })

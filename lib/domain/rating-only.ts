@@ -62,13 +62,18 @@ function reviewerGreeting(
 }
 
 export function ratingOnlyReply(
-  rating: number,
+  rating: number | null,
   requestedLanguage: string,
   reviewerName?: string | null
 ) {
   const language = requestedLanguage.toLowerCase().split("-")[0]
   const supportedLanguage = language in templates ? language : "en"
-  const group = rating >= 4 ? "positive" : rating === 3 ? "neutral" : "negative"
+  const group =
+    rating === null || rating === 3
+      ? "neutral"
+      : rating >= 4
+        ? "positive"
+        : "negative"
   return {
     reply: reviewerGreeting(
       templates[supportedLanguage as keyof typeof templates][

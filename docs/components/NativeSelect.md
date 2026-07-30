@@ -8,7 +8,7 @@ Use where the OS picker is preferable — dense forms, mobile, or when JS-driven
 
 ## Parts
 
-Composed inside `<NativeSelect>`, each importable from `window.NabaReview.*`:
+Composed inside `<NativeSelect>`, each importable from `window.NabaPresence.*`:
 
 - `NativeSelectOptGroup`
 - `NativeSelectOption`

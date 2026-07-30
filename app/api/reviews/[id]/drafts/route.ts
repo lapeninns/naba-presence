@@ -5,11 +5,13 @@ import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
 import { generateReply } from "@/lib/server/ai"
 import { writeAudit } from "@/lib/server/audit"
-import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { verifyStoredDraft } from "@/lib/server/drafts"
+import {
+  buildEvidenceHash,
+  verifyStoredDraft,
+} from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, requestId } from "@/lib/server/http"
+import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -30,6 +32,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), [
       "owner",
       "admin",
@@ -44,12 +47,12 @@ export async function POST(
     }
     const { id } = await context.params
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = requestId(request)
+    const correlationId = rid.id
     const result = await withTenant(session.organisationId, async (sql) => {
       const [review] = await sql<
         {
           review_text: string | null
-          rating: number
+          rating: number | null
           reviewer_name: string | null
           language: string | null
           language_confidence: number | null
@@ -57,6 +60,7 @@ export async function POST(
           location_id: string
           location_name: string
           update_time: Date
+          restricted_at: Date | null
         }[]
       >`
         select
@@ -68,7 +72,8 @@ export async function POST(
           o.default_language_code as default_language,
           r.location_id::text as location_id,
           l.name as location_name,
-          r.update_time
+          r.update_time,
+          r.restricted_at
         from review r
         join location l on l.id = r.location_id
         join organisation o on o.id = r.organisation_id
@@ -79,24 +84,29 @@ export async function POST(
         throw new ApiError(404, "review_not_found", "Review not found.")
       }
       await requireLocationAccess(sql, session, review.location_id)
+      if (review.restricted_at) {
+        throw new ApiError(
+          409,
+          "review_restricted",
+          "This review is restricted from reply processing."
+        )
+      }
       const language =
         input.languageOverride ??
         (review.language && (review.language_confidence ?? 0) >= 0.7
           ? review.language
           : review.default_language)
-      const evidenceHash = sha256(
-        JSON.stringify({
-          reviewId: id,
-          updateTime: review.update_time,
-          reviewText: review.review_text,
-          rating: review.rating,
-          location: review.location_name,
-          language,
-          tone: input.tone,
-          businessContext: input.businessContext,
-          draftPolicyVersion: DRAFT_POLICY_VERSION,
-        })
-      )
+      const evidenceHash = buildEvidenceHash({
+        reviewId: id,
+        updateTime: review.update_time.toISOString(),
+        reviewText: review.review_text,
+        rating: review.rating,
+        location: review.location_name,
+        language,
+        tone: input.tone,
+        businessContext: input.businessContext,
+        draftPolicyVersion: DRAFT_POLICY_VERSION,
+      })
       const isRatingOnly = !review.review_text?.trim()
       const generated = input.body
         ? { reply: input.body, language }
@@ -120,6 +130,10 @@ export async function POST(
           body,
           body_bytes,
           evidence_hash,
+          tone,
+          language,
+          business_context,
+          draft_policy_version,
           model_name,
           verification_status,
           created_by
@@ -131,6 +145,10 @@ export async function POST(
           ${generated.reply},
           ${Buffer.byteLength(generated.reply, "utf8")},
           ${evidenceHash},
+          ${input.tone},
+          ${language},
+          ${input.businessContext},
+          ${DRAFT_POLICY_VERSION},
           ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
           'pending',
           ${session.userId}
@@ -149,7 +167,7 @@ export async function POST(
         reviewer_name: review.reviewer_name,
         location_name: review.location_name,
         rating: review.rating,
-        detected_language_code: review.language,
+        detected_language_code: language,
       })
       await sql`
         update review
@@ -171,6 +189,7 @@ export async function POST(
           source,
           language: generated.language,
           verificationVerdict: verification.verdict,
+          clientRequestId: rid.clientId,
         },
       })
       await writeAudit(sql, {
@@ -184,6 +203,7 @@ export async function POST(
           draftId: draft.id,
           verdict: verification.verdict,
           reasons: verification.reasons,
+          clientRequestId: rid.clientId,
         },
       })
       return {

@@ -8,7 +8,7 @@ Compose `EmptyHeader` (with `EmptyMedia`, `EmptyTitle`, `EmptyDescription`) and 
 
 ## Parts
 
-Composed inside `<Empty>`, each importable from `window.NabaReview.*`:
+Composed inside `<Empty>`, each importable from `window.NabaPresence.*`:
 
 - `EmptyContent`
 - `EmptyDescription`

@@ -8,7 +8,7 @@ Wrap in `MessageScrollerProvider`, then compose `MessageScrollerViewport` > `Mes
 
 ## Parts
 
-Composed inside `<MessageScroller>`, each importable from `window.NabaReview.*`:
+Composed inside `<MessageScroller>`, each importable from `window.NabaPresence.*`:
 
 - `MessageScrollerButton`
 - `MessageScrollerContent`
