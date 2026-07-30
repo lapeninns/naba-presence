@@ -9,29 +9,24 @@ import {
   pkceChallenge,
 } from "@/lib/server/google"
 import { apiError } from "@/lib/server/http"
-import { getSession } from "@/lib/server/session"
+import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
-const inputSchema = z.object({
-  inviteToken: z.string().min(1).optional(),
-})
+const inputSchema = z.object({})
 
 export async function POST(request: Request) {
   try {
-    const input = inputSchema.parse(
-      await request.json().catch(() => ({}))
-    )
-    const session = await getSession()
+    inputSchema.parse(await request.json().catch(() => ({})))
+    const session = requireRole(await requireSession(), ["owner", "admin"])
     const nonce = randomToken(24)
     const verifier = randomToken(64)
     const statePayload = Buffer.from(
       JSON.stringify({
         nonce,
         verifier,
-        organisationId: session?.organisationId ?? null,
-        userId: session?.userId ?? null,
-        inviteToken: input.inviteToken ?? null,
+        organisationId: session.organisationId,
+        userId: session.userId,
         expiresAt: Date.now() + 10 * 60 * 1000,
       })
     ).toString("base64url")

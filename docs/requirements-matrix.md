@@ -8,7 +8,7 @@ available.
 
 | ID | Implemented evidence | Verification |
 |---|---|---|
-| CON-001 | OAuth start/callback, signed state cookie, PKCE S256, `business.manage`, account UI | Type/build gates; callback validation paths |
+| CON-001 | Owner/admin-only OAuth start/callback, signed state cookie, PKCE S256, `business.manage`, organisation-level account UI | Route role tests; type/build gates; callback validation paths |
 | CON-002 | AES-256-GCM token storage, offline refresh, revoked/expired persistence, durable reconnect task, log redaction | Migration/redaction tests; connection status/audit |
 | CON-003 | Disconnect clears notifications/tokens, cancels sync, schedules seven-day purge | Disconnect route; retention job; runbook |
 | LOC-001 | Cycle-safe paginated account discovery plus explicit activation selection | Google contract test; Account API and Connections UI |
@@ -38,8 +38,10 @@ this checkout has no Git remote, so real Actions run URLs remain blocked.
 
 | Sprint | Acceptance criterion | Executable evidence |
 |---|---|---|
-| 1 | A new user can start OAuth from the signed-out UI | `tests/integration/routes/sign-in.test.ts`; `tests/e2e/accessibility.spec.ts` sign-in scenario |
-| 1 | A new organisation is provisioned under a non-superuser role | `tests/integration/provisioning.test.ts` with `TEST_RUNTIME_DATABASE_URL` |
+| 1 | A new user can register, confirm email, and sign in without Google | `tests/integration/routes/password-auth.test.ts`; sign-in/registration/recovery axe scenarios |
+| 1 | A new organisation is provisioned under a non-superuser role | `tests/integration/routes/password-auth.test.ts` with `TEST_RUNTIME_DATABASE_URL` |
+| 1 | A second-device login keeps the same organisation Google connection | `tests/integration/routes/password-auth.test.ts` cross-device persistence case |
+| 1 | Only an authenticated owner/admin can start Google OAuth | `tests/integration/routes/sign-in.test.ts`; `tests/integration/routes/roles.test.ts` |
 | 1 | Startup rejects a database identity that bypasses RLS | `tests/integration/startup-assertion.test.ts`; `tests/startup-safety.test.ts` |
 | 1 | Cross-tenant SQL and HTTP reads/writes fail | `tests/integration/tenant-isolation.test.ts`; `tests/integration/routes/tenant-isolation-http.test.ts` |
 | 1 | Runtime queries cannot read unrestricted `app_user` PII | `tests/integration/app-user-isolation.test.ts` |
@@ -82,9 +84,10 @@ this checkout has no Git remote, so real Actions run URLs remain blocked.
 - The standalone production artifact was exercised at 1440 px and 390 px with
   zero horizontal overflow, zero browser errors, named controls, working mobile
   navigation, and all analytics controls/metrics present.
-- Twenty-four axe-backed WCAG 2.2 AA browser scenarios cover sign-in,
-  invitation, design-system, inbox/detail state variants, connections,
-  settings, approvals, analytics, and responsive views.
+- Twenty-six axe-backed WCAG 2.2 AA browser scenarios cover sign-in,
+  registration, password recovery, invitation, design-system, inbox/detail
+  state variants, connections, settings, approvals, analytics, and responsive
+  views.
 - CI seeds 100,000 reviews across 500 locations and asserts the warm P95
   cursor-page query remains below 1.5 seconds.
 
@@ -97,6 +100,8 @@ live-certification reports.
 
 - Apply `0001_initial.sql` with the production migration role.
 - Run `pnpm test:integration` against the release database topology.
+- Verify hosted Supabase email confirmation/recovery templates, redirect allow
+  list, custom SMTP delivery, provider rate limits, and cross-device sign-in.
 - Complete Google OAuth, account/location discovery, notification setup,
   backfill, reconciliation, publish, moderation, delete, disconnect, and replay
   smoke tests with a dedicated verified pilot listing.

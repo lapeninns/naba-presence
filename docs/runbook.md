@@ -5,9 +5,11 @@
 Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
 `pnpm db:migrate`, and `pnpm db:status`. Run `pnpm test:integration` against a
 disposable PostgreSQL database with the documented runtime test role. Confirm
-the OAuth redirect URI, Pub/Sub OIDC audience/service account, optional
-verification token, cron secret, and OpenAI model names in the deployment
-environment. Never log environment values or decrypted Google tokens.
+the Supabase project URL/publishable key, email confirmation and recovery
+templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub
+OIDC audience/service account, optional verification token, cron secret, and
+OpenAI model names in the deployment environment. Never log environment values
+or decrypted Google tokens.
 
 Before a canary, confirm `DRAFTS_ENABLED`, `PUBLISH_ENABLED`, `SYNC_ENABLED`,
 and `WEBHOOKS_ENABLED`. Roll back to read-only by disabling publishing and
@@ -71,6 +73,13 @@ holders, and database connectivity, then run one manual jobs tick and confirm
 the heartbeat advances.
 
 ## Incidents
+
+### Email/password authentication failures
+
+Keep Google connections intact; they belong to organisations and are not user
+login sessions. Verify Supabase Auth health, the publishable key, redirect allow
+list, confirmation/recovery templates, custom SMTP delivery, and provider rate
+limits. Do not bypass email verification or manually set password hashes.
 
 ### OAuth or token refresh failures
 

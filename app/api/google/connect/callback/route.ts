@@ -5,27 +5,24 @@ import { z } from "zod"
 import { writeAudit } from "@/lib/server/audit"
 import {
   encryptSecret,
-  sha256,
   verifySignedValue,
 } from "@/lib/server/crypto"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import {
-  provisionMember,
-  provisionOwner,
-} from "@/lib/server/provisioning"
-import { getSession, setSessionCookie } from "@/lib/server/session"
+  requireRole,
+  requireSession,
+} from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
 const stateSchema = z.object({
   nonce: z.string().min(1),
   verifier: z.string().min(43),
-  organisationId: z.uuid().nullable(),
-  userId: z.uuid().nullable(),
-  inviteToken: z.string().nullable(),
+  organisationId: z.uuid(),
+  userId: z.uuid(),
   expiresAt: z.number(),
 })
 
@@ -72,71 +69,10 @@ async function completeOAuth(request: Request) {
     throw new ApiError(400, "invalid_oauth_state", "OAuth state has expired.")
   }
 
-  const tokens = await exchangeGoogleCode(params.code, state.verifier)
-  const profile = await googleUserInfo(tokens.access_token)
-  const refreshTokenExpiresAt = tokens.refresh_token_expires_in
-    ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
-    : null
-  let session = await getSession()
-  let sessionToken: string | undefined
-  if (!session) {
-    const inviteToken = state.inviteToken
-    let invitedRole:
-      | "owner"
-      | "admin"
-      | "member"
-      | "viewer"
-      | undefined
-    let invitedCanPublish = true
-    const provisioned = inviteToken
-      ? await (async () => {
-          const [invitation] = await getDatabase()<
-            {
-              id: string
-              organisationId: string
-              role: "owner" | "admin" | "member" | "viewer"
-              canPublish: boolean
-            }[]
-          >`
-            select
-              id::text as id,
-              organisation_id::text as "organisationId",
-              role,
-              can_publish as "canPublish"
-            from resolve_invitation_for_acceptance(
-              ${sha256(inviteToken)}
-            )
-          `
-          if (!invitation) {
-            throw new ApiError(
-              410,
-              "invitation_expired",
-              "This invitation is invalid or expired."
-            )
-          }
-          invitedRole = invitation.role
-          invitedCanPublish = invitation.canPublish
-          // The invited address and Google address may differ by product
-          // policy; provisionMember records both in the acceptance audit.
-          return provisionMember(profile, invitation)
-        })()
-      : await provisionOwner(profile)
-    sessionToken = provisioned.token
-    session = {
-      sessionId: "",
-      userId: provisioned.userId,
-      organisationId: provisioned.organisationId,
-      organisationName: "",
-      displayName: profile.name ?? profile.email ?? "Google user",
-      email: profile.email ?? "",
-      role: invitedRole ?? "owner",
-      canPublish: invitedCanPublish,
-    }
-  }
+  const session = requireRole(await requireSession(), ["owner", "admin"])
   if (
-    state.organisationId &&
-    (state.organisationId !== session.organisationId ||
-      state.userId !== session.userId)
+    state.organisationId !== session.organisationId ||
+    state.userId !== session.userId
   ) {
     throw new ApiError(
       403,
@@ -145,6 +81,11 @@ async function completeOAuth(request: Request) {
     )
   }
 
+  const tokens = await exchangeGoogleCode(params.code, state.verifier)
+  const profile = await googleUserInfo(tokens.access_token)
+  const refreshTokenExpiresAt = tokens.refresh_token_expires_in
+    ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
+    : null
   const connection = await withTenant(session.organisationId, async (sql) => {
     const [existing] = await sql<{ id: string; status: string }[]>`
       select id::text as id, status
@@ -226,23 +167,8 @@ async function completeOAuth(request: Request) {
         clientRequestId: rid.clientId,
       },
     })
-    if (sessionToken) {
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "user.signed_in",
-        subjectType: "user",
-        subjectId: session.userId,
-        requestId: `${rid.id}:signin`,
-        metadata: {
-          provider: "google",
-          clientRequestId: rid.clientId,
-        },
-      })
-    }
     return row
   })
-  if (sessionToken) await setSessionCookie(sessionToken)
   return { connection }
 }
 
@@ -250,22 +176,20 @@ export async function GET(request: Request) {
   const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
   try {
     await completeOAuth(request)
-    return NextResponse.redirect(new URL("/?google=connected", baseUrl))
+    return NextResponse.redirect(
+      new URL("/connections?google=connected", baseUrl)
+    )
   } catch (error) {
     const response = apiError(error)
     if (response.status >= 400) {
-      const status =
-        error instanceof ApiError &&
-        [
-          "invitation_expired",
-          "invitation_already_used",
-          "invitation_not_found",
-        ].includes(error.code)
-          ? "invite_expired"
-          : String(response.status)
+      const status = String(response.status)
+      const path =
+        error instanceof ApiError && error.code === "authentication_required"
+          ? "/sign-in"
+          : "/connections"
       return NextResponse.redirect(
         new URL(
-          `/sign-in?google=error&status=${status}`,
+          `${path}?google=error&status=${status}`,
           baseUrl
         )
       )

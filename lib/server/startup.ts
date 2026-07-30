@@ -47,6 +47,25 @@ export function collectSafetyViolations(
       "WEBHOOKS_ENABLED requires GOOGLE_PUBSUB_AUDIENCE (OIDC push verification) in production."
     )
   }
+  if (
+    env.PASSWORD_AUTH_ENABLED &&
+    !env.LOCAL_BOOTSTRAP_ENABLED &&
+    (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
+  ) {
+    violations.push(
+      "PASSWORD_AUTH_ENABLED requires SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY."
+    )
+  }
+  if (env.PASSWORD_AUTH_ENABLED && env.SUPABASE_URL) {
+    const authUrl = new URL(env.SUPABASE_URL)
+    const isLocal =
+      authUrl.hostname === "localhost" || authUrl.hostname === "127.0.0.1"
+    if (authUrl.protocol !== "https:" && !isLocal) {
+      violations.push(
+        "SUPABASE_URL must use HTTPS outside local development."
+      )
+    }
+  }
   if (env.LOCAL_BOOTSTRAP_ENABLED) {
     const hostname = env.NEXTAUTH_URL
       ? new URL(env.NEXTAUTH_URL).hostname

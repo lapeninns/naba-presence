@@ -148,6 +148,27 @@ describe("database migration contract", () => {
     )
   })
 
+  it("0012 provisions only verified external auth identities", async () => {
+    const passwordAuthMigration = await readFile(
+      new URL(
+        "../supabase/migrations/0012_email_password_auth.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(passwordAuthMigration).toContain(
+      "create function provision_authenticated_user"
+    )
+    expect(passwordAuthMigration).toContain("security definer")
+    expect(passwordAuthMigration).toContain("unverified_auth_email")
+    expect(passwordAuthMigration).toContain(
+      "create unique index app_user_auth_identity_unique"
+    )
+    expect(passwordAuthMigration).toMatch(
+      /grant execute on function provision_authenticated_user[\s\S]+to naba_app_runtime/
+    )
+  })
+
   it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
     const directory = new URL("../supabase/migrations/", import.meta.url)
     const files = (await readdir(directory)).filter(

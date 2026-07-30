@@ -31,6 +31,10 @@ owner, due date, rationale, and compensating control in the exception table.
 
 - [ ] Staging uses a non-superuser member of `naba_app_runtime`.
 - [ ] `assertProductionSafety()` passes at staging boot.
+- [ ] Hosted Supabase Auth email confirmations, confirmation/recovery
+      templates, redirect allow list, custom SMTP, and rate limits are verified.
+- [ ] Registration, confirmation, recovery, invitation acceptance, and a
+      second-device login preserve the same organisation Google connection.
 - [ ] Staging Pub/Sub topic, push subscription, DLQ, OIDC audience, and pinned
       service account are verified.
 - [ ] GGL-501 ingestion lifecycle evidence is complete and the real redacted

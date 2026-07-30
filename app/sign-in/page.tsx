@@ -11,14 +11,14 @@ export const metadata: Metadata = {
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ google?: string; status?: string }>
+  searchParams: Promise<{ email?: string; status?: string }>
 }) {
   if (await getSession()) redirect("/reviews")
   const params = await searchParams
   return (
     <SignInView
       errorStatus={
-        params.google === "error"
+        params.email === "error"
           ? (params.status ?? "unknown")
           : undefined
       }

@@ -12,6 +12,7 @@ const baseEnv = {
   WEBHOOKS_ENABLED: false,
   LOCAL_BOOTSTRAP_ENABLED: false,
   GOOGLE_PUBSUB_AUDIENCE: undefined,
+  PASSWORD_AUTH_ENABLED: false,
   NEXTAUTH_URL: "https://reviews.example.com",
 } as ServerEnv
 
@@ -90,5 +91,28 @@ describe("collectSafetyViolations", () => {
         safeIdentity
       )
     ).toHaveLength(1)
+  })
+
+  it("requires the password auth provider when password auth is enabled", () => {
+    expect(
+      collectSafetyViolations(
+        { ...baseEnv, PASSWORD_AUTH_ENABLED: true },
+        safeIdentity
+      ).join(" ")
+    ).toContain("SUPABASE_URL")
+  })
+
+  it("accepts a secure password auth provider", () => {
+    expect(
+      collectSafetyViolations(
+        {
+          ...baseEnv,
+          PASSWORD_AUTH_ENABLED: true,
+          SUPABASE_URL: "https://project.supabase.co",
+          SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+        },
+        safeIdentity
+      )
+    ).toEqual([])
   })
 })

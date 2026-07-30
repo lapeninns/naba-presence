@@ -332,6 +332,7 @@ export async function seedLinkedReview(
     reviewId,
     locationId,
     externalLocationId,
+    googleLocationName,
     googleReviewName,
   }
 }

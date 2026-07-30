@@ -90,8 +90,9 @@ export function InvitationView({ token }: { token: string }) {
   return (
     <SignInView
       inviteToken={token}
+      invitedEmail={invitation.email}
       title={`Join ${invitation.organisationName}`}
-      description={`Continue with Google to join as ${invitation.email}. The Google account email may differ from the invited address.`}
+      description={`Create or sign in to the NabaPresence account for ${invitation.email}. Google Business Profile access is managed separately by organisation owners.`}
     />
   )
 }

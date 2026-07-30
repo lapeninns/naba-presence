@@ -28,10 +28,13 @@ function serverEnv(
     DATABASE_URL: process.env.TEST_RUNTIME_DATABASE_URL!,
     NEXTAUTH_URL: `http://127.0.0.1:${port}`,
     NEXTAUTH_SECRET: "route-harness-secret-value-32-characters!",
-    TOKEN_ENCRYPTION_KEY: "route-harness-token-key-32-characters!!",
+    TOKEN_ENCRYPTION_KEY:
+      process.env.TOKEN_ENCRYPTION_KEY ??
+      "route-harness-token-key-32-characters!!",
     CRON_SECRET: "route-harness-cron-secret",
     LOCAL_BOOTSTRAP_ENABLED: "false",
     WEBHOOKS_ENABLED: "false",
+    PASSWORD_AUTH_ENABLED: "false",
     OPENAI_API_KEY: "",
     ...overrides,
   }

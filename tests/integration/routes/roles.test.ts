@@ -41,7 +41,10 @@ describeDatabase("route roles", () => {
       member.organisationId,
       owner.organisationId
     )
-    server = await startAppServer()
+    server = await startAppServer({
+      GOOGLE_CLIENT_ID: "route-harness-google-client",
+      GOOGLE_CLIENT_SECRET: "route-harness-google-secret",
+    })
   })
 
   afterAll(async () => {
@@ -81,5 +84,41 @@ describeDatabase("route roles", () => {
       body: JSON.stringify(validSettings),
     })
     expect(response.status).toBe(200)
+  })
+
+  it("restricts organisation Google connection changes to owners and admins", async () => {
+    const forbidden = await fetch(
+      `${server.baseUrl}/api/google/connect/start`,
+      {
+        method: "POST",
+        headers: {
+          cookie: member.cookie,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }
+    )
+    expect(forbidden.status).toBe(403)
+
+    const allowed = await fetch(
+      `${server.baseUrl}/api/google/connect/start`,
+      {
+        method: "POST",
+        headers: {
+          cookie: owner.cookie,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }
+    )
+    expect(allowed.status).toBe(200)
+    const { authorizationUrl } = (await allowed.json()) as {
+      authorizationUrl: string
+    }
+    const oauth = new URL(authorizationUrl)
+    expect(oauth.searchParams.get("access_type")).toBe("offline")
+    expect(oauth.searchParams.get("prompt")).toBe("consent")
+    expect(oauth.searchParams.get("state")).toBeTruthy()
+    expect(allowed.headers.get("set-cookie")).toContain("naba_google_oauth=")
   })
 })

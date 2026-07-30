@@ -127,7 +127,7 @@ describeDatabase("scheduler advisory leases", () => {
   })
 
   it("allows only one concurrent fleet reconciliation", async () => {
-    await linkedFixture()
+    const { linked } = await linkedFixture()
     stub.reset()
     stub.respond(
       { method: "GET", pathIncludes: "/reviews" },
@@ -161,7 +161,9 @@ describeDatabase("scheduler advisory leases", () => {
     expect(completed[0]?.processed).toBeGreaterThanOrEqual(1)
     expect(
       stub.calls.filter(
-        (call) => call.method === "GET" && call.path.includes("/reviews")
+        (call) =>
+          call.method === "GET" &&
+          call.path.includes(linked.googleLocationName)
       )
     ).toHaveLength(1)
   })

@@ -226,9 +226,32 @@ for (const viewport of [
     test("sign-in", async ({ page }) => {
       await page.goto("/sign-in")
       await expect(
-        page.getByRole("button", { name: "Continue with Google" })
+        page
+          .locator("form")
+          .getByRole("button", { name: "Sign in", exact: true })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} sign-in`)
+      await page
+        .getByLabel("Account action")
+        .getByRole("button", { name: "Create account", exact: true })
+        .click()
+      await expect(page.getByLabel("Confirm password")).toBeVisible()
+      await page.waitForTimeout(250)
+      await expectAccessible(page, `${viewport.name} registration`)
+    })
+
+    test("password recovery", async ({ page }) => {
+      await page.goto("/forgot-password")
+      await expect(
+        page.getByRole("heading", { name: "Reset your password" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} forgot password`)
+
+      await page.goto(
+        "/reset-password?token_hash=recovery-token-hash-for-a11y"
+      )
+      await expect(page.getByLabel("Confirm password")).toBeVisible()
+      await expectAccessible(page, `${viewport.name} reset password`)
     })
 
     test("invitation", async ({ page }) => {
@@ -249,7 +272,9 @@ for (const viewport of [
         page.getByRole("heading", { name: "Join Naba Presence" })
       ).toBeVisible()
       await expect(
-        page.getByRole("button", { name: "Continue with Google" })
+        page
+          .locator("form")
+          .getByRole("button", { name: "Create account", exact: true })
       ).toBeVisible()
       await expectAccessible(page, `${viewport.name} invitation`)
     })

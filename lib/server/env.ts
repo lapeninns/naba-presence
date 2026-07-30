@@ -79,6 +79,9 @@ const serverEnvSchema = z.object({
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
   CRON_SECRET: z.string().min(16),
   SUPPORT_IMPERSONATION_SECRET: optionalSecret(32),
+  SUPABASE_URL: optionalUrl,
+  SUPABASE_PUBLISHABLE_KEY: optionalText,
+  AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
   OPENAI_API_KEY: optionalText,
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
@@ -99,6 +102,7 @@ const serverEnvSchema = z.object({
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
+  PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
 })
 

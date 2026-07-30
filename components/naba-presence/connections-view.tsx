@@ -81,6 +81,7 @@ import {
   loadBackfillProgress,
   loadConnections,
   loadInternalLocations,
+  loadSession,
   loadSettings,
   type InternalLocation,
   type OrganisationSettings,
@@ -156,6 +157,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   const [loadState, setLoadState] = useState<
     "loading" | "ready" | "unavailable"
   >("loading")
+  const [canManage, setCanManage] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
   const connection =
@@ -192,23 +194,29 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
           locationResult,
           backfillResult,
           settingsResult,
+          sessionResult,
         ] = await Promise.all([
           loadConnections(),
           loadInternalLocations(),
           loadBackfillProgress(),
           loadSettings(),
+          loadSession(),
         ])
         if (!active) return
         setConnections(connectionResult.connections)
         setInternalLocations(locationResult.locations)
         setBackfillProgress(backfillResult.progress)
         setSettings(settingsResult.settings)
+        const managesGoogle =
+          sessionResult.session?.role === "owner" ||
+          sessionResult.session?.role === "admin"
+        setCanManage(managesGoogle)
         setLoadState("ready")
 
         const activeConnection = connectionResult.connections.find(
           (item) => item.status === "active"
         )
-        if (activeConnection) {
+        if (activeConnection && managesGoogle) {
           try {
             const accountResult = await discoverGoogleAccounts()
             if (!active) return
@@ -577,6 +585,18 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         policyReady={Boolean(settings) && importComplete}
       />
 
+      {loadState === "ready" && !canManage ? (
+        <Alert>
+          <ShieldCheck />
+          <AlertTitle>Organisation-managed connection</AlertTitle>
+          <AlertDescription>
+            This Google Business Profile connection is shared by the
+            organisation. An owner or admin can connect, reconnect, or
+            disconnect it; signing in on another device does not remove it.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {loadState === "loading" ? (
         <ConnectionSetupSkeleton />
       ) : loadState === "unavailable" ? (
@@ -630,7 +650,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                       : "Not connected"}
                 </Badge>
               </CardHeader>
-              {!connection ? (
+              {!connection && canManage ? (
                 <CardFooter>
                   <Button onClick={connect} disabled={isPending}>
                     {isPending ? <Spinner /> : <ExternalLink />}
@@ -640,7 +660,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
               ) : null}
             </Card>
 
-            {connection ? (
+            {connection && canManage ? (
               <Card aria-label="Google account choice">
                 <CardHeader>
                   <CardTitle>Choose your Google account</CardTitle>
@@ -1109,7 +1129,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                     <Settings2 data-icon="inline-start" />
                     Review reply policy
                   </Button>
-                ) : !connection ? (
+                ) : !connection && canManage ? (
                   <Button onClick={connect} disabled={isPending}>
                     {isPending ? <Spinner /> : <ExternalLink />}
                     Connect Google
@@ -1165,7 +1185,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         </Alert>
       ) : null}
 
-      {connection ? (
+      {connection && canManage ? (
         <Card aria-label="Connection management" className="bg-card">
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1">

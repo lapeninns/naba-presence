@@ -31,6 +31,7 @@ export default defineConfig({
       OPENAI_API_KEY: "",
       TOKEN_ENCRYPTION_KEY: tokenEncryptionKey,
       WEBHOOKS_ENABLED: "false",
+      PASSWORD_AUTH_ENABLED: "false",
     },
     reuseExistingServer: false,
     timeout: 30_000,

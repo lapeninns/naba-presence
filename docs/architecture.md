@@ -2,9 +2,12 @@
 
 ## Runtime role and startup assertions
 
-Browser requests resolve an opaque, HTTP-only session token. The server hashes
-that token before lookup, binds the resulting user and organisation to the
-request, and opens every tenant data operation in a transaction that sets
+Supabase Auth owns password hashing, password recovery, abuse controls, and
+email verification. NabaPresence exchanges only a verified Supabase user
+identity for an opaque, HTTP-only application session; it never stores a
+password or a Supabase access/refresh token. The server hashes the opaque token
+before lookup, binds the resulting user and organisation to the request, and
+opens every tenant data operation in a transaction that sets
 `app.organisation_id`. PostgreSQL row-level policies then default-deny records
 from every other organisation. `lib/server/db.ts` owns this `withTenant`
 boundary and does not accept a caller-supplied tenant header.
@@ -15,10 +18,14 @@ administrative test setup. `lib/server/startup.ts` verifies the active database
 identity, RLS posture, required secrets, and production feature configuration.
 `instrumentation.ts` runs `assertProductionSafety` before the production server
 accepts traffic, so a superuser or `BYPASSRLS` runtime identity fails closed.
-New Google users are provisioned by the SECURITY DEFINER
-`provision_google_user` database function through
+Verified application users are provisioned by the SECURITY DEFINER
+`provision_authenticated_user` database function through
 `lib/server/provisioning.ts`, without giving the runtime role unrestricted
-organisation or user-table privileges.
+organisation or user-table privileges. The stable provider subject resolves
+the same user and default organisation on every device. Google OAuth is a
+separate owner/admin action whose encrypted connection belongs to that
+organisation, so application sign-out or a new device session does not remove
+the Google connection.
 
 Arbitrary tenant headers are never accepted. Owner/admin, member, viewer,
 location access, and publish authority checks happen above the database RLS
@@ -83,10 +90,11 @@ rather than duplicate work.
 ## Membership, organisation switching, privacy, and retention
 
 Owners create one-time invitations through `app/api/invitations/route.ts`.
-`lib/server/provisioning.ts` validates the invitation and provisions the member
-inside the inviting organisation during OAuth; it does not create an unrelated
-tenant. `app/api/session/switch/route.ts` verifies membership, rotates the
-session, updates the default organisation, and audits organisation switching.
+`lib/server/provisioning.ts` validates the invitation and provisions the
+verified email/password identity inside the inviting organisation; it does not
+create an unrelated tenant. `app/api/session/switch/route.ts` verifies
+membership, rotates the session, updates the default organisation, and audits
+organisation switching.
 
 Google source payloads, review text, reviewer display names, addresses, and media
 links carry an expiry no later than the organisation’s configured window, which

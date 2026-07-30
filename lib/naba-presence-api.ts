@@ -109,6 +109,55 @@ export async function signOut(): Promise<void> {
   await apiFetch("/api/session", { method: "DELETE" })
 }
 
+export async function signInWithEmailPassword(input: {
+  email: string
+  password: string
+  inviteToken?: string
+}) {
+  return apiFetch<{ authenticated: true }>("/api/auth/password/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function registerWithEmailPassword(input: {
+  displayName: string
+  email: string
+  password: string
+  inviteToken?: string
+}) {
+  return apiFetch<{
+    authenticated: boolean
+    confirmationRequired?: boolean
+  }>("/api/auth/password/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function requestPasswordReset(email: string) {
+  return apiFetch<{ accepted: true; message: string }>(
+    "/api/auth/password/reset/request",
+    {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }
+  )
+}
+
+export async function completePasswordReset(
+  tokenHash: string,
+  password: string
+) {
+  return apiFetch<{ updated: true; authenticated: true }>(
+    "/api/auth/password/reset/complete",
+    {
+      method: "POST",
+      body: JSON.stringify({ tokenHash, password }),
+    }
+  )
+}
+
 async function requireApiSession() {
   const { session } = await loadSession()
   if (!session) {
@@ -380,12 +429,10 @@ export async function loadConnections() {
   )
 }
 
-export async function beginGoogleConnect(options?: {
-  inviteToken?: string
-}) {
+export async function beginGoogleConnect() {
   return apiFetch<{ authorizationUrl: string }>("/api/google/connect/start", {
     method: "POST",
-    body: JSON.stringify(options ?? {}),
+    body: JSON.stringify({}),
   })
 }
 
