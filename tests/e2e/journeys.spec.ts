@@ -47,6 +47,9 @@ test.describe("critical browser journeys", () => {
     ).toBeVisible()
     await expect(page.getByText("Published", { exact: true }).first()).toBeVisible()
 
+    await page.getByRole("link", { name: "Home", exact: true }).click()
+    await expectNeedsAttention(page, "1")
+
     const analyticsResponse = page.waitForResponse((response) => {
       const url = new URL(response.url())
       return (
@@ -188,6 +191,22 @@ async function verifyLocationScopedQueue(page: Page, state: JourneyState) {
       url.searchParams.get("location_id") === state.directReview.locationId
     )
   }
+  const unscopedQueueRequests: string[] = []
+  const recordUnscopedQueueRequest = (request: Request) => {
+    const url = new URL(request.url())
+    if (request.method() !== "GET") return
+    const isUnscopedReviews =
+      url.pathname === "/api/reviews" &&
+      !url.searchParams.has("location_id")
+    const isUnscopedCounts =
+      url.pathname === "/api/reviews/counts" &&
+      !url.searchParams.has("locationId")
+    if (isUnscopedReviews || isUnscopedCounts) {
+      unscopedQueueRequests.push(url.toString())
+    }
+  }
+  page.on("request", recordUnscopedQueueRequest)
+
   const scopedReviews = page.waitForResponse(isScopedReviewsResponse)
   const scopedCounts = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -219,19 +238,6 @@ async function verifyLocationScopedQueue(page: Page, state: JourneyState) {
     page.getByRole("tab", { name: /All reviews,\s+1/ })
   ).toBeVisible()
 
-  const unscopedReviewRequests: string[] = []
-  const recordUnscopedReviewRequest = (request: Request) => {
-    const url = new URL(request.url())
-    if (
-      request.method() === "GET" &&
-      url.pathname === "/api/reviews" &&
-      !url.searchParams.has("location_id")
-    ) {
-      unscopedReviewRequests.push(url.toString())
-    }
-  }
-  page.on("request", recordUnscopedReviewRequest)
-
   const backgroundReviews = page.waitForResponse(isScopedReviewsResponse)
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
   expect((await backgroundReviews).status()).toBe(200)
@@ -245,8 +251,11 @@ async function verifyLocationScopedQueue(page: Page, state: JourneyState) {
   await expect(
     reviewList.getByText(state.approvalReview.text, { exact: true })
   ).toHaveCount(0)
-  page.off("request", recordUnscopedReviewRequest)
-  expect(unscopedReviewRequests).toEqual([])
+  page.off("request", recordUnscopedQueueRequest)
+  expect(unscopedQueueRequests).toEqual([])
+
+  await page.getByRole("link", { name: "Home", exact: true }).click()
+  await expectNeedsAttention(page, "2")
 }
 
 async function verifyServerFilters(page: Page, state: JourneyState) {
@@ -303,6 +312,25 @@ async function verifyServerFilters(page: Page, state: JourneyState) {
       .getByRole("region", { name: "Review list" })
       .getByText(state.approvalReview.text, { exact: true })
   ).toHaveCount(0)
+
+  await page.getByRole("link", { name: "Home", exact: true }).click()
+  await expectNeedsAttention(page, "2")
+
+  await page.goto("/inbox")
+  await expect(
+    page.getByRole("heading", { name: "Inbox", level: 1 })
+  ).toBeVisible()
+}
+
+async function expectNeedsAttention(page: Page, value: string) {
+  await expect(
+    page.getByRole("heading", { name: "Home", level: 1 })
+  ).toBeVisible()
+  const attentionCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "Needs attention" })
+  await expect(attentionCard.locator('[data-slot="card-content"] > p').first())
+    .toHaveText(value)
 }
 
 async function openReview(page: Page, reviewText: string) {

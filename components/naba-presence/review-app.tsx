@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { usePathname } from "next/navigation"
 
 import { AppShell } from "@/components/naba-presence/app-shell"
 import { REVIEW_WORKFLOW_STATES } from "@/lib/domain/workflow"
@@ -29,6 +30,13 @@ export type ApiStatus =
   | "error"
 
 export type ConnectionState = "loading" | "connected" | "disconnected"
+type DashboardRefreshMode = "data" | "bootstrap" | "health"
+type DashboardRefreshOptions = {
+  includeReviews: boolean
+  includeCounts?: boolean
+  mode?: DashboardRefreshMode
+  requestEpoch?: number
+}
 
 function emptyReviewCounts(): ReviewCounts {
   return {
@@ -41,9 +49,6 @@ function emptyReviewCounts(): ReviewCounts {
 
 type DashboardContextValue = {
   reviews: Review[]
-  setReviews: React.Dispatch<React.SetStateAction<Review[]>>
-  selectedId: string
-  setSelectedId: React.Dispatch<React.SetStateAction<string>>
   apiStatus: ApiStatus
   counts: ReviewCounts
   refreshCounts: (locationId?: string) => Promise<void>
@@ -70,8 +75,9 @@ export function NabaPresenceDashboard({
 }: {
   children: React.ReactNode
 }) {
+  const pathname = usePathname()
+  const isHomeRoute = pathname === "/home"
   const [reviews, setReviews] = useState<Review[]>([])
-  const [selectedId, setSelectedId] = useState("")
   const [apiStatus, setApiStatus] = useState<ApiStatus>("loading")
   const [counts, setCounts] = useState<ReviewCounts>(emptyReviewCounts)
   const [connectionState, setConnectionState] =
@@ -85,12 +91,14 @@ export function NabaPresenceDashboard({
   const countsLocationIdRef = useRef<string | undefined>(undefined)
   const countsRequestIdRef = useRef(0)
   const connectionStateRef = useRef<ConnectionState>("loading")
+  const dashboardEpochRef = useRef(0)
 
-  const refreshDashboard = useCallback(async (
-    includeReviews: boolean,
+  const refreshDashboard = useCallback(async ({
+    includeReviews,
     includeCounts = true,
-    markFreshness = true
-  ) => {
+    mode = "data",
+    requestEpoch = dashboardEpochRef.current,
+  }: DashboardRefreshOptions) => {
     const countsLocationId = countsLocationIdRef.current
     const countsRequestId = includeCounts
       ? ++countsRequestIdRef.current
@@ -103,7 +111,12 @@ export function NabaPresenceDashboard({
         loadConnections(),
         includeReviews ? loadReviews() : Promise.resolve(null),
       ])
-    if (!mountedRef.current) return
+    if (
+      !mountedRef.current ||
+      requestEpoch !== dashboardEpochRef.current
+    ) {
+      return
+    }
 
     if (
       includeCounts &&
@@ -124,7 +137,7 @@ export function NabaPresenceDashboard({
         : "disconnected"
       connectionStateRef.current = nextConnectionState
       setConnectionState(nextConnectionState)
-      if (!markFreshness) {
+      if (mode === "health") {
         if (nextConnectionState === "disconnected") {
           lastReviewRefreshSucceededRef.current = false
           setApiStatus("disconnected")
@@ -146,33 +159,41 @@ export function NabaPresenceDashboard({
     ) {
       const loaded = reviewsResult.value
       setReviews(loaded)
-      setSelectedId((current) =>
-        loaded.some((review) => review.id === current)
-          ? current
-          : (loaded[0]?.id ?? "")
-      )
     }
 
-    const succeeded =
-      countsResult.status === "fulfilled" &&
-      connectionsResult.status === "fulfilled" &&
-      reviewsResult.status === "fulfilled"
-    if (markFreshness) {
-      if (succeeded) {
-        const refreshedAt = Date.now()
-        hasSuccessfulRefreshRef.current = true
-        lastReviewRefreshSucceededRef.current = true
-        lastRefreshedAtRef.current = refreshedAt
-        setLastRefreshedAt(refreshedAt)
+    if (mode === "health") return
+
+    if (mode === "bootstrap") {
+      if (connectionsResult.status === "fulfilled") {
         setApiStatus(
           nextConnectionState === "disconnected"
             ? "disconnected"
             : "connected"
         )
       } else {
-        lastReviewRefreshSucceededRef.current = false
         setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
       }
+      return
+    }
+
+    const succeeded =
+      (!includeCounts || countsResult.status === "fulfilled") &&
+      connectionsResult.status === "fulfilled" &&
+      (!includeReviews || reviewsResult.status === "fulfilled")
+    if (succeeded) {
+      const refreshedAt = Date.now()
+      hasSuccessfulRefreshRef.current = true
+      lastReviewRefreshSucceededRef.current = true
+      lastRefreshedAtRef.current = refreshedAt
+      setLastRefreshedAt(refreshedAt)
+      setApiStatus(
+        nextConnectionState === "disconnected"
+          ? "disconnected"
+          : "connected"
+      )
+    } else {
+      lastReviewRefreshSucceededRef.current = false
+      setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
     }
   }, [])
 
@@ -229,7 +250,6 @@ export function NabaPresenceDashboard({
 
   useEffect(() => {
     mountedRef.current = true
-    void refreshDashboard(true)
     void loadSession().then(
       ({ session: loadedSession }) => {
         if (mountedRef.current) setSession(loadedSession)
@@ -240,8 +260,27 @@ export function NabaPresenceDashboard({
     )
     return () => {
       mountedRef.current = false
+      dashboardEpochRef.current += 1
     }
-  }, [refreshDashboard])
+  }, [])
+
+  useEffect(() => {
+    const requestEpoch = ++dashboardEpochRef.current
+    if (isHomeRoute) {
+      countsLocationIdRef.current = undefined
+      void refreshDashboard({ includeReviews: true, requestEpoch })
+      return
+    }
+
+    // Review queues own their scoped list and count requests. Other dashboard
+    // routes only need connection health until Home requests its roll-up.
+    void refreshDashboard({
+      includeReviews: false,
+      includeCounts: false,
+      mode: "bootstrap",
+      requestEpoch,
+    })
+  }, [isHomeRoute, refreshDashboard])
 
   useEffect(() => {
     if (apiStatus === "error" && !hasSuccessfulRefreshRef.current) return
@@ -255,7 +294,12 @@ export function NabaPresenceDashboard({
       // ReviewQueue owns its active server filters. Refreshing the shared,
       // unfiltered review page here could overwrite a location-scoped queue;
       // the timestamp change prompts the mounted queue to reload its scope.
-      void refreshDashboard(false, false, false)
+      void refreshDashboard({
+        includeReviews: false,
+        includeCounts: false,
+        mode: "health",
+        requestEpoch: dashboardEpochRef.current,
+      })
     }
     const interval = window.setInterval(refreshVisibleData, 60_000)
     window.addEventListener("focus", refreshVisibleData)
@@ -269,9 +313,6 @@ export function NabaPresenceDashboard({
     <DashboardContext.Provider
       value={{
         reviews,
-        setReviews,
-        selectedId,
-        setSelectedId,
         apiStatus,
         counts,
         refreshCounts,

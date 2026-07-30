@@ -1,17 +1,17 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { useState } from "react"
 
 import { ConnectionsView } from "@/components/naba-presence/connections-view"
 import { useNabaPresenceDashboard } from "@/components/naba-presence/review-app"
 import { ReviewQueue } from "@/components/naba-presence/reviews/review-queue"
+import type { Review } from "@/lib/naba-presence-data"
 
 export function InboxRoute() {
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [selectedId, setSelectedId] = useState("")
   const {
-    reviews,
-    setReviews,
-    selectedId,
-    setSelectedId,
     apiStatus,
     counts,
     refreshCounts,
@@ -46,11 +46,9 @@ export function LocationReviewsRoute({
 }: {
   locationId: string
 }) {
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [selectedId, setSelectedId] = useState("")
   const {
-    reviews,
-    setReviews,
-    selectedId,
-    setSelectedId,
     apiStatus,
     counts,
     refreshCounts,
