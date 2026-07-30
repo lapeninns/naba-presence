@@ -189,7 +189,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(audit.metadata.reviewsAffected).toBe(1)
   })
 
-  it("refuses erasure under an active legal hold without changing data", async () => {
+  it("blocks erasure under a hold, then releases and fulfils it", async () => {
     const fixture = await createFixture()
     const request = await createRequest(
       fixture.owner.cookie,
@@ -231,6 +231,34 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       where id = ${request.id}
     `
     expect(privacyRequest.status).toBe("pending")
+
+    const releaseResponse = await fetch(`${server.baseUrl}/api/legal-holds`, {
+      method: "DELETE",
+      headers: {
+        cookie: fixture.owner.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ reviewId: fixture.review.reviewId }),
+    })
+    expect(releaseResponse.status).toBe(200)
+    expect(await releaseResponse.json()).toEqual({ released: true })
+
+    const fulfilledResponse = await fulfil(
+      fixture.owner.cookie,
+      request.id,
+      "Legal hold released; erasure fulfilled."
+    )
+    expect(fulfilledResponse.status).toBe(200)
+
+    const [anonymizedReview] = await admin`
+      select reviewer_display_name as "reviewerDisplayName", review_text as text
+      from review
+      where id = ${fixture.review.reviewId}
+    `
+    expect(anonymizedReview).toEqual({
+      reviewerDisplayName: "Removed reviewer",
+      text: null,
+    })
   })
 
   it("restricts matching reviews, blocks drafts, and flags exports", async () => {
@@ -380,5 +408,34 @@ describeDatabase("privacy fulfilment and audit retention", () => {
         `
       })
     ).rejects.toThrow(/audit_log is append-only/)
+  })
+
+  it("guards formula-prefixed values in the routed audit CSV export", async () => {
+    const fixture = await createFixture()
+    const formula = "=SUM(A1)"
+    await admin`
+      insert into audit_log (
+        organisation_id,
+        action,
+        subject_type,
+        subject_id,
+        request_id
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${formula},
+        'review',
+        ${fixture.review.reviewId},
+        ${randomUUID()}
+      )
+    `
+
+    const response = await fetch(
+      `${server.baseUrl}/api/audit-log?format=csv&action=${encodeURIComponent(formula)}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("text/csv")
+    expect(await response.text()).toContain(`\"'${formula}\"`)
   })
 })
