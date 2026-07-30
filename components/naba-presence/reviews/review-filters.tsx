@@ -2,7 +2,7 @@
 
 import { Search, SlidersHorizontal, X } from "lucide-react"
 
-import type { Queue } from "@/components/naba-presence/reviews-view"
+import type { Queue } from "@/components/naba-presence/reviews/review-queue"
 import { readControlValue } from "@/components/naba-presence/shared"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"

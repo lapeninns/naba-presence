@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test"
+import { expect, type Page, type Request, test } from "@playwright/test"
 
 import {
   readJourneyState,
@@ -28,6 +28,8 @@ test.describe("critical browser journeys", () => {
       page.getByRole("tab", { name: /All reviews,\s+2/ })
     ).toBeVisible()
 
+    await verifyLocationScopedQueue(page, state)
+    await page.goto("/inbox")
     await verifyServerFilters(page, state)
     await page.reload()
 
@@ -173,6 +175,79 @@ test.describe("critical browser journeys", () => {
     ).toBeVisible()
   })
 })
+
+async function verifyLocationScopedQueue(page: Page, state: JourneyState) {
+  const isScopedReviewsResponse = (response: {
+    request(): { method(): string }
+    url(): string
+  }) => {
+    const url = new URL(response.url())
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/reviews" &&
+      url.searchParams.get("location_id") === state.directReview.locationId
+    )
+  }
+  const scopedReviews = page.waitForResponse(isScopedReviewsResponse)
+  const scopedCounts = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/reviews/counts" &&
+      url.searchParams.get("locationId") === state.directReview.locationId
+    )
+  })
+
+  await page.goto(
+    `/locations/${state.directReview.locationId}/reviews`
+  )
+  expect((await scopedReviews).status()).toBe(200)
+  expect((await scopedCounts).status()).toBe(200)
+  await expect(
+    page.getByRole("heading", { name: "Reviews", level: 1 })
+  ).toBeVisible()
+  await expect(page.getByLabel("Filter by location")).toHaveCount(0)
+
+  const reviewList = page.getByRole("region", { name: "Review list" })
+  await expect(
+    reviewList.getByText(state.directReview.text, { exact: true })
+  ).toBeVisible()
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("tab", { name: /All reviews,\s+1/ })
+  ).toBeVisible()
+
+  const unscopedReviewRequests: string[] = []
+  const recordUnscopedReviewRequest = (request: Request) => {
+    const url = new URL(request.url())
+    if (
+      request.method() === "GET" &&
+      url.pathname === "/api/reviews" &&
+      !url.searchParams.has("location_id")
+    ) {
+      unscopedReviewRequests.push(url.toString())
+    }
+  }
+  page.on("request", recordUnscopedReviewRequest)
+
+  const backgroundReviews = page.waitForResponse(isScopedReviewsResponse)
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  expect((await backgroundReviews).status()).toBe(200)
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+
+  const refreshedReviews = page.waitForResponse(isScopedReviewsResponse)
+  await page.getByRole("button", { name: "Live data" }).click()
+  expect((await refreshedReviews).status()).toBe(200)
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+  page.off("request", recordUnscopedReviewRequest)
+  expect(unscopedReviewRequests).toEqual([])
+}
 
 async function verifyServerFilters(page: Page, state: JourneyState) {
   const locationReviews = page.waitForResponse((response) => {

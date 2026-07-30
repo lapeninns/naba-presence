@@ -31,6 +31,7 @@ import type {
 import { ReviewDetail } from "@/components/naba-presence/reviews/review-detail"
 import { ReviewFilters } from "@/components/naba-presence/reviews/review-filters"
 import { ReviewList } from "@/components/naba-presence/reviews/review-list"
+import { REVIEW_WORKFLOW_STATES } from "@/lib/domain/workflow"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-presence-data"
 import {
@@ -41,6 +42,13 @@ import {
 import { PageHeader } from "@/components/naba-presence/shared"
 
 export type Queue = "all" | ReviewStatus
+
+const EMPTY_REVIEW_COUNTS: ReviewCounts = {
+  total: 0,
+  byStatus: Object.fromEntries(
+    REVIEW_WORKFLOW_STATES.map((status) => [status, 0])
+  ) as ReviewCounts["byStatus"],
+}
 
 function relativeRefreshTime(value: number | null) {
   if (!value) return "never"
@@ -65,7 +73,7 @@ function mergeLocationDirectory(
   return next
 }
 
-export function ReviewsWorkspace({
+export function ReviewQueue({
   reviews,
   setReviews,
   selectedId,
@@ -76,6 +84,8 @@ export function ReviewsWorkspace({
   connectionState,
   lastRefreshedAt,
   onRefresh,
+  locationId,
+  heading,
 }: {
   reviews: Review[]
   setReviews: React.Dispatch<React.SetStateAction<Review[]>>
@@ -86,7 +96,12 @@ export function ReviewsWorkspace({
   refreshCounts: (locationId?: string) => Promise<void>
   connectionState: ConnectionState
   lastRefreshedAt: number | null
-  onRefresh: () => Promise<void>
+  onRefresh: (succeeded?: boolean) => Promise<void>
+  locationId?: string
+  heading: {
+    title: string
+    description: string
+  }
 }) {
   const [queue, setQueue] = useState<Queue>("all")
   const [location, setLocation] = useState("All locations")
@@ -115,8 +130,13 @@ export function ReviewsWorkspace({
   )
   const [isFiltering, startFiltering] = useTransition()
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list")
+  const [resolvedCountsScope, setResolvedCountsScope] = useState<string | null>(
+    null
+  )
   const selectedRowRef = useRef<HTMLButtonElement>(null)
   const backButtonRef = useRef<HTMLButtonElement>(null)
+  const reviewsRequestIdRef = useRef(0)
+  const mountedRef = useRef(true)
   const deferredQuery = useDeferredValue(query)
   const locationDirectory = useMemo(
     () => mergeLocationDirectory(knownLocations, reviews),
@@ -128,6 +148,10 @@ export function ReviewsWorkspace({
   )
   const selectedLocationId =
     location === "All locations" ? undefined : locationDirectory.get(location)
+  const effectiveLocationId = locationId ?? selectedLocationId
+  const countsScope = effectiveLocationId ?? "all-locations"
+  const visibleCounts =
+    resolvedCountsScope === countsScope ? counts : EMPTY_REVIEW_COUNTS
   const hasServerData =
     apiStatus === "connected" ||
     apiStatus === "stale" ||
@@ -143,7 +167,7 @@ export function ReviewsWorkspace({
     }
     const days = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : null
     return {
-      locationId: selectedLocationId,
+      locationId: effectiveLocationId,
       ratings: rating === "all" ? undefined : [Number(rating)],
       statuses: workflowByQueue[queue],
       replyStates: replyState === "all" ? undefined : [replyState],
@@ -159,16 +183,24 @@ export function ReviewsWorkspace({
   }, [
     dateRange,
     deferredQuery,
+    effectiveLocationId,
     filterAnchor,
     publishState,
     queue,
     rating,
     replyState,
-    selectedLocationId,
     sort,
     syncState,
     verification,
   ])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      reviewsRequestIdRef.current += 1
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -189,15 +221,33 @@ export function ReviewsWorkspace({
 
   useEffect(() => {
     if (!hasServerData) return
-    void refreshCounts(selectedLocationId)
-  }, [hasServerData, refreshCounts, selectedLocationId])
+    let active = true
+    void refreshCounts(effectiveLocationId).then(
+      () => {
+        if (active) setResolvedCountsScope(countsScope)
+      },
+      () => {
+        // Keep previous-scope totals hidden when a scoped request fails.
+      }
+    )
+    return () => {
+      active = false
+    }
+  }, [countsScope, effectiveLocationId, hasServerData, refreshCounts])
 
   useEffect(() => {
+    const requestId = ++reviewsRequestIdRef.current
     if (!hasServerData) return
     const timeout = window.setTimeout(() => {
       startFiltering(async () => {
         try {
           const page = await loadReviewsPage(serverFilters)
+          if (
+            !mountedRef.current ||
+            requestId !== reviewsRequestIdRef.current
+          ) {
+            return
+          }
           setKnownLocations((current) =>
             mergeLocationDirectory(current, page.items)
           )
@@ -209,16 +259,93 @@ export function ReviewsWorkspace({
               : (page.items[0]?.id ?? "")
           )
         } catch {
+          if (
+            mountedRef.current &&
+            requestId === reviewsRequestIdRef.current
+          ) {
+            void onRefresh(false)
+          }
           // Preserve the last successful inbox state during a transient failure.
         }
       })
     }, 250)
     return () => window.clearTimeout(timeout)
-  }, [hasServerData, serverFilters, setReviews, setSelectedId])
+  }, [
+    hasServerData,
+    onRefresh,
+    serverFilters,
+    setReviews,
+    setSelectedId,
+  ])
+
+  useEffect(() => {
+    if (!hasServerData) return
+
+    const refreshVisibleQueue = () => {
+      if (document.visibilityState !== "visible") return
+      const requestId = ++reviewsRequestIdRef.current
+      startFiltering(async () => {
+        const [pageResult, countsResult] = await Promise.allSettled([
+          loadReviewsPage(serverFilters),
+          refreshCounts(effectiveLocationId),
+        ])
+        if (mountedRef.current && countsResult.status === "fulfilled") {
+          setResolvedCountsScope(countsScope)
+        }
+        if (
+          !mountedRef.current ||
+          requestId !== reviewsRequestIdRef.current
+        ) {
+          return
+        }
+        await onRefresh(
+          pageResult.status === "fulfilled" &&
+            countsResult.status === "fulfilled"
+        )
+        if (
+          !mountedRef.current ||
+          requestId !== reviewsRequestIdRef.current
+        ) {
+          return
+        }
+        if (pageResult.status !== "fulfilled") return
+
+        const page = pageResult.value
+        setKnownLocations((current) =>
+          mergeLocationDirectory(current, page.items)
+        )
+        setReviews(page.items)
+        setNextCursor(page.nextCursor)
+        setSelectedId((current) =>
+          page.items.some((review) => review.id === current)
+            ? current
+            : (page.items[0]?.id ?? "")
+        )
+      })
+    }
+
+    const interval = window.setInterval(refreshVisibleQueue, 60_000)
+    window.addEventListener("focus", refreshVisibleQueue)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener("focus", refreshVisibleQueue)
+    }
+  }, [
+    countsScope,
+    effectiveLocationId,
+    hasServerData,
+    onRefresh,
+    refreshCounts,
+    serverFilters,
+    setReviews,
+    setSelectedId,
+  ])
 
   const filteredReviews = useMemo(() => {
     const normalizedQuery = deferredQuery.trim().toLowerCase()
     return reviews.filter((review) => {
+      const matchesFixedLocation =
+        !locationId || review.locationId === locationId
       const matchesQueue =
         hasServerData || queue === "all" || review.status === queue
       const matchesLocation =
@@ -235,9 +362,23 @@ export function ReviewsWorkspace({
         `${review.reviewer} ${review.text} ${review.location}`
           .toLowerCase()
           .includes(normalizedQuery)
-      return matchesQueue && matchesLocation && matchesRating && matchesQuery
+      return (
+        matchesFixedLocation &&
+        matchesQueue &&
+        matchesLocation &&
+        matchesRating &&
+        matchesQuery
+      )
     })
-  }, [deferredQuery, hasServerData, location, queue, rating, reviews])
+  }, [
+    deferredQuery,
+    hasServerData,
+    location,
+    locationId,
+    queue,
+    rating,
+    reviews,
+  ])
 
   function clearFilters() {
     setQuery("")
@@ -253,9 +394,16 @@ export function ReviewsWorkspace({
 
   function loadMore() {
     if (!nextCursor) return
+    const requestId = ++reviewsRequestIdRef.current
     startFiltering(async () => {
       try {
         const page = await loadReviewsPage(serverFilters, nextCursor)
+        if (
+          !mountedRef.current ||
+          requestId !== reviewsRequestIdRef.current
+        ) {
+          return
+        }
         setKnownLocations((current) =>
           mergeLocationDirectory(current, page.items)
         )
@@ -271,8 +419,49 @@ export function ReviewsWorkspace({
     })
   }
 
+  async function reloadCurrentQueue() {
+    const requestId = ++reviewsRequestIdRef.current
+    const [pageResult, countsResult] = await Promise.allSettled([
+      loadReviewsPage(serverFilters),
+      refreshCounts(effectiveLocationId),
+    ])
+    if (mountedRef.current && countsResult.status === "fulfilled") {
+      setResolvedCountsScope(countsScope)
+    }
+    if (
+      !mountedRef.current ||
+      requestId !== reviewsRequestIdRef.current
+    ) {
+      return
+    }
+    await onRefresh(
+      pageResult.status === "fulfilled" &&
+        countsResult.status === "fulfilled"
+    )
+    if (
+      !mountedRef.current ||
+      requestId !== reviewsRequestIdRef.current
+    ) {
+      return
+    }
+    if (pageResult.status !== "fulfilled") return
+
+    const page = pageResult.value
+    setKnownLocations((current) =>
+      mergeLocationDirectory(current, page.items)
+    )
+    setReviews(page.items)
+    setNextCursor(page.nextCursor)
+    setSelectedId((current) =>
+      page.items.some((review) => review.id === current)
+        ? current
+        : (page.items[0]?.id ?? "")
+    )
+  }
+
   const selectedReview =
-    reviews.find((review) => review.id === selectedId) ?? reviews[0]
+    filteredReviews.find((review) => review.id === selectedId) ??
+    filteredReviews[0]
 
   function selectReview(id: string) {
     setSelectedId(id)
@@ -295,13 +484,13 @@ export function ReviewsWorkspace({
     >
       <div className="flex shrink-0 flex-col gap-4 px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)">
         <PageHeader
-          title="Inbox"
-          description="Google reviews awaiting a reply, approval, or publication across every linked location."
+          title={heading.title}
+          description={heading.description}
           actions={
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void onRefresh()}
+              onClick={() => void reloadCurrentQueue()}
             >
               <RefreshCw data-icon="inline-start" />
               {apiStatus === "connected"
@@ -337,7 +526,7 @@ export function ReviewsWorkspace({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void onRefresh()}
+                onClick={() => void reloadCurrentQueue()}
               >
                 <RefreshCw data-icon="inline-start" />
                 Retry
@@ -368,7 +557,7 @@ export function ReviewsWorkspace({
         <ReviewFilters
           queue={queue}
           onQueueChange={setQueue}
-          counts={counts}
+          counts={visibleCounts}
           rating={rating}
           onRatingChange={setRating}
           query={query}
@@ -388,7 +577,7 @@ export function ReviewsWorkspace({
           filtersOpen={filtersOpen}
           onFiltersOpenChange={setFiltersOpen}
           onReset={clearFilters}
-          showLocationFilter
+          showLocationFilter={!locationId}
           location={location}
           onLocationChange={setLocation}
           locationItems={locationItems}
@@ -464,12 +653,7 @@ export function ReviewsWorkspace({
                 review={selectedReview}
                 onBack={returnToList}
                 backButtonRef={backButtonRef}
-                onRefreshData={async () => {
-                  await Promise.all([
-                    onRefresh(),
-                    refreshCounts(selectedLocationId),
-                  ])
-                }}
+                onRefreshData={reloadCurrentQueue}
                 onUpdate={(patch) =>
                   setReviews((current) =>
                     current.map((review) =>
@@ -494,6 +678,11 @@ export function ReviewsWorkspace({
                     Connect Google and link a verified location to begin.
                   </EmptyDescription>
                 </EmptyHeader>
+                <EmptyContent>
+                  <Button variant="outline" size="sm" onClick={returnToList}>
+                    Back to reviews
+                  </Button>
+                </EmptyContent>
               </Empty>
             )}
           </ScrollArea>

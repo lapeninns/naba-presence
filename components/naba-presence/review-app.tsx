@@ -1,6 +1,5 @@
 "use client"
 
-import { usePathname } from "next/navigation"
 import {
   createContext,
   useCallback,
@@ -51,7 +50,7 @@ type DashboardContextValue = {
   connectionState: ConnectionState
   lastRefreshedAt: number | null
   session: AppSession | null
-  refreshReviews: () => Promise<void>
+  refreshReviews: (succeeded?: boolean) => Promise<void>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -71,7 +70,6 @@ export function NabaPresenceDashboard({
 }: {
   children: React.ReactNode
 }) {
-  const pathname = usePathname()
   const [reviews, setReviews] = useState<Review[]>([])
   const [selectedId, setSelectedId] = useState("")
   const [apiStatus, setApiStatus] = useState<ApiStatus>("loading")
@@ -82,23 +80,42 @@ export function NabaPresenceDashboard({
   const [session, setSession] = useState<AppSession | null>(null)
   const mountedRef = useRef(true)
   const hasSuccessfulRefreshRef = useRef(false)
+  const lastReviewRefreshSucceededRef = useRef(false)
   const lastRefreshedAtRef = useRef<number | null>(null)
   const countsLocationIdRef = useRef<string | undefined>(undefined)
+  const countsRequestIdRef = useRef(0)
   const connectionStateRef = useRef<ConnectionState>("loading")
 
-  const refreshDashboard = useCallback(async (includeReviews: boolean) => {
+  const refreshDashboard = useCallback(async (
+    includeReviews: boolean,
+    includeCounts = true,
+    markFreshness = true
+  ) => {
+    const countsLocationId = countsLocationIdRef.current
+    const countsRequestId = includeCounts
+      ? ++countsRequestIdRef.current
+      : countsRequestIdRef.current
     const [countsResult, connectionsResult, reviewsResult] =
       await Promise.allSettled([
-        loadReviewCounts(countsLocationIdRef.current),
+        includeCounts
+          ? loadReviewCounts(countsLocationId)
+          : Promise.resolve(null),
         loadConnections(),
         includeReviews ? loadReviews() : Promise.resolve(null),
       ])
     if (!mountedRef.current) return
 
-    if (countsResult.status === "fulfilled") {
+    if (
+      includeCounts &&
+      countsResult.status === "fulfilled" &&
+      countsResult.value &&
+      countsRequestId === countsRequestIdRef.current &&
+      countsLocationId === countsLocationIdRef.current
+    ) {
       setCounts(countsResult.value)
     }
     let nextConnectionState = connectionStateRef.current
+    const previousConnectionState = connectionStateRef.current
     if (connectionsResult.status === "fulfilled") {
       nextConnectionState = connectionsResult.value.connections.some(
         (connection) => connection.status === "active"
@@ -107,6 +124,20 @@ export function NabaPresenceDashboard({
         : "disconnected"
       connectionStateRef.current = nextConnectionState
       setConnectionState(nextConnectionState)
+      if (!markFreshness) {
+        if (nextConnectionState === "disconnected") {
+          lastReviewRefreshSucceededRef.current = false
+          setApiStatus("disconnected")
+        } else if (previousConnectionState === "disconnected") {
+          setApiStatus(
+            lastReviewRefreshSucceededRef.current
+              ? "connected"
+              : hasSuccessfulRefreshRef.current
+                ? "stale"
+                : "error"
+          )
+        }
+      }
     }
     if (
       includeReviews &&
@@ -126,34 +157,73 @@ export function NabaPresenceDashboard({
       countsResult.status === "fulfilled" &&
       connectionsResult.status === "fulfilled" &&
       reviewsResult.status === "fulfilled"
-    if (succeeded) {
-      const refreshedAt = Date.now()
-      hasSuccessfulRefreshRef.current = true
-      lastRefreshedAtRef.current = refreshedAt
-      setLastRefreshedAt(refreshedAt)
-      setApiStatus(
-        nextConnectionState === "disconnected"
-          ? "disconnected"
-          : "connected"
-      )
-    } else {
-      setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
+    if (markFreshness) {
+      if (succeeded) {
+        const refreshedAt = Date.now()
+        hasSuccessfulRefreshRef.current = true
+        lastReviewRefreshSucceededRef.current = true
+        lastRefreshedAtRef.current = refreshedAt
+        setLastRefreshedAt(refreshedAt)
+        setApiStatus(
+          nextConnectionState === "disconnected"
+            ? "disconnected"
+            : "connected"
+        )
+      } else {
+        lastReviewRefreshSucceededRef.current = false
+        setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
+      }
     }
   }, [])
 
-  const refreshReviews = useCallback(async () => {
-    await refreshDashboard(true)
-  }, [refreshDashboard])
+  const refreshReviews = useCallback(async (succeeded = true) => {
+    if (!mountedRef.current) return
+    if (!succeeded) {
+      lastReviewRefreshSucceededRef.current = false
+      setApiStatus(
+        connectionStateRef.current === "disconnected"
+          ? "disconnected"
+          : hasSuccessfulRefreshRef.current
+            ? "stale"
+            : "error"
+      )
+      return
+    }
+
+    const refreshedAt = Date.now()
+    hasSuccessfulRefreshRef.current = true
+    lastReviewRefreshSucceededRef.current = true
+    lastRefreshedAtRef.current = refreshedAt
+    setLastRefreshedAt(refreshedAt)
+    setApiStatus(
+      connectionStateRef.current === "disconnected"
+        ? "disconnected"
+        : "connected"
+    )
+  }, [])
 
   const refreshCounts = useCallback(async (locationId?: string) => {
     countsLocationIdRef.current = locationId
+    const requestId = ++countsRequestIdRef.current
     try {
       const loaded = await loadReviewCounts(locationId)
       if (!mountedRef.current) return
+      if (requestId !== countsRequestIdRef.current) {
+        throw new Error("Review counts request was superseded.")
+      }
       setCounts(loaded)
-    } catch {
+    } catch (error) {
       if (!mountedRef.current) return
-      setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
+      if (requestId === countsRequestIdRef.current) {
+        setApiStatus(
+          connectionStateRef.current === "disconnected"
+            ? "disconnected"
+            : hasSuccessfulRefreshRef.current
+              ? "stale"
+              : "error"
+        )
+      }
+      throw error
     }
   }, [])
 
@@ -182,9 +252,10 @@ export function NabaPresenceDashboard({
         setApiStatus("stale")
       }
       if (document.visibilityState !== "visible") return
-      void refreshDashboard(
-        pathname === "/inbox" || pathname.endsWith("/reviews")
-      )
+      // ReviewQueue owns its active server filters. Refreshing the shared,
+      // unfiltered review page here could overwrite a location-scoped queue;
+      // the timestamp change prompts the mounted queue to reload its scope.
+      void refreshDashboard(false, false, false)
     }
     const interval = window.setInterval(refreshVisibleData, 60_000)
     window.addEventListener("focus", refreshVisibleData)
@@ -192,7 +263,7 @@ export function NabaPresenceDashboard({
       window.clearInterval(interval)
       window.removeEventListener("focus", refreshVisibleData)
     }
-  }, [apiStatus, pathname, refreshDashboard])
+  }, [apiStatus, refreshDashboard])
 
   return (
     <DashboardContext.Provider
