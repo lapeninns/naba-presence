@@ -42,8 +42,6 @@ import {
   formatDuration,
   LiveDataError,
   MetricCard,
-  PageFrame,
-  PageHeader,
 } from "@/components/naba-presence/shared"
 
 export function AnalyticsView() {
@@ -130,44 +128,38 @@ export function AnalyticsView() {
   }
 
   return (
-    <PageFrame width="wide">
-      <PageHeader
-        title="Analytics"
-        description={`Google review and reply performance for the last ${rangeLabel}.`}
-        actions={
-          <>
-            <NativeSelect
-              size="sm"
-              value={dateRange}
-              onValueChange={(value) => {
-                beginAnalyticsLoad()
-                setDateRange(value as "7d" | "30d" | "90d" | "365d")
-              }}
-              aria-label="Analytics date range"
-            >
-              <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
-              <NativeSelectOption value="30d">Last 30 days</NativeSelectOption>
-              <NativeSelectOption value="90d">Last 90 days</NativeSelectOption>
-              <NativeSelectOption value="365d">
-                Last 12 months
-              </NativeSelectOption>
-            </NativeSelect>
-            <NativeSelect
-              size="sm"
-              value={granularity}
-              onValueChange={(value) => {
-                beginAnalyticsLoad()
-                setGranularity(value as "day" | "week" | "month")
-              }}
-              aria-label="Analytics granularity"
-            >
-              <NativeSelectOption value="day">Daily</NativeSelectOption>
-              <NativeSelectOption value="week">Weekly</NativeSelectOption>
-              <NativeSelectOption value="month">Monthly</NativeSelectOption>
-            </NativeSelect>
-          </>
-        }
-      />
+    <div className="flex flex-col gap-(--nr-gap-section)">
+      <div className="flex flex-wrap justify-end gap-2">
+        <NativeSelect
+          size="sm"
+          value={dateRange}
+          onValueChange={(value) => {
+            beginAnalyticsLoad()
+            setDateRange(value as "7d" | "30d" | "90d" | "365d")
+          }}
+          aria-label="Analytics date range"
+        >
+          <NativeSelectOption value="7d">Last 7 days</NativeSelectOption>
+          <NativeSelectOption value="30d">Last 30 days</NativeSelectOption>
+          <NativeSelectOption value="90d">Last 90 days</NativeSelectOption>
+          <NativeSelectOption value="365d">
+            Last 12 months
+          </NativeSelectOption>
+        </NativeSelect>
+        <NativeSelect
+          size="sm"
+          value={granularity}
+          onValueChange={(value) => {
+            beginAnalyticsLoad()
+            setGranularity(value as "day" | "week" | "month")
+          }}
+          aria-label="Analytics granularity"
+        >
+          <NativeSelectOption value="day">Daily</NativeSelectOption>
+          <NativeSelectOption value="week">Weekly</NativeSelectOption>
+          <NativeSelectOption value="month">Monthly</NativeSelectOption>
+        </NativeSelect>
+      </div>
 
       {analyticsStatus === "error" ? (
         <LiveDataError onRetry={retryAnalytics} />
@@ -426,6 +418,6 @@ export function AnalyticsView() {
           policy.
         </AlertDescription>
       </Alert>
-    </PageFrame>
+    </div>
   )
 }

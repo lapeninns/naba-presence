@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation"
 
-import { AnalyticsView } from "@/components/naba-presence/analytics-view"
 import { ConnectionsView } from "@/components/naba-presence/connections-view"
 import { useNabaPresenceDashboard } from "@/components/naba-presence/review-app"
 import { ReviewsWorkspace } from "@/components/naba-presence/reviews-view"
@@ -36,10 +35,6 @@ export function InboxRoute() {
       onRefresh={refreshReviews}
     />
   )
-}
-
-export function AnalyticsRoute() {
-  return <AnalyticsView />
 }
 
 export function ConnectionsRoute() {
