@@ -38,17 +38,22 @@ database is unavailable.
    ```
 
 2. Start Docker Desktop (or another Docker-compatible runtime), then start the
-   local Supabase stack:
+   local Supabase stack and create the non-superuser runtime login:
 
    ```bash
    pnpm supabase:start
    pnpm supabase:status
+   pnpm db:runtime-role
    ```
 
    Supabase CLI runs PostgreSQL 17 and the Supabase services in Docker, then
    automatically applies every migration in `supabase/migrations`. The local
    database is at `127.0.0.1:54322`, the API at `127.0.0.1:54321`, Studio at
    `127.0.0.1:54323`, and the test email inbox at `127.0.0.1:54324`.
+   `DIRECT_DATABASE_URL` is the migration/admin connection only.
+   `DATABASE_URL` must use the `naba_test_runtime` login locally, or another
+   non-superuser member of `naba_app_runtime` in a deployment. The application
+   refuses an RLS-bypassing production identity at startup.
 
 3. Start the application:
 
@@ -63,9 +68,16 @@ database is unavailable.
    pnpm start:scheduler
    ```
 
-4. Open `http://localhost:3000`. In non-production environments, `/api/session`
-   creates a local owner session. Production users are provisioned on their first
-   successful Google OAuth connection.
+   The scheduler runs reconciliation, retention, and a third jobs tick that
+   drains due webhook, checkpoint, and publish-recovery work through
+   `/api/jobs/run`.
+
+4. Open `http://localhost:3000`. Production users start at `/sign-in` and are
+   provisioned during a successful Google OAuth sign-in. Invited users open the
+   one-time `/invite/{token}` URL and continue with the invited email; acceptance
+   adds them to the inviting organisation rather than creating a new one.
+   Local development may enable `LOCAL_BOOTSTRAP_ENABLED=true`, which lets
+   `/api/session` create a local owner session without Google.
 
 To rebuild the local database from the committed migrations, or to stop the
 local stack while preserving its Docker volume:
@@ -93,7 +105,8 @@ docker compose up --build
 
 This separate stack starts a plain PostgreSQL 17 container, applies migrations
 once, starts the standalone web image, and starts the reconciliation/retention
-scheduler. Use it to exercise the production container topology; normal local
+scheduler with its jobs worker tick. Use it to exercise the production
+container topology; normal local
 development uses Supabase CLI above. PostgreSQL is exposed only on
 `127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
 session, so it does not require hosted Supabase or Google OAuth.
@@ -114,9 +127,11 @@ pnpm build
 pnpm test:a11y
 ```
 
-`pnpm test` applies the full migration to an embedded PostgreSQL runtime. CI
-also applies it to PostgreSQL 17 and runs `pnpm test:integration` as a
-non-owner runtime role to prove cross-tenant RLS behaviour.
+`pnpm test` runs the unit and contract suites; its embedded PGlite migration
+contract applies only `0001_initial.sql`. CI separately runs `pnpm db:migrate`
+against PostgreSQL 17, creates a non-superuser runtime login with
+`pnpm db:runtime-role`, builds the standalone server, and runs the integration
+and browser suites through that runtime role.
 
 Development and production builds intentionally use Next.js 16’s supported
 webpack path because Turbopack can spawn runaway PostCSS workers in this

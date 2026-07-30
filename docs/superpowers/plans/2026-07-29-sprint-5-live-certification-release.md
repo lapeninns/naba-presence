@@ -140,10 +140,12 @@
 **Files:**
 - Modify: `README.md`, `docs/architecture.md`, `docs/requirements-matrix.md`, `docs/runbook.md`
 
-- [ ] **Step 1: Fix the audited false/stale claims** (each verified in the exploration): README L26-27 preview-dataset fallback (the UI explicitly refuses substitution — delete the claim); README L116-118 "`pnpm test` applies the full migration" (it applies only 0001 to PGlite — state exactly that, and that CI applies all migrations to PG 17); requirements-matrix L44-47 (a11y scenario count now includes sign-in/invite/state variants — recount; CI evidence lines must cite real run URLs now that CI executes).
-- [ ] **Step 2: Document the new architecture** in `docs/architecture.md`: runtime-role model + startup assertions (Sprint 1), three-phase mutation engine + recovery (Sprint 2), checkpoint/watermark/tombstone sync + workers + advisory locks (Sprint 3), invitations/org switching + privacy fulfilment + audit retention (Sprint 4). One section each, referencing the module paths.
-- [ ] **Step 3: README setup updates:** `pnpm db:runtime-role` step, the runtime `DATABASE_URL` guidance, sign-in flow note (production has `/sign-in`; local uses bootstrap), invitation flow, scheduler's third tick (jobs).
-- [ ] **Step 4:** Requirements-matrix rows for every Sprint 1–4 acceptance criterion → evidence file/test path (this program's evidence maps make that mechanical).
+- [ ] **Step 1: Fix the audited false/stale claims** (each verified in the exploration): README L26-27 preview-dataset fallback (the UI explicitly refuses substitution — delete the claim); README L116-118 "`pnpm test` applies the full migration" (it applies only 0001 to PGlite — state exactly that, and that CI applies all migrations to PG 17); requirements-matrix L44-47 (a11y scenario count now includes sign-in/invite/state variants — recount; CI evidence lines must cite real run URLs now that CI executes). **BLOCKED — the stale claims and 24-scenario count are corrected, but this checkout has no Git remote and therefore no real CI run URL exists to cite.**
+- [x] **Step 2: Document the new architecture** in `docs/architecture.md`: runtime-role model + startup assertions (Sprint 1), three-phase mutation engine + recovery (Sprint 2), checkpoint/watermark/tombstone sync + workers + advisory locks (Sprint 3), invitations/org switching + privacy fulfilment + audit retention (Sprint 4). One section each, referencing the module paths.
+- [x] **Step 3: README setup updates:** `pnpm db:runtime-role` step, the runtime `DATABASE_URL` guidance, sign-in flow note (production has `/sign-in`; local uses bootstrap), invitation flow, scheduler's third tick (jobs).
+- [x] **Step 4:** Requirements-matrix rows for every Sprint 1–4 acceptance criterion → evidence file/test path (this program's evidence maps make that mechanical).
+
+**Deviation (Task 9):** The README already contained the corrected no-preview-data behavior from the design-system merge, so it was verified rather than changed. Hosted CI evidence is recorded as blocked instead of inventing run URLs; all other documentation corrections are complete.
 
 ### Task 10: REL-502 — Staging soak and limited pilot rollout
 
