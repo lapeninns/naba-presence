@@ -14,6 +14,17 @@ export function parseFeatureFlag(
   )
 }
 
+export function parseDatabasePoolMax(value: unknown): number {
+  if (value === undefined || value === "") return 10
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new Error(
+      `DATABASE_POOL_MAX must be an integer from 1 to 100, got: ${value}`
+    )
+  }
+  return parsed
+}
+
 const featureFlag = (fallback: boolean) =>
   z
     .unknown()
@@ -58,6 +69,10 @@ const timeoutWithDefault = (fallback: number) =>
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
+  DATABASE_POOL_MAX: z
+    .unknown()
+    .optional()
+    .transform(parseDatabasePoolMax),
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),

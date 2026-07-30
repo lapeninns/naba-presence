@@ -59,6 +59,20 @@ export function buildInboxQuery(
       rr.current_body as "replyBody",
       sc.status as "syncStatus"
     from review r
+    ${
+      filters.search
+        ? sql`
+          join search_review_ids(
+            nullif(
+              current_setting('app.organisation_id', true),
+              ''
+            )::uuid,
+            ${filters.search},
+            ${sha256(filters.search)}
+          ) search_match on search_match.review_id = r.id
+        `
+        : sql``
+    }
     join location l on l.id = r.location_id
     left join lateral (
       select id, body, verification_status
@@ -123,19 +137,6 @@ export function buildInboxQuery(
           : sql``
       }
       ${filters.dateTo ? sql`and r.update_time <= ${filters.dateTo}` : sql``}
-      ${
-        filters.search
-          ? sql`and (
-              to_tsvector(
-                'simple',
-                coalesce(r.review_text, '') || ' ' ||
-                coalesce(r.reviewer_display_name, '')
-              ) @@ websearch_to_tsquery('simple', ${filters.search})
-              or r.google_review_id_hash = ${sha256(filters.search)}
-              or r.google_review_name_hash = ${sha256(filters.search)}
-            )`
-          : sql``
-      }
       ${
         filters.cursor && filters.sort === "updated_desc"
           ? sql`and (r.update_time, r.id) < (

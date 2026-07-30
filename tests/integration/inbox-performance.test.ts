@@ -206,8 +206,8 @@ describeDatabase("100k-review inbox performance", () => {
     expect(p95).toBeLessThan(1500)
   }, 60_000)
 
-  it("uses review_search_idx for the real production search query", async () => {
-    const plan = await admin.begin(async (sql) => {
+  it("routes production search through the guarded indexed helper", async () => {
+    const runtimePlan = await runtime.begin(async (sql) => {
       await sql`
         select set_config(
           'app.organisation_id',
@@ -221,8 +221,46 @@ describeDatabase("100k-review inbox performance", () => {
       })
       return sql`explain (format json) ${query}`
     })
-    expect(JSON.stringify(plan)).toContain(
+    expect(JSON.stringify(runtimePlan)).toContain(
+      '"Function Name":"search_review_ids"'
+    )
+
+    const indexedPlan = await admin`
+      explain (format json)
+      select id
+      from review
+      where organisation_id = ${organisationId}
+        and (
+          search_document
+            @@ websearch_to_tsquery('simple', 'excellent breakfast')
+          or google_review_id_hash = 'not-a-real-hash'
+          or google_review_name_hash = 'not-a-real-hash'
+        )
+    `
+    expect(JSON.stringify(indexedPlan)).toContain(
       '"Index Name":"review_search_idx"'
     )
+  })
+
+  it("refuses a search helper call for a different tenant", async () => {
+    await expect(
+      runtime.begin(async (sql) => {
+        await sql`
+          select set_config(
+            'app.organisation_id',
+            ${organisationId},
+            true
+          )
+        `
+        return sql`
+          select review_id
+          from search_review_ids(
+            ${crypto.randomUUID()},
+            'excellent breakfast',
+            'not-a-real-hash'
+          )
+        `
+      })
+    ).rejects.toThrow(/tenant/i)
   })
 })

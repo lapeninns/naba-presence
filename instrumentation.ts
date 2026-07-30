@@ -4,13 +4,37 @@ import { registerOTel } from "@vercel/otel"
 import { redactForLog } from "@/lib/domain/redaction"
 
 export async function register() {
-  registerOTel({ serviceName: "nabapresence" })
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    const [
+      { OTLPMetricExporter },
+      { PeriodicExportingMetricReader },
+    ] = await Promise.all([
+      import("@opentelemetry/exporter-metrics-otlp-http"),
+      import("@opentelemetry/sdk-metrics"),
+    ])
+    const configuredInterval = Number(
+      process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60_000
+    )
+    const exportIntervalMillis =
+      Number.isFinite(configuredInterval) && configuredInterval >= 1_000
+        ? configuredInterval
+        : 60_000
+    registerOTel({
+      serviceName: "nabapresence",
+      metricReaders: [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter(),
+          exportIntervalMillis,
+        }),
+      ],
+    })
     const { assertProductionSafety } = await import(
       "@/lib/server/startup"
     )
     await assertProductionSafety()
+    return
   }
+  registerOTel({ serviceName: "nabapresence" })
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (

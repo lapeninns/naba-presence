@@ -28,7 +28,7 @@ const tenantTransactionCount = meter.createCounter(
 export function getDatabase(): Sql {
   if (!globalThis.__nabaSql) {
     globalThis.__nabaSql = postgres(getServerEnv().DATABASE_URL, {
-      max: 10,
+      max: getServerEnv().DATABASE_POOL_MAX,
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false,
