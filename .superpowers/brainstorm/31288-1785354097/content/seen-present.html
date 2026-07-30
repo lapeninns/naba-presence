@@ -1,0 +1,67 @@
+<h2>Seen / present online</h2>
+<p class="subtitle">The mark means visibility — your business is findable and here. Pick the clearest read.</p>
+
+<style>
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:8px; }
+  .opt { border:1px solid #d1d5db; border-radius:16px; padding:16px; background:#fff; cursor:pointer; text-align:center; transition:border-color .15s, box-shadow .15s; }
+  .opt:hover { border-color:#2563EB; box-shadow:0 8px 24px rgba(16,24,40,.08); }
+  .opt.selected { border-color:#2563EB; outline:3px solid rgba(37,99,235,.25); }
+  .tile { background:#F8FAFC; border-radius:14px; padding:24px 12px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; }
+  .name { font-weight:600; font-size:15px; }
+  .desc { color:#5F6368; font-size:13px; margin-top:4px; line-height:1.35; }
+</style>
+
+<div class="grid options">
+
+  <div class="opt option" data-choice="pulse-dot" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <circle cx="50" cy="50" r="14" fill="#2563EB"/>
+        <circle cx="50" cy="50" r="28" fill="none" stroke="#2563EB" stroke-width="5" opacity="0.45"/>
+        <circle cx="50" cy="50" r="42" fill="none" stroke="#2563EB" stroke-width="4" opacity="0.22"/>
+      </svg>
+    </div>
+    <div class="name">A · Pulse</div>
+    <div class="desc">Live presence rings — “we’re online / here.”</div>
+  </div>
+
+  <div class="opt option" data-choice="pin-pulse" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <path d="M50 12 C66 12 80 26 80 44 C80 64 60 82 50 94 C40 82 20 64 20 44 C20 26 34 12 50 12 Z" fill="#2563EB"/>
+        <circle cx="50" cy="42" r="10" fill="#FFFFFF"/>
+        <circle cx="50" cy="42" r="22" fill="none" stroke="#14B8A6" stroke-width="4" opacity="0.9"/>
+      </svg>
+    </div>
+    <div class="name">B · Present Pin</div>
+    <div class="desc">Local pin with a live ring — seen at this place.</div>
+  </div>
+
+  <div class="opt option" data-choice="eye-mark" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <path d="M10 50 C24 28 40 18 50 18 C60 18 76 28 90 50 C76 72 60 82 50 82 C40 82 24 72 10 50 Z" fill="#2563EB"/>
+        <circle cx="50" cy="50" r="16" fill="#FFFFFF"/>
+        <circle cx="50" cy="50" r="8" fill="#101828"/>
+      </svg>
+    </div>
+    <div class="name">C · Seen</div>
+    <div class="desc">Literal “seen” — visibility mark.</div>
+  </div>
+
+  <div class="opt option" data-choice="beacon" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <circle cx="50" cy="72" r="10" fill="#2563EB"/>
+        <path d="M50 62 V28" stroke="#2563EB" stroke-width="6" stroke-linecap="round"/>
+        <path d="M38 38 A18 18 0 0 1 62 38" stroke="#14B8A6" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M30 30 A28 28 0 0 1 70 30" stroke="#14B8A6" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.55"/>
+      </svg>
+    </div>
+    <div class="name">D · Beacon</div>
+    <div class="desc">Broadcast from a place — present and findable.</div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;color:#5F6368;font-size:13px">Click one. We’ll refine that into the full set next.</p>

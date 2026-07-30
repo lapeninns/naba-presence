@@ -1,0 +1,65 @@
+<h2>Pulse + Store</h2>
+<p class="subtitle">Presence rings outside. A small shop inside — not a plain dot. Pick the cleanest version.</p>
+
+<style>
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:8px; }
+  .opt { border:1px solid #d1d5db; border-radius:16px; padding:16px; background:#fff; cursor:pointer; text-align:center; transition:border-color .15s, box-shadow .15s; }
+  .opt:hover { border-color:#2563EB; box-shadow:0 8px 24px rgba(16,24,40,.08); }
+  .opt.selected { border-color:#2563EB; outline:3px solid rgba(37,99,235,.25); }
+  .tile { background:#F8FAFC; border-radius:14px; padding:24px 12px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; }
+  .name { font-weight:600; font-size:15px; }
+  .desc { color:#5F6368; font-size:13px; margin-top:4px; line-height:1.35; }
+</style>
+
+<div class="grid options">
+
+  <div class="opt option" data-choice="pulse-awning" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="128" height="128">
+        <circle cx="50" cy="50" r="44" fill="none" stroke="#2563EB" stroke-width="3.5" opacity="0.22"/>
+        <circle cx="50" cy="50" r="34" fill="none" stroke="#2563EB" stroke-width="4" opacity="0.4"/>
+        <!-- mini store -->
+        <path d="M34 48 L66 48 L62 36 L38 36 Z" fill="#2563EB"/>
+        <path d="M34 48 Q42 56 50 48 Q58 56 66 48 L66 51 Q58 59 50 51 Q42 59 34 51 Z" fill="#1D4ED8"/>
+        <rect x="38" y="52" width="24" height="18" rx="3" fill="#101828"/>
+        <rect x="46" y="58" width="8" height="12" rx="1" fill="#2563EB"/>
+      </svg>
+    </div>
+    <div class="name">A · Awning Store</div>
+    <div class="desc">Classic shop inside soft pulse rings.</div>
+  </div>
+
+  <div class="opt option" data-choice="pulse-face" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="128" height="128">
+        <circle cx="50" cy="50" r="44" fill="none" stroke="#2563EB" stroke-width="3.5" opacity="0.22"/>
+        <circle cx="50" cy="50" r="34" fill="none" stroke="#2563EB" stroke-width="4" opacity="0.4"/>
+        <rect x="36" y="38" width="28" height="28" rx="4" fill="#2563EB"/>
+        <rect x="36" y="38" width="28" height="7" fill="#1D4ED8"/>
+        <rect x="41" y="50" width="7" height="7" rx="1" fill="#FFFFFF"/>
+        <rect x="52" y="50" width="7" height="7" rx="1" fill="#FFFFFF"/>
+        <rect x="46" y="58" width="8" height="8" rx="1" fill="#101828"/>
+      </svg>
+    </div>
+    <div class="name">B · Shop Face</div>
+    <div class="desc">Windows + door store, centered in the pulse.</div>
+  </div>
+
+  <div class="opt option" data-choice="pulse-solid" onclick="toggleSelect(this)">
+    <div class="tile">
+      <svg viewBox="0 0 100 100" width="128" height="128">
+        <circle cx="50" cy="50" r="44" fill="none" stroke="#14B8A6" stroke-width="3.5" opacity="0.35"/>
+        <circle cx="50" cy="50" r="34" fill="none" stroke="#14B8A6" stroke-width="4" opacity="0.7"/>
+        <circle cx="50" cy="50" r="24" fill="#2563EB"/>
+        <path d="M38 48 L62 48 L59 40 L41 40 Z" fill="#FFFFFF"/>
+        <rect x="42" y="50" width="16" height="12" rx="2" fill="#101828"/>
+        <rect x="47" y="54" width="6" height="8" rx="1" fill="#FFFFFF"/>
+      </svg>
+    </div>
+    <div class="name">C · Solid Core</div>
+    <div class="desc">Filled blue core + white shop + teal pulse.</div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;color:#5F6368;font-size:13px">Which store-in-pulse feels right?</p>
