@@ -1,7 +1,7 @@
-import { SettingsRoute } from "@/components/naba-presence/route-views"
+import { SettingsPolicyView } from "@/components/naba-presence/settings-policy-view"
 
-export const metadata = { title: "Settings · NabaPresence" }
+export const metadata = { title: "Reply policy · NabaPresence" }
 
 export default function SettingsPage() {
-  return <SettingsRoute />
+  return <SettingsPolicyView />
 }

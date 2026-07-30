@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 import { ConnectionsView } from "@/components/naba-presence/connections-view"
 import { useNabaPresenceDashboard } from "@/components/naba-presence/review-app"
 import { ReviewsWorkspace } from "@/components/naba-presence/reviews-view"
-import { SettingsView } from "@/components/naba-presence/settings-view"
 
 export function InboxRoute() {
   const {
@@ -40,8 +39,4 @@ export function InboxRoute() {
 export function ConnectionsRoute() {
   const router = useRouter()
   return <ConnectionsView onNavigate={() => router.push("/settings")} />
-}
-
-export function SettingsRoute() {
-  return <SettingsView />
 }
