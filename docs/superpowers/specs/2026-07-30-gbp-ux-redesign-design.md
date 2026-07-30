@@ -89,17 +89,17 @@ Settings      /settings
 Nested layout under `app/(dashboard)/locations/[id]/`. Tabs are real routes:
 deep-linkable, independently code-split, each loading its own data.
 
-| Route | Tab | Day-one state | Workstream |
-| --- | --- | --- | --- |
-| `/locations/[id]` | Profile | Real, read-only | C |
-| `/locations/[id]/hours` | Hours | Real, read-only | C |
-| `/locations/[id]/reviews` | Reviews | Real, full | shipped |
-| `/locations/[id]/photos` | Photos | Maps link | F |
-| `/locations/[id]/posts` | Posts | Maps link | B |
-| `/locations/[id]/menu` | Menu | Flag notice | E |
-| `/locations/[id]/qa` | Q&A | Flag notice | H |
-| `/locations/[id]/booking` | Booking | Flag notice | D |
-| `/locations/[id]/performance` | Performance | Flag notice | A |
+| Route | Tab | After Phase 3 | After Phase 4 | Workstream |
+| --- | --- | --- | --- | --- |
+| `/locations/[id]` | Profile | Identity only | Real, read-only | C |
+| `/locations/[id]/hours` | Hours | Flag notice | Real, read-only | C |
+| `/locations/[id]/reviews` | Reviews | Real, full | Real, full | shipped |
+| `/locations/[id]/photos` | Photos | Flag notice | Flag notice + Maps link | F |
+| `/locations/[id]/posts` | Posts | Flag notice | Flag notice + Maps link | B |
+| `/locations/[id]/menu` | Menu | Flag notice | Flag notice | E |
+| `/locations/[id]/qa` | Q&A | Flag notice | Flag notice | H |
+| `/locations/[id]/booking` | Booking | Flag notice | Flag notice | D |
+| `/locations/[id]/performance` | Performance | Flag notice | Flag notice | A |
 
 `/locations` redirects to `/locations/{onlyId}` when the organisation has
 exactly one linked location.
@@ -195,7 +195,8 @@ The header renders:
 - storefront address and store code as detail;
 - status chips: linked or unlinked, from the location link record, and
   reconnect-required, from `GoogleConnection.reconnectRequired`;
-- a "View on Google Maps" link built from `metadata.mapsUri`;
+- a "View on Google Maps" link built from `metadata.mapsUri` — **Phase 4 only**,
+  since no durable `mapsUri` exists before then (§9.2);
 - the tab row, horizontally scrollable below `sm`.
 
 The switcher uses `Combobox` rather than a dropdown so that it works at both
@@ -204,19 +205,24 @@ rendered at all when the organisation has one.
 
 ### 7.2 Tab states
 
-Three states, chosen per tab by what the API can already provide:
+Three states, chosen per tab by what is durably available:
 
-1. **Real** — Profile, Hours, Reviews. Renders live data.
-2. **Maps link** — Photos, Posts. NabaPresence holds no data for these yet. The
-   tab explains what the capability will do and offers the location's
-   `metadata.mapsUri` link so the operator can see the current public state.
-   That URI is the public Maps listing, not an editor: the tab must say
-   plainly that editing these still happens in Google's own Business Profile
-   manager. No editor deep-link pattern is asserted, because none has been
-   verified against a live profile.
-3. **Flag notice** — Menu, Q&A, Booking, Performance. States plainly that the
+1. **Real** — Reviews from Phase 1; Profile and Hours from Phase 4. Renders live
+   data.
+2. **Identity only** — Profile between Phases 1 and 4. Renders the name,
+   storefront address, verification flag, Google title, and link state that
+   `InternalLocation` already exposes, and states that the remaining profile
+   fields are read-only pending §9.2.
+3. **Flag notice** — the six unimplemented tabs. States plainly that the
    capability is not enabled and names the `GBP_*_ENABLED` flag that turns it
    on, matching the flags already specified in the master plan §FND-007.
+
+Once §9.2 is resolved, the Photos and Posts notices additionally carry a
+`metadata.mapsUri` link so the operator can see the current public state. That
+URI is the public Maps listing, not an editor: those tabs must say plainly that
+editing still happens in Google's own Business Profile manager. No editor
+deep-link pattern is asserted, because none has been verified against a live
+profile.
 
 No tab renders a fabricated or placeholder value. This preserves the existing
 product rule that the interface displays only tenant-scoped, API-backed
@@ -289,12 +295,39 @@ and an unused field only inflates every location response.
 `tests/google-contract.test.ts` asserts the request contract and must be
 updated alongside it.
 
-### 9.2 Surfacing existing metadata
+### 9.2 Surfacing existing metadata — blocked on a data-classification decision
 
-`metadata.mapsUri` and `metadata.newReviewUri` are already inside the
-`metadata` field being fetched. They must be persisted and exposed through
-`GoogleLocation` in `lib/naba-presence-api.ts` so the workspace header and the
-deep-link tabs can use them.
+`metadata.mapsUri` and `metadata.newReviewUri` are already inside the `metadata`
+field being fetched, but they are **not durably stored**. `external_location`
+persists the Google response in `raw_payload jsonb` alongside
+`raw_content_expires_at`, which places it under the 30-day raw-content retention
+policy. Its exposed columns are only `title`, `address_json`, and `verified`;
+`InternalLocation` in the API client reflects exactly that.
+
+A Profile or Hours tab reading from `raw_payload` would therefore go blank once
+retention expires. That is unacceptable for a management surface.
+
+Making these durable requires:
+
+1. new nullable columns on `external_location` for public business facts —
+   `maps_uri`, `new_review_uri`, `website_uri`, `primary_phone`,
+   `categories_json`, `description`, `regular_hours_json`,
+   `special_hours_json`, `more_hours_json`, `open_info_json`;
+2. a migration with forced tenant RLS and runtime-role grants, per master plan
+   §9;
+3. **a documented data classification** establishing that a business's own
+   public profile data is neither reviewer personal data under the retention
+   policy nor an aggregate metric — a third category the current policy does not
+   name.
+
+Point 3 is a policy decision, not an implementation detail, and it is the reason
+the Profile-and-Hours work is sequenced last and gated (§13). The rest of this
+design does not depend on it.
+
+Until it is resolved, the workspace header and the `/locations` index use only
+what `InternalLocation` already exposes: name, storefront address, verification
+flag, Google title, and link state. No "View on Google Maps" link is rendered,
+because no durable `mapsUri` exists to build it from.
 
 ### 9.3 No new endpoints
 
@@ -365,7 +398,7 @@ every `/api/*` contract is unchanged.
 | `tests/e2e/routing.spec.ts` | Rewrite. New route table, root now redirects to `/home`, sidebar-history assertions use new labels. Add assertions for the four permanent redirects. |
 | `tests/e2e/journeys.spec.ts` | Update six `page.goto` calls (lines 19, 53, 65, 99, 116, 143). API interception unchanged. |
 | `tests/e2e/accessibility.spec.ts` | Update `page.goto` targets; add passes for `/home`, `/locations`, and a location workspace tab. |
-| `tests/google-contract.test.ts` | Update the expected `readMask`. |
+| `tests/google-contract.test.ts` | Add a case. There is currently **no** `readMask` assertion, and `googleLocations` builds its URL inline in `lib/server/google.ts` rather than through a pure builder in `lib/domain/google-contract.ts` like every other Google request. Extract `googleLocationsRequest(accountName, pageToken?)` into that module, following the existing `googleAccountsRequest` shape, and assert the `readMask` there. |
 | `tests/design-system-contract.test.ts` | No change. Tokens are asserted by existence; `BusinessContext` continues to exist with its status shape and translucent surface intact. |
 | `tests/integration/routing-tables.test.ts` | No change. Concerns database routing tables, not HTTP routes. |
 
@@ -394,28 +427,45 @@ Reviews still functions throughout via `/inbox`.
 units in §8 and wire both `/inbox` and `/locations/[id]/reviews`. No behaviour
 change; the reply editor is moved, not modified.
 
-**Phase 3 — Real read-only profile.** Extend the `readMask`, surface
-`mapsUri`/`newReviewUri`, build the Profile and Hours tabs, add deep-link tabs
-for Photos and Posts.
+**Phase 3 — Placeholders and flags.** Flag-aware notices for all six
+unimplemented tabs, plus the "Google performance" tab shell on `/performance`.
 
-**Phase 4 — Placeholders and flags.** Flag-aware notices for Menu, Q&A,
-Booking, and Performance tabs, plus the "Google performance" tab shell on
-`/performance`.
+**Phase 4 — Real read-only profile. Gated.** Extend the `readMask`, add the
+durable columns and migration, build the Profile and Hours tabs, and add the
+Maps links to the Photos and Posts tabs.
+
+Phase 4 **must not start** until the data classification in §9.2 is decided and
+recorded. Phases 1–3 have no dependency on it and deliver the entire information
+architecture, the identity change, and the reviews decomposition on their own. If
+the classification is resolved quickly, Phase 4 follows immediately; if not, the
+redesign still ships and the Profile and Hours tabs simply remain flag notices
+like their four neighbours.
+
+The `/locations/[id]` Profile tab therefore exists from Phase 1, rendering the
+name, address, verification flag, and link state that `InternalLocation` already
+exposes. Phase 4 adds description, website, phone, categories, and hours to it.
 
 After Phase 4, each master-plan workstream replaces one placeholder without
 touching navigation.
 
 ## 14. Risks
 
-**A nine-tab workspace where six tabs have no implementation can read as an
-unfinished product.** This is the central risk of D3. Only Reviews is editable
-in NabaPresence on day one; Profile and Hours are real but read-only. Mitigation
-is D4: those two show live Google state rather than nothing, and Photos and
-Posts offer a working Maps link, so four of the six incomplete tabs are useful
-before they are complete. Menu, Q&A, Booking, and Performance cannot do even
-that and carry only a flag notice. If review feedback finds this unacceptable,
-the fallback is to hide flag-notice tabs until their flag is on — a change to
-one array in the workspace layout, not a redesign.
+**A nine-tab workspace where most tabs carry a notice can read as an unfinished
+product.** This is the central risk of D3, and §9.2 sharpens it: until the data
+classification is resolved, only Reviews is fully real and only Profile shows
+even partial live data. Seven tabs carry a notice.
+
+This is the strongest argument for treating Phase 4 as urgent rather than
+optional, and for resolving §9.2 in parallel with Phases 1–3 rather than after
+them. Mitigation within the redesign is D4 — every notice names a real
+capability and a real flag, so the workspace reads as a roadmap of this
+location's Google presence rather than as broken navigation.
+
+If review feedback finds this unacceptable, the fallback is to hide flag-notice
+tabs until their flag is on — a change to one array in the workspace layout, not
+a redesign. That fallback would leave a two-tab workspace (Profile, Reviews)
+until Phase 4, which is honest but weakens the identity change that motivated
+the work.
 
 **Reviews appearing in two places could feel duplicated.** Mitigated by giving
 them different jobs: `/inbox` is a cross-location work queue ordered by what
