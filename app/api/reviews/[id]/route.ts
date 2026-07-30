@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 
-import { decryptSecret } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError } from "@/lib/server/http"
 import { requireSession } from "@/lib/server/session"
@@ -18,8 +17,6 @@ export async function GET(
       const [row] = await sql`
         select
           r.id::text as id,
-          r.google_review_name_ciphertext as "googleReviewNameCiphertext",
-          r.google_review_id_ciphertext as "googleReviewIdCiphertext",
           r.reviewer_display_name as "reviewerDisplayName",
           r.reviewer_is_anonymous as "reviewerIsAnonymous",
           r.star_rating as rating,
@@ -107,28 +104,21 @@ export async function GET(
       }
       const timeline = await sql`
         select
-          action,
-          actor_user_id::text as "actorUserId",
-          metadata,
-          created_at as "createdAt"
-        from audit_log
-        where subject_type = 'review' and subject_id = ${id}
-        order by created_at desc
+          a.action,
+          a.created_at as "createdAt",
+          u.display_name as "actorName",
+          case
+            when a.metadata = '{}'::jsonb then null
+            else 'Additional audit details recorded'
+          end as "metadataSummary"
+        from audit_log a
+        left join app_user u on u.id = a.actor_user_id
+        where a.subject_type = 'review' and a.subject_id = ${id}
+        order by a.created_at desc
         limit 100
       `
-      const encrypted = row as Record<string, unknown> & {
-        googleReviewNameCiphertext: Buffer
-        googleReviewIdCiphertext: Buffer
-      }
-      const {
-        googleReviewNameCiphertext,
-        googleReviewIdCiphertext,
-        ...review
-      } = encrypted
       return {
-        ...review,
-        googleReviewName: decryptSecret(googleReviewNameCiphertext),
-        googleReviewId: decryptSecret(googleReviewIdCiphertext),
+        ...row,
         timeline,
       }
     })

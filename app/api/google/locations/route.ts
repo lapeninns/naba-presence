@@ -11,6 +11,27 @@ function titleOf(location: Record<string, unknown>) {
   return String(location.title ?? location.name ?? "Untitled location")
 }
 
+function addressOf(location: Record<string, unknown>) {
+  const address =
+    location.storefrontAddress &&
+    typeof location.storefrontAddress === "object"
+      ? (location.storefrontAddress as Record<string, unknown>)
+      : {}
+  const addressLines = Array.isArray(address.addressLines)
+    ? address.addressLines.filter(
+        (line): line is string => typeof line === "string" && Boolean(line)
+      )
+    : []
+  return [
+    ...addressLines,
+    address.locality,
+    address.administrativeArea,
+    address.postalCode,
+  ]
+    .filter((part): part is string => typeof part === "string" && Boolean(part))
+    .join(", ")
+}
+
 export async function GET(request: Request) {
   try {
     const session = requireRole(await requireSession(), ["owner", "admin"])
@@ -133,7 +154,9 @@ export async function GET(request: Request) {
             discovered.push({
               id: external.id,
               accountName: account.google_account_name,
-              ...location,
+              googleLocationName,
+              title: titleOf(location),
+              address: addressOf(location),
               verified: metadata.hasVoiceOfMerchant === true,
             })
           }

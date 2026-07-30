@@ -76,6 +76,7 @@ import {
   type GoogleAccount,
   type GoogleConnection,
   type GoogleLocation,
+  type StorefrontAddress,
   linkGoogleLocation,
   loadBackfillProgress,
   loadConnections,
@@ -93,7 +94,7 @@ import {
 } from "@/components/naba-presence/shared"
 
 function formatAddress(
-  address: GoogleLocation["storefrontAddress"] | null | undefined
+  address: StorefrontAddress | null | undefined
 ) {
   if (!address) return ""
   return [
@@ -107,7 +108,11 @@ function formatAddress(
 }
 
 function formatGoogleAddress(location: GoogleLocation) {
-  return formatAddress(location.storefrontAddress)
+  return location.address
+}
+
+function googleLocationLabel(location: GoogleLocation) {
+  return location.title || location.googleLocationName
 }
 
 function isLocationCandidate(
@@ -116,8 +121,8 @@ function isLocationCandidate(
 ) {
   const titleMatch =
     internalLocation.name.trim().toLowerCase() ===
-    (googleLocation.title ?? googleLocation.name).trim().toLowerCase()
-  const googleAddress = formatAddress(googleLocation.storefrontAddress)
+    googleLocationLabel(googleLocation).trim().toLowerCase()
+  const googleAddress = googleLocation.address
     .replace(/[^a-z0-9]/gi, "")
     .toLowerCase()
   const internalAddress = formatAddress(internalLocation.address)
@@ -418,7 +423,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
           const locationId = linkTargets[location.id] || undefined
           const confirmRelink = locationId
             ? window.confirm(
-                `Use the existing “${internalLocations.find((item) => item.locationId === locationId)?.name ?? "location"}” record for ${location.title ?? location.name}?`
+                `Use the existing “${internalLocations.find((item) => item.locationId === locationId)?.name ?? "location"}” record for ${googleLocationLabel(location)}?`
               )
             : false
           if (locationId && !confirmRelink) continue
@@ -501,7 +506,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         const refreshed = await loadInternalLocations()
         setInternalLocations(refreshed.locations)
         setMessageKind("info")
-        setMessage(`${location.title ?? location.name} was unlinked.`)
+        setMessage(`${googleLocationLabel(location)} was unlinked.`)
         toast.add({
           type: "success",
           title: "Location unlinked",
@@ -754,7 +759,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                         {locations
                           .filter((location) => {
                             const matchesText = (
-                              location.title ?? location.name
+                              googleLocationLabel(location)
                             )
                               .toLowerCase()
                               .includes(locationQuery.trim().toLowerCase())
@@ -791,13 +796,13 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                             )
                                       )
                                     }
-                                    aria-label={`Select ${location.title ?? location.name}`}
+                                    aria-label={`Select ${googleLocationLabel(location)}`}
                                   />
                                 </ItemMedia>
                                 <ItemContent>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <ItemTitle>
-                                      {location.title ?? location.name}
+                                      {googleLocationLabel(location)}
                                     </ItemTitle>
                                     <Badge
                                       variant={
@@ -829,7 +834,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                           [location.id]: value,
                                         }))
                                       }
-                                      aria-label={`Workspace location for ${location.title ?? location.name}`}
+                                      aria-label={`Workspace location for ${googleLocationLabel(location)}`}
                                     >
                                       <NativeSelectOption value="">
                                         Create a new workspace location
@@ -875,7 +880,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                                         <AlertDialogHeader>
                                           <AlertDialogTitle>
                                             Unlink{" "}
-                                            {location.title ?? location.name}?
+                                            {googleLocationLabel(location)}?
                                           </AlertDialogTitle>
                                           <AlertDialogDescription>
                                             Review sync and notifications stop

@@ -756,17 +756,12 @@ for (const viewport of [
             locations: [
               {
                 id: "locations/camden-a11y",
-                name: "locations/camden-a11y",
+                googleLocationName: "locations/camden-a11y",
                 title: "Camden Hotel",
                 accountName: "accounts/123456789",
                 verified: true,
-                storefrontAddress: {
-                  addressLines: ["10 Camden High Street"],
-                  locality: "London",
-                  administrativeArea: "England",
-                  postalCode: "NW1 0JH",
-                  regionCode: "GB",
-                },
+                address:
+                  "10 Camden High Street, London, England, NW1 0JH",
               },
             ],
           },

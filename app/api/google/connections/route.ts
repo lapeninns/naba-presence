@@ -6,6 +6,12 @@ import { requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
+function maskedEmail(email: unknown) {
+  if (typeof email !== "string") return null
+  const at = email.indexOf("@")
+  return at > 0 ? `${email[0]}***${email.slice(at)}` : "***"
+}
+
 export async function GET() {
   try {
     const session = await requireSession()
@@ -32,7 +38,20 @@ export async function GET() {
       order by created_at desc
     `
     )
-    return NextResponse.json({ connections })
+    if (session.role === "owner" || session.role === "admin") {
+      return NextResponse.json({ connections })
+    }
+    return NextResponse.json({
+      connections: connections.map((connection) => {
+        const record = connection as Record<string, unknown>
+        const safeConnection = { ...record }
+        delete safeConnection.scope
+        return {
+          ...safeConnection,
+          googleEmail: maskedEmail(record.googleEmail),
+        }
+      }),
+    })
   } catch (error) {
     return apiError(error)
   }

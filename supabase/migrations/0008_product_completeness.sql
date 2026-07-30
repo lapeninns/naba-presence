@@ -145,6 +145,26 @@ create index review_search_idx on review using gin (
 create index review_google_id_hash_idx
   on review (organisation_id, google_review_id_hash);
 
+alter table organisation
+  add column audit_retention_days integer not null default 365
+    check (audit_retention_days between 30 and 3650);
+
+alter table review
+  add column restricted_at timestamptz;
+
+create or replace function reject_audit_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  if TG_OP = 'DELETE'
+    and current_setting('app.retention_run', true) = 'true' then
+    return old;
+  end if;
+  raise exception 'audit_log is append-only';
+end;
+$$;
+
 insert into schema_migration (version)
 values ('0008_product_completeness')
 on conflict (version) do nothing;

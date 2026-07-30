@@ -34,8 +34,6 @@ export function buildInboxQuery(
   return sql`
     select
       r.id::text as id,
-      r.google_review_name_ciphertext as "googleReviewNameCiphertext",
-      r.google_review_id_ciphertext as "googleReviewIdCiphertext",
       json_build_object(
         'id', l.id::text,
         'name', l.name

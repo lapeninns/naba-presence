@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { decryptSecret } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError } from "@/lib/server/http"
 import { buildInboxQuery } from "@/lib/server/reviews-query"
@@ -129,19 +128,7 @@ export async function GET(request: Request) {
           userId: session.userId,
         })
     )
-    const rows = rawRows.map((row) => {
-      const record = row as Record<string, unknown> & {
-        googleReviewNameCiphertext: Buffer
-        googleReviewIdCiphertext: Buffer
-      }
-      const { googleReviewNameCiphertext, googleReviewIdCiphertext, ...item } =
-        record
-      return {
-        ...item,
-        googleReviewName: decryptSecret(googleReviewNameCiphertext),
-        googleReviewId: decryptSecret(googleReviewIdCiphertext),
-      }
-    })
+    const rows = rawRows
     const hasMore = rows.length > query.pageSize
     const items = hasMore ? rows.slice(0, query.pageSize) : rows
     const last = items.at(-1) as

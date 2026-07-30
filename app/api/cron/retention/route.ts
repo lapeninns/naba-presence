@@ -34,6 +34,20 @@ async function retain(request: Request) {
     const results = []
     for (const organisation of organisations) {
       const purged = await withTenant(organisation.id, async (sql) => {
+        await sql`
+          select set_config('app.retention_run', 'true', true)
+        `
+        const auditLogs = await sql`
+          delete from audit_log
+          where created_at < now() - make_interval(
+            days => (
+              select audit_retention_days
+              from organisation
+              where id = ${organisation.id}
+            )
+          )
+          returning id
+        `
         const media = await sql`
           delete from review_media_item m
           using review r
@@ -96,6 +110,7 @@ async function retain(request: Request) {
           returning id
         `
         const counts = {
+          auditLogs: auditLogs.count,
           media: media.count,
           reviews: reviews.count,
           accounts: accounts.count,

@@ -60,6 +60,7 @@ export async function POST(
           location_id: string
           location_name: string
           update_time: Date
+          restricted_at: Date | null
         }[]
       >`
         select
@@ -71,7 +72,8 @@ export async function POST(
           o.default_language_code as default_language,
           r.location_id::text as location_id,
           l.name as location_name,
-          r.update_time
+          r.update_time,
+          r.restricted_at
         from review r
         join location l on l.id = r.location_id
         join organisation o on o.id = r.organisation_id
@@ -82,6 +84,13 @@ export async function POST(
         throw new ApiError(404, "review_not_found", "Review not found.")
       }
       await requireLocationAccess(sql, session, review.location_id)
+      if (review.restricted_at) {
+        throw new ApiError(
+          409,
+          "review_restricted",
+          "This review is restricted from reply processing."
+        )
+      }
       const language =
         input.languageOverride ??
         (review.language && (review.language_confidence ?? 0) >= 0.7

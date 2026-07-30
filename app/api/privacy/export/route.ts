@@ -32,6 +32,7 @@ export async function GET(request: Request) {
           r.create_time as "createTime",
           r.update_time as "updateTime",
           r.raw_content_expires_at as "rawContentExpiresAt",
+          r.restricted_at as "restrictedAt",
           l.name as location,
           coalesce(
             (

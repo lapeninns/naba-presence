@@ -338,7 +338,7 @@ export type GoogleConnection = {
   id: string
   googleEmail: string | null
   status: string
-  scope: string
+  scope?: string
   notificationsEnabled: boolean
   lastRefreshAt: string | null
   lastErrorCode: string | null
@@ -348,17 +348,19 @@ export type GoogleConnection = {
 
 export type GoogleLocation = {
   id: string
-  name: string
-  title?: string
   accountName: string
+  googleLocationName: string
+  title: string
+  address: string
   verified: boolean
-  storefrontAddress?: {
-    addressLines?: string[]
-    locality?: string
-    administrativeArea?: string
-    postalCode?: string
-    regionCode?: string
-  }
+}
+
+export type StorefrontAddress = {
+  addressLines?: string[]
+  locality?: string
+  administrativeArea?: string
+  postalCode?: string
+  regionCode?: string
 }
 
 export type GoogleAccount = {
@@ -418,7 +420,7 @@ export async function linkGoogleLocation(
     body: JSON.stringify({
       externalLocationId: location.id,
       locationId: options.locationId,
-      name: options.locationId ? undefined : (location.title ?? location.name),
+      name: options.locationId ? undefined : location.title,
       timezone: "Europe/London",
       confirmRelink: options.confirmRelink ?? false,
     }),
@@ -621,7 +623,7 @@ export type InternalLocation = {
   locationId: string
   name: string
   timezone: string
-  address: GoogleLocation["storefrontAddress"] | null
+  address: StorefrontAddress | null
   linkId: string | null
   externalLocationId: string | null
   googleLocationName: string | null
