@@ -27,7 +27,7 @@ describeDatabase("signed-out entry point", () => {
   })
 
   it("redirects anonymous dashboard traffic to /sign-in", async () => {
-    const response = await fetch(`${server.baseUrl}/reviews`, {
+    const response = await fetch(`${server.baseUrl}/inbox`, {
       redirect: "manual",
     })
     expect([303, 307]).toContain(response.status)
@@ -46,7 +46,7 @@ describeDatabase("signed-out entry point", () => {
   it("keeps signed-in users on the dashboard", async () => {
     const tenant = await createTestTenant(admin)
     organisations.push(tenant.organisationId)
-    const response = await fetch(`${server.baseUrl}/reviews`, {
+    const response = await fetch(`${server.baseUrl}/inbox`, {
       headers: { cookie: tenant.cookie },
       redirect: "manual",
     })

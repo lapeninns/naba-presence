@@ -10,5 +10,5 @@ export default async function Page() {
   const allowAnonymous =
     process.env.NODE_ENV !== "production" ||
     isLocalBootstrapEnabled()
-  redirect(session || allowAnonymous ? "/reviews" : "/sign-in")
+  redirect(session || allowAnonymous ? "/home" : "/sign-in")
 }

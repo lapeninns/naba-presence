@@ -26,8 +26,12 @@ export function PerformanceView({
       />
       <Tabs defaultValue="reply">
         <TabsList>
-          <TabsTrigger value="reply">Reply performance</TabsTrigger>
-          <TabsTrigger value="google">Google performance</TabsTrigger>
+          <TabsTrigger value="reply" className="text-foreground">
+            Reply performance
+          </TabsTrigger>
+          <TabsTrigger value="google" className="text-foreground">
+            Google performance
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="reply">
           <AnalyticsView />

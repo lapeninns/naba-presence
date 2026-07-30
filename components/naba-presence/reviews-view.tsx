@@ -524,7 +524,7 @@ export function ReviewsWorkspace({
                 Connect Google Business Profile to resume live review updates.
               </span>
               <Button
-                render={<Link href="/connections" />}
+                render={<Link href="/settings/connections" />}
                 variant="outline"
                 size="sm"
               >

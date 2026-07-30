@@ -16,7 +16,7 @@ test.describe("critical browser journeys", () => {
     const [name, value] = state.cookie.split("=", 2)
     await context.addCookies([{ name, value, url: baseURL! }])
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     const reviewList = page.getByRole("region", { name: "Review list" })
     await expect(
       reviewList.getByText(state.directReview.text, { exact: true })
@@ -24,7 +24,9 @@ test.describe("critical browser journeys", () => {
     await expect(
       reviewList.getByText(state.approvalReview.text, { exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("tab", { name: /All reviews\s+2/ })).toBeVisible()
+    await expect(
+      page.getByRole("tab", { name: /All reviews,\s+2/ })
+    ).toBeVisible()
 
     await verifyServerFilters(page, state)
     await page.reload()
@@ -50,9 +52,9 @@ test.describe("critical browser journeys", () => {
         url.pathname === "/api/analytics/overview"
       )
     })
-    await page.goto("/analytics")
+    await page.goto("/performance")
     await expect(
-      page.getByRole("heading", { name: "Analytics" })
+      page.getByRole("heading", { name: "Performance", level: 1 })
     ).toBeVisible()
     const analytics = (await (await analyticsResponse).json()) as {
       timezone: string
@@ -96,7 +98,7 @@ test.describe("critical browser journeys", () => {
       page.getByRole("switch", { name: "Require two-person approval" })
     ).toBeChecked()
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     await openReview(page, state.approvalReview.text)
     const approvalBody =
       "Thank you for sharing your experience. Our team appreciates your kind feedback."
@@ -113,7 +115,7 @@ test.describe("critical browser journeys", () => {
       page.getByText("Reply submitted for approval.", { exact: true })
     ).toBeVisible()
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     await page.getByRole("tab", { name: /Published/ }).click()
     await openReview(page, state.directReview.text)
     await page.getByRole("button", { name: "Review actions" }).click()
@@ -140,7 +142,7 @@ test.describe("critical browser journeys", () => {
     }, state.directReview.id)
     expect(deletedDetail.review.workflowStatus).toBe("new")
 
-    await page.goto("/connections")
+    await page.goto("/settings/connections")
     await expect(
       page.getByText("stub@example.test", { exact: true })
     ).toBeVisible()
@@ -201,7 +203,7 @@ async function verifyServerFilters(page: Page, state: JourneyState) {
   const counts = (await (await locationCounts).json()) as { total: number }
   expect(counts.total).toBe(1)
   await expect(
-    page.getByRole("tab", { name: /All reviews\s+1/ })
+    page.getByRole("tab", { name: /All reviews,\s+1/ })
   ).toBeVisible()
 
   const queueResponse = page.waitForResponse((response) => {
