@@ -89,6 +89,7 @@ export function NabaPresenceDashboard({
     : isReviewQueueRoute
       ? "queue"
       : "other"
+  const reviewQueueScope = isReviewQueueRoute ? pathname : null
   const [reviews, setReviews] = useState<Review[]>([])
   const [apiStatus, setApiStatus] = useState<ApiStatus>("loading")
   const [counts, setCounts] = useState<ReviewCounts>(emptyReviewCounts)
@@ -288,6 +289,14 @@ export function NabaPresenceDashboard({
 
     // Review queues own their scoped list and count requests. Other dashboard
     // routes only need connection health until Home requests its roll-up.
+    if (dashboardRouteMode === "queue") {
+      lastReviewRefreshSucceededRef.current = false
+      setApiStatus(
+        connectionStateRef.current === "disconnected"
+          ? "disconnected"
+          : "loading"
+      )
+    }
     void refreshDashboard({
       includeReviews: false,
       includeCounts: false,
@@ -297,7 +306,7 @@ export function NabaPresenceDashboard({
           : "bootstrap",
       requestEpoch,
     })
-  }, [dashboardRouteMode, refreshDashboard])
+  }, [dashboardRouteMode, refreshDashboard, reviewQueueScope])
 
   useEffect(() => {
     if (apiStatus === "error" && !hasSuccessfulRefreshRef.current) return

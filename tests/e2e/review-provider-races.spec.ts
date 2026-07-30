@@ -11,6 +11,102 @@ const activeConnection = {
   createdAt: "2026-07-30T12:00:00.000Z",
 }
 
+const emptyCounts = {
+  total: 0,
+  byStatus: {
+    new: 0,
+    drafted: 0,
+    verified: 0,
+    awaiting_approval: 0,
+    publish_requested: 0,
+    published: 0,
+    rejected: 0,
+    failed: 0,
+    escalated: 0,
+  },
+}
+
+test("queue freshness waits for its scoped list and counts", async ({
+  page,
+}) => {
+  let releaseReviews = () => {}
+  let releaseCounts = () => {}
+  let markReviewsStarted = () => {}
+  let markCountsStarted = () => {}
+  let markReviewsFinished = () => {}
+  let markCountsFinished = () => {}
+  const reviewsGate = new Promise<void>((resolve) => {
+    releaseReviews = resolve
+  })
+  const countsGate = new Promise<void>((resolve) => {
+    releaseCounts = resolve
+  })
+  const reviewsStarted = new Promise<void>((resolve) => {
+    markReviewsStarted = resolve
+  })
+  const countsStarted = new Promise<void>((resolve) => {
+    markCountsStarted = resolve
+  })
+  const reviewsFinished = new Promise<void>((resolve) => {
+    markReviewsFinished = resolve
+  })
+  const countsFinished = new Promise<void>((resolve) => {
+    markCountsFinished = resolve
+  })
+
+  await page.route(
+    /\/api\/google\/connections(?:\?.*)?$/,
+    async (route) => {
+      await route.fulfill({ json: { connections: [activeConnection] } })
+    }
+  )
+  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+    markCountsStarted()
+    await countsGate
+    await route.fulfill({ json: emptyCounts })
+    markCountsFinished()
+  })
+  await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
+    markReviewsStarted()
+    await reviewsGate
+    await route.fulfill({ json: { items: [], nextCursor: null } })
+    markReviewsFinished()
+  })
+
+  try {
+    await page.goto("/performance")
+    await expect(
+      page.getByRole("heading", { name: "Performance", level: 1 })
+    ).toBeVisible()
+    await expect(page.getByText("Live data", { exact: true })).toBeVisible()
+
+    await page.getByRole("link", { name: "Inbox", exact: true }).click()
+    await Promise.all([reviewsStarted, countsStarted])
+
+    await expect(
+      page.getByRole("button", { name: "Connecting", exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Live data", exact: true })
+    ).toHaveCount(0)
+
+    releaseReviews()
+    await reviewsFinished
+    await expect(
+      page.getByRole("button", { name: "Connecting", exact: true })
+    ).toBeVisible()
+
+    releaseCounts()
+    await countsFinished
+    await expect(
+      page.getByRole("button", { name: "Live data", exact: true })
+    ).toBeVisible()
+  } finally {
+    releaseReviews()
+    releaseCounts()
+  }
+})
+
 test("a stale bootstrap cannot hide a newer Home data failure", async ({
   page,
 }) => {
@@ -42,22 +138,7 @@ test("a stale bootstrap cannot hide a newer Home data failure", async ({
     }
   )
   await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
-    await route.fulfill({
-      json: {
-        total: 0,
-        byStatus: {
-          new: 0,
-          drafted: 0,
-          verified: 0,
-          awaiting_approval: 0,
-          publish_requested: 0,
-          published: 0,
-          rejected: 0,
-          failed: 0,
-          escalated: 0,
-        },
-      },
-    })
+    await route.fulfill({ json: emptyCounts })
   })
   await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
     await route.abort("failed")
