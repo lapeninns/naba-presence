@@ -14,7 +14,9 @@ export function InboxRoute() {
   const {
     apiStatus,
     counts,
+    queueScopeToken,
     refreshCounts,
+    revalidateQueueConnection,
     connectionState,
     lastRefreshedAt,
     refreshReviews,
@@ -28,7 +30,9 @@ export function InboxRoute() {
       setSelectedId={setSelectedId}
       apiStatus={apiStatus}
       counts={counts}
+      queueScopeToken={queueScopeToken}
       refreshCounts={refreshCounts}
+      revalidateConnection={revalidateQueueConnection}
       connectionState={connectionState}
       lastRefreshedAt={lastRefreshedAt}
       onRefresh={refreshReviews}
@@ -41,17 +45,15 @@ export function InboxRoute() {
   )
 }
 
-export function LocationReviewsRoute({
-  locationId,
-}: {
-  locationId: string
-}) {
+export function LocationReviewsRoute({ locationId }: { locationId: string }) {
   const [reviews, setReviews] = useState<Review[]>([])
   const [selectedId, setSelectedId] = useState("")
   const {
     apiStatus,
     counts,
+    queueScopeToken,
     refreshCounts,
+    revalidateQueueConnection,
     connectionState,
     lastRefreshedAt,
     refreshReviews,
@@ -65,7 +67,9 @@ export function LocationReviewsRoute({
       setSelectedId={setSelectedId}
       apiStatus={apiStatus}
       counts={counts}
+      queueScopeToken={queueScopeToken}
       refreshCounts={refreshCounts}
+      revalidateConnection={revalidateQueueConnection}
       connectionState={connectionState}
       lastRefreshedAt={lastRefreshedAt}
       onRefresh={refreshReviews}

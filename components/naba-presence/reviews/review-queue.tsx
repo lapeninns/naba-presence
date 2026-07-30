@@ -3,6 +3,7 @@
 import { Activity, RefreshCw, Search } from "lucide-react"
 import Link from "next/link"
 import {
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -27,6 +28,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs"
 import type {
   ApiStatus,
   ConnectionState,
+  QueueScopeToken,
 } from "@/components/naba-presence/review-app"
 import { ReviewDetail } from "@/components/naba-presence/reviews/review-detail"
 import { ReviewFilters } from "@/components/naba-presence/reviews/review-filters"
@@ -55,7 +57,9 @@ export function ReviewQueue({
   setSelectedId,
   apiStatus,
   counts,
+  queueScopeToken,
   refreshCounts,
+  revalidateConnection,
   connectionState,
   lastRefreshedAt,
   onRefresh,
@@ -68,10 +72,18 @@ export function ReviewQueue({
   setSelectedId: React.Dispatch<React.SetStateAction<string>>
   apiStatus: ApiStatus
   counts: ReviewCounts
-  refreshCounts: (locationId?: string) => Promise<void>
+  queueScopeToken: QueueScopeToken | null
+  refreshCounts: (
+    queueToken: QueueScopeToken | null,
+    locationId?: string
+  ) => Promise<void>
+  revalidateConnection: (queueToken: QueueScopeToken | null) => Promise<boolean>
   connectionState: ConnectionState
   lastRefreshedAt: number | null
-  onRefresh: (succeeded?: boolean) => Promise<void>
+  onRefresh: (
+    queueToken: QueueScopeToken | null,
+    succeeded?: boolean
+  ) => Promise<void>
   locationId?: string
   heading: {
     title: string
@@ -112,6 +124,10 @@ export function ReviewQueue({
   const backButtonRef = useRef<HTMLButtonElement>(null)
   const reviewsRequestIdRef = useRef(0)
   const mountedRef = useRef(true)
+  const reportQueueRefresh = useCallback(
+    (succeeded = true) => onRefresh(queueScopeToken, succeeded),
+    [onRefresh, queueScopeToken]
+  )
   const {
     beginCombined,
     beginCounts,
@@ -119,7 +135,7 @@ export function ReviewQueue({
     completeCombined,
     completeCounts,
     completeReviews,
-  } = useQueueRefreshReadiness(onRefresh)
+  } = useQueueRefreshReadiness(reportQueueRefresh)
   const deferredQuery = useDeferredValue(query)
   const locationDirectory = useMemo(
     () => mergeLocationDirectory(knownLocations, reviews),
@@ -203,7 +219,7 @@ export function ReviewQueue({
     if (!hasServerData) return
     let active = true
     beginCounts()
-    void refreshCounts(effectiveLocationId).then(
+    void refreshCounts(queueScopeToken, effectiveLocationId).then(
       () => {
         if (active) {
           setResolvedCountsScope(countsScope)
@@ -223,6 +239,7 @@ export function ReviewQueue({
     countsScope,
     effectiveLocationId,
     hasServerData,
+    queueScopeToken,
     refreshCounts,
   ])
 
@@ -252,11 +269,8 @@ export function ReviewQueue({
           )
           completeReviews(countsScope)
         } catch {
-          if (
-            mountedRef.current &&
-            requestId === reviewsRequestIdRef.current
-          ) {
-            void onRefresh(false)
+          if (mountedRef.current && requestId === reviewsRequestIdRef.current) {
+            void onRefresh(queueScopeToken, false)
           }
           // Preserve the last successful inbox state during a transient failure.
         }
@@ -269,6 +283,7 @@ export function ReviewQueue({
     countsScope,
     hasServerData,
     onRefresh,
+    queueScopeToken,
     serverFilters,
     setReviews,
     setSelectedId,
@@ -282,7 +297,10 @@ export function ReviewQueue({
       const requestId = ++reviewsRequestIdRef.current
       beginCombined()
       startFiltering(async () => {
-        const countsRequest = refreshCounts(effectiveLocationId).then(() => {
+        const countsRequest = refreshCounts(
+          queueScopeToken,
+          effectiveLocationId
+        ).then(() => {
           if (!mountedRef.current) return
           setResolvedCountsScope(countsScope)
           completeCounts(countsScope)
@@ -291,10 +309,7 @@ export function ReviewQueue({
           loadReviewsPage(serverFilters),
           countsRequest,
         ])
-        if (
-          !mountedRef.current ||
-          requestId !== reviewsRequestIdRef.current
-        ) {
+        if (!mountedRef.current || requestId !== reviewsRequestIdRef.current) {
           return
         }
         await completeCombined(
@@ -302,10 +317,7 @@ export function ReviewQueue({
           pageResult.status === "fulfilled",
           countsResult.status === "fulfilled"
         )
-        if (
-          !mountedRef.current ||
-          requestId !== reviewsRequestIdRef.current
-        ) {
+        if (!mountedRef.current || requestId !== reviewsRequestIdRef.current) {
           return
         }
         if (pageResult.status !== "fulfilled") return
@@ -338,6 +350,7 @@ export function ReviewQueue({
     effectiveLocationId,
     hasServerData,
     onRefresh,
+    queueScopeToken,
     refreshCounts,
     serverFilters,
     setReviews,
@@ -401,10 +414,7 @@ export function ReviewQueue({
     startFiltering(async () => {
       try {
         const page = await loadReviewsPage(serverFilters, nextCursor)
-        if (
-          !mountedRef.current ||
-          requestId !== reviewsRequestIdRef.current
-        ) {
+        if (!mountedRef.current || requestId !== reviewsRequestIdRef.current) {
           return
         }
         setKnownLocations((current) =>
@@ -423,47 +433,8 @@ export function ReviewQueue({
   }
 
   async function reloadCurrentQueue() {
-    const requestId = ++reviewsRequestIdRef.current
-    beginCombined()
-    const countsRequest = refreshCounts(effectiveLocationId).then(() => {
-      if (!mountedRef.current) return
-      setResolvedCountsScope(countsScope)
-      completeCounts(countsScope)
-    })
-    const [pageResult, countsResult] = await Promise.allSettled([
-      loadReviewsPage(serverFilters),
-      countsRequest,
-    ])
-    if (
-      !mountedRef.current ||
-      requestId !== reviewsRequestIdRef.current
-    ) {
-      return
-    }
-    await completeCombined(
-      countsScope,
-      pageResult.status === "fulfilled",
-      countsResult.status === "fulfilled"
-    )
-    if (
-      !mountedRef.current ||
-      requestId !== reviewsRequestIdRef.current
-    ) {
-      return
-    }
-    if (pageResult.status !== "fulfilled") return
-
-    const page = pageResult.value
-    setKnownLocations((current) =>
-      mergeLocationDirectory(current, page.items)
-    )
-    setReviews(page.items)
-    setNextCursor(page.nextCursor)
-    setSelectedId((current) =>
-      page.items.some((review) => review.id === current)
-        ? current
-        : (page.items[0]?.id ?? "")
-    )
+    reviewsRequestIdRef.current += 1
+    await revalidateConnection(queueScopeToken)
   }
 
   const selectedReview =
@@ -506,7 +477,7 @@ export function ReviewQueue({
                   ? "Connecting"
                   : apiStatus === "disconnected"
                     ? "Google disconnected"
-                  : "Retry live data"}
+                    : "Retry live data"}
             </Button>
           }
         />
@@ -527,9 +498,7 @@ export function ReviewQueue({
             <Activity className="text-rating" />
             <AlertTitle>Data may be out of date</AlertTitle>
             <AlertDescription className="flex flex-col items-start gap-3">
-              <span>
-                Last updated {relativeRefreshTime(lastRefreshedAt)}.
-              </span>
+              <span>Last updated {relativeRefreshTime(lastRefreshedAt)}.</span>
               <Button
                 variant="outline"
                 size="sm"
