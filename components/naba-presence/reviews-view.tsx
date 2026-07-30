@@ -212,7 +212,7 @@ export function ReviewsWorkspace({
   reviews: Review[]
   setReviews: React.Dispatch<React.SetStateAction<Review[]>>
   selectedId: string
-  setSelectedId: (id: string) => void
+  setSelectedId: React.Dispatch<React.SetStateAction<string>>
   apiStatus: ApiStatus
   counts: ReviewCounts
   refreshCounts: (locationId?: string) => Promise<void>
@@ -333,7 +333,11 @@ export function ReviewsWorkspace({
           )
           setReviews(page.items)
           setNextCursor(page.nextCursor)
-          setSelectedId(page.items[0]?.id ?? "")
+          setSelectedId((current) =>
+            page.items.some((review) => review.id === current)
+              ? current
+              : (page.items[0]?.id ?? "")
+          )
         } catch {
           // Preserve the last successful inbox state during a transient failure.
         }

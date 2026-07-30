@@ -61,11 +61,16 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     })
     response.end(JSON.stringify(result.json ?? {}))
   })
-  server.listen(0, "127.0.0.1")
+  const configuredPort = process.env.GOOGLE_STUB_PORT
+  const port = configuredPort ? Number.parseInt(configuredPort, 10) : 0
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new Error("GOOGLE_STUB_PORT must be a valid TCP port.")
+  }
+  server.listen(port, "127.0.0.1")
   await once(server, "listening")
-  const { port } = server.address() as { port: number }
+  const { port: listeningPort } = server.address() as { port: number }
   return {
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://127.0.0.1:${listeningPort}`,
     calls,
     respond(
       matcher: { method: string; pathIncludes: string },

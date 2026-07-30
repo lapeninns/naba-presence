@@ -8,14 +8,15 @@ import type postgres from "postgres"
 
 import "./env-defaults"
 
-import { encryptSecret } from "@/lib/server/crypto"
-
 const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex")
 
 function encryptHarnessSecret(value: string) {
+  const tokenEncryptionKey =
+    process.env.TOKEN_ENCRYPTION_KEY ??
+    "route-harness-token-key-32-characters!!"
   const key = createHash("sha256")
-    .update("route-harness-token-key-32-characters!!", "utf8")
+    .update(tokenEncryptionKey, "utf8")
     .digest()
   const iv = randomBytes(12)
   const cipher = createCipheriv("aes-256-gcm", key, iv)
@@ -179,7 +180,7 @@ export async function seedGoogleConnection(
       'stub@example.test',
       'business.manage',
       'active',
-      ${encryptSecret("stub-access-token")},
+      ${encryptHarnessSecret("stub-access-token")},
       now() + interval '1 hour'
     )
   `
@@ -289,9 +290,9 @@ export async function seedLinkedReview(
       ${input.organisationId},
       ${locationId},
       ${externalLocationId},
-      ${encryptSecret(googleReviewName)},
+      ${encryptHarnessSecret(googleReviewName)},
       ${sha256(googleReviewName)},
-      ${encryptSecret(reviewId)},
+      ${encryptHarnessSecret(reviewId)},
       ${sha256(reviewId)},
       'Stub reviewer',
       false,
