@@ -118,9 +118,9 @@
 **Files:**
 - Create: `docs/live-certification/a11y-501-manual-pass.md` (checklist + results)
 
-- [ ] **Step 1:** Build the checklist: for each surface (sign-in, invite accept, inbox + filters, review detail + reply editor + confirm dialogs, approvals, connections + link/unlink, settings + members/invitations, analytics, org switcher, sign-out): keyboard-only traversal (no traps, visible focus, logical order, `Escape` closes dialogs, combobox/menu arrow-key behavior), screen-reader pass (VoiceOver + one of NVDA/JAWS: landmark structure, live-region announcements for async loads/counts/stale banner, form labels/errors, dialog focus management), zoom 200 % reflow, `prefers-reduced-motion` respected.
-- [ ] **Step 2:** Execute manually on the staging build (desktop + mobile viewport), record per-item pass/fail + issues; fix-forward blockers (axe-clean is already enforced; this pass catches what axe cannot).
-- [ ] **Step 3:** Record sign-off (name, date, tool versions) — spec acceptance "manual accessibility sign-off is recorded".
+- [x] **Step 1:** Build the checklist: for each surface (sign-in, invite accept, inbox + filters, review detail + reply editor + confirm dialogs, approvals, connections + link/unlink, settings + members/invitations, analytics, org switcher, sign-out): keyboard-only traversal (no traps, visible focus, logical order, `Escape` closes dialogs, combobox/menu arrow-key behavior), screen-reader pass (VoiceOver + one of NVDA/JAWS: landmark structure, live-region announcements for async loads/counts/stale banner, form labels/errors, dialog focus management), zoom 200 % reflow, `prefers-reduced-motion` respected.
+- [ ] **Step 2:** Execute manually on the staging build (desktop + mobile viewport), record per-item pass/fail + issues; fix-forward blockers (axe-clean is already enforced; this pass catches what axe cannot). **BLOCKED — no staging URL/credentials and no independent NVDA/JAWS environment.**
+- [ ] **Step 3:** Record sign-off (name, date, tool versions) — spec acceptance "manual accessibility sign-off is recorded". **BLOCKED — Step 2 has not been executed; the automated 16/16 local suite is not substituted for manual sign-off.**
 
 ### Task 8: OPS-501 — Operational rehearsals
 
