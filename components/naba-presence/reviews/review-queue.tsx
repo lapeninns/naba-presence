@@ -31,7 +31,12 @@ import type {
 import { ReviewDetail } from "@/components/naba-presence/reviews/review-detail"
 import { ReviewFilters } from "@/components/naba-presence/reviews/review-filters"
 import { ReviewList } from "@/components/naba-presence/reviews/review-list"
-import { REVIEW_WORKFLOW_STATES } from "@/lib/domain/workflow"
+import {
+  EMPTY_REVIEW_COUNTS,
+  mergeLocationDirectory,
+  relativeRefreshTime,
+  useQueueRefreshReadiness,
+} from "@/components/naba-presence/reviews/review-queue-state"
 import { cn } from "@/lib/utils"
 import { Review, ReviewStatus } from "@/lib/naba-presence-data"
 import {
@@ -42,36 +47,6 @@ import {
 import { PageHeader } from "@/components/naba-presence/shared"
 
 export type Queue = "all" | ReviewStatus
-
-const EMPTY_REVIEW_COUNTS: ReviewCounts = {
-  total: 0,
-  byStatus: Object.fromEntries(
-    REVIEW_WORKFLOW_STATES.map((status) => [status, 0])
-  ) as ReviewCounts["byStatus"],
-}
-
-function relativeRefreshTime(value: number | null) {
-  if (!value) return "never"
-  const elapsedSeconds = Math.max(0, Math.round((Date.now() - value) / 1000))
-  if (elapsedSeconds < 60) return "just now"
-  const elapsedMinutes = Math.round(elapsedSeconds / 60)
-  if (elapsedMinutes < 60) {
-    return `${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`
-  }
-  const elapsedHours = Math.round(elapsedMinutes / 60)
-  return `${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`
-}
-
-function mergeLocationDirectory(
-  current: Map<string, string>,
-  reviews: Review[]
-) {
-  const next = new Map(current)
-  for (const review of reviews) {
-    if (review.locationId) next.set(review.location, review.locationId)
-  }
-  return next
-}
 
 export function ReviewQueue({
   reviews,
@@ -137,6 +112,14 @@ export function ReviewQueue({
   const backButtonRef = useRef<HTMLButtonElement>(null)
   const reviewsRequestIdRef = useRef(0)
   const mountedRef = useRef(true)
+  const {
+    beginCombined,
+    beginCounts,
+    beginReviews,
+    completeCombined,
+    completeCounts,
+    completeReviews,
+  } = useQueueRefreshReadiness(onRefresh)
   const deferredQuery = useDeferredValue(query)
   const locationDirectory = useMemo(
     () => mergeLocationDirectory(knownLocations, reviews),
@@ -152,10 +135,7 @@ export function ReviewQueue({
   const countsScope = effectiveLocationId ?? "all-locations"
   const visibleCounts =
     resolvedCountsScope === countsScope ? counts : EMPTY_REVIEW_COUNTS
-  const hasServerData =
-    apiStatus === "connected" ||
-    apiStatus === "stale" ||
-    apiStatus === "disconnected"
+  const hasServerData = connectionState !== "loading"
 
   const serverFilters = useMemo(() => {
     const workflowByQueue: Record<Queue, string[] | undefined> = {
@@ -222,9 +202,13 @@ export function ReviewQueue({
   useEffect(() => {
     if (!hasServerData) return
     let active = true
+    beginCounts()
     void refreshCounts(effectiveLocationId).then(
       () => {
-        if (active) setResolvedCountsScope(countsScope)
+        if (active) {
+          setResolvedCountsScope(countsScope)
+          completeCounts(countsScope)
+        }
       },
       () => {
         // Keep previous-scope totals hidden when a scoped request fails.
@@ -233,11 +217,19 @@ export function ReviewQueue({
     return () => {
       active = false
     }
-  }, [countsScope, effectiveLocationId, hasServerData, refreshCounts])
+  }, [
+    beginCounts,
+    completeCounts,
+    countsScope,
+    effectiveLocationId,
+    hasServerData,
+    refreshCounts,
+  ])
 
   useEffect(() => {
     const requestId = ++reviewsRequestIdRef.current
     if (!hasServerData) return
+    beginReviews()
     const timeout = window.setTimeout(() => {
       startFiltering(async () => {
         try {
@@ -258,6 +250,7 @@ export function ReviewQueue({
               ? current
               : (page.items[0]?.id ?? "")
           )
+          completeReviews(countsScope)
         } catch {
           if (
             mountedRef.current &&
@@ -271,6 +264,9 @@ export function ReviewQueue({
     }, 250)
     return () => window.clearTimeout(timeout)
   }, [
+    beginReviews,
+    completeReviews,
+    countsScope,
     hasServerData,
     onRefresh,
     serverFilters,
@@ -284,23 +280,27 @@ export function ReviewQueue({
     const refreshVisibleQueue = () => {
       if (document.visibilityState !== "visible") return
       const requestId = ++reviewsRequestIdRef.current
+      beginCombined()
       startFiltering(async () => {
+        const countsRequest = refreshCounts(effectiveLocationId).then(() => {
+          if (!mountedRef.current) return
+          setResolvedCountsScope(countsScope)
+          completeCounts(countsScope)
+        })
         const [pageResult, countsResult] = await Promise.allSettled([
           loadReviewsPage(serverFilters),
-          refreshCounts(effectiveLocationId),
+          countsRequest,
         ])
-        if (mountedRef.current && countsResult.status === "fulfilled") {
-          setResolvedCountsScope(countsScope)
-        }
         if (
           !mountedRef.current ||
           requestId !== reviewsRequestIdRef.current
         ) {
           return
         }
-        await onRefresh(
-          pageResult.status === "fulfilled" &&
-            countsResult.status === "fulfilled"
+        await completeCombined(
+          countsScope,
+          pageResult.status === "fulfilled",
+          countsResult.status === "fulfilled"
         )
         if (
           !mountedRef.current ||
@@ -331,6 +331,9 @@ export function ReviewQueue({
       window.removeEventListener("focus", refreshVisibleQueue)
     }
   }, [
+    beginCombined,
+    completeCombined,
+    completeCounts,
     countsScope,
     effectiveLocationId,
     hasServerData,
@@ -421,22 +424,26 @@ export function ReviewQueue({
 
   async function reloadCurrentQueue() {
     const requestId = ++reviewsRequestIdRef.current
+    beginCombined()
+    const countsRequest = refreshCounts(effectiveLocationId).then(() => {
+      if (!mountedRef.current) return
+      setResolvedCountsScope(countsScope)
+      completeCounts(countsScope)
+    })
     const [pageResult, countsResult] = await Promise.allSettled([
       loadReviewsPage(serverFilters),
-      refreshCounts(effectiveLocationId),
+      countsRequest,
     ])
-    if (mountedRef.current && countsResult.status === "fulfilled") {
-      setResolvedCountsScope(countsScope)
-    }
     if (
       !mountedRef.current ||
       requestId !== reviewsRequestIdRef.current
     ) {
       return
     }
-    await onRefresh(
-      pageResult.status === "fulfilled" &&
-        countsResult.status === "fulfilled"
+    await completeCombined(
+      countsScope,
+      pageResult.status === "fulfilled",
+      countsResult.status === "fulfilled"
     )
     if (
       !mountedRef.current ||

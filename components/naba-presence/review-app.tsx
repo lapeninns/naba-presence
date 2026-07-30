@@ -30,7 +30,11 @@ export type ApiStatus =
   | "error"
 
 export type ConnectionState = "loading" | "connected" | "disconnected"
-type DashboardRefreshMode = "data" | "bootstrap" | "health"
+type DashboardRefreshMode =
+  | "data"
+  | "bootstrap"
+  | "queue-bootstrap"
+  | "health"
 type DashboardRefreshOptions = {
   includeReviews: boolean
   includeCounts?: boolean
@@ -77,6 +81,14 @@ export function NabaPresenceDashboard({
 }) {
   const pathname = usePathname()
   const isHomeRoute = pathname === "/home"
+  const isReviewQueueRoute =
+    pathname === "/inbox" ||
+    /^\/locations\/[^/]+\/reviews(?:\/|$)/.test(pathname)
+  const dashboardRouteMode = isHomeRoute
+    ? "home"
+    : isReviewQueueRoute
+      ? "queue"
+      : "other"
   const [reviews, setReviews] = useState<Review[]>([])
   const [apiStatus, setApiStatus] = useState<ApiStatus>("loading")
   const [counts, setCounts] = useState<ReviewCounts>(emptyReviewCounts)
@@ -163,13 +175,15 @@ export function NabaPresenceDashboard({
 
     if (mode === "health") return
 
-    if (mode === "bootstrap") {
+    if (mode === "bootstrap" || mode === "queue-bootstrap") {
       if (connectionsResult.status === "fulfilled") {
-        setApiStatus(
-          nextConnectionState === "disconnected"
-            ? "disconnected"
-            : "connected"
-        )
+        if (nextConnectionState === "disconnected") {
+          setApiStatus("disconnected")
+        } else if (mode === "bootstrap") {
+          setApiStatus("connected")
+        } else if (previousConnectionState !== "connected") {
+          setApiStatus("loading")
+        }
       } else {
         setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
       }
@@ -266,7 +280,7 @@ export function NabaPresenceDashboard({
 
   useEffect(() => {
     const requestEpoch = ++dashboardEpochRef.current
-    if (isHomeRoute) {
+    if (dashboardRouteMode === "home") {
       countsLocationIdRef.current = undefined
       void refreshDashboard({ includeReviews: true, requestEpoch })
       return
@@ -277,10 +291,13 @@ export function NabaPresenceDashboard({
     void refreshDashboard({
       includeReviews: false,
       includeCounts: false,
-      mode: "bootstrap",
+      mode:
+        dashboardRouteMode === "queue"
+          ? "queue-bootstrap"
+          : "bootstrap",
       requestEpoch,
     })
-  }, [isHomeRoute, refreshDashboard])
+  }, [dashboardRouteMode, refreshDashboard])
 
   useEffect(() => {
     if (apiStatus === "error" && !hasSuccessfulRefreshRef.current) return
