@@ -65,10 +65,10 @@ export function PageHeader({
   actions?: React.ReactNode
 }) {
   return (
-    <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-col gap-1">
         {eyebrow}
-        <h1 className="font-heading text-[22px] font-semibold tracking-[-0.01em]">
+        <h1 className="font-heading text-[18px] font-semibold tracking-[-0.01em]">
           {title}
         </h1>
         <p className="max-w-2xl text-[13px] text-muted-foreground">
@@ -243,7 +243,7 @@ export function MetricCard({
         <Icon className="size-4 text-muted-foreground" aria-hidden />
       </CardHeader>
       <CardContent className="flex flex-col gap-1">
-        <p className="font-mono text-2xl font-medium tracking-tight">
+        <p className="font-mono text-xl font-medium tracking-tight">
           {value}
         </p>
         <p className="text-xs text-muted-foreground">{detail}</p>
