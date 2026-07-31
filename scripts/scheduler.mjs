@@ -23,6 +23,14 @@ const retentionIntervalMs =
   interval("RETENTION_INTERVAL_SECONDS", 86400, 3600) * 1000
 const jobsIntervalMs =
   interval("JOBS_INTERVAL_SECONDS", 60, 10) * 1000
+const performanceIntervalMs =
+  interval("PERFORMANCE_INTERVAL_SECONDS", 21600, 3600) * 1000
+const performanceEnabled = process.env.GBP_PERFORMANCE_ENABLED === "true"
+const keywordIntervalMs =
+  interval("KEYWORD_INTERVAL_SECONDS", 86400, 3600) * 1000
+const keywordsEnabled = process.env.GBP_KEYWORDS_ENABLED === "true"
+const presenceResourceIntervalMs =
+  interval("PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS", 900, 300) * 1000
 
 function log(level, event, context = {}) {
   const record = JSON.stringify({
@@ -117,6 +125,96 @@ async function runJobs() {
   })
 }
 
+async function runPerformance() {
+  const startedAt = performance.now()
+  let organisationCursor
+  let organisations = 0
+  let locations = 0
+  let pages = 0
+  do {
+    const result = await post("/api/sync/performance", {
+      organisationCursor,
+      maxOrganisations: 100,
+      maxLocations: 25,
+    })
+    organisations += result.organisations?.length ?? 0
+    locations +=
+      result.organisations?.reduce(
+        (sum, organisation) => sum + (organisation.outcomes?.length ?? 0),
+        0
+      ) ?? 0
+    organisationCursor = result.nextCursor ?? undefined
+    pages += 1
+    if (pages > 1000) {
+      throw new Error("Performance cursor exceeded 1000 pages.")
+    }
+  } while (organisationCursor)
+  log("info", "performance.completed", {
+    organisations,
+    locations,
+    pages,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
+async function runKeywords() {
+  const startedAt = performance.now()
+  let organisationCursor
+  let organisations = 0
+  let locations = 0
+  let pages = 0
+  do {
+    const result = await post("/api/sync/keywords", {
+      organisationCursor,
+      maxOrganisations: 100,
+      maxLocations: 10,
+    })
+    organisations += result.organisations?.length ?? 0
+    locations +=
+      result.organisations?.reduce(
+        (sum, organisation) => sum + (organisation.outcomes?.length ?? 0),
+        0
+      ) ?? 0
+    organisationCursor = result.nextCursor ?? undefined
+    pages += 1
+    if (pages > 1000) {
+      throw new Error("Keyword cursor exceeded 1000 pages.")
+    }
+  } while (organisationCursor)
+  log("info", "keywords.completed", {
+    organisations,
+    locations,
+    pages,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
+async function runPresenceResources() {
+  const startedAt = performance.now()
+  let organisationCursor
+  let succeeded = 0
+  let failed = 0
+  let pages = 0
+  do {
+    const result = await post("/api/sync/presence-resources", {
+      organisationCursor,
+      maxOrganisations: 10,
+      maxLocations: 5,
+    })
+    succeeded += result.outcomes?.filter((outcome) => outcome.status === "succeeded").length ?? 0
+    failed += result.outcomes?.filter((outcome) => outcome.status === "failed").length ?? 0
+    organisationCursor = result.nextCursor ?? undefined
+    pages += 1
+    if (pages > 1000) throw new Error("Presence-resource cursor exceeded 1000 pages.")
+  } while (organisationCursor)
+  log("info", "presence_resources.completed", {
+    succeeded,
+    failed,
+    pages,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
 function recurring(name, task, everyMs, initialDelayMs) {
   let running = false
   const execute = async () => {
@@ -156,11 +254,31 @@ const stopRetention = recurring(
   30_000
 )
 const stopJobs = recurring("jobs", runJobs, jobsIntervalMs, 10_000)
+const stopPerformance = performanceEnabled
+  ? recurring(
+      "performance",
+      runPerformance,
+      performanceIntervalMs,
+      20_000
+    )
+  : () => {}
+const stopKeywords = keywordsEnabled
+  ? recurring("keywords", runKeywords, keywordIntervalMs, 25_000)
+  : () => {}
+const stopPresenceResources = recurring(
+  "presence_resources",
+  runPresenceResources,
+  presenceResourceIntervalMs,
+  35_000
+)
 
 function shutdown(signal) {
   stopReconciliation()
   stopRetention()
   stopJobs()
+  stopPerformance()
+  stopKeywords()
+  stopPresenceResources()
   log("info", "scheduler.stopped", { signal })
   process.exit(0)
 }
@@ -171,4 +289,9 @@ log("info", "scheduler.started", {
   reconcileIntervalSeconds: reconcileIntervalMs / 1000,
   retentionIntervalSeconds: retentionIntervalMs / 1000,
   jobsIntervalSeconds: jobsIntervalMs / 1000,
+  performanceEnabled,
+  performanceIntervalSeconds: performanceIntervalMs / 1000,
+  keywordsEnabled,
+  keywordIntervalSeconds: keywordIntervalMs / 1000,
+  presenceResourceIntervalSeconds: presenceResourceIntervalMs / 1000,
 })

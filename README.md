@@ -1,15 +1,17 @@
 # NabaPresence
 
-**Nab a Presence.** NabaPresence is a reputation operations SaaS. Users sign in
-with an email and password; an organisation owner or admin separately connects
-the organisation's authorised Google Business Profile account. NabaPresence
-ingests reviews, drafts and verifies replies, keeps a human approval boundary,
-publishes to Google, and exposes tenant-scoped analytics.
+**Nab a Presence.** NabaPresence is a Google Business Profile management
+platform. Users sign in with an email and password; an organisation owner or
+admin separately connects the organisation's authorised Google Business
+Profile account. NabaPresence ingests reviews, drafts and verifies replies,
+keeps a human approval boundary, publishes to Google, and exposes tenant-scoped
+analytics.
 
 ## What is implemented
 
-- Responsive review inbox, detail/editor, overview, analytics, connections, and
-  policy settings
+- Location-centred workspace covering profile identity and reviews, plus a
+  cross-location review inbox, organisation roll-up, reply performance
+  reporting, Google connection management, team access, and compliance tools
 - Google OAuth with PKCE, encrypted refresh/access tokens, account and location
   discovery, location linking, backfill, reconciliation, and Pub/Sub ingestion
 - AI reply drafting through the OpenAI Responses API with strict JSON Schema
@@ -78,9 +80,9 @@ database is unavailable.
    Invited users open the one-time `/invite/{token}` URL and continue with the
    invited email; acceptance adds them to the inviting organisation rather than
    creating a new one. Google OAuth is not an application sign-in method: an
-   owner or admin connects it once from `/connections`, and the resulting
-   connection remains attached to the organisation when users sign in from
-   other devices.
+   owner or admin connects it once from `/settings/connections`, and the
+   resulting connection remains attached to the organisation when users sign
+   in from other devices.
    Local development may enable `LOCAL_BOOTSTRAP_ENABLED=true`, which lets
    `/api/session` create a local owner session without Google.
 
@@ -189,6 +191,7 @@ general availability.
 - [Architecture and data controls](docs/architecture.md)
 - [Operations runbook](docs/runbook.md)
 - [Requirement traceability matrix](docs/requirements-matrix.md)
+- [Backend, API, and frontend feature map](docs/frontend-backend-feature-map.md)
 - [Design-system palette specification](docs/specs/2026-07-28-design-system.md)
 - [Full design-system replacement specification](docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md)
 - [Full design-system replacement plan](docs/superpowers/plans/2026-07-29-full-design-system-replacement.md)

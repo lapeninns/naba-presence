@@ -1,7 +1,5 @@
-import { AnalyticsRoute } from "@/components/naba-presence/route-views"
-
-export const metadata = { title: "Analytics · NabaPresence" }
+import { redirect } from "next/navigation"
 
 export default function AnalyticsPage() {
-  return <AnalyticsRoute />
+  redirect("/performance")
 }

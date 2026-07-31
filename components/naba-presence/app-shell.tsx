@@ -1,16 +1,16 @@
 "use client"
 
 import {
-  BarChart3,
   Building2,
   ChevronsUpDown,
+  Inbox,
   LayoutDashboard,
-  Link2,
   LogOut,
-  MessageSquareText,
   Moon,
   Settings,
+  Store,
   Sun,
+  TrendingUp,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -52,10 +52,10 @@ import { cn } from "@/lib/utils"
 import type { ApiStatus } from "@/components/naba-presence/review-app"
 
 const NAV_ITEMS = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/reviews", label: "Reviews", icon: MessageSquareText },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/connections", label: "Connections", icon: Link2 },
+  { href: "/home", label: "Home", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/locations", label: "Locations", icon: Store },
+  { href: "/performance", label: "Performance", icon: TrendingUp },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
@@ -103,7 +103,7 @@ export function AppShell({
   async function handleOrganisationSwitch(organisationId: string) {
     if (organisationId === session?.organisationId) return
     await switchOrganisation(organisationId)
-    window.location.assign("/reviews")
+    window.location.assign("/home")
   }
 
   return (
@@ -112,7 +112,7 @@ export function AppShell({
         <SidebarHeader className="shrink-0 gap-3 border-b border-sidebar-border/70 px-4 py-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-2">
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <MessageSquareText className="size-4" aria-hidden />
+              <Store className="size-4" aria-hidden />
             </span>
             <span className="flex flex-col group-data-[collapsible=icon]:hidden">
               <span className="font-heading text-base font-semibold tracking-tight">

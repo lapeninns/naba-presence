@@ -37,10 +37,17 @@ export async function startGoogleStub(): Promise<GoogleStub> {
   const server: Server = createServer(async (request, response) => {
     let raw = ""
     for await (const chunk of request) raw += chunk
+    const contentType = request.headers["content-type"] ?? ""
     const call: GoogleStubCall = {
       method: request.method ?? "GET",
       path: request.url ?? "/",
-      body: raw ? JSON.parse(raw) : undefined,
+      body: raw
+        ? contentType.includes("application/json")
+          ? JSON.parse(raw)
+          : contentType.includes("application/x-www-form-urlencoded")
+            ? Object.fromEntries(new URLSearchParams(raw))
+            : raw
+        : undefined,
     }
     calls.push(call)
     const rule = rules.find(

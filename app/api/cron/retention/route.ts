@@ -109,6 +109,64 @@ async function retain(request: Request) {
             and payload is not null
           returning id
         `
+        const hoursAttempts = await sql`
+          delete from hours_sync_attempt
+          where expires_at <= now()
+          returning id
+        `
+        const keywordHistory = await sql`
+          delete from performance_search_keyword_monthly
+          where metric_month < date_trunc('month', now()) - interval '18 months'
+          returning id
+        `
+        const placeActionMutations = await sql`
+          delete from place_action_mutation
+          where expires_at <= now()
+          returning id
+        `
+        const mediaMutations = await sql`
+          delete from gbp_media_mutation
+          where expires_at <= now()
+          returning id
+        `
+        const profileSnapshots = await sql`
+          update profile_field_state
+          set canonical_value = null, google_value = null,
+            snapshot_expires_at = null
+          where snapshot_expires_at <= now()
+            and (canonical_value is not null or google_value is not null)
+          returning id
+        `
+        const profileAttempts = await sql`
+          delete from profile_sync_attempt where expires_at <= now()
+          returning id
+        `
+        const postPayloads = await sql`
+          update gbp_local_post
+          set provider_payload = null, provider_payload_expires_at = null
+          where provider_payload_expires_at <= now() and provider_payload is not null
+          returning id
+        `
+        const postAttempts = await sql`
+          delete from gbp_local_post_attempt where expires_at <= now()
+          returning id
+        `
+        const googleMediaPayloads = await sql`
+          update gbp_media_item
+          set source_url = null, google_url = null, thumbnail_url = null,
+            description = null, attribution = null, dimensions = null,
+            insights = null, payload_expires_at = null
+          where payload_expires_at <= now()
+          returning id
+        `
+        const foodMenuStates = await sql`
+          delete from food_menus_state where expires_at <= now()
+          returning id
+        `
+        const foodMenuAttempts = await sql`
+          delete from food_menus_sync_attempt where expires_at <= now()
+          returning id
+        `
         const counts = {
           auditLogs: auditLogs.count,
           media: media.count,
@@ -117,6 +175,17 @@ async function retain(request: Request) {
           locations: locations.count,
           disconnectedLocations: disconnected.count,
           webhookPayloads: webhookPayloads.count,
+          hoursAttempts: hoursAttempts.count,
+          keywordHistory: keywordHistory.count,
+          placeActionMutations: placeActionMutations.count,
+          mediaMutations: mediaMutations.count,
+          profileSnapshots: profileSnapshots.count,
+          profileAttempts: profileAttempts.count,
+          postPayloads: postPayloads.count,
+          postAttempts: postAttempts.count,
+          googleMediaPayloads: googleMediaPayloads.count,
+          foodMenuStates: foodMenuStates.count,
+          foodMenuAttempts: foodMenuAttempts.count,
         }
         if (Object.values(counts).some((count) => count > 0)) {
           await writeAudit(sql, {

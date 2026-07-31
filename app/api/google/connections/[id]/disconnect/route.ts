@@ -49,6 +49,7 @@ export async function POST(
               accessToken,
               account.google_account_name,
               "",
+              [],
               { connectionKey: id }
             )
           }

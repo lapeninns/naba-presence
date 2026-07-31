@@ -64,6 +64,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
+import { SettingsNav } from "@/components/naba-presence/settings/settings-nav"
 import {
   beginGoogleConnect,
   activateGoogleAccounts,
@@ -76,6 +77,7 @@ import {
   type GoogleAccount,
   type GoogleConnection,
   type GoogleLocation,
+  type GoogleNotificationType,
   type StorefrontAddress,
   linkGoogleLocation,
   loadBackfillProgress,
@@ -89,6 +91,7 @@ import {
   unlinkLocation,
 } from "@/lib/naba-presence-api"
 import {
+  formatTimestamp,
   PageFrame,
   PageHeader,
   readControlValue,
@@ -115,6 +118,21 @@ function formatGoogleAddress(location: GoogleLocation) {
 function googleLocationLabel(location: GoogleLocation) {
   return location.title || location.googleLocationName
 }
+
+const NOTIFICATION_OPTIONS: Array<{
+  type: GoogleNotificationType
+  label: string
+}> = [
+  { type: "GOOGLE_UPDATE", label: "Google-suggested profile updates" },
+  { type: "NEW_REVIEW", label: "New reviews" },
+  { type: "UPDATED_REVIEW", label: "Updated reviews" },
+  { type: "NEW_CUSTOMER_MEDIA", label: "New customer media" },
+  { type: "DUPLICATE_LOCATION", label: "Duplicate locations" },
+  {
+    type: "VOICE_OF_MERCHANT_UPDATED",
+    label: "Verification and merchant-state changes",
+  },
+]
 
 function isLocationCandidate(
   googleLocation: GoogleLocation,
@@ -152,6 +170,9 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   const [locationQuery, setLocationQuery] = useState("")
   const [verificationFilter, setVerificationFilter] = useState("all")
   const [pubsubTopic, setPubsubTopic] = useState("")
+  const [notificationTypes, setNotificationTypes] = useState<
+    GoogleNotificationType[]
+  >(NOTIFICATION_OPTIONS.map((option) => option.type))
   const [message, setMessage] = useState("")
   const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [loadState, setLoadState] = useState<
@@ -384,7 +405,11 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
     setMessage("")
     startTransition(async () => {
       try {
-        await configureGoogleNotifications(activeAccount.id, pubsubTopic)
+        await configureGoogleNotifications(
+          activeAccount.id,
+          pubsubTopic,
+          notificationTypes
+        )
         setConnections(
           (current) =>
             current?.map((item) =>
@@ -399,7 +424,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         setMessageKind("info")
         setMessage(
           pubsubTopic
-            ? "NEW_REVIEW and UPDATED_REVIEW notifications enabled."
+            ? `${notificationTypes.length} Google notification type${notificationTypes.length === 1 ? "" : "s"} enabled.`
             : "Google notifications disabled."
         )
       } catch (error) {
@@ -577,6 +602,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
             : "Set up your review workspace in a few guided steps. You stay in control of every location we import."
         }
       />
+      <SettingsNav />
 
       <SetupProgress
         connected={connection?.status === "active"}
@@ -1142,6 +1168,43 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
               </CardFooter>
             </Card>
 
+            <Card>
+              <CardHeader>
+                <CardTitle>Operations health</CardTitle>
+                <CardDescription>
+                  Google connection and review-sync status
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-5">
+                <HealthRow
+                  label="Google connection"
+                  detail={
+                    connection
+                      ? connection.status === "active" &&
+                        !connection.reconnectRequired
+                        ? `Active${connection.lastRefreshAt ? ` · refreshed ${formatTimestamp(connection.lastRefreshAt)}` : ""}`
+                        : connection.reconnectRequired
+                          ? "Reconnect required"
+                          : connection.status
+                      : "Not connected"
+                  }
+                  healthy={
+                    connection?.status === "active" &&
+                    !connection.reconnectRequired
+                  }
+                />
+                <HealthRow
+                  label="Google notifications"
+                  detail={
+                    connection?.notificationsEnabled
+                      ? "Configured"
+                      : "Not configured · scheduled sync remains available"
+                  }
+                  healthy={Boolean(connection?.notificationsEnabled)}
+                />
+              </CardContent>
+            </Card>
+
             {activeAccount ? (
               <Card aria-label="Notification management" className="bg-card">
                 <CardHeader>
@@ -1163,10 +1226,35 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                     aria-label="Google Pub/Sub topic"
                     className="font-mono"
                   />
+                  <div className="grid gap-2 py-2">
+                    {NOTIFICATION_OPTIONS.map((option) => (
+                      <label
+                        key={option.type}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={notificationTypes.includes(option.type)}
+                          onCheckedChange={(checked) =>
+                            setNotificationTypes((current) =>
+                              checked === true
+                                ? [...new Set([...current, option.type])]
+                                : current.filter(
+                                    (type) => type !== option.type
+                                  )
+                            )
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
                   <Button
                     variant="outline"
                     onClick={configureNotifications}
-                    disabled={isPending}
+                    disabled={
+                      isPending ||
+                      (Boolean(pubsubTopic) && !notificationTypes.length)
+                    }
                   >
                     Configure notifications
                   </Button>
@@ -1238,6 +1326,32 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         </Card>
       ) : null}
     </PageFrame>
+  )
+}
+
+function HealthRow({
+  label,
+  detail,
+  healthy,
+}: {
+  label: string
+  detail: string
+  healthy: boolean
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+        {healthy ? (
+          <CheckCircle2 className="size-4" aria-hidden />
+        ) : (
+          <Activity className="size-4" aria-hidden />
+        )}
+      </span>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
+      </div>
+    </div>
   )
 }
 

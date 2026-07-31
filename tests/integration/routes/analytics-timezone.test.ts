@@ -148,21 +148,21 @@ describeDatabase("analytics timezone bucketing", () => {
     ).toBe("2026-09-14T04:00:00.000Z")
   })
 
-  it("uses the location timezone for per-location series", async () => {
+  it("uses the organisation timezone for cross-location series", async () => {
     const fixture = await seedTimezoneFixture("Europe/London", [
       "2026-10-25T00:30:00.000Z",
     ])
-    const response = await fetch(
-      `${server.baseUrl}/api/analytics/locations/${fixture.locationIds[0]}?granularity=day&from=2026-10-24T00%3A00%3A00.000Z&to=2026-10-26T23%3A59%3A59.999Z`,
-      { headers: { cookie: fixture.cookie } }
+    await admin`
+      update location set timezone = 'UTC'
+      where id = ${fixture.locationIds[0]}
+    `
+
+    const result = await overview(
+      fixture.cookie,
+      "2026-10-24T00:00:00.000Z",
+      "2026-10-26T23:59:59.999Z"
     )
-    if (!response.ok) {
-      throw new Error(`Location analytics failed: ${await response.text()}`)
-    }
-    const result = (await response.json()) as {
-      timezone: string
-      series: SeriesPoint[]
-    }
+
     expect(result.timezone).toBe("Europe/London")
     expect(
       result.series.find((point) => point.reviewCount === 1)?.period

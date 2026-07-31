@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   parseDatabasePoolMax,
   parseFeatureFlag,
+  serverEnvSchema,
 } from "@/lib/server/env"
 
 describe("feature flags", () => {
@@ -12,6 +13,25 @@ describe("feature flags", () => {
     expect(parseFeatureFlag(undefined, false)).toBe(false)
     expect(parseFeatureFlag("true", false)).toBe(true)
     expect(parseFeatureFlag("false", true)).toBe(false)
+  })
+
+  it("defaults every GBP capability flag to false", () => {
+    const env = serverEnvSchema.parse({
+      DATABASE_URL: "postgresql://localhost/nabapresence",
+      NEXTAUTH_SECRET: "n".repeat(32),
+      TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+      CRON_SECRET: "c".repeat(16),
+    })
+
+    expect(env.GBP_PERFORMANCE_ENABLED).toBe(false)
+    expect(env.GBP_KEYWORDS_ENABLED).toBe(false)
+    expect(env.GBP_POSTS_ENABLED).toBe(false)
+    expect(env.GBP_MEDIA_ENABLED).toBe(false)
+    expect(env.GBP_FOOD_MENUS_ENABLED).toBe(false)
+    expect(env.GBP_PLACE_ACTIONS_ENABLED).toBe(false)
+    expect(env.GBP_PROFILE_WRITES_ENABLED).toBe(false)
+    expect(env.GBP_LODGING_ENABLED).toBe(false)
+    expect(env.ACTIONS_CENTER_ENABLED).toBe(false)
   })
 })
 

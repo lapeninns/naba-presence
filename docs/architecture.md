@@ -53,6 +53,29 @@ through a content-free location map, and reconciled against Google before
 becoming inbox data. Failed event metadata is retained for at most 30 days and
 can be replayed by an authorised operator.
 
+## Standalone canonical resources and Google publication
+
+NabaPresence is the sole owner of canonical profile, Hours, and Food Menus
+data. A tenant-scoped `presence_canonical_resource` row stores each location's
+resource payload, optimistic revision, reconciliation hashes, and last
+successful reconciliation time. The first load of a resource imports the live
+Google value as revision 1; all later edits are explicit NabaPresence CRUD
+operations. No venue mapping or external product service is involved.
+
+NabaPresence normalizes its canonical Hours and the live Google Business
+Information v1 location hours, hashes both, and classifies baseline-aware drift
+as `in_sync`, `core_dirty`, `google_dirty`, or `conflict`.
+`hours_sync_attempt` stores the approved canonical revision, source hashes,
+update mask, intended public payload, warnings, actor, and provider outcome
+before any write occurs.
+
+Hours publication is gated by both the global publish control and the
+profile-write capability flag, plus the member's location publish permission.
+The approved pins are rechecked against fresh provider reads. Google
+`validateOnly` runs first; the real PATCH is single-attempt and followed by a
+read-back hash comparison. Ambiguous writes are read before any retry, and an
+exact repeat of an already successful approval is idempotent.
+
 ## Three-phase reply mutation and recovery
 
 The model produces a draft only. Structured output is validated against a strict
@@ -72,6 +95,30 @@ and settles `succeeded`, `not_applied`, or `diverged`.
 `lib/server/jobs.ts` claims due retry/recovery work; `app/api/jobs/run/route.ts`
 exposes the cron-authenticated worker tick.
 
+## Profile and location-content control plane
+
+NabaPresence owns the public venue profile and Food Menus. Profile fields carry
+explicit source policy (`bidirectional`, `import_only`, or `google_read_only`);
+operators can edit supported canonical fields directly or explicitly import
+selected live Google values. Food Menus support hierarchical CRUD for menus,
+sections, and items. Publication is a complete-resource replacement: the
+operator sees canonical and live Google hierarchies, counts, eligibility, and
+source hashes before explicit approval. A Google readback must hash to the
+approved canonical resource.
+
+Google Posts, merchant/customer Media, and Place Action links use the same
+write discipline: tenant/location permission, capability plus global kill
+switch, durable pre-call intent, provider mutation outside the transaction,
+and a live readback or list reconciliation. Posts support only Google API
+topic types that can be created (`STANDARD`, `EVENT`, `OFFER`). Customer Media keeps author attribution and
+takedown links, while only merchant-owned media can be changed. Aggregator-owned
+Place Actions remain visible but immutable.
+
+Capability switches gate provider mutations and ingestion, not the visibility
+of completed management surfaces. Disabled features render current stored/live
+state with a paused-write notice so an operator can distinguish “no data” from
+“writes intentionally disabled.”
+
 ## Checkpointed synchronization and workers
 
 `lib/server/reviews.ts` uses a durable `sync_checkpoint` for every backfill,
@@ -86,6 +133,13 @@ re-entering `withTenant` for customer data. `scripts/scheduler.mjs` runs
 reconciliation, retention, and jobs ticks. `lib/server/leases.ts` protects each
 fleet-wide loop with PostgreSQL advisory locks so overlapping schedulers skip
 rather than duplicate work.
+
+`/api/sync/presence-resources` performs a separate bounded sweep for Hours,
+Profile, Posts, Media, Food Menus, and Place Actions. It selects the least
+recently attempted linked locations per tenant, isolates every resource
+failure, and records content-free success/error checkpoints. The scheduler
+runs this sweep every 15 minutes by default, so reconciliation does not depend
+on a user opening the location workspace.
 
 ## Membership, organisation switching, privacy, and retention
 
@@ -109,6 +163,24 @@ Disconnect immediately destroys stored OAuth tokens and disables notifications.
 External location data is scheduled for deletion within seven days. Audit rows
 are append-only by database trigger, and `/api/cron/retention` enforces the
 bounded audit-retention policy.
+
+Canonical profile, Hours, and Food Menus are public operational business data
+owned by NabaPresence and retained until the location or organisation is
+deleted. Ephemeral live-Google comparison snapshots expire after 30 days;
+mutation attempts expire according to the resource policy. Reconciliation
+hashes contain no customer content.
+
+Google Business Profile performance rows are non-personal, derived daily
+counts. They persist for trend reporting outside the raw-content retention
+window and are deleted automatically when their `external_location` is
+purged. Dates are stored as Google-reported local calendar dates without
+timezone conversion.
+
+Profile and Food Menu comparison payloads and Google Media provider
+snapshots expire after 30 days. Posts retain only the authored product record
+after their raw provider payload expires. Profile/Hours attempts retain one
+year; Posts, Media, Food Menus, and Place Action mutation attempts retain 180
+days.
 
 ## Naming
 

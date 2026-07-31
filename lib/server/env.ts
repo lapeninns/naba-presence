@@ -67,7 +67,7 @@ const urlWithDefault = (fallback: string) =>
 const timeoutWithDefault = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback)
 
-const serverEnvSchema = z.object({
+export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DATABASE_POOL_MAX: z
     .unknown()
@@ -104,6 +104,15 @@ const serverEnvSchema = z.object({
   WEBHOOKS_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
+  GBP_PERFORMANCE_ENABLED: featureFlag(false),
+  GBP_KEYWORDS_ENABLED: featureFlag(false),
+  GBP_POSTS_ENABLED: featureFlag(false),
+  GBP_MEDIA_ENABLED: featureFlag(false),
+  GBP_FOOD_MENUS_ENABLED: featureFlag(false),
+  GBP_PLACE_ACTIONS_ENABLED: featureFlag(false),
+  GBP_PROFILE_WRITES_ENABLED: featureFlag(false),
+  GBP_LODGING_ENABLED: featureFlag(false),
+  ACTIONS_CENTER_ENABLED: featureFlag(false),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

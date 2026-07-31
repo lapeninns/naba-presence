@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test"
+import { expect, type Page, type Request, test } from "@playwright/test"
 
 import {
   readJourneyState,
@@ -16,7 +16,7 @@ test.describe("critical browser journeys", () => {
     const [name, value] = state.cookie.split("=", 2)
     await context.addCookies([{ name, value, url: baseURL! }])
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     const reviewList = page.getByRole("region", { name: "Review list" })
     await expect(
       reviewList.getByText(state.directReview.text, { exact: true })
@@ -24,8 +24,12 @@ test.describe("critical browser journeys", () => {
     await expect(
       reviewList.getByText(state.approvalReview.text, { exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("tab", { name: /All reviews\s+2/ })).toBeVisible()
+    await expect(
+      page.getByRole("tab", { name: /All reviews,\s+2/ })
+    ).toBeVisible()
 
+    await verifyLocationScopedQueue(page, state)
+    await page.goto("/inbox")
     await verifyServerFilters(page, state)
     await page.reload()
 
@@ -43,6 +47,9 @@ test.describe("critical browser journeys", () => {
     ).toBeVisible()
     await expect(page.getByText("Published", { exact: true }).first()).toBeVisible()
 
+    await page.getByRole("link", { name: "Home", exact: true }).click()
+    await expectNeedsAttention(page, "1")
+
     const analyticsResponse = page.waitForResponse((response) => {
       const url = new URL(response.url())
       return (
@@ -50,9 +57,9 @@ test.describe("critical browser journeys", () => {
         url.pathname === "/api/analytics/overview"
       )
     })
-    await page.goto("/analytics")
+    await page.goto("/performance")
     await expect(
-      page.getByRole("heading", { name: "Analytics" })
+      page.getByRole("heading", { name: "Performance", level: 1 })
     ).toBeVisible()
     const analytics = (await (await analyticsResponse).json()) as {
       timezone: string
@@ -96,7 +103,7 @@ test.describe("critical browser journeys", () => {
       page.getByRole("switch", { name: "Require two-person approval" })
     ).toBeChecked()
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     await openReview(page, state.approvalReview.text)
     const approvalBody =
       "Thank you for sharing your experience. Our team appreciates your kind feedback."
@@ -113,7 +120,7 @@ test.describe("critical browser journeys", () => {
       page.getByText("Reply submitted for approval.", { exact: true })
     ).toBeVisible()
 
-    await page.goto("/reviews")
+    await page.goto("/inbox")
     await page.getByRole("tab", { name: /Published/ }).click()
     await openReview(page, state.directReview.text)
     await page.getByRole("button", { name: "Review actions" }).click()
@@ -140,7 +147,7 @@ test.describe("critical browser journeys", () => {
     }, state.directReview.id)
     expect(deletedDetail.review.workflowStatus).toBe("new")
 
-    await page.goto("/connections")
+    await page.goto("/settings/connections")
     await expect(
       page.getByText("stub@example.test", { exact: true })
     ).toBeVisible()
@@ -172,6 +179,85 @@ test.describe("critical browser journeys", () => {
   })
 })
 
+async function verifyLocationScopedQueue(page: Page, state: JourneyState) {
+  const isScopedReviewsResponse = (response: {
+    request(): { method(): string }
+    url(): string
+  }) => {
+    const url = new URL(response.url())
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/reviews" &&
+      url.searchParams.get("location_id") === state.directReview.locationId
+    )
+  }
+  const unscopedQueueRequests: string[] = []
+  const recordUnscopedQueueRequest = (request: Request) => {
+    const url = new URL(request.url())
+    if (request.method() !== "GET") return
+    const isUnscopedReviews =
+      url.pathname === "/api/reviews" &&
+      !url.searchParams.has("location_id")
+    const isUnscopedCounts =
+      url.pathname === "/api/reviews/counts" &&
+      !url.searchParams.has("locationId")
+    if (isUnscopedReviews || isUnscopedCounts) {
+      unscopedQueueRequests.push(url.toString())
+    }
+  }
+  page.on("request", recordUnscopedQueueRequest)
+
+  const scopedReviews = page.waitForResponse(isScopedReviewsResponse)
+  const scopedCounts = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/reviews/counts" &&
+      url.searchParams.get("locationId") === state.directReview.locationId
+    )
+  })
+
+  await page.goto(
+    `/locations/${state.directReview.locationId}/reviews`
+  )
+  expect((await scopedReviews).status()).toBe(200)
+  expect((await scopedCounts).status()).toBe(200)
+  await expect(
+    page.getByRole("heading", { name: "Reviews", level: 1 })
+  ).toBeVisible()
+  await expect(page.getByLabel("Filter by location")).toHaveCount(0)
+
+  const reviewList = page.getByRole("region", { name: "Review list" })
+  await expect(
+    reviewList.getByText(state.directReview.text, { exact: true })
+  ).toBeVisible()
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("tab", { name: /All reviews,\s+1/ })
+  ).toBeVisible()
+
+  const backgroundReviews = page.waitForResponse(isScopedReviewsResponse)
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  expect((await backgroundReviews).status()).toBe(200)
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+
+  const refreshedReviews = page.waitForResponse(isScopedReviewsResponse)
+  await page.getByRole("button", { name: "Live data" }).click()
+  expect((await refreshedReviews).status()).toBe(200)
+  await expect(
+    reviewList.getByText(state.approvalReview.text, { exact: true })
+  ).toHaveCount(0)
+  page.off("request", recordUnscopedQueueRequest)
+  expect(unscopedQueueRequests).toEqual([])
+
+  await page.getByRole("link", { name: "Home", exact: true }).click()
+  await expectNeedsAttention(page, "2")
+}
+
 async function verifyServerFilters(page: Page, state: JourneyState) {
   const locationReviews = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -201,7 +287,7 @@ async function verifyServerFilters(page: Page, state: JourneyState) {
   const counts = (await (await locationCounts).json()) as { total: number }
   expect(counts.total).toBe(1)
   await expect(
-    page.getByRole("tab", { name: /All reviews\s+1/ })
+    page.getByRole("tab", { name: /All reviews,\s+1/ })
   ).toBeVisible()
 
   const queueResponse = page.waitForResponse((response) => {
@@ -226,6 +312,25 @@ async function verifyServerFilters(page: Page, state: JourneyState) {
       .getByRole("region", { name: "Review list" })
       .getByText(state.approvalReview.text, { exact: true })
   ).toHaveCount(0)
+
+  await page.getByRole("link", { name: "Home", exact: true }).click()
+  await expectNeedsAttention(page, "2")
+
+  await page.goto("/inbox")
+  await expect(
+    page.getByRole("heading", { name: "Inbox", level: 1 })
+  ).toBeVisible()
+}
+
+async function expectNeedsAttention(page: Page, value: string) {
+  await expect(
+    page.getByRole("heading", { name: "Home", level: 1 })
+  ).toBeVisible()
+  const attentionCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "Needs attention" })
+  await expect(attentionCard.locator('[data-slot="card-content"] > p').first())
+    .toHaveText(value)
 }
 
 async function openReview(page: Page, reviewText: string) {

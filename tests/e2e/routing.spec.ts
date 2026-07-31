@@ -1,18 +1,9 @@
 import { expect, test } from "@playwright/test"
 
 const dashboardRoutes = [
-  { path: "/reviews", label: "Reviews", heading: /^Reviews$/ },
-  {
-    path: "/overview",
-    label: "Overview",
-    heading: /^Good (morning|afternoon|evening),/,
-  },
-  { path: "/analytics", label: "Analytics", heading: /^Analytics$/ },
-  {
-    path: "/connections",
-    label: "Connections",
-    heading: /^(Connect )?Google Business Profile$/,
-  },
+  { path: "/home", label: "Home", heading: /^Home$/ },
+  { path: "/inbox", label: "Inbox", heading: /^Inbox$/ },
+  { path: "/performance", label: "Performance", heading: /^Performance$/ },
   { path: "/settings", label: "Settings", heading: /^Reply policy$/ },
 ]
 
@@ -29,24 +20,36 @@ test("dashboard pages have direct URLs", async ({ page }) => {
   }
 })
 
-test("root redirects to the review inbox", async ({ page }) => {
+test("root redirects to home", async ({ page }) => {
   await page.goto("/")
 
-  await expect(page).toHaveURL("/reviews")
+  await expect(page).toHaveURL("/home")
   await expect(
-    page.getByRole("heading", { name: "Reviews", level: 1 })
+    page.getByRole("heading", { name: "Home", level: 1 })
   ).toBeVisible()
 })
 
-test("sidebar links update browser history", async ({ page }) => {
-  await page.goto("/reviews")
+test("legacy routes redirect to their replacements", async ({ page }) => {
+  for (const [from, to] of [
+    ["/overview", "/home"],
+    ["/reviews", "/inbox"],
+    ["/analytics", "/performance"],
+    ["/connections", "/settings/connections"],
+  ]) {
+    await page.goto(from)
+    await expect(page).toHaveURL(to)
+  }
+})
 
-  await page.getByRole("link", { name: "Overview", exact: true }).click()
-  await expect(page).toHaveURL("/overview")
+test("sidebar links update browser history", async ({ page }) => {
+  await page.goto("/inbox")
+
+  await page.getByRole("link", { name: "Home", exact: true }).click()
+  await expect(page).toHaveURL("/home")
 
   await page.getByRole("link", { name: "Settings", exact: true }).click()
   await expect(page).toHaveURL("/settings")
 
   await page.goBack()
-  await expect(page).toHaveURL("/overview")
+  await expect(page).toHaveURL("/home")
 })

@@ -1,7 +1,5 @@
-import { OverviewRoute } from "@/components/naba-presence/route-views"
-
-export const metadata = { title: "Overview · NabaPresence" }
+import { redirect } from "next/navigation"
 
 export default function OverviewPage() {
-  return <OverviewRoute />
+  redirect("/home")
 }

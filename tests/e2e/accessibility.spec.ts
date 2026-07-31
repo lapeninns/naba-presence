@@ -172,6 +172,134 @@ async function mockReviewWorkspace(
   }
 }
 
+async function mockLocationWorkspace(page: Page) {
+  await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        session: {
+          sessionId: "session-location-a11y",
+          userId: "user-location-a11y",
+          organisationId: "org-location-a11y",
+          organisationName: "Naba Presence",
+          displayName: "Alex Morgan",
+          email: "alex@example.com",
+          role: "owner",
+          canPublish: true,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        locations: [
+          {
+            locationId: "location-a11y",
+            name: "Camden Hotel",
+            timezone: "Europe/London",
+            address: {
+              addressLines: ["10 Camden High Street"],
+              locality: "London",
+              administrativeArea: "England",
+              postalCode: "NW1 0JH",
+              regionCode: "GB",
+            },
+            linkId: "link-location-a11y",
+            externalLocationId: "external-location-a11y",
+            googleLocationName: "locations/camden-a11y",
+            googleTitle: "Camden Hotel",
+            verified: true,
+          },
+        ],
+      },
+    })
+  })
+  await page.route(
+    /\/api\/analytics\/overview(?:\?.*)?$/,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          from: "2026-06-29T00:00:00.000Z",
+          to: "2026-07-29T00:00:00.000Z",
+          timezone: "Europe/London",
+          summary: {
+            reviewVolume: 8,
+            averageRating: 4.6,
+            responseRate: 88,
+            unresolvedComplaints: 1,
+            verificationFailures: 0,
+            verificationRejectionRate: 0,
+            medianFirstResponseSeconds: 1800,
+            p95FirstResponseSeconds: 5400,
+            medianLatestEditSeconds: 2400,
+          },
+          series: [],
+          locations: [
+            {
+              id: "location-a11y",
+              name: "Camden Hotel",
+              averageRating: 4.6,
+              reviews: 8,
+              responseRate: 88,
+              medianFirstResponseSeconds: 1800,
+              p95FirstResponseSeconds: 5400,
+              medianLatestEditSeconds: 2400,
+              unresolvedComplaints: 1,
+              verificationRejectionRate: 0,
+            },
+          ],
+        },
+      })
+    }
+  )
+  await page.route(
+    /\/api\/google\/connections(?:\?.*)?$/,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          connections: [
+            {
+              id: "connection-location-a11y",
+              googleEmail: "reviews@example.com",
+              status: "active",
+              scope: "https://www.googleapis.com/auth/business.manage",
+              notificationsEnabled: true,
+              lastRefreshAt: "2026-07-29T09:00:00.000Z",
+              lastErrorCode: null,
+              reconnectRequired: false,
+              createdAt: "2026-07-01T09:00:00.000Z",
+            },
+          ],
+        },
+      })
+    }
+  )
+  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      json: {
+        total: 0,
+        byStatus: {
+          new: 0,
+          drafted: 0,
+          verified: 0,
+          awaiting_approval: 0,
+          publish_requested: 0,
+          published: 0,
+          rejected: 0,
+          failed: 0,
+          escalated: 0,
+        },
+      },
+    })
+  })
+  await page.route(/\/api\/reviews(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [], nextCursor: null } })
+  })
+  await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
+}
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 1000 },
   { name: "mobile", width: 390, height: 844 },
@@ -205,7 +333,7 @@ for (const viewport of [
     })
 
     test("application shell", async ({ page }) => {
-      await page.goto("/reviews")
+      await page.goto("/inbox")
       if (viewport.name === "desktop") {
         await expect(page.locator('[data-variant="floating"]')).toBeVisible()
       } else {
@@ -279,7 +407,7 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} invitation`)
     })
 
-    test("overview", async ({ page }) => {
+    test("home", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
           json: {
@@ -363,19 +491,17 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/overview")
+      await page.goto("/home")
       await expect(
-        page.getByRole("heading", {
-          name: /Good (morning|afternoon|evening)/,
-        })
+        page.getByRole("heading", { name: "Home", level: 1 })
       ).toBeVisible()
       await expect(
-        page.getByText("Google connection", { exact: true })
+        page.getByText("Reviews and replies", { exact: true })
       ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} overview`)
+      await expectAccessible(page, `${viewport.name} home`)
     })
 
-    test("analytics", async ({ page }) => {
+    test("performance", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
           json: {
@@ -438,9 +564,9 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/analytics")
+      await page.goto("/performance")
       await expect(
-        page.getByRole("heading", { name: "Analytics", level: 1 })
+        page.getByRole("heading", { name: "Performance", level: 1 })
       ).toBeVisible()
       const camdenRow = page.getByRole("row").filter({ hasText: "Camden" })
       await expect(camdenRow).toBeVisible()
@@ -449,7 +575,36 @@ for (const viewport of [
           name: "Response rate for Camden",
         })
       ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} analytics`)
+      await expectAccessible(page, `${viewport.name} performance`)
+    })
+
+    test("locations index", async ({ page }) => {
+      await mockLocationWorkspace(page)
+      await page.goto("/locations")
+      await expect(
+        page.getByRole("heading", { name: "Locations", level: 1 })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("columnheader", { name: "Location" })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} locations index`)
+    })
+
+    test("location profile workspace", async ({ page }) => {
+      await mockLocationWorkspace(page)
+      await page.goto("/locations/location-a11y")
+      await expect(
+        page.getByText(
+          "Identity NabaPresence currently stores for this location",
+          { exact: true }
+        )
+      ).toBeVisible()
+      await expect(
+        page
+          .getByRole("navigation", { name: "Location sections" })
+          .getByRole("link", { name: "Profile" })
+      ).toHaveAttribute("aria-current", "page")
+      await expectAccessible(page, `${viewport.name} location profile`)
     })
 
     test("inbox, review detail, and reply editor", async ({ page }) => {
@@ -585,9 +740,9 @@ for (const viewport of [
           })
         }
       )
-      await page.goto("/reviews")
+      await page.goto("/inbox")
       await expect(
-        page.getByRole("heading", { name: "Reviews", level: 1 })
+        page.getByRole("heading", { name: "Inbox", level: 1 })
       ).toBeVisible()
       await expect(page.getByRole("button", { name: /Filters/ })).toBeVisible()
       const reviewList = page.getByRole("region", { name: "Review list" })
@@ -673,7 +828,7 @@ for (const viewport of [
 
     test("stale review data banner", async ({ page }) => {
       const controls = await mockReviewWorkspace(page)
-      await page.goto("/reviews")
+      await page.goto("/inbox")
       await expect(
         page.getByRole("button", { name: "Live data" })
       ).toBeVisible()
@@ -688,19 +843,19 @@ for (const viewport of [
 
     test("disconnected review data state", async ({ page }) => {
       await mockReviewWorkspace(page, { disconnected: true })
-      await page.goto("/reviews")
+      await page.goto("/inbox")
       await expect(
         page.getByText("No active Google connection")
       ).toBeVisible()
       await expect(
         page.getByRole("link", { name: "Manage connections" })
-      ).toHaveAttribute("href", "/connections")
+      ).toHaveAttribute("href", "/settings/connections")
       await expectAccessible(page, `${viewport.name} disconnected review data`)
     })
 
     test("delete published reply confirmation", async ({ page }) => {
       await mockReviewWorkspace(page)
-      await page.goto("/reviews")
+      await page.goto("/inbox")
       const reviewList = page.getByRole("region", { name: "Review list" })
       if (viewport.name === "mobile") {
         await reviewList.getByRole("button", { name: /Jordan Lee/ }).click()
@@ -855,7 +1010,7 @@ for (const viewport of [
           },
         })
       })
-      await page.goto("/connections")
+      await page.goto("/settings/connections")
       await expect(
         page.getByRole("heading", { name: "Google Business Profile" })
       ).toBeVisible()
@@ -875,7 +1030,7 @@ for (const viewport of [
       await expectAccessible(page, `${viewport.name} connections`)
     })
 
-    test("settings", async ({ page }) => {
+    test("settings policy, team, and compliance", async ({ page }) => {
       await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
         await route.fulfill({
           json: {
@@ -960,7 +1115,12 @@ for (const viewport of [
       await expect(
         page.getByRole("heading", { name: "Reply policy" })
       ).toBeVisible()
-      await expect(page.getByText("Team access", { exact: true })).toBeVisible()
+      await expectAccessible(page, `${viewport.name} reply policy settings`)
+
+      await page.goto("/settings/team")
+      await expect(
+        page.getByRole("heading", { name: "Team access", level: 1 })
+      ).toBeVisible()
       await expect(
         page.getByRole("combobox", { name: "Role for Alex Morgan" })
       ).toBeVisible()
@@ -969,7 +1129,19 @@ for (const viewport of [
           name: "Copy invitation link for invitee@example.com",
         })
       ).toBeVisible()
-      await expectAccessible(page, `${viewport.name} settings`)
+      await expectAccessible(page, `${viewport.name} team settings`)
+
+      await page.goto("/settings/compliance")
+      await expect(
+        page.getByRole("heading", {
+          name: "Data and compliance",
+          level: 1,
+        })
+      ).toBeVisible()
+      await expect(
+        page.getByText("Data retention", { exact: true })
+      ).toBeVisible()
+      await expectAccessible(page, `${viewport.name} compliance settings`)
     })
   })
 }

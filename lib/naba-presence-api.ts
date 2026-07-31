@@ -5,6 +5,16 @@ import type {
 } from "@/lib/naba-presence-data"
 import type { DraftTone } from "@/lib/domain/reply-policy"
 import type { ReviewWorkflowState } from "@/lib/domain/workflow"
+import type {
+  HoursDriftStatus,
+  NormalizedHours,
+} from "@/lib/domain/hours"
+import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
+import type {
+  ProfileDriftStatus,
+  ProfileFieldKey,
+  ProfileFieldPolicy,
+} from "@/lib/domain/profile"
 
 type ApiReview = {
   id: string
@@ -79,7 +89,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: {
-      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(typeof init?.body === "string"
+        ? { "content-type": "application/json" }
+        : {}),
       ...init?.headers,
     },
   })
@@ -103,6 +115,585 @@ export type AppSession = {
 
 export async function loadSession() {
   return apiFetch<{ session: AppSession | null }>("/api/session")
+}
+
+export type HoursViewState = {
+      location: {
+        id: string
+        name: string
+        googleLocationName: string
+        timezone: string
+      }
+      canonicalResource: {
+        revision: string
+        updatedAt: string
+      }
+      status: HoursDriftStatus
+      canonical: NormalizedHours
+      google: NormalizedHours
+      canonicalHash: string
+      googleHash: string
+      updateMask: GoogleHoursUpdateMask[]
+      warnings: string[]
+      canPublish: boolean
+      writesEnabled: boolean
+      lastReconciledAt: string | null
+      latestAttempt: {
+        id: string
+        status: string
+        createdAt: string
+        finishedAt: string | null
+      } | null
+}
+
+export async function loadLocationHours(locationId: string) {
+  return apiFetch<{ hours: HoursViewState }>(
+    `/api/locations/${locationId}/hours`
+  )
+}
+
+export async function saveLocationHours(
+  locationId: string,
+  input: {
+    expectedCanonicalRevision: string
+    hours: NormalizedHours
+  }
+) {
+  return apiFetch<{ saved: true; revision: string }>(
+    `/api/locations/${locationId}/hours`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export async function publishLocationHours(
+  locationId: string,
+  input: {
+    expectedCanonicalRevision: string
+    expectedCanonicalHash: string
+    expectedGoogleHash: string
+    approvedUpdateMask: GoogleHoursUpdateMask[]
+    confirmOverwriteGoogleChanges: boolean
+  }
+) {
+  return apiFetch<{
+    status: "published" | "in_sync"
+    attemptId?: string
+    idempotent: boolean
+  }>(`/api/locations/${locationId}/hours`, {
+    method: "POST",
+    body: JSON.stringify({
+      confirmation: "publish_nabapresence_hours_to_google",
+      ...input,
+    }),
+  })
+}
+
+export type ProfileViewState = {
+      location: { id: string; name: string; googleLocationName: string }
+      canonicalResource: { revision: string; updatedAt: string }
+      canonicalHash: string
+      googleHash: string
+      canPublish: boolean
+      googleWritesEnabled: boolean
+      fields: Array<{
+        key: ProfileFieldKey
+        policy: ProfileFieldPolicy
+        status: ProfileDriftStatus
+        canonicalValue: string | null
+        googleValue: string | null
+        canonicalHash: string
+        googleHash: string
+        lastReconciledAt: string | null
+      }>
+      googleDetails: {
+        primaryCategory: string | null
+        additionalCategories: string[]
+      }
+      latestAttempt: {
+        id: string
+        direction: string
+        status: string
+        selectedFields: string[]
+        createdAt: string
+        finishedAt: string | null
+      } | null
+}
+
+export async function loadLocationProfile(locationId: string) {
+  return apiFetch<{ profile: ProfileViewState }>(
+    `/api/locations/${locationId}/profile`
+  )
+}
+
+export async function saveLocationProfile(
+  locationId: string,
+  input: {
+    expectedCanonicalRevision: string
+    values: Partial<Record<"name" | "description" | "phone" | "website", string | null>>
+  }
+) {
+  return apiFetch<{ saved: true; revision: string }>(
+    `/api/locations/${locationId}/profile`,
+    { method: "PUT", body: JSON.stringify(input) }
+  )
+}
+
+export async function syncLocationProfile(
+  locationId: string,
+  input: {
+    direction: "to_google" | "from_google"
+    selectedFields: ProfileFieldKey[]
+    expectedCanonicalRevision: string
+    expectedCanonicalHash: string
+    expectedGoogleHash: string
+    confirmOverwriteGoogleChanges: boolean
+    confirmOverwriteCanonicalChanges: boolean
+  }
+) {
+  return apiFetch<{
+    status: "published" | "imported"
+    attemptId?: string
+    revision?: string
+    idempotent: boolean
+  }>(`/api/locations/${locationId}/profile`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      confirmation:
+        input.direction === "to_google"
+          ? "publish_nabapresence_profile_to_google"
+          : "import_google_profile_to_nabapresence",
+    }),
+  })
+}
+
+export type PlaceActionType =
+  | "APPOINTMENT"
+  | "ONLINE_APPOINTMENT"
+  | "DINING_RESERVATION"
+  | "FOOD_ORDERING"
+  | "FOOD_DELIVERY"
+  | "FOOD_TAKEOUT"
+  | "SHOP_ONLINE"
+
+export type PlaceActionState = {
+  locationId: string
+  canPublish: boolean
+  writesEnabled: boolean
+  supportedTypes: PlaceActionType[]
+  links: Array<{
+    id: string
+    googleLinkName: string
+    providerType: string
+    isEditable: boolean
+    uri: string
+    placeActionType: PlaceActionType
+    isPreferred: boolean
+    googleHash: string
+    observedAt: string
+  }>
+  latestMutation: {
+    id: string
+    operation: string
+    status: string
+    createdAt: string
+    finishedAt: string | null
+  } | null
+}
+
+export type PlaceActionInput = {
+  uri: string
+  placeActionType: PlaceActionType
+  isPreferred: boolean
+}
+
+export async function loadPlaceActions(locationId: string) {
+  return apiFetch<{ placeActions: PlaceActionState }>(
+    `/api/locations/${locationId}/place-actions`
+  )
+}
+
+export async function createPlaceActionLink(
+  locationId: string,
+  input: PlaceActionInput
+) {
+  return apiFetch(`/api/locations/${locationId}/place-actions`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      confirmation: "create_google_place_action",
+    }),
+  })
+}
+
+export async function updatePlaceActionLink(
+  locationId: string,
+  linkId: string,
+  input: PlaceActionInput & { expectedGoogleHash: string }
+) {
+  return apiFetch(`/api/locations/${locationId}/place-actions/${linkId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...input,
+      confirmation: "update_google_place_action",
+    }),
+  })
+}
+
+export async function deletePlaceActionLink(
+  locationId: string,
+  linkId: string,
+  expectedGoogleHash: string
+) {
+  return apiFetch(`/api/locations/${locationId}/place-actions/${linkId}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      expectedGoogleHash,
+      confirmation: "delete_google_place_action",
+    }),
+  })
+}
+
+export type MediaCategory =
+  | "COVER" | "PROFILE" | "LOGO" | "EXTERIOR" | "INTERIOR"
+  | "PRODUCT" | "AT_WORK" | "FOOD_AND_DRINK" | "MENU"
+  | "COMMON_AREA" | "ROOMS" | "TEAMS" | "ADDITIONAL"
+
+export type MediaState = {
+  canPublish: boolean
+  writesEnabled: boolean
+  categories: MediaCategory[]
+  items: Array<{
+    id: string
+    googleMediaName: string
+    ownership: "merchant" | "customer"
+    mediaFormat: "PHOTO" | "VIDEO"
+    category: MediaCategory | null
+    sourceUrl: string | null
+    googleUrl: string | null
+    thumbnailUrl: string | null
+    description: string | null
+    attribution: { profileName?: string; profilePhotoUrl?: string; takedownUrl?: string; profileUrl?: string } | null
+    dimensions: { widthPixels?: number; heightPixels?: number } | null
+    insights: { viewCount?: string } | null
+    googleHash: string
+    createTime: string | null
+  }>
+}
+
+export async function loadLocationMedia(locationId: string) {
+  return apiFetch<{ media: MediaState }>(`/api/locations/${locationId}/media`)
+}
+
+export async function createLocationMedia(locationId: string, input: {
+  mediaFormat: "PHOTO" | "VIDEO"
+  category: MediaCategory
+  sourceUrl: string
+  description?: string
+}) {
+  return apiFetch(`/api/locations/${locationId}/media`, { method: "POST", body: JSON.stringify({ ...input, confirmation: "create_google_media" }) })
+}
+
+export async function uploadLocationMedia(
+  locationId: string,
+  input: {
+    mediaFormat: "PHOTO" | "VIDEO"
+    category: MediaCategory
+    file: File
+    description?: string
+  }
+) {
+  const form = new FormData()
+  form.set("mediaFormat", input.mediaFormat)
+  form.set("category", input.category)
+  form.set("file", input.file)
+  form.set("confirmation", "create_google_media")
+  if (input.description) form.set("description", input.description)
+  return apiFetch(`/api/locations/${locationId}/media`, {
+    method: "POST",
+    body: form,
+  })
+}
+
+export async function updateLocationMedia(locationId: string, mediaId: string, category: MediaCategory, expectedGoogleHash: string) {
+  return apiFetch(`/api/locations/${locationId}/media/${mediaId}`, { method: "PATCH", body: JSON.stringify({ category, expectedGoogleHash, confirmation: "update_google_media" }) })
+}
+
+export async function deleteLocationMedia(locationId: string, mediaId: string, expectedGoogleHash: string) {
+  return apiFetch(`/api/locations/${locationId}/media/${mediaId}`, { method: "DELETE", body: JSON.stringify({ expectedGoogleHash, confirmation: "delete_google_media" }) })
+}
+
+export type BusinessInformationState = {
+  location: Record<string, unknown>
+  attributes: {
+    name?: string
+    attributes?: Array<Record<string, unknown>>
+  }
+  attributeMetadata: Array<Record<string, unknown>>
+  locationHash: string
+  attributesHash: string
+  canPublish: boolean
+  writesEnabled: boolean
+}
+
+export async function loadBusinessInformation(locationId: string) {
+  return apiFetch<{ businessInformation: BusinessInformationState }>(
+    `/api/locations/${locationId}/business-information`
+  )
+}
+
+export async function updateBusinessInformation(
+  locationId: string,
+  input: {
+    expectedGoogleHash: string
+    updateMask: string[]
+    payload: Record<string, unknown>
+  }
+) {
+  return apiFetch(`/api/locations/${locationId}/business-information`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      operation: "update_location",
+      confirmation: "publish_business_information_to_google",
+      ...input,
+    }),
+  })
+}
+
+export async function updateBusinessAttributes(
+  locationId: string,
+  input: {
+    expectedGoogleHash: string
+    attributeMask: string[]
+    attributes: Array<Record<string, unknown>>
+  }
+) {
+  return apiFetch(`/api/locations/${locationId}/business-information`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      operation: "update_attributes",
+      confirmation: "publish_business_attributes_to_google",
+      ...input,
+    }),
+  })
+}
+
+export async function searchBusinessInformationMetadata(
+  locationId: string,
+  input: {
+    type: "categories" | "chains"
+    query: string
+    regionCode?: string
+    languageCode?: string
+  }
+) {
+  const params = new URLSearchParams({
+    type: input.type,
+    query: input.query,
+    regionCode: input.regionCode ?? "GB",
+    languageCode: input.languageCode ?? "en",
+  })
+  return apiFetch<{ result: Record<string, unknown> }>(
+    `/api/locations/${locationId}/business-information?${params}`
+  )
+}
+
+export type LocationAdministrationState = {
+  voice: { data: Record<string, unknown> | null; error: string | null }
+  verifications: { data: Record<string, unknown> | null; error: string | null }
+  verificationOptions: { data: Record<string, unknown> | null; error: string | null }
+  googleUpdated: { data: Record<string, unknown> | null; error: string | null }
+  locationAdmins: { data: Record<string, unknown> | null; error: string | null }
+  accountAdmins: { data: Record<string, unknown> | null; error: string | null }
+  invitations: { data: Record<string, unknown> | null; error: string | null }
+  accountName: string
+  googleLocationName: string
+  canManage: boolean
+  writesEnabled: boolean
+}
+
+export type LocationAdministrationOperation =
+  | "start_verification" | "complete_verification" | "create_admin"
+  | "update_admin" | "delete_admin" | "accept_invitation"
+  | "decline_invitation" | "transfer_location" | "create_location"
+  | "delete_location" | "accept_google_update"
+
+export async function loadLocationAdministration(locationId: string) {
+  return apiFetch<{ administration: LocationAdministrationState }>(
+    `/api/locations/${locationId}/administration`
+  )
+}
+
+const ADMINISTRATION_CONFIRMATIONS: Record<
+  LocationAdministrationOperation,
+  string
+> = {
+  start_verification: "start_google_location_verification",
+  complete_verification: "complete_google_location_verification",
+  create_admin: "invite_google_administrator",
+  update_admin: "change_google_administrator_role",
+  delete_admin: "remove_google_administrator",
+  accept_invitation: "accept_google_invitation",
+  decline_invitation: "decline_google_invitation",
+  transfer_location: "transfer_google_location",
+  create_location: "create_google_location",
+  delete_location: "delete_google_location_permanently",
+  accept_google_update: "accept_google_suggested_update",
+}
+
+export async function mutateLocationAdministration(
+  locationId: string,
+  operation: LocationAdministrationOperation,
+  payload: Record<string, unknown>
+) {
+  return apiFetch(`/api/locations/${locationId}/administration`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      operation,
+      confirmation: ADMINISTRATION_CONFIRMATIONS[operation],
+      payload,
+    }),
+  })
+}
+
+export async function matchGoogleLocation(
+  locationId: string,
+  location: Record<string, unknown>
+) {
+  return apiFetch<{ matches: Record<string, unknown> }>(
+    `/api/locations/${locationId}/administration`,
+    {
+      method: "POST",
+      body: JSON.stringify({ operation: "match_location", location }),
+    }
+  )
+}
+
+type GoogleSurfaceResult = {
+  data: Record<string, unknown> | null
+  error: string | null
+}
+
+export type IndustryManagementState = {
+  lodging: GoogleSurfaceResult
+  lodgingUpdated: GoogleSurfaceResult
+  calls: GoogleSurfaceResult
+  callInsights: GoogleSurfaceResult
+  healthcareServices: GoogleSurfaceResult
+  providerAttributes: GoogleSurfaceResult
+  insuranceNetworks: GoogleSurfaceResult
+  canManage: boolean
+  writesEnabled: boolean
+}
+
+export type IndustryOperation =
+  | "update_lodging"
+  | "update_business_calls"
+  | "update_healthcare_services"
+  | "update_healthcare_provider_attributes"
+
+export async function loadIndustryManagement(locationId: string) {
+  return apiFetch<{ industry: IndustryManagementState }>(
+    `/api/locations/${locationId}/industry`
+  )
+}
+
+export async function updateIndustryManagement(
+  locationId: string,
+  input: {
+    operation: IndustryOperation
+    updateMask: string[]
+    payload: Record<string, unknown>
+  }
+) {
+  return apiFetch(`/api/locations/${locationId}/industry`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...input,
+      confirmation: "publish_industry_data_to_google",
+    }),
+  })
+}
+
+export type FoodMenuLabel = {
+  displayName: string
+  description?: string
+  languageCode: string
+}
+
+export type FoodMenuItem = {
+  labels: FoodMenuLabel[]
+  attributes: {
+    price?: { currencyCode: string; units?: string | number; nanos?: number }
+    dietaryRestriction?: string[]
+    allergen?: string[]
+  }
+  options?: Array<{ labels: FoodMenuLabel[]; attributes: Record<string, unknown> }>
+}
+
+export type FoodMenu = {
+  labels: FoodMenuLabel[]
+  sourceUrl?: string
+  cuisines?: string[]
+  sections: Array<{ labels: FoodMenuLabel[]; items: FoodMenuItem[] }>
+}
+
+export type FoodMenusViewState = {
+      location: { id: string; name: string; googleLocationName: string }
+      canonicalResource: {
+        revision: string
+        updatedAt: string
+      }
+      eligible: boolean
+      status: "in_sync" | "drift"
+      canonicalMenus: FoodMenu[]
+      googleMenus: FoodMenu[]
+      canonicalHash: string
+      googleHash: string
+      canonicalCounts: { menus: number; sections: number; items: number; options: number }
+      googleCounts: { menus: number; sections: number; items: number; options: number }
+      canPublish: boolean
+      writesEnabled: boolean
+}
+
+export async function loadLocationFoodMenus(locationId: string) {
+  return apiFetch<{ foodMenus: FoodMenusViewState }>(
+    `/api/locations/${locationId}/food-menus`
+  )
+}
+
+export async function saveLocationFoodMenus(
+  locationId: string,
+  input: { expectedCanonicalRevision: string; menus: FoodMenu[] }
+) {
+  return apiFetch<{ saved: true; revision: string }>(
+    `/api/locations/${locationId}/food-menus`,
+    { method: "PUT", body: JSON.stringify(input) }
+  )
+}
+
+export async function publishLocationFoodMenus(
+  locationId: string,
+  input: {
+    expectedCanonicalRevision: string
+    expectedCanonicalHash: string
+    expectedGoogleHash: string
+  }
+) {
+  return apiFetch<{ status: "published" | "in_sync"; attemptId?: string; idempotent: boolean }>(
+    `/api/locations/${locationId}/food-menus`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        confirmation: "publish_nabapresence_food_menus_to_google",
+        confirmFullReplacement: true,
+        ...input,
+      }),
+    }
+  )
 }
 
 export async function signOut(): Promise<void> {
@@ -541,13 +1132,22 @@ export async function cancelBackfill(externalLocationId: string) {
   })
 }
 
+export type GoogleNotificationType =
+  | "GOOGLE_UPDATE"
+  | "NEW_REVIEW"
+  | "UPDATED_REVIEW"
+  | "NEW_CUSTOMER_MEDIA"
+  | "DUPLICATE_LOCATION"
+  | "VOICE_OF_MERCHANT_UPDATED"
+
 export async function configureGoogleNotifications(
   accountId: string,
-  pubsubTopic: string
+  pubsubTopic: string,
+  notificationTypes: GoogleNotificationType[]
 ) {
   return apiFetch("/api/google/notifications", {
     method: "PATCH",
-    body: JSON.stringify({ accountId, pubsubTopic }),
+    body: JSON.stringify({ accountId, pubsubTopic, notificationTypes }),
   })
 }
 
@@ -766,4 +1366,155 @@ export async function loadAnalytics(options?: {
   if (options?.granularity) params.set("granularity", options.granularity)
   const query = params.size ? `?${params}` : ""
   return apiFetch<AnalyticsOverview>(`/api/analytics/overview${query}`)
+}
+
+export type PresenceMetric =
+  | "BUSINESS_IMPRESSIONS_DESKTOP_MAPS"
+  | "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"
+  | "BUSINESS_IMPRESSIONS_MOBILE_MAPS"
+  | "BUSINESS_IMPRESSIONS_MOBILE_SEARCH"
+  | "CALL_CLICKS"
+  | "WEBSITE_CLICKS"
+  | "BUSINESS_DIRECTION_REQUESTS"
+  | "BUSINESS_CONVERSATIONS"
+  | "BUSINESS_BOOKINGS"
+  | "BUSINESS_FOOD_ORDERS"
+  | "BUSINESS_FOOD_MENU_CLICKS"
+
+export type PresenceAnalytics = {
+  range: "28d" | "90d" | "12m" | "18m"
+  from: string
+  to: string
+  state: "no_link" | "pending" | "unavailable" | "empty" | "ready"
+  freshThrough: string | null
+  locations: Array<{ id: string; name: string }>
+  totals: Record<PresenceMetric, number>
+  series: Array<{
+    date: string
+    metrics: Partial<Record<PresenceMetric, number>>
+  }>
+  unavailableReasons: string[]
+  keywordsEnabled: boolean
+  ingestionEnabled: boolean
+}
+
+export async function loadPresenceAnalytics(options?: {
+  range?: PresenceAnalytics["range"]
+  locationId?: string
+}) {
+  await requireApiSession()
+  const params = new URLSearchParams()
+  if (options?.range) params.set("range", options.range)
+  if (options?.locationId) params.set("locationId", options.locationId)
+  const query = params.size ? `?${params}` : ""
+  return apiFetch<PresenceAnalytics>(`/api/analytics/presence${query}`)
+}
+
+export type PresenceKeywordAnalytics = {
+  range: "1m" | "6m" | "12m" | "18m"
+  from: string
+  state: "no_link" | "pending" | "unavailable" | "empty" | "ready"
+  locations: Array<{ id: string; name: string }>
+  keywords: Array<{
+    rank: number
+    keyword: string
+    impressions: number
+    upperBound: number
+    thresholded: boolean
+    firstMonth: string
+    latestMonth: string
+  }>
+  unavailableReasons: string[]
+}
+
+export async function loadPresenceKeywords(options?: {
+  range?: PresenceKeywordAnalytics["range"]
+  locationId?: string
+}) {
+  await requireApiSession()
+  const params = new URLSearchParams()
+  if (options?.range) params.set("range", options.range)
+  if (options?.locationId) params.set("locationId", options.locationId)
+  const query = params.size ? `?${params}` : ""
+  return apiFetch<PresenceKeywordAnalytics>(
+    `/api/analytics/presence/keywords${query}`
+  )
+}
+
+export type LocalPost = {
+  id: string
+  topicType: "STANDARD" | "EVENT" | "OFFER"
+  languageCode: string
+  summary: string
+  callToAction: { actionType: string; url?: string } | null
+  event: Record<string, unknown> | null
+  offer: Record<string, unknown> | null
+  media: Array<{ sourceUrl?: string }>
+  scheduledTime: string | null
+  status: "draft" | "awaiting_approval" | "publishing" | "published" | "failed" | "ambiguous"
+  googlePostName: string | null
+  googleState: string | null
+  googleSearchUrl: string | null
+  lastErrorCode: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type LocalPostInput = {
+  topicType: LocalPost["topicType"]
+  languageCode: string
+  summary: string
+  callToAction?: { actionType: string; url?: string }
+  event?: Record<string, unknown>
+  offer?: {
+    couponCode?: string
+    redeemOnlineUrl?: string
+    termsConditions?: string
+  }
+  media: Array<{ sourceUrl: string }>
+  scheduledTime?: string
+}
+
+export async function loadLocalPosts(locationId: string) {
+  return apiFetch<{
+    posts: LocalPost[]
+    writesEnabled: boolean
+    reconciliationError: string | null
+  }>(`/api/locations/${locationId}/posts`)
+}
+
+export async function saveLocalPost(
+  locationId: string,
+  input: LocalPostInput,
+  postId?: string
+) {
+  return apiFetch(`/api/locations/${locationId}/posts${postId ? `/${postId}` : ""}`, {
+    method: postId ? "PATCH" : "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function publishLocalPost(locationId: string, postId: string) {
+  return apiFetch<{ status: string }>(
+    `/api/locations/${locationId}/posts/${postId}/publish`,
+    { method: "POST", body: JSON.stringify({}) }
+  )
+}
+
+export async function decideLocalPost(
+  locationId: string,
+  postId: string,
+  decision: "approve" | "reject"
+) {
+  return apiFetch<{ status: string }>(
+    `/api/locations/${locationId}/posts/${postId}/approval`,
+    { method: "POST", body: JSON.stringify({ decision }) }
+  )
+}
+
+export async function removeLocalPost(locationId: string, postId: string) {
+  return apiFetch<{ status: string }>(
+    `/api/locations/${locationId}/posts/${postId}`,
+    { method: "DELETE" }
+  )
 }

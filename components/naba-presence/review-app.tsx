@@ -1,14 +1,16 @@
 "use client"
 
-import { usePathname } from "next/navigation"
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
+import { usePathname } from "next/navigation"
 
 import { AppShell } from "@/components/naba-presence/app-shell"
 import { REVIEW_WORKFLOW_STATES } from "@/lib/domain/workflow"
@@ -23,13 +25,18 @@ import {
 } from "@/lib/naba-presence-api"
 
 export type ApiStatus =
-  | "loading"
-  | "connected"
-  | "stale"
-  | "disconnected"
-  | "error"
+  "loading" | "connected" | "stale" | "disconnected" | "error"
 
 export type ConnectionState = "loading" | "connected" | "disconnected"
+type DashboardRefreshMode = "data" | "bootstrap" | "queue-bootstrap" | "health"
+type DashboardRefreshOptions = {
+  includeReviews: boolean
+  includeCounts?: boolean
+  mode?: DashboardRefreshMode
+  requestEpoch?: number
+  queueToken?: QueueScopeToken
+}
+export type QueueScopeToken = Readonly<{ pathname: string }>
 
 function emptyReviewCounts(): ReviewCounts {
   return {
@@ -42,16 +49,23 @@ function emptyReviewCounts(): ReviewCounts {
 
 type DashboardContextValue = {
   reviews: Review[]
-  setReviews: React.Dispatch<React.SetStateAction<Review[]>>
-  selectedId: string
-  setSelectedId: React.Dispatch<React.SetStateAction<string>>
   apiStatus: ApiStatus
   counts: ReviewCounts
-  refreshCounts: (locationId?: string) => Promise<void>
+  queueScopeToken: QueueScopeToken | null
+  refreshCounts: (
+    queueToken: QueueScopeToken | null,
+    locationId?: string
+  ) => Promise<void>
+  revalidateQueueConnection: (
+    queueToken: QueueScopeToken | null
+  ) => Promise<boolean>
   connectionState: ConnectionState
   lastRefreshedAt: number | null
   session: AppSession | null
-  refreshReviews: () => Promise<void>
+  refreshReviews: (
+    queueToken: QueueScopeToken | null,
+    succeeded?: boolean
+  ) => Promise<void>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -72,94 +86,309 @@ export function NabaPresenceDashboard({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const isHomeRoute = pathname === "/home"
+  const isReviewQueueRoute =
+    pathname === "/inbox" ||
+    /^\/locations\/[^/]+\/reviews(?:\/|$)/.test(pathname)
+  const dashboardRouteMode = isHomeRoute
+    ? "home"
+    : isReviewQueueRoute
+      ? "queue"
+      : "other"
+  const reviewQueueToken = useMemo<QueueScopeToken | null>(
+    () => (isReviewQueueRoute ? { pathname } : null),
+    [isReviewQueueRoute, pathname]
+  )
   const [reviews, setReviews] = useState<Review[]>([])
-  const [selectedId, setSelectedId] = useState("")
   const [apiStatus, setApiStatus] = useState<ApiStatus>("loading")
   const [counts, setCounts] = useState<ReviewCounts>(emptyReviewCounts)
   const [connectionState, setConnectionState] =
     useState<ConnectionState>("loading")
+  const [validatedQueueToken, setValidatedQueueToken] =
+    useState<QueueScopeToken | null>(null)
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null)
   const [session, setSession] = useState<AppSession | null>(null)
   const mountedRef = useRef(true)
   const hasSuccessfulRefreshRef = useRef(false)
+  const lastReviewRefreshSucceededRef = useRef(false)
   const lastRefreshedAtRef = useRef<number | null>(null)
   const countsLocationIdRef = useRef<string | undefined>(undefined)
+  const countsRequestIdRef = useRef(0)
   const connectionStateRef = useRef<ConnectionState>("loading")
+  const dashboardEpochRef = useRef(0)
+  const currentQueueTokenRef = useRef<QueueScopeToken | null>(reviewQueueToken)
+  const validatedQueueTokenRef = useRef<QueueScopeToken | null>(null)
+  const successfulQueueTokenRef = useRef<QueueScopeToken | null>(null)
+  const queueConnectionRequestIdRef = useRef(0)
 
-  const refreshDashboard = useCallback(async (includeReviews: boolean) => {
-    const [countsResult, connectionsResult, reviewsResult] =
-      await Promise.allSettled([
-        loadReviewCounts(countsLocationIdRef.current),
-        loadConnections(),
-        includeReviews ? loadReviews() : Promise.resolve(null),
-      ])
-    if (!mountedRef.current) return
+  useLayoutEffect(() => {
+    currentQueueTokenRef.current = reviewQueueToken
+  }, [reviewQueueToken])
 
-    if (countsResult.status === "fulfilled") {
-      setCounts(countsResult.value)
-    }
-    let nextConnectionState = connectionStateRef.current
-    if (connectionsResult.status === "fulfilled") {
-      nextConnectionState = connectionsResult.value.connections.some(
-        (connection) => connection.status === "active"
+  const refreshDashboard = useCallback(
+    async ({
+      includeReviews,
+      includeCounts = true,
+      mode = "data",
+      requestEpoch = dashboardEpochRef.current,
+      queueToken,
+    }: DashboardRefreshOptions) => {
+      const queueConnectionRequestId =
+        mode === "queue-bootstrap"
+          ? ++queueConnectionRequestIdRef.current
+          : queueConnectionRequestIdRef.current
+      const countsLocationId = countsLocationIdRef.current
+      const countsRequestId = includeCounts
+        ? ++countsRequestIdRef.current
+        : countsRequestIdRef.current
+      const [countsResult, connectionsResult, reviewsResult] =
+        await Promise.allSettled([
+          includeCounts
+            ? loadReviewCounts(countsLocationId)
+            : Promise.resolve(null),
+          loadConnections(),
+          includeReviews ? loadReviews() : Promise.resolve(null),
+        ])
+      if (!mountedRef.current || requestEpoch !== dashboardEpochRef.current) {
+        return
+      }
+      if (
+        mode === "queue-bootstrap" &&
+        (!queueToken ||
+          queueToken !== currentQueueTokenRef.current ||
+          queueConnectionRequestId !== queueConnectionRequestIdRef.current)
+      ) {
+        return
+      }
+
+      if (
+        includeCounts &&
+        countsResult.status === "fulfilled" &&
+        countsResult.value &&
+        countsRequestId === countsRequestIdRef.current &&
+        countsLocationId === countsLocationIdRef.current
+      ) {
+        setCounts(countsResult.value)
+      }
+      let nextConnectionState = connectionStateRef.current
+      const previousConnectionState = connectionStateRef.current
+      if (connectionsResult.status === "fulfilled") {
+        nextConnectionState = connectionsResult.value.connections.some(
+          (connection) => connection.status === "active"
+        )
+          ? "connected"
+          : "disconnected"
+        connectionStateRef.current = nextConnectionState
+        setConnectionState(nextConnectionState)
+        if (mode === "health") {
+          const currentQueueToken = currentQueueTokenRef.current
+          if (nextConnectionState === "disconnected") {
+            lastReviewRefreshSucceededRef.current = false
+            if (currentQueueToken) {
+              successfulQueueTokenRef.current = null
+            }
+            setApiStatus("disconnected")
+          } else if (previousConnectionState !== "connected") {
+            const hasCurrentReviewData = currentQueueToken
+              ? successfulQueueTokenRef.current === currentQueueToken
+              : lastReviewRefreshSucceededRef.current
+            setApiStatus(
+              hasCurrentReviewData
+                ? "connected"
+                : hasSuccessfulRefreshRef.current
+                  ? "stale"
+                  : "error"
+            )
+          }
+        }
+      }
+      if (
+        includeReviews &&
+        reviewsResult.status === "fulfilled" &&
+        reviewsResult.value
+      ) {
+        const loaded = reviewsResult.value
+        setReviews(loaded)
+      }
+
+      if (mode === "health") return
+
+      if (mode === "queue-bootstrap") {
+        validatedQueueTokenRef.current = queueToken ?? null
+        setValidatedQueueToken(queueToken ?? null)
+        if (connectionsResult.status === "fulfilled") {
+          if (nextConnectionState === "disconnected") {
+            successfulQueueTokenRef.current = null
+            lastReviewRefreshSucceededRef.current = false
+            setApiStatus("disconnected")
+          } else {
+            setApiStatus(
+              successfulQueueTokenRef.current === queueToken
+                ? "connected"
+                : "loading"
+            )
+          }
+        } else {
+          connectionStateRef.current = "loading"
+          setConnectionState("loading")
+          setApiStatus(
+            successfulQueueTokenRef.current === queueToken ||
+              hasSuccessfulRefreshRef.current
+              ? "stale"
+              : "error"
+          )
+        }
+        return
+      }
+
+      if (mode === "bootstrap") {
+        if (connectionsResult.status === "fulfilled") {
+          setApiStatus(
+            nextConnectionState === "disconnected"
+              ? "disconnected"
+              : "connected"
+          )
+        } else {
+          setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
+        }
+        return
+      }
+
+      const succeeded =
+        (!includeCounts || countsResult.status === "fulfilled") &&
+        connectionsResult.status === "fulfilled" &&
+        (!includeReviews || reviewsResult.status === "fulfilled")
+      if (succeeded) {
+        const refreshedAt = Date.now()
+        hasSuccessfulRefreshRef.current = true
+        lastReviewRefreshSucceededRef.current = true
+        lastRefreshedAtRef.current = refreshedAt
+        setLastRefreshedAt(refreshedAt)
+        setApiStatus(
+          nextConnectionState === "disconnected" ? "disconnected" : "connected"
+        )
+      } else {
+        lastReviewRefreshSucceededRef.current = false
+        setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
+      }
+    },
+    []
+  )
+
+  const revalidateQueueConnection = useCallback(
+    async (queueToken: QueueScopeToken | null) => {
+      if (!queueToken || queueToken !== currentQueueTokenRef.current) {
+        return false
+      }
+
+      successfulQueueTokenRef.current = null
+      lastReviewRefreshSucceededRef.current = false
+      countsRequestIdRef.current += 1
+      validatedQueueTokenRef.current = null
+      setValidatedQueueToken(null)
+      setApiStatus("loading")
+      await refreshDashboard({
+        includeReviews: false,
+        includeCounts: false,
+        mode: "queue-bootstrap",
+        requestEpoch: dashboardEpochRef.current,
+        queueToken,
+      })
+      return (
+        currentQueueTokenRef.current === queueToken &&
+        validatedQueueTokenRef.current === queueToken &&
+        connectionStateRef.current === "connected"
       )
-        ? "connected"
-        : "disconnected"
-      connectionStateRef.current = nextConnectionState
-      setConnectionState(nextConnectionState)
-    }
-    if (
-      includeReviews &&
-      reviewsResult.status === "fulfilled" &&
-      reviewsResult.value
-    ) {
-      const loaded = reviewsResult.value
-      setReviews(loaded)
-      setSelectedId((current) =>
-        loaded.some((review) => review.id === current)
-          ? current
-          : (loaded[0]?.id ?? "")
-      )
-    }
+    },
+    [refreshDashboard]
+  )
 
-    const succeeded =
-      countsResult.status === "fulfilled" &&
-      connectionsResult.status === "fulfilled" &&
-      reviewsResult.status === "fulfilled"
-    if (succeeded) {
+  const refreshReviews = useCallback(
+    async (queueToken: QueueScopeToken | null, succeeded = true) => {
+      if (
+        !mountedRef.current ||
+        !queueToken ||
+        queueToken !== currentQueueTokenRef.current ||
+        queueToken !== validatedQueueTokenRef.current
+      ) {
+        return
+      }
+      if (!succeeded) {
+        successfulQueueTokenRef.current = null
+        lastReviewRefreshSucceededRef.current = false
+        setApiStatus(
+          connectionStateRef.current === "disconnected"
+            ? "disconnected"
+            : hasSuccessfulRefreshRef.current
+              ? "stale"
+              : "error"
+        )
+        return
+      }
+
       const refreshedAt = Date.now()
       hasSuccessfulRefreshRef.current = true
+      lastReviewRefreshSucceededRef.current = true
+      successfulQueueTokenRef.current = queueToken
       lastRefreshedAtRef.current = refreshedAt
       setLastRefreshedAt(refreshedAt)
       setApiStatus(
-        nextConnectionState === "disconnected"
-          ? "disconnected"
-          : "connected"
+        connectionStateRef.current === "connected"
+          ? "connected"
+          : connectionStateRef.current === "disconnected"
+            ? "disconnected"
+            : "stale"
       )
-    } else {
-      setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
-    }
-  }, [])
+    },
+    []
+  )
 
-  const refreshReviews = useCallback(async () => {
-    await refreshDashboard(true)
-  }, [refreshDashboard])
+  const refreshCounts = useCallback(
+    async (queueToken: QueueScopeToken | null, locationId?: string) => {
+      if (
+        !queueToken ||
+        queueToken !== currentQueueTokenRef.current ||
+        queueToken !== validatedQueueTokenRef.current
+      ) {
+        throw new Error("Review counts request has no current queue owner.")
+      }
 
-  const refreshCounts = useCallback(async (locationId?: string) => {
-    countsLocationIdRef.current = locationId
-    try {
-      const loaded = await loadReviewCounts(locationId)
-      if (!mountedRef.current) return
-      setCounts(loaded)
-    } catch {
-      if (!mountedRef.current) return
-      setApiStatus(hasSuccessfulRefreshRef.current ? "stale" : "error")
-    }
-  }, [])
+      countsLocationIdRef.current = locationId
+      const requestId = ++countsRequestIdRef.current
+      try {
+        const loaded = await loadReviewCounts(locationId)
+        if (!mountedRef.current) return
+        if (
+          requestId !== countsRequestIdRef.current ||
+          queueToken !== currentQueueTokenRef.current ||
+          queueToken !== validatedQueueTokenRef.current
+        ) {
+          throw new Error("Review counts request was superseded.")
+        }
+        setCounts(loaded)
+      } catch (error) {
+        if (!mountedRef.current) return
+        if (
+          requestId === countsRequestIdRef.current &&
+          queueToken === currentQueueTokenRef.current &&
+          queueToken === validatedQueueTokenRef.current
+        ) {
+          setApiStatus(
+            connectionStateRef.current === "disconnected"
+              ? "disconnected"
+              : hasSuccessfulRefreshRef.current
+                ? "stale"
+                : "error"
+          )
+        }
+        throw error
+      }
+    },
+    []
+  )
 
   useEffect(() => {
     mountedRef.current = true
-    void refreshDashboard(true)
     void loadSession().then(
       ({ session: loadedSession }) => {
         if (mountedRef.current) setSession(loadedSession)
@@ -170,8 +399,28 @@ export function NabaPresenceDashboard({
     )
     return () => {
       mountedRef.current = false
+      dashboardEpochRef.current += 1
     }
-  }, [refreshDashboard])
+  }, [])
+
+  useEffect(() => {
+    const requestEpoch = ++dashboardEpochRef.current
+    if (dashboardRouteMode === "home") {
+      countsLocationIdRef.current = undefined
+      void refreshDashboard({ includeReviews: true, requestEpoch })
+      return
+    }
+
+    // Review queues own their scoped list and count requests. Other dashboard
+    // routes only need connection health until Home requests its roll-up.
+    void refreshDashboard({
+      includeReviews: false,
+      includeCounts: false,
+      mode: dashboardRouteMode === "queue" ? "queue-bootstrap" : "bootstrap",
+      requestEpoch,
+      queueToken: reviewQueueToken ?? undefined,
+    })
+  }, [dashboardRouteMode, refreshDashboard, reviewQueueToken])
 
   useEffect(() => {
     if (apiStatus === "error" && !hasSuccessfulRefreshRef.current) return
@@ -182,7 +431,15 @@ export function NabaPresenceDashboard({
         setApiStatus("stale")
       }
       if (document.visibilityState !== "visible") return
-      void refreshDashboard(pathname === "/reviews")
+      // ReviewQueue owns its active server filters. Refreshing the shared,
+      // unfiltered review page here could overwrite a location-scoped queue;
+      // the timestamp change prompts the mounted queue to reload its scope.
+      void refreshDashboard({
+        includeReviews: false,
+        includeCounts: false,
+        mode: "health",
+        requestEpoch: dashboardEpochRef.current,
+      })
     }
     const interval = window.setInterval(refreshVisibleData, 60_000)
     window.addEventListener("focus", refreshVisibleData)
@@ -190,25 +447,31 @@ export function NabaPresenceDashboard({
       window.clearInterval(interval)
       window.removeEventListener("focus", refreshVisibleData)
     }
-  }, [apiStatus, pathname, refreshDashboard])
+  }, [apiStatus, refreshDashboard])
+
+  const queueConnectionIsValidated =
+    !reviewQueueToken || validatedQueueToken === reviewQueueToken
+  const visibleApiStatus = queueConnectionIsValidated ? apiStatus : "loading"
+  const visibleConnectionState = queueConnectionIsValidated
+    ? connectionState
+    : "loading"
 
   return (
     <DashboardContext.Provider
       value={{
         reviews,
-        setReviews,
-        selectedId,
-        setSelectedId,
-        apiStatus,
+        apiStatus: visibleApiStatus,
         counts,
+        queueScopeToken: reviewQueueToken,
         refreshCounts,
-        connectionState,
+        revalidateQueueConnection,
+        connectionState: visibleConnectionState,
         lastRefreshedAt,
         session,
         refreshReviews,
       }}
     >
-      <AppShell apiStatus={apiStatus} session={session}>
+      <AppShell apiStatus={visibleApiStatus} session={session}>
         {children}
       </AppShell>
     </DashboardContext.Provider>

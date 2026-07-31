@@ -65,10 +65,10 @@ export function PageHeader({
   actions?: React.ReactNode
 }) {
   return (
-    <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-col gap-1">
         {eyebrow}
-        <h1 className="font-heading text-[22px] font-semibold tracking-[-0.01em]">
+        <h1 className="font-heading text-[18px] font-semibold tracking-[-0.01em]">
           {title}
         </h1>
         <p className="max-w-2xl text-[13px] text-muted-foreground">
@@ -83,11 +83,11 @@ export function PageHeader({
 }
 
 export function BusinessContext({
-  organisationName,
+  name,
   detail,
   status,
 }: {
-  organisationName: string
+  name: string
   detail?: React.ReactNode
   status?: { label: string; value: string }
 }) {
@@ -95,7 +95,7 @@ export function BusinessContext({
     <Card className="bg-[var(--nr-surface-card-translucent)] backdrop-blur-xl">
       <CardContent className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-col gap-1">
-          <p className="truncate font-medium">{organisationName}</p>
+          <p className="truncate font-medium">{name}</p>
           {detail ? (
             <p className="text-sm text-muted-foreground">{detail}</p>
           ) : null}
@@ -195,13 +195,21 @@ export function formatDuration(seconds: number | null) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
-export function LiveDataError({ onRetry }: { onRetry: () => void }) {
+export function LiveDataError({
+  onRetry,
+  title = "Live data could not be loaded",
+  description = "No preview values were substituted.",
+}: {
+  onRetry: () => void
+  title?: string
+  description?: string
+}) {
   return (
     <Alert variant="destructive">
       <Activity />
-      <AlertTitle>Live data could not be loaded</AlertTitle>
+      <AlertTitle>{title}</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
-        <span>No preview values were substituted.</span>
+        <span>{description}</span>
         <Button variant="outline" size="sm" onClick={onRetry}>
           <RefreshCw data-icon="inline-start" />
           Retry
@@ -243,7 +251,7 @@ export function MetricCard({
         <Icon className="size-4 text-muted-foreground" aria-hidden />
       </CardHeader>
       <CardContent className="flex flex-col gap-1">
-        <p className="font-mono text-2xl font-medium tracking-tight">
+        <p className="font-mono text-xl font-medium tracking-tight">
           {value}
         </p>
         <p className="text-xs text-muted-foreground">{detail}</p>
