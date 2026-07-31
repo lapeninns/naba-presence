@@ -18,7 +18,7 @@ const THEME_EVIDENCE = [
       ["accent foreground / accent", "#0B57D0 / #E8F0FE", "5.57:1"],
       ["destructive / background", "#B3261E / #FFFFFF", "6.54:1"],
       ["success / background", "#146C2E / #FFFFFF", "6.53:1"],
-      ["info foreground / info", "#202124 / #C5E3FF", "5.12:1"],
+      ["info foreground / info", "#FFFFFF / #0083B0", "4.34:1"],
     ],
     hierarchy:
       "Card #FFFFFF (solid); context/metric 66% card mix; shell glass 70% card mix; forms, tables and overlays stay solid.",
@@ -34,7 +34,7 @@ const THEME_EVIDENCE = [
       ["accent foreground / accent", "#E8EAED / #1F3760", "9.82:1"],
       ["destructive / background", "#F2B8B5 / #1F1F1F", "9.65:1"],
       ["success / background", "#6DD58C / #1F1F1F", "9.06:1"],
-      ["info foreground / info", "#202124 / #C5E3FF", "5.12:1"],
+      ["info foreground / info", "#202124 / #6EC3EB", "8.22:1"],
     ],
     hierarchy:
       "Card #28292C (solid); context/metric 66% card mix; shell glass 70% card mix; 12% borders and 15% input fill are translucent token layers.",
@@ -106,6 +106,14 @@ export default function Page() {
                     </p>
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 flex gap-3">
+                <div className="flex flex-col gap-2">
+                  <div className="bg-info text-info-foreground rounded-(--nr-radius-control) px-4 py-3 text-sm font-semibold">
+                    Info swatch
+                  </div>
+                  <p className="text-xs text-muted-foreground">bg-info text-info-foreground</p>
+                </div>
               </div>
               <p className={`mt-4 text-xs leading-5 ${theme.mutedClassName}`}>
                 <span className="font-semibold">Surface hierarchy:</span>{" "}

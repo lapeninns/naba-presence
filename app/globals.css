@@ -311,29 +311,6 @@
   }
 }
 
-@layer utilities {
-  .text-caption {
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
-  }
-  .text-ui {
-    font-size: var(--text-ui);
-    line-height: var(--text-ui--line-height);
-  }
-  .text-body {
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .text-title {
-    font-size: var(--text-title);
-    line-height: var(--text-title--line-height);
-  }
-  .text-page-title {
-    font-size: var(--text-page-title);
-    line-height: var(--text-page-title--line-height);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
