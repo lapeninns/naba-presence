@@ -3,6 +3,7 @@ import { GeistMono } from "geist/font/mono"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
 export const metadata = {
@@ -25,7 +26,9 @@ export default function RootLayout({
       )}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <Toaster>{children}</Toaster>
+        </ThemeProvider>
       </body>
     </html>
   )

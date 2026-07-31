@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react"
 
+import { ToastDemo } from "@/app/design-system/toast-demo"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,6 +12,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -93,9 +113,9 @@ export default function Page() {
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           The frontend is being rebuilt on this branch. Foundation primitives
-          (Button, Card, Badge, Alert, Skeleton, Spinner) are re-admitted
-          below; remaining primitives and shared compositions return in later
-          milestone tasks.
+          (Button, Card, Badge, Alert, Skeleton, Spinner, Field, Input, Label,
+          Dialog, Sheet, Toast) are re-admitted below; remaining shared
+          compositions return in later milestone tasks.
         </p>
       </header>
 
@@ -309,6 +329,65 @@ export default function Page() {
         <div className="flex flex-col gap-3">
           <h3 className="text-title font-semibold">Spinner</h3>
           <Spinner />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Field &amp; Input</h3>
+          <div className="grid max-w-md gap-4">
+            <Field>
+              <FieldLabel>Business name</FieldLabel>
+              <Input defaultValue="Old Crown" />
+              <FieldDescription>
+                Shown on your Google profile.
+              </FieldDescription>
+            </Field>
+            <Field error="Enter a business name.">
+              <FieldLabel>Business name</FieldLabel>
+              <Input />
+              <FieldError />
+            </Field>
+            <Input aria-label="Search reviews" placeholder="Search reviews" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Dialog</h3>
+          <Dialog>
+            <DialogTrigger render={<Button variant="outline" />}>
+              Edit hours
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit hours</DialogTitle>
+                <DialogDescription>
+                  Weekly schedule for this location.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Sheet</h3>
+          <Sheet>
+            <SheetTrigger render={<Button variant="outline" />}>
+              Open menu
+            </SheetTrigger>
+            <SheetContent side="left">
+              <SheetHeader>
+                <SheetTitle>Menu</SheetTitle>
+                <SheetDescription>Navigate the app.</SheetDescription>
+              </SheetHeader>
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Toast</h3>
+          <ToastDemo />
         </div>
       </Section>
     </main>
