@@ -12,6 +12,7 @@ function PageFrame({
   return (
     <main
       id="main"
+      tabIndex={-1}
       className={cn(
         "mx-auto flex w-full flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)",
         width === "standard" && "max-w-(--nr-page-max-width)",

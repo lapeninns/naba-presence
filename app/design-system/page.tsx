@@ -149,14 +149,6 @@ export default function Page() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 flex gap-3">
-                <div className="flex flex-col gap-2">
-                  <div className="bg-info text-info-foreground rounded-(--nr-radius-control) px-4 py-3 text-sm font-semibold">
-                    Info swatch
-                  </div>
-                  <p className="text-xs text-muted-foreground">bg-info text-info-foreground</p>
-                </div>
-              </div>
               <p className={`mt-4 text-xs leading-5 ${theme.mutedClassName}`}>
                 <span className="font-semibold">Surface hierarchy:</span>{" "}
                 {theme.hierarchy}

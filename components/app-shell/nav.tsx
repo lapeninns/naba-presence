@@ -35,8 +35,16 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
           const active = isActivePath(pathname, item.href)
           return (
             <li key={item.href}>
+              {/* Only /home ships this milestone; the other four 404. Next's
+                  default viewport prefetch would fire a background RSC
+                  request for all five links on every dashboard load, and
+                  Chrome's real "chrome" channel (local test/dev runs) never
+                  reports the tab network-idle while one of those 404
+                  prefetches is outstanding - re-enable once each route has
+                  a real page. */}
               <Link
                 href={item.href}
+                prefetch={false}
                 aria-current={active ? "page" : undefined}
                 onClick={onNavigate}
                 className={cn(

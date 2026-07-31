@@ -47,27 +47,83 @@ function initialsFor(name: string) {
 
 /**
  * Announces `useConnectionHealth`'s label change to assistive tech — but
- * only on a CHANGE. The first label a mount ever observes (whatever it
+ * only on a CHANGE. The first REAL label a mount ever observes (whatever it
  * happens to be) must stay silent, or every page load would open with a
- * spoken status. The announcement text deliberately differs from the bare
- * label so it never collides with StatusChip's own visible-at-sm label:
- * two elements exposing the exact same accessible text would make
- * `getByText`/screen-reader "next item" navigation ambiguous.
+ * spoken status. "loading" doesn't count as that first real label - it's a
+ * transient tick nearly every mount passes through on the way to a real
+ * status (there's rarely SSR-hydrated query data once `useSessionReady`
+ * gates this component's own mount), so treating it as the baseline would
+ * make the very next tick - the first real status - look like a "change"
+ * and announce on every page load, exactly what this hook exists to avoid.
+ * The announcement text deliberately differs from the bare label so it
+ * never collides with StatusChip's own visible-at-sm label: two elements
+ * exposing the exact same accessible text would make `getByText`/
+ * screen-reader "next item" navigation ambiguous.
  */
 function useStatusAnnouncement() {
-  const { label } = useConnectionHealth()
+  const { status, label } = useConnectionHealth()
   const [announcement, setAnnouncement] = useState("")
   const previousLabelRef = useRef<string | null>(null)
 
   useEffect(() => {
+    if (status === "loading") return
     const previousLabel = previousLabelRef.current
     if (previousLabel !== null && previousLabel !== label) {
       setAnnouncement(`Connections status: ${label}`)
     }
     previousLabelRef.current = label
-  }, [label])
+  }, [status, label])
 
   return announcement
+}
+
+// Bundles the status chip's live-region announcer so its hook - and
+// therefore `useConnectionHealth`'s query - only mounts once a session
+// cookie is known to exist (see `useSessionReady` below).
+function ConnectionAnnouncer() {
+  const announcement = useStatusAnnouncement()
+  return (
+    <div aria-live="polite" className="sr-only">
+      {announcement}
+    </div>
+  )
+}
+
+/**
+ * A session cookie is required before `useConnectionHealth`'s query can
+ * succeed against `/api/google/connections`. The dashboard layout can only
+ * ever READ a cookie (`getSession`) - Next.js forbids setting one from a
+ * plain Server Component, only a Server Action or Route Handler may do that
+ * - so on the very first anonymous visit (local/dev bootstrap, no cookie
+ * yet) `session` arrives here `null` even though access is allowed.
+ *
+ * If the connections query were allowed to run in that gap, it would 401,
+ * and the API client treats every 401 as "sign in again" and hard-navigates
+ * to `/sign-in` - a route this milestone doesn't have. So: hit the session
+ * Route Handler once on mount to provision the cookie first (mirroring the
+ * pre-rebuild dashboard's `loadSession()` bootstrap), and only report ready
+ * once that settles. Nothing here runs when a real session already exists.
+ */
+function useSessionReady(session: ShellSession | null) {
+  const [ready, setReady] = useState(session !== null)
+
+  useEffect(() => {
+    if (session) return
+    let cancelled = false
+    fetch("/api/session", { credentials: "same-origin" })
+      .catch(() => {
+        // Swallow: if bootstrap genuinely fails, letting the gated query
+        // mount anyway surfaces the real error state instead of hanging.
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session])
+
+  return ready
 }
 
 function AppShell({
@@ -78,7 +134,7 @@ function AppShell({
   children: React.ReactNode
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const announcement = useStatusAnnouncement()
+  const sessionReady = useSessionReady(session)
 
   const organisationName = session?.organisationName ?? "Your organisation"
   const displayName = session?.displayName ?? "Account"
@@ -163,14 +219,12 @@ function AppShell({
           </Sheet>
 
           <div className="ml-auto flex items-center gap-2">
-            <StatusChip />
+            {sessionReady ? <StatusChip /> : null}
             <ThemeToggle />
           </div>
         </header>
 
-        <div aria-live="polite" className="sr-only">
-          {announcement}
-        </div>
+        {sessionReady ? <ConnectionAnnouncer /> : null}
 
         {children}
       </div>
