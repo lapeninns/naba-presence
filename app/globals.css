@@ -80,6 +80,18 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Named type roles — the only sanctioned font sizes in feature code. */
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.25rem;
+  --text-body: 0.84375rem;
+  --text-body--line-height: 1.3125rem;
+  --text-title: 0.9375rem;
+  --text-title--line-height: 1.375rem;
+  --text-page-title: 1.375rem;
+  --text-page-title--line-height: 1.75rem;
 }
 
 :root {
@@ -138,21 +150,8 @@
 
   --radius: 0.625rem;
 
-  /* Foundation scale shared by the application shell and component system. */
-  --nr-space-1: 2px;
-  --nr-space-2: 4px;
-  --nr-space-3: 6px;
-  --nr-space-4: 8px;
-  --nr-space-5: 10px;
-  --nr-space-6: 12px;
-  --nr-space-7: 14px;
-  --nr-space-8: 16px;
-  --nr-space-9: 20px;
-  --nr-space-10: 24px;
-  --nr-space-11: 28px;
-  --nr-space-12: 32px;
-  --nr-space-13: 40px;
-  --nr-space-14: 48px;
+  /* Spacing uses Tailwind's default scale by decision — see
+     docs/superpowers/specs/2026-07-31-frontend-rebuild-design.md §7. */
   --nr-sidebar-width: 232px;
   --nr-sidebar-margin: 14px;
   --nr-page-pad-x: 24px;
@@ -239,6 +238,11 @@
 
   --destructive: oklch(0.834 0.068 22); /* #F2B8B5 — 9.65:1 on bg, as text */
 
+  /* Info: lightened for dark surfaces, dark text on fills (like --primary).
+     Verify ≥4.5:1 on #1F1F1F via the /design-system contrast table. */
+  --info: oklch(0.78 0.1 230);
+  --info-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
@@ -304,5 +308,39 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .text-caption {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+  }
+  .text-ui {
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
+  }
+  .text-body {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+  .text-title {
+    font-size: var(--text-title);
+    line-height: var(--text-title--line-height);
+  }
+  .text-page-title {
+    font-size: var(--text-page-title);
+    line-height: var(--text-page-title--line-height);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

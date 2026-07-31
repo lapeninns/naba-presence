@@ -53,8 +53,6 @@ const sharedFunction = (name: string, nextName: string) =>
 */
 
 const tokens = [
-  "--nr-space-1",
-  "--nr-space-14",
   "--nr-sidebar-width",
   "--nr-page-pad-x",
   "--nr-page-max-width",
@@ -216,4 +214,39 @@ describe("NabaPresence design system", () => {
     }
   })
   */
+})
+
+describe("rebuild token contract", () => {
+  const css = readFileSync(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8"
+  )
+
+  it("defines the named type roles", () => {
+    for (const role of [
+      "--text-caption: 0.6875rem",   // 11px
+      "--text-ui: 0.8125rem",        // 13px
+      "--text-body: 0.84375rem",     // 13.5px
+      "--text-title: 0.9375rem",     // 15px
+      "--text-page-title: 1.375rem", // 22px
+    ]) {
+      expect(css).toContain(role)
+    }
+  })
+
+  it("has no dead spacing scale", () => {
+    expect(css).not.toMatch(/--nr-space-\d/)
+  })
+
+  it("defines --info for dark mode", () => {
+    const dark = css.slice(css.indexOf(".dark {"))
+    expect(dark).toContain("--info:")
+    expect(dark).toContain("--info-foreground:")
+  })
+
+  it("collapses all animation under prefers-reduced-motion", () => {
+    expect(css).toMatch(
+      /prefers-reduced-motion: reduce[\s\S]*animation-duration: 0\.01ms/
+    )
+  })
 })

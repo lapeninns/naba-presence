@@ -1,7 +1,8 @@
-type SectionTitle = "Foundations" | "Spacing and radius"
+type SectionTitle = "Foundations" | "Typography" | "Spacing and radius"
 
 const SECTION_IDS: Record<SectionTitle, string> = {
   Foundations: "foundations",
+  Typography: "typography",
   "Spacing and radius": "spacing-and-radius",
 }
 
@@ -17,6 +18,7 @@ const THEME_EVIDENCE = [
       ["accent foreground / accent", "#0B57D0 / #E8F0FE", "5.57:1"],
       ["destructive / background", "#B3261E / #FFFFFF", "6.54:1"],
       ["success / background", "#146C2E / #FFFFFF", "6.53:1"],
+      ["info foreground / info", "#202124 / #C5E3FF", "5.12:1"],
     ],
     hierarchy:
       "Card #FFFFFF (solid); context/metric 66% card mix; shell glass 70% card mix; forms, tables and overlays stay solid.",
@@ -32,6 +34,7 @@ const THEME_EVIDENCE = [
       ["accent foreground / accent", "#E8EAED / #1F3760", "9.82:1"],
       ["destructive / background", "#F2B8B5 / #1F1F1F", "9.65:1"],
       ["success / background", "#6DD58C / #1F1F1F", "9.06:1"],
+      ["info foreground / info", "#202124 / #C5E3FF", "5.12:1"],
     ],
     hierarchy:
       "Card #28292C (solid); context/metric 66% card mix; shell glass 70% card mix; 12% borders and 15% input fill are translucent token layers.",
@@ -110,6 +113,31 @@ export default function Page() {
               </p>
             </article>
           ))}
+        </div>
+      </Section>
+
+      <Section title="Typography">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="flex flex-col gap-1">
+            <p className="text-caption font-semibold">Caption</p>
+            <p className="text-xs text-muted-foreground">11px (0.6875rem)</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-ui font-semibold">UI</p>
+            <p className="text-xs text-muted-foreground">13px (0.8125rem)</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-body font-semibold">Body</p>
+            <p className="text-xs text-muted-foreground">13.5px (0.84375rem)</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-title font-semibold">Title</p>
+            <p className="text-xs text-muted-foreground">15px (0.9375rem)</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-page-title font-semibold">Page Title</p>
+            <p className="text-xs text-muted-foreground">22px (1.375rem)</p>
+          </div>
         </div>
       </Section>
 
