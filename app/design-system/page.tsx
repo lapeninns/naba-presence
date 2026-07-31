@@ -1,9 +1,30 @@
-type SectionTitle = "Foundations" | "Typography" | "Spacing and radius"
+import { Plus } from "lucide-react"
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
+
+type SectionTitle =
+  | "Foundations"
+  | "Typography"
+  | "Spacing and radius"
+  | "Primitives"
 
 const SECTION_IDS: Record<SectionTitle, string> = {
   Foundations: "foundations",
   Typography: "typography",
   "Spacing and radius": "spacing-and-radius",
+  Primitives: "primitives",
 }
 
 const THEME_EVIDENCE = [
@@ -71,9 +92,10 @@ export default function Page() {
           NabaPresence design system
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          The frontend is being rebuilt on this branch. This page is a
-          token-only proof; component specimens return as primitives are
-          re-admitted in later milestone tasks.
+          The frontend is being rebuilt on this branch. Foundation primitives
+          (Button, Card, Badge, Alert, Skeleton, Spinner) are re-admitted
+          below; remaining primitives and shared compositions return in later
+          milestone tasks.
         </p>
       </header>
 
@@ -175,6 +197,119 @@ export default function Page() {
           2px base scale · 14px card gap · 22px section gap · 18px card
           padding
         </p>
+      </Section>
+
+      <Section title="Primitives">
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Button</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="default">Default</Button>
+            <Button variant="outline">Outline</Button>
+            <Button variant="secondary">Secondary</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="destructive">Destructive</Button>
+            <Button variant="link">Link</Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="xs">Extra small</Button>
+            <Button size="sm">Small</Button>
+            <Button size="default">Default</Button>
+            <Button size="lg">Large</Button>
+            <Button size="icon-xs" aria-label="Add item, extra small">
+              <Plus />
+            </Button>
+            <Button size="icon-sm" aria-label="Add item, small">
+              <Plus />
+            </Button>
+            <Button size="icon" aria-label="Add item">
+              <Plus />
+            </Button>
+            <Button size="icon-lg" aria-label="Add item, large">
+              <Plus />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Badge</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="default">Default</Badge>
+            <Badge variant="secondary">Secondary</Badge>
+            <Badge variant="outline">Outline</Badge>
+            <Badge variant="destructive">Destructive</Badge>
+            <Badge variant="ghost">Ghost</Badge>
+            <Badge variant="link">Link</Badge>
+            <Badge variant="success">Success</Badge>
+            <Badge variant="warning">Warning</Badge>
+            <Badge variant="info">Info</Badge>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Alert</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Alert variant="default">
+              <AlertTitle>Default</AlertTitle>
+              <AlertDescription>
+                Neutral informational message.
+              </AlertDescription>
+            </Alert>
+            <Alert variant="destructive">
+              <AlertTitle>Destructive</AlertTitle>
+              <AlertDescription>
+                Something needs attention now.
+              </AlertDescription>
+            </Alert>
+            <Alert variant="success">
+              <AlertTitle>Success</AlertTitle>
+              <AlertDescription>Changes published.</AlertDescription>
+            </Alert>
+            <Alert variant="warning">
+              <AlertTitle>Data may be out of date</AlertTitle>
+              <AlertDescription>Retry to refresh.</AlertDescription>
+            </Alert>
+            <Alert variant="info">
+              <AlertTitle>Info</AlertTitle>
+              <AlertDescription>Syncing in the background.</AlertDescription>
+            </Alert>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Card</h3>
+          <Card className="max-w-sm">
+            <CardHeader>
+              <CardTitle as="h2">Reply performance</CardTitle>
+              <CardDescription>
+                Last 30 days across all locations.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-body">
+                92% of reviews replied to within 24 hours.
+              </p>
+            </CardContent>
+            <CardFooter>
+              <Button size="sm" variant="outline">
+                View report
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Skeleton</h3>
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-4 w-64" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Spinner</h3>
+          <Spinner />
+        </div>
       </Section>
     </main>
   )

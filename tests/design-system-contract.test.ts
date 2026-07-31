@@ -6,9 +6,9 @@ const globals = readFileSync(
   "utf8"
 )
 
-// re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
-/*
-const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
+// Rebuild M1 T7: scoped to the batch-1 primitives re-admitted so far.
+// Extend with "input"/"textarea" once Task 8 lands (field system).
+const primitiveSource = ["button", "card", "badge", "alert", "skeleton", "spinner"]
   .map((name) =>
     readFileSync(
       new URL(`../components/ui/${name}.tsx`, import.meta.url),
@@ -16,7 +16,6 @@ const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
     )
   )
   .join("\n")
-*/
 
 // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
 /*
@@ -84,15 +83,13 @@ describe("NabaPresence design system", () => {
     expect(globals).not.toContain("injectCss")
   })
 
-  // re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
-  /*
   it("uses purpose-specific tokens in primitives", () => {
     expect(primitiveSource).toContain("--nr-radius-control")
     expect(primitiveSource).toContain("--nr-radius-card")
-    expect(primitiveSource).toContain("--nr-radius-field")
     expect(primitiveSource).toContain("--nr-duration-fast")
+    // --nr-radius-field is asserted once components/ui/input.tsx and
+    // textarea.tsx are re-admitted (rebuild M1 T8).
   })
-  */
 
   // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
   /*
