@@ -31,13 +31,13 @@ const primitiveSource = [
   )
   .join("\n")
 
-// re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
-/*
-const shared = readFileSync(
-  new URL("../components/naba-presence/shared.tsx", import.meta.url),
+// PageFrame lives here, not components/naba-presence/shared.tsx (rebuild M1
+// T9 deliberately did not re-admit that file) - see "supports all three
+// PageFrame width modes" below.
+const pageFrame = readFileSync(
+  new URL("../components/app-shell/page-frame.tsx", import.meta.url),
   "utf8"
 )
-*/
 
 // re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
 /*
@@ -54,15 +54,6 @@ const proof = readFileSync(
   new URL("../app/design-system/page.tsx", import.meta.url),
   "utf8"
 )
-*/
-
-// re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
-/*
-const sharedFunction = (name: string, nextName: string) =>
-  shared.slice(
-    shared.indexOf(`export function ${name}`),
-    shared.indexOf(`export function ${nextName}`)
-  )
 */
 
 const tokens = [
@@ -117,16 +108,7 @@ describe("NabaPresence design system", () => {
     }
   })
 
-  // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
-  /*
-  it("owns shared product compositions", () => {
-    expect(shared).toContain("export function PageFrame")
-    expect(shared).toContain("export function PageHeader")
-    expect(shared).toContain("export function BusinessContext")
-  })
   it("supports all three PageFrame width modes", () => {
-    const pageFrame = sharedFunction("PageFrame", "PageHeader")
-
     expect(pageFrame).toContain('width?: "standard" | "wide" | "workspace"')
     expect(pageFrame).toContain(
       'width === "standard" && "max-w-(--nr-page-max-width)"'
@@ -134,45 +116,6 @@ describe("NabaPresence design system", () => {
     expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
     expect(pageFrame).toContain('width === "workspace" && "max-w-none"')
   })
-  */
-
-  // re-enabled once components/naba-presence/shared.tsx and components/ui/card.tsx
-  // are re-admitted (rebuild M1 T7/T9)
-  /*
-  it("limits the semantic translucent surface to business and metric cards", () => {
-    const businessContext = sharedFunction(
-      "BusinessContext",
-      "readControlValue"
-    )
-    const metricCard = sharedFunction("MetricCard", "chartConfig")
-    const translucentSurfaceOccurrences = shared.match(
-      /--nr-surface-card-translucent/g
-    )
-
-    expect(businessContext).toContain("--nr-surface-card-translucent")
-    expect(metricCard).toContain("--nr-surface-card-translucent")
-    expect(translucentSurfaceOccurrences).toHaveLength(2)
-    expect(card).toMatch(/(?:^|\s)bg-card(?=\s|")/)
-    expect(card).not.toMatch(/\bbg-card\//)
-    expect(card).not.toContain("--nr-surface-card-translucent")
-  })
-  */
-
-  // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
-  /*
-  it("requires a labelled textual BusinessContext status", () => {
-    const businessContext = sharedFunction(
-      "BusinessContext",
-      "readControlValue"
-    )
-
-    expect(businessContext).toContain(
-      "status?: { label: string; value: string }"
-    )
-    expect(businessContext).toContain("{status.label}</span>")
-    expect(businessContext).toContain("{status.value}</span>")
-  })
-  */
 
   // re-enabled as deleted sections are re-admitted to app/design-system/page.tsx
   // (rebuild M1 T7-T9)
@@ -192,49 +135,6 @@ describe("NabaPresence design system", () => {
       expect(proof).toContain(`<Section title="${section}">`)
     }
     expect(proof.match(/<Section title=/g)).toHaveLength(7)
-  })
-  */
-
-  // re-enabled as deleted primitives and shared compositions are re-admitted
-  // (rebuild M1 T7-T9)
-  /*
-  it("builds proof specimens from required shipping components", () => {
-    for (const component of [
-      "BusinessContext",
-      "MetricCard",
-      "Stars",
-      "StatusBadge",
-    ]) {
-      expect(proof).toMatch(
-        new RegExp(
-          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/naba-presence/shared\\"`
-        )
-      )
-      expect(proof).toContain(`<${component}`)
-    }
-    for (const component of [
-      "Table",
-      "TableBody",
-      "TableCell",
-      "TableHead",
-      "TableHeader",
-      "TableRow",
-    ]) {
-      expect(proof).toMatch(
-        new RegExp(
-          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/ui/table\\"`
-        )
-      )
-      expect(proof).toContain(`<${component}`)
-    }
-    for (const component of ["Tooltip", "TooltipContent", "TooltipTrigger"]) {
-      expect(proof).toMatch(
-        new RegExp(
-          `import[\\s\\S]*?\\b${component}\\b[\\s\\S]*?from \\"@/components/ui/tooltip\\"`
-        )
-      )
-      expect(proof).toContain(`<${component}`)
-    }
   })
   */
 })

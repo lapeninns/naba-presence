@@ -94,6 +94,36 @@ describe("apiFetch", () => {
       "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
     )
   })
+
+  it("a throwing snapshot does not stop other sources from stashing or block the 401 redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(401, {
+          error: "authentication_required",
+          message: "Please sign in.",
+        })
+      )
+    )
+    const assign = vi.fn()
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/inbox",
+      search: "?queue=needs_reply",
+      assign,
+    })
+    registerDraftSource("broken", () => {
+      throw new Error("snapshot exploded")
+    })
+    registerDraftSource("review:42", () => "half-written reply")
+    await expect(apiFetch("/api/probe")).rejects.toBeInstanceOf(ApiClientError)
+    expect(sessionStorage.getItem("naba:draft:review:42")).toBe(
+      "half-written reply"
+    )
+    expect(assign).toHaveBeenCalledWith(
+      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+    )
+  })
 })
 
 describe("apiFetch request construction", () => {
@@ -152,5 +182,11 @@ describe("draft stash", () => {
     stashAllDrafts()
     expect(sessionStorage.getItem("naba:draft:gone")).toBeNull()
     expect(sessionStorage.getItem("naba:draft:empty")).toBeNull()
+  })
+
+  it("empty-string snapshots are skipped", () => {
+    registerDraftSource("blank", () => "")
+    stashAllDrafts()
+    expect(sessionStorage.getItem("naba:draft:blank")).toBeNull()
   })
 })

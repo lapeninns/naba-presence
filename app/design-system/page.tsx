@@ -206,8 +206,8 @@ export default function Page() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          2px base scale · 14px card gap · 22px section gap · 18px card
-          padding
+          Tailwind&apos;s default scale by decision (spec §7) · 12px card gap
+          · 16px section gap · 14px card padding
         </p>
       </Section>
 

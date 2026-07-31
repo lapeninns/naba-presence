@@ -45,4 +45,28 @@ describe("Field auto-wiring", () => {
       screen.getByRole("textbox", { name: "Search reviews" })
     ).toBeInTheDocument()
   })
+
+  it("points aria-describedby at exactly the error id when there is no description", () => {
+    render(
+      <Field error="Enter a business name.">
+        <FieldLabel>Business name</FieldLabel>
+        <Input />
+        <FieldError />
+      </Field>
+    )
+    const input = screen.getByRole("textbox", { name: "Business name" })
+    const errorId = screen.getByRole("alert").id
+    expect(input).toHaveAttribute("aria-describedby", errorId)
+  })
+
+  it("omits aria-describedby entirely when neither description nor error render", () => {
+    render(
+      <Field>
+        <FieldLabel>Business name</FieldLabel>
+        <Input />
+      </Field>
+    )
+    const input = screen.getByRole("textbox", { name: "Business name" })
+    expect(input).not.toHaveAttribute("aria-describedby")
+  })
 })

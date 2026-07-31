@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell/app-shell"
@@ -75,5 +76,19 @@ describe("AppShell", () => {
     renderShell()
     expect(screen.getAllByRole("main")).toHaveLength(1)
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+  })
+
+  it("opens the mobile nav sheet at the intended 256px width", async () => {
+    const user = userEvent.setup()
+    renderShell()
+    await user.click(screen.getByRole("button", { name: "Open navigation" }))
+    const dialog = await screen.findByRole("dialog", { name: "Navigation" })
+    // The Sheet variant's base classes ship `data-[side=left]:w-3/4`, and
+    // twMerge cannot dedupe that against a bare `w-64` override - different
+    // variant scope, so both land in the compiled output and the
+    // data-attribute selector wins on specificity. The override must use
+    // the same `data-[side=left]:` prefix to actually replace it.
+    expect(dialog).toHaveClass("data-[side=left]:w-64")
+    expect(dialog).not.toHaveClass("w-64")
   })
 })

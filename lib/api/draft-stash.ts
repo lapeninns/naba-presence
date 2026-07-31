@@ -13,9 +13,17 @@ export function registerDraftSource(
 
 export function stashAllDrafts(): void {
   for (const [key, snapshot] of sources) {
-    const value = snapshot()
-    if (value !== null && value !== "") {
-      sessionStorage.setItem(PREFIX + key, value)
+    // A misbehaving source's snapshot() must not abort the whole loop, and
+    // callers (the 401 handler) must still redirect even if stashing a
+    // draft fails - best-effort per source, so one bad source can't cost
+    // every other source its stash or block the caller's next step.
+    try {
+      const value = snapshot()
+      if (value !== null && value !== "") {
+        sessionStorage.setItem(PREFIX + key, value)
+      }
+    } catch {
+      // Skip this source; continue stashing the rest.
     }
   }
 }

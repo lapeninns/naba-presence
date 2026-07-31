@@ -98,8 +98,9 @@ function ConnectionAnnouncer() {
  * yet) `session` arrives here `null` even though access is allowed.
  *
  * If the connections query were allowed to run in that gap, it would 401,
- * and the API client treats every 401 as "sign in again" and hard-navigates
- * to `/sign-in` - a route this milestone doesn't have. So: hit the session
+ * and the API client treats a 401 with code `authentication_required` as
+ * "sign in again" and hard-navigates to `/sign-in` - a route this milestone
+ * doesn't have. So: hit the session
  * Route Handler once on mount to provision the cookie first (mirroring the
  * pre-rebuild dashboard's `loadSession()` bootstrap), and only report ready
  * once that settles. Nothing here runs when a real session already exists.
@@ -204,7 +205,7 @@ function AppShell({
             </SheetTrigger>
             <SheetContent
               side="left"
-              className="w-64 bg-sidebar text-sidebar-foreground"
+              className="data-[side=left]:w-64 bg-sidebar text-sidebar-foreground"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Navigation</SheetTitle>

@@ -26,7 +26,8 @@ describeDatabase("signed-out entry point", () => {
     await admin.end()
   })
 
-  it("redirects anonymous dashboard traffic to /sign-in", async () => {
+  // re-enable: rebuild M4 (inbox route lands)
+  it.skip("redirects anonymous dashboard traffic to /sign-in", async () => {
     const response = await fetch(`${server.baseUrl}/inbox`, {
       redirect: "manual",
     })
@@ -34,7 +35,8 @@ describeDatabase("signed-out entry point", () => {
     expect(response.headers.get("location")).toContain("/sign-in")
   })
 
-  it("serves the sign-in page with email and password entry", async () => {
+  // re-enable: rebuild M2 ((auth) routes land) — see SDD ledger T1 tracking line
+  it.skip("serves the sign-in page with email and password entry", async () => {
     const response = await fetch(`${server.baseUrl}/sign-in`)
     expect(response.status).toBe(200)
     const body = await response.text()
@@ -43,7 +45,8 @@ describeDatabase("signed-out entry point", () => {
     expect(body).not.toContain("Continue with Google")
   })
 
-  it("keeps signed-in users on the dashboard", async () => {
+  // re-enable: rebuild M4 (inbox route lands)
+  it.skip("keeps signed-in users on the dashboard", async () => {
     const tenant = await createTestTenant(admin)
     organisations.push(tenant.organisationId)
     const response = await fetch(`${server.baseUrl}/inbox`, {
