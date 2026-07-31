@@ -46,10 +46,11 @@ const buttonVariants = cva(
 )
 
 // Icon-only sizes render no visible label, so the type system requires
-// aria-label wherever one of these sizes is selected. `icon-lg` is part of
-// the original CVA size axis (kept verbatim) but is NOT one of the three
-// sizes the brief's IconSize recipe names — see task-7-report.md.
-type IconSize = "icon" | "icon-sm" | "icon-xs"
+// aria-label wherever one of these sizes is selected. `icon-lg` (size-9,
+// square, same shape as the other icon sizes) is included alongside the
+// three the brief's recipe named, closing a gap where it would otherwise
+// compile without aria-label — see task-7-report.md, "Fix round 1".
+type IconSize = "icon" | "icon-sm" | "icon-xs" | "icon-lg"
 type AnySize = NonNullable<VariantProps<typeof buttonVariants>["size"]>
 type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
   Omit<VariantProps<typeof buttonVariants>, "size"> & {
