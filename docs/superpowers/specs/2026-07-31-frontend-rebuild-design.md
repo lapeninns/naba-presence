@@ -254,10 +254,26 @@ Milestones (branch stays demoable after each):
 9. Hardening: full e2e adaptation, a11y passes, production build, audit
    checklist sweep.
 
-**Swap to `main` requires:** all suites green (unit, integration, adapted
-e2e, a11y including new passes); clean production build; zero reproducible
-Critical/High findings from the 2026-07-31 audit; one reviewed PR; a tagged
-rollback point on the pre-merge `main`.
+**Delivery model (amended 2026-08-01, after Milestone 1).** The original plan
+held every milestone on one branch and swapped to `main` once, at full parity.
+The product owner chose instead to **merge each completed milestone to `main`**,
+starting with Milestone 1. `main` therefore serves a partially-rebuilt product
+between milestones: surfaces that have not been rebuilt yet do not exist, and
+the sidebar links to them 404 until their milestone lands. This is accepted
+deliberately — the trade is continuous integration and reviewable increments
+against a temporarily incomplete `main`.
+
+**Each milestone merge requires:** all suites green (unit, components,
+integration, and every e2e spec enabled so far); clean production build;
+a whole-branch review with its findings fixed; and every audit finding in that
+milestone's scope closed. Milestone work happens on `frontend-rebuild-m<N>-<topic>`
+branches cut from `main`.
+
+**Full parity remains the release bar.** The product is not fit for real users
+until Milestone 9 completes: all rebuilt surfaces, zero reproducible
+Critical/High findings from the 2026-07-31 audit, every quarantined test
+re-enabled, and the legacy redirects restored. Do not treat an intermediate
+`main` as shippable.
 
 ## 11. Out of scope
 
