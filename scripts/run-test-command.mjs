@@ -29,6 +29,32 @@ if (!process.env.TEST_RUNTIME_DATABASE_URL) {
   )
 }
 
+// The harness seeds and deletes tenants in whichever database these URLs
+// reach. NODE_ENV=test makes @next/env skip .env.local, so a hosted URL in
+// .env can silently win the merge - refuse anything non-local by default.
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"])
+
+function assertLocalDatabaseUrl(name) {
+  const value = process.env[name]
+  if (!value) return
+  let hostname
+  try {
+    hostname = new URL(value).hostname.replace(/^\[|\]$/g, "")
+  } catch {
+    throw new Error(`${name} is not a parseable URL.`)
+  }
+  if (LOCAL_DB_HOSTS.has(hostname) || hostname.endsWith(".localhost")) return
+  if (process.env.ALLOW_REMOTE_TEST_DB === "1") return
+  throw new Error(
+    `${name} points at non-local host "${hostname}". The test harness ` +
+      "writes and deletes data in this database. Point it at a local " +
+      "database, or set ALLOW_REMOTE_TEST_DB=1 to override deliberately."
+  )
+}
+
+assertLocalDatabaseUrl("TEST_RUNTIME_DATABASE_URL")
+assertLocalDatabaseUrl("DIRECT_DATABASE_URL")
+
 process.env.DATABASE_URL = process.env.TEST_RUNTIME_DATABASE_URL
 process.env.TOKEN_ENCRYPTION_KEY ??=
   "route-harness-token-key-32-characters!!"

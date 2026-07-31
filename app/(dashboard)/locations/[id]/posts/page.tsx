@@ -1,15 +1,12 @@
-import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
-import { getServerEnv } from "@/lib/server/env"
+import { LocationPostsView } from "@/components/naba-presence/location-posts-view"
 
 export const metadata = { title: "Posts · NabaPresence" }
 
-export default function LocationPostsPage() {
-  return (
-    <CapabilityPlaceholder
-      capability="Posts"
-      flag="GBP_POSTS_ENABLED"
-      enabled={getServerEnv().GBP_POSTS_ENABLED}
-      description="Standard updates, events, and offers, drafted and approved before publication to Google."
-    />
-  )
+export default async function LocationPostsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  return <LocationPostsView locationId={id} />
 }

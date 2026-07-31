@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import {
@@ -22,6 +23,10 @@ const notificationSchema = z.object({
       /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][\w.-]{2,254}$/
     )
     .or(z.literal("")),
+  notificationTypes: z
+    .array(z.enum(GOOGLE_NOTIFICATION_TYPES))
+    .transform((items) => [...new Set(items)])
+    .default([...GOOGLE_NOTIFICATION_TYPES]),
 })
 
 async function accountForNotifications(
@@ -90,13 +95,15 @@ export async function PATCH(request: Request) {
         accessToken,
         account.google_account_name,
         input.pubsubTopic,
+        input.pubsubTopic ? input.notificationTypes : [],
         { connectionKey: account.connection_id }
       )
       await sql`
         update google_connection
         set
           pubsub_topic = ${input.pubsubTopic || null},
-          notifications_enabled = ${Boolean(input.pubsubTopic)}
+          notifications_enabled = ${Boolean(input.pubsubTopic)},
+          notification_types = ${input.pubsubTopic ? input.notificationTypes : []}
         where id = ${account.connection_id}
       `
       await writeAudit(sql, {
@@ -110,7 +117,7 @@ export async function PATCH(request: Request) {
         requestId: rid.id,
         metadata: {
           notificationTypes: input.pubsubTopic
-            ? ["NEW_REVIEW", "UPDATED_REVIEW"]
+            ? input.notificationTypes
             : [],
           clientRequestId: rid.clientId,
         },

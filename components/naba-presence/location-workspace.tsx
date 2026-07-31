@@ -30,12 +30,14 @@ import { cn } from "@/lib/utils"
 
 const TABS = [
   { segment: "", label: "Profile" },
+  { segment: "details", label: "Business info" },
+  { segment: "administration", label: "Administration" },
+  { segment: "industry", label: "Industry" },
   { segment: "hours", label: "Hours" },
   { segment: "reviews", label: "Reviews" },
   { segment: "photos", label: "Photos" },
   { segment: "posts", label: "Posts" },
   { segment: "menu", label: "Menu" },
-  { segment: "qa", label: "Q&A" },
   { segment: "booking", label: "Booking" },
   { segment: "performance", label: "Performance" },
 ]

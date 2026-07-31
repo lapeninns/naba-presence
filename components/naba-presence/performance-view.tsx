@@ -1,7 +1,7 @@
 "use client"
 
 import { AnalyticsView } from "@/components/naba-presence/analytics-view"
-import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
+import { PresenceAnalyticsView } from "@/components/naba-presence/presence-analytics-view"
 import { PageFrame, PageHeader } from "@/components/naba-presence/shared"
 import {
   Tabs,
@@ -10,11 +10,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 
-export function PerformanceView({
-  googlePerformanceEnabled,
-}: {
-  googlePerformanceEnabled: boolean
-}) {
+export function PerformanceView() {
   return (
     <PageFrame width="wide">
       <PageHeader
@@ -34,12 +30,7 @@ export function PerformanceView({
           <AnalyticsView />
         </TabsContent>
         <TabsContent value="google">
-          <CapabilityPlaceholder
-            capability="Google performance"
-            flag="GBP_PERFORMANCE_ENABLED"
-            enabled={googlePerformanceEnabled}
-            description="Impressions, searches, calls, direction requests, and website clicks from the Business Profile Performance API."
-          />
+          <PresenceAnalyticsView />
         </TabsContent>
       </Tabs>
     </PageFrame>

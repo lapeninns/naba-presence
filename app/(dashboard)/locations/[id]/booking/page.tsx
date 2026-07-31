@@ -1,15 +1,12 @@
-import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
-import { getServerEnv } from "@/lib/server/env"
+import { LocationBookingView } from "@/components/naba-presence/location-booking-view"
 
 export const metadata = { title: "Booking · NabaPresence" }
 
-export default function LocationBookingPage() {
-  return (
-    <CapabilityPlaceholder
-      capability="Booking"
-      flag="GBP_PLACE_ACTIONS_ENABLED"
-      enabled={getServerEnv().GBP_PLACE_ACTIONS_ENABLED}
-      description="The reservation link Google shows for this location, managed through Place Actions."
-    />
-  )
+export default async function LocationBookingPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  return <LocationBookingView locationId={id} />
 }

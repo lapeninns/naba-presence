@@ -191,6 +191,7 @@ general availability.
 - [Architecture and data controls](docs/architecture.md)
 - [Operations runbook](docs/runbook.md)
 - [Requirement traceability matrix](docs/requirements-matrix.md)
+- [Backend, API, and frontend feature map](docs/frontend-backend-feature-map.md)
 - [Design-system palette specification](docs/specs/2026-07-28-design-system.md)
 - [Full design-system replacement specification](docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md)
 - [Full design-system replacement plan](docs/superpowers/plans/2026-07-29-full-design-system-replacement.md)

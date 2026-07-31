@@ -218,6 +218,28 @@ export async function POST(request: Request) {
           where external_location_id = ${external.id}
         `
       }
+      await sql`
+        insert into sync_checkpoint (
+          organisation_id,
+          external_location_id,
+          sync_type,
+          status,
+          next_attempt_at
+        )
+        values (
+          ${session.organisationId},
+          ${external.id},
+          'performance',
+          'pending',
+          now()
+        )
+        on conflict (organisation_id, external_location_id, sync_type)
+        do update set
+          status = 'pending',
+          next_attempt_at = now(),
+          last_error_code = null,
+          finished_at = null
+      `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,

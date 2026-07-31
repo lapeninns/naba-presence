@@ -24,11 +24,14 @@ describe("feature flags", () => {
     })
 
     expect(env.GBP_PERFORMANCE_ENABLED).toBe(false)
+    expect(env.GBP_KEYWORDS_ENABLED).toBe(false)
     expect(env.GBP_POSTS_ENABLED).toBe(false)
     expect(env.GBP_MEDIA_ENABLED).toBe(false)
     expect(env.GBP_FOOD_MENUS_ENABLED).toBe(false)
     expect(env.GBP_PLACE_ACTIONS_ENABLED).toBe(false)
-    expect(env.GBP_QA_ENABLED).toBe(false)
+    expect(env.GBP_PROFILE_WRITES_ENABLED).toBe(false)
+    expect(env.GBP_LODGING_ENABLED).toBe(false)
+    expect(env.ACTIONS_CENTER_ENABLED).toBe(false)
   })
 })
 

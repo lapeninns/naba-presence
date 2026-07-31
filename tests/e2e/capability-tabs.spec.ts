@@ -5,7 +5,6 @@ const tabs = [
   { segment: "photos", capability: "Photos" },
   { segment: "posts", capability: "Posts" },
   { segment: "menu", capability: "Menu" },
-  { segment: "qa", capability: "Q&A" },
   { segment: "booking", capability: "Booking" },
   { segment: "performance", capability: "Performance" },
 ]

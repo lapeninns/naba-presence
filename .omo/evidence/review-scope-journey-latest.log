@@ -1,0 +1,16 @@
+
+> nabapresence@0.0.1 test:e2e /Users/amankumarshrestha/LapenInns Project/NabaPresence
+> node scripts/run-test-command.mjs e2e pnpm exec playwright test tests/e2e/journeys.spec.ts
+
+[WebServer] (node:45021) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:45051) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:45057) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e/journeys.spec.ts:9:3 › critical browser journeys › real HTTP, route and database workflows remain coherent (7.4s)
+
+  1 passed (8.6s)

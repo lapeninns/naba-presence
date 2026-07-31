@@ -6,10 +6,56 @@ import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Sql, TransactionSql } from "postgres"
 
 import {
+  GOOGLE_PLACE_ACTION_TYPES,
+  googleAttributeMetadataRequest,
   googleAccountsRequest,
+  googleAccountManagementRequest,
+  googleBusinessCallsRequest,
   googleBatchReviewsRequest,
+  googleLocationHoursPatchRequest,
+  googleLocationAttributesPatchRequest,
+  googleLocationAttributesRequest,
+  googleLocationPatchRequest,
+  googleLocationCreateRequest,
+  googleLocationDeleteRequest,
+  googleLocationUpdatedRequest,
+  googleLocationsSearchRequest,
+  googleLodgingRequest,
+  googleLocationProfilePatchRequest,
+  googleLocationRequest,
+  googleMediaBinaryUploadRequest,
+  googleMediaCreateRequest,
+  googleMediaDeleteRequest,
+  googleMediaGetRequest,
+  googleMediaListRequest,
+  googleMediaPatchRequest,
+  googleMediaStartUploadRequest,
+  googleLocalPostCreateRequest,
+  googleLocalPostDeleteRequest,
+  googleLocalPostGetRequest,
+  googleLocalPostPatchRequest,
+  googleLocalPostsListRequest,
+  googleFoodMenusGetRequest,
+  googleFoodMenusPatchRequest,
   googleNotificationSettingRequest,
+  googlePerformanceRequest,
+  googlePlaceActionLinkCreateRequest,
+  googlePlaceActionLinkDeleteRequest,
+  googlePlaceActionLinkGetRequest,
+  googlePlaceActionLinkPatchRequest,
+  googlePlaceActionLinksListRequest,
   googleReplyRequest,
+  googleVerificationRequest,
+  googleHealthcareRequest,
+  googleCategoriesRequest,
+  googleChainsSearchRequest,
+  googleSearchKeywordImpressionsRequest,
+  type GooglePerformanceMetric,
+  type GooglePlaceActionType,
+  type GoogleHoursUpdateMask,
+  type GoogleLocationReadField,
+  type GoogleMediaCategory,
+  type GoogleNotificationType,
 } from "@/lib/domain/google-contract"
 import {
   classifyMutationFailure,
@@ -571,7 +617,12 @@ export async function googleRequest<T>(
           }
           finalStatus = response.status
           const text = await response.text()
-          const body = text ? JSON.parse(text) : null
+          const contentType = response.headers.get("content-type") ?? ""
+          const body = text
+            ? contentType.includes("json")
+              ? JSON.parse(text)
+              : text
+            : null
           if (response.ok) {
             outcome = "success"
             return body as T
@@ -672,6 +723,642 @@ export function googleLocations(
   )
 }
 
+export function getGoogleLocation(
+  accessToken: string,
+  locationName: string,
+  readMask: GoogleLocationReadField[],
+  options: { connectionKey?: string; maxAttempts?: number } = {}
+) {
+  const request = googleLocationRequest(locationName, readMask)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function patchGoogleLocationHours(
+  accessToken: string,
+  input: {
+    locationName: string
+    updateMask: GoogleHoursUpdateMask[]
+    validateOnly: boolean
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string; timeoutMs?: number } = {}
+) {
+  const request = googleLocationHoursPatchRequest(input)
+  return googleRequest<Record<string, unknown> | null>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      connectionKey: options.connectionKey,
+      // Google guarantees validateOnly does not apply the patch, so retries
+      // are safe. The real write stays single-attempt and ambiguity-aware.
+      mode: input.validateOnly ? "safe" : "mutation",
+      timeoutMs: options.timeoutMs,
+    }
+  )
+}
+
+export function patchGoogleLocation(
+  accessToken: string,
+  input: {
+    locationName: string
+    updateMask: string[]
+    validateOnly: boolean
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function getGoogleLocationAttributes(
+  accessToken: string,
+  locationName: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationAttributesRequest(locationName)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function patchGoogleLocationAttributes(
+  accessToken: string,
+  input: {
+    locationName: string
+    attributeMask: string[]
+    attributes: Array<Record<string, unknown>>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationAttributesPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function listGoogleAttributeMetadata(
+  accessToken: string,
+  input: { locationName: string; languageCode?: string; pageToken?: string },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleAttributeMetadataRequest(input)
+  return googleRequest<{
+    attributeMetadata?: Array<Record<string, unknown>>
+    nextPageToken?: string
+  }>(request.url, accessToken, request.init, options)
+}
+
+export function listGoogleCategories(
+  accessToken: string,
+  input: {
+    regionCode: string
+    languageCode: string
+    query?: string
+    pageToken?: string
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleCategoriesRequest(input)
+  return googleRequest<{
+    categories?: Array<Record<string, unknown>>
+    nextPageToken?: string
+  }>(request.url, accessToken, request.init, options)
+}
+
+export function searchGoogleChains(
+  accessToken: string,
+  query: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleChainsSearchRequest(query)
+  return googleRequest<{ chains?: Array<Record<string, unknown>> }>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function createGoogleLocation(
+  accessToken: string,
+  input: {
+    accountName: string
+    requestId: string
+    validateOnly: boolean
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationCreateRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function deleteGoogleLocation(
+  accessToken: string,
+  locationName: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationDeleteRequest(locationName)
+  return googleRequest<null>(request.url, accessToken, request.init, {
+    ...options,
+    mode: "mutation",
+  })
+}
+
+export function getGoogleUpdatedLocation(
+  accessToken: string,
+  locationName: string,
+  readMask: string[],
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationUpdatedRequest(locationName, readMask)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function searchGoogleLocations(
+  accessToken: string,
+  payload: Record<string, unknown>,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocationsSearchRequest(payload)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function googleVerificationApi(
+  accessToken: string,
+  input: {
+    path: string
+    method?: "GET" | "POST"
+    payload?: Record<string, unknown>
+  },
+  options: { connectionKey?: string; mutation?: boolean } = {}
+) {
+  const request = googleVerificationRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      connectionKey: options.connectionKey,
+      mode: options.mutation ? "mutation" : "safe",
+    }
+  )
+}
+
+export function googleAccountManagementApi(
+  accessToken: string,
+  input: {
+    path: string
+    method?: "GET" | "POST" | "PATCH" | "DELETE"
+    payload?: Record<string, unknown>
+    updateMask?: string[]
+  },
+  options: { connectionKey?: string; mutation?: boolean } = {}
+) {
+  const request = googleAccountManagementRequest(input)
+  return googleRequest<Record<string, unknown> | null>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      connectionKey: options.connectionKey,
+      mode: options.mutation ? "mutation" : "safe",
+    }
+  )
+}
+
+export function googleLodgingApi(
+  accessToken: string,
+  input: {
+    locationName: string
+    operation: "get" | "getGoogleUpdated" | "patch"
+    updateMask?: string[]
+    payload?: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLodgingRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      ...options,
+      mode: input.operation === "patch" ? "mutation" : "safe",
+    }
+  )
+}
+
+export function googleBusinessCallsApi(
+  accessToken: string,
+  input: {
+    locationName: string
+    operation: "settings" | "patch" | "insights"
+    updateMask?: string[]
+    payload?: Record<string, unknown>
+    filter?: string
+    pageToken?: string
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleBusinessCallsRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      ...options,
+      mode: input.operation === "patch" ? "mutation" : "safe",
+    }
+  )
+}
+
+export function googleHealthcareApi(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    resource: "serviceList" | "healthProviderAttributes" | "insuranceNetworks"
+    method?: "GET" | "PATCH"
+    updateMask?: string[]
+    payload?: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleHealthcareRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      ...options,
+      mode: input.method === "PATCH" ? "mutation" : "safe",
+    }
+  )
+}
+
+export function patchGoogleLocationProfile(
+  accessToken: string,
+  input: {
+    locationName: string
+    updateMask: Array<"title" | "profile" | "phoneNumbers" | "websiteUri">
+    validateOnly: boolean
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string; timeoutMs?: number } = {}
+) {
+  const request = googleLocationProfilePatchRequest(input)
+  return googleRequest<Record<string, unknown> | null>(
+    request.url,
+    accessToken,
+    request.init,
+    {
+      connectionKey: options.connectionKey,
+      mode: input.validateOnly ? "safe" : "mutation",
+      timeoutMs: options.timeoutMs,
+    }
+  )
+}
+
+export type GooglePerformancePoint = {
+  metric: GooglePerformanceMetric
+  date: string
+  value: number
+}
+
+export async function googlePerformanceMetrics(
+  accessToken: string,
+  input: {
+    locationName: string
+    metrics: readonly GooglePerformanceMetric[]
+    startDate: string
+    endDate: string
+  },
+  options: { connectionKey?: string } = {}
+): Promise<GooglePerformancePoint[]> {
+  const request = googlePerformanceRequest(input)
+  const response = await googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+  return normalizeGooglePerformanceResponse(response, input.metrics)
+}
+
+export function normalizeGooglePerformanceResponse(
+  response: Record<string, unknown>,
+  expectedMetrics: readonly GooglePerformanceMetric[]
+): GooglePerformancePoint[] {
+  const known = new Set<GooglePerformanceMetric>(expectedMetrics)
+  const series = Array.isArray(response.multiDailyMetricTimeSeries)
+    ? response.multiDailyMetricTimeSeries
+    : []
+  const points: GooglePerformancePoint[] = []
+  for (const entry of series) {
+    if (!entry || typeof entry !== "object") continue
+    const wrapped = entry as Record<string, unknown>
+    const raw =
+      wrapped.dailyMetricTimeSeries &&
+      typeof wrapped.dailyMetricTimeSeries === "object"
+        ? (wrapped.dailyMetricTimeSeries as Record<string, unknown>)
+        : wrapped
+    const metric = raw.dailyMetric
+    if (typeof metric !== "string" || !known.has(metric as GooglePerformanceMetric)) {
+      continue
+    }
+    const timeSeries =
+      raw.timeSeries && typeof raw.timeSeries === "object"
+        ? (raw.timeSeries as Record<string, unknown>)
+        : null
+    const values = Array.isArray(timeSeries?.datedValues)
+      ? timeSeries.datedValues
+      : []
+    for (const value of values) {
+      if (!value || typeof value !== "object") continue
+      const record = value as Record<string, unknown>
+      const date =
+        record.date && typeof record.date === "object"
+          ? (record.date as Record<string, unknown>)
+          : null
+      const year = Number(date?.year)
+      const month = Number(date?.month)
+      const day = Number(date?.day)
+      const count = Number(record.value)
+      if (
+        !Number.isInteger(year) ||
+        !Number.isInteger(month) ||
+        !Number.isInteger(day) ||
+        !Number.isSafeInteger(count) ||
+        count < 0
+      ) {
+        continue
+      }
+      points.push({
+        metric: metric as GooglePerformanceMetric,
+        date: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        value: count,
+      })
+    }
+  }
+  return points
+}
+
+export type GoogleSearchKeywordPoint = {
+  keyword: string
+  impressions: number | null
+  threshold: number | null
+}
+
+export function normalizeGoogleSearchKeywordResponse(
+  response: Record<string, unknown>
+): GoogleSearchKeywordPoint[] {
+  const counts = Array.isArray(response.searchKeywordsCounts)
+    ? response.searchKeywordsCounts
+    : []
+  const points: GoogleSearchKeywordPoint[] = []
+  for (const entry of counts) {
+    if (!entry || typeof entry !== "object") continue
+    const record = entry as Record<string, unknown>
+    const keyword =
+      typeof record.searchKeyword === "string"
+        ? record.searchKeyword.trim().toLocaleLowerCase("en-GB")
+        : ""
+    const insight =
+      record.insightsValue && typeof record.insightsValue === "object"
+        ? (record.insightsValue as Record<string, unknown>)
+        : null
+    const value = insight?.value === undefined ? null : Number(insight.value)
+    const threshold =
+      insight?.threshold === undefined ? null : Number(insight.threshold)
+    const validValue =
+      value !== null && Number.isSafeInteger(value) && value >= 0
+    const validThreshold =
+      threshold !== null && Number.isSafeInteger(threshold) && threshold >= 0
+    if (!keyword || validValue === validThreshold) continue
+    points.push({
+      keyword,
+      impressions: validValue ? value : null,
+      threshold: validThreshold ? threshold : null,
+    })
+  }
+  return points
+}
+
+export async function googleSearchKeywordImpressions(
+  accessToken: string,
+  input: { locationName: string; month: string },
+  options: { connectionKey?: string; maxPages?: number } = {}
+): Promise<GoogleSearchKeywordPoint[]> {
+  const points: GoogleSearchKeywordPoint[] = []
+  let pageToken: string | undefined
+  const maxPages = Math.min(100, Math.max(1, options.maxPages ?? 100))
+  for (let page = 0; page < maxPages; page += 1) {
+    const request = googleSearchKeywordImpressionsRequest({
+      ...input,
+      pageToken,
+    })
+    const response = await googleRequest<Record<string, unknown>>(
+      request.url,
+      accessToken,
+      request.init,
+      { connectionKey: options.connectionKey }
+    )
+    points.push(...normalizeGoogleSearchKeywordResponse(response))
+    pageToken =
+      typeof response.nextPageToken === "string" && response.nextPageToken
+        ? response.nextPageToken
+        : undefined
+    if (!pageToken) return points
+  }
+  throw new ApiError(
+    502,
+    "google_keyword_page_limit",
+    "Google search-keyword pagination exceeded the safety limit."
+  )
+}
+
+export type GooglePlaceActionLink = {
+  name: string
+  providerType: string
+  isEditable: boolean
+  uri: string
+  placeActionType: GooglePlaceActionType
+  isPreferred: boolean
+  createTime: string | null
+  updateTime: string | null
+}
+
+function normalizeGooglePlaceActionLink(
+  value: unknown
+): GooglePlaceActionLink | null {
+  if (!value || typeof value !== "object") return null
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.name !== "string" ||
+    typeof record.uri !== "string" ||
+    !record.uri ||
+    typeof record.placeActionType !== "string" ||
+    !(GOOGLE_PLACE_ACTION_TYPES as readonly string[]).includes(
+      record.placeActionType
+    )
+  ) {
+    return null
+  }
+  return {
+    name: record.name,
+    providerType:
+      typeof record.providerType === "string"
+        ? record.providerType
+        : "PROVIDER_TYPE_UNSPECIFIED",
+    isEditable: record.isEditable === true,
+    uri: record.uri,
+    placeActionType: record.placeActionType as GooglePlaceActionType,
+    isPreferred: record.isPreferred === true,
+    createTime: typeof record.createTime === "string" ? record.createTime : null,
+    updateTime: typeof record.updateTime === "string" ? record.updateTime : null,
+  }
+}
+
+export async function listGooglePlaceActionLinks(
+  accessToken: string,
+  locationName: string,
+  options: { connectionKey?: string } = {}
+): Promise<GooglePlaceActionLink[]> {
+  const links: GooglePlaceActionLink[] = []
+  let pageToken: string | undefined
+  for (let page = 0; page < 100; page += 1) {
+    const request = googlePlaceActionLinksListRequest({
+      locationName,
+      pageToken,
+    })
+    const response = await googleRequest<Record<string, unknown>>(
+      request.url,
+      accessToken,
+      request.init,
+      options
+    )
+    const raw = Array.isArray(response.placeActionLinks)
+      ? response.placeActionLinks
+      : []
+    for (const item of raw) {
+      const link = normalizeGooglePlaceActionLink(item)
+      if (link) links.push(link)
+    }
+    pageToken =
+      typeof response.nextPageToken === "string" && response.nextPageToken
+        ? response.nextPageToken
+        : undefined
+    if (!pageToken) return links
+  }
+  throw new ApiError(
+    502,
+    "google_place_action_page_limit",
+    "Google Place Action pagination exceeded the safety limit."
+  )
+}
+
+export async function createGooglePlaceActionLink(
+  accessToken: string,
+  input: {
+    locationName: string
+    payload: {
+      uri: string
+      placeActionType: GooglePlaceActionType
+      isPreferred: boolean
+    }
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googlePlaceActionLinkCreateRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export async function getGooglePlaceActionLink(
+  accessToken: string,
+  name: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googlePlaceActionLinkGetRequest(name)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export async function patchGooglePlaceActionLink(
+  accessToken: string,
+  input: {
+    name: string
+    payload: {
+      uri: string
+      placeActionType: GooglePlaceActionType
+      isPreferred: boolean
+    }
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googlePlaceActionLinkPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export async function deleteGooglePlaceActionLink(
+  accessToken: string,
+  name: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googlePlaceActionLinkDeleteRequest(name)
+  return googleRequest<null>(request.url, accessToken, request.init, {
+    ...options,
+    mode: "mutation",
+  })
+}
+
 export function googleReviews(
   accessToken: string,
   accountName: string,
@@ -696,6 +1383,240 @@ export function googleReviews(
     {},
     options
   )
+}
+
+export function googleLocalPosts(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    pageToken?: string
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocalPostsListRequest(input)
+  return googleRequest<{
+    localPosts?: Array<Record<string, unknown>>
+    nextPageToken?: string
+  }>(request.url, accessToken, request.init, options)
+}
+
+export function getGoogleFoodMenus(
+  accessToken: string,
+  name: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleFoodMenusGetRequest(name)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function patchGoogleFoodMenus(
+  accessToken: string,
+  input: { name: string; menus: Array<Record<string, unknown>> },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleFoodMenusPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export async function googleMediaItems(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    customer: boolean
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const items: Array<Record<string, unknown>> = []
+  let pageToken: string | undefined
+  for (let page = 0; page < 100; page += 1) {
+    const request = googleMediaListRequest({ ...input, pageToken })
+    const response = await googleRequest<{
+      mediaItems?: Array<Record<string, unknown>>
+      nextPageToken?: string
+    }>(request.url, accessToken, request.init, options)
+    items.push(...(response.mediaItems ?? []))
+    pageToken = response.nextPageToken || undefined
+    if (!pageToken) return items
+  }
+  throw new ApiError(
+    502,
+    "google_media_page_limit",
+    "Google media pagination exceeded the safety limit."
+  )
+}
+
+export function createGoogleMediaItem(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    payload: {
+      mediaFormat: "PHOTO" | "VIDEO"
+      locationAssociation: { category: GoogleMediaCategory }
+      sourceUrl?: string
+      dataRef?: { resourceName: string }
+      description?: string
+    }
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleMediaCreateRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export async function uploadGoogleMediaBytes(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    bytes: ArrayBuffer
+    contentType: string
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const start = googleMediaStartUploadRequest(input)
+  const dataRef = await googleRequest<{ resourceName?: string }>(
+    start.url,
+    accessToken,
+    start.init,
+    { ...options, mode: "mutation" }
+  )
+  if (!dataRef.resourceName) {
+    throw new ApiError(
+      502,
+      "media_data_ref_missing",
+      "Google did not return a media upload reference."
+    )
+  }
+  const upload = googleMediaBinaryUploadRequest({
+    resourceName: dataRef.resourceName,
+    bytes: input.bytes,
+    contentType: input.contentType,
+  })
+  await googleRequest<unknown>(upload.url, accessToken, upload.init, {
+    ...options,
+    mode: "mutation",
+  })
+  return { resourceName: dataRef.resourceName }
+}
+
+export function getGoogleMediaItem(
+  accessToken: string,
+  name: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleMediaGetRequest(name)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function patchGoogleMediaItem(
+  accessToken: string,
+  input: { name: string; category: GoogleMediaCategory },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleMediaPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function deleteGoogleMediaItem(
+  accessToken: string,
+  name: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleMediaDeleteRequest(name)
+  return googleRequest<null>(request.url, accessToken, request.init, {
+    ...options,
+    mode: "mutation",
+  })
+}
+
+export function createGoogleLocalPost(
+  accessToken: string,
+  input: {
+    accountName: string
+    locationName: string
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocalPostCreateRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function getGoogleLocalPost(
+  accessToken: string,
+  postName: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocalPostGetRequest(postName)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    options
+  )
+}
+
+export function patchGoogleLocalPost(
+  accessToken: string,
+  input: {
+    postName: string
+    updateMask: string[]
+    payload: Record<string, unknown>
+  },
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocalPostPatchRequest(input)
+  return googleRequest<Record<string, unknown>>(
+    request.url,
+    accessToken,
+    request.init,
+    { ...options, mode: "mutation" }
+  )
+}
+
+export function deleteGoogleLocalPost(
+  accessToken: string,
+  postName: string,
+  options: { connectionKey?: string } = {}
+) {
+  const request = googleLocalPostDeleteRequest(postName)
+  return googleRequest<null>(request.url, accessToken, request.init, {
+    ...options,
+    mode: "mutation",
+  })
 }
 
 export function googleBatchReviews(
@@ -797,9 +1718,14 @@ export function updateGoogleNotificationSetting(
   accessToken: string,
   accountName: string,
   pubsubTopic: string,
+  notificationTypes: readonly GoogleNotificationType[],
   options: { connectionKey?: string } = {}
 ) {
-  const request = googleNotificationSettingRequest(accountName, pubsubTopic)
+  const request = googleNotificationSettingRequest(
+    accountName,
+    pubsubTopic,
+    notificationTypes
+  )
   return googleRequest<{
     name: string
     pubsubTopic?: string

@@ -1,15 +1,8 @@
-import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
-import { getServerEnv } from "@/lib/server/env"
+import { LocationMenuView } from "@/components/naba-presence/location-menu-view"
 
 export const metadata = { title: "Menu · NabaPresence" }
 
-export default function LocationMenuPage() {
-  return (
-    <CapabilityPlaceholder
-      capability="Menu"
-      flag="GBP_FOOD_MENUS_ENABLED"
-      enabled={getServerEnv().GBP_FOOD_MENUS_ENABLED}
-      description="Canonical food and drink menus projected into Google FoodMenus."
-    />
-  )
+export default async function LocationMenuPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  return <LocationMenuView locationId={id} />
 }

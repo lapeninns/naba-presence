@@ -1,14 +1,12 @@
-import { CapabilityPlaceholder } from "@/components/naba-presence/capability-placeholder"
+import { LocationHoursView } from "@/components/naba-presence/location-hours-view"
 
 export const metadata = { title: "Hours · NabaPresence" }
 
-export default function LocationHoursPage() {
-  return (
-    <CapabilityPlaceholder
-      capability="Hours"
-      flag="GBP_PROFILE_WRITES_ENABLED"
-      enabled={false}
-      description="Regular, special, and additional opening hours, compared against the canonical schedule and published to Google."
-    />
-  )
+export default async function LocationHoursPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  return <LocationHoursView locationId={id} />
 }

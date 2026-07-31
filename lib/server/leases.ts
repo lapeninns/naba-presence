@@ -2,7 +2,13 @@ import "server-only"
 
 import { getDatabase } from "@/lib/server/db"
 
-type LeaseKey = "naba:jobs" | "naba:reconcile" | "naba:retention"
+type LeaseKey =
+  | "naba:jobs"
+  | "naba:reconcile"
+  | "naba:retention"
+  | "naba:performance"
+  | "naba:keywords"
+  | "naba:presence-resources"
 
 export async function withAdvisoryLock<T>(
   key: LeaseKey,

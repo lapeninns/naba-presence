@@ -19,9 +19,8 @@ three sub-projects in this order:
 3. **Profile info editing** — edit hours, special hours, description, and
    attributes through Business Information v1 writes.
 
-Q&A was considered and parked. Each sub-project gets its own spec, plan, and
-implementation cycle; nothing in this document commits API or UI shape for
-sub-projects 2 and 3.
+Each sub-project gets its own spec, plan, and implementation cycle; nothing in
+this document commits API or UI shape for sub-projects 2 and 3.
 
 ## Goal and success criteria
 

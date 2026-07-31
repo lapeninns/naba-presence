@@ -195,13 +195,21 @@ export function formatDuration(seconds: number | null) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
-export function LiveDataError({ onRetry }: { onRetry: () => void }) {
+export function LiveDataError({
+  onRetry,
+  title = "Live data could not be loaded",
+  description = "No preview values were substituted.",
+}: {
+  onRetry: () => void
+  title?: string
+  description?: string
+}) {
   return (
     <Alert variant="destructive">
       <Activity />
-      <AlertTitle>Live data could not be loaded</AlertTitle>
+      <AlertTitle>{title}</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
-        <span>No preview values were substituted.</span>
+        <span>{description}</span>
         <Button variant="outline" size="sm" onClick={onRetry}>
           <RefreshCw data-icon="inline-start" />
           Retry

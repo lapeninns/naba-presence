@@ -77,6 +77,7 @@ import {
   type GoogleAccount,
   type GoogleConnection,
   type GoogleLocation,
+  type GoogleNotificationType,
   type StorefrontAddress,
   linkGoogleLocation,
   loadBackfillProgress,
@@ -118,6 +119,21 @@ function googleLocationLabel(location: GoogleLocation) {
   return location.title || location.googleLocationName
 }
 
+const NOTIFICATION_OPTIONS: Array<{
+  type: GoogleNotificationType
+  label: string
+}> = [
+  { type: "GOOGLE_UPDATE", label: "Google-suggested profile updates" },
+  { type: "NEW_REVIEW", label: "New reviews" },
+  { type: "UPDATED_REVIEW", label: "Updated reviews" },
+  { type: "NEW_CUSTOMER_MEDIA", label: "New customer media" },
+  { type: "DUPLICATE_LOCATION", label: "Duplicate locations" },
+  {
+    type: "VOICE_OF_MERCHANT_UPDATED",
+    label: "Verification and merchant-state changes",
+  },
+]
+
 function isLocationCandidate(
   googleLocation: GoogleLocation,
   internalLocation: InternalLocation
@@ -154,6 +170,9 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
   const [locationQuery, setLocationQuery] = useState("")
   const [verificationFilter, setVerificationFilter] = useState("all")
   const [pubsubTopic, setPubsubTopic] = useState("")
+  const [notificationTypes, setNotificationTypes] = useState<
+    GoogleNotificationType[]
+  >(NOTIFICATION_OPTIONS.map((option) => option.type))
   const [message, setMessage] = useState("")
   const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [loadState, setLoadState] = useState<
@@ -386,7 +405,11 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
     setMessage("")
     startTransition(async () => {
       try {
-        await configureGoogleNotifications(activeAccount.id, pubsubTopic)
+        await configureGoogleNotifications(
+          activeAccount.id,
+          pubsubTopic,
+          notificationTypes
+        )
         setConnections(
           (current) =>
             current?.map((item) =>
@@ -401,7 +424,7 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
         setMessageKind("info")
         setMessage(
           pubsubTopic
-            ? "NEW_REVIEW and UPDATED_REVIEW notifications enabled."
+            ? `${notificationTypes.length} Google notification type${notificationTypes.length === 1 ? "" : "s"} enabled.`
             : "Google notifications disabled."
         )
       } catch (error) {
@@ -1203,10 +1226,35 @@ export function ConnectionsView({ onNavigate }: { onNavigate?: () => void }) {
                     aria-label="Google Pub/Sub topic"
                     className="font-mono"
                   />
+                  <div className="grid gap-2 py-2">
+                    {NOTIFICATION_OPTIONS.map((option) => (
+                      <label
+                        key={option.type}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={notificationTypes.includes(option.type)}
+                          onCheckedChange={(checked) =>
+                            setNotificationTypes((current) =>
+                              checked === true
+                                ? [...new Set([...current, option.type])]
+                                : current.filter(
+                                    (type) => type !== option.type
+                                  )
+                            )
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
                   <Button
                     variant="outline"
                     onClick={configureNotifications}
-                    disabled={isPending}
+                    disabled={
+                      isPending ||
+                      (Boolean(pubsubTopic) && !notificationTypes.length)
+                    }
                   >
                     Configure notifications
                   </Button>
