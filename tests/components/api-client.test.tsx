@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { ApiClientError, apiFetch } from "@/lib/api/client"
 import {
+  __resetDraftSources,
   registerDraftSource,
   stashAllDrafts,
   takeStashedDraft,
@@ -14,8 +15,14 @@ const jsonResponse = (status: number, body: unknown) =>
     headers: { "content-type": "application/json" },
   })
 
-beforeEach(() => sessionStorage.clear())
-afterEach(() => vi.restoreAllMocks())
+beforeEach(() => {
+  sessionStorage.clear()
+  __resetDraftSources()
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe("apiFetch", () => {
   it("returns parsed JSON on ok", async () => {
@@ -86,6 +93,47 @@ describe("apiFetch", () => {
     expect(assign).toHaveBeenCalledWith(
       "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
     )
+  })
+})
+
+describe("apiFetch request construction", () => {
+  it("sends method, JSON content-type, and a stringified body for a POST", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => jsonResponse(200, { ok: true })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    await apiFetch("/api/x", { method: "POST", body: { a: 1 } })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe("/api/x")
+    expect(init?.method).toBe("POST")
+    expect(init?.headers).toEqual({ "content-type": "application/json" })
+    expect(init?.body).toBe(JSON.stringify({ a: 1 }))
+  })
+
+  it("sends no headers or body for a bodyless GET", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => jsonResponse(200, { ok: true })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    await apiFetch("/api/probe")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init?.method).toBe("GET")
+    expect(init?.headers).toBeUndefined()
+    expect(init?.body).toBeUndefined()
+  })
+
+  it("forwards an AbortSignal to fetch by reference", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => jsonResponse(200, { ok: true })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    await apiFetch("/api/probe", { signal: controller.signal })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init?.signal).toBe(controller.signal)
   })
 })
 

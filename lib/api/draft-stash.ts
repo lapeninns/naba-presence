@@ -25,3 +25,12 @@ export function takeStashedDraft(key: string): string | null {
   if (value !== null) sessionStorage.removeItem(PREFIX + key)
   return value
 }
+
+/**
+ * Test-only: clears every registered draft source. Not for production use —
+ * intended for a top-level `beforeEach` so registrations from one test don't
+ * leak into the next.
+ */
+export function __resetDraftSources(): void {
+  sources.clear()
+}
