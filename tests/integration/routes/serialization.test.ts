@@ -224,6 +224,18 @@ describeDatabase("privacy-safe API serialization", () => {
     expect(viewerConnection).not.toHaveProperty("scope")
     expect(ownerConnection.googleEmail).toBe("stub@example.test")
     expect(ownerConnection.scope).toBe("business.manage")
+
+    // Pins the wire format: postgres.js parses timestamptz to `Date`, and
+    // listConnections must normalise to ISO 8601 in TypeScript (not a SQL
+    // `::text` cast, which would emit Postgres' own "YYYY-MM-DD HH:MM:SS+00"
+    // text format instead) so this endpoint keeps emitting exactly what it
+    // did before the rebuild, matching every sibling endpoint.
+    const isoTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+    expect(ownerConnection.createdAt).toMatch(isoTimestamp)
+    expect(
+      ownerConnection.lastRefreshAt === null ||
+        isoTimestamp.test(ownerConnection.lastRefreshAt)
+    ).toBe(true)
   })
 
   it("rejects a repeated Google locations page token", async () => {

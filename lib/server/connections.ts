@@ -15,6 +15,21 @@ export type ConnectionSummary = {
   createdAt: string
 }
 
+// The row shape as postgres.js actually returns it: `timestamptz` columns
+// (no `::text` cast) parse to `Date` instances, not strings. See
+// `ConnectionSummary` above for the normalised shape callers receive.
+type ConnectionRow = {
+  id: string
+  googleEmail: string | null
+  status: string
+  scope: string
+  notificationsEnabled: boolean
+  lastRefreshAt: string | Date | null
+  lastErrorCode: string | null
+  reconnectRequired: boolean
+  createdAt: string | Date
+}
+
 function maskedEmail(email: unknown) {
   if (typeof email !== "string") return null
   const at = email.indexOf("@")
@@ -24,16 +39,16 @@ function maskedEmail(email: unknown) {
 export async function listConnections(
   session: Session
 ): Promise<ConnectionSummary[]> {
-  const connections = await withTenant(
+  const rows = await withTenant(
     session.organisationId,
-    (sql) => sql<ConnectionSummary[]>`
+    (sql) => sql<ConnectionRow[]>`
       select
         id::text as id,
         google_email as "googleEmail",
         status,
         scope,
         notifications_enabled as "notificationsEnabled",
-        last_refresh_at::text as "lastRefreshAt",
+        last_refresh_at as "lastRefreshAt",
         last_error_code as "lastErrorCode",
         exists (
           select 1
@@ -42,11 +57,30 @@ export async function listConnections(
             and ct.task_type = 'reconnect'
             and ct.status = 'open'
         ) as "reconnectRequired",
-        created_at::text as "createdAt"
+        created_at as "createdAt"
       from google_connection
       order by created_at desc
     `
   )
+
+  // Normalise to ISO 8601 strings here, once, in TypeScript — NOT via a
+  // `::text` SQL cast. A Postgres-formatted text cast ("2026-01-01
+  // 12:00:00+00") is a different wire format from `Date#toJSON()`'s ISO
+  // 8601 ("2026-01-01T12:00:00.000Z"), which is what this endpoint
+  // returned before the rebuild (postgres.js parses timestamptz to `Date`
+  // -> `NextResponse.json` -> implicit `.toISOString()`) and what every
+  // sibling endpoint still emits. Doing the conversion here — before the
+  // RSC-prefetch path (a direct function call, never JSON-serialised) and
+  // the HTTP path diverge — is what makes both emit the identical,
+  // pre-rebuild ISO string instead of just being identical to each other
+  // in some other, wrong, format.
+  const connections: ConnectionSummary[] = rows.map((row) => ({
+    ...row,
+    lastRefreshAt: row.lastRefreshAt
+      ? new Date(row.lastRefreshAt as string | Date).toISOString()
+      : null,
+    createdAt: new Date(row.createdAt as string | Date).toISOString(),
+  }))
 
   if (session.role === "owner" || session.role === "admin") {
     return connections
