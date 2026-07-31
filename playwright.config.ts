@@ -12,6 +12,20 @@ const tokenEncryptionKey =
 export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/helpers/stub-bridge.ts",
+  // Legacy specs target the deleted frontend; re-enabled per rebuild milestone.
+  testIgnore: [
+    "**/accessibility.spec.ts",
+    "**/capability-tabs.spec.ts",
+    "**/gbp-management-tabs.spec.ts",
+    "**/home.spec.ts",
+    "**/inbox.spec.ts",
+    "**/journeys.spec.ts",
+    "**/locations.spec.ts",
+    "**/performance.spec.ts",
+    "**/review-provider-races.spec.ts",
+    "**/routing.spec.ts",
+    "**/settings.spec.ts",
+  ],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

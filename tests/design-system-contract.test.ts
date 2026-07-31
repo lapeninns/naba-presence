@@ -5,6 +5,9 @@ const globals = readFileSync(
   new URL("../app/globals.css", import.meta.url),
   "utf8"
 )
+
+// re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
+/*
 const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
   .map((name) =>
     readFileSync(
@@ -13,23 +16,42 @@ const primitiveSource = ["button", "card", "input", "textarea", "badge", "item"]
     )
   )
   .join("\n")
+*/
+
+// re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
+/*
 const shared = readFileSync(
   new URL("../components/naba-presence/shared.tsx", import.meta.url),
   "utf8"
 )
+*/
+
+// re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
+/*
 const card = readFileSync(
   new URL("../components/ui/card.tsx", import.meta.url),
   "utf8"
 )
+*/
+
+// re-enabled as deleted sections and primitives are re-admitted to
+// app/design-system/page.tsx (rebuild M1 T7-T9)
+/*
 const proof = readFileSync(
   new URL("../app/design-system/page.tsx", import.meta.url),
   "utf8"
 )
+*/
+
+// re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
+/*
 const sharedFunction = (name: string, nextName: string) =>
   shared.slice(
     shared.indexOf(`export function ${name}`),
     shared.indexOf(`export function ${nextName}`)
   )
+*/
+
 const tokens = [
   "--nr-space-1",
   "--nr-space-14",
@@ -63,12 +85,19 @@ describe("NabaPresence design system", () => {
     expect(globals).not.toContain(".nr-btn")
     expect(globals).not.toContain("injectCss")
   })
+
+  // re-enabled as the primitive is re-admitted (rebuild M1 T7/T8)
+  /*
   it("uses purpose-specific tokens in primitives", () => {
     expect(primitiveSource).toContain("--nr-radius-control")
     expect(primitiveSource).toContain("--nr-radius-card")
     expect(primitiveSource).toContain("--nr-radius-field")
     expect(primitiveSource).toContain("--nr-duration-fast")
   })
+  */
+
+  // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
+  /*
   it("owns shared product compositions", () => {
     expect(shared).toContain("export function PageFrame")
     expect(shared).toContain("export function PageHeader")
@@ -84,6 +113,11 @@ describe("NabaPresence design system", () => {
     expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
     expect(pageFrame).toContain('width === "workspace" && "max-w-none"')
   })
+  */
+
+  // re-enabled once components/naba-presence/shared.tsx and components/ui/card.tsx
+  // are re-admitted (rebuild M1 T7/T9)
+  /*
   it("limits the semantic translucent surface to business and metric cards", () => {
     const businessContext = sharedFunction(
       "BusinessContext",
@@ -101,6 +135,10 @@ describe("NabaPresence design system", () => {
     expect(card).not.toMatch(/\bbg-card\//)
     expect(card).not.toContain("--nr-surface-card-translucent")
   })
+  */
+
+  // re-enabled once components/naba-presence/shared.tsx is re-admitted (rebuild M1 T9)
+  /*
   it("requires a labelled textual BusinessContext status", () => {
     const businessContext = sharedFunction(
       "BusinessContext",
@@ -113,6 +151,11 @@ describe("NabaPresence design system", () => {
     expect(businessContext).toContain("{status.label}</span>")
     expect(businessContext).toContain("{status.value}</span>")
   })
+  */
+
+  // re-enabled as deleted sections are re-admitted to app/design-system/page.tsx
+  // (rebuild M1 T7-T9)
+  /*
   it("documents production foundations", () => {
     const sections = [
       "Foundations",
@@ -129,6 +172,11 @@ describe("NabaPresence design system", () => {
     }
     expect(proof.match(/<Section title=/g)).toHaveLength(7)
   })
+  */
+
+  // re-enabled as deleted primitives and shared compositions are re-admitted
+  // (rebuild M1 T7-T9)
+  /*
   it("builds proof specimens from required shipping components", () => {
     for (const component of [
       "BusinessContext",
@@ -167,4 +215,5 @@ describe("NabaPresence design system", () => {
       expect(proof).toContain(`<${component}`)
     }
   })
+  */
 })

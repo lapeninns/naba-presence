@@ -17,17 +17,11 @@
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  /* `--font-mono` was absent here, so the `font-mono` utility fell through to
-       Tailwind's default stack and Geist Mono never applied despite being
-       loaded in layout.tsx. Adding the mapping is the fix.
-
-       These stay `var()` references so layout.tsx's next/font call remains the
-       single owner of the family names — change the font there and this file
-       needs no edit. (Verified in the browser: next/font emits the literal
-       families "Geist" / "Geist Mono" here, so spelling them out would also
-       work; the indirection is for maintenance, not correctness.) */
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  /* These stay `var()` references so layout.tsx's geist/font imports remain
+       the single owner of the family names — change the font there and this
+       file needs no edit. */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
 
   --color-sidebar-ring: var(--sidebar-ring);
