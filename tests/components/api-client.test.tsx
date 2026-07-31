@@ -1,0 +1,108 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
+
+import { ApiClientError, apiFetch } from "@/lib/api/client"
+import {
+  registerDraftSource,
+  stashAllDrafts,
+  takeStashedDraft,
+} from "@/lib/api/draft-stash"
+
+const jsonResponse = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  })
+
+beforeEach(() => sessionStorage.clear())
+afterEach(() => vi.restoreAllMocks())
+
+describe("apiFetch", () => {
+  it("returns parsed JSON on ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { ok: true })))
+    await expect(apiFetch("/api/probe")).resolves.toEqual({ ok: true })
+  })
+
+  it("throws ApiClientError carrying status, code, details", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(422, {
+          error: "validation_failed",
+          message: "The request did not pass validation.",
+          details: [{ path: ["name"], message: "Required" }],
+        })
+      )
+    )
+    const error = (await apiFetch("/api/probe").catch((e) => e)) as ApiClientError
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(error.status).toBe(422)
+    expect(error.code).toBe("validation_failed")
+    expect(error.details).toEqual([{ path: ["name"], message: "Required" }])
+  })
+
+  it("survives non-JSON error bodies", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 }))
+    )
+    const error = (await apiFetch("/api/probe").catch((e) => e)) as ApiClientError
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(error.status).toBe(502)
+    expect(error.code).toBe("http_error")
+  })
+
+  it("validates with a schema and flags malformed responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { count: "x" })))
+    const error = await apiFetch("/api/probe", {
+      schema: z.object({ count: z.number() }),
+    }).catch((e) => e)
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(error.code).toBe("malformed_response")
+  })
+
+  it("stashes drafts and redirects on authentication_required", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(401, {
+          error: "authentication_required",
+          message: "Please sign in.",
+        })
+      )
+    )
+    const assign = vi.fn()
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/inbox",
+      search: "?queue=needs_reply",
+      assign,
+    })
+    registerDraftSource("review:42", () => "half-written reply")
+    await expect(apiFetch("/api/probe")).rejects.toBeInstanceOf(ApiClientError)
+    expect(sessionStorage.getItem("naba:draft:review:42")).toBe(
+      "half-written reply"
+    )
+    expect(assign).toHaveBeenCalledWith(
+      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+    )
+  })
+})
+
+describe("draft stash", () => {
+  it("takeStashedDraft reads once and clears", () => {
+    registerDraftSource("k", () => "v")
+    stashAllDrafts()
+    expect(takeStashedDraft("k")).toBe("v")
+    expect(takeStashedDraft("k")).toBeNull()
+  })
+
+  it("unregister stops stashing; null snapshots are skipped", () => {
+    const un = registerDraftSource("gone", () => "x")
+    un()
+    registerDraftSource("empty", () => null)
+    stashAllDrafts()
+    expect(sessionStorage.getItem("naba:draft:gone")).toBeNull()
+    expect(sessionStorage.getItem("naba:draft:empty")).toBeNull()
+  })
+})
