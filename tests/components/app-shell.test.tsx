@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -90,5 +90,32 @@ describe("AppShell", () => {
     // the same `data-[side=left]:` prefix to actually replace it.
     expect(dialog).toHaveClass("data-[side=left]:w-64")
     expect(dialog).not.toHaveClass("w-64")
+  })
+})
+
+describe("sign out", () => {
+  it("clears the session then leaves the app", async () => {
+    const user = userEvent.setup()
+    const assign = vi.fn()
+    vi.stubGlobal("location", { ...window.location, assign })
+    const signOutSpy = vi
+      .spyOn(await import("@/lib/api/auth"), "signOut")
+      .mockResolvedValue(undefined)
+    renderShell()
+    await user.click(screen.getByRole("button", { name: "Sign out" }))
+    await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
+    expect(assign).toHaveBeenCalledWith("/sign-in")
+  })
+
+  it("still leaves the app when the sign-out request fails", async () => {
+    const user = userEvent.setup()
+    const assign = vi.fn()
+    vi.stubGlobal("location", { ...window.location, assign })
+    vi.spyOn(await import("@/lib/api/auth"), "signOut").mockRejectedValue(
+      new Error("offline")
+    )
+    renderShell()
+    await user.click(screen.getByRole("button", { name: "Sign out" }))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/sign-in"))
   })
 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { Menu, Store } from "lucide-react"
+import { LogOut, Menu, Store } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { signOut } from "@/lib/api/auth"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 
 import { Nav } from "./nav"
@@ -43,6 +44,25 @@ function initialsFor(name: string) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("")
   return letters || "AC"
+}
+
+async function handleSignOut() {
+  try {
+    await signOut()
+  } finally {
+    // Leave regardless: a failed clear is recoverable server-side, but a user
+    // stuck on a dashboard they believe they have left is not.
+    window.location.assign("/sign-in")
+  }
+}
+
+// The click handler fires `handleSignOut` without awaiting it (a button
+// click can't await), so a rejection from `signOut()` — already handled by
+// `handleSignOut`'s own `finally` above — would otherwise surface as an
+// unhandled promise rejection. This catch exists only to close that gap;
+// the navigation itself already happened by the time it runs.
+function handleSignOutClick() {
+  handleSignOut().catch(() => {})
 }
 
 /**
@@ -175,7 +195,7 @@ function AppShell({
           >
             {initialsFor(displayName)}
           </span>
-          <div className="flex min-w-0 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-ui font-medium">
               {displayName}
             </span>
@@ -185,6 +205,14 @@ function AppShell({
               </span>
             ) : null}
           </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Sign out"
+            onClick={handleSignOutClick}
+          >
+            <LogOut aria-hidden />
+          </Button>
         </div>
       </aside>
 
