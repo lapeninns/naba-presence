@@ -49,20 +49,12 @@ function initialsFor(name: string) {
 async function handleSignOut() {
   try {
     await signOut()
+  } catch {
+    // Best-effort: a failed clear is recoverable server-side, but a user
+    // stranded on a dashboard they believe they have left is not.
   } finally {
-    // Leave regardless: a failed clear is recoverable server-side, but a user
-    // stuck on a dashboard they believe they have left is not.
     window.location.assign("/sign-in")
   }
-}
-
-// The click handler fires `handleSignOut` without awaiting it (a button
-// click can't await), so a rejection from `signOut()` — already handled by
-// `handleSignOut`'s own `finally` above — would otherwise surface as an
-// unhandled promise rejection. This catch exists only to close that gap;
-// the navigation itself already happened by the time it runs.
-function handleSignOutClick() {
-  handleSignOut().catch(() => {})
 }
 
 /**
@@ -209,7 +201,7 @@ function AppShell({
             variant="ghost"
             size="icon-sm"
             aria-label="Sign out"
-            onClick={handleSignOutClick}
+            onClick={handleSignOut}
           >
             <LogOut aria-hidden />
           </Button>
