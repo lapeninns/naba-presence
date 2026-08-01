@@ -1,0 +1,228 @@
+"use client"
+
+import { useQuery } from "@tanstack/react-query"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo } from "react"
+
+import { QueueTabs } from "@/components/inbox/queue-tabs"
+import { ReviewFilters } from "@/components/inbox/review-filters"
+import { ReviewList } from "@/components/inbox/review-list"
+import { EmptyState } from "@/components/inbox/empty-states"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { fetchLocations } from "@/lib/api/locations"
+import {
+  autoSelectId,
+  hasActiveFilters,
+  mobilePaneFor,
+  parseInboxState,
+  serializeInboxState,
+  toReviewsFilters,
+  type InboxState,
+  type Queue,
+} from "@/lib/inbox/url-state"
+import { cn } from "@/lib/utils"
+import { queryKeys } from "@/lib/queries/keys"
+import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
+import { useReviewCounts } from "@/lib/queries/use-review-counts"
+import { useConnectionHealth } from "@/lib/queries/use-connection-health"
+
+function InboxView() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const state = useMemo(
+    () => parseInboxState(new URLSearchParams(searchParams.toString())),
+    [searchParams]
+  )
+  const filters = useMemo(() => toReviewsFilters(state), [state])
+
+  const reviewsQuery = useReviews(filters)
+  const countsQuery = useReviewCounts(state.locationId)
+  const health = useConnectionHealth()
+  const locationsQuery = useQuery({
+    queryKey: queryKeys.locations,
+    queryFn: fetchLocations,
+    staleTime: 30_000,
+  })
+
+  const reviews = flattenReviews(reviewsQuery.data)
+
+  const updateState = useCallback(
+    (partial: Partial<InboxState>, mode: "replace" | "push") => {
+      const next = serializeInboxState({ ...state, ...partial })
+      const query = next.toString()
+      const href = query ? `/inbox?${query}` : "/inbox"
+      if (mode === "push") router.push(href)
+      else router.replace(href)
+    },
+    [router, state]
+  )
+
+  // Filters use replace (no history spam) and drop any stale selection.
+  const onFilterChange = useCallback(
+    (partial: Partial<InboxState>) =>
+      updateState({ ...partial, selected: undefined }, "replace"),
+    [updateState]
+  )
+  const onQueueChange = useCallback(
+    (queue: Queue) => updateState({ queue, selected: undefined }, "replace"),
+    [updateState]
+  )
+  // Selection uses push so Back returns to the list on mobile (spec §6).
+  const onSelect = useCallback(
+    (id: string) => updateState({ selected: id }, "push"),
+    [updateState]
+  )
+  const onClearFilters = useCallback(
+    () =>
+      router.replace(
+        `/inbox?${serializeInboxState({
+          queue: state.queue,
+          ratings: [],
+          search: "",
+          sort: "updated_desc",
+          verification: [],
+          publishStatus: [],
+          syncStatus: [],
+        }).toString()}`
+      ),
+    [router, state.queue]
+  )
+
+  // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
+  // the first row (replace, so it adds no history). Nothing is selected here, so
+  // no composer is mounted and dirtiness is false; Task 6 Step 9 threads the
+  // real `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
+  const reviewsReady = !reviewsQuery.isPending && !reviewsQuery.isError
+  useEffect(() => {
+    if (!reviewsReady) return
+    const id = autoSelectId({
+      selected: state.selected,
+      reviews,
+      isDirty: false,
+      isDesktop:
+        typeof window !== "undefined" &&
+        window.matchMedia("(min-width: 1280px)").matches,
+    })
+    if (id) {
+      router.replace(
+        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
+      )
+    }
+  }, [reviewsReady, reviews, state, router])
+
+  function renderList() {
+    if (reviewsQuery.isPending) {
+      return (
+        <div aria-busy="true" className="flex flex-col">
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Skeleton key={index} className="mx-4 my-3 h-16 rounded-(--nr-radius-card)" />
+          ))}
+        </div>
+      )
+    }
+    if (reviewsQuery.isError) {
+      return (
+        <div className="p-6">
+          <EmptyState kind="no-data" />
+        </div>
+      )
+    }
+    if (reviews.length === 0) {
+      const total = countsQuery.data?.total ?? 0
+      const kind =
+        health.status === "disconnected"
+          ? "disconnected"
+          : hasActiveFilters(state) || total > 0
+            ? "filtered"
+            : "no-data"
+      return (
+        <div className="p-6">
+          <EmptyState kind={kind} onClear={onClearFilters} />
+        </div>
+      )
+    }
+    return (
+      <ReviewList reviews={reviews} selectedId={state.selected} onSelect={onSelect} />
+    )
+  }
+
+  // Below xl, show one pane: the list, or the detail when a review is selected
+  // (spec §6). At xl both panes are always visible (two-pane split).
+  const mobilePane = mobilePaneFor(state.selected)
+
+  return (
+    <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
+      <div
+        className={cn(
+          "min-h-0 flex-col gap-3 overflow-hidden rounded-(--nr-radius-card) border border-border bg-card",
+          mobilePane === "detail" ? "hidden xl:flex" : "flex"
+        )}
+      >
+        <div className="flex flex-col gap-3 border-b border-border/60 p-4">
+          <QueueTabs
+            queue={state.queue}
+            total={countsQuery.data?.total ?? 0}
+            byStatus={countsQuery.data?.byStatus ?? {}}
+            onQueueChange={onQueueChange}
+          />
+          <ReviewFilters
+            state={state}
+            locations={locationsQuery.data?.locations ?? []}
+            onChange={onFilterChange}
+          />
+        </div>
+        {renderList()}
+        {reviewsQuery.hasNextPage ? (
+          <div className="border-t border-border/60 p-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={reviewsQuery.isFetchingNextPage}
+              onClick={() => void reviewsQuery.fetchNextPage()}
+            >
+              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more reviews"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Detail pane placeholder — Task 5 replaces this region's INNER content
+          (keeping the mobile-pane classes + back button) with the real
+          review-detail wrapped in the isolation error boundary. */}
+      <section
+        aria-label="Selected review"
+        className={cn(
+          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col",
+          mobilePane === "detail" ? "flex flex-col" : "hidden xl:flex"
+        )}
+      >
+        {state.selected ? (
+          <>
+            {/* Mobile-only return-to-list affordance; Back also works because
+                selection was pushed (spec §6). */}
+            <div className="border-b border-border/60 p-3 xl:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => updateState({ selected: undefined }, "replace")}
+              >
+                Back to reviews
+              </Button>
+            </div>
+            <p className="p-6 text-ui text-muted-foreground">
+              Review {state.selected} selected.
+            </p>
+          </>
+        ) : (
+          <p className="p-6 text-ui text-muted-foreground">
+            Select a review to see the full conversation.
+          </p>
+        )}
+      </section>
+    </div>
+  )
+}
+
+export { InboxView }

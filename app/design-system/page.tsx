@@ -2,6 +2,7 @@ import { Plus } from "lucide-react"
 
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import {
   Dialog,
   DialogContent,
@@ -21,8 +23,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Empty } from "@/components/ui/empty"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Sheet,
   SheetContent,
@@ -33,6 +37,7 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 
 type SectionTitle =
   | "Foundations"
@@ -46,6 +51,14 @@ const SECTION_IDS: Record<SectionTitle, string> = {
   "Spacing and radius": "spacing-and-radius",
   Primitives: "primitives",
 }
+
+const SORT_ITEMS: Record<string, string> = {
+  updated_desc: "Most recent",
+  rating_desc: "Highest rated",
+  rating_asc: "Lowest rated",
+}
+
+const DESIGN_SYSTEM_LOCATIONS = ["Riverside", "Old Crown"] as const
 
 const THEME_EVIDENCE = [
   {
@@ -114,8 +127,9 @@ export default function Page() {
         <p className="max-w-2xl text-sm text-muted-foreground">
           The frontend is being rebuilt on this branch. Foundation primitives
           (Button, Card, Badge, Alert, Skeleton, Spinner, Field, Input, Label,
-          Dialog, Sheet, Toast) are re-admitted below; remaining shared
-          compositions return in later milestone tasks.
+          Dialog, Sheet, Toast, Tabs, Select, Combobox, Avatar, Empty) are
+          re-admitted below; remaining shared compositions return in later
+          milestone tasks.
         </p>
       </header>
 
@@ -380,6 +394,71 @@ export default function Page() {
         <div className="flex flex-col gap-3">
           <h3 className="text-title font-semibold">Toast</h3>
           <ToastDemo />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Tabs</h3>
+          <Tabs defaultValue="all">
+            <TabsList>
+              <TabsTab value="all">All reviews</TabsTab>
+              <TabsTab value="needs_reply">Needs reply</TabsTab>
+              <TabsTab value="published">Published</TabsTab>
+            </TabsList>
+            <TabsPanel value="all">Every review across connected locations.</TabsPanel>
+            <TabsPanel value="needs_reply">Reviews waiting on a reply.</TabsPanel>
+            <TabsPanel value="published">Replies already published.</TabsPanel>
+          </Tabs>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Select</h3>
+          <Select defaultValue="updated_desc" items={SORT_ITEMS}>
+            <SelectTrigger aria-label="Sort reviews" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="updated_desc">Most recent</SelectItem>
+              <SelectItem value="rating_desc">Highest rated</SelectItem>
+              <SelectItem value="rating_asc">Lowest rated</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Combobox</h3>
+          {/* This page is a server component: `items` must stay plain, serialisable
+              data (no `itemToStringLabel` callback), since a function prop cannot
+              cross the server/client boundary into this "use client" primitive. */}
+          <Combobox items={DESIGN_SYSTEM_LOCATIONS}>
+            <ComboboxInput placeholder="All locations" aria-label="Filter by location" />
+            <ComboboxContent>
+              {DESIGN_SYSTEM_LOCATIONS.map((location) => (
+                <ComboboxItem key={location} value={location}>
+                  {location}
+                </ComboboxItem>
+              ))}
+            </ComboboxContent>
+          </Combobox>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Avatar</h3>
+          <div className="flex items-center gap-2">
+            <Avatar>
+              <AvatarFallback>ST</AvatarFallback>
+            </Avatar>
+            <Avatar>
+              <AvatarFallback>AN</AvatarFallback>
+            </Avatar>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Empty</h3>
+          <Empty
+            title="No reviews yet"
+            description="New Google reviews will appear here as they arrive."
+          />
         </div>
       </Section>
     </main>
