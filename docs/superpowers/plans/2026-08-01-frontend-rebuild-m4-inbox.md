@@ -13,7 +13,7 @@
 - Package manager `pnpm`. Never change the `--webpack` flags in package.json scripts.
 - Branch: `frontend-rebuild-m4-inbox` (cut from `main` @ `bca471e`). Delivery model is **per-milestone merge to `main`** (spec §10, amended after M1). `main` therefore serves a partially-rebuilt product: the three non-`/home`/`/inbox` sidebar links still 404 until their milestones land.
 - **No new dependencies** in this milestone. Every primitive Inbox needs already exists in `@base-ui/react` (`tabs`, `select`, `combobox`, `menu`, `alert-dialog`, `avatar`, `separator`, `scroll-area`, `input`, `field`); `date-fns` and `react-day-picker` are already dependencies.
-- **Protected paths — do NOT touch except the ONE sanctioned edit-set enumerated in Task 1**: `app/api/**`, `lib/server/**`, `lib/domain/**`, `supabase/**`, `scripts/**`, `instrumentation.ts`. **Consume only.** Task 1's sanctioned edits are exactly three files: `lib/server/capabilities.ts` (NEW), `app/api/reviews/route.ts` (additive `capabilities` field per row), `app/api/reviews/[id]/route.ts` (additive `capabilities` field on the review). **Every other file under those paths — including `app/api/reviews/counts/route.ts`, `app/api/reviews/[id]/drafts/route.ts`, `.../publish/route.ts`, `.../approval/route.ts`, `.../reply/route.ts`, `app/api/drafts/[id]/verify/route.ts`, `lib/server/permissions.ts`, `lib/server/reviews-query.ts`, `lib/domain/workflow.ts`, `lib/domain/verification.ts` — stays byte-identical.** The parity oracle (the untouched backend integration suite) must stay green (spec §9).
+- **Protected paths — do NOT touch except the ONE sanctioned edit-set enumerated in Task 1**: `app/api/**`, `lib/server/**`, `lib/domain/**`, `supabase/**`, `scripts/**`, `instrumentation.ts`. **Consume only.** Task 1's sanctioned edits are exactly three files: `lib/server/capabilities.ts` (NEW), `app/api/reviews/route.ts` (additive `capabilities` field per row), `app/api/reviews/[id]/route.ts` (additive `capabilities` + `latestVerification` fields on the review). **Every other file under those paths — including `app/api/reviews/counts/route.ts`, `app/api/reviews/[id]/drafts/route.ts`, `.../publish/route.ts`, `.../approval/route.ts`, `.../reply/route.ts`, `app/api/drafts/[id]/verify/route.ts`, `lib/server/permissions.ts`, `lib/server/reviews-query.ts`, `lib/domain/workflow.ts`, `lib/domain/verification.ts` — stays byte-identical.** The parity oracle (the untouched backend integration suite) must stay green (spec §9).
 - Styling: M1 tokens only. No raw hex, no `text-[NNpx]` (use `text-caption|text-ui|text-body|text-title|text-page-title`), no hard-coded `duration-N`. House focus ring: `focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none`.
 - Icon-only buttons require `aria-label` (enforced at the type level by `Button`). Every newly-admitted primitive is restyled once on entry per the M1 policy (one control chrome, one focus ring, a11y-by-construction).
 - Data layer: all reads go through the M1 typed client (`apiFetch` + a zod `schema`, mirroring `lib/api/connections.ts`). TanStack Query hooks carry `staleTime: 30s` (spec §6); the **list** query adds `keepPreviousData` (`placeholderData: keepPreviousData`). Mutations invalidate their keys — counts/rows/detail update within one round trip. All writes go through the typed client via `ApiClientError { status, code, details }`; server codes map to user copy through one mapping layer (`lib/inbox/action-errors.ts`) — no component invents its own error text.
@@ -28,13 +28,13 @@
 
 - **D1 — Rendering model.** CLIENT-FETCH via TanStack Query (same as M3 Home). No server-prefetch/dehydrate for the inbox list/detail: no reusable `lib/server` review read-service exists (the routes embed inline SQL through `withTenant`; `buildInboxQuery` is the closest but is coupled to the list route), and extracting one is out of M4 scope. Server-side hydration per spec §5 is **DEFERRED** (carry-forward, closed by whichever later milestone extracts the review read-services). Data hooks inherit `staleTime: 30s`; the list query adds `keepPreviousData`.
 - **D2 — Routing.** A SINGLE `app/(dashboard)/inbox/page.tsx` route (client split-pane, list + detail). The selected review AND all filters live in **searchParams** (spec §6) — NOT a nested `/inbox/[reviewId]` route. Selection uses `router.push` (Back returns to the previous selection / the list on mobile); filters use `router.replace`. The spec §5 "isolation boundary around the review detail pane" is a **React error boundary component** wrapping the detail pane (one route ⇒ not a route-segment `error.tsx`); M4 builds it as `components/inbox/detail-error-boundary.tsx`. Cold load streams skeleton rows via `app/(dashboard)/inbox/loading.tsx`.
-- **D3 — Capabilities (the ONE sanctioned protected-path edit — spec §3).** Build `lib/server/capabilities.ts` computing a per-resource capability object (`canPublish`, `canEdit`) that MIRRORS `lib/server/permissions.ts` (`canPublishLocation`, `requireLocationAccess`) EXACTLY. Embed **per-review** capability fields into the reviews LIST rows and the DETAIL response as an ADDITIVE `capabilities: { canPublish, canEdit }` object (must not break the backend integration suite — the parity oracle). Sanctioned edits: `lib/server/capabilities.ts` (new), and additive wiring in `app/api/reviews/route.ts` + `app/api/reviews/[id]/route.ts`. Counts route is NOT touched. Every other protected file stays byte-identical. The client gates Publish/Approve/Regenerate on these per-review fields with disabled-state reasons. **This task is flagged explicitly for whole-branch-review scrutiny (M4's analog of M2 Task 2).**
+- **D3 — Capabilities (the ONE sanctioned protected-path edit — spec §3).** Build `lib/server/capabilities.ts` computing a per-resource capability object (`canPublish`, `canEdit`) that MIRRORS `lib/server/permissions.ts` (`canPublishLocation`, `requireLocationAccess`) EXACTLY. Embed **per-review** capability fields into the reviews LIST rows and the DETAIL response as an ADDITIVE `capabilities: { canPublish, canEdit }` object, and additionally embed an ADDITIVE `latestVerification: { verdict, reasons } | null` on the DETAIL response (the latest draft's latest `verification_result`, so the composer shows reasons on load — D9). Both must not break the backend integration suite (the parity oracle). Sanctioned edits: `lib/server/capabilities.ts` (new), and additive wiring in `app/api/reviews/route.ts` (capabilities) + `app/api/reviews/[id]/route.ts` (capabilities + latestVerification). Counts route is NOT touched. Every other protected file stays byte-identical. The client gates Publish/Approve/Regenerate on these per-review fields with disabled-state reasons. **This task is flagged explicitly for whole-branch-review scrutiny (M4's analog of M2 Task 2).**
 - **D4 — URL vocabulary.** Client URL params are **camelCase** (honouring Home's `?locationId=` contract): `queue`, `locationId`, `rating`, `search`, `sort`, `selected`, `replyState`, `verification`, `publishStatus`, `syncStatus`, `dateFrom`, `dateTo`. A mapping helper (`lib/inbox/url-state.ts`) parses/serialises these and translates to the backend's snake_case wire names (`location_id`, `reply_state`, `publish_status`, `sync_status`, `date_from`, `date_to`, `status`) at the `apiFetch` boundary (in `lib/api/reviews.ts`). `queue` is a first-class param (`all|needs_reply|awaiting_approval|escalated|published`) mapped to backend `status` filters via `QUEUE_STATUS_MAP` (reproducing the legacy queue→statuses mapping). On load, `?locationId=` from Home is consumed as the initial location filter. The counts endpoint takes `locationId` camelCase directly (it already does).
 - **D5 — Pagination.** Cursor "Load more" via `useInfiniteQuery` (its `pageParam` IS component state: it resets whenever the query key — i.e. any filter — changes, and does not live in the URL). Selection is a URL searchParam. `placeholderData: keepPreviousData` on the list query.
 - **D6 — Dirty guard.** M4 BUILDS the shared generic `useDirtyGuard` hook (`lib/hooks/use-dirty-guard.ts`, spec §6; shared with future hours/menu/post editors). It suppresses list-driven selection changes while dirty (confirm-before-navigate), arms `beforeunload`, and mirrors content to the sessionStorage stash via the EXISTING `lib/api/draft-stash.ts` (`registerDraftSource`/`stashAllDrafts`/`takeStashedDraft` — reuse, do not reinvent). Dedicated unit tests (spec §9).
 - **D7 — Mutations.** ALL server-confirmed with per-action pending on the initiating button. NO optimistic publish (an `ambiguous`/`failed` provider outcome must never render as published). On success invalidate `reviewCounts` + `reviews` + `reviewDetail`. Surface exact server outcomes/errors through `lib/inbox/action-errors.ts`: 202 awaiting_approval → "Reply submitted for approval."; 200 published → "Reply published"; 403 `second_approver_required` → the exact copy **"A different authorised user must approve this reply."**; 409 `stale_draft_evidence` → force re-verify; 502 `google_mutation_ambiguous` → "Google may have applied the reply. Check its status before retrying."; `verified_draft_required`, `approval_not_pending`, `publish_permission_required`, 503 `drafts_paused`/`publishing_paused` each get plain-English copy. No error code is ever shown.
 - **D8 — Draft lifecycle.** ONE endpoint `POST /api/reviews/[id]/drafts` is Generate/Regenerate/Save — the client differentiates by presence of `body` (human edit) vs omitted (AI/template). Label "Generate draft" vs "Regenerate" by workflow status. Regenerate-over-edits CONFIRMS (`AlertDialog`) when the composer is dirty. Re-verify without regenerating via `POST /api/drafts/[id]/verify`.
-- **D9 — Verification reasons.** Render the actual `VerificationReason[]` (`code`/`severity`/`message`) as a list near the composer AND in the verification/lifecycle panel (spec §8). Verdict badge: pass→"Passed", warn→"Review needed", fail→"Failed", pending→"Pending". NO text-span annotation (backend gives no offsets).
+- **D9 — Verification reasons.** Render the actual `VerificationReason[]` (`code`/`severity`/`message`) as a list near the composer AND in the verification/lifecycle panel (spec §8), on load as well as after a mutation — the detail response carries an additive `latestVerification: { verdict, reasons }` (D3) that seeds the panel so a pre-existing Failed/Review-needed review shows its reasons without forcing a re-verify. Verdict badge: pass→"Passed", warn→"Review needed", fail→"Failed", pending→"Pending". NO text-span annotation (backend gives no offsets).
 - **D10 — States.** Cold load = skeleton rows (never empty). Empty copy distinguishes no-data (counts `total === 0`, no filters active) / filtered-out (items empty, filters active or counts `total > 0`) / disconnected (`useConnectionHealth()` → `disconnected`). loading/empty/error/mutation-failure each tested.
 - **D11 — Action enablement.** Derive "action applies given state" from `lib/domain/workflow.ts`'s transition table (client-safe import) in `lib/inbox/actions.ts`, combined with the D3 per-review capability fields — a single source of truth for "action applies given state" × "user may do it".
 - **D12 — Details.** Roving tabindex + arrow-key nav on the list; dates include the year when needed (`lib/format` `formatDate`/`formatDateTime`, org timezone); GB English; one h1/one main; M1 tokens.
@@ -107,7 +107,7 @@ tests/components/*.test.tsx                            NEW per task
 Backend response shapes consumed (READ-ONLY unless Task 1 sanctions the edit):
 - `GET /api/reviews?…` → `{ items: Row[], nextCursor: string|null }`. Row (from `buildInboxQuery`, plus Task 1's additive `capabilities`): `id, location:{id,name}, reviewer:{displayName,isAnonymous}, rating|null, text|null, detectedLanguageCode|null, languageConfidence|null, createTime, updateTime, hasMedia, workflowStatus, draftId|null, draftBody|null, verificationStatus|null, replyStatus|null, googleReplyState|null, googlePolicyViolation|null, replyBody|null, syncStatus|null, capabilities:{canPublish,canEdit}`. Wire params: `location_id, rating(csv), status(csv), reply_state, verification(csv), publish_status(csv), sync_status(csv), date_from, date_to, search, sort, page_size, cursor`.
 - `GET /api/reviews/counts?locationId=<id>` → `{ total, byStatus: Record<9 states, number> }` (zero-filled).
-- `GET /api/reviews/[id]` → `{ review: { id, reviewerDisplayName, reviewerIsAnonymous, rating|null, text|null, detectedLanguageCode|null, languageConfidence|null, createTime, updateTime, hasMedia, workflowStatus, locationId, locationName, timezone, verified, media:[{id,thumbnailUrl,thumbnailLabel,videoUrl}], drafts:[{id,source,body,bodyBytes,evidenceHash,modelName,verificationStatus,createdAt}], reply:{id,body,publishStatus,googleReplyState,googlePolicyViolation,googleReplyUpdatedAt}|null, timeline:[{action,createdAt,actorName,metadataSummary}], capabilities:{canPublish,canEdit} } }`.
+- `GET /api/reviews/[id]` → `{ review: { id, reviewerDisplayName, reviewerIsAnonymous, rating|null, text|null, detectedLanguageCode|null, languageConfidence|null, createTime, updateTime, hasMedia, workflowStatus, locationId, locationName, timezone, verified, media:[{id,thumbnailUrl,thumbnailLabel,videoUrl}], drafts:[{id,source,body,bodyBytes,evidenceHash,modelName,verificationStatus,createdAt}], reply:{id,body,publishStatus,googleReplyState,googlePolicyViolation,googleReplyUpdatedAt}|null, timeline:[{action,createdAt,actorName,metadataSummary}], capabilities:{canPublish,canEdit}, latestVerification:{verdict,reasons}|null } }` (the last two additive — Task 1).
 - `POST /api/reviews/[id]/drafts` → 201 `{ draftId, body, bodyBytes, evidenceHash, verification:{id,verdict,reasons} }`. `verdict∈'pass'|'warn'|'fail'`; `reasons:VerificationReason[]={code,severity:'warn'|'fail',message}`.
 - `POST /api/drafts/[id]/verify` → `{ verification:{id,verdict,reasons} }`.
 - `POST /api/reviews/[id]/publish` (body `{draftId,expectedReviewUpdateTime}`) → 202 `{reviewReplyId,publishAttemptId,status,googleReplyState}` | 200 `{…,idempotent}`. 502 `google_mutation_ambiguous`; 429/409 `google_publish_failed`; 503 `publishing_paused`; 409 `stale_draft_evidence`.
@@ -121,11 +121,11 @@ Backend response shapes consumed (READ-ONLY unless Task 1 sanctions the edit):
 
 ### Task 1: Capabilities backend — `lib/server/capabilities.ts` + additive wiring (SANCTIONED protected-path edit)
 
-> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M4's analog of M2 Task 2).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly three files there: `lib/server/capabilities.ts` (new), `app/api/reviews/route.ts` (additive), `app/api/reviews/[id]/route.ts` (additive). Every other protected file — including the counts, drafts, verify, publish, approval, reply routes, `permissions.ts`, `reviews-query.ts`, `workflow.ts`, `verification.ts` — stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` (exactly those three paths, no more) and that the untouched backend integration suite (the parity oracle) stays green.
+> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M4's analog of M2 Task 2).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly three files there: `lib/server/capabilities.ts` (new), `app/api/reviews/route.ts` (additive `capabilities` per row), `app/api/reviews/[id]/route.ts` (**two** additive fields — `capabilities` and `latestVerification`, the latter a read-only join to `verification_result` for the latest draft's latest verification). Every other protected file — including the counts, drafts, verify, publish, approval, reply routes, `permissions.ts`, `reviews-query.ts`, `workflow.ts`, `verification.ts` — stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` (exactly those three paths, no more), that both additions are strictly additive (existing fields unchanged), and that the untouched backend integration suite (the parity oracle) stays green.
 
 **Files:**
 - Create: `lib/server/capabilities.ts`
-- Modify: `app/api/reviews/route.ts` (add `capabilities` per row), `app/api/reviews/[id]/route.ts` (add `capabilities` on the review)
+- Modify: `app/api/reviews/route.ts` (add `capabilities` per row), `app/api/reviews/[id]/route.ts` (add `capabilities` + `latestVerification` on the review)
 - Test: `tests/integration/routes/review-capabilities.test.ts`
 
 **Interfaces:**
@@ -135,7 +135,7 @@ Backend response shapes consumed (READ-ONLY unless Task 1 sanctions the edit):
   - `reviewCapabilitiesForLocations(sql, session, locationIds: string[]): Promise<Map<string, ReviewCapabilities>>` — mirrors `canPublishLocation`/`requireLocationAccess` exactly.
   - `reviewCapabilities(sql, session, locationId: string): Promise<ReviewCapabilities>` — single-location convenience over the batch.
   - `GET /api/reviews` items each gain `capabilities: { canPublish, canEdit }`.
-  - `GET /api/reviews/[id]` review gains `capabilities: { canPublish, canEdit }`.
+  - `GET /api/reviews/[id]` review gains `capabilities: { canPublish, canEdit }` and `latestVerification: { verdict, reasons } | null` (verdict + reasons of the latest draft's latest `verification_result`).
 
 **Capability definition (mirrors `lib/server/permissions.ts` exactly):**
 - `canPublish(loc)` = `owner|admin` → `true`; `viewer` → `false`; else (member) `hasAnyAssignment ? (assigned-to-loc-with-can_publish) : session.canPublish` — identical to `canPublishLocation`.
@@ -239,10 +239,60 @@ describeDatabase("review capabilities on inbox responses", () => {
     const listed = body.items.find((item) => item.id === review.reviewId)
     expect(listed?.capabilities).toEqual({ canPublish: false, canEdit: false })
   })
+
+  it("detail carries latestVerification with reasons for a drafted review", async () => {
+    const tenant = await createTestTenant(admin, { role: "owner" })
+    organisations.push(tenant.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: tenant.organisationId,
+    })
+    const review = await seedLinkedReview(admin, {
+      organisationId: tenant.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+      text: "Reasons detail review",
+      rating: 4,
+    })
+    // A human draft containing an email deterministically fails verification
+    // (personal_contact_data), so latestVerification carries a reason.
+    const drafted = await fetch(
+      `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
+      {
+        method: "POST",
+        headers: {
+          cookie: tenant.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ body: "Please email us at team@example.com." }),
+      }
+    )
+    expect([201, 503]).toContain(drafted.status)
+    if (drafted.status === 503) return // DRAFTS_ENABLED off in this harness
+
+    const detail = await fetch(
+      `${server.baseUrl}/api/reviews/${review.reviewId}`,
+      { headers: { cookie: tenant.cookie } }
+    )
+    expect(detail.status).toBe(200)
+    const detailBody = (await detail.json()) as {
+      review: {
+        latestVerification: {
+          verdict: string
+          reasons: { code: string; severity: string; message: string }[]
+        } | null
+      }
+    }
+    expect(detailBody.review.latestVerification?.verdict).toBe("fail")
+    expect(
+      detailBody.review.latestVerification?.reasons.some(
+        (reason) => reason.code === "personal_contact_data"
+      )
+    ).toBe(true)
+  })
 })
 ```
 
-Before running: open `tests/integration/helpers/tenant.ts` and confirm `seedGoogleConnection` returns `{ connectionId, googleAccountName }` and `seedLinkedReview` returns `{ reviewId, locationId, externalLocationId }` (they do at lines 158/206). If a member/`can_publish=false` per-location case is wanted later, `createTestTenant(admin, { role, canPublish })` plus a manual `location_member` insert is the mechanism — not needed for these two cases.
+Before running: open `tests/integration/helpers/tenant.ts` and confirm `seedGoogleConnection` returns `{ connectionId, googleAccountName }` and `seedLinkedReview` returns `{ reviewId, locationId, externalLocationId }` (they do at lines 158/206). If a member/`can_publish=false` per-location case is wanted later, `createTestTenant(admin, { role, canPublish })` plus a manual `location_member` insert is the mechanism — not needed for these cases.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -387,7 +437,28 @@ In `app/api/reviews/[id]/route.ts`, add the import:
 import { reviewCapabilities } from "@/lib/server/capabilities"
 ```
 
-Inside the existing `withTenant(session.organisationId, async (sql) => { … })` callback, after the `timeline` query and before `return { ...row, timeline }`, compute capabilities for the review's location and include them. Replace:
+**5a — additive `latestVerification` in the SELECT.** In the main review query, immediately after the `reply` sub-select (the block ending `) as reply`) and before `from review r`, add a comma and this sub-select (the latest verification of the review's latest draft — verdict + reasons — so the client shows reasons on load without a re-verify). `verification_result` has columns `draft_id, verdict, reasons (jsonb), created_at` (`supabase/migrations/0001_initial.sql:235`):
+
+```sql
+          ,
+          (
+            select json_build_object('verdict', vr.verdict, 'reasons', vr.reasons)
+            from verification_result vr
+            where vr.draft_id = (
+              select d2.id
+              from draft d2
+              where d2.review_id = r.id
+              order by d2.created_at desc
+              limit 1
+            )
+            order by vr.created_at desc
+            limit 1
+          ) as "latestVerification"
+```
+
+`json_build_object` returns SQL `null` (→ JSON `null`) when the review has no draft/verification yet, matching the schema's `.nullable()`. The `reasons` jsonb rides along as a nested JSON array.
+
+**5b — capabilities.** Inside the existing `withTenant(session.organisationId, async (sql) => { … })` callback, after the `timeline` query and before `return { ...row, timeline }`, compute capabilities and include them. Replace:
 
 ```ts
       return {
@@ -411,7 +482,7 @@ with:
       }
 ```
 
-`row.locationId` is already selected (`l.id::text as "locationId"`). No other change.
+`row.locationId` is already selected (`l.id::text as "locationId"`), and `row.latestVerification` now rides along via 5a's sub-select and is spread by `...row`. No other change.
 
 - [ ] **Step 6: Run to verify pass**
 
@@ -609,6 +680,16 @@ describe("fetchReviewDetail", () => {
               },
             ],
             capabilities: { canPublish: false, canEdit: true },
+            latestVerification: {
+              verdict: "warn",
+              reasons: [
+                {
+                  code: "tone_length",
+                  severity: "warn",
+                  message: "The reply may be too long for the selected tone.",
+                },
+              ],
+            },
           },
         })
       )
@@ -753,6 +834,15 @@ export const verificationSchema = z.object({
 })
 export type Verification = z.infer<typeof verificationSchema>
 
+// The detail route exposes the latest verification of the review's latest
+// draft (verdict + reasons) so the composer can show reasons on load without
+// forcing a re-verify. No `id` — this is a read-only projection.
+export const latestVerificationSchema = z.object({
+  verdict: z.enum(["pass", "warn", "fail"]),
+  reasons: z.array(verificationReasonSchema),
+})
+export type LatestVerification = z.infer<typeof latestVerificationSchema>
+
 const capabilitiesSchema = z.object({
   canPublish: z.boolean(),
   canEdit: z.boolean(),
@@ -848,6 +938,7 @@ export const reviewDetailSchema = z.object({
       })
     ),
     capabilities: capabilitiesSchema,
+    latestVerification: latestVerificationSchema.nullable(),
   }),
 })
 export type ReviewDetail = z.infer<typeof reviewDetailSchema>
@@ -1012,7 +1103,9 @@ import { apiFetch } from "./client"
 
 const deleteReplyResultSchema = z.object({
   status: z.string(),
-  publishAttemptId: z.string(),
+  // executeReplyDelete returns attemptId: string | null (a "cancelled" outcome
+  // can omit it), so this is nullable.
+  publishAttemptId: z.string().nullable(),
 })
 export type DeleteReplyResult = z.infer<typeof deleteReplyResultSchema>
 
@@ -1074,7 +1167,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `useInfiniteQuery`, `useQuery`, `keepPreviousData` (`@tanstack/react-query`); `fetchReviews`/`ReviewsFilters`/`ReviewsPage`, `fetchReviewDetail`/`ReviewDetail` (Task 2); `fetchReviewCounts`/`ReviewCounts` (existing, extended); `queryKeys` (`@/lib/queries/keys`).
 - Produces (Tasks 4–8 consume):
-  - `lib/inbox/url-state.ts`: `type Queue = "all"|"needs_reply"|"awaiting_approval"|"escalated"|"published"`; `QUEUES: readonly Queue[]`; `QUEUE_STATUS_MAP: Record<Queue, readonly string[] | null>`; `queueToStatuses(queue): string[] | undefined`; `type InboxState = { queue: Queue; locationId?: string; ratings: number[]; search: string; sort: ReviewsFilters["sort"]; replyState?: "replied"|"unreplied"; verification: string[]; publishStatus: string[]; syncStatus: string[]; dateFrom?: string; dateTo?: string; selected?: string }`; `parseInboxState(params: URLSearchParams): InboxState`; `serializeInboxState(state: InboxState): URLSearchParams`; `toReviewsFilters(state): ReviewsFilters`; `hasActiveFilters(state): boolean`.
+  - `lib/inbox/url-state.ts`: `type Queue = "all"|"needs_reply"|"awaiting_approval"|"escalated"|"published"`; `QUEUES: readonly Queue[]`; `QUEUE_STATUS_MAP: Record<Queue, readonly string[] | null>`; `queueToStatuses(queue): string[] | undefined`; `type InboxState = { queue: Queue; locationId?: string; ratings: number[]; search: string; sort: ReviewsFilters["sort"]; replyState?: "replied"|"unreplied"; verification: string[]; publishStatus: string[]; syncStatus: string[]; dateFrom?: string; dateTo?: string; selected?: string }`; `parseInboxState(params: URLSearchParams): InboxState`; `serializeInboxState(state: InboxState): URLSearchParams`; `toReviewsFilters(state): ReviewsFilters`; `hasActiveFilters(state): boolean`; `mobilePaneFor(selected): "list"|"detail"`; `autoSelectId({ selected, reviews, isDirty, isDesktop }): string | null`.
   - `useReviews(filters: ReviewsFilters)` — `useInfiniteQuery`, key `queryKeys.reviews("organisation", filters)`, `placeholderData: keepPreviousData`, `staleTime: 30_000`; helper `flattenReviews(data)`.
   - `useReviewDetail(id: string | undefined)` — `useQuery`, key `queryKeys.reviewDetail(id ?? "")`, `enabled: Boolean(id)`, `staleTime: 30_000`.
   - `useReviewCounts(locationId?: string)` — key `queryKeys.reviewCounts(locationId ?? "organisation")`, `staleTime: 30_000`.
@@ -1088,6 +1181,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 import { describe, expect, it } from "vitest"
 
 import {
+  autoSelectId,
+  mobilePaneFor,
   parseInboxState,
   queueToStatuses,
   serializeInboxState,
@@ -1167,6 +1262,34 @@ describe("inbox url state", () => {
     )
     expect(filters.statuses).toEqual(["escalated"])
     expect(filters.locationId).toBe("loc-1")
+  })
+
+  it("shows the detail pane on mobile only when a review is selected", () => {
+    expect(mobilePaneFor(undefined)).toBe("list")
+    expect(mobilePaneFor("rev-1")).toBe("detail")
+  })
+
+  it("auto-selects the first row only on desktop, unselected, and clean", () => {
+    const reviews = [{ id: "a" }, { id: "b" }]
+    expect(
+      autoSelectId({ selected: undefined, reviews, isDirty: false, isDesktop: true })
+    ).toBe("a")
+    // Already selected -> no auto-select.
+    expect(
+      autoSelectId({ selected: "b", reviews, isDirty: false, isDesktop: true })
+    ).toBeNull()
+    // Dirty composer -> never steal the selection.
+    expect(
+      autoSelectId({ selected: undefined, reviews, isDirty: true, isDesktop: true })
+    ).toBeNull()
+    // Mobile -> the list is shown first; no auto-select.
+    expect(
+      autoSelectId({ selected: undefined, reviews, isDirty: false, isDesktop: false })
+    ).toBeNull()
+    // Empty list -> nothing to select.
+    expect(
+      autoSelectId({ selected: undefined, reviews: [], isDirty: false, isDesktop: true })
+    ).toBeNull()
   })
 })
 ```
@@ -1322,7 +1445,9 @@ export const QUEUES: readonly Queue[] = [
 
 // Reproduces the legacy queue->statuses mapping. "needs_reply" is the states
 // that still require a human toward a reply (excluding the states that own
-// their own tab: awaiting_approval, escalated, published). This is a
+// their own tab: awaiting_approval, escalated, published). `publish_requested`
+// is a transient pipeline state (a publish is in flight) and belongs to no
+// actionable tab — it appears only under the All queue, by design. This is a
 // defensible baseline the owner may refine; the per-tab count in queue-tabs
 // derives from exactly this map so the count and the list always agree.
 export const QUEUE_STATUS_MAP: Record<Queue, readonly string[] | null> = {
@@ -1440,6 +1565,27 @@ export function toReviewsFilters(state: InboxState): ReviewsFilters {
     sort: state.sort,
   }
 }
+
+// Which pane the mobile (<xl) layout shows: the detail when a review is
+// selected, otherwise the list (spec §6). Desktop always shows both panes.
+export function mobilePaneFor(selected: string | undefined): "list" | "detail" {
+  return selected ? "detail" : "list"
+}
+
+// Spec §6 auto-selection: pick the first row ONLY when the URL carries no
+// selection, nothing is dirty, and we are on desktop (where a detail pane is
+// always visible). Returns the id to select via router.replace, or null.
+export function autoSelectId(input: {
+  selected: string | undefined
+  reviews: { id: string }[]
+  isDirty: boolean
+  isDesktop: boolean
+}): string | null {
+  if (input.selected) return null
+  if (input.isDirty) return null
+  if (!input.isDesktop) return null
+  return input.reviews[0]?.id ?? null
+}
 ```
 
 - [ ] **Step 4: Implement the hooks and extend counts**
@@ -1556,7 +1702,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Test: `tests/components/review-list.test.tsx`, `tests/components/queue-tabs.test.tsx`, `tests/components/review-filters.test.tsx`, `tests/components/empty-states.test.tsx`
 
 **Interfaces:**
-- Consumes: `useReviews`/`flattenReviews` (Task 3), `useReviewCounts` (Task 3), `useReviewDetail` (Task 3 — for auto-select gating only in this task), `parseInboxState`/`serializeInboxState`/`toReviewsFilters`/`hasActiveFilters`/`QUEUES`/`QUEUE_STATUS_MAP` (Task 3), `fetchLocations` + a `useLocations` query, `useConnectionHealth` (existing), `formatDate` (`@/lib/format`), `Skeleton` (existing), `PageFrame`/`PageHeader` (existing).
+- Consumes: `useReviews`/`flattenReviews` (Task 3), `useReviewCounts` (Task 3), `parseInboxState`/`serializeInboxState`/`toReviewsFilters`/`hasActiveFilters`/`autoSelectId`/`mobilePaneFor`/`QUEUES`/`QUEUE_STATUS_MAP` (Task 3), `fetchLocations` (Task 2), `useConnectionHealth` (existing), `formatDate` (`@/lib/format`), `Skeleton`/`Button` (existing), `cn` (`@/lib/utils`), `PageFrame`/`PageHeader` (existing). Auto-selection reads the flattened list + `window.matchMedia` (desktop) and, from Task 6 on, `useReadIsDirty()`.
 - Produces (Tasks 5–8 consume): `InboxView`; primitives `Tabs`/`TabsList`/`TabsTab`, `Select`/`SelectItem`, `Combobox`/`ComboboxItem`, `Avatar`, `Empty`; `ReviewList` (props `{ reviews, selectedId, onSelect }`); `QueueTabs`; `ReviewFilters`; `EmptyState` (props `{ kind: "no-data"|"filtered"|"disconnected", onClear? }`).
 
 **Rendering-model note (spec §5, D1):** `app/(dashboard)/inbox/page.tsx` is a synchronous server component that renders `<PageFrame width="workspace"><PageHeader …/><InboxView/></PageFrame>`. Route-level Suspense/streaming is `app/(dashboard)/inbox/loading.tsx` (skeleton rows). Per-source loading during client fetches is owned in-component (D10). No server prefetch/dehydration this milestone (D1).
@@ -2286,12 +2432,12 @@ function EmptyState({
 export { EmptyState }
 ```
 
-`components/inbox/review-filters.tsx` (basic bar; the full "more filters" set is Task 8). Location filter is a `Combobox` labelled "Filter by location"; search is a `role="searchbox"`; rating and sort are `Select`s. All changes call `onChange(partialState)`:
+`components/inbox/review-filters.tsx` (basic bar; the full "more filters" set is Task 8). Location filter is a `Combobox` labelled "Filter by location"; search is a `role="searchbox"` that is **controlled and debounced** (~300ms) so it does not fire a `router.replace` + server search-scan per keystroke, and resets its visible text when filters are cleared externally; rating and sort are `Select`s. All changes call `onChange(partialState)`:
 
 ```tsx
 "use client"
 
-import { useId } from "react"
+import { useEffect, useId, useState } from "react"
 
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -2313,6 +2459,19 @@ function ReviewFilters({
   const locationId = useId()
   const selectedLocation =
     locations.find((location) => location.id === state.locationId) ?? null
+
+  // Controlled + debounced search: local draft mirrors the URL's search, syncs
+  // back when it is cleared externally ("Clear filters"/chip-clear), and writes
+  // to the URL only after the user pauses typing.
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  useEffect(() => {
+    setSearchDraft(state.search)
+  }, [state.search])
+  useEffect(() => {
+    if (searchDraft === state.search) return
+    const timer = setTimeout(() => onChange({ search: searchDraft }), 300)
+    return () => clearTimeout(timer)
+  }, [searchDraft, state.search, onChange])
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -2348,9 +2507,9 @@ function ReviewFilters({
           type="search"
           role="searchbox"
           aria-label="Search reviews"
-          defaultValue={state.search}
+          value={searchDraft}
           placeholder="Search reviews"
-          onChange={(event) => onChange({ search: event.target.value })}
+          onChange={(event) => setSearchDraft(event.target.value)}
           className="h-8 w-full rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
         />
       </div>
@@ -2412,7 +2571,7 @@ Expected: PASS.
 
 import { useQuery } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 
 import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { ReviewFilters } from "@/components/inbox/review-filters"
@@ -2422,13 +2581,16 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchLocations } from "@/lib/api/locations"
 import {
+  autoSelectId,
   hasActiveFilters,
+  mobilePaneFor,
   parseInboxState,
   serializeInboxState,
   toReviewsFilters,
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
+import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/queries/keys"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
@@ -2496,6 +2658,28 @@ function InboxView() {
     [router, state.queue]
   )
 
+  // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
+  // the first row (replace, so it adds no history). Nothing is selected here, so
+  // no composer is mounted and dirtiness is false; Task 6 Step 9 threads the
+  // real `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
+  const reviewsReady = !reviewsQuery.isPending && !reviewsQuery.isError
+  useEffect(() => {
+    if (!reviewsReady) return
+    const id = autoSelectId({
+      selected: state.selected,
+      reviews,
+      isDirty: false,
+      isDesktop:
+        typeof window !== "undefined" &&
+        window.matchMedia("(min-width: 1280px)").matches,
+    })
+    if (id) {
+      router.replace(
+        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
+      )
+    }
+  }, [reviewsReady, reviews, state, router])
+
   function renderList() {
     if (reviewsQuery.isPending) {
       return (
@@ -2532,9 +2716,18 @@ function InboxView() {
     )
   }
 
+  // Below xl, show one pane: the list, or the detail when a review is selected
+  // (spec §6). At xl both panes are always visible (two-pane split).
+  const mobilePane = mobilePaneFor(state.selected)
+
   return (
     <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
-      <div className="flex min-h-0 flex-col gap-3 overflow-hidden rounded-(--nr-radius-card) border border-border bg-card">
+      <div
+        className={cn(
+          "min-h-0 flex-col gap-3 overflow-hidden rounded-(--nr-radius-card) border border-border bg-card",
+          mobilePane === "detail" ? "hidden xl:flex" : "flex"
+        )}
+      >
         <div className="flex flex-col gap-3 border-b border-border/60 p-4">
           <QueueTabs
             queue={state.queue}
@@ -2564,17 +2757,33 @@ function InboxView() {
         ) : null}
       </div>
 
-      {/* Detail pane placeholder — Task 5 replaces this region with the real
-          review-detail + verification/activity + reply composer + action bar,
-          wrapped in the isolation error boundary. */}
+      {/* Detail pane placeholder — Task 5 replaces this region's INNER content
+          (keeping the mobile-pane classes + back button) with the real
+          review-detail wrapped in the isolation error boundary. */}
       <section
         aria-label="Selected review"
-        className="hidden min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col"
+        className={cn(
+          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col",
+          mobilePane === "detail" ? "flex flex-col" : "hidden xl:flex"
+        )}
       >
         {state.selected ? (
-          <p className="p-6 text-ui text-muted-foreground">
-            Review {state.selected} selected.
-          </p>
+          <>
+            {/* Mobile-only return-to-list affordance; Back also works because
+                selection was pushed (spec §6). */}
+            <div className="border-b border-border/60 p-3 xl:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => updateState({ selected: undefined }, "replace")}
+              >
+                Back to reviews
+              </Button>
+            </div>
+            <p className="p-6 text-ui text-muted-foreground">
+              Review {state.selected} selected.
+            </p>
+          </>
         ) : (
           <p className="p-6 text-ui text-muted-foreground">
             Select a review to see the full conversation.
@@ -2675,7 +2884,7 @@ describe("VerificationPanel", () => {
     render(
       <VerificationPanel
         status="verified"
-        verification={{ id: "v1", verdict: "pass", reasons: [] }}
+        verification={{ verdict: "pass", reasons: [] }}
       />
     )
     expect(screen.getByText("Passed")).toBeInTheDocument()
@@ -2687,7 +2896,6 @@ describe("VerificationPanel", () => {
       <VerificationPanel
         status="drafted"
         verification={{
-          id: "v2",
           verdict: "fail",
           reasons: [
             { code: "personal_contact_data", severity: "fail", message: "The reply contains an email address or phone number." },
@@ -2842,6 +3050,7 @@ const detail: ReviewDetailData = {
     reply: null,
     timeline: [],
     capabilities: { canPublish: true, canEdit: true },
+    latestVerification: null,
   },
 }
 
@@ -2878,7 +3087,7 @@ Expected: FAIL — components do not exist.
 import { useId } from "react"
 
 import { Badge } from "@/components/ui/badge"
-import type { Verification } from "@/lib/api/reviews"
+import type { LatestVerification } from "@/lib/api/reviews"
 
 function verdictBadge(verdict: string | null | undefined): {
   label: string
@@ -2894,7 +3103,7 @@ function VerificationPanel({
   verification,
   status,
 }: {
-  verification: Verification | null
+  verification: LatestVerification | null
   status: string
 }) {
   const badge = verdictBadge(verification?.verdict)
@@ -3173,17 +3382,31 @@ import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 ```
 
-Replace the placeholder `<section aria-label="Selected review" …>…</section>` block with:
+Replace the placeholder `<section aria-label="Selected review" …>…</section>` block with the version below — **keeping Task 4's mobile-pane className and the mobile "Back to reviews" button**, and swapping only the inner content placeholder for the real detail:
 
 ```tsx
       <section
         aria-label="Selected review"
-        className="hidden min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col"
+        className={cn(
+          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col",
+          mobilePane === "detail" ? "flex flex-col" : "hidden xl:flex"
+        )}
       >
         {state.selected ? (
-          <DetailErrorBoundary key={state.selected}>
-            <ReviewDetail reviewId={state.selected} />
-          </DetailErrorBoundary>
+          <>
+            <div className="border-b border-border/60 p-3 xl:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => updateState({ selected: undefined }, "replace")}
+              >
+                Back to reviews
+              </Button>
+            </div>
+            <DetailErrorBoundary key={state.selected}>
+              <ReviewDetail reviewId={state.selected} />
+            </DetailErrorBoundary>
+          </>
         ) : (
           <p className="p-6 text-ui text-muted-foreground">
             Select a review to see the full conversation.
@@ -3192,7 +3415,7 @@ Replace the placeholder `<section aria-label="Selected review" …>…</section>
       </section>
 ```
 
-The `key={state.selected}` remounts the boundary (and clears any prior error) when the selection changes.
+The `key={state.selected}` remounts the boundary (and clears any prior error) when the selection changes. The mobile-pane classes (`mobilePane === "detail" ? … : …`) and the `xl:hidden` back button are unchanged from Task 4.
 
 - [ ] **Step 6: Run to verify pass, then build**
 
@@ -3226,7 +3449,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `registerDraftSource`/`takeStashedDraft` (`@/lib/api/draft-stash`), `generateOrSaveDraft`/`verifyDraft` (Task 2), `useReviewDetail` (Task 3), `useToastManager` (existing toast), `VerificationPanel` (Task 5), `Verification` (Task 2).
-- Produces (Task 7 consumes): `useDirtyGuard({ key, isDirty, snapshot }): { confirmDiscard, restore }`; `DirtyGuardProvider`, `useRegisterDirtyGuard(isDirty, confirmDiscard)`, `useDirtyGate(): () => boolean`; `ReplyComposer` (props `{ reviewId }`); `useGenerateOrSaveDraft(reviewId)`, `useVerifyDraft(reviewId)`; `Textarea`; `AlertDialog`/`AlertDialogContent`/… primitives.
+- Produces (Task 7 consumes): `useDirtyGuard({ key, isDirty, snapshot }): { confirmDiscard, restore }`; `DirtyGuardProvider`, `useRegisterDirtyGuard(isDirty, confirmDiscard)`, `useDirtyGate(): () => boolean`, `useReadIsDirty(): () => boolean`, `useIsDirty(): boolean`; `ReplyComposer` (props `{ reviewId }`); `useGenerateOrSaveDraft(reviewId)`, `useVerifyDraft(reviewId)`; `Textarea`; `AlertDialog`/`AlertDialogContent`/… primitives.
 
 - [ ] **Step 1: Write the failing dirty-guard tests**
 
@@ -3369,48 +3592,98 @@ export function useDirtyGuard({
 
 - [ ] **Step 4: Implement the selection-suppression context**
 
-`components/inbox/dirty-context.tsx` (a ref-backed gate so the list can consult the composer's dirtiness without re-rendering on every keystroke):
+`components/inbox/dirty-context.tsx` (a subscribable store: the list and the auto-select effect read dirtiness *imperatively* — no re-render per keystroke — while the action bar *subscribes* via `useSyncExternalStore` so only IT re-renders to disable Publish while dirty):
 
 ```tsx
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 
 type Gate = { isDirty: boolean; confirmDiscard: () => boolean }
-const DirtyGuardContext = createContext<{ current: Gate } | null>(null)
+
+class DirtyStore {
+  private gate: Gate = { isDirty: false, confirmDiscard: () => true }
+  private listeners = new Set<() => void>()
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+  getIsDirty = () => this.gate.isDirty
+  confirmDiscard = () => this.gate.confirmDiscard()
+  set = (gate: Gate) => {
+    this.gate = gate
+    this.listeners.forEach((listener) => listener())
+  }
+}
+
+const DirtyStoreContext = createContext<DirtyStore | null>(null)
+const NOOP_SUBSCRIBE = () => () => {}
 
 function DirtyGuardProvider({ children }: { children: ReactNode }) {
-  const ref = useRef<Gate>({ isDirty: false, confirmDiscard: () => true })
+  const storeRef = useRef<DirtyStore>()
+  if (!storeRef.current) storeRef.current = new DirtyStore()
   return (
-    <DirtyGuardContext.Provider value={ref}>
+    <DirtyStoreContext.Provider value={storeRef.current}>
       {children}
-    </DirtyGuardContext.Provider>
+    </DirtyStoreContext.Provider>
   )
 }
 
-// The composer publishes its live dirtiness + confirm into the shared ref.
+// The composer publishes its live dirtiness + confirm into the shared store.
 function useRegisterDirtyGuard(isDirty: boolean, confirmDiscard: () => boolean) {
-  const ref = useContext(DirtyGuardContext)
+  const store = useContext(DirtyStoreContext)
   useEffect(() => {
-    if (ref) ref.current = { isDirty, confirmDiscard }
-    return () => {
-      if (ref) ref.current = { isDirty: false, confirmDiscard: () => true }
-    }
-  }, [ref, isDirty, confirmDiscard])
+    store?.set({ isDirty, confirmDiscard })
+    return () => store?.set({ isDirty: false, confirmDiscard: () => true })
+  }, [store, isDirty, confirmDiscard])
 }
 
-// The list uses this before applying a selection change: returns true if it is
-// safe to navigate (clean, or the user confirmed discarding).
+// The list uses this before a selection change: true if it is safe to navigate
+// (clean, or the user confirmed discarding). Imperative — does NOT subscribe.
 function useDirtyGate(): () => boolean {
-  const ref = useContext(DirtyGuardContext)
+  const store = useContext(DirtyStoreContext)
   return useCallback(() => {
-    if (!ref) return true
-    if (!ref.current.isDirty) return true
-    return ref.current.confirmDiscard()
-  }, [ref])
+    if (!store) return true
+    if (!store.getIsDirty()) return true
+    return store.confirmDiscard()
+  }, [store])
 }
 
-export { DirtyGuardProvider, useRegisterDirtyGuard, useDirtyGate }
+// The auto-select effect uses this to read dirtiness at decision time without
+// subscribing (no re-render churn on the list).
+function useReadIsDirty(): () => boolean {
+  const store = useContext(DirtyStoreContext)
+  return useCallback(() => (store ? store.getIsDirty() : false), [store])
+}
+
+// The action bar subscribes reactively so Publish disables the moment the
+// composer becomes dirty; only this consumer re-renders (not the list).
+function useIsDirty(): boolean {
+  const store = useContext(DirtyStoreContext)
+  return useSyncExternalStore(
+    store ? store.subscribe : NOOP_SUBSCRIBE,
+    () => (store ? store.getIsDirty() : false),
+    () => false
+  )
+}
+
+export {
+  DirtyGuardProvider,
+  useRegisterDirtyGuard,
+  useDirtyGate,
+  useReadIsDirty,
+  useIsDirty,
+}
 ```
 
 - [ ] **Step 5: Admit the `Textarea` and `AlertDialog` primitives**
@@ -3561,6 +3834,7 @@ import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ReplyComposer } from "@/components/inbox/reply-composer"
+import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -3589,12 +3863,23 @@ function reviewWith(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDeta
       reply: null,
       timeline: [],
       capabilities: { canPublish: true, canEdit: true },
+      latestVerification: null,
       ...overrides,
     },
   }
 }
 
-function mockMutation(mutateAsync = vi.fn().mockResolvedValue(undefined)) {
+// Resolve a realistic DraftResult so runGenerate/onSave can read result.body /
+// result.verification without throwing.
+const DRAFT_RESULT = {
+  draftId: "d-new",
+  body: "Generated reply body",
+  bodyBytes: 20,
+  evidenceHash: "h",
+  verification: { id: "v-new", verdict: "pass" as const, reasons: [] },
+}
+
+function mockMutation(mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)) {
   return {
     mutate: vi.fn(),
     mutateAsync,
@@ -3603,7 +3888,10 @@ function mockMutation(mutateAsync = vi.fn().mockResolvedValue(undefined)) {
   } as unknown as UseMutationResult<never, Error, never>
 }
 
-beforeEach(() => __resetDraftSources())
+beforeEach(() => {
+  __resetDraftSources()
+  sessionStorage.clear()
+})
 afterEach(() => vi.restoreAllMocks())
 
 describe("ReplyComposer", () => {
@@ -3613,7 +3901,11 @@ describe("ReplyComposer", () => {
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
-    render(<ReplyComposer reviewId="rev-1" />)
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
     expect(screen.getByRole("button", { name: "Generate draft" })).toBeInTheDocument()
   })
 
@@ -3637,7 +3929,11 @@ describe("ReplyComposer", () => {
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
-    render(<ReplyComposer reviewId="rev-1" />)
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "Reply draft" })).toHaveValue(
       "Existing draft body"
@@ -3646,7 +3942,7 @@ describe("ReplyComposer", () => {
 
   it("enables Save draft only after an edit and posts the edited body", async () => {
     const user = userEvent.setup()
-    const mutateAsync = vi.fn().mockResolvedValue(undefined)
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({ workflowStatus: "drafted", drafts: [
         { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
@@ -3654,7 +3950,11 @@ describe("ReplyComposer", () => {
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
-    render(<ReplyComposer reviewId="rev-1" />)
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "Reply draft" })
     await user.clear(textbox)
@@ -3666,7 +3966,7 @@ describe("ReplyComposer", () => {
 
   it("confirms before regenerating over unsaved edits", async () => {
     const user = userEvent.setup()
-    const mutateAsync = vi.fn().mockResolvedValue(undefined)
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({ workflowStatus: "drafted", drafts: [
         { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
@@ -3674,7 +3974,11 @@ describe("ReplyComposer", () => {
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
-    render(<ReplyComposer reviewId="rev-1" />)
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
     await user.type(screen.getByRole("textbox", { name: "Reply draft" }), " extra")
     await user.click(screen.getByRole("button", { name: "Regenerate" }))
     // A confirm dialog appears; the regenerate has NOT fired yet.
@@ -3692,12 +3996,12 @@ describe("ReplyComposer", () => {
 
 - [ ] **Step 8: Implement `components/inbox/reply-composer.tsx`**
 
-Contract: seeds the textbox from the latest draft body (or the stashed draft, if any); `isDirty` = current value differs from the seeded/last-saved value; **Generate/Regenerate** posts with NO `body` (label "Generate draft" when `drafts.length === 0`, else "Regenerate"); regenerate over a dirty composer opens the confirm `AlertDialog` first; **Save draft** posts with `body` (enabled only when dirty and non-empty); **Re-verify** calls `verifyDraft(latestDraftId)`; a byte counter shows `bodyBytes`/4096; registers with the dirty gate + `useDirtyGuard`; renders `<VerificationPanel>` (Task 5) fed by the latest generate/verify mutation's `verification` (verdict + reasons — D9), seeded from the latest draft's verdict on selection change. Toasts use `useToastManager().add`.
+Contract: seeds the textbox from the latest draft body (or the stashed draft, if any); `isDirty` = current value differs from the seeded/last-saved value; **Generate/Regenerate** posts with NO `body` (label "Generate draft" when `drafts.length === 0`, else "Regenerate"); regenerate over a dirty composer opens the confirm `AlertDialog` first; **Save draft** posts with `body` (enabled only when dirty and non-empty); **Re-verify** calls `verifyDraft(latestDraftId)`; a byte counter shows `bodyBytes`/4096; registers with the dirty gate + `useDirtyGuard`; renders `<VerificationPanel>` (Task 5) fed by `mutationVerification ?? review.latestVerification` — so on load it shows the persisted verdict AND reasons (D3/D9), and a fresh generate/verify mutation supersedes it. Toasts use `useToastManager().add`.
 
 ```tsx
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import {
   AlertDialog,
@@ -3717,7 +4021,7 @@ import { describeActionError } from "@/lib/inbox/action-errors"
 import { useGenerateOrSaveDraft, useVerifyDraft } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { VerificationPanel } from "@/components/inbox/verification-panel"
-import type { Verification } from "@/lib/api/reviews"
+import type { LatestVerification } from "@/lib/api/reviews"
 
 const TONES = [
   { value: "warm_professional", label: "Warm and professional" },
@@ -3736,10 +4040,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const seededBody = latestDraft?.body ?? ""
 
   const guardKey = `inbox:reply:${reviewId}`
-  const [body, setBody] = useState(seededBody)
+  const [body, setBody] = useState("")
   const [tone, setTone] = useState<(typeof TONES)[number]["value"]>("warm_professional")
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [verification, setVerification] = useState<Verification | null>(null)
+  // Verification produced by THIS session's latest generate/verify mutation;
+  // null until the user acts, then the persisted review.latestVerification (D3)
+  // shows verdict AND reasons on load.
+  const [mutationVerification, setMutationVerification] =
+    useState<LatestVerification | null>(null)
 
   const isDirty = body !== seededBody
   const { confirmDiscard, restore } = useDirtyGuard({
@@ -3749,22 +4057,18 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
   useRegisterDirtyGuard(isDirty, confirmDiscard)
 
-  // Re-seed when the selected review (and thus the guard key) changes; a
-  // stashed draft from a forced sign-out wins over the server body.
+  // Seed the textbox once per review, when its detail data is available; a ref
+  // guard stops a post-mutation refetch (same reviewId) from clobbering unsaved
+  // edits. A stashed draft from a forced sign-out wins over the server body.
+  const seededReviewRef = useRef<string | null>(null)
   useEffect(() => {
+    if (!review) return
+    if (seededReviewRef.current === reviewId) return
+    seededReviewRef.current = reviewId
     const stashed = restore()
-    setBody(stashed ?? seededBody)
-    // Seed the verdict from the latest draft (the detail endpoint carries the
-    // status but not the reasons); mutations below fill in the live reasons.
-    // "pending"/null seed to no panel — only a real verdict shows.
-    const seedVerdict = latestDraft?.verificationStatus
-    setVerification(
-      seedVerdict === "pass" || seedVerdict === "warn" || seedVerdict === "fail"
-        ? { id: latestDraft!.id, verdict: seedVerdict, reasons: [] }
-        : null
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewId])
+    setBody(stashed ?? review.drafts[0]?.body ?? "")
+    setMutationVerification(null)
+  }, [review, reviewId, restore])
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const verify = useVerifyDraft(reviewId)
@@ -3779,7 +4083,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     try {
       const result = await generateOrSave.mutateAsync({ tone })
       setBody(result.body)
-      setVerification(result.verification)
+      setMutationVerification(result.verification)
       toasts.add({
         title: "Draft ready",
         description: "A fresh reply was generated and verified.",
@@ -3801,7 +4105,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   async function onSave() {
     try {
       const result = await generateOrSave.mutateAsync({ body })
-      setVerification(result.verification)
+      setMutationVerification(result.verification)
       toasts.add({ title: "Draft saved", type: "success" })
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
@@ -3812,7 +4116,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     if (!latestDraft) return
     try {
       const result = await verify.mutateAsync(latestDraft.id)
-      setVerification(result.verification)
+      setMutationVerification(result.verification)
       toasts.add({ title: "Reply re-verified", type: "success" })
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
@@ -3823,6 +4127,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const canEdit = review.capabilities.canEdit
   const bytes = byteLength(body)
   const overLimit = bytes > 4096
+  // On load the persisted verdict+reasons show; a fresh mutation supersedes it.
+  const displayedVerification = mutationVerification ?? review.latestVerification
 
   return (
     <div className="flex flex-col gap-3">
@@ -3890,7 +4196,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       {/* Verification reasons rendered inline near the composer AND acting as
           the lifecycle panel (D9); the reasons come from the latest draft/
           verify mutation, which the detail endpoint does not carry. */}
-      <VerificationPanel verification={verification} status={review.workflowStatus} />
+      <VerificationPanel verification={displayedVerification} status={review.workflowStatus} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent aria-label="Discard your edits?">
@@ -3928,10 +4234,11 @@ Note: this imports `describeActionError` from `lib/inbox/action-errors.ts`, whic
 
 - [ ] **Step 9: Wire the composer + dirty gate into `InboxView`**
 
-In `components/inbox/inbox-view.tsx`:
-1. Import `DirtyGuardProvider`, `useDirtyGate` from `@/components/inbox/dirty-context`, and `ReplyComposer`.
-2. Wrap the returned JSX's outermost element in `<DirtyGuardProvider>…</DirtyGuardProvider>`.
-3. Add `const dirtyGate = useDirtyGate()` and guard selection: change `onSelect` to
+**Important — the dirty store must sit ABOVE `InboxView`'s hooks.** `useDirtyGate`/`useReadIsDirty`/`useIsDirty` all read `DirtyStoreContext`, so the provider must be an ANCESTOR of the component that calls them. Since `InboxView` itself calls `useDirtyGate`/`useReadIsDirty`, split it: keep the current body as an inner `InboxViewInner`, and export a new `InboxView` that renders `<DirtyGuardProvider><InboxViewInner/></DirtyGuardProvider>`. Then, in `InboxViewInner`:
+
+1. Import `DirtyGuardProvider`, `useDirtyGate`, `useReadIsDirty` from `@/components/inbox/dirty-context`, and `ReplyComposer`.
+2. Add `const dirtyGate = useDirtyGate()` and `const readIsDirty = useReadIsDirty()`.
+3. Guard selection: change `onSelect` to
 
 ```tsx
   const onSelect = useCallback(
@@ -3943,18 +4250,46 @@ In `components/inbox/inbox-view.tsx`:
   )
 ```
 
-4. Pass the composer as the detail footer:
+4. Thread real dirtiness into the auto-select effect — replace `isDirty: false` with `readIsDirty()` and add `readIsDirty` to the deps:
 
 ```tsx
-          <DetailErrorBoundary key={state.selected}>
-            <ReviewDetail
-              reviewId={state.selected}
-              footer={<ReplyComposer reviewId={state.selected} />}
-            />
-          </DetailErrorBoundary>
+    const id = autoSelectId({
+      selected: state.selected,
+      reviews,
+      isDirty: readIsDirty(),
+      isDesktop:
+        typeof window !== "undefined" &&
+        window.matchMedia("(min-width: 1280px)").matches,
+    })
+```
+```tsx
+  }, [reviewsReady, reviews, state, router, readIsDirty])
 ```
 
-Because `DirtyGuardProvider` must sit ABOVE both the list and the composer, wrap the whole `<div className="grid …">` in it (the provider renders only a context, no DOM).
+5. Pass the composer as the detail footer (Task 7 Step 7 adds the action bar alongside it):
+
+```tsx
+            <DetailErrorBoundary key={state.selected}>
+              <ReviewDetail
+                reviewId={state.selected}
+                footer={<ReplyComposer reviewId={state.selected} />}
+              />
+            </DetailErrorBoundary>
+```
+
+6. Export the wrapper:
+
+```tsx
+function InboxView() {
+  return (
+    <DirtyGuardProvider>
+      <InboxViewInner />
+    </DirtyGuardProvider>
+  )
+}
+
+export { InboxView }
+```
 
 - [ ] **Step 10: Run to verify pass, then build**
 
@@ -4327,6 +4662,11 @@ import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ActionBar } from "@/components/inbox/action-bar"
+import {
+  DirtyGuardProvider,
+  useRegisterDirtyGuard,
+} from "@/components/inbox/dirty-context"
+import { Toaster } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -4347,12 +4687,13 @@ function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
         { id: "d1", source: "ai", body: "Reply", bodyBytes: 5, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
       ],
       reply: null, timeline: [], capabilities: { canPublish: true, canEdit: true },
+      latestVerification: null,
       ...overrides,
     },
   }
 }
 
-function mutation(mutateAsync = vi.fn().mockResolvedValue(undefined)) {
+function mutation(mutateAsync = vi.fn().mockResolvedValue({ status: "published" })) {
   return { mutate: vi.fn(), mutateAsync, isPending: false } as unknown as UseMutationResult<never, Error, never>
 }
 
@@ -4365,12 +4706,30 @@ function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutati
   vi.spyOn(deleteHook, "useDeleteReply").mockReturnValue(del)
 }
 
+// ActionBar calls useToastManager() (needs a <Toaster> ancestor) and useIsDirty()
+// (needs a DirtyGuardProvider). This host supplies both; `dirty` marks the
+// composer dirty so Publish must disable with the save-first reason.
+function DirtyStamp({ dirty }: { dirty: boolean }) {
+  useRegisterDirtyGuard(dirty, () => true)
+  return null
+}
+function renderActionBar(dirty = false) {
+  return render(
+    <Toaster>
+      <DirtyGuardProvider>
+        <DirtyStamp dirty={dirty} />
+        <ActionBar reviewId="rev-1" />
+      </DirtyGuardProvider>
+    </Toaster>
+  )
+}
+
 describe("ActionBar", () => {
-  it("enables Publish for a verified, publishable review and posts the draft id", async () => {
+  it("enables Publish for a verified, publishable, clean review and posts the draft id", async () => {
     const user = userEvent.setup()
     const publish = mutation()
     stubHooks(detailWith({}), publish)
-    render(<ActionBar reviewId="rev-1" />)
+    renderActionBar()
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeEnabled()
     await user.click(button)
@@ -4382,13 +4741,23 @@ describe("ActionBar", () => {
 
   it("disables Publish with a reason when the user cannot publish", () => {
     stubHooks(detailWith({ capabilities: { canPublish: false, canEdit: true } }))
+    renderActionBar()
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeDisabled()
     expect(button).toHaveAttribute("title", expect.stringContaining("permission to publish"))
   })
 
+  it("disables Publish with a save-first reason while the composer is dirty", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true)
+    const button = screen.getByRole("button", { name: "Publish reply" })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
+  })
+
   it("shows Approve and Reject when awaiting approval", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
+    renderActionBar()
     expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Reject reply" })).toBeInTheDocument()
   })
@@ -4399,7 +4768,7 @@ describe("ActionBar", () => {
       vi.fn().mockRejectedValue(new ApiClientError(403, "second_approver_required", "x"))
     )
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
-    render(<ActionBar reviewId="rev-1" />)
+    renderActionBar()
     await user.click(screen.getByRole("button", { name: "Approve reply" }))
     await waitFor(() =>
       expect(
@@ -4410,7 +4779,7 @@ describe("ActionBar", () => {
 })
 ```
 
-Note: `useToastManager()` needs a `<ToastProvider>` ancestor, which `<Toaster>` supplies. So render the component **inside** `<Toaster>`: in `tests/components/action-bar.test.tsx`, `render(<Toaster><ActionBar reviewId="rev-1" /></Toaster>)` (import `Toaster` from `@/components/ui/toast`); the toast then mounts into that provider's viewport and the assertion finds its text. Apply the same wrapper in `reply-composer.test.tsx` if a toast assertion is added there. **App wiring:** because the inbox composer/action bar call `useToastManager()`, a `<Toaster>` must be an ancestor of the inbox route — confirm the app shell or root layout already mounts one (M1 admitted Toast); if not, mount `<Toaster>` in `app/(dashboard)/layout.tsx` around `{children}` as part of Task 6.
+Note: `useToastManager()` needs a `<ToastProvider>` ancestor and `useIsDirty()` needs a `DirtyGuardProvider`; the `renderActionBar` host above supplies both (see it wrap `<Toaster><DirtyGuardProvider>…`). **App wiring is already in place — do NOT add a second `<Toaster>`:** `app/layout.tsx:30` already renders `<Toaster>{children}</Toaster>`, so every route (inbox included) is inside the toast provider, and `InboxView`'s `<DirtyGuardProvider>` (Task 6 Step 9) supplies the dirty store for the composer and action bar.
 
 - [ ] **Step 6: Implement `components/inbox/action-bar.tsx`**
 
@@ -4436,6 +4805,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToastManager } from "@/components/ui/toast"
+import { useIsDirty } from "@/components/inbox/dirty-context"
 import { evaluateApproval, evaluateDelete, evaluatePublish } from "@/lib/inbox/actions"
 import { describeActionError } from "@/lib/inbox/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
@@ -4451,6 +4821,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
   const toasts = useToastManager()
+  // Live composer dirtiness (reactive; only this sibling re-renders on it), so
+  // Publish disables with "Save your draft before publishing" while the
+  // on-screen text differs from the persisted verified draft (LOCKED #4).
+  const isDirty = useIsDirty()
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const review = detail.data?.review
@@ -4463,7 +4837,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     status: review.workflowStatus,
     canPublish: review.capabilities.canPublish,
     hasVerifiedDraft: Boolean(verifiedDraft),
-    isDirty: false,
+    isDirty,
   })
   const approvalState = evaluateApproval({
     status: review.workflowStatus,
@@ -4594,7 +4968,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
 export { ActionBar }
 ```
 
-Note on `isDirty` and Publish: the composer owns dirtiness locally, so the action bar (a sibling) computes `evaluatePublish` with `isDirty: false` and relies on the guard requiring a Save before the draft becomes the verified/current one — publishing always uses the persisted verified draft id, never unsaved textarea text (D7, no optimistic publish). Saving invalidates `reviewDetail`, so a freshly-saved verified draft appears here within one round trip.
+Note on `isDirty` and Publish (LOCKED #4): the composer publishes its live dirtiness into the shared `dirty-context` store; the action bar reads it via `useIsDirty()` (a `useSyncExternalStore` subscription, so only the action bar re-renders on keystroke — not the list) and passes it to `evaluatePublish`. Publish therefore disables with the existing "Save your draft before publishing" reason while the on-screen text differs from the persisted draft, and publishing always uses the persisted verified draft id, never unsaved textarea text (D7, no optimistic publish; published text can never diverge from what the user sees). Saving invalidates `reviewDetail`, so a freshly-saved verified draft appears here within one round trip.
 
 - [ ] **Step 7: Wire the action bar into the detail footer**
 
@@ -5686,14 +6060,14 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Whole-branch review complete with a dedicated capability/tenant-scoping pass; its findings fixed in one wave.
 - Carry-forwards recorded for later milestones: **server-hydrated/dehydrated inbox** (spec §5 prefetch, once a `lib/server` review read-service is extracted) → a later milestone (M5 or M7, whichever first extracts it); the **`/locations/[id]/reviews` sub-view** → M5; the **Settings/Performance/Connections legs of the full cross-surface journey** → re-assembled at M9; **`review-provider-races.spec.ts`** stays quarantined → M9 (re-author against TanStack Query's dedup/staleness semantics, or delete); the **`react-day-picker` calendar** for the date range (M4 uses native `type="date"` inputs) → optional polish, M7.
 - Acceptance-bar note: no committed audit-findings document exists for M4; its bar is spec §8's Inbox paragraph (the audit-finding proxy) plus the M1/M3 carry-forward register.
-- Decisions made BEYOND the locked D1–D16 list (flagged for controller review): (a) `QUEUE_STATUS_MAP.needs_reply = [new, drafted, verified, failed, rejected]` — a defensible baseline (excludes the states that own their own tab), analogous to M3's `NEEDS_ATTENTION_STATES`; (b) capabilities embedded as a nested `capabilities: { canPublish, canEdit }` object (not flat top-level fields) to minimise any collision risk with existing row fields under the parity oracle; (c) the counts route was NOT edited (D3 permitted "if needed") — capabilities gate actions, not counts, so counts stayed byte-identical, reducing the protected-path surface; (d) Publish is gated to a persisted verified draft with the composer clean (`isDirty:false` in the action bar) rather than auto-saving on publish — safer than the legacy conditional re-save and consistent with D7's "no optimistic publish"; (e) the location directory for the filter uses `GET /api/location-links` (its default view already returns `{id,name}`, role-scoped) rather than a new endpoint.
+- Decisions made BEYOND the locked D1–D16 list (flagged for controller review): (a) `QUEUE_STATUS_MAP.needs_reply = [new, drafted, verified, failed, rejected]` — a defensible baseline (excludes the states that own their own tab), analogous to M3's `NEEDS_ATTENTION_STATES`; (b) capabilities embedded as a nested `capabilities: { canPublish, canEdit }` object (not flat top-level fields) to minimise any collision risk with existing row fields under the parity oracle; (c) the counts route was NOT edited (D3 permitted "if needed") — capabilities gate actions, not counts, so counts stayed byte-identical, reducing the protected-path surface; (d) Publish is gated to a persisted verified draft with the composer clean — the action bar reads the live composer dirtiness via the shared `dirty-context` store (`useIsDirty`, a `useSyncExternalStore` subscription so only the action bar re-renders) and disables Publish with "Save your draft before publishing" while dirty, rather than auto-saving on publish — safer than the legacy conditional re-save and consistent with D7's "no optimistic publish" (published text can never diverge from the on-screen text); (e) the location directory for the filter uses `GET /api/location-links` (its default view already returns `{id,name}`, role-scoped) rather than a new endpoint; (f) `latestVerification` added to the detail route (additive, Task 1) so verification reasons show on load, not only after a re-verify (closing a §8 gap).
 
 ## Self-review (run before merge; fix inline)
 
-- **Spec coverage.** §3 capabilities addition → Task 1 (`lib/server/capabilities.ts` + additive wiring). §4 legacy `/reviews→/inbox` redirect (query-string forwarding) → Task 9. §5 rendering model — client-fetched inbox with route-level `loading.tsx` Suspense; the "isolation boundary around the review detail pane" is the React `DetailErrorBoundary` (Task 5); server-prefetch deviation documented (D1) and carried forward. §6 data layer — one QueryClient; keys `reviews`/`reviewDetail`/`reviewCounts` with `keepPreviousData` on the list (Tasks 2/3/6/7); typed mutation client via `apiFetch`/`ApiClientError`; 401→stash reused; URL-as-state with `replace` for filters and `push` for selection (Task 4); shared client-safe zod (the verification/reason schemas); `useDirtyGuard` (Task 6). §8 Inbox paragraph — every clause mapped (see exit criteria). §9 testing — loading/error/empty/mutation-failure component tests per feature; `useDirtyGuard` dedicated unit tests; e2e dirty-draft survival, per-role permission walk, publish journey, approver journey, dark-mode scan, axe (Task 10); parity oracle stays green (Task 1). No M4-scoped requirement is left without a task.
+- **Spec coverage.** §3 capabilities addition → Task 1 (`lib/server/capabilities.ts` + additive wiring). §4 legacy `/reviews→/inbox` redirect (query-string forwarding) → Task 9. §5 rendering model — client-fetched inbox with route-level `loading.tsx` Suspense; the "isolation boundary around the review detail pane" is the React `DetailErrorBoundary` (Task 5); server-prefetch deviation documented (D1) and carried forward. §6 data layer — one QueryClient; keys `reviews`/`reviewDetail`/`reviewCounts` with `keepPreviousData` on the list (Tasks 2/3/6/7); typed mutation client via `apiFetch`/`ApiClientError`; 401→stash reused; URL-as-state with `replace` for filters and `push` for selection (Task 4); auto-selection of the first row only when unselected + not dirty + desktop (`autoSelectId`, Task 4/6); the mobile single-pane toggle with `push`-so-Back-returns and a "Back to reviews" button (`mobilePaneFor`, Task 4/5); shared client-safe zod (the verification/reason schemas); `useDirtyGuard` (Task 6). §8 Inbox paragraph — every clause mapped, including verification reasons **on load** via the additive `latestVerification` detail field (D3/D9, Task 1/2/6) and Publish disabling while the composer is dirty via the reactive `dirty-context` store (LOCKED #4, Task 7). §9 testing — loading/error/empty/mutation-failure component tests per feature; `useDirtyGuard` dedicated unit tests; e2e dirty-draft survival, per-role permission walk, publish journey, approver journey, dark-mode scan, axe (Task 10); parity oracle stays green (Task 1). No M4-scoped requirement is left without a task.
 - **Placeholder scan.** No "TBD"/"similar to Task N"/"add error handling"/bare "write tests". Every code step carries real code; each complex component (list, detail, verification panel, composer, action bar, filters) ships a numbered behavioural contract + a complete pinned test file + a reference implementation. The one deliberate cross-task file (`lib/inbox/action-errors.ts`, created in Task 6, consumed + tested in Task 7) carries its full implementation once (Task 7 Step 1) and both tasks reference the same code — not a re-implementation.
-- **Type consistency.** `ReviewCapabilities { canPublish, canEdit }` is identical across `lib/server/capabilities.ts` (Task 1), the API `capabilitiesSchema` (Task 2), and every consumer. `ReviewRow`/`ReviewDetail`/`ReviewsFilters`/`Verification`/`VerificationReason` (Task 2) are the exact names Tasks 3–7 import. `useReviews`/`flattenReviews`/`useReviewDetail`/`useReviewCounts(locationId?)` (Task 3) match their call sites. `InboxState`/`parseInboxState`/`serializeInboxState`/`toReviewsFilters`/`hasActiveFilters`/`queueToStatuses`/`QUEUE_STATUS_MAP`/`QUEUES`/`Queue` (Task 3) are consumed unchanged in Tasks 4/8 and the `inbox-view`. `useDirtyGuard({ key, isDirty, snapshot })` (Task 6) matches its composer call and its test. `evaluatePublish`/`evaluateApproval`/`evaluateDelete` and `describeActionError` (Task 7) match the action bar and composer. `usePublishReview`/`useApprovalDecision`/`useDeleteReply`/`useGenerateOrSaveDraft`/`useVerifyDraft` names match producer and consumer. Primitive export surfaces (`Tabs`/`TabsList`/`TabsTab`, `Select`/`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`, `Combobox`/`ComboboxInput`/`ComboboxContent`/`ComboboxItem`, `Avatar`/`AvatarFallback`, `Empty`, `Textarea`, `AlertDialog…`, `DropdownMenu…`) are imported by exactly those names in every component and admission task. Query keys: list `queryKeys.reviews("organisation", filters)`, detail `queryKeys.reviewDetail(id)`, counts `queryKeys.reviewCounts(locationId ?? "organisation")`, locations `queryKeys.locations` — identical between hook and test.
-- **Parity-oracle safety.** `inbox-cursor.test.ts` reads only `items[].id`; the additive `capabilities` object cannot break it. The counts route is untouched (M3's `useReviewCounts()` with no argument still keys `reviewCounts("organisation")` and hits `/api/reviews/counts` with no `locationId`, exactly as before), so `home-queries.test.tsx` and Home stay green.
+- **Type consistency.** `ReviewCapabilities { canPublish, canEdit }` is identical across `lib/server/capabilities.ts` (Task 1), the API `capabilitiesSchema` (Task 2), and every consumer. `ReviewRow`/`ReviewDetail`/`ReviewsFilters`/`Verification`/`LatestVerification`/`VerificationReason` (Task 2) are the exact names Tasks 3–7 import; `LatestVerification` (verdict+reasons, no id) is the type of the detail's additive `latestVerification`, the composer's `mutationVerification` state, and the `VerificationPanel` prop (its test literals carry no `id`). `useReviews`/`flattenReviews`/`useReviewDetail`/`useReviewCounts(locationId?)` (Task 3) match their call sites. `InboxState`/`parseInboxState`/`serializeInboxState`/`toReviewsFilters`/`hasActiveFilters`/`queueToStatuses`/`QUEUE_STATUS_MAP`/`QUEUES`/`Queue`/`autoSelectId`/`mobilePaneFor` (Task 3) are consumed unchanged in Tasks 4/8 and the `inbox-view`. `useDirtyGuard({ key, isDirty, snapshot })` (Task 6) matches its composer call and its test; the `dirty-context` store exports `DirtyGuardProvider`/`useRegisterDirtyGuard`/`useDirtyGate`/`useReadIsDirty`/`useIsDirty` — the composer registers, the list/auto-select read imperatively, the action bar subscribes reactively. `evaluatePublish`/`evaluateApproval`/`evaluateDelete` and `describeActionError` (Task 7) match the action bar and composer. `usePublishReview`/`useApprovalDecision`/`useDeleteReply`/`useGenerateOrSaveDraft`/`useVerifyDraft` names match producer and consumer. Primitive export surfaces (`Tabs`/`TabsList`/`TabsTab`, `Select`/`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`, `Combobox`/`ComboboxInput`/`ComboboxContent`/`ComboboxItem`, `Avatar`/`AvatarFallback`, `Empty`, `Textarea`, `AlertDialog…`, `DropdownMenu…`) are imported by exactly those names in every component and admission task. Query keys: list `queryKeys.reviews("organisation", filters)`, detail `queryKeys.reviewDetail(id)`, counts `queryKeys.reviewCounts(locationId ?? "organisation")`, locations `queryKeys.locations` — identical between hook and test.
+- **Parity-oracle safety.** `inbox-cursor.test.ts` reads only `items[].id`; the additive `capabilities` object cannot break it. The detail route's additive `capabilities` + `latestVerification` fields change no existing field and are read only by the new `review-capabilities.test.ts`, so `approval.test.ts`/`publish-lifecycle.test.ts`/`language-drafts.test.ts` (which read named detail fields) stay green. The counts route is untouched (M3's `useReviewCounts()` with no argument still keys `reviewCounts("organisation")` and hits `/api/reviews/counts` with no `locationId`, exactly as before), so `home-queries.test.tsx` and Home stay green.
 
 ## Execution handoff
 
