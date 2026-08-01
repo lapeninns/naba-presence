@@ -43,6 +43,10 @@ export type JourneyState = {
     locationName: string
     text: string
   }
+  primaryLocationId: string
+  adminCookie: string
+  memberAssignedCookie: string
+  memberUnassignedCookie: string
 }
 
 export const journeyStatePath = resolve(
@@ -213,6 +217,72 @@ export default async function startJourneyBridge(config: FullConfig) {
       values (${hashToken(viewerToken)}, ${viewerUserId}, ${organisationId}, now() + interval '1 hour')
     `
 
+    // Wave-1 Locations e2e (Task 11): an admin and two members in the primary
+    // org, for the per-role permission walk against directReview.locationId
+    // (the primary linked location). The assigned member gets a
+    // `location_member` grant to it; the unassigned member does not.
+    //
+    // `organisationId` is captured here (not read directly inside the
+    // closure below) because it is declared `let ... : string | undefined`
+    // in the enclosing scope for the catch/finally cleanup paths; TS cannot
+    // narrow a mutable outer binding across a nested-function boundary, so
+    // `seedUser` closes over this already-narrowed `orgId` instead.
+    const orgId = organisationId
+    async function seedUser(role: "admin" | "member", canPublish: boolean) {
+      const userId = randomUUID()
+      const token = randomBytes(32).toString("base64url")
+      await admin`
+        insert into app_user (id, email, display_name, default_organisation_id)
+        values (${userId}, ${`m5-${userId.slice(0, 8)}@nabapresence.test`}, 'M5 walk user', ${orgId})
+      `
+      await admin`
+        insert into member (organisation_id, user_id, role, can_publish)
+        values (${orgId}, ${userId}, ${role}, ${canPublish})
+      `
+      await admin`
+        insert into app_session (token_hash, user_id, organisation_id, expires_at)
+        values (${hashToken(token)}, ${userId}, ${orgId}, now() + interval '1 hour')
+      `
+      return { userId, cookie: `naba_session=${token}` }
+    }
+    const adminUser = await seedUser("admin", true)
+    const memberAssigned = await seedUser("member", true)
+    const memberUnassigned = await seedUser("member", false)
+    await admin`
+      insert into location_member (organisation_id, location_id, user_id, can_publish)
+      values (${orgId}, ${directReview.locationId}, ${memberAssigned.userId}, true)
+    `
+
+    // Location read (profile + hours + food-menu eligibility) — one rich object
+    // covering every readMask the wave-1 tabs request.
+    stub.respond({ method: "GET", pathIncludes: "readMask" }, () => ({
+      status: 200,
+      json: {
+        name: "locations/stub",
+        title: "Riverside Rooms",
+        phoneNumbers: { primaryPhone: "+44 20 7946 0000" },
+        profile: { description: "A calm riverside stay." },
+        storefrontAddress: { addressLines: ["1 River Road"], locality: "Bath", postalCode: "BA1 1AA", regionCode: "GB" },
+        websiteUri: "https://riverside.example",
+        categories: { primaryCategory: { displayName: "Hotel" } },
+        regularHours: { periods: [] },
+        specialHours: { specialHourPeriods: [] },
+        moreHours: [],
+        metadata: { canHaveFoodMenus: true, mapsUri: "https://maps.example/x", newReviewUri: "https://g.page/x/review" },
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/media" }, () => ({ status: 200, json: { mediaItems: [] } }))
+    stub.respond({ method: "GET", pathIncludes: "/media/customers" }, () => ({ status: 200, json: { mediaItems: [] } }))
+    stub.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({ status: 200, json: { localPosts: [], nextPageToken: null } }))
+    stub.respond({ method: "GET", pathIncludes: "/placeActionLinks" }, () => ({ status: 200, json: { placeActionLinks: [] } }))
+    stub.respond({ method: "GET", pathIncludes: "/foodMenus" }, () => ({ status: 200, json: { name: "locations/stub/foodMenus", menus: [] } }))
+    // Booking create journey: echo the posted link back (name + input fields) so
+    // the readback hash matches the request.
+    stub.respond({ method: "POST", pathIncludes: "/placeActionLinks" }, (call) => {
+      const body = (call.body ?? {}) as Record<string, unknown>
+      return { status: 200, json: { name: "locations/stub/placeActionLinks/created", uri: body.uri, placeActionType: body.placeActionType, isPreferred: body.isPreferred ?? false } }
+    })
+
     // A separate approval-required org: a requester whose publish routes to
     // approval (202), and a distinct owner approver who approves (200).
     //
@@ -345,6 +415,10 @@ export default async function startJourneyBridge(config: FullConfig) {
         locationName: approvalLocationName,
         text: "Sprint 5 approver journey review",
       },
+      primaryLocationId: directReview.locationId,
+      adminCookie: adminUser.cookie,
+      memberAssignedCookie: memberAssigned.cookie,
+      memberUnassignedCookie: memberUnassigned.cookie,
     }
     await mkdir(dirname(journeyStatePath), { recursive: true })
     await writeFile(journeyStatePath, JSON.stringify(state), "utf8")

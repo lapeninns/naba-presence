@@ -15,9 +15,7 @@ export default defineConfig({
   // Legacy specs target the deleted frontend; re-enabled per rebuild milestone.
   testIgnore: [
     "**/accessibility.spec.ts",
-    "**/capability-tabs.spec.ts",
     "**/gbp-management-tabs.spec.ts",
-    "**/locations.spec.ts",
     "**/performance.spec.ts",
     "**/review-provider-races.spec.ts",
     "**/routing.spec.ts",
@@ -43,6 +41,11 @@ export default defineConfig({
       TOKEN_ENCRYPTION_KEY: tokenEncryptionKey,
       WEBHOOKS_ENABLED: "false",
       PASSWORD_AUTH_ENABLED: "false",
+      GBP_PROFILE_WRITES_ENABLED: "true",
+      GBP_MEDIA_ENABLED: "true",
+      GBP_POSTS_ENABLED: "true",
+      GBP_FOOD_MENUS_ENABLED: "true",
+      GBP_PLACE_ACTIONS_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,
