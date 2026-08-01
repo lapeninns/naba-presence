@@ -25,7 +25,12 @@ function ReviewList({
 }: {
   reviews: ReviewRow[]
   selectedId: string | undefined
-  onSelect: (id: string) => void
+  // Returns whether the selection actually changed: `false` means the
+  // dirty guard blocked it (the user cancelled the discard confirm). Arrow
+  // navigation below relies on this so a blocked selection change never
+  // moves DOM focus onto a row whose tabIndex is still -1, which would
+  // desync the roving-tabindex invariant from the visible selection.
+  onSelect: (id: string) => boolean
   timezone?: string
 }) {
   const containerRef = useRef<HTMLUListElement>(null)
@@ -40,12 +45,10 @@ function ReviewList({
   function onKeyDown(event: React.KeyboardEvent, index: number) {
     if (event.key === "ArrowDown" && index < reviews.length - 1) {
       event.preventDefault()
-      onSelect(reviews[index + 1].id)
-      focusRow(index + 1)
+      if (onSelect(reviews[index + 1].id)) focusRow(index + 1)
     } else if (event.key === "ArrowUp" && index > 0) {
       event.preventDefault()
-      onSelect(reviews[index - 1].id)
-      focusRow(index - 1)
+      if (onSelect(reviews[index - 1].id)) focusRow(index - 1)
     }
   }
 

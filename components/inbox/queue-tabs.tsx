@@ -46,7 +46,12 @@ function QueueTabs({
             aria-label={`${QUEUE_LABELS[item]}, ${countFor(item, total, byStatus)}`}
           >
             <span>{QUEUE_LABELS[item]}</span>
-            <span className="rounded-full bg-muted-foreground/15 px-1.5 text-caption tabular-nums">
+            {/* Explicit text-foreground (not the inherited muted-foreground):
+                a low-opacity muted-foreground tint pill blended against the
+                unselected tab's muted background falls just under the 4.5:1
+                AA contrast ratio (measured 4.44:1 light / 3.99:1 dark) —
+                text-foreground stays legible regardless of selection state. */}
+            <span className="rounded-full bg-muted-foreground/15 px-1.5 text-caption text-foreground tabular-nums">
               {formatNumber(countFor(item, total, byStatus))}
             </span>
           </TabsTab>

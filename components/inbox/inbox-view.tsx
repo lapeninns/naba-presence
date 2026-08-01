@@ -17,6 +17,7 @@ import {
   useDirtyGate,
   useReadIsDirty,
 } from "@/components/inbox/dirty-context"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchLocations } from "@/lib/api/locations"
@@ -90,11 +91,14 @@ function InboxViewInner() {
   )
   // Selection uses push so Back returns to the list on mobile (spec §6). Gated
   // behind the dirty guard: while the composer is dirty this either confirms
-  // discarding the edit (window.confirm) or blocks the selection change.
+  // discarding the edit (window.confirm) or blocks the selection change. The
+  // boolean return tells ReviewList's arrow-key handler whether it's safe to
+  // move DOM focus onto the target row (see review-list.tsx).
   const onSelect = useCallback(
-    (id: string) => {
-      if (!dirtyGate()) return
+    (id: string): boolean => {
+      if (!dirtyGate()) return false
       updateState({ selected: id }, "push")
+      return true
     },
     [dirtyGate, updateState]
   )
@@ -151,9 +155,24 @@ function InboxViewInner() {
       )
     }
     if (reviewsQuery.isError) {
+      // A failed fetch is NOT "no reviews yet" (the empty-state copy for a
+      // genuinely empty queue) -- that would silently mask a real error with
+      // no way to retry. Mirrors ReviewDetail's error branch.
       return (
         <div className="p-6">
-          <EmptyState kind="no-data" />
+          <Alert variant="destructive">
+            <AlertTitle>We could not load your reviews.</AlertTitle>
+            <AlertDescription className="flex flex-col items-start gap-2">
+              <span>Check your connection, then try again.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void reviewsQuery.refetch()}
+              >
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
         </div>
       )
     }

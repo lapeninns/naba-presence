@@ -32,8 +32,11 @@ function ActivityTimeline({
         <p className="text-caption text-muted-foreground">No activity yet.</p>
       ) : (
         <ol className="flex flex-col gap-2">
-          {timeline.map((event, index) => (
-            <li key={index} className="flex flex-col gap-0.5 text-caption">
+          {timeline.map((event) => (
+            <li
+              key={`${event.action}-${event.createdAt}-${event.actorName ?? ""}`}
+              className="flex flex-col gap-0.5 text-caption"
+            >
               <span className="font-medium">{humaniseAction(event.action)}</span>
               <span className="text-muted-foreground">
                 {event.actorName ? `${event.actorName} · ` : ""}

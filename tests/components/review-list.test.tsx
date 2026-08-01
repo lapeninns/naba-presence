@@ -42,7 +42,7 @@ describe("ReviewList", () => {
           row({ id: "b", text: "Second review", reviewer: { displayName: "Ben", isAnonymous: false } }),
         ]}
         selectedId={undefined}
-        onSelect={() => {}}
+        onSelect={() => true}
       />
     )
     expect(screen.getByRole("region", { name: "Review list" })).toBeInTheDocument()
@@ -55,7 +55,7 @@ describe("ReviewList", () => {
       <ReviewList
         reviews={[row({ id: "a", text: "First" }), row({ id: "b", text: "Second" })]}
         selectedId="b"
-        onSelect={() => {}}
+        onSelect={() => true}
       />
     )
     const second = screen.getByRole("button", { name: /Second/ })
@@ -66,7 +66,7 @@ describe("ReviewList", () => {
 
   it("moves selection with ArrowDown/ArrowUp (roving tabindex)", async () => {
     const user = userEvent.setup()
-    const onSelect = vi.fn()
+    const onSelect = vi.fn().mockReturnValue(true)
     render(
       <ReviewList
         reviews={[row({ id: "a", text: "First" }), row({ id: "b", text: "Second" })]}
@@ -77,6 +77,28 @@ describe("ReviewList", () => {
     screen.getByRole("button", { name: /First/ }).focus()
     await user.keyboard("{ArrowDown}")
     expect(onSelect).toHaveBeenCalledWith("b")
+    expect(screen.getByRole("button", { name: /Second/ })).toHaveFocus()
+  })
+
+  // A `false` return means the dirty guard blocked the change (the user
+  // cancelled the discard confirm). Focus must NOT move onto the next row --
+  // that row's tabIndex is still -1, so landing DOM focus there would desync
+  // the roving-tabindex invariant from the visible selection.
+  it("does not move focus when onSelect reports the change was blocked", async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn().mockReturnValue(false)
+    render(
+      <ReviewList
+        reviews={[row({ id: "a", text: "First" }), row({ id: "b", text: "Second" })]}
+        selectedId="a"
+        onSelect={onSelect}
+      />
+    )
+    const first = screen.getByRole("button", { name: /First/ })
+    first.focus()
+    await user.keyboard("{ArrowDown}")
+    expect(onSelect).toHaveBeenCalledWith("b")
+    expect(first).toHaveFocus()
   })
 
   it("shows the year only when a review is not from the current year", () => {
@@ -84,7 +106,7 @@ describe("ReviewList", () => {
       <ReviewList
         reviews={[row({ id: "a", text: "Old", updateTime: "2024-03-04T10:00:00.000Z" })]}
         selectedId={undefined}
-        onSelect={() => {}}
+        onSelect={() => true}
         timezone="Europe/London"
       />
     )

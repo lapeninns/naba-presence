@@ -243,3 +243,29 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
 })
+
+// A failed list fetch must not render as "No reviews yet" (the genuinely
+// empty-queue copy) with no way to recover -- that silently mislabels a real
+// error as an empty inbox.
+describe("InboxView — list fetch failure", () => {
+  it("shows a retry affordance instead of the empty-queue copy", async () => {
+    const user = userEvent.setup()
+    const refetch = vi.fn()
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch,
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+
+    renderInbox()
+
+    expect(screen.getByText("We could not load your reviews.")).toBeInTheDocument()
+    expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Try again" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+})
