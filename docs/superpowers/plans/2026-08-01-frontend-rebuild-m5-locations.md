@@ -140,7 +140,7 @@ playwright.config.ts               MODIFY (Task 11): un-ignore locations.spec.ts
 
 ### Task 1: Location capabilities backend + `seedLinkedLocation` helper (SANCTIONED protected-path edit)
 
-> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M5's analog of M4 Task 1).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly two files there: `lib/server/capabilities.ts` (additive `locationCapabilities`/`locationCapabilitiesForIds`) and `app/api/locations/[id]/capabilities/route.ts` (new read-only GET). Every other protected file — every wave-1 tab route and service, `permissions.ts` — stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` (exactly those two paths, plus the untouched test-helper is under `tests/`), that the additions mirror `permissions.ts` for every role × membership case, and that the untouched backend integration suite (the parity oracle) stays green.
+> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M5's analog of M4 Task 1).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly two files there: `lib/server/capabilities.ts` (additive `locationCapabilities`/`locationCapabilitiesForIds`) and `app/api/locations/[id]/capabilities/route.ts` (new read-only GET). Every other protected file — every wave-1 tab route and service, `permissions.ts` — stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` (exactly those two paths, plus the untouched test-helper is under `tests/`), that the additions mirror `permissions.ts` for every role × membership case, and that the untouched backend integration suite (the parity oracle) stays green.
 
 **Files:**
 - Create: `app/api/locations/[id]/capabilities/route.ts`
@@ -509,7 +509,7 @@ export async function GET(
 node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration/routes/location-capabilities.test.ts
 node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration
 pnpm typecheck && pnpm lint
-git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts
+git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts
 ```
 
 Expected: the new test passes (4 tests, 7 assertions across the combinations); every existing integration test stays green (the additions are new symbols + a new route — nothing existing changed). The `git diff --stat` lists **exactly** `app/api/locations/[id]/capabilities/route.ts` and `lib/server/capabilities.ts` — nothing else under those paths (the helper edit is under `tests/`, outside the protected set).
@@ -538,7 +538,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   - `lib/api/locations.ts`: `fetchLocations(): Promise<{ locations: { id: string; name: string }[] }>` (existing); `type ManagementLocation`; `fetchManagementLocations(): Promise<{ locations: ManagementLocation[] }>`; `type LocationCapabilities = { canEditCanonical: boolean; canPublish: boolean }`; `fetchLocationCapabilities(id: string): Promise<LocationCapabilities>`.
   - `lib/api/location-profile.ts`: `type ProfileState`, `type ProfileFieldKey`; `fetchProfile(id): Promise<ProfileState>`; `saveProfile(id, { expectedCanonicalRevision, values }): Promise<{ saved: true; revision: string }>`; `runProfileOperation(id, ProfileOperationInput): Promise<ProfileOperationResult>`.
   - `lib/api/location-hours.ts`: `type HoursState`, `type NormalizedHours`, `type HoursUpdateMask`; `fetchHours(id): Promise<HoursState>`; `saveHours(id, { expectedCanonicalRevision, hours }): Promise<{ saved: true; revision: string }>`; `publishHours(id, PublishHoursInput): Promise<PublishResult>`.
-  - `lib/api/location-media.ts`: `type MediaItem`, `type MediaState`; `fetchMedia(id): Promise<MediaState>`; `createMediaFromUrl(id, input)`, `uploadMediaFile(id, FormData)`, `updateMediaCategory(id, mediaId, input)`, `deleteMediaItem(id, mediaId, input)` — each `Promise<MediaMutationResult>`.
+  - `lib/api/location-media.ts`: `type MediaItem`, `type MediaState`; `fetchMedia(id): Promise<MediaState>`; `createMediaFromUrl(id, input)`, `uploadMediaFile(id, form, onProgress?: (fraction: number) => void)` (XHR, reports progress), `updateMediaCategory(id, mediaId, input)`, `deleteMediaItem(id, mediaId, input)` — each `Promise<MediaMutationResult>`.
   - `lib/api/location-booking.ts`: `type PlaceActionLink`, `type PlaceActionsState`; `fetchPlaceActions(id): Promise<PlaceActionsState>`; `createPlaceAction`, `updatePlaceAction`, `deletePlaceAction`.
   - `lib/api/location-menu.ts`: `type FoodMenu`, `type FoodMenusState`; `fetchFoodMenus(id): Promise<FoodMenusState>`; `saveFoodMenus(id, { expectedCanonicalRevision, menus })`; `publishFoodMenus(id, PublishMenusInput)`.
   - `lib/api/location-posts.ts`: `type Post`, `type PostsState`; `fetchPosts(id): Promise<PostsState>`; `createPost`, `updatePost`, `publishPost`, `decidePostApproval`, `deletePost`.
@@ -708,17 +708,39 @@ describe("tab mutation clients", () => {
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("PUT")
   })
 
-  it("uploadMediaFile POSTs multipart form data without a JSON content-type", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ id: "m1", status: "succeeded", idempotent: false }, 201))
-    vi.stubGlobal("fetch", fetchMock)
+  it("uploadMediaFile POSTs multipart form data via XHR and reports progress", async () => {
+    const opened: Array<[string, string]> = []
+    const sent: unknown[] = []
+    const setHeader = vi.fn()
+    class MockXHR {
+      status = 201
+      responseText = JSON.stringify({ id: "m1", status: "succeeded", idempotent: false })
+      upload: { onprogress?: (event: { lengthComputable: boolean; loaded: number; total: number }) => void } = {}
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      open(method: string, url: string) {
+        opened.push([method, url])
+      }
+      setRequestHeader(...args: [string, string]) {
+        setHeader(...args)
+      }
+      send(body: unknown) {
+        sent.push(body)
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 })
+        this.onload?.()
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", MockXHR as unknown as typeof XMLHttpRequest)
     const form = new FormData()
     form.set("mediaFormat", "PHOTO")
-    const result = await uploadMediaFile("loc-1", form)
+    const progress: number[] = []
+    const result = await uploadMediaFile("loc-1", form, (fraction) => progress.push(fraction))
     expect(result.status).toBe("succeeded")
-    const init = fetchMock.mock.calls[0][1] as RequestInit
-    expect(init.method).toBe("POST")
-    expect(init.body).toBeInstanceOf(FormData)
-    expect((init.headers as Record<string, string> | undefined)?.["content-type"]).toBeUndefined()
+    expect(opened[0]).toEqual(["POST", "/api/locations/loc-1/media"])
+    expect(sent[0]).toBeInstanceOf(FormData)
+    // Never sets content-type; the browser adds the multipart boundary.
+    expect(setHeader).not.toHaveBeenCalled()
+    expect(progress).toContain(0.5)
   })
 
   it("publishPost surfaces the awaiting-approval status (202)", async () => {
@@ -747,8 +769,8 @@ Expected: FAIL — none of the `@/lib/locations/*` or `@/lib/api/location-*` mod
 ```ts
 import { z } from "zod"
 
-// Mirrors app/api/locations/[id]/profile/route.ts saveSchema.values, modelled as
-// form strings ("" is submitted as null). Website allows "" or a valid URL.
+// Mirrors saveSchema.values in app/api/locations/[id]/profile/route.ts — keep in sync.
+// Modelled as form strings ("" is submitted as null); website allows "" or a URL.
 export const profileFormSchema = z.object({
   name: z.string().trim().max(255),
   description: z.string().trim().max(750),
@@ -773,6 +795,7 @@ import type { NormalizedHours } from "@/lib/api/location-hours"
 
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 
+// Verbatim mirror of hoursSchema in app/api/locations/[id]/hours/route.ts — keep in sync.
 export const hoursFormSchema = z
   .object({
     regular: z
@@ -847,7 +870,7 @@ export function emptyHours(): NormalizedHours {
 ```ts
 import { z } from "zod"
 
-// Mirrors app/api/locations/[id]/food-menus/route.ts saveSchema.menus.
+// Mirrors saveSchema.menus in app/api/locations/[id]/food-menus/route.ts — keep in sync.
 export const foodMenusFormSchema = z.array(z.record(z.string(), z.unknown())).max(100)
 export type FoodMenu = z.infer<typeof foodMenusFormSchema>[number]
 
@@ -886,6 +909,7 @@ const callToActionSchema = z
   .object({ actionType: z.enum(["BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "CALL"]), url: z.url().optional() })
   .optional()
 
+// Verbatim mirror of localPostInputSchema in lib/server/posts.ts — keep in sync.
 export const localPostFormSchema = z
   .object({
     topicType: z.enum(["STANDARD", "EVENT", "OFFER"]),
@@ -1218,7 +1242,7 @@ import { z } from "zod"
 
 import { GOOGLE_MEDIA_CATEGORIES, type GoogleMediaCategory } from "@/lib/domain/google-contract"
 
-import { apiFetch } from "./client"
+import { ApiClientError, apiFetch } from "./client"
 
 const mediaItemSchema = z.object({
   id: z.string(),
@@ -1267,27 +1291,46 @@ export function createMediaFromUrl(
   })
 }
 
-// Multipart upload: apiFetch cannot serialise FormData, so post directly and
-// reuse ApiClientError-shaped errors via a thin wrapper.
-export async function uploadMediaFile(id: string, form: FormData): Promise<MediaMutationResult> {
-  const { ApiClientError } = await import("./client")
+// Multipart upload via XMLHttpRequest so we can report upload progress (spec §8).
+// apiFetch cannot serialise FormData or surface progress. Errors are re-shaped as
+// ApiClientError to match the rest of the client. Do NOT set a content-type header —
+// the browser adds the multipart boundary.
+export function uploadMediaFile(
+  id: string,
+  form: FormData,
+  onProgress?: (fraction: number) => void
+): Promise<MediaMutationResult> {
   form.set("confirmation", "create_google_media")
-  const response = await fetch(`/api/locations/${id}/media`, { method: "POST", body: form })
-  const text = await response.text()
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    raw = text
-  }
-  if (!response.ok) {
-    const record = (raw ?? {}) as Record<string, unknown>
-    const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : null
-    const code = typeof record.error === "string" ? record.error : nested && typeof nested.code === "string" ? nested.code : "http_error"
-    const message = typeof record.message === "string" ? record.message : nested && typeof nested.message === "string" ? nested.message : `Request failed (${response.status}).`
-    throw new ApiClientError(response.status, code, message, record.details)
-  }
-  return mutationResultSchema.parse(raw)
+  return new Promise<MediaMutationResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", `/api/locations/${id}/media`)
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total)
+      }
+    }
+    xhr.onload = () => {
+      let raw: unknown
+      try {
+        raw = JSON.parse(xhr.responseText)
+      } catch {
+        raw = xhr.responseText
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const parsed = mutationResultSchema.safeParse(raw)
+        if (parsed.success) resolve(parsed.data)
+        else reject(new ApiClientError(500, "malformed_response", "The server response did not match the expected shape.", parsed.error.issues))
+        return
+      }
+      const record = (raw ?? {}) as Record<string, unknown>
+      const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : null
+      const code = typeof record.error === "string" ? record.error : nested && typeof nested.code === "string" ? nested.code : "http_error"
+      const message = typeof record.message === "string" ? record.message : nested && typeof nested.message === "string" ? nested.message : `Request failed (${xhr.status}).`
+      reject(new ApiClientError(xhr.status, code, message, record.details))
+    }
+    xhr.onerror = () => reject(new ApiClientError(0, "network_error", "The upload could not be completed. Check your connection and try again."))
+    xhr.send(form)
+  })
 }
 
 export function updateMediaCategory(id: string, mediaId: string, input: { category: MediaCategory; expectedGoogleHash: string }) {
@@ -2677,6 +2720,7 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import {
   runProfileOperation,
@@ -2701,6 +2745,23 @@ const FIELD_LABELS: Record<ProfileFieldKey, string> = {
   website: "Website",
 }
 const EDITABLE: ProfileFieldKey[] = ["name", "description", "phone", "website"]
+
+// Server zod errors on the PUT body arrive under path ["values", <field>]; map
+// them back to form fields (mirrors lib/api/auth-errors.ts fieldErrorsFrom,
+// adapted for the nested `values` body). Spec §6 "server details map to fields".
+function serverFieldErrors(error: unknown): Partial<Record<keyof ProfileFormValues, string>> {
+  if (!(error instanceof ApiClientError) || error.code !== "invalid_request" || !Array.isArray(error.details)) return {}
+  const fields: Partial<Record<keyof ProfileFormValues, string>> = {}
+  for (const issue of error.details) {
+    const path = (issue as { path?: unknown[] }).path
+    const message = (issue as { message?: unknown }).message
+    const key = Array.isArray(path) ? String(path[path.length - 1] ?? "") : ""
+    if ((key === "name" || key === "description" || key === "phone" || key === "website") && typeof message === "string" && !(key in fields)) {
+      fields[key as keyof ProfileFormValues] = message
+    }
+  }
+  return fields
+}
 
 export function ProfileTab({ locationId }: { locationId: string }) {
   const queryClient = useQueryClient()
@@ -2760,11 +2821,15 @@ function ProfileTabLoaded({
   const [importOpen, setImportOpen] = useState(false)
 
   // Derived before the mutations that close over them (no use-before-define).
+  // Publish (to Google) only pushes the bidirectional fields; import (from
+  // Google) may pull any non-read-only field, incl. import_only ones the server
+  // permits (address / mapsUrl / reviewUrl) — see profile.ts assertSelectedFields.
   const driftedEditable = profile.fields.filter((f) => EDITABLE.includes(f.key) && f.status !== "in_sync")
+  const driftedImport = profile.fields.filter((f) => f.policy !== "google_read_only" && f.status !== "in_sync")
   const publishFields = driftedEditable.map((f) => f.key)
-  const importFields = driftedEditable.map((f) => f.key)
+  const importFields = driftedImport.map((f) => f.key)
   const publishNeedsAck = driftedEditable.some((f) => f.status === "google_dirty" || f.status === "conflict")
-  const importNeedsAck = driftedEditable.some((f) => f.status === "core_dirty" || f.status === "conflict")
+  const importNeedsAck = driftedImport.some((f) => f.status === "core_dirty" || f.status === "conflict")
 
   const save = useMutation({
     mutationFn: (input: { expectedCanonicalRevision: string; values: ReturnType<typeof toProfileValues> }) => saveProfile(locationId, input),
@@ -2772,7 +2837,14 @@ function ProfileTabLoaded({
       invalidate()
       toast("Profile saved", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
+    onError: (error) => {
+      const fieldErrors = serverFieldErrors(error)
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors(fieldErrors)
+        return
+      }
+      toast(describeActionError(error), "error")
+    },
   })
 
   const publish = useMutation({
@@ -3270,10 +3342,16 @@ function HoursTabLoaded({
   const save = useMutation({
     mutationFn: () => saveHours(locationId, { expectedCanonicalRevision: hours.canonicalResource.revision, hours: draft }),
     onSuccess: () => {
+      setFormError(null)
       invalidate()
       toast("Opening hours saved", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
+    // Nested per-field mapping is impractical for the weekly structure, so server
+    // errors surface in the form-level Alert (plus a toast). Carry-forward noted.
+    onError: (error) => {
+      setFormError(describeActionError(error))
+      toast(describeActionError(error), "error")
+    },
   })
 
   const publish = useMutation({
@@ -3287,10 +3365,14 @@ function HoursTabLoaded({
       }),
     onSuccess: () => {
       setPublishOpen(false)
+      setFormError(null)
       invalidate()
       toast("Opening hours published to Google", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
+    onError: (error) => {
+      setFormError(describeActionError(error))
+      toast(describeActionError(error), "error")
+    },
   })
 
   function submit() {
@@ -3391,7 +3473,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Task 7: Photos tab (direct live-Google media CRUD)
 
-> **Interaction pattern (b): direct live-Google per-item hash-pinned CRUD with confirm dialogs.** No canonical; every write is a publish gated on `canPublish` + `writesEnabled`. Merchant photos are editable (change category / delete, hash-pinned via `googleHash`); customer photos are read-only. Add supports a source URL and a direct file upload with a client-side size pre-check (≤ 75 MB), a confirm dialog, and an input reset. **The exact strings "Add media", the "Direct file upload" input label, and the "Review file upload" button are e2e contract selectors (extracted from `gbp-management-tabs.spec.ts`, D10) — keep them verbatim.**
+> **Interaction pattern (b): direct live-Google per-item hash-pinned CRUD with confirm dialogs.** No canonical; every write is a publish gated on `canPublish` + `writesEnabled`. Merchant photos are editable (change category / delete, hash-pinned via `googleHash`); customer photos are read-only. Add supports a source URL and a direct file upload with a client-side size pre-check (≤ 75 MB), a confirm dialog, an XHR-based upload with a live progress bar (spec §8 "upload progress"), and an input reset on success. **The exact strings "Add media", the "Direct file upload" input label, and the "Review file upload" button are e2e contract selectors (extracted from `gbp-management-tabs.spec.ts`, D10) — keep them verbatim.**
 
 **Files:**
 - Create: `components/locations/photos-tab.tsx`, `app/(dashboard)/locations/[id]/photos/page.tsx`
@@ -3550,6 +3632,7 @@ function PhotosTabLoaded({
   const [uploadOpen, setUploadOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null)
   const [sizeError, setSizeError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<number | null>(null)
 
   const writeReason = publishDisabledReason(caps, media.writesEnabled)
   const disabled = Boolean(writeReason)
@@ -3570,16 +3653,17 @@ function PhotosTabLoaded({
       form.set("file", pendingFile as File)
       form.set("mediaFormat", "PHOTO")
       form.set("category", category)
-      return uploadMediaFile(locationId, form)
+      return uploadMediaFile(locationId, form, (fraction) => setProgress(fraction))
     },
+    onMutate: () => setProgress(0),
     onSuccess: () => {
-      setUploadOpen(false)
       setPendingFile(null)
       if (fileRef.current) fileRef.current.value = ""
       invalidate()
       toast("Photo uploaded", "success")
     },
     onError: (error) => toast(describeActionError(error), "error"),
+    onSettled: () => setProgress(null),
   })
 
   const remove = useMutation({
@@ -3640,6 +3724,12 @@ function PhotosTabLoaded({
             Review file upload
           </Button>
         </div>
+        {upload.isPending ? (
+          <div className="flex items-center gap-2">
+            <progress value={progress ?? 0} max={1} className="h-2 w-40" aria-label="Upload progress" />
+            <span className="text-caption text-muted-foreground">Uploading… {Math.round((progress ?? 0) * 100)}%</span>
+          </div>
+        ) : null}
         {sizeError ? <p className="text-caption text-destructive">{sizeError}</p> : null}
         <GateNote reason={writeReason} />
       </section>
@@ -3682,7 +3772,11 @@ function PhotosTabLoaded({
         confirmLabel="Upload"
         requireAcknowledgement={false}
         pending={upload.isPending}
-        onConfirm={() => upload.mutate()}
+        onConfirm={() => {
+          // Close the dialog so the section's progress bar is visible during upload.
+          setUploadOpen(false)
+          upload.mutate()
+        }}
       />
       <OverwriteConfirmDialog
         open={deleteTarget !== null}
@@ -4025,7 +4119,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Task 9: Menu tab (nested food-menu editor + full-replacement publish)
 
-> **Interaction pattern (a) over opaque JSON.** The food menu is freeform Google JSON (`menus[] → sections[] → items[]`). Wave-1 edits section names, item names/descriptions, and item **price as a string draft**, preserving every other key; add/remove sections and items. Publish is a **full replacement** (`confirmFullReplacement: true`), always confirmed. Ineligible locations (`eligible: false`) show a clear notice. Save gates on `canEditCanonical` (owner/admin PUT); publish gates on `canPublish` + `writesEnabled` + eligibility. **Flagged decision (beyond D1–D12):** the food-menus state carries no currency, so prices display the org default currency **GBP** and are written to Google's `attributes.price = { currencyCode: "GBP", units, nanos }`; richer per-item attributes and multi-currency are deferred. If too large for one pass, land view/counts/publish (Steps 3a/4a) then the editor (Step 3b).
+> **Interaction pattern (a) over opaque JSON.** The food menu is freeform Google JSON (`menus[] → sections[] → items[]`). Wave-1 edits section names, item names/descriptions, and item **price as a string draft**, preserving every other key; add/remove sections and items. Publish is a **full replacement** (`confirmFullReplacement: true`), always confirmed. Ineligible locations (`eligible: false`) show a clear notice. Save gates on `canEditCanonical` (owner/admin PUT); publish gates on `canPublish` + `writesEnabled` + eligibility. **Menu currency (data-derived, §8):** prices are edited as string drafts; each item's existing `attributes.price.currencyCode` is READ and PRESERVED on every edit — the display symbol comes from the item's own currency — with GBP used only as the default for a brand-new price that has no currency, so an edit never rewrites a non-GBP location's currency. Richer per-item attributes (mediaKeys, dietary flags, etc.) are deferred. If too large for one pass, land view/counts/publish (Steps 3a/4a) then the editor (Step 3b).
 
 **Files:**
 - Create: `components/locations/menu-editor.tsx`, `components/locations/menu-tab.tsx`, `app/(dashboard)/locations/[id]/menu/page.tsx`
@@ -4140,6 +4234,20 @@ function withLabel(node: Json, displayName: string, description: string): Json {
   return { ...node, labels: [first, ...labels.slice(1)] }
 }
 
+const CURRENCY_SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", AUD: "$", CAD: "$", NZD: "$", INR: "₹", JPY: "¥" }
+
+// The item's own currency, derived from its existing price; GBP only as a
+// fallback for an item that has never had a price (never rewrites another currency).
+export function currencyOf(item: Json): string {
+  const price = (item.attributes ?? {}) as Json
+  const code = (price.price ?? {}) as Json
+  return typeof code.currencyCode === "string" && code.currencyCode ? code.currencyCode : "GBP"
+}
+
+export function currencySymbol(code: string): string {
+  return CURRENCY_SYMBOLS[code] ?? code
+}
+
 export function readPrice(item: Json): string {
   const attributes = (item.attributes ?? {}) as Json
   const price = (attributes.price ?? {}) as Json
@@ -4157,10 +4265,13 @@ function withPrice(item: Json, value: string): Json {
     delete (attributes as Json).price
     return { ...item, attributes }
   }
+  // Preserve the item's existing currency; default GBP only for a brand-new price.
+  const existing = (attributes.price ?? {}) as Json
+  const currencyCode = typeof existing.currencyCode === "string" && existing.currencyCode ? existing.currencyCode : "GBP"
   const [unitsPart, fractionPart = ""] = trimmed.split(".")
   const units = String(Number.parseInt(unitsPart || "0", 10) || 0)
   const nanos = fractionPart ? Math.round(Number(`0.${fractionPart}`) * 1e9) : 0
-  attributes.price = { currencyCode: "GBP", units, nanos }
+  attributes.price = { currencyCode, units, nanos }
   return { ...item, attributes }
 }
 
@@ -4207,7 +4318,7 @@ export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; o
                     <Input aria-label={`Item name`} value={itemLabel.displayName} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, event.target.value, itemLabel.description) : it)))} className="w-48" />
                     <Textarea aria-label={`Item description`} value={itemLabel.description} disabled={disabled} rows={1} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, itemLabel.displayName, event.target.value) : it)))} className="w-56" />
                     <span className="flex items-center gap-1">
-                      <span className="text-caption text-muted-foreground">£</span>
+                      <span className="text-caption text-muted-foreground">{currencySymbol(currencyOf(item))}</span>
                       <Input aria-label={`Item price`} inputMode="decimal" value={readPrice(item)} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withPrice(it, event.target.value) : it)))} className="w-24" />
                     </span>
                     {!disabled ? (
@@ -4251,6 +4362,7 @@ import { MenuEditor } from "@/components/locations/menu-editor"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
@@ -4311,6 +4423,7 @@ function MenuTabLoaded({
   const [draft, setDraft] = useState<FoodMenu[]>(state.canonicalMenus)
   useEffect(() => setDraft(state.canonicalMenus), [state.canonicalMenus])
   const [publishOpen, setPublishOpen] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
 
   const isDirty = JSON.stringify(draft) !== JSON.stringify(state.canonicalMenus)
   useDirtyGuard({ key: `location-menu-${locationId}`, isDirty, snapshot: () => JSON.stringify(draft) })
@@ -4318,10 +4431,16 @@ function MenuTabLoaded({
   const save = useMutation({
     mutationFn: () => saveFoodMenus(locationId, { expectedCanonicalRevision: state.canonicalResource.revision, menus: draft }),
     onSuccess: () => {
+      setServerError(null)
       invalidate()
       toast("Menu saved", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
+    // Nested per-field mapping is impractical for the freeform menu JSON, so
+    // server errors surface in the form-level Alert (plus a toast). Carry-forward noted.
+    onError: (error) => {
+      setServerError(describeActionError(error))
+      toast(describeActionError(error), "error")
+    },
   })
 
   const publish = useMutation({
@@ -4333,10 +4452,14 @@ function MenuTabLoaded({
       }),
     onSuccess: () => {
       setPublishOpen(false)
+      setServerError(null)
       invalidate()
       toast("Menu published to Google", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
+    onError: (error) => {
+      setServerError(describeActionError(error))
+      toast(describeActionError(error), "error")
+    },
   })
 
   const editReason = editDisabledReason(caps)
@@ -4356,6 +4479,12 @@ function MenuTabLoaded({
       </div>
 
       <MenuEditor menus={draft} onChange={setDraft} disabled={Boolean(editReason)} />
+
+      {serverError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => save.mutate()} disabled={Boolean(editReason) || !isDirty || save.isPending}>
@@ -4675,10 +4804,15 @@ export function PostsActionBar({
     onError: (error) => toast(describeActionError(error), "error"),
   })
 
-  const publishReason = writesEnabled ? null : "Google posts are currently paused."
+  // Every posts mutation 503s when posts are paused (GBP_POSTS_ENABLED off), so
+  // gate every control on writesEnabled; live actions additionally need canPublish.
+  const pausedReason = writesEnabled ? null : "Google posts are currently paused."
+  const publishReason = pausedReason
   const approveReason = publishDisabledReason(caps, writesEnabled)
-  // Deleting a live (published) post needs publish permission; drafts do not.
-  const deleteReason = post.googlePostName ? publishDisabledReason(caps, writesEnabled) : null
+  const rejectReason = pausedReason
+  // Deleting a live (published) post needs publish permission; a draft delete
+  // still 503s when paused, so it is gated on writesEnabled too.
+  const deleteReason = post.googlePostName ? publishDisabledReason(caps, writesEnabled) : pausedReason
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -4692,7 +4826,7 @@ export function PostsActionBar({
           <Button size="sm" onClick={() => decide.mutate("approve")} disabled={Boolean(approveReason) || decide.isPending}>
             Approve
           </Button>
-          <Button size="sm" variant="outline" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
+          <Button size="sm" variant="outline" onClick={() => decide.mutate("reject")} disabled={Boolean(rejectReason) || decide.isPending}>
             Reject
           </Button>
         </>
@@ -5095,7 +5229,7 @@ Expected: unit + components green; production build green; e2e runs `foundation.
 
 Per spec §10, request a whole-branch review before merge:
 1. A general review of the entire M5 diff.
-2. A dedicated **capability/tenant-scoping** pass focused on Task 1 (the sanctioned protected-path edit) — confirm `locationCapabilitiesForIds` mirrors `permissions.ts` (`canPublishLocation`) exactly for every role × membership case, that `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` lists exactly the two sanctioned files, and that a member/viewer can never reach an enabled edit-canonical or publish control server-side or client-side (spec §9 "no reachable 403 from primary controls").
+2. A dedicated **capability/tenant-scoping** pass focused on Task 1 (the sanctioned protected-path edit) — confirm `locationCapabilitiesForIds` mirrors `permissions.ts` (`canPublishLocation`) exactly for every role × membership case, that `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly the two sanctioned files, and that a member/viewer can never reach an enabled edit-canonical or publish control server-side or client-side (spec §9 "no reachable 403 from primary controls").
 
 Apply one fix wave for the findings, re-run the gate, then commit.
 
@@ -5115,20 +5249,20 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` green.
 - E2e green: `foundation.spec.ts`, `home.spec.ts`, `inbox.spec.ts`, `journeys.spec.ts`, and the revived `locations.spec.ts` — including the zero-console-error + zero-pageerror guard and the best-practice structural axe rules on **every** wave-1 route (index + the six tabs) in both light and dark, the per-role permission walk (owner / admin / member-assigned / member-unassigned / viewer), the canonical save journey, and the booking create journey.
 - Integration suite green (the parity oracle), including the new `location-capabilities.test.ts` (all seven role × membership combinations, `RUN_DB_TESTS=true`, Postgres via `naba_test_runtime`). No pre-existing integration test moved.
-- **Protected-path discipline:** the ONLY changes under `app/api/**`/`lib/server/**`/`lib/domain/**`/`supabase/**`/`scripts/**`/`instrumentation.ts` are Task 1's two sanctioned files (`lib/server/capabilities.ts` additive; `app/api/locations/[id]/capabilities/route.ts` new). `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` lists exactly those two. The `tenant.ts` helper edit is under `tests/`, outside the protected set. Everything else under the protected paths is byte-identical.
-- Every M5-scoped spec obligation closed (spec §8 Locations): workspace `h1` = location name + tab nav with scroll affordance and active-tab scroll-into-view; profile / hours / photos / posts / booking / menu rebuilt as Field-based forms with per-field/inline errors, price string-drafts (menu), photo size pre-check + input reset (photos), dialog dirty-confirms (profile/hours/menu/posts via `useDirtyGuard`), unknown location id → `notFound()`; capability gating with disabled-state reasons across edit vs publish; honest per-flag paused states; no error codes shown.
+- **Protected-path discipline:** the ONLY changes under `app/api/**`/`lib/server/**`/`lib/domain/**`/`supabase/**`/`scripts/**`/`instrumentation.ts` are Task 1's two sanctioned files (`lib/server/capabilities.ts` additive; `app/api/locations/[id]/capabilities/route.ts` new). `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly those two. The `tenant.ts` helper edit is under `tests/`, outside the protected set. Everything else under the protected paths is byte-identical.
+- Every M5-scoped spec obligation closed (spec §8 Locations): workspace `h1` = location name + tab nav with scroll affordance and active-tab scroll-into-view; profile / hours / photos / posts / booking / menu rebuilt as Field-based forms with per-field errors (Profile maps server `details` paths to fields; Hours/Menu surface server errors in a form-level alert — nested per-field mapping carried forward), price string-drafts that preserve each item's own currency (menu), photo size pre-check + XHR upload progress + input reset (photos), dialog dirty-confirms (profile/hours/menu/posts via `useDirtyGuard`), unknown location id → `notFound()`; capability gating with disabled-state reasons across edit vs publish (incl. gating posts draft delete/reject on `writesEnabled`); honest per-flag paused states; no error codes shown.
 - No new dependency added. All primitives came from the already-installed `@base-ui/react` (`Checkbox`) or a styled native element (`Table`); everything else was admitted in M1–M4.
 - Whole-branch review complete with a dedicated capability/tenant-scoping pass; its findings fixed in one wave.
-- Carry-forwards recorded for later milestones: **server-hydrated/dehydrated Locations** (spec §5 prefetch) — the `lib/server` services already exist, so a later dedicated effort retrofits RSC prefetch + dehydrate additively into the same Query keys (D3); **business-info / industry / administration consoles** → M8 (the quarantined `gbp-management-tabs.spec.ts` business-info/industry/administration tests are revived then); **per-location performance tab** → M7; **per-location reviews sub-view** → not planned (Home + `/inbox?locationId=` cover it); **server-side `notFound()` for unknown ids** (currently client-side after the directory loads) → folds into the server-hydration retrofit; **menu currency + rich attributes** (wave-1 approximates GBP and edits names/prices only) → a later menu polish; **`moreHours` (kitchen hours) editing** (wave-1 preserves it unchanged) → a later hours polish.
-- Decisions made BEYOND the locked D1–D12 list (flagged for controller review): (a) **capabilities mechanism** — a dedicated `GET /api/locations/[id]/capabilities` route + one `useLocationCapabilities` hook reused across tabs, rather than embedding `canEditCanonical` into ~12 per-tab route/service files (D4 left the mechanism to my call; this is the minimal-protected-footprint option — two sanctioned files); (b) **client-safe form schemas placed in `lib/locations/forms/` (non-protected), mirroring the server route schemas with parity tests**, rather than in `lib/domain/` — because `lib/domain` is a protected consume-only path under D12, so the key-fact "extract to `lib/domain`" is superseded by the locked protected-path rule (the mirror + parity test achieves spec §6's "validate identically"); (c) **forms are hand-rolled `useState` + zod `safeParse`, not `react-hook-form`** — `react-hook-form` is not installed and D12 forbids new deps, matching M4's established composer pattern (spec §6's "react-hook-form resolvers" is met in spirit by the shared client-safe zod + inline error mapping); (d) **menu prices display/write GBP** since the food-menus state carries no currency, and richer attributes/`moreHours` editing are deferred (flagged above); (e) **per-tab publish-gate nuance** — profile publish/import gate on `canEditCanonical` (its POST is route-`requireRole(owner/admin)`) whereas hours/menu/photos/booking publish gate on `canPublish` (their writes authorise via the service's `canPublishLocation`), and posts composing gates on `writesEnabled` with approve/live-delete on `canPublish` — all derived from the real route/service guards, not invented; (f) **the e2e enables the `GBP_*_ENABLED` flags** in the Playwright web server so publish/write controls are exercisable, and the write journeys chosen (canonical save + booking create) are the deterministic ones (the canonical-publish readback-hash-match tabs are covered for gating/enablement, with their happy-path publish left to the integration oracle).
+- Carry-forwards recorded for later milestones: **server-hydrated/dehydrated Locations** (spec §5 prefetch) — the `lib/server` services already exist, so a later dedicated effort retrofits RSC prefetch + dehydrate additively into the same Query keys (D3); **business-info / industry / administration consoles** → M8 (the quarantined `gbp-management-tabs.spec.ts` business-info/industry/administration tests are revived then); **per-location performance tab** → M7; **per-location reviews sub-view** → not planned (Home + `/inbox?locationId=` cover it); **server-side `notFound()` for unknown ids** (currently client-side after the directory loads) → folds into the server-hydration retrofit; **per-field server-error mapping within the nested Hours/Menu editors** (wave-1 surfaces server validation in a form-level alert; the client-safe zod mirrors the server rules pre-submit, so server 400s on those bodies are rare — the flat Profile form does map server `details` paths to fields) → a later editors polish; **menu rich per-item attributes** (wave-1 edits names/descriptions/prices, preserving unknown keys and each item's own currency) → a later menu polish; **`moreHours` (kitchen hours) editing** (wave-1 preserves it unchanged) → a later hours polish.
+- Decisions made BEYOND the locked D1–D12 list (flagged for controller review): (a) **capabilities mechanism** — a dedicated `GET /api/locations/[id]/capabilities` route + one `useLocationCapabilities` hook reused across tabs, rather than embedding `canEditCanonical` into ~12 per-tab route/service files (D4 left the mechanism to my call; this is the minimal-protected-footprint option — two sanctioned files); (b) **client-safe form schemas placed in `lib/locations/forms/` (non-protected), mirroring the server route schemas with parity tests**, rather than in `lib/domain/` — because `lib/domain` is a protected consume-only path under D12, so the key-fact "extract to `lib/domain`" is superseded by the locked protected-path rule (the mirror + parity test achieves spec §6's "validate identically"); (c) **forms are hand-rolled `useState` + zod `safeParse`, not `react-hook-form`** — `react-hook-form` is not installed and D12 forbids new deps, matching M4's established composer pattern (spec §6's "react-hook-form resolvers" is met in spirit by the shared client-safe zod + inline error mapping); (d) **menu prices are edited as string drafts that preserve each item's existing `currencyCode`** (GBP only as the default for a brand-new price, since the food-menus state carries no location currency, and the display symbol comes from the item's own currency — no edit rewrites a non-GBP currency); richer per-item attributes and `moreHours` editing are deferred (flagged above); (e) **per-tab publish-gate nuance** — profile publish/import gate on `canEditCanonical` (its POST is route-`requireRole(owner/admin)`) whereas hours/menu/photos/booking publish gate on `canPublish` (their writes authorise via the service's `canPublishLocation`), and posts composing gates on `writesEnabled` with approve/live-delete on `canPublish` — all derived from the real route/service guards, not invented; (f) **the e2e enables the `GBP_*_ENABLED` flags** in the Playwright web server so publish/write controls are exercisable, and the write journeys chosen (canonical save + booking create) are the deterministic ones (the canonical-publish readback-hash-match tabs are covered for gating/enablement, with their happy-path publish left to the integration oracle).
 
 ## Self-review (run before merge; fix inline)
 
-- **Spec coverage.** §3 capabilities addition → Task 1 (`locationCapabilities`/`locationCapabilitiesForIds` + the dedicated route). §5 rendering model — client-fetched tabs with route-level `loading.tsx`; server-prefetch deviation documented (D3) and carried forward, noting the reusable `lib/server` services. §6 data layer — one QueryClient; per-location + capabilities keys; typed client via `apiFetch`/`ApiClientError`; client-safe zod (mirrored in `lib/locations/forms/`, parity-tested); `useDirtyGuard` on profile/hours/menu/posts; dialog dirty-confirms; server field errors mapped inline (profile) / surfaced (hours/menu). §8 Locations paragraph — every clause mapped: workspace `h1` + scroll-affordanced tab nav + active-tab scroll-into-view (Task 4); Field-based forms with per-field errors (Task 5); price string-drafts with currency (Task 9); photo size pre-check + upload progress note + input reset (Task 7); dialog dirty-confirms (Tasks 5/6/9/10); unknown location id → `notFound()` (Task 4). §9 testing — loading/error/empty/mutation-failure component tests per tab; the capability matrix as an executable integration test (Task 1); e2e per-role walk, per-tab clean-load in both themes, save + create journeys (Task 11); parity oracle stays green (Task 1). No M5-scoped requirement is left without a task.
+- **Spec coverage.** §3 capabilities addition → Task 1 (`locationCapabilities`/`locationCapabilitiesForIds` + the dedicated route). §5 rendering model — client-fetched tabs with route-level `loading.tsx`; server-prefetch deviation documented (D3) and carried forward, noting the reusable `lib/server` services. §6 data layer — one QueryClient; per-location + capabilities keys; typed client via `apiFetch`/`ApiClientError`; client-safe zod (mirrored in `lib/locations/forms/` with source pins, parity-tested); `useDirtyGuard` on profile/hours/menu/posts; dialog dirty-confirms; server field errors mapped to fields by path (Profile) / surfaced in a form-level alert (Hours/Menu, nested — per-field mapping carried forward). §8 Locations paragraph — every clause mapped: workspace `h1` + scroll-affordanced tab nav + active-tab scroll-into-view (Task 4); Field-based forms with per-field errors (Task 5); price string-drafts that preserve each item's own currency (Task 9); photo size pre-check + XHR upload progress + input reset (Task 7); dialog dirty-confirms (Tasks 5/6/9/10); unknown location id → `notFound()` (Task 4). §9 testing — loading/error/empty/mutation-failure component tests per tab; the capability matrix as an executable integration test (Task 1); e2e per-role walk, per-tab clean-load in both themes, save + create journeys (Task 11); parity oracle stays green (Task 1). No M5-scoped requirement is left without a task.
 - **Placeholder scan.** No "TBD"/"similar to Task N"/"add error handling"/bare "write tests". Every code step carries real code; each non-trivial component (index, workspace, canonical-diff, profile/hours/photos/booking/menu/posts tabs, the editors, the action bar) ships a numbered/described contract + a complete pinned test + a reference implementation. Shared blocks (`CanonicalDiff`, `OverwriteConfirmDialog`, `TabError`/`TabLoading`, `GateNote`, the gating/action-error/form modules) are implemented once (Task 2/4/5) and imported by name thereafter — not re-implemented.
 - **Type consistency.** `LocationCapabilities { canEditCanonical, canPublish }` is identical across `lib/server/capabilities.ts` (Task 1), the API `locationCapabilitiesSchema` + `fetchLocationCapabilities` (Task 2), `lib/locations/gating.ts` (Task 2), and every tab's `useLocationCapabilities` consumer. `ProfileState`/`ProfileFieldKey`, `HoursState`/`NormalizedHours`/`HoursUpdateMask`, `MediaState`/`MediaItem`/`MediaCategory`, `PlaceActionsState`/`PlaceActionLink`/`PlaceActionType`, `FoodMenusState`/`FoodMenu`, `PostsState`/`Post`/`LocalPostFormValues` (Task 2) are the exact names Tasks 3–10 import. `DirectoryEntry` + `useLocationDirectory(role)` (Task 2) match the index (Task 3) and shell (Task 4). `useProfile`/`useHours`/`useMedia`/`usePlaceActions`/`useFoodMenus`/`usePosts` and `useLocationCapabilities` names match producer and consumer. `queryKeys.location{Profile,Hours,Media,Booking,Menu,Posts}(id)` + `locationCapabilities(id)` + `locationsManagement` are identical between hook and invalidation call. `CanonicalDiff` `DiffStatus` reuses the four canonical-resource statuses (`in_sync`/`core_dirty`/`google_dirty`/`conflict`) that `ProfileState.fields[].status` and `HoursState.status` carry. `OverwriteConfirmDialog` props (`open`/`onOpenChange`/`title`/`description`/`confirmLabel`/`requireAcknowledgement`/`acknowledgementLabel`/`pending`/`onConfirm`) match all reuse sites (profile ×2, hours, photos ×2, booking, menu, posts). `describeActionError`/`isNotLinkedError` (Task 2) match `TabError` and every mutation `onError`. Primitive export surfaces (`Table…`, `Checkbox`, `Select…`, `Combobox…`, `AlertDialog…`, `Badge`, `Empty`, `Field…`, `Input`, `Textarea`, `Button`) are imported by exactly those names. Confirmation literals (`create_google_media`/`update_google_media`/`delete_google_media`, `create_google_place_action`/`update_google_place_action`/`delete_google_place_action`, `publish_nabapresence_profile_to_google`/`import_google_profile_to_nabapresence`, `publish_nabapresence_hours_to_google`, `publish_nabapresence_food_menus_to_google`) match the server route schemas verbatim.
 - **Parity-oracle safety.** Task 1 adds only new symbols to `lib/server/capabilities.ts` and a new route file; no existing route/service/query changes, so `reviewCapabilities` and every existing integration test stay byte-identical and green. The `location-links` route is not modified (D5 — owner/admin use its existing `?view=management` branch; member/viewer use its existing default branch), so its tests are untouched. The `seedLinkedLocation` helper is additive in `tests/integration/helpers/tenant.ts`; it inserts only new rows and shares no state with `seedLinkedReview`.
-- **Protected-path footprint.** `git diff --stat main -- app lib/server lib/domain supabase scripts instrumentation.ts` must list exactly `lib/server/capabilities.ts` and `app/api/locations/[id]/capabilities/route.ts`. All client-safe schemas, clients, hooks, components, and pages live under `lib/api`, `lib/locations`, `lib/queries`, `components/**`, `app/(dashboard)/locations/**`, and `tests/**` — none protected. Confirm no accidental edit to any wave-1 tab route or service.
+- **Protected-path footprint.** `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` must list exactly `lib/server/capabilities.ts` and `app/api/locations/[id]/capabilities/route.ts`. All client-safe schemas, clients, hooks, components, and pages live under `lib/api`, `lib/locations`, `lib/queries`, `components/**`, `app/(dashboard)/locations/**`, and `tests/**` — none protected. Confirm no accidental edit to any wave-1 tab route or service.
 
 ## Execution handoff
 
