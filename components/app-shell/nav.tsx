@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils"
 const NAV_ITEMS = [
   { href: "/home", label: "Home", icon: LayoutDashboard, prefetch: true },
   { href: "/inbox", label: "Inbox", icon: Inbox, prefetch: true },
-  { href: "/locations", label: "Locations", icon: Store, prefetch: false },
+  { href: "/locations", label: "Locations", icon: Store, prefetch: true },
   { href: "/performance", label: "Performance", icon: TrendingUp, prefetch: false },
   { href: "/settings", label: "Settings", icon: Settings, prefetch: false },
 ] as const
@@ -35,12 +35,12 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
           const active = isActivePath(pathname, item.href)
           return (
             <li key={item.href}>
-              {/* /home and /inbox ship and are prefetched. The other three
-                  routes 404 until their milestones land; Next's default
-                  viewport prefetch would fire a background RSC request for
-                  each on every dashboard load, and Chrome's real channel
-                  (local test/dev) never reports network-idle while a 404
-                  prefetch is outstanding - so they stay prefetch={false}
+              {/* /home, /inbox and /locations ship and are prefetched. The
+                  other two routes 404 until their milestones land; Next's
+                  default viewport prefetch would fire a background RSC
+                  request for each on every dashboard load, and Chrome's real
+                  channel (local test/dev) never reports network-idle while a
+                  404 prefetch is outstanding - so they stay prefetch={false}
                   until their pages exist. */}
               <Link
                 href={item.href}
