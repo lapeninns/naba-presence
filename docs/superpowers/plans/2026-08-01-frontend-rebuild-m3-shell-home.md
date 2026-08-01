@@ -837,7 +837,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Test: `tests/components/attention-list.test.tsx`, `tests/components/disconnected-banner.test.tsx`
 
 **Interfaces:**
-- Consumes: `useAnalyticsOverview`/`AnalyticsOverview` (Task 3/2); `useConnectionHealth` from `@/lib/queries/use-connection-health`; `Alert`/`AlertTitle`/`AlertDescription` from `@/components/ui/alert`; `Button`, `buttonVariants` from `@/components/ui/button`; `Skeleton` from `@/components/ui/skeleton`; `formatNumber` from `@/lib/format`; `Link` (`next/link`).
+- Consumes: `useAnalyticsOverview`/`AnalyticsOverview` (Task 3/2); `useConnectionHealth` from `@/lib/queries/use-connection-health`; `Alert`/`AlertTitle`/`AlertDescription` from `@/components/ui/alert`; `Button` from `@/components/ui/button` (AttentionList's retry); `buttonVariants` from `@/components/ui/button` (DisconnectedBanner's link); `Skeleton` from `@/components/ui/skeleton`; `formatNumber` from `@/lib/format`; `Link` (`next/link`).
 - Produces (Task 7 consumes): `AttentionList()`; `DisconnectedBanner()`.
 
 **`AttentionList` behavioural contract (the pinned test is the specification):**
@@ -1080,8 +1080,12 @@ function AttentionList() {
             key={location.id}
             className="border-b border-border/60 last:border-b-0"
           >
+            {/* /inbox 404s until M4; viewport-prefetch of a 404 route keeps
+                Chrome from reaching networkidle and destabilises Task 7's
+                console/axe guards - mirror nav.tsx and stay prefetch={false}. */}
             <Link
               href={`/inbox?locationId=${location.id}`}
+              prefetch={false}
               className="flex items-center justify-between gap-3 px-4 py-3 text-ui transition-colors duration-(--nr-duration-fast) hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
             >
               <span className="min-w-0 truncate font-medium">
@@ -1119,7 +1123,7 @@ export { AttentionList }
 ```tsx
 "use client"
 
-import { TriangleAlert } from "lucide-react"
+import { TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -1131,15 +1135,19 @@ function DisconnectedBanner() {
   if (status !== "disconnected") return null
   return (
     <Alert variant="destructive">
-      <TriangleAlert aria-hidden />
+      <TriangleAlertIcon aria-hidden />
       <AlertTitle>Google is not connected</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
         <span>
           No active Google connection exists, so the figures below cannot be
           kept up to date. Reconnect Google to resume syncing your locations.
         </span>
+        {/* /settings/connections 404s until M6; viewport-prefetch of a 404
+            route destabilises Task 7's networkidle-based e2e guards - stay
+            prefetch={false} (mirrors nav.tsx). */}
         <Link
           href="/settings/connections"
+          prefetch={false}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
           Manage connection
