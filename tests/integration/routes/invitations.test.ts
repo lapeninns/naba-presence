@@ -232,7 +232,10 @@ describeDatabase("organisation invitations", () => {
       `${server.baseUrl}/api/invitations/${token}`
     )
     expect(lookup.status, await lookup.clone().text()).toBe(200)
-    expect(await lookup.json()).toMatchObject({ expired: true })
+    expect(await lookup.json()).toMatchObject({
+      accepted: false,
+      expired: true,
+    })
     const provisioning = await import("@/lib/server/provisioning")
     const provisionMember = (
       provisioning as unknown as { provisionMember: ProvisionMember }

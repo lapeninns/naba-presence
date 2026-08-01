@@ -40,11 +40,33 @@ function json(
   response.end(JSON.stringify(value))
 }
 
+// Test-only escape hatches: a request whose email is one of these two
+// sentinels gets that specific GoTrue-shaped error instead of the normal
+// success response, so tests can force the branches real account traffic
+// would rarely hit (rate limiting, an opaque provider failure) without
+// needing a real provider.
+export const RATE_LIMITED_EMAIL = "rate-limited@nabapresence.test"
+export const PROVIDER_ERROR_EMAIL = "provider-error@nabapresence.test"
+
+function simulatedFailure(
+  email: string
+): { status: number; error_code: string } | null {
+  if (email === RATE_LIMITED_EMAIL) {
+    return { status: 429, error_code: "over_email_send_rate_limit" }
+  }
+  if (email === PROVIDER_ERROR_EMAIL) {
+    return { status: 500, error_code: "unexpected_failure" }
+  }
+  return null
+}
+
 export async function startAuthProviderStub() {
   const users = new Map<string, StubUser>()
   const confirmationTokens = new Map<string, string>()
   const recoveryTokens = new Map<string, string>()
   const resetRequests: Array<{ email: string; redirectTo: string | null }> = []
+  const resendRequests: Array<{ email: string; redirectTo: string | null }> =
+    []
   const passwordUpdates: Array<{ email: string; password: string }> = []
   const accessTokens = new Map<string, string>()
 
@@ -117,6 +139,12 @@ export async function startAuthProviderStub() {
 
       if (request.method === "POST" && url.pathname === "/auth/v1/recover") {
         const email = String(body.email ?? "").toLowerCase()
+        const failure = simulatedFailure(email)
+        if (failure) {
+          return json(response, failure.status, {
+            error_code: failure.error_code,
+          })
+        }
         resetRequests.push({
           email,
           redirectTo: url.searchParams.get("redirect_to"),
@@ -125,6 +153,21 @@ export async function startAuthProviderStub() {
         if (user) {
           recoveryTokens.set(`recovery-token-${user.id}`, email)
         }
+        return json(response, 200, {})
+      }
+
+      if (request.method === "POST" && url.pathname === "/auth/v1/resend") {
+        const email = String(body.email ?? "").toLowerCase()
+        const failure = simulatedFailure(email)
+        if (failure) {
+          return json(response, failure.status, {
+            error_code: failure.error_code,
+          })
+        }
+        resendRequests.push({
+          email,
+          redirectTo: url.searchParams.get("redirect_to"),
+        })
         return json(response, 200, {})
       }
 
@@ -183,6 +226,7 @@ export async function startAuthProviderStub() {
     baseUrl: `http://127.0.0.1:${address.port}`,
     users,
     resetRequests,
+    resendRequests,
     passwordUpdates,
     addUser,
     confirmationToken(email: string) {

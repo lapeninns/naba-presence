@@ -284,8 +284,22 @@ export async function requestPasswordReset(
       }
     )
   } catch (error) {
-    // Password reset must not disclose whether an account exists. Rate limiting
-    // is not account information, so it is surfaced; everything else stays uniform.
+    // Password reset must not disclose whether an account exists, so every
+    // provider error is swallowed by default. 429 is the one deliberate
+    // exception: it is surfaced so a throttled caller learns to slow down,
+    // rather than being told (falsely) that a reset email is on its way.
+    //
+    // This is only safe if GoTrue's 429 here is a generic, IP/project-scoped
+    // limiter - i.e. account information, not a decision the caller made.
+    // Residual risk: GoTrue's broader error taxonomy also includes a
+    // recipient-scoped email-send-abuse limiter. If that bucket only accrues
+    // for addresses with a real mailbox, repeated calls against a real
+    // account could 429 sooner than against a fabricated one, which would
+    // reopen a narrow enumeration channel this change does not close. We
+    // cannot confirm which limiter applies from this repo alone.
+    // Follow-up: once the deployed GoTrue's error codes are confirmed, branch
+    // on error.code (not just error.status) so only the generic per-caller
+    // bucket is surfaced and a recipient-scoped one keeps being swallowed.
     if (error instanceof AuthProviderError) {
       if (error.status === 429) {
         throw new ApiError(
@@ -318,6 +332,10 @@ export async function resendConfirmationEmail(
   } catch (error) {
     if (error instanceof AuthProviderError) {
       if (error.status === 429) {
+        // Deliberately surfaced - see requestPasswordReset for the full
+        // rationale. Safe only if GoTrue's 429 here is IP/project-scoped;
+        // a recipient-scoped send-limit bucket would reopen a narrow
+        // enumeration channel this change does not close.
         throw new ApiError(
           429,
           "auth_rate_limited",
