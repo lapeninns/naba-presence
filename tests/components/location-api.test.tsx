@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { fetchLocationCapabilities, fetchManagementLocations } from "@/lib/api/locations"
 import { saveHours } from "@/lib/api/location-hours"
 import { uploadMediaFile } from "@/lib/api/location-media"
-import { publishPost } from "@/lib/api/location-posts"
+import { publishPost, updatePost } from "@/lib/api/location-posts"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -89,5 +89,19 @@ describe("tab mutation clients", () => {
       jsonResponse({ error: "second_approver_required", message: "A different authorised user must approve this post." }, 403)
     ))
     await expect(publishPost("loc-1", "p1")).rejects.toMatchObject({ code: "second_approver_required", status: 403 })
+  })
+
+  const localPostInput = { topicType: "STANDARD" as const, languageCode: "en-GB", summary: "Open late tonight", media: [] }
+
+  it("updatePost parses the { post } shape for a plain draft edit", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ post: { id: "p1", status: "draft" } })))
+    const result = await updatePost("loc-1", "p1", localPostInput)
+    expect(result).toEqual({ post: { id: "p1", status: "draft" } })
+  })
+
+  it("updatePost parses the republish outcome when editing an already-published post", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ status: "published", postId: "p1", googlePostName: "accounts/1/locations/2/localPosts/3" })))
+    const result = await updatePost("loc-1", "p1", localPostInput)
+    expect(result).toEqual({ status: "published", postId: "p1", googlePostName: "accounts/1/locations/2/localPosts/3" })
   })
 })
