@@ -180,7 +180,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         </Button>
         <Button
           size="sm"
-          disabled={!canEdit || !isDirty || body.trim() === "" || generateOrSave.isPending}
+          disabled={
+            !canEdit ||
+            !isDirty ||
+            body.trim() === "" ||
+            overLimit ||
+            generateOrSave.isPending
+          }
           onClick={() => void onSave()}
         >
           Save draft

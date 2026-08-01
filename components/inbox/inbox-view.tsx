@@ -68,15 +68,24 @@ function InboxViewInner() {
     [router, state]
   )
 
-  // Filters use replace (no history spam) and drop any stale selection.
+  // Filters use replace (no history spam) and drop any stale selection. Every
+  // handler below drops `selected` (explicitly or by omitting it from the
+  // next state), which would silently unmount a dirty composer — gated behind
+  // the same dirty guard as `onSelect` so an in-progress edit prompts a
+  // discard confirm instead of vanishing.
   const onFilterChange = useCallback(
-    (partial: Partial<InboxState>) =>
-      updateState({ ...partial, selected: undefined }, "replace"),
-    [updateState]
+    (partial: Partial<InboxState>) => {
+      if (!dirtyGate()) return
+      updateState({ ...partial, selected: undefined }, "replace")
+    },
+    [dirtyGate, updateState]
   )
   const onQueueChange = useCallback(
-    (queue: Queue) => updateState({ queue, selected: undefined }, "replace"),
-    [updateState]
+    (queue: Queue) => {
+      if (!dirtyGate()) return
+      updateState({ queue, selected: undefined }, "replace")
+    },
+    [dirtyGate, updateState]
   )
   // Selection uses push so Back returns to the list on mobile (spec §6). Gated
   // behind the dirty guard: while the composer is dirty this either confirms
@@ -88,21 +97,26 @@ function InboxViewInner() {
     },
     [dirtyGate, updateState]
   )
-  const onClearFilters = useCallback(
-    () =>
-      router.replace(
-        `/inbox?${serializeInboxState({
-          queue: state.queue,
-          ratings: [],
-          search: "",
-          sort: "updated_desc",
-          verification: [],
-          publishStatus: [],
-          syncStatus: [],
-        }).toString()}`
-      ),
-    [router, state.queue]
-  )
+  const onClearFilters = useCallback(() => {
+    if (!dirtyGate()) return
+    router.replace(
+      `/inbox?${serializeInboxState({
+        queue: state.queue,
+        ratings: [],
+        search: "",
+        sort: "updated_desc",
+        verification: [],
+        publishStatus: [],
+        syncStatus: [],
+      }).toString()}`
+    )
+  }, [dirtyGate, router, state.queue])
+  // Same gate as the handlers above: returning to the list also drops
+  // `selected`, which would otherwise silently unmount a dirty composer.
+  const onBackToList = useCallback(() => {
+    if (!dirtyGate()) return
+    updateState({ selected: undefined }, "replace")
+  }, [dirtyGate, updateState])
 
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
   // the first row (replace, so it adds no history). Reads live dirtiness
@@ -218,7 +232,7 @@ function InboxViewInner() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => updateState({ selected: undefined }, "replace")}
+                onClick={onBackToList}
               >
                 Back to reviews
               </Button>

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -142,6 +142,27 @@ describe("ReplyComposer", () => {
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
     await user.click(screen.getByRole("button", { name: "Save draft" }))
     expect(mutateAsync).toHaveBeenCalledWith({ body: "Edited reply body" })
+  })
+
+  it("disables Save draft when the edit is over the 4096-byte limit", () => {
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith({ workflowStatus: "drafted", drafts: [
+        { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+      ] }),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
+    const textbox = screen.getByRole("textbox", { name: "Reply draft" })
+    // fireEvent, not userEvent.type: 4097 keystrokes would be needlessly slow
+    // for what is purely a byte-count boundary check.
+    fireEvent.change(textbox, { target: { value: "a".repeat(4097) } })
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
   })
 
   it("confirms before regenerating over unsaved edits", async () => {
