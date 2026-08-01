@@ -35,8 +35,7 @@ describeDatabase("signed-out entry point", () => {
     expect(response.headers.get("location")).toContain("/sign-in")
   })
 
-  // re-enable: rebuild M2 ((auth) routes land) — see SDD ledger T1 tracking line
-  it.skip("serves the sign-in page with email and password entry", async () => {
+  it("serves the sign-in page with email and password entry", async () => {
     const response = await fetch(`${server.baseUrl}/sign-in`)
     expect(response.status).toBe(200)
     const body = await response.text()
