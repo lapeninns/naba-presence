@@ -1,0 +1,133 @@
+import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { ActionBar } from "@/components/inbox/action-bar"
+import {
+  DirtyGuardProvider,
+  useRegisterDirtyGuard,
+} from "@/components/inbox/dirty-context"
+import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
+import type { ReviewDetail } from "@/lib/api/reviews"
+import * as detailHook from "@/lib/queries/use-review-detail"
+import * as publishHook from "@/lib/queries/use-publish-review"
+import * as approvalHook from "@/lib/queries/use-approval-decision"
+import * as deleteHook from "@/lib/queries/use-delete-reply"
+
+function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
+  return {
+    review: {
+      id: "rev-1", reviewerDisplayName: "Sam", reviewerIsAnonymous: false,
+      rating: 4, text: "Nice", detectedLanguageCode: "en", languageConfidence: 0.9,
+      createTime: "2026-07-30T10:00:00.000Z", updateTime: "2026-07-30T10:00:00.000Z",
+      hasMedia: false, workflowStatus: "verified", locationId: "loc-1",
+      locationName: "Riverside", timezone: "Europe/London", verified: true,
+      media: [],
+      drafts: [
+        { id: "d1", source: "ai", body: "Reply", bodyBytes: 5, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+      ],
+      reply: null, timeline: [], capabilities: { canPublish: true, canEdit: true },
+      latestVerification: null,
+      ...overrides,
+    },
+  }
+}
+
+// `any` here (not `never`, per the brief's literal draft) for the same reason
+// as reply-composer.test.tsx's mockMutation: UseMutationResult's TData/
+// TVariables sit in both a contravariant position (`mutate`'s parameter) and
+// a covariant one (inside its own `onSuccess` callback type), and publish/
+// approval/delete each have distinct TData/TVariables — no single concrete
+// type satisfies all three call sites at once under strict mode; `any` is
+// the only assignable instantiation.
+function mutation(mutateAsync = vi.fn().mockResolvedValue({ status: "published" })) {
+  return {
+    mutate: vi.fn(),
+    mutateAsync,
+    isPending: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
+  } as unknown as UseMutationResult<any, Error, any>
+}
+
+afterEach(() => vi.restoreAllMocks())
+
+function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutation(), del = mutation()) {
+  vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({ data: detail } as UseQueryResult<ReviewDetail>)
+  vi.spyOn(publishHook, "usePublishReview").mockReturnValue(publish)
+  vi.spyOn(approvalHook, "useApprovalDecision").mockReturnValue(approval)
+  vi.spyOn(deleteHook, "useDeleteReply").mockReturnValue(del)
+}
+
+// ActionBar calls useToastManager() (needs a <Toaster> ancestor) and useIsDirty()
+// (needs a DirtyGuardProvider). This host supplies both; `dirty` marks the
+// composer dirty so Publish must disable with the save-first reason.
+function DirtyStamp({ dirty }: { dirty: boolean }) {
+  useRegisterDirtyGuard(dirty, () => true)
+  return null
+}
+function renderActionBar(dirty = false) {
+  return render(
+    <Toaster>
+      <DirtyGuardProvider>
+        <DirtyStamp dirty={dirty} />
+        <ActionBar reviewId="rev-1" />
+      </DirtyGuardProvider>
+    </Toaster>
+  )
+}
+
+describe("ActionBar", () => {
+  it("enables Publish for a verified, publishable, clean review and posts the draft id", async () => {
+    const user = userEvent.setup()
+    const publish = mutation()
+    stubHooks(detailWith({}), publish)
+    renderActionBar()
+    const button = screen.getByRole("button", { name: "Publish reply" })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(publish.mutateAsync).toHaveBeenCalledWith({
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
+    })
+  })
+
+  it("disables Publish with a reason when the user cannot publish", () => {
+    stubHooks(detailWith({ capabilities: { canPublish: false, canEdit: true } }))
+    renderActionBar()
+    const button = screen.getByRole("button", { name: "Publish reply" })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("title", expect.stringContaining("permission to publish"))
+  })
+
+  it("disables Publish with a save-first reason while the composer is dirty", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true)
+    const button = screen.getByRole("button", { name: "Publish reply" })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
+  })
+
+  it("shows Approve and Reject when awaiting approval", () => {
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
+    renderActionBar()
+    expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Reject reply" })).toBeInTheDocument()
+  })
+
+  it("surfaces the second-approver copy on a 403", async () => {
+    const user = userEvent.setup()
+    const approval = mutation(
+      vi.fn().mockRejectedValue(new ApiClientError(403, "second_approver_required", "x"))
+    )
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await waitFor(() =>
+      expect(
+        screen.getByText("A different authorised user must approve this reply.")
+      ).toBeInTheDocument()
+    )
+  })
+})

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import { ReplyComposer } from "@/components/inbox/reply-composer"
+import { ActionBar } from "@/components/inbox/action-bar"
 import {
   DirtyGuardProvider,
   useDirtyGate,
@@ -240,7 +241,12 @@ function InboxViewInner() {
             <DetailErrorBoundary key={state.selected}>
               <ReviewDetail
                 reviewId={state.selected}
-                footer={<ReplyComposer reviewId={state.selected} />}
+                footer={
+                  <div className="flex flex-col gap-4">
+                    <ReplyComposer reviewId={state.selected} />
+                    <ActionBar reviewId={state.selected} />
+                  </div>
+                }
               />
             </DetailErrorBoundary>
           </>

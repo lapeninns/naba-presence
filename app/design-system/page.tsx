@@ -24,6 +24,12 @@ import {
 } from "@/components/ui/card"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -138,8 +144,8 @@ export default function Page() {
           The frontend is being rebuilt on this branch. Foundation primitives
           (Button, Card, Badge, Alert, Skeleton, Spinner, Field, Input, Label,
           Textarea, Dialog, AlertDialog, Sheet, Toast, Tabs, Select, Combobox,
-          Avatar, Empty) are re-admitted below; remaining shared compositions
-          return in later milestone tasks.
+          Dropdown Menu, Avatar, Empty) are re-admitted below; remaining
+          shared compositions return in later milestone tasks.
         </p>
       </header>
 
@@ -480,6 +486,18 @@ export default function Page() {
               ))}
             </ComboboxContent>
           </Combobox>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Dropdown menu</h3>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" />}>
+              Review actions
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem>Delete published reply</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex flex-col gap-3">
