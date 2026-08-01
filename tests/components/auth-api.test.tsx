@@ -34,6 +34,21 @@ describe("sanitiseNextPath", () => {
       expect(sanitiseNextPath(value)).toBeNull()
     }
   })
+  it("rejects control-character-smuggled protocol-relative bypasses", () => {
+    // Browsers strip \t/\n/\r from a URL before parsing, so these values
+    // would otherwise reach window.location.assign as "//evil.com" and
+    // navigate off-site. The WHATWG URL parser strips them the same way,
+    // so the origin check below catches them before the old prefix-check
+    // guard would have let them through.
+    for (const value of [
+      "/\n//evil.com",
+      "/\t//evil.com",
+      "/\r//evil.com",
+      "/\n/evil.com",
+    ]) {
+      expect(sanitiseNextPath(value)).toBeNull()
+    }
+  })
 })
 
 describe("authErrorMessage", () => {
