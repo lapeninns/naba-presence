@@ -51,7 +51,7 @@ test.describe("auth surfaces", () => {
     await page.goto("/sign-in")
     await page.getByLabel("Email address").fill("someone@example.test")
     await page.getByLabel("Password").fill("correct-horse-9")
-    await page.getByRole("button", { name: "Sign in" }).click()
+    await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await expect(page.getByRole("main").getByRole("alert")).toContainText(
       "Confirm your email address to continue."
     )

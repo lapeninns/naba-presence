@@ -194,15 +194,7 @@ function SignInForm({
           type="button"
           variant={mode === "sign-in" ? "default" : "outline"}
           aria-pressed={mode === "sign-in"}
-          // Hyphenated noun form ("sign-in", not "sign in"): this toggle's
-          // visible text ("Sign in") would otherwise exactly match the
-          // form's own submit button once in sign-in mode, and an
-          // unhyphenated aria-label ("Switch to sign in") still contains
-          // "sign in" as a substring - which Playwright's getByRole name
-          // matching treats as a match by default. The hyphenated form
-          // keeps the same meaning for screen readers while staying
-          // distinct from the submit button's accessible name.
-          aria-label="Switch to sign-in"
+          aria-label="Switch to sign in"
           onClick={() => switchMode("sign-in")}
         >
           Sign in
@@ -211,7 +203,7 @@ function SignInForm({
           type="button"
           variant={mode === "create-account" ? "default" : "outline"}
           aria-pressed={mode === "create-account"}
-          aria-label="Switch to create-account"
+          aria-label="Switch to create account"
           onClick={() => switchMode("create-account")}
         >
           Create account
