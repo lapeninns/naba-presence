@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { createEvent, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -46,7 +46,10 @@ describe("PasswordField", () => {
     await user.click(screen.getByRole("button", { name: "Show password" }))
     expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text")
     await user.click(screen.getByRole("button", { name: "Hide password" }))
-    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password")
+    expect(screen.getByLabelText("Password")).toHaveAttribute(
+      "type",
+      "password"
+    )
   })
 
   it("wires errors through the Field system", () => {
@@ -72,12 +75,43 @@ describe("PasswordField", () => {
     await user.type(screen.getByLabelText("Password"), "a")
     expect(onValueChange).toHaveBeenCalledWith("a")
   })
+
+  it("keeps describedBy content alongside the caps-lock hint, not replaced by it", () => {
+    render(
+      <PasswordField
+        label="Password"
+        name="password"
+        value="secret"
+        onValueChange={() => {}}
+        autoComplete="current-password"
+        describedBy={<span>Requirements go here</span>}
+      />
+    )
+    const input = screen.getByLabelText("Password")
+
+    // Requirements are visible before any Caps Lock signal.
+    expect(input).toHaveAccessibleDescription("Requirements go here")
+
+    // jsdom's KeyboardEvent#getModifierState has no real keyboard state to
+    // read from, so build the event via createEvent and stub the method on
+    // the native event directly - React's SyntheticEvent#getModifierState
+    // delegates to nativeEvent.getModifierState when present.
+    const capsLockKeyUp = createEvent.keyUp(input, {
+      key: "a",
+    }) as KeyboardEvent
+    capsLockKeyUp.getModifierState = () => true
+    fireEvent(input, capsLockKeyUp)
+
+    expect(input).toHaveAccessibleDescription(
+      "Caps Lock is on. Requirements go here"
+    )
+  })
 })
 
 describe("password requirements", () => {
   it("evaluates every rule", () => {
     expect(checkPasswordRules("short")).toEqual([
-      { id: "length", label: "At least 12 characters", met: false },
+      { id: "length", label: "Between 12 and 128 characters", met: false },
       { id: "letter", label: "A letter", met: true },
       { id: "number", label: "A number", met: false },
       { id: "symbol", label: "A symbol", met: false },
@@ -87,10 +121,23 @@ describe("password requirements", () => {
     ).toBe(true)
   })
 
+  it("rejects a password past the server's upper bound", () => {
+    const tooLong = `${"correct-horse-9".padEnd(129, "x")}`
+    expect(tooLong).toHaveLength(129)
+    const rules = checkPasswordRules(tooLong)
+    expect(rules.find((rule) => rule.id === "length")).toEqual({
+      id: "length",
+      label: "Between 12 and 128 characters",
+      met: false,
+    })
+  })
+
   it("announces met and unmet rules without relying on colour", () => {
     render(<PasswordRequirements value="correct-horse-9" />)
     expect(
-      screen.getByRole("listitem", { name: "Met: At least 12 characters" })
+      screen.getByRole("listitem", {
+        name: "Met: Between 12 and 128 characters",
+      })
     ).toBeInTheDocument()
     render(<PasswordRequirements value="short" />)
     expect(

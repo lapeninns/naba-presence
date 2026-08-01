@@ -60,10 +60,12 @@ function PasswordField({
           {visible ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
         </Button>
       </div>
-      {capsLock ? (
-        <FieldDescription>Caps Lock is on.</FieldDescription>
-      ) : describedBy ? (
-        <FieldDescription>{describedBy}</FieldDescription>
+      {capsLock || describedBy ? (
+        <FieldDescription>
+          {capsLock ? <span className="block">Caps Lock is on.</span> : null}
+          {capsLock && describedBy ? " " : null}
+          {describedBy}
+        </FieldDescription>
       ) : null}
       <FieldError />
     </Field>

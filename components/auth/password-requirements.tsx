@@ -8,7 +8,11 @@ type PasswordRule = { id: string; label: string; met: boolean }
 // the server remains the authority and re-validates every submission.
 function checkPasswordRules(value: string): PasswordRule[] {
   return [
-    { id: "length", label: "At least 12 characters", met: value.length >= 12 },
+    {
+      id: "length",
+      label: "Between 12 and 128 characters",
+      met: value.length >= 12 && value.length <= 128,
+    },
     { id: "letter", label: "A letter", met: /[A-Za-z]/.test(value) },
     { id: "number", label: "A number", met: /[0-9]/.test(value) },
     { id: "symbol", label: "A symbol", met: /[^A-Za-z0-9]/.test(value) },
