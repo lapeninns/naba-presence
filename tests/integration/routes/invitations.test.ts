@@ -155,6 +155,7 @@ describeDatabase("organisation invitations", () => {
     expect(await lookup.json()).toEqual({
       organisationName: "Harness tenant",
       email,
+      accepted: false,
       expired: false,
     })
   })

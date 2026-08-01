@@ -285,8 +285,48 @@ export async function requestPasswordReset(
     )
   } catch (error) {
     // Password reset must not disclose whether an account exists. Rate limiting
-    // remains enforced by the provider, but the public response stays uniform.
-    if (error instanceof AuthProviderError) return
+    // is not account information, so it is surfaced; everything else stays uniform.
+    if (error instanceof AuthProviderError) {
+      if (error.status === 429) {
+        throw new ApiError(
+          429,
+          "auth_rate_limited",
+          "Too many attempts. Try again later."
+        )
+      }
+      return
+    }
+    throw error
+  }
+}
+
+export async function resendConfirmationEmail(
+  email: string,
+  redirectTo: string
+): Promise<void> {
+  try {
+    await providerRequest(
+      `/resend?redirect_to=${encodeURIComponent(redirectTo)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          type: "signup",
+          email: email.trim().toLowerCase(),
+        }),
+      }
+    )
+  } catch (error) {
+    if (error instanceof AuthProviderError) {
+      if (error.status === 429) {
+        throw new ApiError(
+          429,
+          "auth_rate_limited",
+          "Too many attempts. Try again later."
+        )
+      }
+      // Never disclose whether the address belongs to an account.
+      return
+    }
     throw error
   }
 }

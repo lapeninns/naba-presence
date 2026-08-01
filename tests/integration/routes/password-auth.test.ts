@@ -182,7 +182,7 @@ describeDatabase("email and password authentication", () => {
     )
     expect([303, 307]).toContain(confirmation.status)
     expect(confirmation.headers.get("location")).toBe(
-      `${server.baseUrl}/reviews`
+      `${server.baseUrl}/home`
     )
     const cookie = sessionCookie(confirmation)
     const sessionResponse = await fetch(`${server.baseUrl}/api/session`, {

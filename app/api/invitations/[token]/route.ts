@@ -34,12 +34,12 @@ export async function GET(
         "Invitation not found."
       )
     }
+    const accepted = invitation.acceptedAt !== null
     return NextResponse.json({
       organisationName: invitation.organisationName,
       email: invitation.email,
-      expired:
-        invitation.acceptedAt !== null ||
-        invitation.expiresAt.getTime() <= Date.now(),
+      accepted,
+      expired: !accepted && invitation.expiresAt.getTime() <= Date.now(),
     })
   } catch (error) {
     return apiError(error)
