@@ -8,6 +8,8 @@ import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { ReviewFilters } from "@/components/inbox/review-filters"
 import { ReviewList } from "@/components/inbox/review-list"
 import { EmptyState } from "@/components/inbox/empty-states"
+import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
+import { ReviewDetail } from "@/components/inbox/review-detail"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchLocations } from "@/lib/api/locations"
@@ -188,9 +190,6 @@ function InboxView() {
         ) : null}
       </div>
 
-      {/* Detail pane placeholder — Task 5 replaces this region's INNER content
-          (keeping the mobile-pane classes + back button) with the real
-          review-detail wrapped in the isolation error boundary. */}
       <section
         aria-label="Selected review"
         className={cn(
@@ -211,9 +210,9 @@ function InboxView() {
                 Back to reviews
               </Button>
             </div>
-            <p className="p-6 text-ui text-muted-foreground">
-              Review {state.selected} selected.
-            </p>
+            <DetailErrorBoundary key={state.selected}>
+              <ReviewDetail reviewId={state.selected} />
+            </DetailErrorBoundary>
           </>
         ) : (
           <p className="p-6 text-ui text-muted-foreground">
