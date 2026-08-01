@@ -9,6 +9,7 @@ export const reviewCountsSchema = z.object({
 
 export type ReviewCounts = z.infer<typeof reviewCountsSchema>
 
-export function fetchReviewCounts() {
-  return apiFetch("/api/reviews/counts", { schema: reviewCountsSchema })
+export function fetchReviewCounts(locationId?: string) {
+  const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""
+  return apiFetch(`/api/reviews/counts${query}`, { schema: reviewCountsSchema })
 }
