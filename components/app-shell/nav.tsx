@@ -13,11 +13,11 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
-  { href: "/home", label: "Home", icon: LayoutDashboard },
-  { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/locations", label: "Locations", icon: Store },
-  { href: "/performance", label: "Performance", icon: TrendingUp },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/home", label: "Home", icon: LayoutDashboard, prefetch: true },
+  { href: "/inbox", label: "Inbox", icon: Inbox, prefetch: false },
+  { href: "/locations", label: "Locations", icon: Store, prefetch: false },
+  { href: "/performance", label: "Performance", icon: TrendingUp, prefetch: false },
+  { href: "/settings", label: "Settings", icon: Settings, prefetch: false },
 ] as const
 
 function isActivePath(pathname: string | null, href: string) {
@@ -35,16 +35,16 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
           const active = isActivePath(pathname, item.href)
           return (
             <li key={item.href}>
-              {/* Only /home ships this milestone; the other four 404. Next's
-                  default viewport prefetch would fire a background RSC
-                  request for all five links on every dashboard load, and
-                  Chrome's real "chrome" channel (local test/dev runs) never
-                  reports the tab network-idle while one of those 404
-                  prefetches is outstanding - re-enable once each route has
-                  a real page. */}
+              {/* /home ships this milestone and is prefetched. The other four
+                  routes 404 until their milestones land; Next's default
+                  viewport prefetch would fire a background RSC request for
+                  each on every dashboard load, and Chrome's real channel
+                  (local test/dev) never reports network-idle while a 404
+                  prefetch is outstanding - so they stay prefetch={false}
+                  until their pages exist. */}
               <Link
                 href={item.href}
-                prefetch={false}
+                prefetch={item.prefetch}
                 aria-current={active ? "page" : undefined}
                 onClick={onNavigate}
                 className={cn(
