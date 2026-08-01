@@ -2,6 +2,15 @@ import { Plus } from "lucide-react"
 
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,6 +47,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 
 type SectionTitle =
   | "Foundations"
@@ -127,9 +137,9 @@ export default function Page() {
         <p className="max-w-2xl text-sm text-muted-foreground">
           The frontend is being rebuilt on this branch. Foundation primitives
           (Button, Card, Badge, Alert, Skeleton, Spinner, Field, Input, Label,
-          Dialog, Sheet, Toast, Tabs, Select, Combobox, Avatar, Empty) are
-          re-admitted below; remaining shared compositions return in later
-          milestone tasks.
+          Textarea, Dialog, AlertDialog, Sheet, Toast, Tabs, Select, Combobox,
+          Avatar, Empty) are re-admitted below; remaining shared compositions
+          return in later milestone tasks.
         </p>
       </header>
 
@@ -357,6 +367,15 @@ export default function Page() {
         </div>
 
         <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Textarea</h3>
+          <Textarea
+            aria-label="Reply draft"
+            defaultValue="Thank you for the kind words — we're glad you enjoyed your stay."
+            className="max-w-md"
+          />
+        </div>
+
+        <div className="flex flex-col gap-3">
           <h3 className="text-title font-semibold">Dialog</h3>
           <Dialog>
             <DialogTrigger render={<Button variant="outline" />}>
@@ -374,6 +393,28 @@ export default function Page() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Alert dialog</h3>
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button variant="outline" />}>
+              Discard your edits?
+            </AlertDialogTrigger>
+            <AlertDialogContent aria-label="Discard your edits?">
+              <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Regenerating replaces your unsaved changes with a new draft.
+                This cannot be undone.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+                  Keep editing
+                </AlertDialogClose>
+                <Button size="sm">Discard and regenerate</Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
 
         <div className="flex flex-col gap-3">

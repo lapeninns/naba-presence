@@ -10,6 +10,12 @@ import { ReviewList } from "@/components/inbox/review-list"
 import { EmptyState } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
+import { ReplyComposer } from "@/components/inbox/reply-composer"
+import {
+  DirtyGuardProvider,
+  useDirtyGate,
+  useReadIsDirty,
+} from "@/components/inbox/dirty-context"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchLocations } from "@/lib/api/locations"
@@ -29,7 +35,7 @@ import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 
-function InboxView() {
+function InboxViewInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const state = useMemo(
@@ -37,6 +43,8 @@ function InboxView() {
     [searchParams]
   )
   const filters = useMemo(() => toReviewsFilters(state), [state])
+  const dirtyGate = useDirtyGate()
+  const readIsDirty = useReadIsDirty()
 
   const reviewsQuery = useReviews(filters)
   const countsQuery = useReviewCounts(state.locationId)
@@ -70,10 +78,15 @@ function InboxView() {
     (queue: Queue) => updateState({ queue, selected: undefined }, "replace"),
     [updateState]
   )
-  // Selection uses push so Back returns to the list on mobile (spec §6).
+  // Selection uses push so Back returns to the list on mobile (spec §6). Gated
+  // behind the dirty guard: while the composer is dirty this either confirms
+  // discarding the edit (window.confirm) or blocks the selection change.
   const onSelect = useCallback(
-    (id: string) => updateState({ selected: id }, "push"),
-    [updateState]
+    (id: string) => {
+      if (!dirtyGate()) return
+      updateState({ selected: id }, "push")
+    },
+    [dirtyGate, updateState]
   )
   const onClearFilters = useCallback(
     () =>
@@ -92,16 +105,15 @@ function InboxView() {
   )
 
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
-  // the first row (replace, so it adds no history). Nothing is selected here, so
-  // no composer is mounted and dirtiness is false; Task 6 Step 9 threads the
-  // real `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
+  // the first row (replace, so it adds no history). Reads live dirtiness
+  // imperatively via `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
   const reviewsReady = !reviewsQuery.isPending && !reviewsQuery.isError
   useEffect(() => {
     if (!reviewsReady) return
     const id = autoSelectId({
       selected: state.selected,
       reviews,
-      isDirty: false,
+      isDirty: readIsDirty(),
       isDesktop:
         typeof window !== "undefined" &&
         window.matchMedia("(min-width: 1280px)").matches,
@@ -111,7 +123,7 @@ function InboxView() {
         `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
       )
     }
-  }, [reviewsReady, reviews, state, router])
+  }, [reviewsReady, reviews, state, router, readIsDirty])
 
   function renderList() {
     if (reviewsQuery.isPending) {
@@ -211,7 +223,10 @@ function InboxView() {
               </Button>
             </div>
             <DetailErrorBoundary key={state.selected}>
-              <ReviewDetail reviewId={state.selected} />
+              <ReviewDetail
+                reviewId={state.selected}
+                footer={<ReplyComposer reviewId={state.selected} />}
+              />
             </DetailErrorBoundary>
           </>
         ) : (
@@ -221,6 +236,14 @@ function InboxView() {
         )}
       </section>
     </div>
+  )
+}
+
+function InboxView() {
+  return (
+    <DirtyGuardProvider>
+      <InboxViewInner />
+    </DirtyGuardProvider>
   )
 }
 
