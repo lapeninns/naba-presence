@@ -1,0 +1,76 @@
+import { z } from "zod"
+
+import type { LocalPostFormValues } from "@/lib/locations/forms/local-post"
+
+import { apiFetch } from "./client"
+
+const postSchema = z.object({
+  id: z.string(),
+  topicType: z.enum(["STANDARD", "EVENT", "OFFER"]),
+  languageCode: z.string(),
+  summary: z.string(),
+  callToAction: z.unknown(),
+  event: z.unknown(),
+  offer: z.unknown(),
+  media: z.unknown(),
+  scheduledTime: z.string().nullable(),
+  status: z.enum(["draft", "awaiting_approval", "publishing", "published", "failed", "ambiguous"]),
+  googlePostName: z.string().nullable(),
+  googleState: z.string().nullable(),
+  googleSearchUrl: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type Post = z.infer<typeof postSchema>
+
+const postsStateSchema = z.object({
+  posts: z.array(postSchema),
+  writesEnabled: z.boolean(),
+  reconciliationError: z.string().nullable(),
+})
+export type PostsState = z.infer<typeof postsStateSchema>
+
+export function fetchPosts(id: string): Promise<PostsState> {
+  return apiFetch(`/api/locations/${id}/posts`, { schema: postsStateSchema })
+}
+
+export function createPost(id: string, input: LocalPostFormValues) {
+  return apiFetch(`/api/locations/${id}/posts`, {
+    method: "POST",
+    body: input,
+    schema: z.object({ post: z.object({ id: z.string() }) }),
+  })
+}
+
+export function updatePost(id: string, postId: string, input: LocalPostFormValues) {
+  return apiFetch(`/api/locations/${id}/posts/${postId}`, {
+    method: "PATCH",
+    body: input,
+    schema: z.object({ post: z.object({ id: z.string(), status: z.string() }) }),
+  })
+}
+
+export type PublishPostResult = { status: "awaiting_approval" | "published"; postId?: string; googlePostName?: string | null }
+
+export function publishPost(id: string, postId: string): Promise<PublishPostResult> {
+  return apiFetch(`/api/locations/${id}/posts/${postId}/publish`, {
+    method: "POST",
+    schema: z.object({ status: z.enum(["awaiting_approval", "published"]), postId: z.string().optional(), googlePostName: z.string().nullable().optional() }),
+  })
+}
+
+export function decidePostApproval(id: string, postId: string, decision: "approve" | "reject") {
+  return apiFetch(`/api/locations/${id}/posts/${postId}/approval`, {
+    method: "POST",
+    body: { decision },
+    schema: z.object({ status: z.string(), postId: z.string().optional(), googlePostName: z.string().nullable().optional() }),
+  })
+}
+
+export function deletePost(id: string, postId: string) {
+  return apiFetch(`/api/locations/${id}/posts/${postId}`, {
+    method: "DELETE",
+    schema: z.object({ status: z.string() }),
+  })
+}
