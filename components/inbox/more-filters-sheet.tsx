@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { SlidersHorizontalIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -87,6 +87,8 @@ function MoreFiltersSheet({
   onChange: (partial: Partial<InboxState>) => void
 }) {
   const [open, setOpen] = useState(false)
+  const dateFromId = useId()
+  const dateToId = useId()
   const activeCount =
     (state.verification.length ? 1 : 0) +
     (state.publishStatus.length ? 1 : 0) +
@@ -162,23 +164,25 @@ function MoreFiltersSheet({
             ))}
           </fieldset>
           <div className="flex flex-col gap-2">
-            <label htmlFor="date-from" className="text-ui font-medium">
+            <label htmlFor={dateFromId} className="text-ui font-medium">
               From date
             </label>
             <input
-              id="date-from"
+              id={dateFromId}
               type="date"
               aria-label="From date"
+              value={state.dateFrom ? state.dateFrom.slice(0, 10) : ""}
               onChange={(event) => onChange({ dateFrom: toIso(event.target.value) })}
               className="h-8 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui"
             />
-            <label htmlFor="date-to" className="text-ui font-medium">
+            <label htmlFor={dateToId} className="text-ui font-medium">
               To date
             </label>
             <input
-              id="date-to"
+              id={dateToId}
               type="date"
               aria-label="To date"
+              value={state.dateTo ? state.dateTo.slice(0, 10) : ""}
               onChange={(event) => onChange({ dateTo: toIso(event.target.value) })}
               className="h-8 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui"
             />

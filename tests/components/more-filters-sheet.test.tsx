@@ -49,4 +49,28 @@ describe("MoreFiltersSheet", () => {
       dateFrom: "2026-07-01T00:00:00.000Z",
     })
   })
+
+  it("reflects an already-active date range from URL state in the inputs", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <MoreFiltersSheet
+        state={{
+          ...baseState,
+          dateFrom: "2026-07-01T00:00:00.000Z",
+          dateTo: "2026-07-15T00:00:00.000Z",
+        }}
+        onChange={() => {}}
+      />
+    )
+    await user.click(screen.getByRole("button", { name: /More filters/ }))
+    expect(screen.getByLabelText("From date")).toHaveValue("2026-07-01")
+    expect(screen.getByLabelText("To date")).toHaveValue("2026-07-15")
+
+    // Clearing the date filter (e.g. via the chip or "Clear filters") updates
+    // the URL, which flows back in as a state prop with no dateFrom/dateTo —
+    // the inputs must go blank rather than keep showing stale dates.
+    rerender(<MoreFiltersSheet state={baseState} onChange={() => {}} />)
+    expect(screen.getByLabelText("From date")).toHaveValue("")
+    expect(screen.getByLabelText("To date")).toHaveValue("")
+  })
 })
