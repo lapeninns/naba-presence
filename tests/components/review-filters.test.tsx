@@ -20,6 +20,7 @@ describe("ReviewFilters", () => {
         }}
         locations={[{ id: "loc-1", name: "Riverside" }]}
         onChange={() => {}}
+        onClear={() => {}}
       />
     )
     expect(

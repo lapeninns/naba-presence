@@ -2,14 +2,12 @@
 
 import { useEffect, useId, useState } from "react"
 
+import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
+import { MoreFiltersSheet } from "@/components/inbox/more-filters-sheet"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { LocationEntry } from "@/lib/api/locations"
 import type { InboxState } from "@/lib/inbox/url-state"
-
-// Only "selected" is irrelevant to the filter bar; "queue" stays so callers
-// (and the pinned test) can pass the full inbox state without narrowing it.
-type FiltersState = Omit<InboxState, "selected">
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map
 // (a plain `{ value: label }` record) rather than from the rendered
@@ -34,10 +32,12 @@ function ReviewFilters({
   state,
   locations,
   onChange,
+  onClear,
 }: {
-  state: FiltersState
+  state: InboxState
   locations: LocationEntry[]
   onChange: (partial: Partial<InboxState>) => void
+  onClear: () => void
 }) {
   const searchId = useId()
   const locationId = useId()
@@ -63,82 +63,93 @@ function ReviewFilters({
   }, [searchDraft, state.search, onChange])
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="min-w-48 flex-1">
-        <label htmlFor={locationId} className="sr-only">
-          Filter by location
-        </label>
-        <Combobox
-          items={locations}
-          value={selectedLocation}
-          onValueChange={(location: LocationEntry | null) =>
-            onChange({ locationId: location?.id })
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-48 flex-1">
+          <label htmlFor={locationId} className="sr-only">
+            Filter by location
+          </label>
+          <Combobox
+            items={locations}
+            value={selectedLocation}
+            onValueChange={(location: LocationEntry | null) =>
+              onChange({ locationId: location?.id })
+            }
+            itemToStringLabel={(location: LocationEntry) => location.name}
+          >
+            <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
+            <ComboboxContent>
+              {locations.map((location) => (
+                <ComboboxItem key={location.id} value={location}>
+                  {location.name}
+                </ComboboxItem>
+              ))}
+            </ComboboxContent>
+          </Combobox>
+        </div>
+
+        <div className="min-w-40 flex-1">
+          <label htmlFor={searchId} className="sr-only">
+            Search reviews
+          </label>
+          <input
+            id={searchId}
+            type="search"
+            role="searchbox"
+            aria-label="Search reviews"
+            value={searchDraft}
+            placeholder="Search reviews"
+            onChange={(event) => setSearchDraft(event.target.value)}
+            className="h-8 w-full rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+          />
+        </div>
+
+        <Select
+          value={state.ratings.length === 1 ? String(state.ratings[0]) : "all"}
+          onValueChange={(value: string | null) =>
+            onChange({ ratings: !value || value === "all" ? [] : [Number(value)] })
           }
-          itemToStringLabel={(location: LocationEntry) => location.name}
+          items={RATING_ITEMS}
         >
-          <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
-          <ComboboxContent>
-            {locations.map((location) => (
-              <ComboboxItem key={location.id} value={location}>
-                {location.name}
-              </ComboboxItem>
+          <SelectTrigger aria-label="Filter by rating" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All ratings</SelectItem>
+            {[5, 4, 3, 2, 1].map((rating) => (
+              <SelectItem key={rating} value={String(rating)}>
+                {rating} star{rating === 1 ? "" : "s"}
+              </SelectItem>
             ))}
-          </ComboboxContent>
-        </Combobox>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={state.sort}
+          onValueChange={(value: string | null) =>
+            onChange({ sort: (value ?? "updated_desc") as InboxState["sort"] })
+          }
+          items={SORT_ITEMS}
+        >
+          <SelectTrigger aria-label="Sort reviews" className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="updated_desc">Most recent</SelectItem>
+            <SelectItem value="rating_desc">Highest rated</SelectItem>
+            <SelectItem value="rating_asc">Lowest rated</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <MoreFiltersSheet state={state} onChange={onChange} />
       </div>
 
-      <div className="min-w-40 flex-1">
-        <label htmlFor={searchId} className="sr-only">
-          Search reviews
-        </label>
-        <input
-          id={searchId}
-          type="search"
-          role="searchbox"
-          aria-label="Search reviews"
-          value={searchDraft}
-          placeholder="Search reviews"
-          onChange={(event) => setSearchDraft(event.target.value)}
-          className="h-8 w-full rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
-        />
-      </div>
-
-      <Select
-        value={state.ratings.length === 1 ? String(state.ratings[0]) : "all"}
-        onValueChange={(value: string | null) =>
-          onChange({ ratings: !value || value === "all" ? [] : [Number(value)] })
-        }
-        items={RATING_ITEMS}
-      >
-        <SelectTrigger aria-label="Filter by rating" className="w-36">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All ratings</SelectItem>
-          {[5, 4, 3, 2, 1].map((rating) => (
-            <SelectItem key={rating} value={String(rating)}>
-              {rating} star{rating === 1 ? "" : "s"}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={state.sort}
-        onValueChange={(value: string | null) =>
-          onChange({ sort: (value ?? "updated_desc") as InboxState["sort"] })
-        }
-        items={SORT_ITEMS}
-      >
-        <SelectTrigger aria-label="Sort reviews" className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="updated_desc">Most recent</SelectItem>
-          <SelectItem value="rating_desc">Highest rated</SelectItem>
-          <SelectItem value="rating_asc">Lowest rated</SelectItem>
-        </SelectContent>
-      </Select>
+      <ActiveFilterChips
+        state={state}
+        locations={locations}
+        onChange={onChange}
+        onClear={onClear}
+      />
     </div>
   )
 }

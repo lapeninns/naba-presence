@@ -184,6 +184,7 @@ function InboxViewInner() {
             state={state}
             locations={locationsQuery.data?.locations ?? []}
             onChange={onFilterChange}
+            onClear={onClearFilters}
           />
         </div>
         {renderList()}
