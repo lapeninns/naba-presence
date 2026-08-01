@@ -26,7 +26,7 @@ export function HoursEditor({
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
-        <h3 className="text-ui font-semibold">Regular hours</h3>
+        <h2 className="text-ui font-semibold">Regular hours</h2>
         <ul className="flex flex-col gap-2">
           {value.regular.map((day, index) => (
             <li key={day.dayOfWeek} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
@@ -91,7 +91,7 @@ export function HoursEditor({
       </section>
 
       <section className="flex flex-col gap-3">
-        <h3 className="text-ui font-semibold">Special hours</h3>
+        <h2 className="text-ui font-semibold">Special hours</h2>
         <ul className="flex flex-col gap-2">
           {value.special.map((entry, index) => (
             <li key={index} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
