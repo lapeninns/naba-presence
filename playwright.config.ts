@@ -17,7 +17,6 @@ export default defineConfig({
     "**/accessibility.spec.ts",
     "**/capability-tabs.spec.ts",
     "**/gbp-management-tabs.spec.ts",
-    "**/home.spec.ts",
     "**/inbox.spec.ts",
     "**/journeys.spec.ts",
     "**/locations.spec.ts",

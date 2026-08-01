@@ -102,20 +102,25 @@ function ConnectionAnnouncer() {
 }
 
 /**
- * A session cookie is required before `useConnectionHealth`'s query can
- * succeed against `/api/google/connections`. The dashboard layout can only
- * ever READ a cookie (`getSession`) - Next.js forbids setting one from a
- * plain Server Component, only a Server Action or Route Handler may do that
- * - so on the very first anonymous visit (local/dev bootstrap, no cookie
- * yet) `session` arrives here `null` even though access is allowed.
+ * A session cookie is required before any protected query - not just
+ * `useConnectionHealth`'s `/api/google/connections`, but every per-route
+ * fetch a page's own content makes, e.g. Home's `useReviewCounts` /
+ * `useAnalyticsOverview` - can succeed. The dashboard layout can only ever
+ * READ a cookie (`getSession`) - Next.js forbids setting one from a plain
+ * Server Component, only a Server Action or Route Handler may do that - so
+ * on the very first anonymous visit (local/dev bootstrap, no cookie yet)
+ * `session` arrives here `null` even though access is allowed.
  *
- * If the connections query were allowed to run in that gap, it would 401,
- * and the API client treats a 401 with code `authentication_required` as
- * "sign in again" and hard-navigates to `/sign-in` - a route this milestone
- * doesn't have. So: hit the session
- * Route Handler once on mount to provision the cookie first (mirroring the
- * pre-rebuild dashboard's `loadSession()` bootstrap), and only report ready
- * once that settles. Nothing here runs when a real session already exists.
+ * If those queries were allowed to run in that gap, they would 401, and the
+ * API client treats a 401 with code `authentication_required` as "sign in
+ * again" and hard-navigates to `/sign-in` - a route this milestone doesn't
+ * have (it would also fail the e2e console-error guard even where the UI
+ * recovers, since the first, doomed attempt still logs to the console). So:
+ * hit the session Route Handler once on mount to provision the cookie first
+ * (mirroring the pre-rebuild dashboard's `loadSession()` bootstrap), and
+ * only report ready - and only then mount the status chip, the announcer,
+ * and the routed page content itself - once that settles. Nothing here
+ * runs when a real session already exists.
  */
 function useSessionReady(session: ShellSession | null) {
   const [ready, setReady] = useState(session !== null)
@@ -247,7 +252,7 @@ function AppShell({
 
         {sessionReady ? <ConnectionAnnouncer /> : null}
 
-        {children}
+        {sessionReady ? children : null}
       </div>
     </div>
   )
