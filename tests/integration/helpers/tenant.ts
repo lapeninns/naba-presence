@@ -337,6 +337,39 @@ export async function seedLinkedReview(
   }
 }
 
+export async function seedLinkedLocation(
+  admin: ReturnType<typeof postgres>,
+  input: { organisationId: string; connectionId: string; googleAccountName: string }
+): Promise<{
+  locationId: string
+  externalLocationId: string
+  googleLocationName: string
+}> {
+  const marker = randomUUID()
+  const externalLocationId = randomUUID()
+  const locationId = randomUUID()
+  const googleLocationName = `locations/stub-${marker}`
+  await admin`
+    insert into external_location (
+      id, organisation_id, google_connection_id, google_account_name,
+      google_location_name, title, verified
+    ) values (
+      ${externalLocationId}, ${input.organisationId}, ${input.connectionId},
+      ${input.googleAccountName}, ${googleLocationName},
+      ${`Stub linked location ${marker.slice(0, 8)}`}, true
+    )
+  `
+  await admin`
+    insert into location (id, organisation_id, name)
+    values (${locationId}, ${input.organisationId}, ${`Linked location ${marker.slice(0, 8)}`})
+  `
+  await admin`
+    insert into location_link (organisation_id, external_location_id, location_id, is_active)
+    values (${input.organisationId}, ${externalLocationId}, ${locationId}, true)
+  `
+  return { locationId, externalLocationId, googleLocationName }
+}
+
 export async function saveHumanDraft(
   baseUrl: string,
   cookie: string,
