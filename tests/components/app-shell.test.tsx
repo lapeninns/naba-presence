@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell/app-shell"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
@@ -9,6 +9,11 @@ import { QueryProvider } from "@/lib/queries/provider"
 vi.mock("next/navigation", () => ({
   usePathname: () => "/inbox",
 }))
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 const session = {
   sessionId: "s",
@@ -90,6 +95,51 @@ describe("AppShell", () => {
     // the same `data-[side=left]:` prefix to actually replace it.
     expect(dialog).toHaveClass("data-[side=left]:w-64")
     expect(dialog).not.toHaveClass("w-64")
+  })
+})
+
+describe("session-ready children gate", () => {
+  it("holds routed children until the bootstrap session cookie resolves, then renders them", async () => {
+    // No `session` prop (the local-bootstrap, first-anonymous-visit path):
+    // `useSessionReady` starts `ready = false` and fires `GET /api/session`
+    // to provision the cookie. Route URL-aware so the *later*, gated
+    // `useConnectionHealth` query (mounted only once the gate opens) gets a
+    // valid `{ connections: [] }` body instead of the bootstrap's session
+    // shape - an accidental mismatch there would throw inside `StatusChip`
+    // and take the whole tree down with it, hiding the very assertion this
+    // test exists to make.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/api/session")) {
+        return new Response(JSON.stringify({ session }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response(JSON.stringify({ connections: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(
+      <QueryProvider>
+        <AppShell session={null}>
+          <div>gated-child</div>
+        </AppShell>
+      </QueryProvider>
+    )
+
+    // Synchronous assertion, before the bootstrap fetch's promise settles:
+    // the gate must hold and the routed content must not be in the DOM yet.
+    expect(screen.queryByText("gated-child")).not.toBeInTheDocument()
+
+    // Once `/api/session` resolves, `sessionReady` flips true and the gate
+    // opens.
+    await waitFor(() =>
+      expect(screen.getByText("gated-child")).toBeInTheDocument()
+    )
   })
 })
 
