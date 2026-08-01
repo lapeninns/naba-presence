@@ -78,6 +78,10 @@ export async function apiFetch<T = unknown>(
     )
   }
 
+  // 204/empty bodies carry no payload; returning "" would fail every schema
+  // and surprise callers such as signOut.
+  if (response.status === 204) return undefined as T
+
   if (!schema) return payload.raw as T
   const parsed = schema.safeParse(payload.raw)
   if (!parsed.success) {
