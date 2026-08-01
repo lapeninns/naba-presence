@@ -130,4 +130,84 @@ describe("ActionBar", () => {
       ).toBeInTheDocument()
     )
   })
+
+  // Fix-round-1 CRITICAL #1: `executePublish` can resolve (HTTP 200, not a
+  // thrown ApiClientError) with `status: "rejected"` when Google's moderation
+  // declines the reply. That must never render as the "Reply published"
+  // success toast.
+  it("shows a non-success toast — never 'published' — when the resolved outcome is rejected", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(vi.fn().mockResolvedValue({ status: "rejected" }))
+    stubHooks(detailWith({}), publish)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    await waitFor(() =>
+      expect(screen.getByText("Google declined this reply.")).toBeInTheDocument()
+    )
+    expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
+  })
+
+  // Fix-round-1 IMPORTANT #3: Reject reverts workflow_status to `drafted` and
+  // clears approval_requested_by server-side, so it must be confirmed —
+  // mirroring the Delete AlertDialog pattern — not fired directly on click.
+  it("requires confirming before firing a reject decision", async () => {
+    const user = userEvent.setup()
+    const approval = mutation(
+      vi.fn().mockResolvedValue({ status: "returned_to_draft" })
+    )
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    renderActionBar()
+
+    await user.click(screen.getByRole("button", { name: "Reject reply" }))
+    expect(approval.mutateAsync).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "Confirm reject" }))
+    await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
+    expect(approval.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: "reject" })
+    )
+  })
+
+  // Fix-round-1 IMPORTANT #4: the Delete affordance's copy ("removes your
+  // reply from Google") is only true once the reply is actually live on
+  // Google (`publishStatus === "published"`) — not merely present, and not
+  // during e.g. `awaiting_approval`.
+  it("does not offer to delete a reply that isn't actually published yet", () => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "awaiting_approval",
+        reply: {
+          id: "reply-1",
+          body: "Thanks for the feedback!",
+          publishStatus: "awaiting_approval",
+          googleReplyState: null,
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: null,
+        },
+      })
+    )
+    renderActionBar()
+    expect(
+      screen.queryByRole("button", { name: "Review actions" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers to delete a reply that is actually published on Google", () => {
+    stubHooks(
+      detailWith({
+        reply: {
+          id: "reply-1",
+          body: "Thanks for the feedback!",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      })
+    )
+    renderActionBar()
+    expect(
+      screen.getByRole("button", { name: "Review actions" })
+    ).toBeInTheDocument()
+  })
 })

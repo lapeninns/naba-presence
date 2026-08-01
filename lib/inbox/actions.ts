@@ -74,3 +74,37 @@ export function evaluateDelete(input: {
   }
   return { enabled: true }
 }
+
+export type OutcomeToast = {
+  title: string
+  type: "success" | "info" | "warning" | "error"
+}
+
+// Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
+// — see describeActionError for those) from a publish or approval-decision
+// mutation to user-facing toast copy. Every resolved, non-throwing status
+// either route can return is covered here so a `rejected` — or any other
+// non-published — outcome never renders as "published" (D7, no optimistic
+// publish; fix-round-1 CRITICAL #1). `rejected` always means Google's own
+// moderation declined the reply content (see lib/server/publishing.ts); a
+// user-initiated Reject decision instead resolves as `returned_to_draft`,
+// which is a distinct, unambiguous wire value.
+export function describeOutcomeToast(status: string): OutcomeToast {
+  switch (status) {
+    case "published":
+      return { title: "Reply published", type: "success" }
+    case "awaiting_approval":
+      return { title: "Reply submitted for approval.", type: "info" }
+    case "rejected":
+      return { title: "Google declined this reply.", type: "error" }
+    case "returned_to_draft":
+      return { title: "Reply returned to draft.", type: "success" }
+    default:
+      // e.g. "pending" — an honest, non-committal message; never claims
+      // the reply is published.
+      return {
+        title: "Reply submitted. Its status will update shortly.",
+        type: "info",
+      }
+  }
+}

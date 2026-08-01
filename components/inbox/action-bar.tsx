@@ -19,8 +19,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToastManager } from "@/components/ui/toast"
+import { Textarea } from "@/components/ui/textarea"
 import { useIsDirty } from "@/components/inbox/dirty-context"
-import { evaluateApproval, evaluateDelete, evaluatePublish } from "@/lib/inbox/actions"
+import {
+  describeOutcomeToast,
+  evaluateApproval,
+  evaluateDelete,
+  evaluatePublish,
+} from "@/lib/inbox/actions"
 import { describeActionError } from "@/lib/inbox/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
@@ -28,6 +34,12 @@ import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 
 const VERIFIED = new Set(["pass", "warn"])
+// The only `review_reply.publish_status` value that means "actually live on
+// Google" (see the check constraint in supabase/migrations/0001_initial.sql:
+// 'not_published' | 'awaiting_approval' | 'accepted' | 'published' |
+// 'rejected' | 'failed' | 'deleted'). 'accepted' is an in-flight/ambiguous
+// state, not a confirmed live reply — fix-round-1 IMPORTANT #4.
+const LIVE_ON_GOOGLE = new Set(["published"])
 
 function ActionBar({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
@@ -40,6 +52,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // on-screen text differs from the persisted verified draft (LOCKED #4).
   const isDirty = useIsDirty()
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectNote, setRejectNote] = useState("")
 
   const review = detail.data?.review
   if (!review) return null
@@ -58,7 +72,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     canPublish: review.capabilities.canPublish,
   })
   const deleteState = evaluateDelete({
-    hasPublishedReply: Boolean(review.reply?.body),
+    hasPublishedReply: Boolean(
+      review.reply?.publishStatus && LIVE_ON_GOOGLE.has(review.reply.publishStatus)
+    ),
     canPublish: review.capabilities.canPublish,
   })
 
@@ -73,25 +89,24 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         draftId: verifiedDraft.id,
         expectedReviewUpdateTime: review.updateTime,
       })
-      toasts.add({
-        title:
-          result.status === "awaiting_approval"
-            ? "Reply submitted for approval."
-            : "Reply published",
-        type: result.status === "awaiting_approval" ? "info" : "success",
-      })
+      // Server-confirmed only (D7): the resolved status — never a thrown
+      // ApiClientError — decides the toast, so a `rejected` (Google declined
+      // the reply) or any other non-published outcome can never render as
+      // "published" (fix-round-1 CRITICAL #1).
+      toasts.add(describeOutcomeToast(result.status))
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
   }
 
-  const onDecision = async (decision: "approve" | "reject") => {
+  const onDecision = async (decision: "approve" | "reject", note?: string) => {
     try {
-      await approval.mutateAsync({ decision })
-      toasts.add({
-        title: decision === "approve" ? "Reply published" : "Reply returned to draft.",
-        type: "success",
-      })
+      const result = await approval.mutateAsync({ decision, note })
+      toasts.add(describeOutcomeToast(result.status))
+      if (decision === "reject") {
+        setRejectOpen(false)
+        setRejectNote("")
+      }
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
@@ -118,7 +133,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             size="sm"
             disabled={!approvalState.enabled || approval.isPending}
             title={approvalState.reason}
-            onClick={() => void onDecision("reject")}
+            onClick={() => setRejectOpen(true)}
           >
             Reject reply
           </Button>
@@ -175,6 +190,52 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               onClick={() => void onDelete()}
             >
               Delete reply
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reject reverts workflow_status→drafted and clears
+          approval_requested_by server-side, so — like Delete — it must be
+          confirmed rather than fired straight from the trigger button
+          (fix-round-1 IMPORTANT #3). The note is optional and mirrors the
+          approval route's accepted length (note ≤2000 chars). */}
+      <AlertDialog
+        open={rejectOpen}
+        onOpenChange={(open) => {
+          setRejectOpen(open)
+          if (!open) setRejectNote("")
+        }}
+      >
+        <AlertDialogContent aria-label="Reject this reply?">
+          <AlertDialogTitle>Reject this reply?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The draft returns to its author to edit. You can add a note
+            explaining why.
+          </AlertDialogDescription>
+          <label htmlFor="reject-note" className="text-ui font-semibold">
+            Note (optional)
+          </label>
+          <Textarea
+            id="reject-note"
+            maxLength={2000}
+            value={rejectNote}
+            onChange={(event) => setRejectNote(event.target.value)}
+            placeholder="Explain what needs to change…"
+          />
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={approval.isPending}
+              onClick={() =>
+                void onDecision("reject", rejectNote.trim() || undefined)
+              }
+            >
+              Confirm reject
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
