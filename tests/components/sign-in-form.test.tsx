@@ -96,6 +96,21 @@ describe("sign-in mode", () => {
       "That invitation has expired."
     )
   })
+
+  it("rejects a locally-invalid email before contacting the server", async () => {
+    const user = userEvent.setup()
+    const signInSpy = vi.spyOn(authApi, "signIn")
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "not-an-email")
+    await user.type(screen.getByLabelText("Password"), "correct-horse-9")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(signInSpy).not.toHaveBeenCalled()
+    expect(screen.getByLabelText("Email address")).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    )
+    expect(screen.getByLabelText("Email address")).toHaveFocus()
+  })
 })
 
 describe("create-account mode", () => {
@@ -163,5 +178,35 @@ describe("create-account mode", () => {
     const email = screen.getByLabelText("Email address")
     expect(email).toHaveValue("invited@example.test")
     expect(email).toHaveAttribute("readonly")
+  })
+})
+
+describe("mode toggle", () => {
+  it("clears the field error and keeps typed values when switching to create-account", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "not-an-email")
+    await user.type(screen.getByLabelText("Password"), "correct-horse-9")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(screen.getByLabelText("Email address")).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to create account" })
+    )
+
+    expect(screen.getByLabelText("Email address")).not.toHaveAttribute(
+      "aria-invalid"
+    )
+    expect(
+      screen.getByRole("button", { name: "Switch to sign in" })
+    ).toHaveAttribute("aria-pressed", "false")
+    expect(
+      screen.getByRole("button", { name: "Switch to create account" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByLabelText("Email address")).toHaveValue("not-an-email")
+    expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
   })
 })

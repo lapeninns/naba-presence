@@ -60,7 +60,7 @@ function FieldLabel(props: React.ComponentProps<typeof Label>) {
 function FieldDescription({
   className,
   ...props
-}: React.ComponentProps<"p">) {
+}: React.ComponentProps<"div">) {
   const field = useFieldContext()
   const registerDescription = field?.registerDescription
 
@@ -77,8 +77,12 @@ function FieldDescription({
     return () => registerDescription?.(false)
   }, [registerDescription])
 
+  // A <div>, not a <p>: callers (e.g. PasswordField) nest block content
+  // like PasswordRequirements' <ul> inside this, and <ul> inside <p> is
+  // invalid HTML that trips React's hydration-mismatch warning. aria-*
+  // wiring doesn't care about tag semantics, so this is a plain swap.
   return (
-    <p
+    <div
       id={field?.descriptionId}
       data-slot="field-description"
       className={cn("text-caption text-muted-foreground", className)}
