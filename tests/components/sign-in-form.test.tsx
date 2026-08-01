@@ -194,17 +194,17 @@ describe("mode toggle", () => {
     )
 
     await user.click(
-      screen.getByRole("button", { name: "Switch to create account" })
+      screen.getByRole("button", { name: "Switch to create-account" })
     )
 
     expect(screen.getByLabelText("Email address")).not.toHaveAttribute(
       "aria-invalid"
     )
     expect(
-      screen.getByRole("button", { name: "Switch to sign in" })
+      screen.getByRole("button", { name: "Switch to sign-in" })
     ).toHaveAttribute("aria-pressed", "false")
     expect(
-      screen.getByRole("button", { name: "Switch to create account" })
+      screen.getByRole("button", { name: "Switch to create-account" })
     ).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByLabelText("Email address")).toHaveValue("not-an-email")
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")

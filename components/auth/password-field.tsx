@@ -53,11 +53,21 @@ function PasswordField({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={visible ? "Hide password" : "Show password"}
+          accessibleNameFromChildren
           className="absolute top-1/2 right-1 -translate-y-1/2"
           onClick={() => setVisible((current) => !current)}
         >
           {visible ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+          {/* Accessible name comes from this visually-hidden text, not
+              aria-label: Playwright's getByLabel() (and some other
+              label-locator tooling) treats any element's own aria-label
+              attribute as a labelled form control candidate, which made
+              this toggle collide with getByLabel("Password") on the
+              adjacent input (both contain the substring "password").
+              Plain text content isn't scanned that way, so this keeps the
+              same accessible name and getByRole(button, name) lookups
+              while removing the ambiguity. */}
+          <span className="sr-only">{visible ? "Hide password" : "Show password"}</span>
         </Button>
       </div>
       {capsLock || describedBy ? (

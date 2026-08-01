@@ -57,13 +57,40 @@ type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
     render?: useRender.RenderProp<ButtonPrimitive.State>
   }
 export type ButtonProps =
-  | (ButtonBaseProps & { size?: Exclude<AnySize, IconSize> })
-  | (ButtonBaseProps & { size: IconSize; "aria-label": string })
+  | (ButtonBaseProps & {
+      size?: Exclude<AnySize, IconSize>
+      accessibleNameFromChildren?: undefined
+    })
+  | (ButtonBaseProps & {
+      size: IconSize
+      "aria-label": string
+      accessibleNameFromChildren?: undefined
+    })
+  | (ButtonBaseProps & {
+      size: IconSize
+      "aria-label"?: undefined
+      // Deliberate, reviewable opt-out from the aria-label requirement above:
+      // the accessible name comes from a visually-hidden text child instead
+      // (e.g. `<span className="sr-only">Show password</span>` next to an
+      // `aria-hidden` icon). Needed because an `aria-label` attribute is
+      // matched directly by some label-locator tooling (e.g. Playwright's
+      // getByLabel) regardless of element role, which collides whenever the
+      // label text overlaps a nearby form field's own label — see
+      // components/auth/password-field.tsx's show/hide-password toggle,
+      // which sits next to an input labelled "Password". Every use of this
+      // flag still requires a real, non-empty accessible name; it just comes
+      // from rendered text instead of an aria-* attribute.
+      accessibleNameFromChildren: true
+    })
 
 function Button({
   className,
   variant = "default",
   size = "default",
+  // Type-only marker (see ButtonProps) — destructured solely to keep it out
+  // of the {...props} spread below, since it isn't a real DOM attribute.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  accessibleNameFromChildren: _accessibleNameFromChildren,
   ...props
 }: ButtonProps) {
   return (
