@@ -58,6 +58,14 @@ describe("ResetPasswordForm", () => {
     ).toHaveAttribute("href", "/forgot-password")
   })
 
+  it("treats a truncated token like a missing one", () => {
+    render(<ResetPasswordForm tokenHash="short" />)
+    expect(
+      screen.getByRole("link", { name: "Request another link" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
+  })
+
   it("updates the password and lands on /home", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "completePasswordReset").mockResolvedValue(undefined)

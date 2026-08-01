@@ -14,7 +14,7 @@ import {
   type AuthMessage,
 } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
-import { passwordSchema } from "@/lib/domain/auth"
+import { passwordSchema, resetPasswordSchema } from "@/lib/domain/auth"
 
 const FIELD_ORDER = ["password", "confirmPassword"] as const
 
@@ -30,6 +30,17 @@ function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
 }
 
+// A `tokenHash` that fails the server's own length constraint (too short or
+// too long) can never succeed on submit either - the server's zod schema
+// rejects it with a generic `invalid_request` that isn't in DEAD_TOKEN_CODES,
+// so the doomed form would otherwise stay on screen with no highlighted
+// field and no recovery route out. Treating it as missing instead routes
+// through the existing missing-token recovery branch. Reuses the domain
+// schema's own constraint rather than hardcoding the 20/512 bounds.
+function isUsableToken(value: string | undefined): value is string {
+  return resetPasswordSchema.shape.tokenHash.safeParse(value).success
+}
+
 function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -40,7 +51,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending || !tokenHash) return
+    if (pending || !isUsableToken(tokenHash)) return
 
     const parsedPassword = passwordSchema.safeParse(password)
     if (!parsedPassword.success) {
@@ -82,7 +93,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     })
   }
 
-  if (!tokenHash) {
+  if (!isUsableToken(tokenHash)) {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-body text-muted-foreground">
