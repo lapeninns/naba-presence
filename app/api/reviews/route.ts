@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { reviewCapabilitiesForLocations } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError } from "@/lib/server/http"
 import { buildInboxQuery } from "@/lib/server/reviews-query"
@@ -120,15 +121,27 @@ export async function GET(request: Request) {
         : undefined,
       cursor: decodeCursor(params.get("cursor"), params.get("sort")),
     })
-    const rawRows = await withTenant(
-      session.organisationId,
-      (sql) =>
-        buildInboxQuery(sql, {
-          ...query,
-          role: session.role,
-          userId: session.userId,
-        })
-    )
+    const rawRows = await withTenant(session.organisationId, async (sql) => {
+      const queried = (await buildInboxQuery(sql, {
+        ...query,
+        role: session.role,
+        userId: session.userId,
+      })) as unknown as (Record<string, unknown> & {
+        location: { id: string }
+      })[]
+      const capabilities = await reviewCapabilitiesForLocations(
+        sql,
+        session,
+        queried.map((row) => row.location.id)
+      )
+      return queried.map((row) => ({
+        ...row,
+        capabilities: capabilities.get(row.location.id) ?? {
+          canPublish: false,
+          canEdit: false,
+        },
+      }))
+    })
     const rows = rawRows
     const hasMore = rows.length > query.pageSize
     const items = hasMore ? rows.slice(0, query.pageSize) : rows

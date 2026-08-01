@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { reviewCapabilities } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError } from "@/lib/server/http"
 import { requireSession } from "@/lib/server/session"
@@ -77,6 +78,20 @@ export async function GET(
             )
             from review_reply rr where rr.review_id = r.id
           ) as reply
+          ,
+          (
+            select json_build_object('verdict', vr.verdict, 'reasons', vr.reasons)
+            from verification_result vr
+            where vr.draft_id = (
+              select d2.id
+              from draft d2
+              where d2.review_id = r.id
+              order by d2.created_at desc
+              limit 1
+            )
+            order by vr.created_at desc
+            limit 1
+          ) as "latestVerification"
         from review r
         join location l on l.id = r.location_id
         join external_location e on e.id = r.external_location_id
@@ -117,9 +132,15 @@ export async function GET(
         order by a.created_at desc
         limit 100
       `
+      const capabilities = await reviewCapabilities(
+        sql,
+        session,
+        row.locationId as string
+      )
       return {
         ...row,
         timeline,
+        capabilities,
       }
     })
     return NextResponse.json({ review })
