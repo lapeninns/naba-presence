@@ -141,6 +141,22 @@ describe("session-ready children gate", () => {
       expect(screen.getByText("gated-child")).toBeInTheDocument()
     )
   })
+
+  it("bootstraps the session with an abortable request", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    render(
+      <QueryProvider>
+        <AppShell session={null}>content</AppShell>
+      </QueryProvider>
+    )
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
 })
 
 describe("sign out", () => {

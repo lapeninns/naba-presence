@@ -128,16 +128,26 @@ function useSessionReady(session: ShellSession | null) {
   useEffect(() => {
     if (session) return
     let cancelled = false
-    fetch("/api/session", { credentials: "same-origin" })
+    const controller = new AbortController()
+    // Guard against a hung bootstrap request stranding the shell on a blank
+    // gate: abort after 5s and let the gated queries mount (they surface the
+    // real error state rather than hanging).
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    fetch("/api/session", {
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
       .catch(() => {
-        // Swallow: if bootstrap genuinely fails, letting the gated query
-        // mount anyway surfaces the real error state instead of hanging.
+        // Swallow: abort or network failure both fall through to ready=true.
       })
       .finally(() => {
+        clearTimeout(timeout)
         if (!cancelled) setReady(true)
       })
     return () => {
       cancelled = true
+      clearTimeout(timeout)
+      controller.abort()
     }
   }, [session])
 

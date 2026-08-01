@@ -26,8 +26,7 @@ describeDatabase("signed-out entry point", () => {
     await admin.end()
   })
 
-  // re-enable: rebuild M4 (inbox route lands)
-  it.skip("redirects anonymous dashboard traffic to /sign-in", async () => {
+  it("redirects anonymous dashboard traffic to /sign-in", async () => {
     const response = await fetch(`${server.baseUrl}/inbox`, {
       redirect: "manual",
     })
@@ -44,8 +43,7 @@ describeDatabase("signed-out entry point", () => {
     expect(body).not.toContain("Continue with Google")
   })
 
-  // re-enable: rebuild M4 (inbox route lands)
-  it.skip("keeps signed-in users on the dashboard", async () => {
+  it("keeps signed-in users on the dashboard", async () => {
     const tenant = await createTestTenant(admin)
     organisations.push(tenant.organisationId)
     const response = await fetch(`${server.baseUrl}/inbox`, {
