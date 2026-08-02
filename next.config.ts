@@ -14,6 +14,10 @@ import type { NextConfig } from "next"
 // thumbnails, and the a11y/other e2e fixtures use `media: []` so the CSP
 // violation would NOT fire and the zero-console-error guard would go a FALSE
 // green — hence the dedicated remote-thumbnail render test in Step 1b.
+// Next's development bundle uses eval-based source maps for React debugging.
+// Production bundles do not require eval, so keep it out of the production CSP.
+const developmentEval = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -24,7 +28,7 @@ const csp = [
   "img-src 'self' data: blob: https://*.googleusercontent.com https://*.ggpht.com",
   "font-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${developmentEval}`,
   "connect-src 'self'",
 ].join("; ")
 
