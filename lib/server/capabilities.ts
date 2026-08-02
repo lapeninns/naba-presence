@@ -141,3 +141,26 @@ export async function locationCapabilities(
   const map = await locationCapabilitiesForIds(sql, session, [locationId])
   return map.get(locationId) ?? { canEditCanonical: false, canPublish: false }
 }
+
+// Org/settings capabilities for the Settings workspace (spec §3):
+//   canManageTeam/canManageConnections/canEditSettings/canViewCompliance === role in {owner, admin}
+//   canManageCompliance === role === "owner"
+// Pure role predicates that mirror the route guards; no SQL.
+export type SettingsCapabilities = {
+  canManageTeam: boolean
+  canManageConnections: boolean
+  canEditSettings: boolean
+  canViewCompliance: boolean
+  canManageCompliance: boolean
+}
+
+export function settingsCapabilities(session: Session): SettingsCapabilities {
+  const managerial = session.role === "owner" || session.role === "admin"
+  return {
+    canManageTeam: managerial,
+    canManageConnections: managerial,
+    canEditSettings: managerial,
+    canViewCompliance: managerial,
+    canManageCompliance: session.role === "owner",
+  }
+}
