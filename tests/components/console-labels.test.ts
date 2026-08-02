@@ -10,6 +10,11 @@ import {
   verificationMethodLabel,
 } from "@/lib/locations/console-labels"
 
+// U4: an empty verification field must render nothing, never the literal
+// fallback word "Category" that titleCaseTail used to return for an empty
+// tail (categoryLabel always passes a non-empty name, so this only bites
+// the verification labels).
+
 describe("console-labels humanisation (§7 — no raw enums to users)", () => {
   it("prefers a category's displayName and never leaks a raw gcid", () => {
     expect(categoryLabel({ name: "categories/gcid:hotel", displayName: "Hotel" })).toBe("Hotel")
@@ -36,5 +41,12 @@ describe("console-labels humanisation (§7 — no raw enums to users)", () => {
     expect(serviceAreaLabel("CUSTOMER_LOCATION_ONLY")).not.toMatch(/_/)
     expect(callsStateLabel("ENABLED")).toBe("On")
     expect(verificationMethodLabel("PHONE_CALL")).not.toMatch(/_/)
+  })
+  it("renders a neutral empty result for an empty verification value, never the literal 'Category'", () => {
+    expect(verificationMethodLabel("")).toBe("")
+    expect(verificationMethodLabel("")).not.toBe("Category")
+  })
+  it("still humanises a real category name (unaffected by the empty-tail fallback)", () => {
+    expect(categoryLabel({ name: "categories/gcid:hotel" })).toBe("Hotel")
   })
 })

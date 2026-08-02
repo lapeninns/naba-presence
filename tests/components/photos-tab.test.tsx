@@ -55,4 +55,16 @@ describe("PhotosTab", () => {
     expect(screen.getByRole("button", { name: "Add from URL" })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
   })
+
+  // U5: the tab always sends mediaFormat: "PHOTO" (both the URL and file-upload
+  // mutations), so the file picker must not offer video — it would always be
+  // rejected.
+  it("restricts the file picker's accept to images only, never video", () => {
+    useMediaMock.mockReturnValue({ data: makeMedia(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    const input = screen.getByLabelText("Direct file upload")
+    expect(input).toHaveAttribute("accept", "image/jpeg,image/png")
+    expect(input.getAttribute("accept")).not.toMatch(/video/)
+  })
 })

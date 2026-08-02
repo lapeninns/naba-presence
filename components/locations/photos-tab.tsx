@@ -158,7 +158,7 @@ function PhotosTabLoaded({
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-ui">
             <span className="text-caption text-muted-foreground">Direct file upload</span>
-            <input ref={fileRef} type="file" aria-label="Direct file upload" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={onFileChange} disabled={disabled} className="text-ui" />
+            <input ref={fileRef} type="file" aria-label="Direct file upload" accept="image/jpeg,image/png" onChange={onFileChange} disabled={disabled} className="text-ui" />
           </label>
           <Button variant="outline" onClick={() => setUploadOpen(true)} disabled={disabled || !pendingFile || upload.isPending}>
             Review file upload

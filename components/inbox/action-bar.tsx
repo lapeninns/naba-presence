@@ -121,8 +121,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
 
   const onDelete = async () => {
     try {
-      await remove.mutateAsync()
-      toasts.add({ title: "Published reply deleted", type: "success" })
+      const result = await remove.mutateAsync()
+      toasts.add(describeOutcomeToast(result.status))
       setDeleteOpen(false)
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })

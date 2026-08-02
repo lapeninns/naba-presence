@@ -24,8 +24,11 @@ export function formatDelta(
   opts: { unit?: "count" | "percent" | "rating" | "duration" } = {}
 ): string | null {
   if (current === null || previous === null) return null
-  const diff = current - previous
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return "—"
   const unit = opts.unit ?? "count"
+  const diff = current - previous
+  // Duration deltas: a negative underlying value is clock skew, not a real change.
+  if (unit === "duration" && (current < 0 || previous < 0)) return "—"
   if (diff === 0) return "±0"
   const sign = diff > 0 ? "+" : "−"
   const magnitude = Math.abs(diff)

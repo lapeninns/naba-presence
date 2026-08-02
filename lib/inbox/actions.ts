@@ -135,6 +135,10 @@ export function describeOutcomeToast(status: string): OutcomeToast {
       return { title: "Google declined this reply.", type: "error" }
     case "returned_to_draft":
       return { title: "Reply returned to draft.", type: "success" }
+    case "deleted":
+      return { title: "Reply deleted", type: "success" }
+    case "cancelled":
+      return { title: "Draft reply removed", type: "success" }
     default:
       // e.g. "pending" — an honest, non-committal message; never claims
       // the reply is published.

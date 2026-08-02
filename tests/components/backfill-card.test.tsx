@@ -56,4 +56,29 @@ describe("BackfillCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start sync" }))
     expect(start).toHaveBeenCalledWith({ maxPagesPerLocation: 10 })
   })
+
+  // U3: BackfillItem.lastErrorCode is fetched but must render as humanised
+  // copy on a failed row — never the raw code.
+  it("shows a humanised reason on a failed row, never the raw lastErrorCode", () => {
+    renderCard([
+      item({ status: "failed", lastErrorCode: "location_not_verified" }),
+    ])
+    expect(
+      screen.getByText("This location is not yet verified on Google.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("location_not_verified")).not.toBeInTheDocument()
+  })
+
+  it("falls back to a generic honest reason for an unrecognised error code", () => {
+    renderCard([item({ status: "failed", lastErrorCode: "some_new_code" })])
+    expect(
+      screen.getByText("This sync could not complete. It will retry automatically.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("some_new_code")).not.toBeInTheDocument()
+  })
+
+  it("shows no error reason for a failed row without a lastErrorCode", () => {
+    renderCard([item({ status: "failed", lastErrorCode: null })])
+    expect(screen.getByText("Failed")).toBeInTheDocument()
+  })
 })

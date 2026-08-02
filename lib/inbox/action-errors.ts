@@ -19,6 +19,14 @@ const MESSAGES: Record<string, string> = {
   publishing_paused: "Publishing is temporarily paused. Try again shortly.",
   review_restricted: "This review is restricted from replies.",
   authentication_required: "Your session has expired. Please sign in again.",
+  review_changed:
+    "The review changed after this draft was prepared. Re-verify the draft and try again.",
+  location_not_verified:
+    "Google has not verified this location yet, so replies cannot be published.",
+  verification_failed:
+    "We could not confirm this reply on Google. Try again shortly.",
+  verification_required:
+    "This reply needs re-verifying before it can be published. Re-verify and try again.",
 }
 
 export function describeActionError(error: unknown): string {

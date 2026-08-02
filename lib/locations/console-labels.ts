@@ -4,7 +4,7 @@
 function titleCaseTail(raw: string): string {
   const tail = raw.split(":").pop() ?? raw
   const words = tail.replace(/^categories\//, "").split(/[_\s]+/).filter(Boolean)
-  if (words.length === 0) return "Category"
+  if (words.length === 0) return ""
   return words.map((w, i) => (i === 0 ? w[0].toUpperCase() + w.slice(1) : w)).join(" ")
 }
 

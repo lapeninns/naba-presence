@@ -36,4 +36,12 @@ describe("delta direction + formatting (non-colour cue source)", () => {
     expect(formatDelta(5, 5, { unit: "count" })).toBe("±0")
     expect(formatDelta(5, null)).toBeNull()
   })
+  it("renders an em dash for non-finite input, and for a clock-skew negative duration (U6)", () => {
+    expect(formatDelta(Number.NaN, 3)).toBe("—")
+    expect(formatDelta(3, Number.POSITIVE_INFINITY)).toBe("—")
+    // A negative response-time value is clock skew, not a real change — must
+    // clamp like formatDuration's own guard, not render a signed duration.
+    expect(formatDelta(-1, 5, { unit: "duration" })).toBe("—")
+    expect(formatDelta(5, -1, { unit: "duration" })).toBe("—")
+  })
 })

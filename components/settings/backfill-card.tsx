@@ -24,6 +24,21 @@ function statusBadge(status: string) {
   return <Badge variant={entry.variant}>{entry.label}</Badge>
 }
 
+// Humanises a sync_checkpoint.last_error_code for a failed backfill row. Never
+// renders the raw code — unrecognised codes fall back to a generic, honest
+// message rather than leaking the enum.
+const BACKFILL_ERROR_COPY: Record<string, string> = {
+  location_not_verified: "This location is not yet verified on Google.",
+  location_not_linked: "This location is no longer linked to Google.",
+  google_reconnect_required: "Google access has expired. Reconnect this account to continue.",
+  sync_failed: "Google did not respond. It will retry automatically.",
+  job_failed: "The sync job failed unexpectedly. It will retry automatically.",
+}
+
+function describeBackfillError(code: string): string {
+  return BACKFILL_ERROR_COPY[code] ?? "This sync could not complete. It will retry automatically."
+}
+
 export function BackfillCard() {
   const { query, start, cancel } = useBackfill()
 
@@ -76,9 +91,14 @@ export function BackfillCard() {
                 <TableRow key={item.externalLocationId}>
                   <TableCell className="font-medium">{item.locationName ?? "Location"}</TableCell>
                   <TableCell>
-                    <span className="flex items-center gap-2">
-                      {statusBadge(item.status)}
-                      {item.hasMorePages ? <span className="text-caption text-muted-foreground">More to sync</span> : null}
+                    <span className="flex flex-col gap-1">
+                      <span className="flex items-center gap-2">
+                        {statusBadge(item.status)}
+                        {item.hasMorePages ? <span className="text-caption text-muted-foreground">More to sync</span> : null}
+                      </span>
+                      {item.status === "failed" && item.lastErrorCode ? (
+                        <span className="text-caption text-destructive">{describeBackfillError(item.lastErrorCode)}</span>
+                      ) : null}
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{item.attemptCount}</TableCell>

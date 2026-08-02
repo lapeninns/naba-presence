@@ -275,4 +275,55 @@ describe("ActionBar", () => {
       screen.getByRole("button", { name: "Review actions" })
     ).toBeInTheDocument()
   })
+
+  // U2: onDelete must route through describeOutcomeToast(result.status) —
+  // never the hardcoded "Published reply deleted" — so a never-live reply
+  // ("cancelled") gets honest copy distinct from an actually-live one
+  // ("deleted"), and neither falls to the default "status will update
+  // shortly" copy.
+  async function deleteReply(status: "deleted" | "cancelled") {
+    const user = userEvent.setup()
+    const del = mutation(vi.fn().mockResolvedValue({ status }))
+    stubHooks(
+      detailWith({
+        reply: {
+          id: "reply-1",
+          body: "Thanks for the feedback!",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      }),
+      mutation(),
+      mutation(),
+      del
+    )
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Review actions" }))
+    const menuItem = await screen.findByRole("menuitem", { name: "Delete published reply" })
+    await user.click(menuItem)
+    await user.click(await screen.findByRole("button", { name: "Delete reply" }))
+    return del
+  }
+
+  it("shows 'Reply deleted' when the delete resolves an actually-live reply removed", async () => {
+    await deleteReply("deleted")
+    await waitFor(() =>
+      expect(screen.getByText("Reply deleted")).toBeInTheDocument()
+    )
+    expect(
+      screen.queryByText("Reply submitted. Its status will update shortly.")
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows 'Draft reply removed' when the delete resolves a never-live reply", async () => {
+    await deleteReply("cancelled")
+    await waitFor(() =>
+      expect(screen.getByText("Draft reply removed")).toBeInTheDocument()
+    )
+    expect(
+      screen.queryByText("Reply submitted. Its status will update shortly.")
+    ).not.toBeInTheDocument()
+  })
 })
