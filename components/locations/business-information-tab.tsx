@@ -135,8 +135,15 @@ function buildLocationUpdate(initial: Draft, draft: Draft): { updateMask: Busine
   if (draft.storeCode !== initial.storeCode) { payload.storeCode = draft.storeCode; mask.push("storeCode") }
   if (JSON.stringify(draft.labels) !== JSON.stringify(initial.labels)) { payload.labels = draft.labels; mask.push("labels") }
   if (draft.primaryCategory?.name !== initial.primaryCategory?.name || JSON.stringify(draft.additionalCategories) !== JSON.stringify(initial.additionalCategories)) {
-    payload.categories = { primaryCategory: { name: draft.primaryCategory!.name }, additionalCategories: draft.additionalCategories.map((c) => ({ name: c.name })) }
-    mask.push("categories")
+    // Google (and businessInformationPayloadSchema) require a primaryCategory
+    // whenever `categories` is sent at all — a location can read back with
+    // additionalCategories but no primaryCategory (neither is required on
+    // GET), so only emit the categories mask once a primary category is set;
+    // otherwise there is nothing valid to publish yet.
+    if (draft.primaryCategory) {
+      payload.categories = { primaryCategory: { name: draft.primaryCategory.name }, additionalCategories: draft.additionalCategories.map((c) => ({ name: c.name })) }
+      mask.push("categories")
+    }
   }
   if (draft.addressLines.join("\n") !== initial.addressLines.join("\n") || draft.locality !== initial.locality || draft.postalCode !== initial.postalCode) {
     payload.storefrontAddress = { regionCode: draft.regionCode, addressLines: draft.addressLines, locality: draft.locality, postalCode: draft.postalCode }

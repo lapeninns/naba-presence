@@ -47,6 +47,47 @@ describe("BusinessInformationTab", () => {
     expect(screen.getByText("Only owners and admins can edit this location.")).toBeInTheDocument()
   })
 
+  it("does not crash picking an additional category when no primary category is set", async () => {
+    // A location can read back with `categories.additionalCategories` but no
+    // `primaryCategory` — neither is required on GET. Regression for a bare
+    // `draft.primaryCategory!.name` assertion in buildLocationUpdate that
+    // threw when only additionalCategories was touched.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+        if (url.includes("type=categories")) {
+          return jsonResponse({ result: { categories: [{ name: "categories/gcid:spa", displayName: "Spa" }] } })
+        }
+        if (url.includes("/business-information")) {
+          return jsonResponse({
+            businessInformation: {
+              ...STATE.businessInformation,
+              location: {
+                ...STATE.businessInformation.location,
+                categories: { additionalCategories: [{ name: "categories/gcid:pool", displayName: "Pool" }] },
+              },
+            },
+          })
+        }
+        return jsonResponse({})
+      })
+    )
+    renderWithProviders(<BusinessInformationTab locationId="loc-1" />)
+    await screen.findByDisplayValue("Camden Hotel")
+    expect(screen.getByText("No primary category set.")).toBeInTheDocument()
+
+    const addInput = screen.getByLabelText("Add another category")
+    await userEvent.type(addInput, "spa")
+    const option = await screen.findByRole("option", { name: "Spa" })
+    await userEvent.click(option)
+
+    // Selecting the additional category must not throw; it renders as a badge.
+    expect(await screen.findByText("Spa")).toBeInTheDocument()
+    expect(screen.getByText("No primary category set.")).toBeInTheDocument()
+  })
+
   it("publishes only the touched field with its mask, strict payload, and locationHash", async () => {
     stubRoutes()
     const fetchSpy = vi.mocked(fetch)
