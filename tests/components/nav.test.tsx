@@ -20,34 +20,16 @@ vi.mock("next/link", () => ({
 import { Nav, NAV_ITEMS } from "@/components/app-shell/nav"
 
 describe("primary nav prefetch policy", () => {
-  it("prefetches the Home, Inbox, Locations and Settings routes", () => {
+  it("prefetches every primary route, including /performance", () => {
     render(<Nav />)
-    for (const label of ["Home", "Inbox", "Locations", "Settings"]) {
-      expect(screen.getByRole("link", { name: label })).toHaveAttribute(
-        "data-prefetch",
-        "true"
-      )
-    }
-    for (const label of ["Performance"]) {
-      expect(screen.getByRole("link", { name: label })).toHaveAttribute(
-        "data-prefetch",
-        "false"
-      )
+    for (const label of ["Home", "Inbox", "Locations", "Performance", "Settings"]) {
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute("data-prefetch", "true")
     }
   })
 
-  it("encodes the per-item prefetch flag in NAV_ITEMS", () => {
-    for (const href of ["/home", "/inbox", "/locations", "/settings"]) {
-      expect(NAV_ITEMS.find((item) => item.href === href)?.prefetch).toBe(true)
-    }
-    for (const item of NAV_ITEMS.filter(
-      (item) =>
-        item.href !== "/home" &&
-        item.href !== "/inbox" &&
-        item.href !== "/locations" &&
-        item.href !== "/settings"
-    )) {
-      expect(item.prefetch).toBe(false)
+  it("encodes prefetch:true for every NAV_ITEMS entry", () => {
+    for (const item of NAV_ITEMS) {
+      expect(item.prefetch, `${item.href} prefetch`).toBe(true)
     }
   })
 })
