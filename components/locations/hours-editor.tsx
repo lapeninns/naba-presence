@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -21,6 +23,33 @@ export function HoursEditor({
   }
   function setSpecial(next: NormalizedHours["special"]) {
     onChange({ ...value, special: next })
+  }
+
+  // Special-hours entries carry no stable id in the wire model, and two rows
+  // can legitimately share the same effectiveDate through this same UI (e.g.
+  // two overrides typed for the same holiday before either is corrected) —
+  // so keying by effectiveDate alone collides, which both logs a React
+  // duplicate-key warning and can steal focus from an unrelated row on an
+  // unrelated add/remove. Track a synthetic, purely client-side key per row
+  // instance instead: assigned once when a row is added, dropped when that
+  // row is removed, and otherwise stable across edits to the row's own
+  // fields, independent of its (possibly duplicate) effectiveDate. State
+  // (not a ref) so the resync-on-mismatch below stays inside React's
+  // documented "adjust state while rendering" pattern rather than mutating a
+  // ref during render. Falls back to a fresh 1:1 assignment if
+  // `value.special` is ever replaced wholesale from outside this component
+  // (e.g. a different draft loading).
+  const [specialKeys, setSpecialKeys] = useState<readonly number[]>(() => value.special.map((_, i) => i))
+  if (specialKeys.length !== value.special.length) {
+    setSpecialKeys(value.special.map((_, i) => i))
+  }
+  function addSpecial() {
+    setSpecialKeys((keys) => [...keys, (keys.length ? Math.max(...keys) : -1) + 1])
+    setSpecial([...value.special, { effectiveDate: "", isClosed: true, opensAt: null, closesAt: null }])
+  }
+  function removeSpecial(index: number) {
+    setSpecialKeys((keys) => keys.filter((_, i) => i !== index))
+    setSpecial(value.special.filter((_, i) => i !== index))
   }
 
   return (
@@ -94,11 +123,7 @@ export function HoursEditor({
         <h2 className="text-ui font-semibold">Special hours</h2>
         <ul className="flex flex-col gap-2">
           {value.special.map((entry, index) => (
-            // No stable resource id ships on a special-hours entry; its
-            // effectiveDate is unique once the user sets one, so key by that
-            // when present and fall back to the row's position for a
-            // freshly-added, still-empty row.
-            <li key={entry.effectiveDate || `special-${index}`} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
+            <li key={specialKeys[index]} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
               <Input
                 type="date"
                 aria-label={`Special date ${index + 1}`}
@@ -126,7 +151,7 @@ export function HoursEditor({
                 </>
               ) : null}
               {!disabled ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setSpecial(value.special.filter((_, i) => i !== index))}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => removeSpecial(index)}>
                   Remove
                 </Button>
               ) : null}
@@ -134,7 +159,7 @@ export function HoursEditor({
           ))}
         </ul>
         {!disabled ? (
-          <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setSpecial([...value.special, { effectiveDate: "", isClosed: true, opensAt: null, closesAt: null }])}>
+          <Button type="button" variant="outline" size="sm" className="self-start" onClick={addSpecial}>
             Add a special day
           </Button>
         ) : null}
