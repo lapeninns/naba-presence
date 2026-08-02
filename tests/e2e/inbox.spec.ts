@@ -1,5 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test } from "@playwright/test"
+import { expect, type Page, test } from "@playwright/test"
+
+import { readJourneyState } from "./helpers/stub-bridge"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = [
@@ -8,6 +10,18 @@ const STRUCTURE_RULES = [
   "heading-order",
   "page-has-heading-one",
 ]
+
+// A 1x1 transparent PNG, served locally by the route interception below so
+// the R1 remote-thumbnail test never makes a real network call.
+const ONE_PX_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64"
+)
+
+async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
+  const [name, value] = cookie.split("=", 2)
+  await page.context().addCookies([{ name, value, url: baseURL! }])
+}
 
 test.describe("inbox", () => {
   test("renders the cross-location review queue", async ({ page }) => {
@@ -62,4 +76,44 @@ test.describe("inbox", () => {
       ).toEqual([])
     })
   }
+
+  // R1 (Task 3, security headers): the CSP's img-src allow-list must let a
+  // real Google-hosted review thumbnail render client-side (review-detail.tsx
+  // renders `thumbnailUrl` directly as an <img src>, with no image proxy).
+  // The route intercepts the request so no real network call is made, but
+  // the request URL - and therefore the CSP check the browser runs against
+  // it - is the real googleusercontent.com host the CSP allow-lists.
+  test("a review thumbnail on a Google media host renders under the CSP", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.route(`${state.directReview.media.thumbnailUrl}*`, (route) =>
+      route.fulfill({ status: 200, contentType: "image/png", body: ONE_PX_PNG })
+    )
+
+    const cspViolations: string[] = []
+    page.on("console", (message) => {
+      if (/content security policy/i.test(message.text())) {
+        cspViolations.push(message.text())
+      }
+    })
+
+    await page.goto("/inbox")
+    await page
+      .getByRole("button")
+      .filter({ hasText: state.directReview.text })
+      .first()
+      .click()
+    await expect(
+      page.getByRole("region", { name: "Selected review" })
+        .getByText(state.directReview.text, { exact: true })
+    ).toBeVisible()
+
+    const img = page.getByRole("img", { name: state.directReview.media.thumbnailLabel })
+    await expect(img).toBeVisible()
+    expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+    expect(cspViolations).toEqual([])
+  })
 })

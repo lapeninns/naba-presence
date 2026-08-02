@@ -33,6 +33,19 @@ test.describe("rebuild foundation", () => {
     ).toBeVisible()
   })
 
+  test("responses carry conservative security headers", async ({ page }) => {
+    const response = await page.goto("/home")
+    const headers = response!.headers()
+    expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin")
+    expect(headers["x-content-type-options"]).toBe("nosniff")
+    expect(headers["x-frame-options"]).toBe("DENY")
+    const csp = headers["content-security-policy"]
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).toContain("object-src 'none'")
+    // R1: Google-hosted thumbnails must be allowed, or client-rendered <img> break.
+    expect(csp).toContain("googleusercontent.com")
+  })
+
   for (const theme of ["light", "dark"] as const) {
     test(`axe clean on /home and /design-system (${theme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })

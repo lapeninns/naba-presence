@@ -17,6 +17,16 @@ function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex")
 }
 
+// R1 (Task 3, security headers): a review media thumbnail on a real Google
+// media host, so the remote-thumbnail render e2e can prove the CSP's
+// `img-src` allow-list actually lets a client-rendered <img> load one (the
+// route interception in inbox.spec.ts fulfils this URL locally - no real
+// network call is made - but the CSP check happens against this exact
+// hostname, matching what production actually stores per lib/server/reviews.ts).
+const DIRECT_REVIEW_THUMBNAIL_URL =
+  "https://lh3.googleusercontent.com/e2e-stub-review-thumbnail"
+const DIRECT_REVIEW_THUMBNAIL_LABEL = "E2E stub review photo"
+
 export type JourneyState = {
   cookie: string
   organisationId: string
@@ -25,6 +35,10 @@ export type JourneyState = {
     locationId: string
     locationName: string
     text: string
+    media: {
+      thumbnailUrl: string
+      thumbnailLabel: string
+    }
   }
   approvalReview: {
     id: string
@@ -95,6 +109,17 @@ export default async function startJourneyBridge(config: FullConfig) {
       text: "Sprint 5 journey review",
       rating: 5,
     })
+    // R1: one review-media row on a real googleusercontent.com host (see the
+    // module-level comment above) for the CSP remote-thumbnail render test.
+    await admin`
+      insert into review_media_item (
+        organisation_id, review_id, thumbnail_url, thumbnail_label
+      )
+      values (
+        ${organisationId}, ${directReview.reviewId},
+        ${DIRECT_REVIEW_THUMBNAIL_URL}, ${DIRECT_REVIEW_THUMBNAIL_LABEL}
+      )
+    `
     const approvalReview = await seedLinkedReview(admin, {
       organisationId,
       connectionId: connection.connectionId,
@@ -628,6 +653,10 @@ export default async function startJourneyBridge(config: FullConfig) {
         locationId: directReview.locationId,
         locationName: locationName(directReview.locationId),
         text: "Sprint 5 journey review",
+        media: {
+          thumbnailUrl: DIRECT_REVIEW_THUMBNAIL_URL,
+          thumbnailLabel: DIRECT_REVIEW_THUMBNAIL_LABEL,
+        },
       },
       approvalReview: {
         id: approvalReview.reviewId,
