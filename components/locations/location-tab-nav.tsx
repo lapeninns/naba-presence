@@ -14,13 +14,25 @@ const TABS = [
   { segment: "booking", label: "Booking" },
   { segment: "menu", label: "Menu" },
   { segment: "performance", label: "Performance" },
+  { segment: "business-information", label: "Business info" },
+  { segment: "industry", label: "Industry", consoleGated: true },
+  { segment: "administration", label: "Administration", consoleGated: true },
 ] as const
 
-export function LocationTabNav({ locationId }: { locationId: string }) {
+export function LocationTabNav({
+  locationId,
+  canManageConsoles,
+}: {
+  locationId: string
+  canManageConsoles: boolean
+}) {
   const pathname = usePathname()
   const base = `/locations/${locationId}`
   const activeSegment = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, "") : ""
   const activeRef = useRef<HTMLAnchorElement | null>(null)
+  // Industry and Administration GET are owner/admin-only server-side —
+  // hiding them for other roles here avoids a reachable 403 on tab click.
+  const tabs = TABS.filter((tab) => !("consoleGated" in tab && tab.consoleGated) || canManageConsoles)
 
   useEffect(() => {
     // jsdom (unit tests) doesn't implement scrollIntoView — guard so the
@@ -33,7 +45,7 @@ export function LocationTabNav({ locationId }: { locationId: string }) {
   return (
     <nav aria-label="Location sections" className="overflow-x-auto">
       <ul className="flex min-w-max gap-1 border-b border-border">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const href = tab.segment ? `${base}/${tab.segment}` : base
           const isActive = activeSegment === tab.segment
           return (

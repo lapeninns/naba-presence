@@ -53,6 +53,9 @@ export function LocationWorkspace({
   const base = `/locations/${locationId}`
   const activeSuffix = pathname.startsWith(base) ? pathname.slice(base.length) : ""
   const address = current ? formatAddress(current.address) : null
+  // Mirrors the server's canEditCanonical gate (role in {owner, admin}) so
+  // the Industry/Administration tabs never link to a route that 403s.
+  const canManageConsoles = role === "owner" || role === "admin"
 
   return (
     <PageFrame width="workspace">
@@ -90,7 +93,7 @@ export function LocationWorkspace({
         </Combobox>
       ) : null}
 
-      <LocationTabNav locationId={locationId} />
+      <LocationTabNav locationId={locationId} canManageConsoles={canManageConsoles} />
       {children}
     </PageFrame>
   )
