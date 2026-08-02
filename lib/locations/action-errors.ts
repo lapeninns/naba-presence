@@ -40,6 +40,16 @@ const COPY: Record<string, string> = {
   second_approver_required: "A different authorised user must approve this post.",
   approval_not_pending: "This post is no longer awaiting approval.",
   post_not_found: "That post could not be found. It may have been removed.",
+  // M8 consoles — business information (Google-direct)
+  business_information_paused: "Publishing business information to Google is currently unavailable.",
+  business_information_stale: "These details changed on Google since you loaded them. Refresh and try again.",
+  attributes_stale: "These attributes changed on Google since you loaded them. Refresh and try again.",
+  business_information_readback_mismatch: "Google did not confirm the change. Refresh and try again.",
+  // M8 consoles — industry + administration (Google-direct)
+  google_writes_paused: "Publishing to Google is currently unavailable.",
+  business_calls_mask_invalid: "Only the calls setting can be changed here.",
+  search_query_required: "Enter a search term.",
+  administration_confirmation_invalid: "We couldn't confirm that action. Refresh and try again.",
 }
 
 export function describeActionError(error: unknown): string {

@@ -11,6 +11,13 @@ export const queryKeys = {
   locationBooking: (id: string) => ["locations", id, "booking"] as const,
   locationMenu: (id: string) => ["locations", id, "menu"] as const,
   locationPosts: (id: string) => ["locations", id, "posts"] as const,
+  locationBusinessInformation: (id: string) =>
+    ["locations", id, "business-information"] as const,
+  locationIndustry: (id: string) => ["locations", id, "industry"] as const,
+  locationAdministration: (id: string) =>
+    ["locations", id, "administration"] as const,
+  businessInformationMetadata: (id: string, type: string, query: string) =>
+    ["locations", id, "business-information", "metadata", type, query] as const,
   reviewCounts: (scope: string) => ["review-counts", scope] as const,
   reviews: (scope: string, filters: unknown) =>
     ["reviews", scope, filters] as const,
