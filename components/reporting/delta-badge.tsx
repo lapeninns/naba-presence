@@ -28,7 +28,11 @@ export function DeltaBadge({
   const text = formatDelta(current, previous, { unit })
   if (!direction || text === null) return null
   return (
-    <Badge variant="outline" aria-label={`${directionWord(direction, unit)} ${text} versus the previous window`}>
+    <Badge
+      variant="outline"
+      role="img"
+      aria-label={`${directionWord(direction, unit)} ${text} versus the previous window`}
+    >
       <span aria-hidden className="tabular-nums">
         {GLYPH[direction]} {text}
       </span>
