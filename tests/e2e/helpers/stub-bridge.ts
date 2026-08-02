@@ -275,6 +275,18 @@ export default async function startJourneyBridge(config: FullConfig) {
     stub.respond({ method: "GET", pathIncludes: "/media/customers" }, () => ({ status: 200, json: { mediaItems: [] } }))
     stub.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({ status: 200, json: { localPosts: [], nextPageToken: null } }))
     stub.respond({ method: "GET", pathIncludes: "/placeActionLinks" }, () => ({ status: 200, json: { placeActionLinks: [] } }))
+    // Settings > Connections notifications card (Task 11): the Google
+    // notifications GET, so the card loads clean off the M5-seeded active
+    // account (`google_account.is_active = true` -> deriveAutoSelection
+    // resolves an accountId -> useNotificationSetting fetches this).
+    stub.respond({ method: "GET", pathIncludes: "notificationSetting" }, () => ({
+      status: 200,
+      json: {
+        name: "accounts/stub/notificationSetting",
+        pubsubTopic: "",
+        notificationTypes: [],
+      },
+    }))
     stub.respond({ method: "GET", pathIncludes: "/foodMenus" }, () => ({ status: 200, json: { name: "locations/stub/foodMenus", menus: [] } }))
     // Booking create journey: echo the posted link back (name + input fields) so
     // the readback hash matches the request.

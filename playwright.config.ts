@@ -19,7 +19,6 @@ export default defineConfig({
     "**/performance.spec.ts",
     "**/review-provider-races.spec.ts",
     "**/routing.spec.ts",
-    "**/settings.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
