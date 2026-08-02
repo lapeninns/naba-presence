@@ -10,7 +10,11 @@ const dashboardRoutes = [
 test("dashboard pages have direct URLs", async ({ page }) => {
   for (const route of dashboardRoutes) {
     await page.goto(route.path)
-    await expect(page).toHaveURL(route.path)
+    // Pathname only, not a full toHaveURL match: /inbox's desktop
+    // auto-selection (see the query-forwarding test below) can append
+    // `?selected=<id>` to the URL shortly after landing, and an exact match
+    // here would race that client-side rewrite the same way.
+    expect(new URL(page.url()).pathname).toBe(route.path)
     await expect(
       page.getByRole("heading", { name: route.heading, level: 1 })
     ).toBeVisible()
@@ -32,13 +36,29 @@ test("root redirects to home", async ({ page }) => {
 test("legacy routes redirect to their replacements", async ({ page }) => {
   for (const [from, to] of [
     ["/overview", "/home"],
-    ["/reviews", "/inbox"],
     ["/analytics", "/performance"],
     ["/connections", "/settings/connections"],
   ]) {
     await page.goto(from)
     await expect(page).toHaveURL(to)
   }
+})
+
+test("reviews redirects to inbox and forwards the query string", async ({
+  page,
+}) => {
+  // /reviews -> /inbox forwards the query string (app/reviews/page.tsx). The
+  // shared local LOCAL_BOOTSTRAP org carries ~1065 reviews, so the inbox's
+  // desktop auto-selection (components/inbox/inbox-view.tsx) picks the first
+  // queued review and client-rewrites the URL to append `selected=<id>`
+  // shortly after landing. An exact `toHaveURL("/inbox?queue=…")` assertion
+  // races that rewrite (flakes ~1/3 in isolation) — assert the landed
+  // pathname and that the forwarded query param survived instead, which
+  // holds true whether or not the auto-select rewrite has fired yet.
+  await page.goto("/reviews?queue=escalated")
+  const url = new URL(page.url())
+  expect(url.pathname).toBe("/inbox")
+  expect(url.searchParams.get("queue")).toBe("escalated")
 })
 
 test("sidebar links update browser history", async ({ page }) => {
