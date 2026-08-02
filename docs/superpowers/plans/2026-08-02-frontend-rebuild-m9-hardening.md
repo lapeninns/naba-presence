@@ -72,7 +72,7 @@ components/inbox/reply-composer.tsx   MODIFY (T8): drop the "Reply draft" aria-l
 components/inbox/review-detail.tsx    MODIFY (T8): "1 star"/"n stars" grammar
 components/settings/backfill-card.tsx MODIFY (U3): render lastErrorCode
 components/locations/photos-tab.tsx   MODIFY (U5): restrict accept to image/jpeg,image/png
-components/locations/console-labels.ts MODIFY (U4, token): neutral empty fallback; drop dead "repeated_enum"
+lib/locations/console-labels.ts MODIFY (U4, token): neutral empty fallback; drop dead "repeated_enum"
 lib/format/delta.ts                   MODIFY (U6): finite/negative guard mirroring formatDuration
 lib/inbox/action-errors.ts            MODIFY (U1): add missing inbox codes
 app/(dashboard)/error.tsx             MODIFY (T8): wrap in <main>
@@ -122,7 +122,44 @@ playwright.config.ts                                     MODIFY (T6, T8): worker
 - Consumes: `requireLocationAccess(sql, session, locationId): Promise<void>` (`@/lib/server/permissions`) — owner/admin pass; a member with assignments but not this location throws `ApiError(404, "review_not_found")`; a member with no assignments passes.
 - No exported surface changes; the route's success/error contract is unchanged except that a cross-location member now gets `404 review_not_found` instead of silently succeeding.
 
-- [ ] **Step 1: Write the failing integration test.** Seed one org with two linked locations (A and B) and an `awaiting_approval` local post on **location B**; seed a member assigned only to **location A** (with a session cookie). Assert the member's reject of B's post returns **404** (`review_not_found`), and that the post is **still `awaiting_approval`** (untouched). Assert an owner/admin (or a member assigned to B) reject returns **200** `{ status: "draft" }`.
+- [ ] **Step 1a: Author two additive `tests/integration/helpers/tenant.ts` helpers** (grounded — `tenant.ts` today exports only `createTestTenant` / `seedReview` / `seedGoogleConnection` / `seedLinkedReview` / `seedLinkedLocation` / `saveHumanDraft` / `destroyTenants`; there is **no** `seedMemberUser` and no post seeder). Both are `tests/` files, non-protected. `createTestTenant(admin, { role?, canPublish? })` returns `{ organisationId, userId, email, cookie }` (`cookie: naba_session=<token>`); it inserts `organisation` + `app_user` + `member` + `app_session`. The new member helper mirrors that but adds a `location_member` assignment (mirror the exact `location_member` columns the M5 `tests/integration/routes/location-capabilities.test.ts` inserts):
+
+```ts
+// tenant.ts — additive. Mirrors createTestTenant, plus a per-location grant.
+export async function seedMemberUser(
+  admin: ReturnType<typeof postgres>,
+  input: { organisationId: string; role?: "member" | "viewer"; canPublish?: boolean; assignLocationId?: string }
+): Promise<{ userId: string; cookie: string }> {
+  const userId = randomUUID()
+  const token = randomBytes(32).toString("base64url")
+  const email = `harness-${userId.slice(0, 8)}@nabapresence.test`
+  await admin`insert into app_user (id, email, display_name, default_organisation_id)
+              values (${userId}, ${email}, 'Harness member', ${input.organisationId})`
+  await admin`insert into member (organisation_id, user_id, role, can_publish)
+              values (${input.organisationId}, ${userId}, ${input.role ?? "member"}, ${input.canPublish ?? false})`
+  if (input.assignLocationId) {
+    await admin`insert into location_member (organisation_id, user_id, location_id, can_publish)
+                values (${input.organisationId}, ${userId}, ${input.assignLocationId}, ${input.canPublish ?? false})`
+  }
+  await admin`insert into app_session (token_hash, user_id, organisation_id, expires_at)
+              values (${sha256(token)}, ${userId}, ${input.organisationId}, now() + interval '1 hour')`
+  return { userId, cookie: `naba_session=${token}` }
+}
+
+// Inserts an awaiting_approval local post. Confirm the gbp_local_post NOT NULL
+// columns against supabase/ (the schema is protected/consume-only — read it, don't edit).
+export async function seedAwaitingApprovalPost(
+  admin: ReturnType<typeof postgres>,
+  input: { organisationId: string; locationId: string; requestedBy: string }
+): Promise<{ id: string }> {
+  const id = randomUUID()
+  await admin`insert into gbp_local_post (id, organisation_id, location_id, status, approval_requested_by, /* + required cols */)
+              values (${id}, ${input.organisationId}, ${input.locationId}, 'awaiting_approval', ${input.requestedBy}, /* … */)`
+  return { id }
+}
+```
+
+- [ ] **Step 1b: Write the failing integration test.** Seed one org, one Google connection, two **linked** locations (A and B), a member assigned only to **A**, and an `awaiting_approval` post on **B**. Boot the app server with the publishing flags enabled — **without them the reject branch returns `503 publishing_paused` at `approval/route.ts:18` before the guard runs** (mirror `tests/integration/routes/local-posts.test.ts:25-30`: `startAppServer` with `GOOGLE_API_PROXY_BASE`, `GBP_POSTS_ENABLED: "true"`, `PUBLISH_ENABLED: "true"`). Use the admin postgres handle + `destroyTenants` cleanup exactly as the sibling `tests/integration/routes/*` do.
 
 `tests/integration/routes/post-approval-access.test.ts`:
 
@@ -130,28 +167,31 @@ playwright.config.ts                                     MODIFY (T6, T8): worker
 import { afterAll, describe, expect, it } from "vitest"
 
 import {
-  createTestTenant,
-  seedLinkedLocation,
-  seedMemberUser,
-  seedAwaitingApprovalPost, // add to tests/integration/helpers/tenant.ts if absent (see note)
+  createTestTenant, seedGoogleConnection, seedLinkedLocation,
+  seedMemberUser, seedAwaitingApprovalPost, destroyTenants,
 } from "@/tests/integration/helpers/tenant"
-import { startRouteServer } from "@/tests/integration/helpers/server"
+import { startAppServer } from "@/tests/integration/helpers/server" // path per local-posts.test.ts
+import { getAdminSql } from "@/tests/integration/helpers/db"        // admin handle per the sibling tests
 
-const admin = /* shared admin sql handle per the existing helper convention */
+const admin = getAdminSql()
 const organisations: string[] = []
-afterAll(async () => { /* cleanup per existing convention */ })
+afterAll(async () => { await destroyTenants(admin, organisations) })
+
+// startAppServer boots with the publishing flags ON so the reject branch is reachable.
+const env = { GBP_POSTS_ENABLED: "true", PUBLISH_ENABLED: "true" } // + GOOGLE_API_PROXY_BASE per the sibling
 
 describe("posts approval reject — per-location authorisation (SEC-1)", () => {
   it("a member assigned elsewhere cannot reject a post on another location", async () => {
-    const server = await startRouteServer()
+    const server = await startAppServer({ env })
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
-    const locA = await seedLinkedLocation(admin, tenant.organisationId, { name: "Location A" })
-    const locB = await seedLinkedLocation(admin, tenant.organisationId, { name: "Location B" })
-    const member = await seedMemberUser(admin, tenant.organisationId, "member", { assignLocationId: locA.id })
-    const post = await seedAwaitingApprovalPost(admin, tenant.organisationId, locB.id)
+    const conn = await seedGoogleConnection(admin, { organisationId: tenant.organisationId })
+    const locA = await seedLinkedLocation(admin, { organisationId: tenant.organisationId, connectionId: conn.connectionId, googleAccountName: conn.googleAccountName })
+    const locB = await seedLinkedLocation(admin, { organisationId: tenant.organisationId, connectionId: conn.connectionId, googleAccountName: conn.googleAccountName })
+    const member = await seedMemberUser(admin, { organisationId: tenant.organisationId, role: "member", assignLocationId: locA.locationId })
+    const post = await seedAwaitingApprovalPost(admin, { organisationId: tenant.organisationId, locationId: locB.locationId, requestedBy: member.userId })
 
-    const res = await fetch(`${server.baseUrl}/api/locations/${locB.id}/posts/${post.id}/approval`, {
+    const res = await fetch(`${server.baseUrl}/api/locations/${locB.locationId}/posts/${post.id}/approval`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: member.cookie },
       body: JSON.stringify({ decision: "reject" }),
@@ -159,21 +199,19 @@ describe("posts approval reject — per-location authorisation (SEC-1)", () => {
     expect(res.status).toBe(404)
     expect(((await res.json()) as { error: string }).error).toBe("review_not_found")
 
-    // The post is untouched.
-    const [row] = await admin<{ status: string }[]>`
-      select status from gbp_local_post where id = ${post.id}
-    `
-    expect(row.status).toBe("awaiting_approval")
+    const [row] = await admin<{ status: string }[]>`select status from gbp_local_post where id = ${post.id}`
+    expect(row.status).toBe("awaiting_approval") // untouched
   })
 
-  it("an owner may reject the same post", async () => {
-    const server = await startRouteServer()
+  it("an owner may reject the same post (200 -> draft)", async () => {
+    const server = await startAppServer({ env })
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
-    const locB = await seedLinkedLocation(admin, tenant.organisationId, { name: "Location B" })
-    const post = await seedAwaitingApprovalPost(admin, tenant.organisationId, locB.id)
+    const conn = await seedGoogleConnection(admin, { organisationId: tenant.organisationId })
+    const locB = await seedLinkedLocation(admin, { organisationId: tenant.organisationId, connectionId: conn.connectionId, googleAccountName: conn.googleAccountName })
+    const post = await seedAwaitingApprovalPost(admin, { organisationId: tenant.organisationId, locationId: locB.locationId, requestedBy: tenant.userId })
 
-    const res = await fetch(`${server.baseUrl}/api/locations/${locB.id}/posts/${post.id}/approval`, {
+    const res = await fetch(`${server.baseUrl}/api/locations/${locB.locationId}/posts/${post.id}/approval`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: tenant.cookie },
       body: JSON.stringify({ decision: "reject" }),
@@ -184,7 +222,7 @@ describe("posts approval reject — per-location authorisation (SEC-1)", () => {
 })
 ```
 
-> **Note (helper reuse):** follow the existing `tests/integration/helpers/tenant.ts` conventions (`createTestTenant`, `seedMemberUser`, and the M5-added `seedLinkedLocation`). If no `seedAwaitingApprovalPost` helper exists, add a small additive one that inserts a `gbp_local_post` row with `status = 'awaiting_approval'` for the given location — a `tests/` helper, non-protected. Requires `RUN_DB_TESTS=true` + Postgres via `naba_test_runtime` (the standing integration convention).
+> **Note:** `RUN_DB_TESTS=true` + Postgres via `naba_test_runtime` (the standing integration convention). Confirm `startAppServer`'s exact signature/import path and the admin-handle accessor against `tests/integration/routes/local-posts.test.ts` before copying — the names above follow that file.
 
 - [ ] **Step 2: Run to verify it fails** — `node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration/routes/post-approval-access.test.ts`. Expected: the first test FAILS (today the reject succeeds with 200 `{status:"draft"}` and the post flips to `draft`).
 
@@ -334,12 +372,12 @@ Leave `signUpWithPassword`, `requestPasswordReset`, `resendConfirmationEmail`, `
 
 - [ ] **Step 4: Run the server test to green** — `pnpm exec vitest run tests/server/login-enumeration-normalization.test.ts --project unit`. Expected PASS.
 
-- [ ] **Step 5: Reconcile the client sign-in surface** (spec §8 tension — see the flag below). Because the login path no longer emits `email_not_verified`, the client's resend-from-unconfirmed-login affordance (`lib/api/auth-errors.ts` maps `email_not_verified` → `action: "resend-confirmation"`, rendered by `AuthErrorAlert`) is no longer reachable **from sign-in**. Implement the minimal, enumeration-safe surface:
-  - The sign-in error now renders the generic `invalid_credentials` message (`auth-errors.ts` `BY_CODE.invalid_credentials`, unchanged copy) — this already does not confirm registration.
-  - **Keep `resendConfirmation` available from the post-registration `confirm-sent` stage** (`sign-in-form.tsx` line 175, `ResendConfirmationButton`) — that path is reached after the user creates an account, so it is not enumeration-sensitive.
-  - **Do not** attach `action: "resend-confirmation"` to `invalid_credentials` (that would attach a resend button to every wrong-password attempt). Leave the `email_not_verified` / `auth_rate_limited` `BY_CODE` entries in place (harmless; still valid copy if any non-login flow ever emits them) but confirm no sign-in path reaches them.
+- [ ] **Step 5: Reconcile the client sign-in surface — restore §8 with a GENERIC, enumeration-safe resend affordance** (ambiguity resolution, baked in). Because the login path no longer emits `email_not_verified`, the client's resend-from-unconfirmed-login affordance (`lib/api/auth-errors.ts` maps `email_not_verified` → `action: "resend-confirmation"`, rendered by `AuthErrorAlert`) is no longer reachable from sign-in. **Rather than drop spec §8's "resend from the unconfirmed-login state", restore it as an ALWAYS-VISIBLE, un-conditioned affordance** — strictly better than dropping it, and enumeration-safe because `resendConfirmationEmail` swallows every provider error and surfaces only a generic 429 (`lib/server/password-auth.ts:317-350` — it never discloses whether the address belongs to an account):
+  - The sign-in error renders the generic `invalid_credentials` message (`auth-errors.ts` `BY_CODE.invalid_credentials`, unchanged copy) — it does not confirm registration.
+  - **Render a small, always-visible "Didn't receive a confirmation email? Resend" affordance beneath the sign-in form** (reuse `ResendConfirmationButton` with the entered `email`), **not conditioned on any error code** — so no error branch reveals registration state, yet the resend path exists from the sign-in surface (§8). Keep the existing post-registration `confirm-sent` resend (`sign-in-form.tsx` line 175) as well.
+  - **Do not** attach `action: "resend-confirmation"` to `invalid_credentials` (that would tie the button to a wrong-password attempt). Leave the `email_not_verified` / `auth_rate_limited` `BY_CODE` entries in place (harmless; still valid copy if a non-login flow emits them) but confirm no sign-in error path reaches them.
 
-Write a component test pinning the generic surface:
+Write a component test pinning both properties (generic error surface + always-present, error-independent resend):
 
 `tests/components/sign-in-form.test.tsx` (add):
 
@@ -352,9 +390,13 @@ it("shows a generic sign-in error and never reveals whether the email is registe
   fireEvent.change(screen.getByRole("textbox", { name: /email/i }), { target: { value: "real@x.test" } })
   // …fill password, submit…
   expect(await screen.findByText(/email or password is incorrect/i)).toBeInTheDocument()
-  // No "confirm your email" wording and no resend button on the sign-in error.
   expect(screen.queryByText(/confirm your email/i)).not.toBeInTheDocument()
-  expect(screen.queryByRole("button", { name: /resend confirmation/i })).not.toBeInTheDocument()
+})
+
+it("offers a generic, always-visible resend affordance not tied to any error", () => {
+  render(<SignInForm />)
+  // Present on the sign-in surface before any submit — so it can never leak registration state.
+  expect(screen.getByRole("button", { name: /resend confirmation/i })).toBeInTheDocument()
 })
 ```
 
@@ -370,12 +412,12 @@ it("shows a generic sign-in error and never reveals whether the email is registe
 
 **Files:**
 - Modify: `next.config.ts`
-- Test: `tests/e2e/foundation.spec.ts` (assert the headers on a dashboard route)
+- Test: `tests/e2e/foundation.spec.ts` (assert the headers) + `tests/e2e/inbox.spec.ts` **or** `tests/e2e/locations.spec.ts` (the remote-thumbnail render assertion — Step 1b)
 
 **Interfaces:**
 - `headers()` returns one source (`/(.*)`) with `Referrer-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, and `Content-Security-Policy`. No route/component change.
 
-- [ ] **Step 1: Add the failing e2e assertion.** In `tests/e2e/foundation.spec.ts`, capture the main-document response and assert the four headers:
+- [ ] **Step 1a: Add the failing header assertion.** In `tests/e2e/foundation.spec.ts`, capture the main-document response and assert the four headers **including the Google media origins in `img-src`** (R1):
 
 ```ts
 test("responses carry conservative security headers", async ({ page }) => {
@@ -384,10 +426,30 @@ test("responses carry conservative security headers", async ({ page }) => {
   expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin")
   expect(headers["x-content-type-options"]).toBe("nosniff")
   expect(headers["x-frame-options"]).toBe("DENY")
-  expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'")
-  expect(headers["content-security-policy"]).toContain("object-src 'none'")
+  const csp = headers["content-security-policy"]
+  expect(csp).toContain("frame-ancestors 'none'")
+  expect(csp).toContain("object-src 'none'")
+  // R1: Google-hosted thumbnails must be allowed, or client-rendered <img> break.
+  expect(csp).toContain("googleusercontent.com")
 })
 ```
+
+- [ ] **Step 1b: Add the remote-thumbnail render assertion (R1 — the guard that a `media: []` fixture cannot provide).** Seed/stub a review (or photos) surface with a **NON-EMPTY remote `thumbnailUrl`** on a `googleusercontent.com` host, load it under the CSP, and assert the image actually loads (non-zero `naturalWidth`) **and** no console error / no CSP violation fired. Add it to whichever spec already owns a review-detail-with-media fixture (`inbox.spec.ts`) or the photos tab (`locations.spec.ts`) via `stub-bridge`/`page.route`:
+
+```ts
+test("a review thumbnail on a Google media host renders under the CSP", async ({ page }) => {
+  const cspViolations: string[] = []
+  page.on("console", (m) => { if (/content security policy/i.test(m.text())) cspViolations.push(m.text()) })
+  // …navigate to a review-detail (or photos) surface whose fixture has a
+  // thumbnailUrl like "https://lh3.googleusercontent.com/…" (a 1x1 PNG the stub serves)…
+  const img = page.getByRole("img").first()
+  await expect(img).toBeVisible()
+  expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  expect(cspViolations).toEqual([])
+})
+```
+
+> If the stub cannot serve a real `googleusercontent.com` asset offline, point the fixture `thumbnailUrl` at the local stub origin **and** add that stub origin to `img-src` in the e2e config only if the production hosts differ — but the production CSP MUST list the real Google hosts; the test's job is to prove a remote host on the allow-list loads clean, so prefer serving a tiny asset the CSP allows.
 
 - [ ] **Step 2: Run to verify failure** — `node scripts/run-test-command.mjs e2e pnpm exec playwright test tests/e2e/foundation.spec.ts`. Expected FAIL (headers absent).
 
@@ -400,18 +462,25 @@ import type { NextConfig } from "next"
 // form-action without breaking Next 16's inline bootstrap script or Tailwind's
 // injected styles. `'unsafe-inline'` is retained deliberately for script/style
 // (Next injects an inline runtime bootstrap and Tailwind injects inline style)
-// — a nonce-based tightening is a documented follow-up. connect/img/font stay
-// same-origin (+ data:/blob: for the privacy-export object URL and inlined
-// assets). All Google calls are server-side, so no third-party origins are
-// needed. Verify against the build AND the e2e zero-console-error guard: any
-// CSP violation would surface as a console error and fail that guard.
+// — a nonce-based tightening is a documented follow-up. connect/font stay
+// same-origin; img additionally allows data:/blob: (the privacy-export object
+// URL + inlined assets) AND the Google media origins that serve review/photo
+// thumbnails CLIENT-SIDE (thumbnail_url is stored verbatim from Google — see
+// lib/server/media.ts:114, reviews.ts:241 — and rendered as `<img src>` in
+// review-detail.tsx:80-81 and photos-tab.tsx:187; there is NO image proxy and
+// no next.config images.remotePatterns). Omitting these origins ships broken
+// thumbnails, and the a11y/other e2e fixtures use `media: []` so the CSP
+// violation would NOT fire and the zero-console-error guard would go a FALSE
+// green — hence the dedicated remote-thumbnail render test in Step 1b.
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "img-src 'self' data: blob:",
+  // Google-hosted review/photo thumbnails: lh3-6.googleusercontent.com, *.ggpht.com.
+  // Confirm against the actual stored thumbnailUrl values and add any other hosts they use.
+  "img-src 'self' data: blob: https://*.googleusercontent.com https://*.ggpht.com",
   "font-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self' 'unsafe-inline'",
@@ -439,7 +508,7 @@ const nextConfig: NextConfig = {
 export default nextConfig
 ```
 
-- [ ] **Step 4: Build + run the FULL e2e suite** — `pnpm build`, then `node scripts/run-test-command.mjs e2e pnpm exec playwright test`. Expected: clean build; **all** e2e specs green, including the zero-console-error / zero-pageerror guard on every route in both themes (any CSP violation would print a console error and fail it). If a directive breaks a surface, relax only the offending directive (record which) and re-run — never weaken the guard to accommodate a bad CSP.
+- [ ] **Step 4: Build + run the FULL e2e suite** — `pnpm build`, then `node scripts/run-test-command.mjs e2e pnpm exec playwright test`. Expected: clean build; **all** e2e specs green, including the zero-console-error / zero-pageerror guard on every route in both themes **and the Step 1b remote-thumbnail render test** (the guard alone cannot catch a bad `img-src` because the other fixtures carry `media: []`). If a directive breaks a surface, relax only the offending directive (record which) and re-run — never weaken the guard to accommodate a bad CSP.
 
 - [ ] **Step 5: Commit** — `feat(security): add conservative security response headers (S3)`.
 
@@ -550,7 +619,7 @@ The existing `tests/components/privacy-export-card.test.tsx` stays green (it moc
 
 **Interfaces:**
 - `ReviewCapabilities = { canPublish: boolean; canEdit: boolean; canRequestApproval: boolean }` — identical shape across `lib/server/capabilities.ts`, the client `capabilitiesSchema` (`lib/api/reviews.ts`), and every consumer.
-- `evaluateRequestApproval({ status, canRequestApproval, hasVerifiedDraft, isDirty }): { enabled: boolean; reason?: string }` (`@/lib/inbox/actions`) — enabled only when the review is not already `awaiting_approval`/published, `canRequestApproval` is true, a verified draft exists, and the composer is clean.
+- `evaluateRequestApproval({ status, canRequestApproval, hasVerifiedDraft, isDirty }): ActionAvailability` (`@/lib/inbox/actions`) — enabled only when `canRequestApproval` is true, the status passes the **same `isAllowedReviewTransition(state, "publish_requested")` guard as `evaluatePublish`**, a verified draft exists, and the composer is clean.
 - Predicate (D2): `canRequestApproval = canEdit && !canPublish && orgApprovalRequired`, where `orgApprovalRequired` is the org's `approval_required` flag.
 
 - [ ] **Step 1: Extend the failing capability integration test.** In `tests/integration/routes/review-capabilities.test.ts`, add `canRequestApproval` to the exact-shape expectations for the existing role×membership cases, and add a case that toggles the org `approval_required` flag:
@@ -596,6 +665,8 @@ const approvalRequired = org?.approvalRequired ?? false
 `reviewCapabilities` (the single-location wrapper) and its `?? { … }` fallback gain `canRequestApproval: false`. Leave `LocationCapabilities`, `SettingsCapabilities`, and `locationCapabilities*` byte-identical.
 
 > **Parity-oracle note:** `ReviewCapabilities` is returned whole by `app/api/reviews/route.ts` and `app/api/reviews/[id]/route.ts` (spread into the payload) — those routes need **no** edit; the new field flows through automatically. Only `capabilities.ts` (protected, sanctioned) changes on the server. Re-run the full integration suite after Step 3 and fix any other exact-shape assertion in test files (non-protected) that now needs the key.
+>
+> **R5 — leave `app/api/reviews/route.ts:139-142` BYTE-IDENTICAL.** After widening `ReviewCapabilities`, the inline fallback there (`… ?? { canPublish: false, canEdit: false }`) becomes shape-inconsistent with the new type, **but it typechecks** (it is an unannotated union feeding `NextResponse.json`, not a `ReviewCapabilities`-annotated slot) **and is unreachable** (every queried id is present in the capabilities map). It is a protected, NON-sanctioned file — do **NOT** "complete" the literal with `canRequestApproval: false`; doing so would make it a 6th protected edit and break the five-file footprint. Only `capabilities.ts:74`'s own wrapper fallback is updated (it is inside the sanctioned file). State this to the whole-branch reviewer so they don't tidy the literal.
 
 - [ ] **Step 4: Add the client schema key + the actions helper.** `lib/api/reviews.ts`:
 
@@ -607,7 +678,7 @@ const capabilitiesSchema = z.object({
 })
 ```
 
-`lib/inbox/actions.ts` — mirror `evaluatePublish`'s shape:
+`lib/inbox/actions.ts` — mirror `evaluatePublish` **including its transition guard** (R6). Because the affordance reuses the publish mutation, it must gate on the SAME `asState` + `isAllowedReviewTransition(state, "publish_requested")` check `evaluatePublish` uses (`lib/inbox/actions.ts:27-33`); without it, a non-publishable status (e.g. an already-published review with a lingering verified draft, `!canPublish` in an approval-required org) would enable the button and the reused publish mutation would 409 server-side:
 
 ```ts
 export function evaluateRequestApproval(input: {
@@ -615,14 +686,21 @@ export function evaluateRequestApproval(input: {
   canRequestApproval: boolean
   hasVerifiedDraft: boolean
   isDirty: boolean
-}): { enabled: boolean; reason?: string } {
+}): ActionAvailability {
   if (!input.canRequestApproval) return { enabled: false }
-  if (input.status === "awaiting_approval") return { enabled: false, reason: "This reply is already awaiting approval." }
+  // Same transition guard as evaluatePublish — the reused publish mutation
+  // only accepts a publish-requestable status.
+  const state = asState(input.status)
+  if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
+    return { enabled: false, reason: "This reply cannot be submitted for approval from its current status." }
+  }
   if (input.isDirty) return { enabled: false, reason: "Save your draft before submitting it for approval." }
   if (!input.hasVerifiedDraft) return { enabled: false, reason: "Verify a draft before submitting it for approval." }
   return { enabled: true }
 }
 ```
+
+(`ActionAvailability`, `asState`, and `isAllowedReviewTransition` are already in scope in `lib/inbox/actions.ts` — reuse them, do not re-import differently.)
 
 - [ ] **Step 5: Render the affordance** in `components/inbox/action-bar.tsx`. When `!canPublish && canRequestApproval` and the review is not awaiting approval, render a **"Submit for approval"** button in place of the (disabled-for-non-publisher) Publish button; it calls the **existing** `publish.mutateAsync({ draftId, expectedReviewUpdateTime })` — the server routes a non-publisher's publish to `awaiting_approval` — and toasts via `describeOutcomeToast(result.status)` (which already maps `awaiting_approval` → a "Sent for approval" style toast). Pin the behaviour:
 
@@ -660,7 +738,7 @@ it("does not offer Submit for approval when the org does not require approval", 
 > **No protected-path edit.** All under `components/**` + `app/(dashboard)/error.tsx` + `app/not-found.tsx`. These land **before** the accessibility.spec revival (Task 9), because that repo-wide axe sweep will otherwise fail on the pre-existing hits fixed here.
 
 **Files:**
-- Modify: `components/inbox/reply-composer.tsx`, `components/inbox/review-detail.tsx`, `app/(dashboard)/error.tsx`, `app/not-found.tsx`, `components/locations/overwrite-confirm-dialog.tsx`, `components/ui/alert.tsx`, `components/locations/menu-editor.tsx`, `components/locations/hours-editor.tsx`, `components/locations/danger-zone-dialog.tsx`, `components/locations/console-labels.ts` (dead-kind removal), `components/ui/toast.tsx`, `components/ui/chart.tsx`, `components/ui/checkbox.tsx` (token nits)
+- Modify: `components/inbox/reply-composer.tsx`, `components/inbox/review-detail.tsx`, `app/(dashboard)/error.tsx`, `app/not-found.tsx`, `components/locations/overwrite-confirm-dialog.tsx`, `components/ui/alert.tsx`, `components/locations/menu-editor.tsx`, `components/locations/hours-editor.tsx`, `components/locations/danger-zone-dialog.tsx`, `lib/locations/console-labels.ts` (dead-kind removal), `components/ui/toast.tsx`, `components/ui/chart.tsx`, `components/ui/checkbox.tsx` (token nits)
 - Test: the relevant component tests (`tests/components/danger-zone-dialog.test.tsx`, `tests/components/alert.test.tsx` or NEW, `tests/components/review-detail.test.tsx`, etc.)
 
 **Interfaces:** no exported-signature changes; these are internal a11y/token corrections.
@@ -714,7 +792,7 @@ const matches =
 
 Add a test: with `expectedName=""`, typing nothing keeps the destructive button disabled.
 
-- [ ] **Step 8: Dead-kind removal — console-labels.** In `components/locations/console-labels.ts`, drop `"repeated_enum"` from `attributeControlKind`'s return union and the `case "REPEATED_ENUM"` (no caller handles the kind; `REPEATED_ENUM` already falls to the read-only note via `default → "unsupported"` in `typed-attribute-control.tsx`). Update `tests/components/console-labels.test.ts`'s `attributeControlKind("REPEATED_ENUM")` expectation from `"repeated_enum"` to `"unsupported"`.
+- [ ] **Step 8: Dead-kind removal — console-labels.** In `lib/locations/console-labels.ts`, drop `"repeated_enum"` from `attributeControlKind`'s return union and the `case "REPEATED_ENUM"` (no caller handles the kind; `REPEATED_ENUM` already falls to the read-only note via `default → "unsupported"` in `typed-attribute-control.tsx`). Update `tests/components/console-labels.test.ts`'s `attributeControlKind("REPEATED_ENUM")` expectation from `"repeated_enum"` to `"unsupported"`.
 
 - [ ] **Step 9: Token nits (optional, cosmetic — apply where a matching token exists).** Confirm the token values in `app/globals.css` first, then:
   - `components/ui/checkbox.tsx` (line ~13): replace `rounded-[4px]` with the defined control-radius token (`rounded-(--nr-radius-…)`) **if** a 4px step exists; otherwise leave with an inline note.
@@ -769,24 +847,37 @@ export function formatDelta(current, previous, opts = {}) {
 
 Add unit tests: `formatDelta(NaN, 3)` → `"—"`; `formatDelta(-1, 5, { unit: "duration" })` → `"—"`; the existing happy-path cases unchanged.
 
-- [ ] **Step 4: U1 — missing inbox action-error codes.** In `lib/inbox/action-errors.ts`, add copy for the server codes the inbox can surface but that currently fall through to the generic message. **Verify each code is actually emitted by the server** (grep `lib/server/**` + `app/api/**`) before adding it — `review_changed` (409) is confirmed emitted by `lib/server/publishing.ts:664`; add the others (`publish_in_progress`, `verification_*`, `location_not_verified`) only if the grep confirms the server emits them, otherwise omit them (do not add copy for codes the client can never receive). Example additions:
+- [ ] **Step 4: U1 — missing inbox action-error codes (confirmed set).** In `lib/inbox/action-errors.ts`, add copy for the publish-path codes the inbox can surface that currently fall through to the generic message. The **confirmed** set the publish path emits (grep-verified in `lib/server/publishing.ts`) — add copy for exactly these:
 
 ```ts
-  review_changed: "The review changed after this draft was prepared. Re-verify the draft and try again.",
-  publish_in_progress: "This reply is already publishing. Wait a moment, then refresh.",
-  location_not_verified: "Google has not verified this location yet, so replies cannot be published.",
-  // verification_* : add specific copy per the exact codes the grep confirms.
+  review_changed: "The review changed after this draft was prepared. Re-verify the draft and try again.",       // publishing.ts:664
+  location_not_verified: "Google has not verified this location yet, so replies cannot be published.",           // publishing.ts:640
+  verification_failed: "We could not confirm this reply on Google. Try again shortly.",                          // publishing.ts:647
+  verification_required: "This reply needs re-verifying before it can be published. Re-verify and try again.",   // publishing.ts:654
+  stale_draft_evidence: "The review changed since this draft was verified. Re-verify the draft.",                // publishing.ts:682
 ```
 
-Add a test in the inbox action-errors component/unit test asserting each **confirmed** code maps to plain copy and never renders the raw code (`not.toContain(code)`), mirroring the M8 `console-action-errors` pattern.
+**Do NOT add `publish_in_progress`** — it is **not** emitted to the inbox publish path (confirmed absent). Keep the grep-and-add-only-confirmed discipline: if the grep surfaces a code not listed here, add it only with server evidence; never invent copy for a code the client cannot receive.
 
-- [ ] **Step 5: U2 — honest delete toast.** In `components/inbox/action-bar.tsx`, `onDelete` currently ignores the mutation result and hardcodes `"Published reply deleted"`. Route it through the mutation result the way `onPublish`/`onDecision` do, so the toast reflects the actual outcome:
+Add a test in the inbox action-errors unit/component test asserting each of the five codes above maps to plain copy and never renders the raw code (`not.toContain(code)`), mirroring the M8 `console-action-errors` pattern.
+
+- [ ] **Step 5: U2 — honest delete toast.** In `components/inbox/action-bar.tsx`, `onDelete` (lines 115-118) ignores the mutation result and hardcodes `toasts.add({ title: "Published reply deleted", type: "success" })`. The delete mutation (`executeReplyDelete`) returns **two** distinct statuses — `"deleted"` when a live reply was removed, and `"cancelled"` when the reply was never live (`lib/server/publishing.ts:1180`, emitted at `:1293`). So the hardcoded "deleted" copy is dishonest for the `cancelled` case. **First add explicit branches to `describeOutcomeToast`** (`lib/inbox/actions.ts:92`) — which today has NO `deleted`/`cancelled` case, so both currently fall to the default "Reply submitted. Its status will update shortly." (a worse regression than the hardcode):
+
+```ts
+// add to describeOutcomeToast's switch:
+    case "deleted":
+      return { title: "Reply deleted", type: "success" }
+    case "cancelled":
+      return { title: "Draft reply removed", type: "success" }
+```
+
+**Then** route `onDelete` through it:
 
 ```tsx
 const onDelete = async () => {
   try {
     const result = await remove.mutateAsync()
-    toasts.add(describeOutcomeToast(result.status))   // honest per-status copy, not a hardcoded string
+    toasts.add(describeOutcomeToast(result.status))   // "Reply deleted" (was live) / "Draft reply removed" (never live)
     setDeleteOpen(false)
   } catch (error) {
     toasts.add({ title: describeActionError(error), type: "error" })
@@ -794,9 +885,9 @@ const onDelete = async () => {
 }
 ```
 
-Ensure `describeOutcomeToast` covers the delete mutation's returned status values (grep the delete route/mutation for its `status`); add any missing status→copy branch there.
+Add a component test: a delete resolving `deleted` → "Reply deleted"; a delete resolving `cancelled` → "Draft reply removed" (never the default "status will update shortly" copy).
 
-> **CODE-WINS note:** the brief describes U2 as `onDelete` "says 'deleted' for status 'cancelled'". In the real code the delete handler has **no status branch at all** — it hardcodes the success copy and there is no `"cancelled"` status on this path. The honest fix is to honour the mutation result (above), not to special-case a literal "cancelled". Recorded for the reviewer.
+> **CODE-WINS note (corrected):** the brief's U2 framing was right — the delete path DOES return `"cancelled"` (never-live) as well as `"deleted"` (`publishing.ts:1180/1293`), and today's `onDelete` hardcodes "Published reply deleted" for both. Routing through `describeOutcomeToast(result.status)` requires **adding** the `deleted`/`cancelled` branches (the map lacks them, so a bare route-through would regress to the non-committal default). Both branches land in `lib/inbox/actions.ts`.
 
 - [ ] **Step 6: U3 — render `lastErrorCode` on the backfill card.** In `components/settings/backfill-card.tsx`, the `failed` status shows only a badge; `BackfillItem` carries `lastErrorCode` (`lib/api/backfill.ts:21`, `z.string().nullable()`). Surface a humanised reason for failed rows (never the raw code — map through the settings/backfill copy layer, or a small inline map; no env-flag/enum text). Example:
 
@@ -857,10 +948,12 @@ export default defineConfig({
 - Modify: `tests/components/console-clients.test.ts` (accept_invitation confirmation literal)
 - Verify: `tests/components/api-client.test.tsx` (malformed_response — already present)
 
-- [ ] **Step 1: Un-ignore + adapt `accessibility.spec.ts`.** Remove `"**/accessibility.spec.ts"` from `testIgnore`. The spec already sweeps the rebuilt routes (`/design-system`, `/inbox`, `/sign-in`, `/forgot-password`, `/reset-password`, `/invite/[token]`, `/home`, `/performance`, `/locations`, `/locations/[id]`, `/settings` + sub-routes) with the WCAG `wcag2a/2aa/21a/21aa/22aa` tag set and **dialogs open** (the delete-published-reply `alertdialog`, the mobile sidebar dialog, the expanded registration form). Adapt it so the sweep is meaningful post-rebuild:
-  - **Both themes:** extend the axe sweep to run in dark as well as light across the listed surfaces (today only the `/design-system` proof runs dark). Toggle the theme (the existing `Toggle theme` control) and re-run `expectAccessible` per surface, or parametrise the describe block over `["light","dark"]`. This is the §9 "dark-mode product scan" obligation.
+- [ ] **Step 1: Un-ignore + adapt `accessibility.spec.ts`, ENUMERATING the known drifts** (R7 — adapt to current copy/structure; do not "discover-and-weaken"). Remove `"**/accessibility.spec.ts"` from `testIgnore`. The spec already sweeps the rebuilt routes (`/design-system`, `/inbox`, `/sign-in`, `/forgot-password`, `/reset-password`, `/invite/[token]`, `/home`, `/performance`, `/locations`, `/locations/[id]`, `/settings` + sub-routes) with the WCAG `wcag2a/2aa/21a/21aa/22aa` tag set and **dialogs open** (the delete-published-reply `alertdialog`, the mobile sidebar dialog, the expanded registration form). Apply exactly these adaptations:
+  - **Drift (a) — delete-dialog copy.** The spec's assertion for the delete `alertdialog` expects "This removes the reply on Google. The review returns to the inbox as unreplied." but the **current** copy is "This removes your reply from Google. You can write a new one afterwards." (`components/inbox/action-bar.tsx:178-180`). Update the assertion to the current copy (and the title "Delete published reply?").
+  - **Drift (b) — pre-auth theming.** The pre-auth surfaces (`/sign-in`, `/forgot-password`, `/reset-password`, `/invite/[token]`) have **no** "Toggle theme" control, so the both-themes sweep cannot click a toggle there. Set the theme via `page.addInitScript` before navigation, writing the `next-themes` persisted value (default `localStorage` key `"theme"`; **confirm the `storageKey`/`attribute` in `components/theme-provider.tsx`** and match it), then run axe. On the authenticated dashboard surfaces the existing "Toggle theme" control is fine.
+  - **Both themes:** with (b) in place, run the axe sweep in dark as well as light across all listed surfaces (today only `/design-system` runs dark) — parametrise the describe over `["light","dark"]`. This is the §9 "dark-mode product scan" obligation.
   - **Label-in-Name:** `label-content-name-mismatch` is already active via the `wcag21a` tag (no rule pin needed) — reviving the sweep is what enforces it. Task 6 Step 1 (the composer `aria-label`) is exactly such a hit; confirm the sweep passes now that Task 6 landed.
-  - **Scope pre-existing hits:** run the revived sweep; for any surfaced violation that is a genuine pre-existing defect not in M9's fix scope, either fix it inline (preferred, if small) or record it explicitly as a scoped exclusion with a one-line justification and a carry-forward — do NOT silently `.disableRules` a WCAG A/AA rule to make the sweep pass.
+  - **Any further surfaced hit:** fix inline (preferred, if small) or record a scoped exclusion with a one-line justification + a carry-forward — **NEVER silently `.disableRules` a WCAG A/AA rule** to make the sweep pass.
 
 - [ ] **Step 2: Fix the stub-bridge `/accounts` tenant bug.** In `tests/e2e/helpers/stub-bridge.ts`, two handlers register the identical matcher `{ method: "GET", pathIncludes: "/accounts" }` — the approval-tenant handler (registered second) shadows the primary via last-registered-wins, so a primary-org `/accounts` list returns the approval account name. Scope each matcher to its tenant the way the sibling `locations` matchers already are (`pathIncludes: \`/${connection.googleAccountName}/…\``). Because the raw Google `accounts.list` path is `/accounts` (no account segment), discriminate on the connection instead — e.g. register the primary `/accounts` handler to return the primary account and the approval one to return the approval account, keyed by a per-connection request signal the stub can see, or (simplest) register a single `/accounts` handler that returns **both** accounts so either org resolves its own. Add/extend a bridge assertion that a primary-org accounts call resolves the primary account name.
 
@@ -923,7 +1016,7 @@ expect(ADMINISTRATION_CONFIRMATIONS.accept_invitation).toBe("accept_google_invit
   - **D3 auth enumeration** — login `email_not_verified` + 429 normalised to generic `invalid_credentials` (Task 2; unit + component tests).
   - **S3 security headers** — Referrer-Policy / X-Frame-Options / X-Content-Type-Options / conservative CSP present on every response, build clean, e2e console-clean (Task 3).
   - **Privacy PII-in-URL** — export is POST-only; no `?subject=` path remains (Task 4).
-  - **canRequestApproval / no reachable dead-end** — non-publishers in approval-required orgs can submit for approval (Task 2/D2… i.e. Task 5).
+  - **canRequestApproval / no reachable dead-end** — non-publishers in approval-required orgs can submit for approval (Task 5, D2).
   - **Legacy redirects** — guarded by the revived `routing.spec` (Task 8).
   - **A11y** — the repo-wide axe sweep (both themes, dialogs open, Label-in-Name) is green (Tasks 6 + 9).
   - **Quarantined tests** — `routing.spec` + `accessibility.spec` revived; `review-provider-races.spec` retired with recorded reason (Tasks 8/9).
@@ -949,25 +1042,28 @@ The §10 release bar, item by item:
 
 ## Self-review
 
-- **Spec coverage.** §10 release bar → Tasks 1–10 (every clause mapped in the exit criteria). §9 testing/a11y → `workers: 1` (Task 8), the per-role no-reachable-403 walk and publish/danger-zone journeys (already in `locations.spec`; SEC-1 adds the reject-authorisation integration test), the repo-wide axe sweep in both themes with dialogs open + Label-in-Name (Task 9), the parity oracle staying green (Tasks 1/4/5 re-run it). §8 auth "resend from the unconfirmed-login state" is in **direct tension with D3** — see the flag below. §3 capability additions → `canRequestApproval` (Task 5, the only new capability). §5 rendering model → **deferred (D1)**, recorded as the single tracked fast-follow, not built.
+- **Spec coverage.** §10 release bar → Tasks 1–10 (every clause mapped in the exit criteria). §9 testing/a11y → `workers: 1` (Task 8), the per-role no-reachable-403 walk and publish/danger-zone journeys (already in `locations.spec`; SEC-1 adds the reject-authorisation integration test), the repo-wide axe sweep in both themes with dialogs open + Label-in-Name (Task 9), the parity oracle staying green (Tasks 1/4/5 re-run it). §8 auth "resend from the unconfirmed-login state" was in tension with D3 — **resolved** in Task 2 Step 5 by restoring it as a generic, always-visible, enumeration-safe resend affordance (not tied to any error code). §3 capability additions → `canRequestApproval` (Task 5, the only new capability). §5 rendering model → **deferred (D1)**, recorded as the single tracked fast-follow, not built.
 - **Placeholder scan.** No "TBD"/"similar to Task N"/bare "add error handling". Each protected edit carries the exact reference implementation grounded in the real file (SEC-1 guard placement, the `mapLoginFailure`/`signInWithPassword` normalisation, the `headers()` block + CSP, the GET→POST route + client, the `canRequestApproval` computation). The a11y/token/UX nits each name the exact file + line + the exact change. Two step families are deliberately conditional and say so honestly: U1 (add inbox codes **only** for codes the grep confirms the server emits) and the Task 6 token nits (tokenise **only** where a matching `--nr-*` value exists, else leave with a note) — these are honest guards, not placeholders.
 - **Type consistency.** `ReviewCapabilities { canPublish, canEdit, canRequestApproval }` is identical across `lib/server/capabilities.ts`, the client `capabilitiesSchema` (`lib/api/reviews.ts`), `evaluateRequestApproval` (`lib/inbox/actions.ts`), and `ActionBar`. `requireLocationAccess(sql, session, locationId)` matches its definition. `exportPrivacyData(subject)` keeps its signature (only the transport changes). The genericLoginFailure error is `ApiError(401, "invalid_credentials", …)` — the same shape the wrong-password path already throws.
-- **Parity-oracle safety.** Task 1 adds a guard call (no schema/shape change); Task 4 moves a method (integration test updated); Task 5 adds a field to `ReviewCapabilities` returned whole by two routes (no route edit; the client schema + the `review-capabilities` integration expectations updated — test files, non-protected). Every other integration test is byte-identical. Re-run the full integration suite after Tasks 1/4/5.
+- **Parity-oracle safety.** Task 1 adds a guard call (no schema/shape change); Task 4 moves a method (integration test updated); Task 5 adds a field to `ReviewCapabilities` returned whole by two routes (no route edit; the client schema + the `review-capabilities` integration expectations updated — test files, non-protected). **`app/api/reviews/route.ts:139-142`'s inline `?? { canPublish, canEdit }` fallback stays BYTE-IDENTICAL** (R5 — it typechecks as an unannotated union and is unreachable; completing it would make a 6th protected edit). Every other integration test is byte-identical. Re-run the full integration suite after Tasks 1/4/5.
 
 - **Where CODE CONTRADICTED THE BRIEF (recorded for the controller):**
   1. **SEC-1 semantics.** `requireLocationAccess` throws **404 `review_not_found`** (not 403), and a member with **zero** assignments *passes*; only a member assigned **elsewhere** is blocked. The live gap is a **cross-location, same-org** reject (RLS scopes the org, not the member's location grants), so the pinned test is "member-assigned-elsewhere → 404" (today it succeeds), not "unassigned member". Owner/admin/assigned-member proceed unchanged.
-  2. **D3 ↔ spec §8 conflict.** Spec §8 asks for "resend-confirmation from the unconfirmed-login state", and the client maps `email_not_verified` → `action: "resend-confirmation"`. D3 (locked owner decision) normalises `email_not_verified` away from the login path, which **removes that resend-from-sign-in affordance**. The plan implements D3 (it supersedes) and keeps resend only on the post-registration `confirm-sent` stage. **Decision needed:** accept the drop, or add an always-visible enumeration-safe "Resend confirmation email" affordance on the sign-in surface (the resend endpoint never discloses account existence). Flagged.
+  2. **D3 ↔ spec §8 conflict — RESOLVED.** Spec §8 asks for "resend-confirmation from the unconfirmed-login state", and the client maps `email_not_verified` → `action: "resend-confirmation"`. D3 normalises `email_not_verified` away from the login path, which removes the error-tied resend. **Resolution (baked into Task 2 Step 5):** restore §8 with a GENERIC, always-visible "Resend confirmation email" affordance on the sign-in surface, not conditioned on any error code — enumeration-safe because `resendConfirmationEmail` swallows all provider errors and surfaces only a generic 429 (`password-auth.ts:317-350`). Satisfies both §8 and D3, strictly better than dropping.
   3. **D3 429 collapse.** Truly closing the timing channel means folding the login **429 into the generic 401** (losing explicit "too many attempts" feedback on sign-in). Sign-up / reset / resend 429s are **not** touched (they carry their own documented enumeration rationale in `password-auth.ts`). Flagged as a deliberate UX trade.
   4. **Redirects are not in `next.config`.** The four legacy redirects are `redirect()` server pages (already implemented; `/reviews` + `/connections` forward the query). So T3's `headers()` is purely additive and T8's `routing.spec` revival needs **no** redirect code — likely only seeded-session wiring for the shell assertions.
   5. **Privacy export card needs no change.** The brief says "the client (`lib/api/privacy.ts` + the compliance export card) repoints". Only `lib/api/privacy.ts` changes; `privacy-export-card.tsx` delegates to `exportPrivacyData(subject)` (unchanged signature) and is untouched. Also `tests/integration/routes/privacy-fulfilment.test.ts:295` **must** be updated (it currently hits `GET …?subject=`).
   6. **`canRequestApproval` needs a NEW org read.** `capabilities.ts` has **no** approval concept today; the real predicate lives in `lib/server/publishing.ts:687-696` and reads the org `approval_required` column. Encoded as `canEdit && !canPublish && approval_required`. Adding the field ripples to the client zod schema and the `review-capabilities` integration expectations (both non-protected) — a wider test touch than a pure server-only additive.
-  7. **U2 mismatch.** The inbox `onDelete` hardcodes `"Published reply deleted"` and has **no** status branch — there is no `"cancelled"` status on this path (contrary to the brief's framing). The honest fix routes the toast through `describeOutcomeToast(result.status)` like the other handlers.
+  7. **U2 — brief was RIGHT.** The delete path DOES return `"cancelled"` (never-live) as well as `"deleted"` (`publishing.ts:1180/1293`); `onDelete` hardcodes "Published reply deleted" for both. But `describeOutcomeToast` (`lib/inbox/actions.ts:92`) has **no** `deleted`/`cancelled` case, so a bare route-through would regress both to the non-committal default. The fix (Task 7 Step 5) **adds** `deleted` → "Reply deleted" and `cancelled` → "Draft reply removed" branches, then routes `onDelete` through `describeOutcomeToast(result.status)`.
   8. **Label-in-Name already active.** `label-content-name-mismatch` is enabled via the `wcag21a` tag in `accessibility.spec` (no rule pin to "add"); reviving the sweep is what enforces it. Fixing the composer `aria-label` (Task 6) removes the one obvious hit.
   9. **`repeated_enum` dead code** lives in `console-labels.ts` (the returned kind), not a branch in `typed-attribute-control.tsx` (which has no such branch). The fix + its test edit are in `console-labels.ts` / `console-labels.test.ts`.
 
-- **Ambiguities a plan-reviewer / controller must resolve before/at execution:**
-  1. **The §8-vs-D3 resend affordance** (recorded #2 above) — drop, or add a generic always-visible resend?
-  2. **CSP strictness (Task 3).** The proposed CSP retains `'unsafe-inline'` for script/style to avoid breaking Next 16's inline bootstrap + Tailwind. A nonce-based tightening is a follow-up. Confirm the conservative CSP is acceptable for the release bar, or require the nonce work now (larger scope).
-  3. **`approval_required` column reality (Task 5).** The plan reads `organisation.approval_required` per `publishing.ts`. Confirm that is the canonical org flag (vs `require_two_person_approval`, which is a distinct column also read on the publish path); if the org model differs, the capability read adjusts accordingly.
-  4. **U1 code set.** Which of `publish_in_progress` / `verification_*` / `location_not_verified` does the server actually emit to the inbox client? Only `review_changed` is confirmed. The implementer greps and adds copy only for real codes — confirm none are silently dropped that the product wants surfaced.
-  5. **Accessibility sweep pre-existing hits (Task 9).** The both-themes sweep may surface pre-existing WCAG A/AA violations outside M9's declared fix scope. Policy needed: fix-inline vs. scoped-exclusion-with-carry-forward. The plan forbids silently disabling a WCAG rule.
+- **Ambiguity resolutions (baked in by the plan-review — recorded for the executor):**
+  1. **§8-vs-D3 resend — RESOLVED:** add a generic, always-visible, enumeration-safe "Resend confirmation email" affordance on the sign-in surface (Task 2 Step 5), not tied to any error code. Restores §8 and satisfies D3.
+  2. **CSP — RESOLVED:** conservative-with-`'unsafe-inline'` is the right release-bar call (nonce-tightening is a documented follow-up), **with R1's `img-src` fix** — the Google media origins (`*.googleusercontent.com`, `*.ggpht.com`) MUST be on the allow-list or client-rendered thumbnails break, and the `media: []` e2e fixtures would NOT catch it (Task 3 adds a dedicated remote-thumbnail render test).
+  3. **`approval_required` — CONFIRMED canonical:** the plan reads `organisation.approval_required` (the column the publish path reads at `publishing.ts:602/693`); `require_two_person_approval` is a distinct, separately-read column and is not the `canRequestApproval` predicate.
+  4. **U1 code set — RESOLVED:** the confirmed inbox publish-path codes are `review_changed`, `location_not_verified`, `verification_failed`, `verification_required`, `stale_draft_evidence` (Task 7 Step 4). `publish_in_progress` is NOT emitted → omitted. Grep-and-add-only-confirmed discipline retained.
+  5. **`review-provider-races.spec` deletion — CONFIRMED correct** (guards the epoch/scope-token machine §6 removed).
+- **Residual judgement for the executor (not blockers):**
+  - **Accessibility sweep pre-existing hits (Task 9).** Beyond the two enumerated drifts (delete-dialog copy; pre-auth `addInitScript` theming), the both-themes sweep may surface further pre-existing WCAG A/AA violations. Policy: fix-inline (preferred) or a scoped exclusion + one-line justification + carry-forward — NEVER silently disable a WCAG A/AA rule.
+  - **CSP host confirmation (Task 3).** Verify the exact Google media hosts in the stored `thumbnailUrl` values and add any beyond `*.googleusercontent.com` / `*.ggpht.com`.
