@@ -71,7 +71,11 @@ export function InvitationsPanel({ actorRole }: { actorRole: MemberRole }) {
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    const parsed = invitationFormSchema.safeParse({ email, role, canPublish })
+    const parsed = invitationFormSchema.safeParse({
+      email,
+      role,
+      canPublish: role === "viewer" ? false : canPublish,
+    })
     if (!parsed.success) {
       setEmailError(parsed.error.issues[0]?.message ?? "Enter a valid email address.")
       return
