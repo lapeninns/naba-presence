@@ -1,7 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { MoreHorizontalIcon } from "lucide-react"
+import {
+  CheckIcon,
+  CloudUploadIcon,
+  MoreHorizontalIcon,
+  SendHorizonalIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react"
 
 import {
   AlertDialog,
@@ -139,7 +146,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     !review.capabilities.canPublish && review.capabilities.canRequestApproval
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
       {awaitingApproval ? (
         <>
           <Button
@@ -149,6 +156,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             title={approvalState.reason}
             onClick={() => setRejectOpen(true)}
           >
+            <XIcon aria-hidden />
             Reject reply
           </Button>
           <Button
@@ -157,6 +165,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             title={approvalState.reason}
             onClick={() => void onDecision("approve")}
           >
+            <CheckIcon aria-hidden />
             {approval.isPending ? "Working…" : "Approve reply"}
           </Button>
         </>
@@ -167,6 +176,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           title={requestApprovalState.reason}
           onClick={() => void onPublish()}
         >
+          <SendHorizonalIcon aria-hidden />
           {publish.isPending ? "Submitting…" : "Submit for approval"}
         </Button>
       ) : (
@@ -176,6 +186,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           title={publishState.reason}
           onClick={() => void onPublish()}
         >
+          <CloudUploadIcon aria-hidden />
           {publish.isPending ? "Publishing…" : "Publish reply"}
         </Button>
       )}
@@ -189,6 +200,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onClick={() => setDeleteOpen(true)}>
+              <Trash2Icon aria-hidden />
               Delete published reply
             </DropdownMenuItem>
           </DropdownMenuContent>

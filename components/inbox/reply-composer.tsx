@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { SparklesIcon } from "lucide-react"
 
 import {
   AlertDialog,
@@ -141,7 +142,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             setTone((value ?? "warm_professional") as typeof tone)
           }
         >
-          <SelectTrigger aria-label="Reply tone" className="w-52">
+          <SelectTrigger aria-label="Reply tone" className="h-7 w-44 text-ui">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -154,27 +155,37 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         </Select>
       </div>
 
-      <Textarea
-        id="reply-draft"
-        lang={review.detectedLanguageCode ?? undefined}
-        dir="auto"
-        value={body}
-        disabled={!canEdit}
-        aria-invalid={overLimit || undefined}
-        onChange={(event) => setBody(event.target.value)}
-        placeholder="Write a reply, or generate one to start."
-      />
-      <p className={overLimit ? "text-caption text-destructive" : "text-caption text-muted-foreground"}>
-        {bytes.toLocaleString("en-GB")} / 4,096 bytes
-      </p>
+      <div className="flex flex-col gap-1">
+        <Textarea
+          id="reply-draft"
+          lang={review.detectedLanguageCode ?? undefined}
+          dir="auto"
+          value={body}
+          disabled={!canEdit}
+          aria-invalid={overLimit || undefined}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a reply, or generate one to start."
+          className="min-h-28 bg-card"
+        />
+        <p
+          className={
+            overLimit
+              ? "text-right text-caption text-destructive tabular-nums"
+              : "text-right text-caption text-muted-foreground tabular-nums"
+          }
+        >
+          {bytes.toLocaleString("en-GB")} / 4,096 bytes
+        </p>
+      </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"
           size="sm"
           disabled={!canEdit || generateOrSave.isPending}
           onClick={onGenerateClick}
         >
+          <SparklesIcon aria-hidden />
           {generateOrSave.isPending ? "Working…" : generateLabel}
         </Button>
         <Button

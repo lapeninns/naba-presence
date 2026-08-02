@@ -3,6 +3,7 @@
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
 import { QUEUES, QUEUE_STATUS_MAP, type Queue } from "@/lib/inbox/url-state"
 import { formatNumber } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 const QUEUE_LABELS: Record<Queue, string> = {
   all: "All reviews",
@@ -38,24 +39,37 @@ function QueueTabs({
       value={queue}
       onValueChange={(value) => onQueueChange(value as Queue)}
     >
-      <TabsList>
-        {QUEUES.map((item) => (
-          <TabsTab
-            key={item}
-            value={item}
-            aria-label={`${QUEUE_LABELS[item]}, ${countFor(item, total, byStatus)}`}
-          >
-            <span>{QUEUE_LABELS[item]}</span>
-            {/* Explicit text-foreground (not the inherited muted-foreground):
-                a low-opacity muted-foreground tint pill blended against the
-                unselected tab's muted background falls just under the 4.5:1
-                AA contrast ratio (measured 4.44:1 light / 3.99:1 dark) —
-                text-foreground stays legible regardless of selection state. */}
-            <span className="rounded-full bg-muted-foreground/15 px-1.5 text-caption text-foreground tabular-nums">
-              {formatNumber(countFor(item, total, byStatus))}
-            </span>
-          </TabsTab>
-        ))}
+      <TabsList aria-label="Review queues">
+        {QUEUES.map((item) => {
+          const count = countFor(item, total, byStatus)
+          const selected = item === queue
+          return (
+            <TabsTab
+              key={item}
+              value={item}
+              aria-label={`${QUEUE_LABELS[item]}, ${count}`}
+            >
+              <span>{QUEUE_LABELS[item]}</span>
+              {/* Selected tab sits on bg-background, so the chip uses the
+                  accent tint (Google pale blue / dark tonal container) with
+                  accent-foreground text — a measured pair (5.57:1 light,
+                  9.82:1 dark). Unselected keeps the neutral muted-foreground
+                  tint with explicit text-foreground (the inherited
+                  muted-foreground on the tint pill measured 4.44:1, just
+                  under AA). */}
+              <span
+                className={cn(
+                  "rounded-(--nr-radius-tag) px-1.5 py-px text-caption tabular-nums",
+                  selected
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-muted-foreground/15 text-foreground"
+                )}
+              >
+                {formatNumber(count)}
+              </span>
+            </TabsTab>
+          )
+        })}
       </TabsList>
     </Tabs>
   )

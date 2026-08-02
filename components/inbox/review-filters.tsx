@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useId, useState } from "react"
+import { SearchIcon } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { MoreFiltersSheet } from "@/components/inbox/more-filters-sheet"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
+import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { LocationEntry } from "@/lib/api/locations"
 import type { InboxState } from "@/lib/inbox/url-state"
@@ -64,8 +66,30 @@ function ReviewFilters({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Search leads: it is the highest-frequency refinement in a queue
+          workflow, so it takes the full row; pickers line up beneath. */}
+      <div className="relative">
+        <SearchIcon
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <label htmlFor={searchId} className="sr-only">
+          Search reviews
+        </label>
+        <Input
+          id={searchId}
+          type="search"
+          role="searchbox"
+          aria-label="Search reviews"
+          value={searchDraft}
+          placeholder="Search review text, reviewer, location…"
+          onChange={(event) => setSearchDraft(event.target.value)}
+          className="h-8 pl-9 text-ui shadow-none"
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-48 flex-1">
+        <div className="min-w-44 flex-1">
           <label htmlFor={locationId} className="sr-only">
             Filter by location
           </label>
@@ -88,22 +112,6 @@ function ReviewFilters({
           </Combobox>
         </div>
 
-        <div className="min-w-40 flex-1">
-          <label htmlFor={searchId} className="sr-only">
-            Search reviews
-          </label>
-          <input
-            id={searchId}
-            type="search"
-            role="searchbox"
-            aria-label="Search reviews"
-            value={searchDraft}
-            placeholder="Search reviews"
-            onChange={(event) => setSearchDraft(event.target.value)}
-            className="h-8 w-full rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
-          />
-        </div>
-
         <Select
           value={state.ratings.length === 1 ? String(state.ratings[0]) : "all"}
           onValueChange={(value: string | null) =>
@@ -111,7 +119,7 @@ function ReviewFilters({
           }
           items={RATING_ITEMS}
         >
-          <SelectTrigger aria-label="Filter by rating" className="w-36">
+          <SelectTrigger aria-label="Filter by rating" className="w-32">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -131,7 +139,7 @@ function ReviewFilters({
           }
           items={SORT_ITEMS}
         >
-          <SelectTrigger aria-label="Sort reviews" className="w-40">
+          <SelectTrigger aria-label="Sort reviews" className="w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

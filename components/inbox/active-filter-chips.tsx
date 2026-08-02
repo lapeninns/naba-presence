@@ -86,11 +86,11 @@ function ActiveFilterChips({
   if (!hasActiveFilters(state)) return null
   const chips = buildChips(state, locations)
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
       {chips.map((chip) => (
         <span
           key={chip.removeLabel}
-          className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-caption"
+          className="inline-flex h-6 items-center gap-0.5 rounded-(--nr-radius-pill) border border-border/70 bg-muted/60 pr-1 pl-2.5 text-caption text-foreground"
         >
           {chip.label}
           <Button

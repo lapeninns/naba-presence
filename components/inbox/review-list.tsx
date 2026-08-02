@@ -1,8 +1,11 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { ImageIcon, ReplyIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { StarRating } from "@/components/inbox/star-rating"
 import { formatDate } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { cn } from "@/lib/utils"
@@ -13,8 +16,22 @@ function initials(name: string | null): string {
   return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?"
 }
 
-function stars(rating: number | null): string {
-  return rating === null ? "No rating" : `${rating} star${rating === 1 ? "" : "s"}`
+const WORKFLOW_BADGE: Record<
+  string,
+  {
+    label: string
+    variant: "success" | "warning" | "info" | "secondary" | "destructive"
+  }
+> = {
+  new: { label: "New", variant: "info" },
+  drafted: { label: "Drafted", variant: "secondary" },
+  verified: { label: "Verified", variant: "success" },
+  awaiting_approval: { label: "Needs approval", variant: "warning" },
+  publish_requested: { label: "Publishing", variant: "warning" },
+  published: { label: "Published", variant: "success" },
+  rejected: { label: "Rejected", variant: "destructive" },
+  failed: { label: "Failed", variant: "destructive" },
+  escalated: { label: "Escalated", variant: "warning" },
 }
 
 function ReviewList({
@@ -87,6 +104,11 @@ function ReviewList({
           // Roving tabindex: the selected row is the tab stop; if nothing is
           // selected the first row is, so the list is reachable by keyboard.
           const isTabStop = selected || (activeIndex === -1 && index === 0)
+          const displayName = review.reviewer.isAnonymous
+            ? "Anonymous"
+            : (review.reviewer.displayName ?? "Anonymous")
+          const badge = WORKFLOW_BADGE[review.workflowStatus]
+
           return (
             <li key={review.id}>
               <button
@@ -97,38 +119,71 @@ function ReviewList({
                 onClick={() => onSelect(review.id)}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  "flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors duration-(--nr-duration-fast) focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
-                  selected ? "bg-muted" : "hover:bg-muted/60"
+                  "relative flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors duration-(--nr-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
+                  selected
+                    ? // Accent tint (Google pale blue) is the sanctioned
+                      // selection surface; the 2px leading bar in
+                      // accent-foreground disambiguates selection from hover
+                      // without relying on colour alone.
+                      "bg-accent before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent-foreground/70 before:content-['']"
+                    : "hover:bg-muted/60"
                 )}
               >
-                <Avatar>
-                  <AvatarFallback>
-                    {initials(review.reviewer.displayName)}
-                  </AvatarFallback>
+                <Avatar className="mt-0.5">
+                  <AvatarFallback>{initials(displayName)}</AvatarFallback>
                 </Avatar>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex items-center justify-between gap-2">
+
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-ui font-medium">
-                      {review.reviewer.isAnonymous
-                        ? "Anonymous"
-                        : (review.reviewer.displayName ?? "Anonymous")}
+                      {displayName}
                     </span>
-                    <span className="shrink-0 text-caption text-muted-foreground">
+                    <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
                       {formatDate(review.updateTime, timezone)}
                     </span>
                   </span>
-                  <span className="flex items-center gap-2 text-caption text-muted-foreground">
-                    <span aria-label={stars(review.rating)}>
-                      {review.rating === null ? "—" : "★".repeat(review.rating)}
+
+                  <span className="flex items-center gap-1.5">
+                    <StarRating rating={review.rating} />
+                    <span
+                      aria-hidden
+                      className="text-caption text-muted-foreground/60"
+                    >
+                      ·
                     </span>
-                    <span className="truncate">{review.location.name}</span>
+                    <span className="truncate text-caption text-muted-foreground">
+                      {review.location.name}
+                    </span>
                   </span>
+
                   <span
                     lang={review.detectedLanguageCode ?? undefined}
                     dir="auto"
                     className="line-clamp-2 text-caption text-muted-foreground"
                   >
                     {review.text ?? "No review text"}
+                  </span>
+                </span>
+
+                <span className="flex shrink-0 flex-col items-end gap-1.5">
+                  {badge ? (
+                    <Badge variant={badge.variant}>{badge.label}</Badge>
+                  ) : null}
+                  <span className="flex items-center gap-1.5">
+                    {review.hasMedia ? (
+                      <ImageIcon
+                        role="img"
+                        aria-label="Has photos"
+                        className="size-3.5 text-muted-foreground"
+                      />
+                    ) : null}
+                    {review.replyStatus === "published" ? (
+                      <ReplyIcon
+                        role="img"
+                        aria-label="Reply published"
+                        className="size-3.5 text-success"
+                      />
+                    ) : null}
                   </span>
                 </span>
               </button>

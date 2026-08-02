@@ -2,7 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  ArrowLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  MessagesSquareIcon,
+} from "lucide-react"
 
 import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { ReviewFilters } from "@/components/inbox/review-filters"
@@ -37,6 +43,11 @@ import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 
+// Page-based pagination over the loaded rows: 7 per page, Prev/Next controls.
+// The API is cursor-based, so "next page" past the loaded rows triggers one
+// fetchNextPage per click; already-loaded pages page locally.
+const PAGE_SIZE = 7
+
 function InboxViewInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -58,6 +69,43 @@ function InboxViewInner() {
   })
 
   const reviews = flattenReviews(reviewsQuery.data)
+
+  // Current page (0-based). Resets when the filter content changes
+  // (stringified — `filters` object identity also changes on selection, which
+  // must NOT bounce the user back to page 1).
+  const [page, setPage] = useState(0)
+  const filtersKey = JSON.stringify(filters)
+  const [prevFiltersKey, setPrevFiltersKey] = useState(filtersKey)
+  if (prevFiltersKey !== filtersKey) {
+    setPrevFiltersKey(filtersKey)
+    setPage(0)
+  }
+
+  const pageCount = Math.max(1, Math.ceil(reviews.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pageReviews = reviews.slice(
+    currentPage * PAGE_SIZE,
+    currentPage * PAGE_SIZE + PAGE_SIZE
+  )
+  const hasPrevPage = currentPage > 0
+  const hasNextPage = currentPage < pageCount - 1 || !!reviewsQuery.hasNextPage
+
+  const onPrevPage = useCallback(() => {
+    setPage((p) => Math.max(0, p - 1))
+  }, [])
+  const onNextPage = useCallback(() => {
+    const next = currentPage + 1
+    // Crossing into rows the client doesn't have yet: fetch the API's next
+    // cursor page (one page of 50 covers ~7 UI pages, so this is rare).
+    if (
+      next * PAGE_SIZE >= reviews.length &&
+      reviewsQuery.hasNextPage &&
+      !reviewsQuery.isFetchingNextPage
+    ) {
+      void reviewsQuery.fetchNextPage()
+    }
+    setPage(next)
+  }, [currentPage, reviews.length, reviewsQuery])
 
   const updateState = useCallback(
     (partial: Partial<InboxState>, mode: "replace" | "push") => {
@@ -191,7 +239,11 @@ function InboxViewInner() {
       )
     }
     return (
-      <ReviewList reviews={reviews} selectedId={state.selected} onSelect={onSelect} />
+      <ReviewList
+        reviews={pageReviews}
+        selectedId={state.selected}
+        onSelect={onSelect}
+      />
     )
   }
 
@@ -213,13 +265,15 @@ function InboxViewInner() {
 
   return (
     <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
+      {/* Queue pane: solid card (design-system hierarchy: lists stay solid,
+          not glass), shadow elevates it off the tinted page background. */}
       <div
         className={cn(
-          "min-h-0 flex-col gap-3 overflow-hidden rounded-(--nr-radius-card) border border-border bg-card",
+          "min-h-0 flex-col overflow-hidden rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card)",
           mobilePane === "detail" ? "hidden xl:flex" : "flex"
         )}
       >
-        <div className="flex flex-col gap-3 border-b border-border/60 p-4">
+        <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/40 p-4">
           <QueueTabs
             queue={state.queue}
             total={countsQuery.data?.total ?? 0}
@@ -234,25 +288,41 @@ function InboxViewInner() {
           />
         </div>
         {renderList()}
-        {reviewsQuery.hasNextPage ? (
-          <div className="border-t border-border/60 p-3">
+        {!reviewsQuery.isPending && !reviewsQuery.isError && reviews.length > 0 ? (
+          <nav
+            aria-label="Review pages"
+            className="flex items-center justify-between gap-2 border-t border-border/60 px-4 py-2.5"
+          >
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="w-full"
-              disabled={reviewsQuery.isFetchingNextPage}
-              onClick={() => void reviewsQuery.fetchNextPage()}
+              disabled={!hasPrevPage}
+              onClick={onPrevPage}
             >
-              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more reviews"}
+              <ChevronLeftIcon aria-hidden />
+              Previous
             </Button>
-          </div>
+            <span className="text-caption text-muted-foreground tabular-nums">
+              Page {currentPage + 1}
+              {reviewsQuery.hasNextPage ? "" : ` of ${pageCount}`}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!hasNextPage || reviewsQuery.isFetchingNextPage}
+              onClick={onNextPage}
+            >
+              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Next"}
+              <ChevronRightIcon aria-hidden />
+            </Button>
+          </nav>
         ) : null}
       </div>
 
       <section
         aria-label="Selected review"
         className={cn(
-          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card xl:flex xl:flex-col",
+          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card) xl:flex xl:flex-col",
           mobilePane === "detail" ? "flex flex-col" : "hidden xl:flex"
         )}
       >
@@ -260,13 +330,14 @@ function InboxViewInner() {
           <>
             {/* Mobile-only return-to-list affordance; Back also works because
                 selection was pushed (spec §6). */}
-            <div className="border-b border-border/60 p-3 xl:hidden">
+            <div className="border-b border-border/60 p-2 xl:hidden">
               <Button
                 ref={backButtonRef}
                 variant="ghost"
                 size="sm"
                 onClick={onBackToList}
               >
+                <ArrowLeftIcon aria-hidden />
                 Back to reviews
               </Button>
             </div>
@@ -283,9 +354,14 @@ function InboxViewInner() {
             </DetailErrorBoundary>
           </>
         ) : (
-          <p className="p-6 text-ui text-muted-foreground">
-            Select a review to see the full conversation.
-          </p>
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+            <span className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <MessagesSquareIcon aria-hidden className="size-5" />
+            </span>
+            <p className="text-ui text-muted-foreground">
+              Select a review to see the full conversation.
+            </p>
+          </div>
         )}
       </section>
     </div>

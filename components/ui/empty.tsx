@@ -5,11 +5,13 @@ function Empty({
   description,
   action,
   className,
+  children,
 }: {
   title: string
   description?: string
   action?: React.ReactNode
   className?: string
+  children?: React.ReactNode
 }) {
   return (
     <div
@@ -19,6 +21,7 @@ function Empty({
         className
       )}
     >
+      {children}
       <p className="text-title font-semibold">{title}</p>
       {description ? (
         <p className="max-w-sm text-ui text-muted-foreground">{description}</p>
