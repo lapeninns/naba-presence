@@ -41,17 +41,24 @@ export function OAuthReturn() {
   const identityRef = useRef<string | null>(null)
   const errorMessage = google === "error" ? describeOAuthStatus(status) : null
   useEffect(() => {
+    // Nothing to process on the settled pass (router.replace below strips the
+    // ?google= query, which re-renders with google === null) or for any other
+    // unrecognised value — no-op, so a previously-shown error stays visible
+    // until unmount / Try again.
+    if (google !== "connected" && google !== "error") return
     if (identityRef.current === identity) return
     identityRef.current = identity
-    setError(errorMessage)
+    // Single unconditional setState call, directly gated by the ref-guard
+    // above (react-hooks/set-state-in-effect only recognises a setState call
+    // as ref-guarded when it's the immediate, unconditional statement after
+    // the ref check — see the convention in components/locations/hours-tab.tsx —
+    // so the connected/error split is expressed as a value, not a nested `if`
+    // wrapping the call).
+    setError(google === "error" ? errorMessage : null)
     if (google === "connected") {
       toast.add({ title: "Google Business Profile connected", type: "success" })
-      router.replace("/settings/connections")
-    } else if (google === "error") {
-      // Keep the message; strip the query so a refresh doesn’t re-toast/re-error.
-      router.replace("/settings/connections")
     }
-    // Only react to the raw query values.
+    router.replace("/settings/connections")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, google, status, errorMessage])
 

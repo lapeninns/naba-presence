@@ -173,7 +173,7 @@ export function PolicyForm({ role }: { role: string | null }) {
           <span>Require a second person to approve each reply</span>
         </label>
       ) : (
-        <div className="flex flex-col gap-2 rounded-(--nr-radius-md) border border-warning/40 bg-warning/5 p-3">
+        <div className="flex flex-col gap-2 rounded-(--nr-radius-control) border border-warning/40 bg-warning/5 p-3">
           <p className="text-ui font-medium">Replies will publish without approval</p>
           {query.data?.directPublishConsentAt ? (
             <p className="text-caption text-muted-foreground">

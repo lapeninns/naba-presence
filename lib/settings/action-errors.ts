@@ -4,6 +4,7 @@ const COPY: Record<string, string> = {
   // Settings / policy
   direct_publish_consent_required: "An owner must confirm direct publishing before approval can be turned off.",
   organisation_not_found: "We couldn’t find this organisation’s settings.",
+  permission_denied: "You do not have permission to do this for this organisation.",
   // Team
   owner_role_required: "Only an owner can grant, change or remove the owner role.",
   last_owner: "You can’t remove or demote the last owner. Make someone else an owner first.",
