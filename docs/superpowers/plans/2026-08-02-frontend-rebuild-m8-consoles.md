@@ -30,7 +30,7 @@
 - **D1 — ZERO protected footprint; reuse `canEditCanonical`, add no capability.** All three routes gate mutations with `requireRole(["owner","admin"])` (verified: `business-information/route.ts` PATCH, `industry/route.ts` GET+PATCH, `administration/route.ts` GET+POST+PATCH), and their services additionally require `linked.canPublish` (which is unconditionally `true` for owner/admin per `lib/server/capabilities.ts`). So `useLocationCapabilities().canEditCanonical` (`role ∈ {owner,admin}`, from the M5-sanctioned route) is the **exact functional mirror** of the console mutation guard. Use it for edit-gating and tab-visibility; use `canPublish` + each GET's `writesEnabled` for the publish/Google-writes gate. **Do NOT add a new server capability** — it would be byte-identical enforcement to `canEditCanonical`, a redundant protected edit. Every task's Files list must touch NO protected path. `lib/domain/business-information.ts` is imported, not edited. (A purpose-named `consoleCapabilities` was considered and rejected as redundant — recorded in Self-review.)
 - **D2 — Client-fetch; §5 server-hydration DEFERRED to M9** (consistent with M3–M7). NOTE: these GETs fan out to many slow Google calls (business-info: 3 parallel; industry: 7; administration: 7), so every console uses the M5 `TabLoading` skeleton and per-section pending states. Server-prefetch would improve perceived latency but is deferred with the rest of §5 as a carry-forward.
 - **D3 — Three new location tabs.** Append `business-information` / `industry` / `administration` to `components/locations/location-tab-nav.tsx` (7 → 10 tabs) with human labels **"Business info" / "Industry" / "Administration"** (matching the exact strings the nav test's not-present set already uses), plus `app/(dashboard)/locations/[id]/{business-information,industry,administration}/page.tsx`. **EDIT `tests/components/location-tab-nav.test.tsx` IN PLACE** — move those three labels from the "gone" set into the present set, update the count 7 → 10, and add a `canManageConsoles={false}` case asserting Industry + Administration are hidden while Business info stays. Do NOT append a second test file.
-- **D4 — Tab visibility (no reachable 403, §9).** Industry and Administration GET are `requireRole(["owner","admin"])` → they 403 (`permission_denied`) for members/viewers. Their tabs are therefore **hidden** for non-owner/admin, gated on `canEditCanonical` (which the workspace derives from `role`). Belt-and-braces: the industry/administration tab components also short-circuit to a gated `Empty` and set `enabled: canEditCanonical` on their query, so even a direct URL never fires the 403 GET. Business info GET is `requireSession` (any role reads) → its tab shows for **all** roles, read-only, with edit gated on `canEditCanonical`.
+- **D4 — Tab visibility (no reachable 403, §9).** Industry and Administration GET are `requireRole(["owner","admin"])` → they 403 (`permission_denied`) for members/viewers. Their tabs are therefore **hidden** for non-owner/admin, gated on `canEditCanonical` (which the workspace derives from `role`). Belt-and-braces: the industry/administration tab components also short-circuit to a gated `Empty` and set `enabled: caps?.canEditCanonical === true` on their query (caps is `undefined` while the capability query is pending, so the optional-chain + explicit `=== true` keeps the GET disabled until caps resolve rather than throwing), so even a direct URL never fires the 403 GET. Business info GET is `requireSession` (any role reads) → its tab shows for **all** roles, read-only, with edit gated on `canEditCanonical`.
 - **D5 — Business info = the Google-direct full-field editor** (§8: identity / contact / categories / typed attributes + diff-vs-Google preview + update-mask-from-TOUCHED-fields, silently — "users never see masks or JSON"). It **coexists** with the M5 Profile tab (the NabaPresence canonical bidirectional editor). They overlap on name / description / phone / website / address but are different mechanisms (Profile = canonical revision-pinned two-way sync; Business info = Google-direct hash-pinned one-way push of the full field set). This presentation overlap is FLAGGED for the owner in Self-review; proceed presenting Business info as the Google-direct editor with clear section framing. The PATCH payload is `businessInformationPayloadSchema.strict()` — so the payload is **built fresh from touched known fields** (only masked fields present, per `assertBusinessInformationMask`), NOT a spread of the raw Google record. Hash-pin every write with `expectedGoogleHash` (`locationHash` for `update_location`, `attributesHash` for `update_attributes`); on `409 business_information_stale` / `attributes_stale` → invalidate + refetch + re-diff.
 - **D6 — Industry: typed editors** for lodging / business-calls / healthcare. Render each sub-resource's `{ data, error }` independently through `SectionPanel` (a failing sub-resource shows its own honest panel, not a whole-tab error). The PATCH payload is a **freeform `z.record`** (unlike business-info's strict payload), so follow the menu-editor precedent — spread-and-preserve unknown keys, edit only known leaves. Mask auto-computed from touched top-level keys; per-op confirmation `"publish_industry_data_to_google"`; `update_business_calls` may mask **only** `callsState` (else `422 business_calls_mask_invalid`). Categories do NOT live here (they are a Business-info mask) — industry is lodging / business-calls / healthcare only.
 - **D7 — Administration: read + non-destructive + danger zone.** Read: voice-of-merchant / verification state / location+account admins / invitations. Non-destructive: start/complete verification, accept/decline invitation, create/update admin, accept Google's suggested update. **DANGER ZONE** = `delete_admin`, `transfer_location` (with an explicit access-LOSS warning — it moves the Google location to another Google account and the app may lose management access; there is no app-side last-owner guard), `delete_location` (permanent Google deletion). Every danger-zone action requires BOTH the backend's exact confirmation literal (from `CONFIRMATIONS[operation]`) AND a UI typed-name confirmation (type the location's name to enable the destructive button) via the new `DangerZoneDialog`. All danger-zone actions gate on `canEditCanonical` (owner/admin — matching the backend; NOT owner-only, per §11 no-backend-change). The "ownership transfer semantics" ambiguity (Google `transfer_location` moves the whole location to another account vs. promoting an admin to `PRIMARY_OWNER`) is FLAGGED for the owner; proceed with `transfer_location` (the `/administration` op).
@@ -68,7 +68,7 @@ All three routes resolve the Google location via `resolveGbpLocationContext` (`r
     | `accept_google_update` | `accept_google_suggested_update` | |
   - Payloads: `create_admin { scope?:"account"|location, admin, role, account? }`; `update_admin { name, role }`; `delete_admin { name }`; `accept/decline_invitation { name }`; `transfer_location { destinationAccount }`; `delete_location {}`; `start_verification {...}`; `complete_verification { name, pin }`; `accept_google_update { updateMask, location }`. Errors: `403 publish_not_allowed`; `503 google_writes_paused`; `<operation>_failed`.
 
-**Client-safe imports (consumption, not edits):** `businessInformationPayloadSchema`, `googleAttributeSchema`, `BUSINESS_INFORMATION_UPDATE_MASKS`, `assertBusinessInformationMask` from `@/lib/domain/business-information` (pure zod). `useLocationCapabilities` from `@/lib/queries/use-location-capabilities`; `describeActionError`, `isNotLinkedError` from `@/lib/locations/action-errors`; `editDisabledReason`, `publishDisabledReason` from `@/lib/locations/gating`; `OverwriteConfirmDialog`, `CanonicalDiff`, `GateNote`, `TabError`, `TabLoading` from `components/locations/*`.
+**Client-safe imports (consumption, not edits):** `businessInformationPayloadSchema`, `googleAttributeSchema`, `BUSINESS_INFORMATION_UPDATE_MASKS`, `assertBusinessInformationMask` from `@/lib/domain/business-information` (pure zod). `useLocationCapabilities` from `@/lib/queries/use-location-capabilities`; `describeActionError`, `isNotLinkedError` from `@/lib/locations/action-errors`; `editDisabledReason`, `publishDisabledReason` from `@/lib/locations/gating`; `GateNote` from `@/components/locations/publish-gate` (prop `{ reason: string | null }`); `CanonicalDiff`, `TabError`, `TabLoading` from `components/locations/*`; `OverwriteConfirmDialog` (`@/components/locations/overwrite-confirm-dialog`) is available as the string-description confirm **precedent** but is NOT used to host a diff table (it has no children slot — see Task 3).
 
 **Cross-cutting error envelope:** every non-2xx returns `{ error: string (code), message: string, details?: unknown }`; `apiFetch` rethrows it as `ApiClientError { status, code, message, details }`. `describeActionError(code)` maps to copy; the raw `code`/`message` is never rendered. `apiError` emits `invalid_request` (400) with `details = ZodError.issues` for malformed bodies.
 
@@ -83,7 +83,7 @@ lib/locations/
   forms/industry.ts                   NEW (Task 1): client-safe lodging/business-calls typed leaves + touched-mask helper
   forms/administration.ts             NEW (Task 1): client-safe create/update-admin + transfer payload schemas
   console-labels.ts                   NEW (Task 1): humanisation maps (gcid categories, admin roles, valueTypes, serviceArea/openInfo/relation/callsState/verification enums)
-  action-errors.ts                    MODIFY (Task 1): add all M8 codes + the "_failed" suffix branch
+  action-errors.ts                    MODIFY (Task 1): add all M8 codes (no code branch)
 lib/queries/
   keys.ts                             MODIFY (Task 1): locationBusinessInformation/Industry/Administration + businessInformationMetadata keys
   use-location-business-information.ts NEW (Task 1): useBusinessInformation(id) + useBusinessInformationMetadata(id,type,query)
@@ -132,7 +132,7 @@ playwright.config.ts                   MODIFY (Task 8): un-ignore gbp-management
 
 **Files:**
 - Create: `lib/api/location-business-information.ts`, `lib/api/location-industry.ts`, `lib/api/location-administration.ts`, `lib/locations/forms/industry.ts`, `lib/locations/forms/administration.ts`, `lib/locations/console-labels.ts`, `lib/queries/use-location-business-information.ts`, `lib/queries/use-location-industry.ts`, `lib/queries/use-location-administration.ts`
-- Modify: `lib/locations/action-errors.ts` (add M8 codes + `_failed` branch), `lib/queries/keys.ts` (four keys)
+- Modify: `lib/locations/action-errors.ts` (add M8 codes), `lib/queries/keys.ts` (four keys)
 - Test: `tests/components/console-clients.test.ts`, `tests/components/console-labels.test.ts`, `tests/components/console-action-errors.test.ts`
 
 **Interfaces:**
@@ -147,7 +147,7 @@ playwright.config.ts                   MODIFY (Task 8): un-ignore gbp-management
   - `lib/queries/use-location-business-information.ts`: `useBusinessInformation(id)`; `useBusinessInformationMetadata(id, type: "categories"|"chains", query: string)`.
   - `lib/queries/use-location-industry.ts`: `useIndustry(id, options?: { enabled?: boolean })`.
   - `lib/queries/use-location-administration.ts`: `useAdministration(id, options?: { enabled?: boolean })`.
-  - `lib/locations/action-errors.ts`: unchanged signature `describeActionError(error): string` — now covers M8 codes + any `<op>_failed`.
+  - `lib/locations/action-errors.ts`: unchanged signature `describeActionError(error): string` — now covers the M8 codes (the existing `status >= 500` fallback handles real 5xx failures).
   - `lib/queries/keys.ts`: `locationBusinessInformation(id)`, `locationIndustry(id)`, `locationAdministration(id)`, `businessInformationMetadata(id, type, query)`.
 
 - [ ] **Step 1: Add the query keys**
@@ -237,15 +237,10 @@ describe("describeActionError — M8 console codes", () => {
       expect(copy).not.toContain(code)
     }
   })
-  it("maps any dynamic <operation>_failed code to one honest line", () => {
-    for (const code of ["update_lodging_failed", "delete_admin_failed", "transfer_location_failed", "delete_location_failed"]) {
-      const copy = describeActionError(new ApiClientError(500, code, "raw"))
-      expect(copy).toMatch(/couldn.t|could not|try again/i)
-      expect(copy).not.toContain(code)
-    }
-  })
 })
 ```
+
+> **Why no `<op>_failed` test (plan-review REV-2):** the services record `${operation}_failed` only as the audit/settle `errorCode`; the re-thrown error reaches the client as its ORIGINAL code (or `internal_error`/500), so the client never receives a `<op>_failed` code. The pre-existing `status >= 500` fallback (see below) already returns honest "…Try again shortly." copy for those real 5xx failures — no dedicated branch or test is warranted.
 
 - [ ] **Step 3: Run to verify failure** — `pnpm exec vitest run tests/components/console-labels.test.ts tests/components/console-action-errors.test.ts --project components`. Expected FAIL (modules/codes missing).
 
@@ -336,7 +331,7 @@ export function verificationMethodLabel(method: string): string {
 
 - [ ] **Step 5: Extend `lib/locations/action-errors.ts`**
 
-Add the M8 entries to the `COPY` map and a `_failed`-suffix branch to `describeActionError` (before the generic fallback). Append inside `COPY`:
+Add ONLY the M8 entries to the `COPY` map (no code branch). The existing `describeActionError` body is unchanged — its `status >= 500` fallback already covers the real 5xx failures the industry/administration routes surface (the `${operation}_failed` string is a server-side audit `errorCode` that never reaches the client — plan-review REV-2). Append inside `COPY`:
 
 ```ts
   // M8 consoles — business information (Google-direct)
@@ -349,18 +344,6 @@ Add the M8 entries to the `COPY` map and a `_failed`-suffix branch to `describeA
   business_calls_mask_invalid: "Only the calls setting can be changed here.",
   search_query_required: "Enter a search term.",
   administration_confirmation_invalid: "We couldn't confirm that action. Refresh and try again.",
-```
-
-Then, in `describeActionError`, after the `error.status >= 500` branch and before `return "Something went wrong…"`, add:
-
-```ts
-    // Industry/administration surface dynamic per-operation codes like
-    // "update_lodging_failed" / "delete_admin_failed" / "transfer_location_failed".
-    // The universe is open (it is `${operation}_failed`), so a suffix branch keeps
-    // the copy honest without leaking the code.
-    if (error.code.endsWith("_failed")) {
-      return "We couldn't complete that on Google. Try again shortly."
-    }
 ```
 
 - [ ] **Step 6: Run humanise + action-error tests to green** — `pnpm exec vitest run tests/components/console-labels.test.ts tests/components/console-action-errors.test.ts --project components`. Expected PASS.
@@ -791,7 +774,7 @@ export function useAdministration(id: string, options?: { enabled?: boolean }) {
 > **No protected-path edit.** All files under `components/locations/` and `tests/`.
 
 **Files:**
-- Create: `components/locations/section-panel.tsx`, `components/locations/google-diff.tsx`, `components/locations/danger-zone-dialog.tsx`, `components/locations/admins-table.tsx`, `components/locations/typed-attribute-control.tsx`
+- Create: `tests/components/helpers/render.tsx` (the shared `renderWithProviders` harness Tasks 3–6 import), `components/locations/section-panel.tsx`, `components/locations/google-diff.tsx`, `components/locations/danger-zone-dialog.tsx`, `components/locations/admins-table.tsx`, `components/locations/typed-attribute-control.tsx`
 - Test: `tests/components/section-panel.test.tsx`, `tests/components/google-diff.test.tsx`, `tests/components/danger-zone-dialog.test.tsx`, `tests/components/typed-attribute-control.test.tsx`
 
 **Interfaces:**
@@ -802,6 +785,37 @@ export function useAdministration(id: string, options?: { enabled?: boolean }) {
   - `DangerZoneDialog({ open, onOpenChange, title, description, expectedName, confirmLabel, pending, onConfirm }: { ...; expectedName: string; ... })` — an `AlertDialog` whose destructive button stays disabled until the typed name === `expectedName` (case-insensitive, trimmed).
   - `AdminsTable({ admins, invitations }: { admins: Array<{ name?: string; admin?: string; role?: string; pendingInvitation?: boolean }>; invitations: Array<{ name?: string; role?: string; targetType?: string }>; renderActions?: (admin) => React.ReactNode })` — humanised-role table.
   - `TypedAttributeControl({ metadata, attribute, disabled, onChange }: { metadata: AttributeMetadata; attribute: GoogleAttribute | undefined; disabled: boolean; onChange: (next: GoogleAttribute) => void })` — BOOL → `Checkbox`, ENUM → `Select`, URL → `Input`; anything else → read-only "not editable here yet".
+  - `tests/components/helpers/render.tsx`: `renderWithProviders(ui: React.ReactElement)` — the console-tab test harness.
+
+- [ ] **Step 0: Create the shared render harness (plan-review REV-1)**
+
+`renderWithProviders` does NOT exist yet — the M4/M5 tab tests each declare a per-file local `renderTab()` and `vi.mock` their query hooks. The console tab tests (Tasks 3–6) instead drive the **real** hooks — including `useLocationCapabilities` — through the **global `fetch` stub**, so they need one shared harness. Create `tests/components/helpers/render.tsx`:
+
+```tsx
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render } from "@testing-library/react"
+import type { ReactElement } from "react"
+
+import { Toaster } from "@/components/ui/toast"
+
+// Shared harness for the M8 console tab tests. Unlike the M4/M5 tab tests
+// (which vi.mock the query hooks), these tests exercise the REAL hooks —
+// useLocationCapabilities, useBusinessInformation/useIndustry/useAdministration —
+// via the GLOBAL fetch stub, so the stubbed URL + response shape MUST match the
+// typed client. Retries MUST stay off (retry: false) so an error path resolves
+// promptly instead of leaving the query pending. Mirrors the existing
+// components/locations/menu-tab.test.tsx renderTab() provider stack.
+export function renderWithProviders(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <Toaster>{ui}</Toaster>
+    </QueryClientProvider>
+  )
+}
+```
+
+> Tasks 3–6 import `renderWithProviders` from `../helpers/render` and each own `stub(...)`/`stubRoutes(...)` a global `fetch` whose `/capabilities` + console-GET URLs and shapes match the clients from Task 1. This "real hook + global stub" pattern (new vs M5's `vi.mock`) works ONLY because the stubbed URL/shape match and retries are disabled.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1196,7 +1210,7 @@ function extractEnumOptions(metadata: AttributeMetadata): Array<{ value: string;
 - Test: `tests/components/business-information-tab.test.tsx`
 
 **Interfaces:**
-- Consumes: `useBusinessInformation`, `useBusinessInformationMetadata` (`@/lib/queries/use-location-business-information`); `publishBusinessInformation`, `publishBusinessAttributes`, `type BusinessInformationState` (`@/lib/api/location-business-information`); `businessInformationPayloadSchema` (`@/lib/domain/business-information`); `useLocationCapabilities`; `GoogleDiff`, `TypedAttributeControl`, `TabError`, `TabLoading`, `GateNote`, `OverwriteConfirmDialog`; `editDisabledReason`, `publishDisabledReason`; `describeActionError`; `useToastManager`; `categoryLabel`, `openStatusLabel` (`@/lib/locations/console-labels`); `Combobox*`, `Field*`, `Input`, `Textarea`, `Select*`, `Button`, `Badge`.
+- Consumes: `useBusinessInformation`, `useBusinessInformationMetadata` (`@/lib/queries/use-location-business-information`); `publishBusinessInformation`, `publishBusinessAttributes`, `type BusinessInformationState` (`@/lib/api/location-business-information`); `businessInformationPayloadSchema` (`@/lib/domain/business-information`); `useLocationCapabilities`; `GoogleDiff`, `TypedAttributeControl`, `TabError`, `TabLoading`; `GateNote` (from `@/components/locations/publish-gate`, prop `{ reason: string | null }`); `AlertDialog`, `AlertDialogContent`, `AlertDialogTitle`, `AlertDialogDescription`, `AlertDialogFooter`, `AlertDialogClose` (from `@/components/ui/alert-dialog` — the publish-confirm dialog is a BESPOKE composition that embeds `<GoogleDiff/>`; `OverwriteConfirmDialog` cannot host it because it takes a string `description` and has no children slot); `editDisabledReason`, `publishDisabledReason`; `describeActionError`; `useToastManager`; `categoryLabel`, `openStatusLabel` (`@/lib/locations/console-labels`); `Combobox`, `ComboboxInput`, `ComboboxContent`, `ComboboxItem` (the ONLY four exports of `@/components/ui/combobox` — the category picker composes its own empty/loading; there is NO `ComboboxEmpty`/`ComboboxTrigger`/`ComboboxList`), `Field`/`FieldLabel`/`FieldError`, `Input`, `Textarea`, `Select` (`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`), `Button`, `Badge`.
 - Behaviour (LOCKED):
   - Read-open: renders for all roles; edit controls disabled when `!caps.canEditCanonical` (`editDisabledReason`).
   - Structured sections built from the raw Google `location`: **Identity** (title, description via `profile.description`, primary + additional categories via the metadata-search `Combobox`, labels, storeCode, `openInfo.status` via `Select`), **Contact** (`phoneNumbers.primaryPhone`, `websiteUri`, `storefrontAddress.addressLines`/locality/postalCode/regionCode), **Attributes** (typed controls driven by `attributeMetadata`, grouped by `groupDisplayName`).
@@ -1204,11 +1218,12 @@ function extractEnumOptions(metadata: AttributeMetadata): Array<{ value: string;
   - Two publish paths: `update_location` (identity/contact/categories/etc. via `locationHash`) and `update_attributes` (typed attributes via `attributesHash`), each hash-pinned; the `GoogleDiff` preview lists the touched fields before confirm.
   - On `409 business_information_stale`/`attributes_stale` → invalidate + refetch (the tab re-diffs against fresh Google); toast the mapped copy.
   - Complex/unsupported leaves (`serviceItems`, `relationshipData`, `serviceArea` beyond `businessType`, `moreHours`) render **read-only "not editable here yet"** (§12).
+  - **Business-info / Profile overlap cross-link (plan-review adjudication — keep both, don't de-dup):** because name / description / phone / website / address are ALSO editable on the M5 Profile tab (via the NabaPresence canonical two-way sync), render a light in-UI note near the identity/contact sections — e.g. a muted caption "These details also sync via the Profile tab, which keeps them in step with NabaPresence." (link to `/locations/[id]`) — so users aren't confused by two name-editing surfaces. This is a note, not a gate. (The owner flag on whether to keep the dual surface remains in Self-review.)
   - `<h2>`/`<h3>` only.
 
 - [ ] **Step 1: Write the failing component test**
 
-`tests/components/business-information-tab.test.tsx` (pins: read-open renders identity; a member sees no editable controls; touched title → publish sends the right mask/payload/hash; unsupported field shows the pressure valve). Use the shared render helper that wraps a `QueryClientProvider` + `ToastProvider` (the M4/M5 `renderWithProviders`).
+`tests/components/business-information-tab.test.tsx` (pins: read-open renders identity; a member sees no editable controls; touched title → publish sends the right mask/payload/hash; unsupported field shows the pressure valve). Uses `renderWithProviders` from `../helpers/render` (Task 2 Step 0) and drives the REAL `useLocationCapabilities` + `useBusinessInformation` hooks through the global `fetch` stub (`stubRoutes`) — the `/capabilities` and `/business-information` URLs + shapes match the Task 1 clients, and retries are disabled so error paths resolve promptly.
 
 ```tsx
 import { render, screen, waitFor } from "@testing-library/react"
@@ -1316,7 +1331,21 @@ function buildLocationUpdate(initial: Draft, draft: Draft): { updateMask: Busine
 }
 ```
 
-- Publish flow: on "Publish", compute `{ updateMask, payload }`; if `mask.length === 0` disable/short-circuit; open the `GoogleDiff`-backed confirm dialog listing touched labels; on confirm, `publishBusinessInformation(id, { updateMask, payload, expectedGoogleHash: state.locationHash })`; `onSuccess` → invalidate `queryKeys.locationBusinessInformation(id)` + toast "Published to Google"; `onError` → toast `describeActionError` (a 409 stale toast plus the auto-refetch re-diffs).
+- Publish flow: on "Publish to Google", compute `{ updateMask, payload }`; if `mask.length === 0` disable/short-circuit; open a **bespoke `AlertDialog`** (NOT `OverwriteConfirmDialog`, which has no children slot) that embeds `<GoogleDiff rows={…}/>` listing each touched field's current-Google vs will-change-to value, with a "Cancel" (`AlertDialogClose`) and a "Publish" confirm button; on confirm, `publishBusinessInformation(id, { updateMask, payload, expectedGoogleHash: state.locationHash })`; `onSuccess` → close the dialog + invalidate `queryKeys.locationBusinessInformation(id)` + toast "Published to Google"; `onError` → toast `describeActionError` (a 409 stale toast plus the auto-refetch re-diffs). Reference shape of the confirm dialog:
+
+  ```tsx
+  <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+    <AlertDialogContent>
+      <AlertDialogTitle>Publish these details to Google?</AlertDialogTitle>
+      <AlertDialogDescription>Review the changes before they replace what is on your Google Business Profile.</AlertDialogDescription>
+      <GoogleDiff rows={diffRows} />
+      <AlertDialogFooter>
+        <AlertDialogClose render={<Button variant="outline">Cancel</Button>} />
+        <Button onClick={() => publish.mutate()} disabled={publish.isPending}>{publish.isPending ? "Working…" : "Publish"}</Button>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+  ```
 - Attributes publish is a parallel section: touched attributes → `attributeMask` (names) + `attributes` array; `publishBusinessAttributes(id, { attributeMask, attributes, expectedGoogleHash: state.attributesHash })`.
 - Optional strict validation before send: `businessInformationPayloadSchema.parse(payload)` — surfaces a client-side field error using the same `serverFieldErrors` mapping the M5 ProfileTab uses (path-based), keeping copy honest.
 - `editReason = editDisabledReason(caps)`; disable every control + Save/Publish when set; `publishReason = editDisabledReason(caps) ?? publishDisabledReason(caps, state.writesEnabled)` for the Google-writes gate (writes off → "currently unavailable", never a flag name).
@@ -1348,9 +1377,9 @@ export default async function BusinessInformationPage({ params }: { params: Prom
 - Test: `tests/components/industry-tab.test.tsx`
 
 **Interfaces:**
-- Consumes: `useIndustry` (with `enabled: caps.canEditCanonical`), `publishIndustry`, `type IndustryState` (`@/lib/api/location-industry`); `useLocationCapabilities`; `SectionPanel`, `TabError`, `TabLoading`, `GateNote`, `OverwriteConfirmDialog`; `touchedMask` (`@/lib/locations/forms/industry`); `callsStateLabel` (`@/lib/locations/console-labels`); `describeActionError`; `Select*`, `Input`, `Button`, `Badge`, `Empty`.
+- Consumes: `useIndustry` (with `enabled: caps?.canEditCanonical === true`), `publishIndustry`, `type IndustryState` (`@/lib/api/location-industry`); `useLocationCapabilities`; `SectionPanel`, `TabError`, `TabLoading`, `GateNote` (from `@/components/locations/publish-gate`); `touchedMask` (`@/lib/locations/forms/industry`); `callsStateLabel` (`@/lib/locations/console-labels`); `describeActionError`; `Select` (`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`), `Input`, `Button`, `Badge`, `Empty`. Industry saves apply directly (Google-direct, no canonical drift), so NO `OverwriteConfirmDialog` gate is used.
 - Behaviour (LOCKED):
-  - **Tab hidden for non-owner/admin** (D4). The component also guards: if `!caps.canEditCanonical`, render an `Empty` "This section is available to owners and admins" and do NOT fire the GET (`enabled: canEditCanonical`) — so a direct URL never hits the 403.
+  - **Tab hidden for non-owner/admin** (D4). The component also guards: if `caps?.canEditCanonical !== true`, render an `Empty` "This section is available to owners and admins" and do NOT fire the GET (`enabled: caps?.canEditCanonical === true`) — so a direct URL never hits the 403.
   - Three sections through `SectionPanel` (each `{ data, error }`): **Lodging** (edit known leaves e.g. `policies.checkinTime`/`checkoutTime`; spread-and-preserve the rest, D8; mask = touched top-level keys; op `update_lodging`), **Business calls** (a `Select` on `callsState` ENABLED/DISABLED, humanised On/Off; mask is EXACTLY `["callsState"]` — the only allowed mask, else `422 business_calls_mask_invalid`; op `update_business_calls`), **Healthcare** (services/provider attributes — render read-only summaries with the §12 note where no typed editor exists; op `update_healthcare_services`/`update_healthcare_provider_attributes` reserved).
   - Each publish sends `confirmation: "publish_industry_data_to_google"`; on success invalidate `queryKeys.locationIndustry(id)`.
   - Publish gate: `publishDisabledReason(caps, state.writesEnabled)`.
@@ -1404,16 +1433,20 @@ describe("IndustryTab", () => {
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument()
   })
 
-  it("business-calls publish masks only callsState with the industry confirmation", async () => {
+  it("business-calls publish sets callsState, masks only callsState, and sends the industry confirmation", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<IndustryTab locationId="loc-1" />)
-    const select = await screen.findByLabelText(/calls/i)
-    await userEvent.selectOptions?.(select, "DISABLED").catch(() => {})
+    // The calls control is a base-ui Select (NOT a native <select>), so drive it
+    // for real: open the trigger, then click the humanised "Off" option (value
+    // DISABLED). No `?.`/`.catch()` — the interaction must actually change state.
+    await userEvent.click(await screen.findByRole("combobox", { name: "Calls" }))
+    await userEvent.click(await screen.findByRole("option", { name: "Off" }))
     await userEvent.click(screen.getByRole("button", { name: /save calls/i }))
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
       const body = JSON.parse((patch![1] as RequestInit).body as string)
       expect(body.operation).toBe("update_business_calls")
+      expect(body.payload.callsState).toBe("DISABLED") // the interaction actually changed the value
       expect(body.updateMask).toEqual(["callsState"])
       expect(body.confirmation).toBe("publish_industry_data_to_google")
     })
@@ -1421,7 +1454,9 @@ describe("IndustryTab", () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify failure**, then **Step 3: Implement** `industry-tab.tsx` + page (mirroring the business-info structure; sections via `SectionPanel`; the calls editor hard-codes `updateMask: ["callsState"]`; lodging uses `touchedMask(loadedLodging, draftLodging)` over the spread-preserved record). **Step 4: gate. Step 5: Commit** — `feat(consoles): industry lodging/business-calls/healthcare editors`.
+> **Base-ui Select roles (REV-3 note):** the styled `SelectTrigger` exposes `role="combobox"` and its accessible name comes from `aria-label="Calls"`; each `SelectItem` is `role="option"` with its humanised child text ("On"/"Off" via `callsStateLabel`). The industry business-calls editor must render `<SelectTrigger aria-label="Calls">` and options `On` (ENABLED) / `Off` (DISABLED) for these queries to resolve.
+
+- [ ] **Step 2: Run to verify failure**, then **Step 3: Implement** `industry-tab.tsx` + page (mirroring the business-info structure; sections via `SectionPanel`; the calls editor hard-codes `updateMask: ["callsState"]` and sends `payload: { callsState }`; lodging uses `touchedMask(loadedLodging, draftLodging)` over the spread-preserved record). **Step 4: gate. Step 5: Commit** — `feat(consoles): industry lodging/business-calls/healthcare editors`.
 
 ---
 
@@ -1434,9 +1469,9 @@ describe("IndustryTab", () => {
 - Test: `tests/components/administration-tab.test.tsx`
 
 **Interfaces:**
-- Consumes: `useAdministration` (with `enabled: caps.canEditCanonical`), `runAdministrationOperation`, `matchGoogleLocation`, `type AdministrationState` (`@/lib/api/location-administration`); `useLocationCapabilities`; `SectionPanel`, `AdminsTable`, `TabError`, `TabLoading`, `GateNote`; `createAdminSchema`, `updateAdminSchema` (`@/lib/locations/forms/administration`); `verificationMethodLabel`, `adminRoleLabel` (`@/lib/locations/console-labels`); `describeActionError`; `Dialog*`/`Field*`/`Select*`/`Input`/`Button`/`Badge`.
+- Consumes: `useAdministration` (with `enabled: caps?.canEditCanonical === true`), `runAdministrationOperation`, `matchGoogleLocation`, `type AdministrationState` (`@/lib/api/location-administration`); `useLocationCapabilities`; `SectionPanel`, `AdminsTable`, `TabError`, `TabLoading`, `GateNote` (from `@/components/locations/publish-gate`); `createAdminSchema`, `updateAdminSchema` (`@/lib/locations/forms/administration`); `verificationMethodLabel`, `adminRoleLabel` (`@/lib/locations/console-labels`); `describeActionError`; `Dialog*`/`Field*`/`Select*`/`Input`/`Button`/`Badge`.
 - Behaviour (LOCKED):
-  - Tab hidden for non-owner/admin (D4); component guards + `enabled: canEditCanonical`.
+  - Tab hidden for non-owner/admin (D4); component guards + `enabled: caps?.canEditCanonical === true`.
   - **Read sections** through `SectionPanel`: voice-of-merchant summary (verified / not verified — humanised, no raw flag), verification state + options (`verificationMethodLabel`), location admins + account admins + invitations via `AdminsTable`.
   - **Non-destructive actions:** start verification (choose a humanised method → `runAdministrationOperation({ operation: "start_verification", payload })`), complete verification (`{ name, pin }`), accept/decline invitation (`{ name }`), create admin (a `Dialog` form: scope account/location, email, role OWNER/MANAGER — validated by `createAdminSchema`; `operation: "create_admin"`), update admin role (`operation: "update_admin"`, `{ name, role }`), accept Google's suggested update (`operation: "accept_google_update"`, `{ updateMask, location }` from `googleUpdated.data`).
   - Every action invalidates `queryKeys.locationAdministration(id)`; per-action pending on its own button; publish gate via `publishDisabledReason(caps, state.writesEnabled)`.
@@ -1524,7 +1559,7 @@ describe("AdministrationTab (read + non-destructive)", () => {
     - **Remove an administrator** (`delete_admin`, `{ name }`, confirmation `remove_google_administrator`) — row-level action in `AdminsTable`'s `renderActions`.
     - **Transfer this location** (`transfer_location`, `{ destinationAccount }`, confirmation `transfer_google_location`) — with an explicit access-LOSS warning: "This moves the Google location to another Google account. NabaPresence may lose the ability to manage it, and this cannot be undone from here." Collect `destinationAccount` (validated by `transferLocationSchema`) THEN require the typed name.
     - **Delete this location** (`delete_location`, `{}`, confirmation `delete_google_location_permanently`) — copy: "This permanently deletes the Google listing. It cannot be undone." A one-line note: "To stop managing a location without deleting it from Google, unlink it under Connections." (D9 — never wires to the unlink route.)
-  - Each danger action invalidates `queryKeys.locationAdministration(id)` on success; toast the mapped copy on error (`describeActionError`, incl. any `<op>_failed`).
+  - Each danger action invalidates `queryKeys.locationAdministration(id)` on success; toast the mapped copy on error (`describeActionError`).
 
 - [ ] **Step 1: Add the failing danger-zone tests** — pins: (a) delete button stays disabled until the exact location name is typed; (b) confirming delete sends `operation:"delete_location"` + `confirmation:"delete_google_location_permanently"` + empty payload; (c) transfer requires both `destinationAccount` and the typed name and sends `transfer_google_location`.
 
@@ -1633,7 +1668,7 @@ export function LocationTabNav({ locationId, canManageConsoles }: { locationId: 
 - Rewrite: `tests/e2e/gbp-management-tabs.spec.ts` (new-editor assertions on the reused GET fixtures)
 - Modify: `tests/e2e/locations.spec.ts` (3 console tabs into the clean-load + a11y loop; role walk; publish + danger-zone journeys), `tests/e2e/helpers/stub-bridge.ts` (Google matchers for the three consoles), `playwright.config.ts` (remove the `gbp-management-tabs.spec.ts` `testIgnore` glob)
 
-- [ ] **Step 1: Un-ignore + rewrite `gbp-management-tabs.spec.ts`.** Remove `"**/gbp-management-tabs.spec.ts"` from `playwright.config.ts` `testIgnore`. Keep the `page.route` fixture bodies verbatim (they are accurate GET shapes) but point the page at the NEW routes and rewrite the assertions to the field editors:
+- [ ] **Step 1: Un-ignore + rewrite `gbp-management-tabs.spec.ts`.** Remove `"**/gbp-management-tabs.spec.ts"` from `playwright.config.ts` `testIgnore`. Keep the three `page.route` fixture bodies **verbatim** — the plan-reviewer verified they match the real GET shapes (each sub-resource `{ data, error }` envelope, 64-char `locationHash`/`attributesHash`, `canManage`/`canPublish`/`writesEnabled` booleans) — but point the page at the NEW routes and rewrite the assertions to the field editors:
   - Business info: `page.goto("/locations/location-management/business-information")`; assert `getByDisplayValue("Camden Hotel")`, the humanised category "Hotel" is visible, NO `/gcid:/` text, the "Publish to Google" button exists, and at least one "not editable here yet" note (from `serviceItems`/unsupported data).
   - Industry: `page.goto("/locations/location-management/industry")`; assert the business-calls control shows the humanised On/Off (not `ENABLED`), and a failing sub-resource (if seeded) shows the honest section warning.
   - Administration: `page.goto("/locations/location-management/administration")`; assert the admins table shows "Primary owner" (not `PRIMARY_OWNER`), the "Danger zone" heading is present, and the delete button is disabled until the typed name.
@@ -1641,7 +1676,7 @@ export function LocationTabNav({ locationId, canManageConsoles }: { locationId: 
 
 - [ ] **Step 2: Extend `stub-bridge.ts`** with Google matchers for the three consoles' upstream calls (substring `pathIncludes`, most-recent-registered wins). Register inside the journey bridge, before `writeFile(journeyStatePath, …)`. Anchors (match the exact segments the services call): business-info `getGoogleLocation` (`readMask`) returns a location body; `/attributes` (GET) returns attributes; `attributes:getMetadata`/`attributeMetadata` returns metadata; `categories` and `chains` GET for the metadata search. Industry: `/lodging`, business-calls settings/insights, `healthcareServices`. Administration: `VoiceOfMerchantState`, `verifications`, `/admins`, `invitations`, `:transfer` (POST), DELETE on the location name, account `locations` (POST). Model each as a fixed `{ status: 200, json: {...} }` (or echo POST bodies) mirroring the shapes in the `gbp-management-tabs` fixtures.
 
-- [ ] **Step 3: Extend `locations.spec.ts`.** Add the three console segments to the `TABS` clean-load + a11y loop (both `light`/`dark`, WCAG + structure rules already asserted). Extend the per-role walk: for member/viewer, assert the Industry + Administration tab links are ABSENT and a direct `goto` of those routes shows the gated "available to owners and admins" panel with NO console error and NO 403 network response surfaced to a primary control; assert Business info renders read-only for all roles. Add a publish journey per console for the owner (edit → `PATCH` `200` on the console route → success toast) and the danger-zone journey (open delete dialog → type the location name → confirm → `PATCH` `200` with `delete_google_location_permanently`, against the stub). Reuse the `applyCookie` + `readJourneyState` helpers and the `waitForResponse(method === "PATCH" && pathname === /api/locations/<id>/<console>)` pattern.
+- [ ] **Step 3: Extend `locations.spec.ts`.** The existing clean-load + a11y loop (6 tabs — it omits Performance — under the OWNER cookie `state.cookie`) gains the three console segments **as OWNER-scoped entries**: add `business-information`, `industry`, and `administration` to that loop. This MUST run under the owner because Industry + Administration hide/403 for non-owner/admin, so their clean-load + axe iterations are only meaningful (and only render) for the owner (`state.cookie`), in both `light`/`dark`, with the WCAG + structure rules already asserted. Keep the member/viewer gated-panel + no-reachable-403 checks in the SEPARATE per-role permission walk: for member/viewer, assert the Industry + Administration tab links are ABSENT and a direct `goto` of those routes shows the gated "available to owners and admins" panel with NO console error and NO 403 network response surfaced to a primary control; assert Business info renders read-only for all roles. Add a publish journey per console for the owner (edit → `PATCH` `200` on the console route → success toast) and the danger-zone journey (open delete dialog → type the location name → confirm → `PATCH` `200` with `delete_google_location_permanently`, against the stub). Reuse the `applyCookie` + `readJourneyState` helpers and the `waitForResponse(method === "PATCH" && pathname === /api/locations/<id>/<console>)` pattern.
 
   > **No env-flag change needed:** `playwright.config.ts` already sets `GBP_PROFILE_WRITES_ENABLED: "true"` and `PUBLISH_ENABLED` defaults `true`, so business-info (`PUBLISH_ENABLED && GBP_PROFILE_WRITES_ENABLED`), industry, and administration (`PUBLISH_ENABLED`) writes are all enabled under e2e. (This corrects the brief's T8 "enable flags" step — nothing to add.)
 
@@ -1663,8 +1698,8 @@ export function LocationTabNav({ locationId, canManageConsoles }: { locationId: 
 - **Three consoles shipped as real editors** on their existing routes with UI-constructed payloads (§8, §11 line 197): Business info (identity/contact/categories/typed attributes + diff-vs-Google preview + touched→mask, no masks/JSON shown), Industry (lodging/business-calls/healthcare typed editors, mask auto-computed), Administration (admins add/remove, ownership transfer as its own guarded flow, delete-location isolated in a danger zone requiring the typed location name). **No JSON textareas or placeholder templates anywhere.**
 - **Read-only pressure valve (§12):** where Google's model exceeds an editor, the field renders read-only with an explicit "not editable here yet" note — never a JSON escape hatch. Covered by the `TypedAttributeControl` unsupported branch and business-info's complex-leaf sections.
 - **Zero protected footprint:** `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` is empty. No new server capability/route/service/domain edit; `lib/domain/business-information.ts` consumed only.
-- **No reachable 403 (§9):** Industry + Administration tabs hidden for non-owner/admin; their components short-circuit to a gated panel with `enabled: canEditCanonical` so a direct URL never fires the 403 GET; Business info read-open for all, edit gated.
-- **Humanisation (§7):** no raw enum/code/mask/env-flag/JSON reaches a user; one mapping layer (`console-labels.ts` + `action-errors.ts`, incl. the `<op>_failed` branch).
+- **No reachable 403 (§9):** Industry + Administration tabs hidden for non-owner/admin; their components short-circuit to a gated panel with `enabled: caps?.canEditCanonical === true` so a direct URL never fires the 403 GET; Business info read-open for all, edit gated.
+- **Humanisation (§7):** no raw enum/code/mask/env-flag/JSON reaches a user; one mapping layer (`console-labels.ts` + `action-errors.ts`).
 - **All suites green** (unit, components, integration parity oracle, every enabled e2e spec incl. the revived `gbp-management-tabs.spec.ts`); clean `pnpm build`; commit trailer `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 
 ## Self-review
