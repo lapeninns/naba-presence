@@ -98,4 +98,24 @@ describeDatabase("invitation revoke route", () => {
     // Still revocable by the owner afterwards (the guarded attempts changed nothing).
     expect((await revoke(tenant.cookie, guarded.id)).status).toBe(200)
   })
+
+  it("cannot revoke an invitation from another organisation (404)", async () => {
+    const orgA = await createTestTenant(admin, { role: "owner" })
+    organisations.push(orgA.organisationId)
+    const orgB = await createTestTenant(admin, { role: "owner" })
+    organisations.push(orgB.organisationId)
+    const inviteB = await createInvitation(orgB.cookie, "cross@nabapresence.test")
+
+    const res = await revoke(orgA.cookie, inviteB.id) // orgA tries to revoke orgB's invite
+    expect(res.status).toBe(404)
+    expect(((await res.json()) as { error: string }).error).toBe("invitation_not_found")
+  })
+
+  it("rejects a non-uuid invitation id (400 invalid_request)", async () => {
+    const tenant = await createTestTenant(admin, { role: "owner" })
+    organisations.push(tenant.organisationId)
+    const res = await revoke(tenant.cookie, "not-a-uuid")
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe("invalid_request")
+  })
 })

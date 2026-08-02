@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react"
+import { useEffect, useRef } from "react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { formatDate } from "@/lib/format"
@@ -41,6 +41,24 @@ function ReviewList({
     )
     buttons?.[index]?.focus()
   }
+
+  // Below xl, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
+  // selection and swaps this pane back into view; this list panel itself
+  // never unmounts (it's only CSS-hidden while the detail pane shows), so
+  // restoring focus here — to the row that was just deselected, or the
+  // roving tab-stop if it's no longer in the list — mirrors that button
+  // moving focus into the detail pane on the way there, rather than
+  // silently dropping focus on the way back.
+  const previouslySelectedId = useRef(selectedId)
+  useEffect(() => {
+    if (previouslySelectedId.current && !selectedId) {
+      const index = reviews.findIndex(
+        (review) => review.id === previouslySelectedId.current
+      )
+      focusRow(index >= 0 ? index : 0)
+    }
+    previouslySelectedId.current = selectedId
+  }, [selectedId, reviews])
 
   function onKeyDown(event: React.KeyboardEvent, index: number) {
     if (event.key === "ArrowDown" && index < reviews.length - 1) {

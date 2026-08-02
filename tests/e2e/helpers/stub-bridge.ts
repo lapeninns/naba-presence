@@ -229,23 +229,13 @@ export default async function startJourneyBridge(config: FullConfig) {
       return location.googleLocationName
     }
 
-    stub.respond(
-      { method: "GET", pathIncludes: "/accounts" },
-      () => ({
-        status: 200,
-        json: {
-          accounts: [
-            {
-              name: connection.googleAccountName,
-              accountName: "Sprint 5 Stub account",
-              type: "LOCATION_GROUP",
-              role: "OWNER",
-              permissionLevel: "OWNER_LEVEL",
-            },
-          ],
-        },
-      })
-    )
+    // The GET /accounts stub handler that returns BOTH orgs' accounts is
+    // registered further down (once `approvalConnection` exists too) — see
+    // the comment there. Google's real `accounts.list` path is a bare
+    // `/accounts` with no account segment, so there's nothing in the path
+    // itself to key a per-tenant handler on; registering it once with both
+    // accounts (rather than twice, one per tenant, which silently shadowed
+    // via last-registered-wins — see that comment) is what fixes it.
     stub.respond(
       {
         method: "GET",
@@ -604,12 +594,35 @@ export default async function startJourneyBridge(config: FullConfig) {
       approvalLocations.find((l) => l.id === approvalReviewSeed.locationId)?.name ??
       "Approval location"
 
+    // The stub-bridge tenant fix: this was previously TWO handlers on the
+    // identical `{ method: "GET", pathIncludes: "/accounts" }` matcher (one
+    // registered here, one back where `connection` is seeded) — `respond`
+    // unshifts each rule to the front and `find` takes the first match, so
+    // last-registered-wins silently shadowed the primary org's handler with
+    // this one: EVERY /accounts call (primary or approval org alike)
+    // resolved to the approval account, and the primary org's own
+    // `google_account` row was never upserted with its real name (the
+    // upsert only matches on `google_account_name`, which never matched, so
+    // it inserted a stray extra row instead of updating the seeded one).
+    // Google's real accounts.list path (`/accounts`) carries no account
+    // segment to key a per-tenant matcher on, so there's nothing in the
+    // request the stub can discriminate on — the fix is a SINGLE handler
+    // that returns both accounts, so either org's caller finds (and
+    // upserts) its own by name; see the primary-org assertion in
+    // tests/e2e/connections-oauth.spec.ts.
     stub.respond(
       { method: "GET", pathIncludes: "/accounts" },
       () => ({
         status: 200,
         json: {
           accounts: [
+            {
+              name: connection.googleAccountName,
+              accountName: "Sprint 5 Stub account",
+              type: "LOCATION_GROUP",
+              role: "OWNER",
+              permissionLevel: "OWNER_LEVEL",
+            },
             {
               name: approvalConnection.googleAccountName,
               accountName: "Sprint 5 Approval Stub account",

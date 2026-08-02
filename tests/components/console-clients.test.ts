@@ -109,6 +109,7 @@ describe("fetchIndustry / publishIndustry", () => {
 describe("runAdministrationOperation", () => {
   it("looks up the exact confirmation literal per operation", async () => {
     expect(ADMINISTRATION_CONFIRMATIONS.delete_location).toBe("delete_google_location_permanently")
+    expect(ADMINISTRATION_CONFIRMATIONS.accept_invitation).toBe("accept_google_invitation")
     expect(DANGER_ZONE_OPERATIONS.has("transfer_location")).toBe(true)
     expect(DANGER_ZONE_OPERATIONS.has("create_admin")).toBe(false)
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ id: "m3", status: "succeeded", idempotent: false }))

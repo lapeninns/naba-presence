@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 
 import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { ReviewFilters } from "@/components/inbox/review-filters"
@@ -199,6 +199,18 @@ function InboxViewInner() {
   // (spec §6). At xl both panes are always visible (two-pane split).
   const mobilePane = mobilePaneFor(state.selected)
 
+  // Below xl, selecting a review swaps the visible pane from the list to the
+  // detail view — move focus to the pane's own "Back to reviews" control so
+  // keyboard/screen-reader users land somewhere meaningful in the new pane
+  // instead of losing their place (mirrors the same button re-focusing the
+  // originating row on the way back, below). `.focus()` on the `xl:hidden`
+  // wrapper's button is a silent no-op at the xl breakpoint (its ancestor is
+  // `display: none` there), so this is harmless on desktop.
+  const backButtonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (state.selected) backButtonRef.current?.focus()
+  }, [state.selected])
+
   return (
     <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
       <div
@@ -250,6 +262,7 @@ function InboxViewInner() {
                 selection was pushed (spec §6). */}
             <div className="border-b border-border/60 p-3 xl:hidden">
               <Button
+                ref={backButtonRef}
                 variant="ghost"
                 size="sm"
                 onClick={onBackToList}

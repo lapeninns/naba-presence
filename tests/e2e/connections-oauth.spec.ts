@@ -26,6 +26,17 @@ test.describe("connections OAuth return", () => {
     await expect(page.getByText(/status=502/)).toHaveCount(0)
   })
 
+  // Stub-bridge tenant fix (tests/e2e/helpers/stub-bridge.ts): two Google
+  // stub handlers on the identical `{ method: "GET", pathIncludes: "/accounts" }`
+  // matcher (one per tenant) used to shadow each other via last-registered-wins,
+  // so the primary org's own real GBP account name never actually resolved.
+  test("the primary org's accounts list resolves its own account name", async ({ baseURL, page }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/settings/connections")
+    await expect(page.getByText("Sprint 5 Stub account")).toBeVisible()
+  })
+
   test("axe passes with the disconnect confirmation dialog open", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)

@@ -2,7 +2,13 @@ import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
-    <div className="w-full overflow-x-auto">
+    // `tabIndex={0}` (WCAG 2.1.1/2.1.3, axe `scrollable-region-focusable`):
+    // this wrapper is the horizontal-scroll container on narrow viewports,
+    // so it must be reachable by keyboard whenever its table content
+    // overflows — whether that's true is a runtime layout fact this shared
+    // primitive can't know ahead of time, so it's applied unconditionally
+    // (a focusable non-scrolling wrapper on wider viewports is harmless).
+    <div className="w-full overflow-x-auto" tabIndex={0}>
       <table
         data-slot="table"
         className={cn("w-full caption-bottom border-collapse text-ui", className)}
