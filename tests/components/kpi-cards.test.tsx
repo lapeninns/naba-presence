@@ -125,8 +125,10 @@ describe("KpiCards", () => {
     })
     render(<KpiCards />)
     expect(screen.getByText("Total reviews")).toBeInTheDocument()
-    expect(screen.getAllByText("0")).toHaveLength(2)
-    expect(screen.getAllByText("—")).toHaveLength(2)
+    // Total reviews, Needs attention, Unresolved complaints.
+    expect(screen.getAllByText("0")).toHaveLength(3)
+    // Average rating, Response rate, Median response time, Verification rejections.
+    expect(screen.getAllByText("—")).toHaveLength(4)
   })
 
   it("offers a retry that refetches both sources when either errors", async () => {

@@ -1,6 +1,7 @@
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { AttentionList } from "@/components/home/attention-list"
 import { DisconnectedBanner } from "@/components/home/disconnected-banner"
+import { HomeCharts } from "@/components/home/home-charts"
 import { KpiCards } from "@/components/home/kpi-cards"
 
 export const metadata = { title: "Home · NabaPresence" }
@@ -14,6 +15,7 @@ export default function HomePage() {
       />
       <DisconnectedBanner />
       <KpiCards />
+      <HomeCharts />
       <AttentionList />
     </PageFrame>
   )

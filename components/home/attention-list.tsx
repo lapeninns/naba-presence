@@ -18,7 +18,7 @@ function AttentionList() {
     if (analytics.isPending) {
       return (
         <div aria-busy="true" className="flex flex-col gap-2">
-          {[0, 1, 2].map((index) => (
+          {[0, 1, 2, 3, 4].map((index) => (
             <Skeleton key={index} className="h-12 rounded-(--nr-radius-card)" />
           ))}
         </div>
@@ -69,9 +69,10 @@ function AttentionList() {
           >
             {/* /inbox 404s until M4; viewport-prefetch of a 404 route keeps
                 Chrome from reaching networkidle and destabilises Task 7's
-                console/axe guards - mirror nav.tsx and stay prefetch={false}. */}
+                console/axe guards - mirror nav.tsx and stay prefetch={false}.
+                Low-rated filter (spec §8): this location's 1-2 star reviews. */}
             <Link
-              href={`/inbox?locationId=${location.id}`}
+              href={`/inbox?locationId=${location.id}&rating=1,2`}
               prefetch={false}
               className="flex items-center justify-between gap-3 px-4 py-3 text-ui transition-colors duration-(--nr-duration-fast) hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
             >

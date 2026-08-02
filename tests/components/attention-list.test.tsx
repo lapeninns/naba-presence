@@ -89,7 +89,7 @@ describe("AttentionList", () => {
     // Central (0) excluded; top five by desc: Bridge9, Eastgate7, Dockside4, Garden3, Ferry2
     expect(links).toHaveLength(5)
     expect(links[0]).toHaveAccessibleName(/Bridge/)
-    expect(links[0]).toHaveAttribute("href", "/inbox?locationId=b")
+    expect(links[0]).toHaveAttribute("href", "/inbox?locationId=b&rating=1,2")
     expect(links[4]).toHaveAccessibleName(/Ferry/)
     expect(screen.queryByText(/Central/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Airport/)).not.toBeInTheDocument()

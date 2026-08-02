@@ -2,9 +2,9 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatNumber, formatPercent } from "@/lib/format"
+import { StatTile } from "@/components/reporting/stat-tile"
+import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 
@@ -12,19 +12,6 @@ import { useReviewCounts } from "@/lib/queries/use-review-counts"
 // Deliberately conservative; the owner or the Inbox milestone (M4) may refine
 // which workflow states belong here.
 const NEEDS_ATTENTION_STATES = ["new", "escalated", "failed"] as const
-
-function KpiCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card size="sm">
-      <CardContent className="flex flex-col gap-1">
-        <p className="text-ui text-muted-foreground">{label}</p>
-        <p className="text-page-title font-semibold tracking-tight tabular-nums">
-          {value}
-        </p>
-      </CardContent>
-    </Card>
-  )
-}
 
 function KpiCards() {
   const counts = useReviewCounts()
@@ -36,7 +23,7 @@ function KpiCards() {
         aria-busy="true"
         className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4"
       >
-        {[0, 1, 2, 3].map((index) => (
+        {[0, 1, 2, 3, 4, 5].map((index) => (
           <Skeleton key={index} className="h-28 rounded-(--nr-radius-card)" />
         ))}
       </div>
@@ -68,19 +55,20 @@ function KpiCards() {
     (total, state) => total + (counts.data.byStatus[state] ?? 0),
     0
   )
-  const { averageRating, responseRate } = analytics.data.summary
+  const s = analytics.data.summary
 
   return (
     <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
-      <KpiCard label="Total reviews" value={formatNumber(counts.data.total)} />
-      <KpiCard label="Needs attention" value={formatNumber(needsAttention)} />
-      <KpiCard
-        label="Average rating"
-        value={averageRating === null ? "—" : averageRating.toFixed(1)}
-      />
-      <KpiCard
-        label="Response rate"
-        value={responseRate === null ? "—" : formatPercent(responseRate)}
+      <StatTile label="Total reviews" value={formatNumber(counts.data.total)} />
+      <StatTile label="Needs attention" value={formatNumber(needsAttention)} />
+      <StatTile label="Average rating" value={s.averageRating === null ? "—" : s.averageRating.toFixed(1)} />
+      <StatTile label="Response rate" value={s.responseRate === null ? "—" : formatPercent(s.responseRate)} />
+      <StatTile label="Median response time" value={formatDuration(s.medianFirstResponseSeconds)} hint="First reply, last 30 days" />
+      <StatTile label="Unresolved complaints" value={formatNumber(s.unresolvedComplaints)} hint="1–2 star, no published reply" />
+      <StatTile
+        label="Verification rejections"
+        value={s.verificationRejectionRate === null ? "—" : formatPercent(s.verificationRejectionRate)}
+        hint={`${formatNumber(s.verificationFailures)} rejected`}
       />
     </div>
   )
