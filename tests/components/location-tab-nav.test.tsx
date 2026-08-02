@@ -3,19 +3,21 @@ import { describe, expect, it, vi } from "vitest"
 
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/locations/loc-1/hours" }))
+vi.mock("next/navigation", () => ({ usePathname: () => "/locations/loc-1/performance" }))
 
 describe("LocationTabNav", () => {
-  it("renders the six wave-1 tabs and marks the active one", () => {
+  it("renders the seven tabs (incl. Performance) and marks the active one", () => {
     render(<LocationTabNav locationId="loc-1" />)
     const nav = screen.getByRole("navigation", { name: "Location sections" })
-    for (const label of ["Profile", "Hours", "Photos", "Posts", "Booking", "Menu"]) {
+    for (const label of ["Profile", "Hours", "Photos", "Posts", "Booking", "Menu", "Performance"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
-    expect(screen.getByRole("link", { name: "Hours" })).toHaveAttribute("aria-current", "page")
+    const performance = screen.getByRole("link", { name: "Performance" })
+    expect(performance).toHaveAttribute("href", "/locations/loc-1/performance")
+    expect(performance).toHaveAttribute("aria-current", "page")
     expect(nav).toBeInTheDocument()
-    // No deferred tabs leak into wave 1.
-    for (const gone of ["Business info", "Industry", "Administration", "Reviews", "Performance"]) {
+    // The M8-deferred consoles still must not leak into the workspace tabs.
+    for (const gone of ["Business info", "Industry", "Administration", "Reviews"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
   })

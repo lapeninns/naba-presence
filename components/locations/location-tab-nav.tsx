@@ -13,6 +13,7 @@ const TABS = [
   { segment: "posts", label: "Posts" },
   { segment: "booking", label: "Booking" },
   { segment: "menu", label: "Menu" },
+  { segment: "performance", label: "Performance" },
 ] as const
 
 export function LocationTabNav({ locationId }: { locationId: string }) {
