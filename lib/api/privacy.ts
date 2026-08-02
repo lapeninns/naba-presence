@@ -60,11 +60,16 @@ export function updatePrivacyRequest(input: UpdatePrivacyInput) {
   return apiFetch("/api/privacy/requests", { method: "PATCH", body: input, schema: resolutionResponseSchema })
 }
 
-// The export is a private, no-store attachment (?subject= query param — see the §8
-// tension flagged in the plan's carry-forward list). Read the blob and trigger a
-// download; never log the subject reference.
+// The export is a private, no-store attachment. The subject travels in the JSON
+// body (never the URL) so it never lands in browser history, proxy logs, or
+// referrer headers. Read the blob and trigger a download; never log the subject
+// reference.
 export async function exportPrivacyData(subject: string): Promise<void> {
-  const response = await fetch(`/api/privacy/export?subject=${encodeURIComponent(subject)}`)
+  const response = await fetch("/api/privacy/export", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject }),
+  })
   if (!response.ok) {
     let code = "http_error"
     let message = `Request failed (${response.status}).`

@@ -291,14 +291,31 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(draftResponse.status).toBe(409)
     expect((await draftResponse.json()).error).toBe("review_restricted")
 
-    const exportResponse = await fetch(
-      `${server.baseUrl}/api/privacy/export?subject=${encodeURIComponent(fixture.reviewerName)}`,
-      { headers: { cookie: fixture.owner.cookie } }
-    )
+    const exportResponse = await fetch(`${server.baseUrl}/api/privacy/export`, {
+      method: "POST",
+      headers: {
+        cookie: fixture.owner.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ subject: fixture.reviewerName }),
+    })
     expect(exportResponse.status).toBe(200)
+    expect(exportResponse.headers.get("content-disposition")).toContain(
+      "attachment"
+    )
+    expect(exportResponse.headers.get("cache-control")).toBe(
+      "private, no-store"
+    )
     expect((await exportResponse.json()).reviews[0].restrictedAt).toEqual(
       expect.any(String)
     )
+
+    // A GET with a subject query string is gone — no PII-in-URL surface remains.
+    const legacyResponse = await fetch(
+      `${server.baseUrl}/api/privacy/export?subject=${encodeURIComponent(fixture.reviewerName)}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    expect(legacyResponse.status).toBe(405)
   })
 
   it("does not allow an admin to fulfil requests", async () => {

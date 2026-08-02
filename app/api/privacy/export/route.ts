@@ -13,13 +13,11 @@ const querySchema = z.object({
   subject: z.string().trim().min(3).max(240),
 })
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
     const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner"])
-    const query = querySchema.parse({
-      subject: new URL(request.url).searchParams.get("subject"),
-    })
+    const query = querySchema.parse(await request.json())
     const exported = await withTenant(session.organisationId, async (sql) => {
       const encryptedReviews = await sql`
         select
