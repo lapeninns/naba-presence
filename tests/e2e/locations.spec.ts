@@ -114,6 +114,19 @@ test.describe("locations", () => {
     await expect(page.getByText("Profile saved", { exact: true })).toBeVisible()
   })
 
+  test("location workspace exposes a Performance tab with review metrics", async ({ baseURL, page }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto(`/locations/${state.primaryLocationId}`)
+    await page.getByRole("navigation", { name: "Location sections" }).getByRole("link", { name: "Performance" }).click()
+    await expect(page).toHaveURL(new RegExp(`/locations/${state.primaryLocationId}/performance$`))
+    // The section headings are "Review activity" / "Visibility on Google";
+    // "Reviews" itself is a StatTile label inside "Review activity", not a
+    // heading (see components/performance/location-performance.tsx).
+    await expect(page.getByRole("heading", { name: "Review activity" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Visibility on Google" })).toBeVisible()
+  })
+
   test("booking create journey: an owner adds a booking link", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)

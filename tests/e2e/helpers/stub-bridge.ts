@@ -115,6 +115,61 @@ export default async function startJourneyBridge(config: FullConfig) {
         default_timezone = ${timezone}
       where id = ${organisationId}
     `
+
+    // --- reporting seed (Task 8) -------------------------------------------
+    // A recent day of Google performance metrics against the journey org's
+    // primary linked location, so the /performance Google tab is "ready"
+    // (route: performance_metric_daily -> location_link -> location).
+    const reportingNow = new Date()
+    const perfDay = reportingNow.toISOString().slice(0, 10)
+    const PERF_METRICS: Array<[string, number]> = [
+      ["CALL_CLICKS", 12],
+      ["WEBSITE_CLICKS", 30],
+      ["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH", 140],
+      ["BUSINESS_IMPRESSIONS_MOBILE_SEARCH", 260],
+    ]
+    for (const [metric, value] of PERF_METRICS) {
+      await admin`
+        insert into performance_metric_daily
+          (organisation_id, external_location_id, metric, metric_date, value)
+        values
+          (${organisationId}, ${directReview.externalLocationId}, ${metric}, ${perfDay}::date, ${value})
+        on conflict do nothing
+      `
+    }
+
+    // Two keyword months so the Keywords tab is "ready", incl. one exact
+    // term and one honestly-thresholded term ("N+"). The
+    // performance_search_keyword_monthly check constraint requires exactly
+    // one of impressions/threshold per row, so the thresholded keyword is
+    // split across two months: an exact-known month (impressions) and a
+    // suppressed-additional month (threshold only) - their aggregate is what
+    // the route sums, matching real Google reporting shape.
+    const perfMonth = `${reportingNow.toISOString().slice(0, 7)}-01`
+    const prevMonth = new Date(
+      Date.UTC(reportingNow.getUTCFullYear(), reportingNow.getUTCMonth() - 1, 1)
+    )
+      .toISOString()
+      .slice(0, 10)
+    await admin`
+      insert into performance_search_keyword_monthly
+        (organisation_id, external_location_id, keyword, metric_month, impressions, threshold, rank)
+      values
+        (${organisationId}, ${directReview.externalLocationId}, 'riverside hotel bath', ${perfMonth}::date, 5200, null, 1),
+        (${organisationId}, ${directReview.externalLocationId}, 'spa near me', ${perfMonth}::date, 1000, null, 2),
+        (${organisationId}, ${directReview.externalLocationId}, 'spa near me', ${prevMonth}::date, null, 250, 2)
+      on conflict do nothing
+    `
+
+    // A succeeded checkpoint for both sync types, so state resolves to
+    // "ready" via a healthy sync history (not merely absent rows).
+    await admin`
+      insert into sync_checkpoint (organisation_id, external_location_id, sync_type, status, last_error_code)
+      values
+        (${organisationId}, ${directReview.externalLocationId}, 'performance', 'succeeded', null),
+        (${organisationId}, ${directReview.externalLocationId}, 'keywords', 'succeeded', null)
+      on conflict do nothing
+    `
     const locations = await admin<
       { id: string; name: string }[]
     >`

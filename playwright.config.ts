@@ -16,7 +16,6 @@ export default defineConfig({
   testIgnore: [
     "**/accessibility.spec.ts",
     "**/gbp-management-tabs.spec.ts",
-    "**/performance.spec.ts",
     "**/review-provider-races.spec.ts",
     "**/routing.spec.ts",
   ],
@@ -45,6 +44,8 @@ export default defineConfig({
       GBP_POSTS_ENABLED: "true",
       GBP_FOOD_MENUS_ENABLED: "true",
       GBP_PLACE_ACTIONS_ENABLED: "true",
+      GBP_PERFORMANCE_ENABLED: "true",
+      GBP_KEYWORDS_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,
