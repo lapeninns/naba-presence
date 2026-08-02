@@ -1,5 +1,6 @@
 "use client"
 
+import { AccountPickerCard } from "@/components/settings/account-picker-card"
 import { ConnectionCard } from "@/components/settings/connection-card"
 import { OAuthReturn } from "@/components/settings/oauth-return"
 import { ReconnectAlert } from "@/components/settings/reconnect-alert"
@@ -14,8 +15,8 @@ export function ConnectionsWorkspace() {
       <OAuthReturn />
       <ReconnectAlert />
       <ConnectionCard />
-      {/* CONNECTION-CARDS: Task 8 (AccountPickerCard) / Task 9 (ImportCard) / Task 10 (BackfillCard, NotificationsCard) render below when hasConnection. */}
-      {hasConnection ? null : null}
+      {/* CONNECTION-CARDS: Task 9 (ImportCard) / Task 10 (BackfillCard, NotificationsCard) render below when hasConnection. */}
+      {hasConnection ? <AccountPickerCard /> : null}
     </div>
   )
 }
