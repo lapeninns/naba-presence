@@ -17,4 +17,16 @@ export const queryKeys = {
   reviewDetail: (id: string) => ["review-detail", id] as const,
   analytics: (kind: string, params: unknown) =>
     ["analytics", kind, params] as const,
+  settingsCapabilities: ["settings-capabilities"] as const,
+  members: ["members"] as const,
+  invitations: ["invitations"] as const,
+  privacyRequests: ["privacy-requests"] as const,
+  legalHolds: ["legal-holds"] as const,
+  googleAccounts: (connectionId: string | null) =>
+    ["google-accounts", connectionId] as const,
+  googleLocations: (accountName: string | null) =>
+    ["google-locations", accountName] as const,
+  notificationSetting: (accountId: string | null) =>
+    ["notification-setting", accountId] as const,
+  backfill: ["backfill"] as const,
 }

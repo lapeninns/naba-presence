@@ -25,3 +25,18 @@ export function fetchConnections() {
     schema: connectionsResponseSchema,
   })
 }
+
+const authorizationResponseSchema = z.object({ authorizationUrl: z.string() })
+const disconnectResponseSchema = z.object({ status: z.literal("disconnected") })
+
+export function startGoogleConnect() {
+  return apiFetch("/api/google/connect/start", { method: "POST", body: {}, schema: authorizationResponseSchema })
+}
+
+export function disconnectConnection(id: string) {
+  return apiFetch(`/api/google/connections/${id}/disconnect`, {
+    method: "POST",
+    body: {},
+    schema: disconnectResponseSchema,
+  })
+}
