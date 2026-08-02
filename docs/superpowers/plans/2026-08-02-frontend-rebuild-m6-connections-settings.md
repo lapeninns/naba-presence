@@ -4,7 +4,7 @@
 
 **Goal:** Rebuild the Settings surface — four sibling sub-routes (Policy `/settings`, Team `/settings/team`, Compliance `/settings/compliance`, Connections `/settings/connections`) — on the M1 foundation and M4/M5's Query/typed-client/dirty-guard/gating machinery, closing the audit-flagged flows in spec §8 (Connections + Settings clauses) while treating the backend as consume-only except three sanctioned additions (spec §3): an additive org/settings capability object, a new settings-capabilities read route, and the new invitation-revoke route. The `/connections → /settings/connections` legacy redirect is restored, forwarding its query string so the OAuth return state survives (audit C-2).
 
-**Architecture:** `app/(dashboard)/settings/layout.tsx` is a server component that auth-gates and renders a client `SettingsShell` owning the single page `<main>` (via `PageFrame`) and a capability-filtered sub-nav (`SettingsNav`); each sub-route is its own server page that renders its own single `<h1>` via `PageHeader` and one client feature component seeded by client fetch through TanStack Query over the M1 typed client (`apiFetch` + zod). These are **sibling routes, not nested-shell tabs** (unlike M5's location workspace) — the settings layout owns `<main>` and the sub-nav, but each page owns its own distinct `<h1>` (`Reply policy` / `Team access` / `Data and compliance` / `Google Business Profile`, matching the surviving `tests/e2e/settings.spec.ts` contract). Every privileged control gates on one server-computed capability object — `{ canManageTeam, canManageConnections, canEditSettings, canManageCompliance }` from the ONE sanctioned capability addition (`lib/server/capabilities.ts` + `GET /api/settings/capabilities`), consumed by `useSettingsCapabilities()` — so a member/viewer never reaches a 403 from a primary control (spec §9). Connections is decomposed into six cards (connection, account picker, import, backfill, notifications, management) over three hooks (`useConnectionWorkspace`, `useGoogleAccounts`, `useLocationImport`) plus a single pure `deriveAutoSelection` rule; the OAuth handshake is a redirect flow (`POST /api/google/connect/start → { authorizationUrl }`, `window.location.assign`, Google → server callback → `/connections?google=…` → the query-forwarding redirect → `/settings/connections?google=…`), never rendering or collecting Google credentials. All mutations are server-confirmed with per-action pending; no optimistic writes. The shell freshness chip reuses the already-built `useConnectionHealth` (M3) over the shared `['connections']` key. No server prefetch/dehydration this milestone (deferred carry-forward, D3).
+**Architecture:** `app/(dashboard)/settings/layout.tsx` is a server component that auth-gates and renders a client `SettingsShell` owning the single page `<main>` (via `PageFrame`) and a capability-filtered sub-nav (`SettingsNav`); each sub-route is its own server page that renders its own single `<h1>` via `PageHeader` and one client feature component seeded by client fetch through TanStack Query over the M1 typed client (`apiFetch` + zod). These are **sibling routes, not nested-shell tabs** (unlike M5's location workspace) — the settings layout owns `<main>` and the sub-nav, but each page owns its own distinct `<h1>` (`Reply policy` / `Team access` / `Data and compliance` / `Google Business Profile`, matching the surviving `tests/e2e/settings.spec.ts` contract). Every privileged control gates on one server-computed capability object — `{ canManageTeam, canManageConnections, canEditSettings, canViewCompliance, canManageCompliance }` from the ONE sanctioned capability addition (`lib/server/capabilities.ts` + `GET /api/settings/capabilities`), consumed by `useSettingsCapabilities()` — so a member/viewer never reaches a 403 from a primary control (spec §9). Connections is decomposed into six cards (connection, account picker, import, backfill, notifications, management) over three hooks (`useConnectionWorkspace`, `useGoogleAccounts`, `useLocationImport`) plus a single pure `deriveAutoSelection` rule; the OAuth handshake is a redirect flow (`POST /api/google/connect/start → { authorizationUrl }`, `window.location.assign`, Google → server callback → `/connections?google=…` → the query-forwarding redirect → `/settings/connections?google=…`), never rendering or collecting Google credentials. All mutations are server-confirmed with per-action pending; no optimistic writes. The shell freshness chip reuses the already-built `useConnectionHealth` (M3) over the shared `['connections']` key. No server prefetch/dehydration this milestone (deferred carry-forward, D3).
 
 **Tech Stack:** Next.js 16 App Router (webpack), React 19, TypeScript strict, Tailwind v4 + M1 tokens, @base-ui/react primitives, TanStack Query v5, zod 4, Vitest (unit + jsdom components), Playwright + axe.
 
@@ -14,7 +14,7 @@
 - M1 design tokens ONLY: no raw hex, no `text-[NNpx]` arbitrary sizes, no hardcoded `duration-N`. Token/CSS-var classes only.
 - Exactly one `<h1>` and one `<main>` PER PAGE. The Settings shell/layout owns the page `<main>`; each sub-page (Policy/Team/Compliance/Connections) provides its own single `<h1>` via `PageHeader` (they are sibling routes, NOT nested-inside-one-shell tabs like M5 — confirm against the `settings.spec.ts` which expects a distinct level-1 heading per route). Leaf card components use `<h2>`/`<h3>`.
 - GB English spelling; NO error codes or env-flag names or byte counts or internal jargon shown to users — one `describeActionError` mapping layer; humanised enums.
-- PROTECTED PATHS (`app/api/**`, `lib/server/**`, `lib/domain/**`, `supabase/**`, `scripts/**`, `instrumentation.ts`) are CONSUME-ONLY EXCEPT the sanctioned M6 edits: (1) `lib/server/capabilities.ts` ADDITIVE org/settings capabilities; (2) NEW `app/api/settings/capabilities/route.ts`; (3) NEW `app/api/invitations/[id]/route.ts` (DELETE revoke, spec §3). Everything else under protected paths stays byte-identical. `app/(dashboard)/settings/**` page routes are NOT under `app/api` — fine to create.
+- PROTECTED PATHS (`app/api/**`, `lib/server/**`, `lib/domain/**`, `supabase/**`, `scripts/**`, `instrumentation.ts`) are CONSUME-ONLY EXCEPT the sanctioned M6 edits: (1) `lib/server/capabilities.ts` ADDITIVE org/settings capabilities; (2) NEW `app/api/settings/capabilities/route.ts`; (3) MODIFY `app/api/invitations/[token]/route.ts` — add a `DELETE` revoke handler, reusing the existing `[token]` slug (App Router forbids a second slug name at the same path level), keeping its existing `GET` byte-identical (spec §3). Everything else under protected paths stays byte-identical. `app/(dashboard)/settings/**` page routes are NOT under `app/api` — fine to create.
 - Commit conventional + trailer: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 - Every route: server component that auth-gates, renders a client feature component seeded by client fetch (server-hydration §5 deferred — document it, like M5 did). Client-safe zod form schemas go in `lib/settings/forms/` (NOT `lib/domain` — protected), mirrored from the route schemas with parity tests. Hand-rolled `useState`+zod forms (no react-hook-form — not installed).
 - Package manager `pnpm`. Branch: `frontend-rebuild-m6-connections-settings` (cut from `main` @ `cf875ee`). Delivery model is **per-milestone merge to `main`** (spec §10). `main` serves a partially-rebuilt product: `/performance` still 404s until M7; the three M8 consoles (business-info / industry / administration, and the location Administration danger zone) do not exist yet.
@@ -26,10 +26,10 @@
 ## Design decisions (LOCKED — encode exactly)
 
 - **D1 — Scope.** Four settings sub-areas (Policy, Team, Compliance, Connections) + the Connections six-card workspace. **DEFERRED:** the three raw-JSON consoles including the per-location Administration console (add/remove admins, ownership transfer, delete-location danger zone) → M8; Home KPIs / `providerTotals.divergence` → M7; the audit-log viewer (`GET /api/audit-log` exists but §8 does not scope a viewer) → later; per-location team assignment editing (`PUT /api/location-members` exists) → M8 (Administration); account/profile/password self-service → **NOT in §8 scope, no backend exists, do NOT invent one**.
-- **D2 — Routing.** SIBLING routes under `app/(dashboard)/settings/`: `layout.tsx` (owns `<main>` + sub-nav), `page.tsx` (Policy), `team/page.tsx`, `compliance/page.tsx`, `connections/page.tsx`. Each page owns its own single `<h1>` via `PageHeader`. The layout does **not** render an `<h1>`. Distinct headings: `Reply policy`, `Team access`, `Data and compliance`, `Google Business Profile` (the surviving `settings.spec.ts` invariants). The active sub-route is the URL path segment (not a searchParam). Role-gated sub-pages `redirect("/settings")` server-side when the session role lacks access (Policy is readable by any authenticated user; Team/Connections need owner|admin; Compliance needs owner).
+- **D2 — Routing.** SIBLING routes under `app/(dashboard)/settings/`: `layout.tsx` (owns `<main>` + sub-nav), `page.tsx` (Policy), `team/page.tsx`, `compliance/page.tsx`, `connections/page.tsx`. Each page owns its own single `<h1>` via `PageHeader`. The layout does **not** render an `<h1>`. Distinct headings: `Reply policy`, `Team access`, `Data and compliance`, `Google Business Profile` (the surviving `settings.spec.ts` invariants). The active sub-route is the URL path segment (not a searchParam). Role-gated sub-pages `redirect("/settings")` server-side when the session role lacks access (Policy is readable by any authenticated user; Team/Connections need owner|admin; Compliance needs owner|admin to view, owner to manage).
 - **D3 — Rendering.** CLIENT-FETCH via TanStack Query (consistent with M3/M4/M5). Server-hydration per spec §5 is **DEFERRED** — RECORDED as a prominent carry-forward. `listConnections` (`lib/server/connections.ts`) and the settings SQL (inline in `app/api/settings/route.ts`) exist, so a later dedicated effort can retrofit RSC prefetch + dehydrate **additively** — seeding the same Query keys this plan defines — without reshaping the client. Data hooks inherit `staleTime: 30s`; `['connections']` keeps its 60s poll.
-- **D4 — Capabilities (the ONE sanctioned capability edit — spec §3).** Add an additive `SettingsCapabilities` type + a pure `settingsCapabilities(session)` to `lib/server/capabilities.ts` computing `{ canManageTeam: role∈{owner,admin}, canManageConnections: role∈{owner,admin}, canEditSettings: role∈{owner,admin}, canManageCompliance: role==="owner" }`, mirroring the route guards exactly (pure role predicates, no new SQL). **Mechanism (mirrors M5's D4): a dedicated read-only route** `GET /api/settings/capabilities` → `{ capabilities: SettingsCapabilities }`, consumed by one client + `useSettingsCapabilities()` hook reused across the shell and every page. In-page controls gate on the hook's caps; the sub-nav derives visibility synchronously from the server-provided `role` via a pure `settingsGatingFromRole(role)` mirror (no flash) that a parity test proves identical to the server predicates. Unit-test every role EXECUTABLY (owner / admin / member / viewer) as an integration test hitting the real route.
-- **D5 — Compliance page gating (decision within D1/D4; flagged for review).** The Compliance sub-area is gated **owner-only** (`canManageCompliance`). The backend additionally permits admins to `GET`/`POST /api/privacy/requests` and `GET /api/legal-holds`, but the meaningful actions (fulfil, status update, export, legal-hold create/release) are all owner-only; keeping the whole surface owner-only is the minimal honest gating that never yields a reachable 403 from a primary control (spec §9). Admin's read/create-privacy-request access is intentionally not surfaced in M6 (documented carry-forward).
+- **D4 — Capabilities (the ONE sanctioned capability edit — spec §3).** Add an additive `SettingsCapabilities` type + a pure `settingsCapabilities(session)` to `lib/server/capabilities.ts` computing `{ canManageTeam: role∈{owner,admin}, canManageConnections: role∈{owner,admin}, canEditSettings: role∈{owner,admin}, canViewCompliance: role∈{owner,admin}, canManageCompliance: role==="owner" }`, mirroring the route guards exactly (pure role predicates, no new SQL). **Mechanism (mirrors M5's D4): a dedicated read-only route** `GET /api/settings/capabilities` → `{ capabilities: SettingsCapabilities }`, consumed by one client + `useSettingsCapabilities()` hook reused across the shell and every page. In-page controls gate on the hook's caps; the sub-nav derives visibility synchronously from the server-provided `role` via a pure `settingsGatingFromRole(role)` mirror (no flash) that a parity test proves identical to the server predicates. Unit-test every role EXECUTABLY (owner / admin / member / viewer) as an integration test hitting the real route.
+- **D5 — Compliance gating split (owner vs admin).** Two capabilities: `canViewCompliance = role∈{owner,admin}` and `canManageCompliance = role==="owner"`. The Compliance sub-nav item + page are visible to owner AND admin (the backend lets admins `GET`/`POST /api/privacy/requests` and `GET /api/legal-holds`); within the page, the privacy-request **list + create** are available to both, while the owner-only controls — privacy-request **fulfil/reject/status**, the **export** card, and the **entire legal-holds card** (create/release) — gate on `canManageCompliance` (hidden or disabled-with-`GateNote`). This preserves "no reachable 403 from a primary control" (spec §9) while surfacing the reads/creates admins are entitled to, and matches spec §8 ("legal-holds card owner-gated" — only the holds card, not the whole surface). The page server-redirects when `role` is neither owner nor admin.
 - **D6 — Connections decomposition (spec §8).** Six cards over three hooks + one pure rule: `connection-card` + `reconnect-alert` + `oauth-return` (hook `useConnectionWorkspace`); `account-picker-card` + `use-google-locations` discovery (hook `useGoogleAccounts` + pure `deriveAutoSelection`); `import-card` (hook `useLocationImport`); `backfill-card` (hook `useBackfill`); `notifications-card` (hook `useNotificationSetting`); `management` = the connection list rows with per-connection status/disconnect inside `connection-card`. OAuth NEVER renders/collects Google credentials — `POST /api/google/connect/start` → `window.location.assign(authorizationUrl)`. "Reconnect" = re-run `connect/start`; the callback closes the open reconnect task server-side. Import resolves re-link conflicts upfront in ONE dialog (`confirmRelink`) and reports per-item pending/results. Honest stepper (real query signal, no fake progress). Backfill polls (`refetchInterval`) ONLY while any progress row is `running`. Freshness chip reuses `useConnectionHealth`.
 - **D7 — Forms + dirty guard.** Policy uses the shared `useDirtyGuard` (`lib/hooks/use-dirty-guard.ts`) + a client-safe zod mirror in `lib/settings/forms/`; server field errors map to fields by `details` path where the shape is flat (Policy). Team/Compliance create-forms are short one-shot dialogs (no long-lived draft) and use inline validation + per-submit pending, not the dirty guard. Notifications editing (pubsub topic + types) uses the dirty guard when dirty-away is possible; kept simple with a per-save pending.
 - **D8 — Feature/paused states.** Backfill `POST` 503 `sync_paused` → honest "Review sync is paused" state (never the env-flag name). Notifications empty `pubsubTopic` = disable (surfaced as "Turn off Google notifications"). No error codes shown.
@@ -43,7 +43,7 @@
 - `GET /api/settings/capabilities` (NEW, Task 1) → `{ capabilities: SettingsCapabilities }`.
 - `GET /api/members` (`requireRole owner/admin`) → `{ members: [{ userId, email, displayName, role: "owner"|"admin"|"member"|"viewer", canPublish: boolean, createdAt, locations: [{ locationId, canPublish }] }] }` (ordered owner→admin→member→viewer, then `lower(displayName)`). `PATCH` `{ userId: uuid, role, canPublish: boolean }` → `{ member: { userId, role, canPublish, createdAt } }`; codes `owner_role_required`(403 — non-owner assigning owner OR non-owner changing an existing owner), `last_owner`(409), `member_not_found`(404). `DELETE` `{ userId: uuid }` → `{ removed: true }`; codes `cannot_remove_self`(409), `member_not_found`(404), `owner_role_required`(403), `last_owner`(409). `POST` → ALWAYS `410 use_invitations`.
 - `GET /api/invitations` (`requireRole owner/admin`) → `{ items: [{ id, email, role, canPublish, expiresAt, acceptedAt, createdAt, inviteUrl }] }` (`accepted_at IS NULL`, `order by created_at desc`). `POST` `{ email (lowercased), role, canPublish (default false) }` → `{ invitation: { id, email, role, canPublish, expiresAt, createdAt }, inviteUrl }` (**201**); codes `invitation_pending`(409), `owner_role_required`(403 — admin inviting an owner, via `assertRoleChangeAllowed`). `inviteUrl` is a **secret** (raw-token link) — surface as a deliberate copy-once action, never log.
-- `DELETE /api/invitations/[id]` (NEW, Task 1; `requireRole owner/admin`) → `{ revoked: true }`; code `invitation_not_found`(404).
+- `DELETE /api/invitations/[token]` (Task 1; a NEW `DELETE` handler on the EXISTING `[token]` route; `requireRole owner/admin`) → `{ revoked: true }`; code `invitation_not_found`(404). The client calls `DELETE /api/invitations/${id}` with the invitation UUID, which rides in the `[token]` segment.
 - `GET /api/privacy/requests` (`requireRole owner/admin`) → `{ requests: [{ id, requestType, status, subjectReference, reason, requestedBy, resolvedBy, resolutionNote, resolvedAt, createdAt, updatedAt }] }`. `POST` (`owner/admin`) `{ requestType: "access"|"rectification"|"erasure"|"restriction", subjectReference: 3..240, reason?: ≤2000 }` → **201** `{ request: { id, requestType, status, subjectReference, createdAt } }`. `PATCH` (`requireRole OWNER`) union `{ id, action:"fulfil", resolutionNote: 3..2000 }` OR `{ id, status: "pending"|"in_progress"|"completed"|"rejected", resolutionNote: 3..2000 }` → `{ request: { id, requestType, status, subjectReference, resolutionNote, resolvedAt } }`; fulfil of an `erasure` blocked by a hold → **409** `privacy_legal_hold` `{ holds: [reviewId] }`; code `privacy_request_not_found`(404).
 - `GET /api/privacy/export?subject=3..240` (`requireRole OWNER`) → JSON attachment (`content-disposition: attachment; filename="privacy-export.json"`, `cache-control: private, no-store`); code `privacy_subject_not_found`(404). **`subject` is a query param** (§8 tension — flagged D-flag below).
 - `GET /api/legal-holds` (`requireRole owner/admin`) → `{ holds: [{ id, reviewId, reason, approvedBy, releasedBy, releasedAt, createdAt }] }`. `POST` (`requireRole OWNER`) `{ reviewId: uuid, reason: 10..1000 }` → **201** `{ hold: { id, reviewId, reason, approvedBy, createdAt } }`; code `review_not_found`(404). `DELETE` (`requireRole OWNER`) body `{ reviewId: uuid }` → `{ released: true }`; code `legal_hold_not_found`(404).
@@ -67,8 +67,8 @@ lib/server/
   capabilities.ts                     MODIFY (SANCTIONED, protected, additive): SettingsCapabilities + settingsCapabilities(session)
 app/api/settings/capabilities/
   route.ts                            NEW (SANCTIONED, protected): GET -> { capabilities: SettingsCapabilities }
-app/api/invitations/[id]/
-  route.ts                            NEW (SANCTIONED, protected): DELETE -> { revoked: true }
+app/api/invitations/[token]/
+  route.ts                            MODIFY (SANCTIONED, protected): add DELETE -> { revoked: true } (reuse the [token] slug; existing GET stays byte-identical)
 tests/integration/routes/
   settings-capabilities.test.ts       NEW (Task 1): all four roles, executable
   invitation-revoke.test.ts           NEW (Task 1): revoke happy path + 404 + role gating
@@ -149,26 +149,27 @@ playwright.config.ts                  MODIFY (Task 11): un-ignore settings.spec.
 
 ### Task 1: Settings capabilities + invitation-revoke backend (SANCTIONED protected-path edits)
 
-> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M6's analog of M5 Task 1).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly three files there: `lib/server/capabilities.ts` (additive `SettingsCapabilities`/`settingsCapabilities`), `app/api/settings/capabilities/route.ts` (new read-only GET), and `app/api/invitations/[id]/route.ts` (new DELETE revoke). Every other protected file stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` (exactly those three paths), that the capability predicates mirror the route guards for every role, and that the untouched backend integration suite (the parity oracle) stays green.
+> **⚠ Protected-path task — flag for whole-branch-review scrutiny (M6's analog of M5 Task 1).** This is the ONLY task that edits `app/api/**` / `lib/server/**`. It touches exactly three files there: `lib/server/capabilities.ts` (additive `SettingsCapabilities`/`settingsCapabilities`), `app/api/settings/capabilities/route.ts` (new read-only GET), and `app/api/invitations/[token]/route.ts` (a new `DELETE` revoke handler added to the existing route — its `GET` stays byte-identical). Every other protected file stays **byte-identical**. The reviewer must confirm that with `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` (exactly those three paths), that the capability predicates mirror the route guards for every role, and that the untouched backend integration suite (the parity oracle) stays green.
 
 **Files:**
-- Create: `app/api/settings/capabilities/route.ts`, `app/api/invitations/[id]/route.ts`
-- Modify: `lib/server/capabilities.ts` (add `SettingsCapabilities`, `settingsCapabilities`)
+- Create: `app/api/settings/capabilities/route.ts`
+- Modify (protected): `lib/server/capabilities.ts` (add `SettingsCapabilities`, `settingsCapabilities`), `app/api/invitations/[token]/route.ts` (add a `DELETE` revoke handler; keep the existing `GET` byte-identical)
 - Test: `tests/integration/routes/settings-capabilities.test.ts`, `tests/integration/routes/invitation-revoke.test.ts`
 
 **Interfaces:**
 - Consumes: `Session`/`requireSession`/`requireRole` (`@/lib/server/session`), `withTenant` (`@/lib/server/db`), `apiError`/`ApiError` (`@/lib/server/http`), `z` (`zod`), `NextResponse` (`next/server`).
 - Produces (Task 2 consumes these EXACT shapes):
-  - `type SettingsCapabilities = { canManageTeam: boolean; canManageConnections: boolean; canEditSettings: boolean; canManageCompliance: boolean }`.
-  - `settingsCapabilities(session: Session): SettingsCapabilities` — `canManageTeam/canManageConnections/canEditSettings = role ∈ {owner,admin}`; `canManageCompliance = role === "owner"`.
+  - `type SettingsCapabilities = { canManageTeam: boolean; canManageConnections: boolean; canEditSettings: boolean; canViewCompliance: boolean; canManageCompliance: boolean }`.
+  - `settingsCapabilities(session: Session): SettingsCapabilities` — `canManageTeam/canManageConnections/canEditSettings/canViewCompliance = role ∈ {owner,admin}`; `canManageCompliance = role === "owner"`.
   - `GET /api/settings/capabilities` → `{ capabilities: SettingsCapabilities }`.
-  - `DELETE /api/invitations/[id]` → `{ revoked: true }` (owner/admin; `404 invitation_not_found` when no pending invitation with that id).
+  - `DELETE /api/invitations/[token]` → `{ revoked: true }` (a new `DELETE` handler on the existing `[token]` route; owner/admin; `404 invitation_not_found` when no pending invitation with that id; the invitation UUID rides in the `[token]` segment).
 
 **Capability definition (mirrors the route guards exactly):**
 - `canManageTeam` = `role ∈ {owner,admin}` (matches `GET/PATCH/DELETE /api/members`, `GET/POST /api/invitations`, and the new revoke — all `requireRole(["owner","admin"])`).
 - `canManageConnections` = `role ∈ {owner,admin}` (matches every connection/account/location-link/notification/backfill mutation — all `requireRole(["owner","admin"])`).
 - `canEditSettings` = `role ∈ {owner,admin}` (matches `PATCH /api/settings`).
-- `canManageCompliance` = `role === "owner"` (matches the owner-only compliance mutations; the whole compliance surface is owner-gated per D5).
+- `canViewCompliance` = `role ∈ {owner,admin}` (matches `GET`/`POST /api/privacy/requests` + `GET /api/legal-holds`, which admins may reach — so admins see the Compliance surface).
+- `canManageCompliance` = `role === "owner"` (matches the owner-only compliance mutations: privacy fulfil/status, export, legal-hold create/release; per D5 only these controls + the whole legal-holds card are owner-gated).
 
 - [ ] **Step 1: Write the failing integration tests**
 
@@ -228,6 +229,7 @@ describeDatabase("settings capabilities route", () => {
         canManageTeam: boolean
         canManageConnections: boolean
         canEditSettings: boolean
+        canViewCompliance: boolean
         canManageCompliance: boolean
       }
     }
@@ -251,11 +253,12 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
+      canViewCompliance: true,
       canManageCompliance: true,
     })
   })
 
-  it("admin manages team/connections/settings but not compliance", async () => {
+  it("admin manages team/connections/settings and views compliance but can't manage it", async () => {
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
     const adminUser = await seedMemberUser(admin, tenant.organisationId, "admin", true)
@@ -263,6 +266,7 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
+      canViewCompliance: true,
       canManageCompliance: false,
     })
   })
@@ -276,6 +280,7 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: false,
       canManageConnections: false,
       canEditSettings: false,
+      canViewCompliance: false,
       canManageCompliance: false,
     }
     expect((await caps(member.cookie)).capabilities).toEqual(allFalse)
@@ -404,13 +409,14 @@ Append below the existing `locationCapabilities` export. `settingsCapabilities` 
 
 ```ts
 // Org/settings capabilities for the Settings workspace (spec §3):
-//   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
+//   canManageTeam/canManageConnections/canEditSettings/canViewCompliance === role in {owner, admin}
 //   canManageCompliance === role === "owner"
 // Pure role predicates that mirror the route guards; no SQL.
 export type SettingsCapabilities = {
   canManageTeam: boolean
   canManageConnections: boolean
   canEditSettings: boolean
+  canViewCompliance: boolean
   canManageCompliance: boolean
 }
 
@@ -420,6 +426,7 @@ export function settingsCapabilities(session: Session): SettingsCapabilities {
     canManageTeam: managerial,
     canManageConnections: managerial,
     canEditSettings: managerial,
+    canViewCompliance: managerial,
     canManageCompliance: session.role === "owner",
   }
 }
@@ -448,28 +455,31 @@ export async function GET() {
 }
 ```
 
-- [ ] **Step 5: Create the invitation-revoke route**
+- [ ] **Step 5: Add a DELETE revoke handler to the EXISTING `[token]` route**
 
-`app/api/invitations/[id]/route.ts` — mirrors the inline-SQL style of `app/api/invitations/route.ts`; revokes (deletes) a still-pending invitation (`accepted_at is null`) scoped to the tenant.
+Do **NOT** create `app/api/invitations/[id]/route.ts`. Next.js App Router forbids two different slug names at the same dynamic path level (`app/api/invitations/[token]/route.ts` already exists for the public invite-lookup `GET`), and a second `[id]` slug throws at build: *"You cannot use different slug names for the same dynamic path ('id' !== 'token')."* Instead ADD a `DELETE` handler to the **existing** `app/api/invitations/[token]/route.ts`, reusing the `[token]` slug — the param arrives named `token` but carries the invitation UUID for `DELETE` (parse it as a uuid). Keep the existing `GET` and `export const runtime` byte-identical.
+
+Merge these imports into the file's existing import block (it already imports `NextResponse`, `sha256`, `getDatabase` from `@/lib/server/db`, `ApiError`, `apiError`) — add `z`, `writeAudit`, `withTenant` (alongside `getDatabase` on the `@/lib/server/db` line), `requireRole`, `requireSession`:
 
 ```ts
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError } from "@/lib/server/http"
+import { writeAudit } from "@/lib/server/audit"
+import { getDatabase, withTenant } from "@/lib/server/db"
 import { requireRole, requireSession } from "@/lib/server/session"
+```
 
-export const runtime = "nodejs"
+Then append the handler below the existing `GET`:
 
+```ts
 export async function DELETE(
   _request: Request,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ token: string }> }
 ) {
   try {
     const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await context.params
-    const invitationId = z.uuid().parse(id)
+    const { token } = await context.params
+    const invitationId = z.uuid().parse(token)
     await withTenant(session.organisationId, async (sql) => {
       const [row] = await sql<{ id: string }[]>`
         delete from invitation
@@ -480,6 +490,13 @@ export async function DELETE(
       if (!row) {
         throw new ApiError(404, "invitation_not_found", "Invitation not found.")
       }
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "member.invitation_revoked",
+        subjectType: "invitation",
+        subjectId: invitationId,
+      })
     })
     return NextResponse.json({ revoked: true })
   } catch (error) {
@@ -488,7 +505,7 @@ export async function DELETE(
 }
 ```
 
-> **Executor note:** confirm the `invitation` table name + `accepted_at` column against `app/api/invitations/route.ts` (its GET filters `where accepted_at is null` and its inserts target the same table). If the schema differs (e.g. a soft-delete column instead of a hard delete), match the sibling route's convention — but keep the response `{ revoked: true }` and the `404 invitation_not_found` contract.
+> **Executor note:** `writeAudit(sql, event)` matches the real signature in `lib/server/audit.ts` (`{ organisationId, actorUserId?, action, subjectType, subjectId, requestId?, metadata? }`) — confirmed against the `legal-holds` / `members` call sites. Confirm the `invitation` table name + `accepted_at` column against `app/api/invitations/route.ts` (its GET filters `where accepted_at is null` and its inserts target the same table). Keep the response `{ revoked: true }` and the `404 invitation_not_found` contract; the existing public-lookup `GET` in this file must stay byte-identical (only imports + the new `DELETE` are added). The client still calls `DELETE /api/invitations/${id}` with the invitation UUID (it rides in the `[token]` segment), so the client + integration test are unchanged.
 
 - [ ] **Step 6: Run to verify pass, then the full parity oracle**
 
@@ -499,12 +516,12 @@ pnpm typecheck && pnpm lint
 git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts
 ```
 
-Expected: the two new tests pass; every existing integration test stays green (the additions are new symbols + two new routes — nothing existing changed). The `git diff --stat` lists **exactly** `app/api/settings/capabilities/route.ts`, `app/api/invitations/[id]/route.ts`, and `lib/server/capabilities.ts` — nothing else under those paths (the new test files are under `tests/`, outside the protected set).
+Expected: the two new tests pass; every existing integration test stays green (the additions are a new symbol, one new route, and a new `DELETE` handler on the existing `[token]` route — that route's existing `GET` is untouched, so the invite-lookup tests stay green). The `git diff --stat` lists **exactly** `app/api/settings/capabilities/route.ts`, `app/api/invitations/[token]/route.ts`, and `lib/server/capabilities.ts` — nothing else under those paths (the new test files are under `tests/`, outside the protected set).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/server/capabilities.ts "app/api/settings/capabilities/route.ts" "app/api/invitations/[id]/route.ts" tests/integration/routes/settings-capabilities.test.ts tests/integration/routes/invitation-revoke.test.ts
+git add lib/server/capabilities.ts "app/api/settings/capabilities/route.ts" "app/api/invitations/[token]/route.ts" tests/integration/routes/settings-capabilities.test.ts tests/integration/routes/invitation-revoke.test.ts
 git commit -m "feat(settings): settings-capabilities route + invitation revoke route (sanctioned)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -523,7 +540,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: `apiFetch`, `ApiClientError` (`@/lib/api/client`); `z` (`zod`); `GOOGLE_NOTIFICATION_TYPES`/`GoogleNotificationType` (`@/lib/domain/google-contract`); `useQuery` (`@tanstack/react-query`); `queryKeys` (`@/lib/queries/keys`); `SettingsCapabilities` shape from Task 1.
 - Produces (Tasks 3–11 consume these EXACT signatures):
   - `lib/api/settings.ts`: `type OrgSettings`; `fetchSettings(): Promise<OrgSettings>`; `saveSettings(input: SettingsPatchInput): Promise<OrgSettings>`; `type SettingsPatchInput`.
-  - `lib/api/settings-capabilities.ts`: `type SettingsCapabilities = { canManageTeam; canManageConnections; canEditSettings; canManageCompliance }`; `fetchSettingsCapabilities(): Promise<SettingsCapabilities>`.
+  - `lib/api/settings-capabilities.ts`: `type SettingsCapabilities = { canManageTeam; canManageConnections; canEditSettings; canViewCompliance; canManageCompliance }`; `fetchSettingsCapabilities(): Promise<SettingsCapabilities>`.
   - `lib/api/members.ts`: `type Member`, `type MemberRole`; `fetchMembers(): Promise<{ members: Member[] }>`; `updateMember(input): Promise<{ member: { userId; role; canPublish; createdAt } }>`; `removeMember(userId: string): Promise<{ removed: true }>`.
   - `lib/api/invitations.ts`: `type Invitation`; `fetchInvitations(): Promise<{ items: Invitation[] }>`; `createInvitation(input): Promise<{ invitation: Invitation; inviteUrl: string }>`; `revokeInvitation(id: string): Promise<{ revoked: true }>`.
   - `lib/api/privacy.ts`: `type PrivacyRequest`; `fetchPrivacyRequests(): Promise<{ requests: PrivacyRequest[] }>`; `createPrivacyRequest(input): Promise<{ request: { id; requestType; status; subjectReference; createdAt } }>`; `updatePrivacyRequest(input): Promise<{ request: PrivacyRequestResolution }>`; `exportPrivacyData(subject: string): Promise<void>` (fetch-and-download).
@@ -544,7 +561,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 In `lib/queries/keys.ts`, add these to the `queryKeys` object (keep the existing entries; `settings` stays the bare `["settings"]` used by `useSettings`):
 
 ```ts
-  settingsCapabilities: ["settings", "capabilities"] as const,
+  settingsCapabilities: ["settings-capabilities"] as const,
   members: ["members"] as const,
   invitations: ["invitations"] as const,
   privacyRequests: ["privacy-requests"] as const,
@@ -684,14 +701,14 @@ import { memberRowGate, roleOptionsFor, settingsGatingFromRole } from "@/lib/set
 describe("settingsGatingFromRole (mirror of server settingsCapabilities)", () => {
   it("matches the server predicates for every role", () => {
     expect(settingsGatingFromRole("owner")).toEqual({
-      canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: true,
+      canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: true,
     })
     expect(settingsGatingFromRole("admin")).toEqual({
-      canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: false,
+      canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: false,
     })
     for (const role of ["member", "viewer", null]) {
       expect(settingsGatingFromRole(role)).toEqual({
-        canManageTeam: false, canManageConnections: false, canEditSettings: false, canManageCompliance: false,
+        canManageTeam: false, canManageConnections: false, canEditSettings: false, canViewCompliance: false, canManageCompliance: false,
       })
     }
   })
@@ -944,6 +961,7 @@ export type SettingsCapabilities = {
   canManageTeam: boolean
   canManageConnections: boolean
   canEditSettings: boolean
+  canViewCompliance: boolean
   canManageCompliance: boolean
 }
 
@@ -953,6 +971,7 @@ export function settingsGatingFromRole(role: string | null): SettingsCapabilitie
     canManageTeam: managerial,
     canManageConnections: managerial,
     canEditSettings: managerial,
+    canViewCompliance: managerial,
     canManageCompliance: role === "owner",
   }
 }
@@ -1088,7 +1107,7 @@ describe("settings clients", () => {
 
   it("fetchSettingsCapabilities parses the capability envelope", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
-      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: false } })
+      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: false } })
     ))
     expect((await fetchSettingsCapabilities()).canManageCompliance).toBe(false)
   })
@@ -1216,6 +1235,7 @@ export const settingsCapabilitiesSchema = z.object({
   canManageTeam: z.boolean(),
   canManageConnections: z.boolean(),
   canEditSettings: z.boolean(),
+  canViewCompliance: z.boolean(),
   canManageCompliance: z.boolean(),
 })
 
@@ -1820,11 +1840,11 @@ describe("SettingsNav", () => {
     expect(nav).toBeInTheDocument()
   })
 
-  it("hides Compliance from an admin", () => {
+  it("shows every area to an admin too (admins can view Compliance)", () => {
     render(<SettingsNav role="admin" />)
-    expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Compliance" })).not.toBeInTheDocument()
+    for (const label of ["Policy", "Team", "Compliance", "Connections"]) {
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
+    }
   })
 
   it("shows a member only the Policy area", () => {
@@ -1858,7 +1878,7 @@ import { cn } from "@/lib/utils"
 const AREAS = [
   { href: "/settings", label: "Policy", capability: "always" as const },
   { href: "/settings/team", label: "Team", capability: "canManageTeam" as const },
-  { href: "/settings/compliance", label: "Compliance", capability: "canManageCompliance" as const },
+  { href: "/settings/compliance", label: "Compliance", capability: "canViewCompliance" as const },
   { href: "/settings/connections", label: "Connections", capability: "canManageConnections" as const },
 ]
 
@@ -2156,7 +2176,9 @@ export function PolicyForm({ role }: { role: string | null }) {
     return JSON.stringify(current) !== JSON.stringify(initial)
   }, [current, initial])
 
-  const dirtyGuard = useDirtyGuard({
+  // Called for its effects only — arms beforeunload while dirty (spec §6). Do NOT
+  // bind the return value; the repo lints unused vars as errors.
+  useDirtyGuard({
     key: "settings-policy",
     isDirty,
     snapshot: () => JSON.stringify(current ?? {}),
@@ -2347,7 +2369,7 @@ export function PolicyForm({ role }: { role: string | null }) {
 }
 ```
 
-> **Executor note:** `dirtyGuard.confirmDiscard` is wired into the page navigation guard if/when a client-side route change is added; for now `useDirtyGuard` arms `beforeunload` while dirty (spec §6). Confirm the `Select`/`Checkbox` prop names against `components/ui/select.tsx`/`checkbox.tsx` (base-ui `onValueChange`/`onCheckedChange`); if `Select` needs an explicit `items` prop like `Combobox`, adapt the trigger/content accordingly (the M4/M5 select usages are the reference).
+> **Executor note:** `useDirtyGuard` is called for its effects only (it arms `beforeunload` while dirty, spec §6) — do not bind its return value, since the repo lints unused vars as errors (`pnpm lint` fails otherwise). Confirm the `Select`/`Checkbox` prop names against `components/ui/select.tsx`/`checkbox.tsx` (base-ui `onValueChange`/`onCheckedChange`); if `Select` needs an explicit `items` prop like `Combobox`, adapt the trigger/content accordingly (the M4/M5 select usages are the reference).
 
 - [ ] **Step 4: Run to verify failure resolved, then implement the route**
 
@@ -2922,7 +2944,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Task 6: Compliance page (`/settings/compliance`) — privacy requests + legal holds + export
 
-> **Owner-gated (D5).** The whole compliance surface is owner-only: the page server-redirects non-owners, mirroring the owner-only mutations (`PATCH /api/privacy/requests`, `POST/DELETE /api/legal-holds`, `GET /api/privacy/export`). No control here can produce a reachable 403 (spec §9). The privacy-export `?subject=` query param is a known §8 tension (flagged in the carry-forward list) — consumed as-is because the backend exposes no POST alternative; the subject reference is never logged.
+> **Owner/admin split (D5).** The page is reachable by owner AND admin (it server-redirects only when the role is neither). Admins see the privacy-request **list + create** (backend: `GET`/`POST /api/privacy/requests`, `GET /api/legal-holds`). The owner-only controls — privacy-request **fulfil/reject/status** (`PATCH`), the **export** card (`GET /api/privacy/export`), and the **entire legal-holds card** (`POST`/`DELETE /api/legal-holds`) — gate on `canManageCompliance` (owner) so no control produces a reachable 403 (spec §9). The privacy-export `?subject=` query param is a known §8 tension (flagged in the carry-forward list) — consumed as-is because the backend exposes no POST alternative; the subject reference is never logged.
 
 **Files:**
 - Create: `app/(dashboard)/settings/compliance/page.tsx`, `components/settings/privacy-requests-card.tsx`, `components/settings/legal-holds-card.tsx`, `components/settings/privacy-export-card.tsx`
@@ -2930,7 +2952,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `usePrivacyRequests`/`createPrivacyRequest`/`updatePrivacyRequest`/`exportPrivacyData`/`type PrivacyRequest` (Task 2), `useLegalHolds`/`createLegalHold`/`releaseLegalHold`/`type LegalHold` (Task 2), `privacyRequestFormSchema`/`REQUEST_TYPE_OPTIONS`/`requestTypeLabel`/`requestStatusLabel` + `legalHoldFormSchema` (Task 2), `describeActionError` (Task 2), `useMutation`/`useQueryClient`, `useToastManager`, `Table…`/`Badge`/`Select…`/`Field…`/`Input`/`Textarea`/`Button`/`Empty`/`Skeleton`/`Alert…` (existing), `getSession`/`PageHeader` (server), `redirect`.
-- Produces: `PrivacyRequestsCard`, `LegalHoldsCard`, `PrivacyExportCard` (no props — all owner-reached).
+- Produces: `PrivacyRequestsCard` (props `{ canManage: boolean }` — owner+admin render it; `canManage` gates the fulfil/reject controls); `LegalHoldsCard`, `PrivacyExportCard` (no props — the page renders them only for owners).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2971,7 +2993,7 @@ function renderCard(requests: PrivacyRequest[]) {
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <PrivacyRequestsCard />
+        <PrivacyRequestsCard canManage />
       </Toaster>
     </QueryClientProvider>
   )
@@ -3106,7 +3128,7 @@ import {
 
 const OPEN_STATUSES = new Set(["pending", "in_progress"])
 
-export function PrivacyRequestsCard() {
+export function PrivacyRequestsCard({ canManage }: { canManage: boolean }) {
   const query = usePrivacyRequests()
   const client = useQueryClient()
   const toast = useToastManager()
@@ -3227,24 +3249,28 @@ export function PrivacyRequestsCard() {
                 </TableCell>
                 <TableCell>
                   {OPEN_STATUSES.has(row.status) ? (
-                    <span className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={resolve.isPending}
-                        onClick={() => resolve.mutate(row.id)}
-                      >
-                        Fulfil
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={reject.isPending}
-                        onClick={() => reject.mutate(row.id)}
-                      >
-                        Reject
-                      </Button>
-                    </span>
+                    canManage ? (
+                      <span className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={resolve.isPending}
+                          onClick={() => resolve.mutate(row.id)}
+                        >
+                          Fulfil
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={reject.isPending}
+                          onClick={() => reject.mutate(row.id)}
+                        >
+                          Reject
+                        </Button>
+                      </span>
+                    ) : (
+                      <span className="text-caption text-muted-foreground">Awaiting an owner</span>
+                    )
                   ) : (
                     <span className="text-caption text-muted-foreground">Resolved</span>
                   )}
@@ -3464,15 +3490,17 @@ export const metadata = { title: "Data and compliance · NabaPresence" }
 
 export default async function SettingsCompliancePage() {
   const session = await getSession()
-  if (!session || session.role !== "owner") {
+  // Owner + admin may view/create privacy requests; only owners manage (D5).
+  if (!session || (session.role !== "owner" && session.role !== "admin")) {
     redirect("/settings")
   }
+  const canManage = session.role === "owner"
   return (
     <div className="flex flex-col gap-10">
       <PageHeader title="Data and compliance" description="Handle data-subject requests, legal holds and record exports." />
-      <PrivacyRequestsCard />
-      <LegalHoldsCard />
-      <PrivacyExportCard />
+      <PrivacyRequestsCard canManage={canManage} />
+      {canManage ? <LegalHoldsCard /> : null}
+      {canManage ? <PrivacyExportCard /> : null}
     </div>
   )
 }
@@ -3519,11 +3547,14 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { useToastManager } from "@/components/ui/toast"
 import { disconnectConnection, fetchConnections, startGoogleConnect } from "@/lib/api/connections"
+import { describeActionError } from "@/lib/settings/action-errors"
 import { queryKeys } from "./keys"
 
 export function useConnectionWorkspace() {
   const client = useQueryClient()
+  const toast = useToastManager()
   const query = useQuery({
     queryKey: queryKeys.connections,
     queryFn: fetchConnections,
@@ -3536,10 +3567,14 @@ export function useConnectionWorkspace() {
       // Hand off to Google — the browser leaves the app here.
       window.location.assign(result.authorizationUrl)
     },
+    // Surface a failed handshake (503 google_not_configured / 403 permission_denied);
+    // the Connect button, ReconnectAlert and OAuthReturn "Try again" all call this bare.
+    onError: (error) => toast.add({ title: describeActionError(error), type: "error" }),
   })
   const disconnect = useMutation({
     mutationFn: (id: string) => disconnectConnection(id),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.connections }),
+    onError: (error) => toast.add({ title: describeActionError(error), type: "error" }),
   })
   return { query, connect, disconnect }
 }
@@ -5155,12 +5190,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { Toaster } from "@/components/ui/toast"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import * as connectionsApi from "@/lib/api/connections"
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  // useConnectionWorkspace calls useToastManager (mutation onError), which requires a
+  // Toast provider — wrap in <Toaster> or the real hook throws under renderHook.
+  return (
+    <QueryClientProvider client={client}>
+      <Toaster>{children}</Toaster>
+    </QueryClientProvider>
+  )
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -5287,15 +5329,21 @@ test.describe("settings", () => {
     }
   })
 
-  test("admins do not see the Compliance area", async ({ baseURL, page }) => {
+  test("an admin sees Compliance and its list/create, but not the owner-only controls", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.adminCookie)
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
     await expect(nav.getByRole("link", { name: "Team" })).toBeVisible()
-    await expect(nav.getByRole("link", { name: "Compliance" })).toHaveCount(0)
+    await expect(nav.getByRole("link", { name: "Compliance" })).toBeVisible()
+    // The page renders for admins (no redirect) with the privacy-request create form…
     await page.goto("/settings/compliance")
-    await expect(page).toHaveURL(/\/settings$/)
+    await expect(page).toHaveURL(/\/settings\/compliance$/)
+    await expect(page.getByRole("heading", { name: "Data and compliance", level: 1 })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Log request" })).toBeVisible()
+    // …but the owner-only export card and legal-holds card are absent.
+    await expect(page.getByRole("button", { name: "Download export" })).toHaveCount(0)
+    await expect(page.getByRole("heading", { name: "Legal holds" })).toHaveCount(0)
   })
 })
 ```
@@ -5367,7 +5415,7 @@ Expected: unit + components green; production build green; e2e runs `foundation.
 
 Per spec §10, request a whole-branch review before merge:
 1. A general review of the entire M6 diff.
-2. A dedicated **capability / permission-gating** pass focused on Task 1 (the sanctioned protected-path edits) — confirm `settingsCapabilities` mirrors the route guards for every role, that `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly the three sanctioned files (`lib/server/capabilities.ts`, `app/api/settings/capabilities/route.ts`, `app/api/invitations/[id]/route.ts`), that the client mirror `settingsGatingFromRole` equals the server predicates (the parity test), and that a member/viewer can never reach an enabled privileged control (spec §9 "no reachable 403 from primary controls") — including the direct-publish owner-consent gate and the owner-only compliance surface.
+2. A dedicated **capability / permission-gating** pass focused on Task 1 (the sanctioned protected-path edits) — confirm `settingsCapabilities` mirrors the route guards for every role, that `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly the three sanctioned files (`lib/server/capabilities.ts`, `app/api/settings/capabilities/route.ts`, `app/api/invitations/[token]/route.ts`), that the `[token]` route's existing `GET` is byte-identical (only imports + a `DELETE` handler added), that the client mirror `settingsGatingFromRole` equals the server predicates (the parity test), and that a member/viewer can never reach an enabled privileged control (spec §9 "no reachable 403 from primary controls") — including the direct-publish owner-consent gate and the compliance owner-vs-admin gating split.
 
 Apply one fix wave for the findings, re-run the gate, then commit.
 
@@ -5387,12 +5435,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` green.
 - E2e green: `foundation.spec.ts`, `home.spec.ts`, `inbox.spec.ts`, `journeys.spec.ts`, `locations.spec.ts`, and the revived `settings.spec.ts` + the new `connections-oauth.spec.ts` — including the zero-console-error + zero-pageerror guard and the best-practice structural axe rules on **every** settings sub-route (Policy / Team / Compliance / Connections) in both light and dark, the `/connections → /settings/connections` query-forwarding redirect, the per-role permission walk (owner / admin / member / viewer with no reachable 403 from a primary control), the OAuth success + error outcomes, and the disconnect-dialog axe pass.
 - Integration suite green (the parity oracle), including the new `settings-capabilities.test.ts` (all four roles) and `invitation-revoke.test.ts` (revoke happy path + 404 + owner/admin/member/viewer gating), `RUN_DB_TESTS=true`, Postgres via `naba_test_runtime`. No pre-existing integration test moved.
-- **Protected-path discipline:** the ONLY changes under `app/api/**`/`lib/server/**`/`lib/domain/**`/`supabase/**`/`scripts/**`/`instrumentation.ts` are Task 1's three sanctioned files (`lib/server/capabilities.ts` additive; `app/api/settings/capabilities/route.ts` new; `app/api/invitations/[id]/route.ts` new). `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly those three. Everything else under the protected paths is byte-identical.
+- **Protected-path discipline:** the ONLY changes under `app/api/**`/`lib/server/**`/`lib/domain/**`/`supabase/**`/`scripts/**`/`instrumentation.ts` are Task 1's three sanctioned files (`lib/server/capabilities.ts` additive; `app/api/settings/capabilities/route.ts` new; `app/api/invitations/[token]/route.ts` modified — a `DELETE` handler added, its `GET` byte-identical). `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` lists exactly those three. Everything else under the protected paths is byte-identical.
 - Every M6-scoped spec obligation closed (spec §8 Connections + Settings):
   - **Connections:** decomposed cards (connection, account picker, import, backfill, notifications, management) over three hooks (`useConnectionWorkspace`, `useGoogleAccounts`, `useLocationImport`) + one pure `deriveAutoSelection`; OAuth return rendered (success toast; mapped error + "Try again"); reconnect alert pinned when a token is revoked; import resolves re-link conflicts upfront in one dialog and reports per-item results with per-action pending; honest stepper (real query signal); backfill polls only while anything is running; the freshness chip reuses `useConnectionHealth`; OAuth never renders/collects Google credentials (`window.location.assign`).
   - **Settings — Team:** remove member, revoke invitation (via the new endpoint), role-select gating (no "Owner" option for admins; last-owner demotion/removal blocked with a `GateNote` hint), "you" badge, expired-invite badges, self-removal disabled, viewer `canPublish` normalised, `inviteUrl` a copy-once secret never logged.
   - **Settings — Policy:** one save path; timezone constrained to `Intl.supportedValuesOf('timeZone')`; the owner + explicit-consent direct-publish gate mirrored so no reachable 403.
-  - **Settings — Compliance:** privacy-request list with status + resolution + create/fulfil/reject; legal-holds card (owner-gated); exports via fetch-and-download with error handling; no error codes shown.
+  - **Settings — Compliance (owner/admin split, D5):** owner + admin view and create privacy requests; owners additionally fulfil/reject/status, run the subject export, and manage the legal-holds card (all owner-gated); the page redirects a member/viewer; exports via fetch-and-download with error handling; no error codes shown.
 - No new dependency added. All primitives came from the already-installed set (M1–M5); no new `@base-ui/react` primitive was admitted this milestone (`Table`/`Checkbox`/`Select`/`Combobox`/`Dialog`/`AlertDialog` all pre-exist).
 - Whole-branch review complete with a dedicated capability/permission-gating pass; its findings fixed in one wave.
 - Carry-forwards recorded for later milestones (see Self-review below).
@@ -5401,12 +5449,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 - **Spec coverage.** §3 additions → Task 1 (`settingsCapabilities` + the settings-capabilities route + the invitation-revoke route — the two audit-mandated backend additions for M6). §4 redirect → Task 3 (`/connections → /settings/connections`, query-forwarding). §5 rendering model — client-fetched pages with route-level `loading.tsx`; server-prefetch deviation documented (D3) and carried forward, noting `listConnections` + the settings SQL exist for a later retrofit. §6 data layer — one QueryClient; settings/members/invitations/privacy/legal-holds/connections/accounts/locations/notifications/backfill keys; typed client via `apiFetch`/`ApiClientError`; client-safe zod mirrors in `lib/settings/forms/` (parity-tested); `useDirtyGuard` on the Policy form; server field errors mapped to fields by path (Policy). §7 content — humanised enums (roles, request types/statuses, notification types, connection/backfill statuses); one `describeActionError` mapping layer; no env-flag names / byte counts / error codes shown. §8 Connections + Settings paragraphs — every clause mapped to a task (see exit criteria). §9 testing — loading/error/empty/mutation-failure component tests per card/form; the capability matrix + invitation-revoke as executable integration tests (Task 1); the connection-workspace hook + `deriveAutoSelection` + dirty-guard behaviour unit-tested; e2e per-role walk, per-route clean-load in both themes, OAuth outcomes, redirect, dialog axe (Task 11); parity oracle stays green (Task 1). No M6-scoped requirement is left without a task.
 - **Placeholder scan.** No "TBD"/"similar to Task N"/"add validation"/bare "write tests". Every code step carries real code; each non-trivial component (policy form, members table, invitations panel, privacy/legal-holds/export cards, connection/account/import/backfill/notifications cards, the OAuth return + reconnect alert, the sub-nav) ships a numbered contract + a complete pinned test + a reference implementation. Shared blocks are imported by name (`GateNote`, `OverwriteConfirmDialog`, `describeActionError`, `deriveAutoSelection`, `useConnectionWorkspace`) — not re-implemented. The two executor-note markers (`void setSelectedConnectionId` for the multi-connection selector; the connect-handoff test shim) are called out explicitly with the intended resolution, not left silent.
-- **Type consistency.** `SettingsCapabilities { canManageTeam, canManageConnections, canEditSettings, canManageCompliance }` is identical across `lib/server/capabilities.ts` (Task 1), `lib/api/settings-capabilities.ts` (`settingsCapabilitiesSchema` + `fetchSettingsCapabilities`, Task 2), `lib/settings/gating.ts` (`settingsGatingFromRole`, Task 2), and every `useSettingsCapabilities` consumer. `OrgSettings`/`SettingsPatchInput`, `Member`/`MemberRole`, `Invitation`, `PrivacyRequest`, `LegalHold`, `GoogleAccount`, `DiscoveredLocation`, `NotificationSetting`, `BackfillProgress`/`BackfillItem`/`BackfillStatus`, `ConnectionSummary` (Task 2) are the exact names Tasks 3–10 import. `useSettings`/`useSettingsCapabilities`/`useMembers`/`useInvitations`/`usePrivacyRequests`/`useLegalHolds`/`useConnectionWorkspace`/`useGoogleAccounts`/`useGoogleLocations`/`useLocationImport`/`useBackfill`/`useNotificationSetting` names match producer and consumer. `queryKeys.{settingsCapabilities, members, invitations, privacyRequests, legalHolds, googleAccounts(id), googleLocations(name), notificationSetting(id), backfill}` + the existing `settings`/`connections`/`locationsManagement`/`locations` are identical between hook and invalidation call. `deriveAutoSelection`'s `AutoSelectionInput`/`AutoSelection` shape is identical across the account-picker, import, and notifications cards. `MEMBER_ROLES`/`roleLabel`/`roleOptionsFor`/`memberRowGate` are imported by exactly those names. The four page `<h1>` strings (`Reply policy` / `Team access` / `Data and compliance` / `Google Business Profile`) match the `settings.spec.ts` assertions exactly. The OAuth query contract (`?google=connected` / `?google=error&status=<httpStatus>`) matches the backend callback and the `OAuthReturn` reader.
-- **Parity-oracle safety.** Task 1 adds only a new pure function to `lib/server/capabilities.ts` and two new route files; no existing route/service/query changes, so `reviewCapabilities`/`locationCapabilities`/`settingsSchema` and every existing integration test stay byte-identical and green. The invitation-revoke route does a scoped `delete … where accepted_at is null` and shares no state with the invitations GET/POST. No pre-existing integration test is moved; the two new integration tests are additive under `tests/`.
-- **Protected-path footprint.** `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` must list exactly `lib/server/capabilities.ts`, `app/api/settings/capabilities/route.ts`, and `app/api/invitations/[id]/route.ts`. All client-safe schemas, clients, hooks, components, and pages live under `lib/api`, `lib/settings`, `lib/connections`, `lib/queries`, `components/**`, `app/(dashboard)/settings/**`, `app/connections/**`, and `tests/**` — none protected. Confirm no accidental edit to any consumed route or service.
+- **Type consistency.** `SettingsCapabilities { canManageTeam, canManageConnections, canEditSettings, canViewCompliance, canManageCompliance }` is identical across `lib/server/capabilities.ts` (Task 1), `lib/api/settings-capabilities.ts` (`settingsCapabilitiesSchema` + `fetchSettingsCapabilities`, Task 2), `lib/settings/gating.ts` (`settingsGatingFromRole`, Task 2), and every `useSettingsCapabilities` consumer — the client mirror `settingsGatingFromRole` and the server `settingsCapabilities` both compute all five fields and the parity test pins them equal. `OrgSettings`/`SettingsPatchInput`, `Member`/`MemberRole`, `Invitation`, `PrivacyRequest`, `LegalHold`, `GoogleAccount`, `DiscoveredLocation`, `NotificationSetting`, `BackfillProgress`/`BackfillItem`/`BackfillStatus`, `ConnectionSummary` (Task 2) are the exact names Tasks 3–10 import. `useSettings`/`useSettingsCapabilities`/`useMembers`/`useInvitations`/`usePrivacyRequests`/`useLegalHolds`/`useConnectionWorkspace`/`useGoogleAccounts`/`useGoogleLocations`/`useLocationImport`/`useBackfill`/`useNotificationSetting` names match producer and consumer. `queryKeys.{settingsCapabilities, members, invitations, privacyRequests, legalHolds, googleAccounts(id), googleLocations(name), notificationSetting(id), backfill}` + the existing `settings`/`connections`/`locationsManagement`/`locations` are identical between hook and invalidation call. `deriveAutoSelection`'s `AutoSelectionInput`/`AutoSelection` shape is identical across the account-picker, import, and notifications cards. `MEMBER_ROLES`/`roleLabel`/`roleOptionsFor`/`memberRowGate` are imported by exactly those names. The four page `<h1>` strings (`Reply policy` / `Team access` / `Data and compliance` / `Google Business Profile`) match the `settings.spec.ts` assertions exactly. The OAuth query contract (`?google=connected` / `?google=error&status=<httpStatus>`) matches the backend callback and the `OAuthReturn` reader.
+- **Parity-oracle safety.** Task 1 adds a new pure function to `lib/server/capabilities.ts`, one new route file (`settings/capabilities`), and a new `DELETE` handler on the existing `app/api/invitations/[token]/route.ts` (its public invite-lookup `GET` stays byte-identical); no existing route/service/query behaviour changes, so `reviewCapabilities`/`locationCapabilities`/`settingsSchema` and every existing integration test (including the `[token]` GET lookup) stay green. The revoke `DELETE` does a scoped `delete … where accepted_at is null` and shares no state with the invitations GET/POST. No pre-existing integration test is moved; the two new integration tests are additive under `tests/`.
+- **Protected-path footprint.** `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` must list exactly `lib/server/capabilities.ts`, `app/api/settings/capabilities/route.ts`, and `app/api/invitations/[token]/route.ts`. All client-safe schemas, clients, hooks, components, and pages live under `lib/api`, `lib/settings`, `lib/connections`, `lib/queries`, `components/**`, `app/(dashboard)/settings/**`, `app/connections/**`, and `tests/**` — none protected. Confirm no accidental edit to any consumed route or service, and that the `[token]` route's existing `GET` is unchanged.
 - **Decisions made BEYOND the surface map / spec (flagged for controller review):**
   - (a) **Capabilities mechanism** — a dedicated `GET /api/settings/capabilities` route + one `useSettingsCapabilities` hook, plus a pure client mirror `settingsGatingFromRole` (parity-tested) used for the no-flash sub-nav — rather than embedding caps into each settings route. Minimal protected footprint (one additive function + one route).
-  - (b) **Compliance is owner-only (D5)** — the whole compliance surface (sub-nav + page + all controls) is gated on `canManageCompliance` (owner). The backend permits admins to `GET`/`POST /api/privacy/requests` and `GET /api/legal-holds`, but every meaningful action there is owner-only; surfacing an admin-visible-but-mostly-disabled compliance page would risk a reachable 403 and add complexity. **Trade:** admins lose their (narrow) backend-permitted privacy read/create in the M6 UI. If the controller wants admins in Compliance, add a `canViewCompliance = role∈{owner,admin}` capability and gate only the owner-only controls (fulfil/status/export/holds) on `canManageCompliance`.
+  - (b) **Compliance owner/admin split (D5)** — two capabilities: `canViewCompliance = role∈{owner,admin}` and `canManageCompliance = role==="owner"`. Owner + admin reach the Compliance page and the privacy-request list + create (the backend allows admins `GET`/`POST /api/privacy/requests` and `GET /api/legal-holds`); the owner-only controls — privacy fulfil/reject/status, the export card, and the whole legal-holds card — gate on `canManageCompliance`. This surfaces admins' backend-permitted reads/creates while keeping "no reachable 403 from a primary control", and matches spec §8's "legal-holds card owner-gated" (only the holds card, not the whole surface).
   - (c) **Client-safe form schemas in `lib/settings/forms/` (non-protected), mirrored from the route schemas with parity tests** — because `lib/domain` is a protected consume-only path; the mirror + parity test achieves spec §6's "validate identically" (same pattern as M4/M5).
   - (d) **Forms are hand-rolled `useState` + zod `safeParse`, not `react-hook-form`** — not installed; matches M4/M5.
   - (e) **Per-connection account/notification derivation** shares the single `deriveAutoSelection` rule across three cards, reading the shared Query cache rather than lifting selection into a context — simplest state model; the multi-connection connection selector is stubbed with a documented marker in `AccountPickerCard`.
@@ -5415,11 +5463,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   - **The `/api/privacy/export?subject=…` §8 tension** — spec §8 (and the privacy rules) say "no PII in GET query strings", but the backend export exposes only a `GET ?subject=` interface with no POST alternative. M6 consumes it as-is (subject never logged; response is `private, no-store`). **Recommend a backend follow-up** to accept the subject via a POST body or a header so no PII rides in the query string. **Flag to the controller.**
   - **Per-location team assignment editing** (`PUT /api/location-members` exists: `viewer_cannot_publish`/`duplicate_location`/`location_not_found`) — not surfaced in M6; folds into the M8 Administration console (add/remove admins, ownership transfer, delete-location danger zone).
   - **The audit-log viewer** (`GET /api/audit-log`, incl. CSV export) exists but §8 scopes no viewer — deferred.
-  - **Admin access to Compliance** (see decision (b)) — deferred; needs a `canViewCompliance` capability if wanted.
   - **The multi-connection connection selector** in the account picker — single-connection auto-resolves today; the selector is marked in `AccountPickerCard`.
   - **Account/profile/password self-service** — explicitly OUT of §8 scope with no backend; not invented (do NOT add one).
 - **Discrepancies found vs the surface map (CODE wins — encoded above):**
-  - `lib/server/capabilities.ts` **already** exports `locationCapabilities`/`reviewCapabilities`; M6's edit is purely additive (`SettingsCapabilities` + `settingsCapabilities`). No `[id]` folder exists under `app/api/invitations` and its route is GET+POST only, confirming the revoke route must be created.
+  - `lib/server/capabilities.ts` **already** exports `locationCapabilities`/`reviewCapabilities`; M6's edit is purely additive (`SettingsCapabilities` + `settingsCapabilities`). No `[id]` folder exists under `app/api/invitations`, and App Router forbids a second slug name at that path level (`[token]` already exists for the public invite-lookup `GET`), so the revoke `DELETE` is ADDED to the existing `app/api/invitations/[token]/route.ts` rather than created as a new `[id]` route (a new `[id]` slug would throw `'id' !== 'token'` at build).
   - `GET /api/settings` returns `directPublishConsentAt` (a timestamp), while the PATCH **body** sends `directPublishConsent` (a boolean) — the Policy form reads the former for context and sends the latter per save.
   - `location_routing_conflict` (409) is thrown by `GET /api/google/locations` (discovery), **not** by `POST /api/location-links` (whose 409s are `relink_confirmation_required` / `location_already_linked`); both are mapped in `describeActionError` regardless. `DELETE /api/location-links` can also 404 `location_link_not_found` (not just `{ unlinked: true }`).
   - `POST /api/invitations` calls `assertRoleChangeAllowed`, so an admin inviting an `owner` gets `403 owner_role_required` — mirrored by `roleOptionsFor` (no "Owner" option for admins) on both the invite form and the members role select.
