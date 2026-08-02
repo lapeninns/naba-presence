@@ -36,10 +36,21 @@ test.describe("inbox", () => {
   })
 
   test("reviews redirects to inbox and forwards the query string", async ({ page }) => {
+    // /reviews -> /inbox forwards the query string (app/reviews/page.tsx). The
+    // shared local LOCAL_BOOTSTRAP org carries many reviews, so the inbox's
+    // desktop auto-selection (components/inbox/inbox-view.tsx) picks the
+    // first queued review and client-rewrites the URL to append
+    // `selected=<id>` shortly after landing. An exact toHaveURL assertion
+    // races that rewrite — assert the landed pathname and (where
+    // applicable) that the forwarded query param survived instead, which
+    // holds true whether or not the auto-select rewrite has fired yet (see
+    // the identical hardening in tests/e2e/routing.spec.ts).
     await page.goto("/reviews")
-    await expect(page).toHaveURL("/inbox")
+    expect(new URL(page.url()).pathname).toBe("/inbox")
     await page.goto("/reviews?queue=needs_reply")
-    await expect(page).toHaveURL("/inbox?queue=needs_reply")
+    const url = new URL(page.url())
+    expect(url.pathname).toBe("/inbox")
+    expect(url.searchParams.get("queue")).toBe("needs_reply")
   })
 
   for (const theme of ["light", "dark"] as const) {

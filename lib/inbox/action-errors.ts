@@ -27,6 +27,8 @@ const MESSAGES: Record<string, string> = {
     "We could not confirm this reply on Google. Try again shortly.",
   verification_required:
     "This reply needs re-verifying before it can be published. Re-verify and try again.",
+  publish_in_progress:
+    "A publish for this reply is already under way. Wait a moment and try again.",
 }
 
 export function describeActionError(error: unknown): string {

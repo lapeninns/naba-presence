@@ -13,7 +13,10 @@ export default function DashboardError({
   reset: () => void
 }) {
   return (
-    <main className="mx-auto flex min-h-[60svh] w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6 text-center">
+    <main
+      id="main"
+      className="mx-auto flex min-h-[60svh] w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6 text-center"
+    >
       <Alert variant="destructive">
         <AlertTitle>This page hit an error</AlertTitle>
         <AlertDescription>
