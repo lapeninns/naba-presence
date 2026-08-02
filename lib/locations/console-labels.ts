@@ -78,3 +78,12 @@ const VERIFICATION_METHOD: Record<string, string> = {
 export function verificationMethodLabel(method: string): string {
   return VERIFICATION_METHOD[method] ?? titleCaseTail(method)
 }
+
+const VERIFICATION_STATE: Record<string, string> = {
+  PENDING: "Pending",
+  COMPLETED: "Completed",
+  FAILED: "Failed",
+}
+export function verificationStateLabel(state: string): string {
+  return VERIFICATION_STATE[state] ?? titleCaseTail(state)
+}
