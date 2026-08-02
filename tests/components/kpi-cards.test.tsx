@@ -20,6 +20,40 @@ function fakeAnalytics(value: Partial<UseQueryResult<AnalyticsOverview>>) {
   )
 }
 
+// The widened AnalyticsOverview schema (M7) adds fields these fixtures don't
+// exercise (series, providerTotals, per-location rate/response-time). This
+// helper backfills honest defaults so the fixtures stay focused on what each
+// test actually asserts (summary.averageRating / summary.responseRate).
+function overview(summary: {
+  averageRating: number | null
+  responseRate: number | null
+}): AnalyticsOverview {
+  return {
+    from: "2026-07-01T00:00:00.000Z",
+    to: "2026-08-01T00:00:00.000Z",
+    timezone: "UTC",
+    summary: {
+      reviewVolume: 0,
+      averageRating: summary.averageRating,
+      responseRate: summary.responseRate,
+      unresolvedComplaints: 0,
+      verificationFailures: 0,
+      verificationRejectionRate: null,
+      medianFirstResponseSeconds: null,
+      p95FirstResponseSeconds: null,
+      medianLatestEditSeconds: null,
+    },
+    series: [],
+    locations: [],
+    providerTotals: {
+      averageRating: null,
+      totalReviewCount: null,
+      localReviewCount: 0,
+      divergence: false,
+    },
+  }
+}
+
 const fullByStatus = {
   new: 3,
   drafted: 2,
@@ -42,7 +76,7 @@ describe("KpiCards", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: { timezone: "UTC", summary: { averageRating: 4, responseRate: 80 }, locations: [] },
+      data: overview({ averageRating: 4, responseRate: 80 }),
     })
     const { container } = render(<KpiCards />)
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
@@ -58,7 +92,7 @@ describe("KpiCards", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: { timezone: "Europe/London", summary: { averageRating: 4.27, responseRate: 83.3 }, locations: [] },
+      data: overview({ averageRating: 4.27, responseRate: 83.3 }),
     })
     render(<KpiCards />)
     expect(screen.getByText("Total reviews")).toBeInTheDocument()
@@ -87,7 +121,7 @@ describe("KpiCards", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: { timezone: "UTC", summary: { averageRating: null, responseRate: null }, locations: [] },
+      data: overview({ averageRating: null, responseRate: null }),
     })
     render(<KpiCards />)
     expect(screen.getByText("Total reviews")).toBeInTheDocument()
@@ -108,7 +142,7 @@ describe("KpiCards", () => {
       isPending: false,
       isError: false,
       refetch: analyticsRefetch as UseQueryResult<AnalyticsOverview>["refetch"],
-      data: { timezone: "UTC", summary: { averageRating: 4, responseRate: 80 }, locations: [] },
+      data: overview({ averageRating: 4, responseRate: 80 }),
     })
     render(<KpiCards />)
     expect(

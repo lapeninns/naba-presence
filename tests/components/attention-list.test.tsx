@@ -13,6 +13,49 @@ function fakeAnalytics(value: Partial<UseQueryResult<AnalyticsOverview>>) {
   )
 }
 
+// The widened AnalyticsOverview schema (M7) adds fields these fixtures don't
+// exercise (series, providerTotals, per-location rate/response-time). These
+// helpers backfill honest defaults so the fixtures stay focused on what each
+// test actually asserts.
+function overview(input: {
+  summary: { averageRating: number | null; responseRate: number | null }
+  locations: Array<{ id: string; name: string; unresolvedComplaints: number }>
+}): AnalyticsOverview {
+  return {
+    from: "2026-07-01T00:00:00.000Z",
+    to: "2026-08-01T00:00:00.000Z",
+    timezone: "UTC",
+    summary: {
+      reviewVolume: 0,
+      averageRating: input.summary.averageRating,
+      responseRate: input.summary.responseRate,
+      unresolvedComplaints: 0,
+      verificationFailures: 0,
+      verificationRejectionRate: null,
+      medianFirstResponseSeconds: null,
+      p95FirstResponseSeconds: null,
+      medianLatestEditSeconds: null,
+    },
+    series: [],
+    locations: input.locations.map((location) => ({
+      ...location,
+      reviews: 0,
+      averageRating: null,
+      responseRate: null,
+      medianFirstResponseSeconds: null,
+      p95FirstResponseSeconds: null,
+      medianLatestEditSeconds: null,
+      verificationRejectionRate: null,
+    })),
+    providerTotals: {
+      averageRating: null,
+      totalReviewCount: null,
+      localReviewCount: 0,
+      divergence: false,
+    },
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -28,8 +71,7 @@ describe("AttentionList", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: {
-        timezone: "UTC",
+      data: overview({
         summary: { averageRating: 4, responseRate: 80 },
         locations: [
           { id: "a", name: "Airport", unresolvedComplaints: 1 },
@@ -40,7 +82,7 @@ describe("AttentionList", () => {
           { id: "f", name: "Ferry", unresolvedComplaints: 2 },
           { id: "g", name: "Garden", unresolvedComplaints: 3 },
         ],
-      },
+      }),
     })
     render(<AttentionList />)
     const links = screen.getAllByRole("link")
@@ -57,11 +99,10 @@ describe("AttentionList", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: {
-        timezone: "UTC",
+      data: overview({
         summary: { averageRating: 4, responseRate: 80 },
         locations: [{ id: "a", name: "Airport", unresolvedComplaints: 1 }],
-      },
+      }),
     })
     render(<AttentionList />)
     expect(screen.getByText("1 unresolved complaint")).toBeInTheDocument()
@@ -71,11 +112,10 @@ describe("AttentionList", () => {
     fakeAnalytics({
       isPending: false,
       isError: false,
-      data: {
-        timezone: "UTC",
+      data: overview({
         summary: { averageRating: 5, responseRate: 100 },
         locations: [{ id: "a", name: "Airport", unresolvedComplaints: 0 }],
-      },
+      }),
     })
     render(<AttentionList />)
     expect(

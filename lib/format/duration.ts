@@ -1,5 +1,5 @@
 export function formatDuration(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds)) return "—"
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "—"
   const totalMinutes = Math.round(seconds / 60) // round FIRST: no "1h 60m"
   if (totalMinutes < 60) return `${totalMinutes}m`
   const totalHours = Math.floor(totalMinutes / 60)

@@ -51,9 +51,41 @@ describe("useReviewCounts", () => {
 describe("useAnalyticsOverview", () => {
   it("fetches the overview endpoint and caches under the reserved analytics key", async () => {
     const body = {
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-07-31T00:00:00.000Z",
       timezone: "Europe/London",
-      summary: { averageRating: 4.2, responseRate: 80 },
-      locations: [{ id: "loc-1", name: "Riverside", unresolvedComplaints: 2 }],
+      summary: {
+        reviewVolume: 10,
+        averageRating: 4.2,
+        responseRate: 80,
+        unresolvedComplaints: 2,
+        verificationFailures: 0,
+        verificationRejectionRate: null,
+        medianFirstResponseSeconds: null,
+        p95FirstResponseSeconds: null,
+        medianLatestEditSeconds: null,
+      },
+      series: [],
+      locations: [
+        {
+          id: "loc-1",
+          name: "Riverside",
+          reviews: 5,
+          averageRating: 4.2,
+          responseRate: 80,
+          medianFirstResponseSeconds: null,
+          p95FirstResponseSeconds: null,
+          medianLatestEditSeconds: null,
+          unresolvedComplaints: 2,
+          verificationRejectionRate: null,
+        },
+      ],
+      providerTotals: {
+        averageRating: null,
+        totalReviewCount: null,
+        localReviewCount: 10,
+        divergence: false,
+      },
     }
     const fetchMock = vi.fn(async () => jsonResponse(body))
     vi.stubGlobal("fetch", fetchMock)

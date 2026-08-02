@@ -59,14 +59,26 @@ describe("fetchAnalyticsOverview", () => {
             averageRating: 4.27,
             responseRate: 83.3,
             unresolvedComplaints: 4,
+            verificationFailures: 0,
+            verificationRejectionRate: null,
             medianFirstResponseSeconds: 3600,
+            p95FirstResponseSeconds: null,
+            medianLatestEditSeconds: null,
           },
           series: [
             { period: "2026-07-01", reviewCount: 1, reviews: 1, replies: 0, averageRating: 5 },
           ],
           locations: [
-            { id: "loc-1", name: "Riverside", reviews: 8, averageRating: 4.1, responseRate: 75, unresolvedComplaints: 3 },
-            { id: "loc-2", name: "Old Town", reviews: 4, averageRating: 4.6, responseRate: 100, unresolvedComplaints: 0 },
+            {
+              id: "loc-1", name: "Riverside", reviews: 8, averageRating: 4.1, responseRate: 75,
+              medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null,
+              unresolvedComplaints: 3, verificationRejectionRate: null,
+            },
+            {
+              id: "loc-2", name: "Old Town", reviews: 4, averageRating: 4.6, responseRate: 100,
+              medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null,
+              unresolvedComplaints: 0, verificationRejectionRate: null,
+            },
           ],
           providerTotals: { averageRating: 4.3, totalReviewCount: 20, localReviewCount: 12, divergence: false },
         })
@@ -77,7 +89,7 @@ describe("fetchAnalyticsOverview", () => {
     expect(overview.summary.averageRating).toBe(4.27)
     expect(overview.summary.responseRate).toBe(83.3)
     expect(overview.locations).toHaveLength(2)
-    expect(overview.locations[0]).toEqual({
+    expect(overview.locations[0]).toMatchObject({
       id: "loc-1",
       name: "Riverside",
       unresolvedComplaints: 3,
@@ -89,9 +101,23 @@ describe("fetchAnalyticsOverview", () => {
       "fetch",
       vi.fn(async () =>
         jsonResponse({
+          from: "2026-07-01T00:00:00.000Z",
+          to: "2026-07-31T00:00:00.000Z",
           timezone: "UTC",
-          summary: { averageRating: null, responseRate: null },
+          summary: {
+            reviewVolume: 0,
+            averageRating: null,
+            responseRate: null,
+            unresolvedComplaints: 0,
+            verificationFailures: 0,
+            verificationRejectionRate: null,
+            medianFirstResponseSeconds: null,
+            p95FirstResponseSeconds: null,
+            medianLatestEditSeconds: null,
+          },
+          series: [],
           locations: [],
+          providerTotals: { averageRating: null, totalReviewCount: null, localReviewCount: 0, divergence: false },
         })
       )
     )
