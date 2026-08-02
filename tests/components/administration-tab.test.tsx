@@ -12,7 +12,10 @@ const available = (data: unknown) => ({ data, error: null })
 const ADMIN = { administration: {
   voice: available({ hasVoiceOfMerchant: true }), verifications: available({ verifications: [] }),
   verificationOptions: available({ options: [{ verificationMethod: "PHONE_CALL" }] }), googleUpdated: available(null),
-  locationAdmins: available({ admins: [{ admin: "owner@camden.test", role: "PRIMARY_OWNER" }] }),
+  locationAdmins: available({ admins: [
+    { admin: "owner@camden.test", role: "PRIMARY_OWNER" },
+    { name: "locations/camden/admins/2", admin: "manager@camden.test", role: "MANAGER" },
+  ] }),
   accountAdmins: available({ admins: [] }), invitations: available({ invitations: [] }),
   accountName: "accounts/1", googleLocationName: "locations/camden", canManage: true, writesEnabled: true,
 } }
@@ -53,5 +56,115 @@ describe("AdministrationTab (read + non-destructive)", () => {
       expect(body.operation).toBe("create_admin")
       expect(body.confirmation).toBe("invite_google_administrator")
     })
+  })
+})
+
+describe("AdministrationTab (danger zone)", () => {
+  it("delete-location requires the typed name and sends the permanent-delete confirmation", async () => {
+    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
+    const confirm = screen.getByRole("button", { name: "Delete location" })
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    expect(confirm).toBeEnabled()
+    await userEvent.click(confirm)
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      const body = JSON.parse((patch![1] as RequestInit).body as string)
+      expect(body).toEqual({ operation: "delete_location", confirmation: "delete_google_location_permanently", payload: {} })
+    })
+  })
+
+  it("delete-location never wires to the app-side unlink route", async () => {
+    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
+    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    await userEvent.click(screen.getByRole("button", { name: "Delete location" }))
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      expect(String(patch?.[0])).toContain("/administration")
+    })
+    // The location directory query legitimately reads /api/location-links in
+    // the background (unrelated to this action), but nothing about deleting
+    // this location may ever issue the app-side soft-unlink DELETE against it.
+    expect(
+      fetchMock.mock.calls.some(
+        ([u, init]) => String(u).includes("/api/location-links") && (init as RequestInit)?.method === "DELETE"
+      )
+    ).toBe(false)
+  })
+
+  it("shows the never-undoable unlink note pointing at Connections", async () => {
+    stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(
+      await screen.findByText(/To stop managing a location without deleting it from Google, unlink it under/i)
+    ).toBeInTheDocument()
+    const link = screen.getByRole("link", { name: /connections/i })
+    expect(link).toHaveAttribute("href", "/settings/connections")
+  })
+
+  it("remove-administrator requires the typed name and sends the remove-administrator confirmation", async () => {
+    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: /remove manager@camden\.test/i }))
+    const confirm = screen.getByRole("button", { name: "Remove administrator" })
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    expect(confirm).toBeEnabled()
+    await userEvent.click(confirm)
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      const body = JSON.parse((patch![1] as RequestInit).body as string)
+      expect(body).toEqual({
+        operation: "delete_admin",
+        confirmation: "remove_google_administrator",
+        payload: { name: "locations/camden/admins/2" },
+      })
+    })
+  })
+
+  it("never offers to remove the primary owner", async () => {
+    stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    await screen.findByText("Primary owner")
+    expect(screen.queryByRole("button", { name: /remove owner@camden\.test/i })).not.toBeInTheDocument()
+  })
+
+  it("transfer-location requires a destination account, shows the access-loss warning, then requires the typed name and sends the transfer confirmation", async () => {
+    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: /transfer this location/i }))
+    const continueButton = screen.getByRole("button", { name: /continue/i })
+    expect(continueButton).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/destination google account/i), "accounts/999")
+    expect(continueButton).toBeEnabled()
+    await userEvent.click(continueButton)
+
+    expect(screen.getByText(/may lose the ability to manage it/i)).toBeInTheDocument()
+    const confirm = screen.getByRole("button", { name: "Transfer location" })
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    expect(confirm).toBeEnabled()
+    await userEvent.click(confirm)
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      const body = JSON.parse((patch![1] as RequestInit).body as string)
+      expect(body).toEqual({
+        operation: "transfer_location",
+        confirmation: "transfer_google_location",
+        payload: { destinationAccount: "accounts/999" },
+      })
+    })
+  })
+
+  it("renders the danger zone as an <h3>, not a second page heading", async () => {
+    stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    const heading = await screen.findByRole("heading", { name: /danger zone/i })
+    expect(heading.tagName).toBe("H3")
+    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0)
   })
 })

@@ -1,9 +1,11 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import Link from "next/link"
 import { useEffect, useId, useRef, useState } from "react"
 
 import { AdminsTable } from "@/components/locations/admins-table"
+import { DangerZoneDialog } from "@/components/locations/danger-zone-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
 import { SectionPanel } from "@/components/locations/section-panel"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
@@ -24,16 +26,38 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToastManager } from "@/components/ui/toast"
-import { runAdministrationOperation, type AdministrationState } from "@/lib/api/location-administration"
+import {
+  DANGER_ZONE_OPERATIONS,
+  runAdministrationOperation,
+  type AdministrationOperation,
+  type AdministrationState,
+} from "@/lib/api/location-administration"
 import { describeActionError } from "@/lib/locations/action-errors"
 import { adminRoleLabel, verificationMethodLabel, verificationStateLabel } from "@/lib/locations/console-labels"
-import { createAdminSchema, updateAdminSchema } from "@/lib/locations/forms/administration"
+import { createAdminSchema, transferLocationSchema, updateAdminSchema } from "@/lib/locations/forms/administration"
 import { editDisabledReason, publishDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useAdministration } from "@/lib/queries/use-location-administration"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
+
+// A defensive wrapper for the three destructive Google operations wired
+// below (remove admin / transfer / delete location). Checking membership in
+// the T1 client's own DANGER_ZONE_OPERATIONS set - rather than trusting the
+// call site - means a future edit that accidentally routes a non-destructive
+// operation through the typed-name confirmation path fails loudly instead of
+// silently skipping the UI-side gate.
+function runDangerZoneOperation(
+  locationId: string,
+  operation: AdministrationOperation,
+  payload: Record<string, unknown>
+) {
+  if (!DANGER_ZONE_OPERATIONS.has(operation)) {
+    throw new Error(`${operation} is not a danger-zone operation`)
+  }
+  return runAdministrationOperation(locationId, { operation, payload })
+}
 
 // --- raw Google leaf -> typed accessor helpers -----------------------------
 // Every sub-resource here is an opaque Google passthrough object (D8) — read
@@ -116,7 +140,6 @@ export function AdministrationTab({
 
 function AdministrationTabLoaded({
   locationId,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Task 6 wires this into the danger-zone typed-name confirmation, in this same file.
   locationName,
   state,
   caps,
@@ -205,8 +228,9 @@ function AdministrationTabLoaded({
                 admins={asArray(asRecord(data).admins).map(toAdminRow)}
                 invitations={[]}
                 renderActions={(admin) => (
-                  <UpdateAdminRoleControl
+                  <AdminRowActions
                     locationId={locationId}
+                    locationName={locationName}
                     admin={admin}
                     disabled={disabled}
                     publishReason={publishReason}
@@ -226,8 +250,9 @@ function AdministrationTabLoaded({
                 admins={asArray(asRecord(data).admins).map(toAdminRow)}
                 invitations={[]}
                 renderActions={(admin) => (
-                  <UpdateAdminRoleControl
+                  <AdminRowActions
                     locationId={locationId}
+                    locationName={locationName}
                     admin={admin}
                     disabled={disabled}
                     publishReason={publishReason}
@@ -265,6 +290,15 @@ function AdministrationTabLoaded({
           />
         </div>
       </section>
+
+      <DangerZone
+        locationId={locationId}
+        locationName={locationName}
+        disabled={disabled}
+        publishReason={publishReason}
+        invalidate={invalidate}
+        toast={toast}
+      />
     </div>
   )
 }
@@ -508,6 +542,46 @@ function StartVerification({
 // --- Admins --------------------------------------------------------------
 const EDITABLE_ROLES = ["OWNER", "MANAGER"] as const
 
+function AdminRowActions({
+  locationId,
+  locationName,
+  admin,
+  disabled,
+  publishReason,
+  invalidate,
+  toast,
+}: {
+  locationId: string
+  locationName: string
+  admin: AdminRow
+  disabled: boolean
+  publishReason: string | null
+  invalidate: () => void
+  toast: ToastFn
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <UpdateAdminRoleControl
+        locationId={locationId}
+        admin={admin}
+        disabled={disabled}
+        publishReason={publishReason}
+        invalidate={invalidate}
+        toast={toast}
+      />
+      <RemoveAdminAction
+        locationId={locationId}
+        locationName={locationName}
+        admin={admin}
+        disabled={disabled}
+        publishReason={publishReason}
+        invalidate={invalidate}
+        toast={toast}
+      />
+    </div>
+  )
+}
+
 function UpdateAdminRoleControl({
   locationId,
   admin,
@@ -575,6 +649,74 @@ function UpdateAdminRoleControl({
         {update.isPending ? "Saving…" : "Update role"}
       </Button>
     </div>
+  )
+}
+
+// This is one of the three destructive Google operations in the danger zone
+// (spec §11, D9) - it is deliberately row-level rather than living in the
+// danger-zone section below, since "which admin" only makes sense in the
+// context of that row. It still goes through the same two-layer gate as
+// transfer/delete: the DangerZoneDialog's typed-location-name confirmation,
+// AND the exact backend confirmation literal (runDangerZoneOperation ->
+// runAdministrationOperation attaches ADMINISTRATION_CONFIRMATIONS.delete_admin).
+function RemoveAdminAction({
+  locationId,
+  locationName,
+  admin,
+  disabled,
+  publishReason,
+  invalidate,
+  toast,
+}: {
+  locationId: string
+  locationName: string
+  admin: AdminRow
+  disabled: boolean
+  publishReason: string | null
+  invalidate: () => void
+  toast: ToastFn
+}) {
+  const name = admin.name
+  const currentRole = admin.role
+  const [open, setOpen] = useState(false)
+
+  const remove = useMutation({
+    mutationFn: () => runDangerZoneOperation(locationId, "delete_admin", { name }),
+    onSuccess: () => {
+      invalidate()
+      toast("Administrator removed", "success")
+      setOpen(false)
+    },
+    onError: (error) => toast(describeActionError(error), "error"),
+  })
+
+  // Same guard as UpdateAdminRoleControl: Google will not let the primary
+  // owner be removed here, and a row without a resource `name` has no safe
+  // DELETE target.
+  if (!name || currentRole === "PRIMARY_OWNER") return null
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="destructive"
+        aria-label={`Remove ${admin.admin ?? name}`}
+        onClick={() => setOpen(true)}
+        disabled={disabled || Boolean(publishReason) || !locationName}
+      >
+        Remove
+      </Button>
+      <DangerZoneDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Remove this administrator?"
+        description={`This removes ${admin.admin ?? "this person"}'s access to manage this business on Google.`}
+        expectedName={locationName}
+        confirmLabel="Remove administrator"
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
+    </>
   )
 }
 
@@ -763,5 +905,245 @@ function CreateAdminDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// --- Danger zone -----------------------------------------------------------
+// The three destructive Google operations (spec §11, D9): remove an
+// administrator (row-level, above), transfer this location to another
+// Google account, and permanently delete this location from Google. Every
+// action here is two-layer gated: the DangerZoneDialog's typed-location-name
+// confirmation (UI layer) AND the exact backend confirmation literal sent by
+// runDangerZoneOperation (route layer) - see app/api/locations/[id]/administration/route.ts
+// CONFIRMATIONS, transcribed into lib/api/location-administration.ts. Deletion
+// here is Google's PERMANENT delete (deleteGoogleLocation) - it is never the
+// app-side soft unlink (DELETE /api/location-links); the note below points
+// people who want that at Connections instead.
+function DangerZone({
+  locationId,
+  locationName,
+  disabled,
+  publishReason,
+  invalidate,
+  toast,
+}: {
+  locationId: string
+  locationName: string
+  disabled: boolean
+  publishReason: string | null
+  invalidate: () => void
+  toast: ToastFn
+}) {
+  return (
+    <section className="flex flex-col gap-4 rounded-(--nr-radius-card) border border-destructive/30 bg-destructive/5 p-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-ui font-semibold text-destructive">Danger zone</h3>
+        <p className="text-caption text-muted-foreground">
+          These actions change how this location is managed on Google. Each one cannot be undone from here.
+        </p>
+      </div>
+      <TransferLocationAction
+        locationId={locationId}
+        locationName={locationName}
+        disabled={disabled}
+        publishReason={publishReason}
+        invalidate={invalidate}
+        toast={toast}
+      />
+      <DeleteLocationAction
+        locationId={locationId}
+        locationName={locationName}
+        disabled={disabled}
+        publishReason={publishReason}
+        invalidate={invalidate}
+        toast={toast}
+      />
+      <p className="text-caption text-muted-foreground">
+        To stop managing a location without deleting it from Google, unlink it under{" "}
+        <Link href="/settings/connections" className="underline">
+          Connections
+        </Link>
+        .
+      </p>
+    </section>
+  )
+}
+
+function TransferLocationAction({
+  locationId,
+  locationName,
+  disabled,
+  publishReason,
+  invalidate,
+  toast,
+}: {
+  locationId: string
+  locationName: string
+  disabled: boolean
+  publishReason: string | null
+  invalidate: () => void
+  toast: ToastFn
+}) {
+  // Step 1 (a plain Dialog) collects and validates destinationAccount. Step 2
+  // (DangerZoneDialog) then requires the typed location name before sending
+  // the request - "collect destinationAccount THEN require the typed name"
+  // (spec §11). `destinationAccount` is owned by this component (not the
+  // step-1 dialog), so it survives that dialog closing and step 2 opening.
+  const [collecting, setCollecting] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [destinationAccount, setDestinationAccount] = useState("")
+
+  const parsed = transferLocationSchema.safeParse({ destinationAccount })
+  const fieldError =
+    destinationAccount.trim().length > 0 && !parsed.success
+      ? parsed.error.issues.find((issue) => issue.path[0] === "destinationAccount")?.message
+      : undefined
+
+  const transfer = useMutation({
+    mutationFn: () => {
+      const values = transferLocationSchema.parse({ destinationAccount })
+      return runDangerZoneOperation(locationId, "transfer_location", values)
+    },
+    onSuccess: () => {
+      invalidate()
+      toast("Location transfer requested", "success")
+      setConfirming(false)
+      setDestinationAccount("")
+    },
+    onError: (error) => toast(describeActionError(error), "error"),
+  })
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-destructive/20 pt-4 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-ui font-medium">Transfer this location</p>
+          <p className="text-caption text-muted-foreground">Move this Google location to another Google account.</p>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => setCollecting(true)}
+          disabled={disabled || Boolean(publishReason) || !locationName}
+        >
+          Transfer this location
+        </Button>
+      </div>
+      <GateNote reason={disabled ? null : publishReason} />
+
+      <Dialog
+        open={collecting}
+        onOpenChange={(next) => {
+          setCollecting(next)
+          if (!next) setDestinationAccount("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer this location</DialogTitle>
+            <DialogDescription>
+              This moves the Google location to another Google account. NabaPresence may lose the ability to manage
+              it, and this cannot be undone from here.
+            </DialogDescription>
+          </DialogHeader>
+          <Field error={fieldError}>
+            <FieldLabel>Destination Google account</FieldLabel>
+            <Input
+              value={destinationAccount}
+              onChange={(event) => setDestinationAccount(event.target.value)}
+              placeholder="accounts/1234567890"
+              autoComplete="off"
+            />
+            <FieldError />
+          </Field>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button
+              variant="destructive"
+              disabled={!parsed.success}
+              onClick={() => {
+                setCollecting(false)
+                setConfirming(true)
+              }}
+            >
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DangerZoneDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Transfer this location?"
+        description={`This moves the Google location to another Google account (${destinationAccount}). NabaPresence may lose the ability to manage it, and this cannot be undone from here.`}
+        expectedName={locationName}
+        confirmLabel="Transfer location"
+        pending={transfer.isPending}
+        onConfirm={() => transfer.mutate()}
+      />
+    </div>
+  )
+}
+
+function DeleteLocationAction({
+  locationId,
+  locationName,
+  disabled,
+  publishReason,
+  invalidate,
+  toast,
+}: {
+  locationId: string
+  locationName: string
+  disabled: boolean
+  publishReason: string | null
+  invalidate: () => void
+  toast: ToastFn
+}) {
+  const [open, setOpen] = useState(false)
+
+  const remove = useMutation({
+    // Google's PERMANENT delete (deleteGoogleLocation on the server) - not
+    // the app-side soft unlink. Empty payload: the route resolves the
+    // Google location from the session's own link, so no id needs sending.
+    mutationFn: () => runDangerZoneOperation(locationId, "delete_location", {}),
+    onSuccess: () => {
+      invalidate()
+      toast("Location deleted from Google", "success")
+      setOpen(false)
+    },
+    onError: (error) => toast(describeActionError(error), "error"),
+  })
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-destructive/20 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-ui font-medium">Delete this location</p>
+          <p className="text-caption text-muted-foreground">Permanently remove this listing from Google.</p>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => setOpen(true)}
+          disabled={disabled || Boolean(publishReason) || !locationName}
+        >
+          Delete this location
+        </Button>
+      </div>
+      <GateNote reason={disabled ? null : publishReason} />
+
+      <DangerZoneDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Delete this location from Google?"
+        description="This permanently deletes the Google listing. It cannot be undone."
+        expectedName={locationName}
+        confirmLabel="Delete location"
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
+    </div>
   )
 }
