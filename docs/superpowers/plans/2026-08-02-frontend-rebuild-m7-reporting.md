@@ -123,15 +123,17 @@ playwright.config.ts                  MODIFY (Task 8): un-ignore performance.spe
 > **No protected-path edit.** Every file here is under `lib/format/`, `lib/reporting/`, `lib/api/`, `lib/queries/`, or `tests/` — all non-protected. `lib/api/analytics.ts` is WIDENED (its schema currently strips most of the endpoint); `lib/domain/google-contract.ts` / `lib/domain/workflow.ts` are imported const/type-only (consumption, not edits). `lib/queries/keys.ts` is NOT edited — `analytics(kind, params)` and `reviewCounts(scope)` already exist.
 
 **Files:**
-- Create: `lib/format/delta.ts`, `lib/reporting/ranges.ts`, `lib/reporting/metric-labels.ts`, `lib/reporting/unavailable-reasons.ts`, `lib/reporting/keyword-impressions.ts`, `lib/reporting/sync-permission.ts`, `lib/api/presence.ts`, `lib/api/keywords.ts`, `lib/api/sync.ts`, `lib/queries/use-analytics-presence.ts`, `lib/queries/use-analytics-keywords.ts`
+- Create: `lib/format/delta.ts`, `lib/reporting/ranges.ts`, `lib/reporting/metric-labels.ts`, `lib/reporting/unavailable-reasons.ts`, `lib/reporting/keyword-impressions.ts`, `lib/reporting/sync-permission.ts`, `lib/api/presence.ts`, `lib/api/keywords.ts`, `lib/api/sync.ts`, `lib/api/session.ts`, `lib/queries/use-analytics-presence.ts`, `lib/queries/use-analytics-keywords.ts`, `lib/queries/use-session.ts`
 - Modify: `lib/format/duration.ts` (negative guard), `lib/format/index.ts` (re-export delta helpers), `lib/api/analytics.ts` (widen schema + parameterise `fetchAnalyticsOverview`), `lib/queries/use-analytics-overview.ts` (parameterise by reply-range preset)
 - Test: `tests/components/format-duration-delta.test.ts`, `tests/components/reporting-humanise.test.ts`, `tests/components/analytics-clients.test.ts`
+
+> **Client session hook (REV-1).** The app currently threads `session.role` as a SERVER PROP (`app-shell.tsx`, `LocationWorkspace`) — there is NO client session hook or React context. The "Refresh Google data" gate in Tasks 5/6 is client-side, so this task adds a small NON-protected client accessor: `lib/api/session.ts` + `lib/queries/use-session.ts`, reading `GET /api/session` → `{ session }` (verified: returns the session incl. `role`, or `null`). `queryKeys.session` already exists in `lib/queries/keys.ts` (`["session"]`) — no keys edit needed.
 
 **Interfaces:**
 - Consumes: `apiFetch`, `ApiClientError` (`@/lib/api/client`); `z` (`zod`); `GOOGLE_PERFORMANCE_METRICS`, `type GooglePerformanceMetric` (`@/lib/domain/google-contract`); `useQuery` (`@tanstack/react-query`); `queryKeys` (`@/lib/queries/keys`).
 - Produces (Tasks 2–7 consume these EXACT signatures):
   - `lib/format/duration.ts`: `formatDuration(seconds: number | null): string` — now returns `"—"` for `null`, non-finite, AND `< 0`.
-  - `lib/format/delta.ts`: `type DeltaDirection = "up" | "down" | "flat"`; `deltaDirection(current: number | null, previous: number | null): DeltaDirection | null` (`null` when either side is null → "no comparison"); `formatDelta(current: number | null, previous: number | null, opts?: { unit?: "count" | "percent" | "rating" }): string | null` — signed magnitude like `"+12"`, `"−3.4%"`, `"+0.2★"`, `null` when incomparable.
+  - `lib/format/delta.ts`: `type DeltaDirection = "up" | "down" | "flat"`; `deltaDirection(current: number | null, previous: number | null): DeltaDirection | null` (`null` when either side is null → "no comparison"); `formatDelta(current: number | null, previous: number | null, opts?: { unit?: "count" | "percent" | "rating" | "duration" }): string | null` — signed magnitude like `"+12"`, `"−3.4%"`, `"+0.2★"`, `"−20m"` (duration → via `formatDuration`, never raw seconds), `null` when incomparable.
   - `lib/reporting/ranges.ts`: `type ReplyRangeId = "30d" | "90d" | "12m" | "18m"`; `REPLY_RANGES: Array<{ id: ReplyRangeId; label: string; granularity: "day"|"week"|"month"; days: number }>`; `resolveReplyRange(id: ReplyRangeId, now?: Date): { current: { from: string; to: string; granularity: "day"|"week"|"month" }; previous: { from: string; to: string; granularity: "day"|"week"|"month" } }`; `PRESENCE_RANGES: Array<{ id: "28d"|"90d"|"12m"|"18m"; label: string }>`; `KEYWORD_RANGES: Array<{ id: "1m"|"6m"|"12m"|"18m"; label: string }>`.
   - `lib/reporting/metric-labels.ts`: `metricLabel(metric: GooglePerformanceMetric): string`; `ORDERED_METRICS: readonly GooglePerformanceMetric[]` (= `GOOGLE_PERFORMANCE_METRICS`); `IMPRESSION_METRICS: readonly GooglePerformanceMetric[]` (the four `BUSINESS_IMPRESSIONS_*`).
   - `lib/reporting/unavailable-reasons.ts`: `humaniseUnavailableReasons(codes: string[]): string[]` (deduped human copy; unknown code → one generic line, never the raw code).
@@ -141,9 +143,11 @@ playwright.config.ts                  MODIFY (Task 8): un-ignore performance.spe
   - `lib/api/presence.ts`: `type PresenceState`, `type PresenceStatus`, `type PresenceResponse`; `fetchPresence(params: { range: string; locationId?: string }): Promise<PresenceResponse>`.
   - `lib/api/keywords.ts`: `type KeywordRow`, `type KeywordsResponse`; `fetchKeywords(params: { range: string; locationId?: string }): Promise<KeywordsResponse>`.
   - `lib/api/sync.ts`: `triggerPerformanceSync(): Promise<void>`; `triggerKeywordsSync(): Promise<void>`.
+  - `lib/api/session.ts`: `type SessionUser`, `type SessionResponse`; `fetchSession(): Promise<SessionResponse>` (`{ session: SessionUser | null }`).
   - `lib/queries/use-analytics-overview.ts`: `useAnalyticsOverview(params?: { from?: string; to?: string; granularity?: "day"|"week"|"month" })`.
   - `lib/queries/use-analytics-presence.ts`: `useAnalyticsPresence(params: { range: string; locationId?: string })`.
   - `lib/queries/use-analytics-keywords.ts`: `useAnalyticsKeywords(params: { range: string; locationId?: string })`.
+  - `lib/queries/use-session.ts`: `useSession()`; `useSessionRole(): string | null` (`= data?.session?.role ?? null`). Tasks 5/6 gate the refresh trigger on `canTriggerSync(useSessionRole())`.
 
 - [ ] **Step 1: Write the failing format + humanise tests**
 
@@ -183,6 +187,8 @@ describe("delta direction + formatting (non-colour cue source)", () => {
     expect(formatDelta(120, 100, { unit: "count" })).toBe("+20")
     expect(formatDelta(96.2, 100, { unit: "percent" })).toBe("−3.8%")
     expect(formatDelta(4.6, 4.4, { unit: "rating" })).toBe("+0.2★")
+    // Duration: a faster median response renders as a signed duration, not raw seconds.
+    expect(formatDelta(5400, 6600, { unit: "duration" })).toBe("−20m")
     expect(formatDelta(5, 5, { unit: "count" })).toBe("±0")
     expect(formatDelta(5, null)).toBeNull()
   })
@@ -291,6 +297,7 @@ export function formatDuration(seconds: number | null): string {
 - [ ] **Step 4: Add `lib/format/delta.ts` + re-export**
 
 ```ts
+import { formatDuration } from "./duration"
 import { formatNumber } from "./number"
 
 export type DeltaDirection = "up" | "down" | "flat"
@@ -307,11 +314,13 @@ export function deltaDirection(
 
 // Signed magnitude for a prior-window comparison. Uses a real minus glyph
 // (never a hyphen) and an explicit "±0" so the change is legible without
-// relying on colour. Returns null when the comparison is undefined.
+// relying on colour. Duration deltas render via formatDuration so a
+// response-time change never leaks raw seconds (spec §7). Returns null when
+// the comparison is undefined.
 export function formatDelta(
   current: number | null,
   previous: number | null,
-  opts: { unit?: "count" | "percent" | "rating" } = {}
+  opts: { unit?: "count" | "percent" | "rating" | "duration" } = {}
 ): string | null {
   if (current === null || previous === null) return null
   const diff = current - previous
@@ -321,6 +330,7 @@ export function formatDelta(
   const magnitude = Math.abs(diff)
   if (unit === "percent") return `${sign}${magnitude.toFixed(1)}%`
   if (unit === "rating") return `${sign}${magnitude.toFixed(1)}★`
+  if (unit === "duration") return `${sign}${formatDuration(magnitude)}`
   return `${sign}${formatNumber(magnitude)}`
 }
 ```
@@ -502,6 +512,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { fetchAnalyticsOverview } from "@/lib/api/analytics"
 import { fetchKeywords } from "@/lib/api/keywords"
 import { fetchPresence } from "@/lib/api/presence"
+import { fetchSession } from "@/lib/api/session"
 import { triggerPerformanceSync } from "@/lib/api/sync"
 import { ApiClientError } from "@/lib/api/client"
 
@@ -632,6 +643,18 @@ describe("triggerPerformanceSync", () => {
     await triggerPerformanceSync()
     expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST")
+  })
+})
+
+describe("fetchSession", () => {
+  it("parses the nullable session envelope including role", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ session: { userId: "u1", organisationId: "o1", organisationName: "Org", displayName: "Ada", email: "ada@example.test", role: "admin", canPublish: true } })))
+    const result = await fetchSession()
+    expect(result.session?.role).toBe("admin")
+  })
+  it("accepts a null session", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ session: null })))
+    expect((await fetchSession()).session).toBeNull()
   })
 })
 ```
@@ -821,6 +844,35 @@ export async function triggerKeywordsSync(): Promise<void> {
 }
 ```
 
+`lib/api/session.ts` (REV-1 — the client accessor for the refresh gate; mirrors the `GET /api/session` `{ session }` shape, session nullable):
+
+```ts
+import { z } from "zod"
+
+import { apiFetch } from "./client"
+
+export const sessionSchema = z.object({
+  userId: z.string(),
+  organisationId: z.string(),
+  organisationName: z.string(),
+  displayName: z.string(),
+  email: z.string(),
+  role: z.enum(["owner", "admin", "member", "viewer"]),
+  canPublish: z.boolean(),
+})
+
+export const sessionResponseSchema = z.object({
+  session: sessionSchema.nullable(),
+})
+
+export type SessionUser = z.infer<typeof sessionSchema>
+export type SessionResponse = z.infer<typeof sessionResponseSchema>
+
+export function fetchSession() {
+  return apiFetch("/api/session", { schema: sessionResponseSchema })
+}
+```
+
 - [ ] **Step 11: Parameterise the overview hook + add the presence/keywords hooks**
 
 `lib/queries/use-analytics-overview.ts`:
@@ -885,6 +937,30 @@ export function useAnalyticsKeywords(params: { range: string; locationId?: strin
 }
 ```
 
+`lib/queries/use-session.ts` (REV-1 — `queryKeys.session` already exists in `keys.ts`, so no keys edit):
+
+```ts
+"use client"
+
+import { useQuery } from "@tanstack/react-query"
+
+import { fetchSession } from "@/lib/api/session"
+import { queryKeys } from "./keys"
+
+export function useSession() {
+  return useQuery({
+    queryKey: queryKeys.session,
+    queryFn: fetchSession,
+    staleTime: 30_000,
+  })
+}
+
+export function useSessionRole(): string | null {
+  const { data } = useSession()
+  return data?.session?.role ?? null
+}
+```
+
 - [ ] **Step 12: Run to verify pass, then the gate**
 
 ```bash
@@ -897,7 +973,7 @@ Expected: PASS; `pnpm test` green (the widened `analyticsSummarySchema` still pa
 - [ ] **Step 13: Commit**
 
 ```bash
-git add lib/format/duration.ts lib/format/delta.ts lib/format/index.ts lib/reporting lib/api/analytics.ts lib/api/presence.ts lib/api/keywords.ts lib/api/sync.ts lib/queries/use-analytics-overview.ts lib/queries/use-analytics-presence.ts lib/queries/use-analytics-keywords.ts tests/components/format-duration-delta.test.ts tests/components/reporting-humanise.test.ts tests/components/analytics-clients.test.ts
+git add lib/format/duration.ts lib/format/delta.ts lib/format/index.ts lib/reporting lib/api/analytics.ts lib/api/presence.ts lib/api/keywords.ts lib/api/sync.ts lib/api/session.ts lib/queries/use-analytics-overview.ts lib/queries/use-analytics-presence.ts lib/queries/use-analytics-keywords.ts lib/queries/use-session.ts tests/components/format-duration-delta.test.ts tests/components/reporting-humanise.test.ts tests/components/analytics-clients.test.ts
 git commit -m "feat(reporting): widen analytics client + presence/keywords/sync clients + humanise layer
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -916,7 +992,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Produces (Tasks 3–7 consume):
   - `ChartCard` (props `{ title: string; description?: React.ReactNode; action?: React.ReactNode; state: "ready"|"loading"|"empty"|"error"; onRetry?: () => void; emptyLabel?: string; children: React.ReactNode }`), `ReportingLineChart` (props `{ data; xKey: string; xTickFormatter?: (v: string) => string; series: Array<{ key: string; label: string; colorVar: 1|2|3|4|5 }> }`), `ReportingBarChart` (same series shape), `ChartLegend`.
   - `StatTile` (props `{ label: string; value: string; hint?: string; delta?: React.ReactNode }`).
-  - `DeltaBadge` (props `{ current: number | null; previous: number | null; unit?: "count"|"percent"|"rating"; invertGood?: boolean }`) — non-colour arrow+sign; returns `null` when incomparable.
+  - `DeltaBadge` (props `{ current: number | null; previous: number | null; unit?: "count"|"percent"|"rating"|"duration" }`) — non-colour arrow+sign; `duration` renders via `formatDuration` (never raw seconds) and reads "faster/slower" to screen readers; returns `null` when incomparable. (No `invertGood` prop — the duration wording carries the good/bad direction on its own; REV-6.)
   - `FetchedAtCaption` (props `{ iso: string | null; timezone: string; prefix?: string }`).
   - `ReportingPanel` (props `{ variant: "loading"|"empty"|"error"|"paused"|"off"; title?: string; description?: string; onRetry?: () => void }`), `nullableCell(value: number | null, render: (v: number) => string): { text: string; isNull: boolean }` (nulls-last honest-null helper).
 
@@ -950,6 +1026,11 @@ describe("DeltaBadge (non-colour cue)", () => {
     // Direction is conveyed by an arrow glyph in the text, not colour alone.
     expect(badge.textContent).toMatch(/[▲▼]|↑|↓/)
     expect(screen.getByLabelText(/up|increase|higher/i)).toBeInTheDocument()
+  })
+  it("renders a duration delta as faster/slower, never raw seconds", () => {
+    render(<DeltaBadge current={5400} previous={6600} unit="duration" />)
+    expect(screen.getByText(/−20m/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/faster/i)).toBeInTheDocument()
   })
   it("renders nothing when the comparison is undefined", () => {
     const { container } = render(<DeltaBadge current={5} previous={null} />)
@@ -1149,17 +1230,20 @@ export function StatTile({
 import { Badge } from "@/components/ui/badge"
 import { deltaDirection, formatDelta, type DeltaDirection } from "@/lib/format"
 
+type DeltaUnit = "count" | "percent" | "rating" | "duration"
+
 const GLYPH: Record<DeltaDirection, string> = { up: "▲", down: "▼", flat: "▬" }
-const DIRECTION_WORD: Record<DeltaDirection, string> = {
-  up: "increase",
-  down: "decrease",
-  flat: "no change",
+
+// Screen-reader wording. A duration that went "down" is a shorter (faster)
+// response time, so durations read faster/slower; everything else reads as a
+// plain increase/decrease. No red/green anywhere — the arrow glyph + signed
+// magnitude carry the direction (spec §8 "non-colour cues").
+function directionWord(direction: DeltaDirection, unit: DeltaUnit): string {
+  if (direction === "flat") return "no change"
+  if (unit === "duration") return direction === "down" ? "faster" : "slower"
+  return direction === "up" ? "increase" : "decrease"
 }
 
-// Prior-window comparison rendered with an arrow glyph + signed magnitude — the
-// direction is legible WITHOUT colour (spec §8 "non-colour cues"). `invertGood`
-// is display-neutral here (no red/green); it only tunes the aria wording so
-// screen-reader users hear "increase/decrease" plainly.
 export function DeltaBadge({
   current,
   previous,
@@ -1167,13 +1251,13 @@ export function DeltaBadge({
 }: {
   current: number | null
   previous: number | null
-  unit?: "count" | "percent" | "rating"
+  unit?: DeltaUnit
 }) {
   const direction = deltaDirection(current, previous)
   const text = formatDelta(current, previous, { unit })
   if (!direction || text === null) return null
   return (
-    <Badge variant="outline" aria-label={`${DIRECTION_WORD[direction]} ${text} versus the previous window`}>
+    <Badge variant="outline" aria-label={`${directionWord(direction, unit)} ${text} versus the previous window`}>
       <span aria-hidden className="tabular-nums">
         {GLYPH[direction]} {text}
       </span>
@@ -1778,7 +1862,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Create: `components/performance/performance-view.tsx`, `components/performance/range-select.tsx`, `components/performance/reply-performance-tab.tsx`, `components/performance/reply-locations-table.tsx`, `app/(dashboard)/performance/page.tsx`, `app/(dashboard)/performance/loading.tsx`, `app/(dashboard)/analytics/page.tsx`
 - Modify: `components/app-shell/nav.tsx` (`/performance` `prefetch: false → true`)
-- Test: `tests/components/performance-view.test.tsx`, `tests/components/reply-performance-tab.test.tsx`, `tests/components/nav.test.tsx` (extend the existing nav test if present; else create)
+- Test: `tests/components/performance-view.test.tsx`, `tests/components/reply-performance-tab.test.tsx`, `tests/components/nav.test.tsx` (**EDIT the EXISTING test** — it currently asserts `/performance` `data-prefetch === "false"` in two places; both must be replaced, not appended to)
 - Consumes: `Tabs`, `TabsList`, `TabsTab`, `TabsPanel` (`@/components/ui/tabs`); `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem` (`@/components/ui/select`); `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell` (`@/components/ui/table`); `useRouter`, `useSearchParams`, `usePathname` (`next/navigation`); `useAnalyticsOverview` (Task 1); `ChartCard`/`ReportingBarChart`/`ReportingLineChart`/`ChartLegend`, `StatTile`, `DeltaBadge`, `DivergenceBanner`, `FetchedAtCaption`, `ReportingPanel`, `nullableCell` (Tasks 2–3); `REPLY_RANGES`, `resolveReplyRange`, `type ReplyRangeId` (Task 1); `formatNumber`, `formatPercent`, `formatDuration`, `formatDate` (`@/lib/format`).
 - Produces: `PerformanceView` (client shell), `RangeSelect<T>` (props `{ value: T; onChange: (v: T) => void; options: Array<{ id: T; label: string }>; label: string }`), `ReplyPerformanceTab`, `ReplyLocationsTable` (props `{ locations: AnalyticsLocation[] }`).
 
@@ -1988,6 +2072,8 @@ export function ReplyPerformanceTab() {
 
   return (
     <div className="flex flex-col gap-(--nr-gap-section)">
+      {/* Leading h2 keeps the heading order valid: page h1 -> tab h2 -> card h3 (REV-2). */}
+      <h2 className="sr-only">Reply performance</h2>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FetchedAtCaption iso={now.data.to} timezone={timezone} />
         <RangeSelect value={rangeId} onChange={setRangeId} options={REPLY_RANGES} label="Reply performance range" />
@@ -1999,7 +2085,8 @@ export function ReplyPerformanceTab() {
         <StatTile label="Reviews" value={formatNumber(s.reviewVolume)} delta={<DeltaBadge current={s.reviewVolume} previous={p?.reviewVolume ?? null} unit="count" />} />
         <StatTile label="Average rating" value={s.averageRating === null ? "—" : s.averageRating.toFixed(1)} delta={<DeltaBadge current={s.averageRating} previous={p?.averageRating ?? null} unit="rating" />} />
         <StatTile label="Response rate" value={s.responseRate === null ? "—" : formatPercent(s.responseRate)} delta={<DeltaBadge current={s.responseRate} previous={p?.responseRate ?? null} unit="percent" />} />
-        <StatTile label="Median response time" value={formatDuration(s.medianFirstResponseSeconds)} delta={<DeltaBadge current={s.medianFirstResponseSeconds} previous={p?.medianFirstResponseSeconds ?? null} unit="count" />} />
+        {/* Duration-typed delta (REV-4): renders "▼ −20m" (faster), never raw seconds. */}
+        <StatTile label="Median response time" value={formatDuration(s.medianFirstResponseSeconds)} delta={<DeltaBadge current={s.medianFirstResponseSeconds} previous={p?.medianFirstResponseSeconds ?? null} unit="duration" />} />
       </div>
 
       <div className="grid gap-(--nr-gap-card) lg:grid-cols-2">
@@ -2151,22 +2238,26 @@ export default function AnalyticsPage(): never {
 { href: "/performance", label: "Performance", icon: TrendingUp, prefetch: true },
 ```
 
-`tests/components/nav.test.tsx` — assert every nav item now prefetches (extend the existing nav test; if none exists, create it):
+`tests/components/nav.test.tsx` — **this file already exists and asserts the OLD policy** (`/performance` `data-prefetch === "false"`, and "every non-home/inbox/locations/settings item is prefetch:false"). Flipping `/performance` to `prefetch:true` breaks both existing assertions, so **EDIT them in place** (do NOT append a second `describe`). Replace the two `it(...)` bodies with:
 
 ```tsx
-import { describe, expect, it } from "vitest"
+describe("primary nav prefetch policy", () => {
+  it("prefetches every primary route, including /performance", () => {
+    render(<Nav />)
+    for (const label of ["Home", "Inbox", "Locations", "Performance", "Settings"]) {
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute("data-prefetch", "true")
+    }
+  })
 
-import { NAV_ITEMS } from "@/components/app-shell/nav"
-
-describe("primary nav prefetch", () => {
-  it("prefetches every shipped route including /performance", () => {
+  it("encodes prefetch:true for every NAV_ITEMS entry", () => {
     for (const item of NAV_ITEMS) {
       expect(item.prefetch, `${item.href} prefetch`).toBe(true)
     }
-    expect(NAV_ITEMS.find((i) => i.href === "/performance")?.prefetch).toBe(true)
   })
 })
 ```
+
+Keep the file's existing imports and the two `vi.mock` blocks (`next/navigation` → `usePathname: () => "/home"`, and the `next/link` shim that maps `prefetch` → `data-prefetch={String(prefetch)}`) — only the two assertion bodies change. The former "Performance is false" loop and the "all others are false" filter are DELETED.
 
 - [ ] **Step 9: Run to verify pass, then the gate + build**
 
@@ -2196,10 +2287,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Create: `components/performance/refresh-google-button.tsx`
 - Modify: `components/performance/google-performance-tab.tsx` (replace the Task 4 stub with the real tab)
 - Test: `tests/components/google-performance-tab.test.tsx`, `tests/components/refresh-google-button.test.tsx`
-- Consumes: `useAnalyticsPresence` (Task 1); `useSession` (`@/lib/queries/use-session` — the M2 session hook that exposes `role`; if the hook name differs, read the session role from the existing shell session provider), `useQueryClient` (`@tanstack/react-query`); `triggerPerformanceSync` (Task 1); `canTriggerSync` (Task 1); `metricLabel`, `ORDERED_METRICS`, `IMPRESSION_METRICS` (Task 1); `humaniseUnavailableReasons` (Task 1); `PRESENCE_RANGES` (Task 1); `queryKeys` (`@/lib/queries/keys`); `StatTile`, `ChartCard`/`ReportingLineChart`/`ChartLegend`, `RangeSelect`, `FetchedAtCaption`, `ReportingPanel` (Tasks 2–4); `formatNumber`, `formatDate` (`@/lib/format`).
+- Consumes: `useAnalyticsPresence` (Task 1); `useSessionRole` (`@/lib/queries/use-session` — the client session hook ADDED in Task 1, REV-1), `useQueryClient` (`@tanstack/react-query`); `triggerPerformanceSync` (Task 1); `canTriggerSync` (Task 1); `metricLabel`, `ORDERED_METRICS`, `IMPRESSION_METRICS` (Task 1); `humaniseUnavailableReasons` (Task 1); `PRESENCE_RANGES` (Task 1); `queryKeys` (`@/lib/queries/keys`); `StatTile`, `ChartCard`/`ReportingLineChart`/`ChartLegend`, `RangeSelect`, `FetchedAtCaption`, `ReportingPanel` (Tasks 2–4); `formatNumber`, `formatDate` (`@/lib/format`).
 - Produces: `GooglePerformanceTab`, `RefreshGoogleButton` (props `{ kind: "performance" | "keywords"; canTrigger: boolean; onDone?: () => void }`).
 
-> **Session-role note for the executor:** the "Refresh" gate needs the caller's role. Read it from whatever session accessor M2 shipped (the shell already renders role-aware nav, so a session/role source exists). This plan refers to it as `useSessionRole(): string | null`; wire it to the real hook/provider name during implementation and keep the `canTriggerSync(role)` call unchanged.
+> **Session-role note (REV-1 resolved):** the "Refresh" gate reads the caller's role via `useSessionRole()` from `@/lib/queries/use-session`, added in Task 1 (`GET /api/session` → `{ session }.role`). There is no client session context today — this hook is the accessor. `canTriggerSync(useSessionRole())` restricts the button to owner/admin; the server (`requireRole(["owner","admin"])`) remains the authority.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2378,7 +2469,7 @@ import { humaniseUnavailableReasons } from "@/lib/reporting/unavailable-reasons"
 import { IMPRESSION_METRICS, metricLabel, ORDERED_METRICS } from "@/lib/reporting/metric-labels"
 import { PRESENCE_RANGES } from "@/lib/reporting/ranges"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
-import { useSessionRole } from "@/lib/queries/use-session" // wire to the real session accessor
+import { useSessionRole } from "@/lib/queries/use-session" // client session hook (Task 1, REV-1)
 import { formatDate, formatNumber } from "@/lib/format"
 
 type PresenceRangeId = (typeof PRESENCE_RANGES)[number]["id"]
@@ -2442,11 +2533,22 @@ export function GooglePerformanceTab() {
       </div>
     )
 
-  return <div className="flex flex-col gap-(--nr-gap-section)">{header}{reasons.length && data.state === "ready" ? <Alert variant="info"><AlertTitle>Heads up</AlertTitle><AlertDescription>{reasons[0]}</AlertDescription></Alert> : null}{body}</div>
+  return (
+    <div className="flex flex-col gap-(--nr-gap-section)">
+      {/* Leading h2 keeps heading order valid before the ChartCard h3 (REV-2). */}
+      <h2 className="sr-only">Google performance</h2>
+      {header}
+      {reasons.length && data.state === "ready" ? (
+        <Alert variant="info"><AlertTitle>Heads up</AlertTitle><AlertDescription>{reasons[0]}</AlertDescription></Alert>
+      ) : null}
+      {body}
+    </div>
+  )
 }
 ```
 
 > **Timezone note:** presence dates are plain `YYYY-MM-DD` day keys in the org timezone already (server-bucketed), so `formatDate(iso, "UTC")` renders the day as-is without a tz shift. Keep "UTC" here to avoid re-shifting an already-local day string.
+> **Heading-order note (REV-2):** the `sr-only` `<h2>` sits above the metric `StatTile`s and the "Views over time" ChartCard `<h3>`, so `heading-order` stays valid on this tab even when deep-linked via `?tab=google`.
 
 - [ ] **Step 5: Run to verify pass, then the gate + build**
 
@@ -2475,7 +2577,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `components/performance/keywords-tab.tsx` (replace the Task 4 stub)
 - Test: `tests/components/keywords-tab.test.tsx`
-- Consumes: `useAnalyticsKeywords` (Task 1); `formatKeywordImpressions` (Task 1); `humaniseUnavailableReasons` (Task 1); `KEYWORD_RANGES` (Task 1); `canTriggerSync` + `useSessionRole` (Task 5's accessor); `Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/`TableCell`; `RangeSelect`, `RefreshGoogleButton`, `FetchedAtCaption`, `ReportingPanel` (Tasks 2–5); `ApiClientError` (`@/lib/api/client`); `formatNumber` (`@/lib/format`).
+- Consumes: `useAnalyticsKeywords` (Task 1); `formatKeywordImpressions` (Task 1); `humaniseUnavailableReasons` (Task 1); `KEYWORD_RANGES` (Task 1); `canTriggerSync` (Task 1) + `useSessionRole` (`@/lib/queries/use-session`, Task 1, REV-1); `Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/`TableCell`; `RangeSelect`, `RefreshGoogleButton`, `FetchedAtCaption`, `ReportingPanel` (Tasks 2–5); `ApiClientError` (`@/lib/api/client`); `formatNumber` (`@/lib/format`).
 - Produces: `KeywordsTab`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2566,7 +2668,7 @@ export function KeywordsTab() {
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <FetchedAtCaption iso={null} timezone="UTC" prefix="Impressions since" />
+      <FetchedAtCaption iso={keywords.data?.from ?? null} timezone="UTC" prefix="Impressions since" />
       <div className="flex items-center gap-3">
         <RangeSelect value={rangeId} onChange={setRangeId} options={KEYWORD_RANGES} label="Keyword range" />
         <RefreshGoogleButton kind="keywords" canTrigger={canTriggerSync(role)} onDone={() => void keywords.refetch()} />
@@ -2626,11 +2728,21 @@ export function KeywordsTab() {
       </Table>
     )
 
-  return <div className="flex flex-col gap-(--nr-gap-section)">{header}<p className="text-caption text-muted-foreground">A “+” means Google reports at least this many impressions (it gives a range for lower-volume terms).</p>{body}</div>
+  return (
+    <div className="flex flex-col gap-(--nr-gap-section)">
+      {/* Leading h2 keeps heading order valid when deep-linked via ?tab=keywords (REV-2). */}
+      <h2 className="sr-only">Search keywords</h2>
+      {header}
+      <p className="text-caption text-muted-foreground">A “+” means Google reports at least this many impressions (it gives a range for lower-volume terms).</p>
+      {body}
+    </div>
+  )
 }
 ```
 
 > **Honesty caption:** the "+" is explained inline so a lower-bounded volume is never mistaken for an exact count (spec §7 honest presentation). Keyword text carries `dir="auto"` (spec §7 review/keyword content direction).
+> **REV-5 caption fix:** the `FetchedAtCaption` reads `keywords.data?.from ?? null`, so once keywords load it honestly reads "Impressions since <first month>" instead of the static "No data yet". `header` is recomputed each render, so it picks up `from` when the query resolves.
+> **REV-2 heading:** the `sr-only` `<h2>` precedes the table; the keywords body has no `<h3>`, so this keeps the tab consistent with the others (and valid if a card/heading is added later).
 
 - [ ] **Step 4: Run to verify pass, then the gate + build**
 
@@ -2659,31 +2771,42 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Create: `components/performance/location-performance.tsx`, `app/(dashboard)/locations/[id]/performance/page.tsx`
 - Modify: `components/locations/location-tab-nav.tsx` (append the 7th "Performance" tab)
-- Test: `tests/components/location-performance.test.tsx`, `tests/components/location-tab-nav.test.tsx` (extend if present; else create)
+- Test: `tests/components/location-performance.test.tsx`, `tests/components/location-tab-nav.test.tsx` (**EDIT the EXISTING test** — it currently asserts the "six wave-1 tabs" and that "Performance" is NOT in the document; both must change)
 - Consumes: `useAnalyticsOverview` (Task 1, org-wide — filtered by id here), `useAnalyticsPresence`, `useAnalyticsKeywords` (Task 1, `{ locationId }`); `StatTile`, `DeltaBadge`, `ChartCard`/`ReportingLineChart`, `FetchedAtCaption`, `ReportingPanel`, `nullableCell` (Tasks 2–4); `metricLabel`, `ORDERED_METRICS`, `IMPRESSION_METRICS`, `formatKeywordImpressions`, `humaniseUnavailableReasons`, `PRESENCE_RANGES` (Task 1); `formatNumber`, `formatPercent`, `formatDuration`, `formatDate` (`@/lib/format`); `Table…` primitives.
 - Produces: `LocationPerformance` (props `{ locationId: string }`).
 
 - [ ] **Step 1: Write the failing tests**
 
-`tests/components/location-tab-nav.test.tsx`:
+`tests/components/location-tab-nav.test.tsx` — **this file already exists and asserts the pre-M7 state** ("renders the six wave-1 tabs", `Hours` active because it mocks `usePathname: () => "/locations/loc-1/hours"`, and a `gone` array that INCLUDES `"Performance"`). Adding the 7th tab breaks the six-tab loop and the `gone` array. **EDIT it in place** (not an append): remove `"Performance"` from the `gone` array, change six→seven, and add the active-Performance assertion. Concretely, replace the single `it(...)` and the pathname mock with:
 
 ```tsx
-import { describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
-
-vi.mock("next/navigation", () => ({ usePathname: () => "/locations/loc-1/performance" }))
+import { describe, expect, it, vi } from "vitest"
 
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
 
+vi.mock("next/navigation", () => ({ usePathname: () => "/locations/loc-1/performance" }))
+
 describe("LocationTabNav", () => {
-  it("includes a Performance tab pointing at the per-location performance route", () => {
+  it("renders the seven tabs (incl. Performance) and marks the active one", () => {
     render(<LocationTabNav locationId="loc-1" />)
-    const link = screen.getByRole("link", { name: "Performance" })
-    expect(link).toHaveAttribute("href", "/locations/loc-1/performance")
-    expect(link).toHaveAttribute("aria-current", "page")
+    const nav = screen.getByRole("navigation", { name: "Location sections" })
+    for (const label of ["Profile", "Hours", "Photos", "Posts", "Booking", "Menu", "Performance"]) {
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
+    }
+    const performance = screen.getByRole("link", { name: "Performance" })
+    expect(performance).toHaveAttribute("href", "/locations/loc-1/performance")
+    expect(performance).toHaveAttribute("aria-current", "page")
+    expect(nav).toBeInTheDocument()
+    // The M8-deferred consoles still must not leak into the workspace tabs.
+    for (const gone of ["Business info", "Industry", "Administration", "Reviews"]) {
+      expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
+    }
   })
 })
 ```
+
+> The pathname mock flips from `/hours` to `/performance` so the active-tab assertion now targets Performance; `"Performance"` is removed from `gone` (Business info / Industry / Administration / Reviews remain deferred). The `nav` accessible name is "Location sections" (unchanged from M5).
 
 `tests/components/location-performance.test.tsx`:
 
@@ -3176,7 +3299,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## Self-review (run before merge; fix inline)
 
 - **Spec coverage.** §4 redirect → Task 4 (`/analytics → /performance`, mirroring the `/overview → /home` precedent). §5 rendering model — client-fetched pages with route-level `loading.tsx`; server-hydration deviation documented (D1) and carried forward, noting that (unlike Locations/Settings) NO `lib/server` analytics service exists yet, so the retrofit is net-new protected work for M9. §6 data layer — one QueryClient; the existing `queryKeys.analytics(kind, params)` (= `['analytics', kind, range]`) and `queryKeys.reviewCounts(scope)` (= `['review-counts', scope]`) reused WITHOUT a keys edit; typed client via `apiFetch`/`ApiClientError`; `staleTime: 30s` on every hook. §7 content — one formatter set (`lib/format`, incl. the new `formatDelta`/`formatDuration` guard); humanised enums + reasons + honest "N+" via one `lib/reporting` mapping layer; no env-flag names / codes / byte counts shown; keyword text carries `dir="auto"`. §8 Home/Performance paragraph — every clause mapped to a task (see exit criteria). §9 testing — loading/error/empty/paused/off + mutation-failure (refresh) component tests per surface; e2e per-tab clean-load in both themes, URL tab-sync, delta + divergence + nulls-last, seeded ready Google/keywords, redirect, and the per-location tab; parity oracle stays green untouched. No M7-scoped requirement is left without a task.
-- **Placeholder scan.** No "TBD"/"similar to Task N"/"add error handling"/bare "write tests". Every code step carries real code; each non-trivial component (chart wrapper, stat tile, delta badge, reporting states, divergence banner, home charts, performance view, range select, reply tab + locations table, Google tab + refresh button, keywords tab, per-location assembly) ships a pinned test + a reference implementation. Shared blocks (`ChartCard`, `StatTile`, `DeltaBadge`, `ReportingPanel`, `nullableCell`, `DivergenceBanner`, `RangeSelect`, `RefreshGoogleButton`, the `lib/reporting` + `lib/format` helpers) are implemented once (Tasks 1–2/4/5) and imported by name thereafter. The two forward-reference stubs (`GooglePerformanceTab`/`KeywordsTab` land as one-line loading stubs in Task 4, replaced in Tasks 5/6) and the session-role accessor (`useSessionRole` → wire to M2's real hook) are called out explicitly with their intended resolution, not left silent.
+- **Placeholder scan.** No "TBD"/"similar to Task N"/"add error handling"/bare "write tests". Every code step carries real code; each non-trivial component (chart wrapper, stat tile, delta badge, reporting states, divergence banner, home charts, performance view, range select, reply tab + locations table, Google tab + refresh button, keywords tab, per-location assembly) ships a pinned test + a reference implementation. Shared blocks (`ChartCard`, `StatTile`, `DeltaBadge`, `ReportingPanel`, `nullableCell`, `DivergenceBanner`, `RangeSelect`, `RefreshGoogleButton`, the `lib/reporting` + `lib/format` helpers) are implemented once (Tasks 1–2/4/5) and imported by name thereafter. The two forward-reference stubs (`GooglePerformanceTab`/`KeywordsTab` land as one-line loading stubs in Task 4, replaced in Tasks 5/6) are called out explicitly with their intended resolution. The client session accessor (`useSession`/`useSessionRole`, `lib/api/session.ts` + `lib/queries/use-session.ts`) is a REAL, tested module added in Task 1 (REV-1) — there is no client session hook in the app today (role is server-prop-threaded), so this is a genuine new file, not a "wire it later" placeholder. No task imports a nonexistent module.
 - **Type consistency.** `AnalyticsOverview`/`AnalyticsSummary`/`AnalyticsSeriesPoint`/`AnalyticsLocation`/`ProviderTotals` (Task 1) are the exact names Tasks 3/4/7 import. `PresenceResponse`/`PresenceStatus` and `KeywordsResponse`/`KeywordRow` (Task 1) match Tasks 5/6/7. `ReplyRangeId` + `resolveReplyRange` + `REPLY_RANGES`/`PRESENCE_RANGES`/`KEYWORD_RANGES` (Task 1) match every `RangeSelect` and tab consumer. `metricLabel`/`ORDERED_METRICS`/`IMPRESSION_METRICS` (Task 1) match Tasks 5/7. `humaniseUnavailableReasons` (Task 1) matches Tasks 5/6/7. `formatKeywordImpressions` (Task 1) matches Tasks 6/7. `canTriggerSync` (Task 1) matches `RefreshGoogleButton` (Task 5). `useAnalyticsOverview(params?)`/`useAnalyticsPresence({range,locationId})`/`useAnalyticsKeywords({range,locationId})` names match producer and consumer, and `useReviewCounts`/`useAnalyticsOverview` keep their M3 names. `ChartCard`/`ReportingLineChart`/`ReportingBarChart`/`ChartLegend` prop shapes (incl. the `colorVar: 1|2|3|4|5` → `var(--chart-N)` mapping) are identical across Home, reply, Google, and per-location consumers. `StatTile`/`DeltaBadge`/`FetchedAtCaption`/`ReportingPanel`/`nullableCell` props match all reuse sites. The three tab labels ("Reply performance" / "Google performance" / "Keywords") and the `<h1>` "Performance" match the `performance.spec.ts` assertions exactly; the Home KPI labels ("Total reviews" / "Needs attention" / "Average rating" / "Response rate") match `home.spec.ts` exactly.
 - **Parity-oracle safety.** M7 adds NO route, service, schema, or migration — every file is a client-safe schema, client, hook, component, page, or test under `lib/format`/`lib/reporting`/`lib/api`/`lib/queries`/`components/**`/`app/(dashboard)/**`/`tests/**`. The widened `lib/api/analytics.ts` schema is a client-side superset (zod parses the endpoint's full body it previously stripped); the endpoint itself is unchanged. No integration test is touched or moved. The e2e stub-bridge seed and the two Playwright web-server flags live under `tests/**` / `playwright.config.ts` (non-protected).
 - **Protected-path footprint.** `git diff --stat main -- app/api lib/server lib/domain supabase scripts instrumentation.ts` must be **EMPTY**. Confirm no accidental edit to any analytics/sync/counts route, and that the `lib/domain` imports are const/type-only. This zero-footprint result is a hard exit criterion (D11), not an aspiration.
@@ -3185,7 +3308,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   - (b) **Per-location review metrics via a client-side `overview.locations[]` filter (D5),** because the overview endpoint has no `locationId` param. This keeps M7 at zero protected edits; the one behavioural cost is that a location with zero in-window reviews is absent from `overview.locations` (inner join), rendered as an honest "no review activity" panel. **Controller decision to confirm:** accept the client filter, or add a `locationId` param to the overview route (a protected edit) for a dedicated per-location summary.
   - (c) **Performance tabs are in-page URL-synced Base UI `Tabs` (`?tab=`), not route segments (D12)** — matches the pre-existing `performance.spec.ts` (all tabs `role="tab"` on one page) and spec §8's "Performance tab in the URL". The per-location performance tab IS a route segment, consistent with the Locations workspace model.
   - (d) **Charts via recharts themed to `--chart-1..5` (D2)** rather than a table-only fallback — the chart tokens already exist in `app/globals.css` (identical light/dark, decorative-exempt), so token-only theming is straightforward and the charts-vs-table risk does not materialise.
-  - (e) **The "Refresh Google data" gate reads the session role via a `useSessionRole` accessor** wired to M2's shipped session source, and `canTriggerSync` restricts to owner/admin — mirroring the sync routes' `requireRole(["owner","admin"])`. The button is a client convenience over an already-authorised route; the server remains the authority (a member who forged a POST still gets 403).
+  - (e) **The "Refresh Google data" gate reads the session role via a `useSessionRole` accessor ADDED in Task 1 (REV-1)** — the app has no client session hook today (role is server-prop-threaded), so Task 1 adds `lib/api/session.ts` + `lib/queries/use-session.ts` reading `GET /api/session`; `canTriggerSync` restricts to owner/admin, mirroring the sync routes' `requireRole(["owner","admin"])`. The button is a client convenience over an already-authorised route; the server remains the authority (a member who forged a POST still gets 403).
   - (f) **Keywords kept a separate task (T6), not merged into T5** — its `503 keywords_paused`-before-parse behaviour, distinct response shape, and honest "N+" presentation are worth an independent pinned test; the cost is one extra small task.
 - **Carry-forwards recorded for later milestones:**
   - **Server-hydrated/dehydrated reporting** (spec §5 prefetch) — DEFERRED to M9; requires first extracting `lib/server/analytics.*` from the four inline route handlers (a protected edit-set), then seeding the SAME `analytics(kind, params)` / `reviewCounts(scope)` Query keys additively (D1).
