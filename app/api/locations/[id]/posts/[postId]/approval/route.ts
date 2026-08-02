@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { requireLocationAccess } from "@/lib/server/permissions"
 import { requestOrPublishLocalPost } from "@/lib/server/posts"
 import { requireSession } from "@/lib/server/session"
 
@@ -24,6 +25,7 @@ export async function POST(
     const { decision } = inputSchema.parse(await request.json())
     if (decision === "reject") {
       await withTenant(session.organisationId, async (sql) => {
+        await requireLocationAccess(sql, session, id)
         const [post] = await sql<{ id: string }[]>`
           update gbp_local_post
           set status = 'draft', approval_requested_by = null

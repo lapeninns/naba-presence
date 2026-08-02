@@ -370,6 +370,87 @@ export async function seedLinkedLocation(
   return { locationId, externalLocationId, googleLocationName }
 }
 
+export async function seedMemberUser(
+  admin: ReturnType<typeof postgres>,
+  input: {
+    organisationId: string
+    role?: "member" | "viewer"
+    canPublish?: boolean
+    assignLocationId?: string
+  }
+): Promise<{ userId: string; cookie: string }> {
+  const userId = randomUUID()
+  const token = randomBytes(32).toString("base64url")
+  const email = `harness-${userId.slice(0, 8)}@nabapresence.test`
+  await admin`
+    insert into app_user (id, email, display_name, default_organisation_id)
+    values (${userId}, ${email}, 'Harness member', ${input.organisationId})
+  `
+  await admin`
+    insert into member (organisation_id, user_id, role, can_publish)
+    values (
+      ${input.organisationId},
+      ${userId},
+      ${input.role ?? "member"},
+      ${input.canPublish ?? false}
+    )
+  `
+  if (input.assignLocationId) {
+    await admin`
+      insert into location_member (organisation_id, location_id, user_id, can_publish)
+      values (
+        ${input.organisationId},
+        ${input.assignLocationId},
+        ${userId},
+        ${input.canPublish ?? false}
+      )
+    `
+  }
+  await admin`
+    insert into app_session (token_hash, user_id, organisation_id, expires_at)
+    values (${sha256(token)}, ${userId}, ${input.organisationId}, now() + interval '1 hour')
+  `
+  return { userId, cookie: `naba_session=${token}` }
+}
+
+// Inserts an `awaiting_approval` local post. The caller's locationId must
+// already carry an active location_link (e.g. via seedLinkedLocation) so
+// the required external_location_id can be resolved.
+export async function seedAwaitingApprovalPost(
+  admin: ReturnType<typeof postgres>,
+  input: { organisationId: string; locationId: string; requestedBy: string }
+): Promise<{ id: string }> {
+  const id = randomUUID()
+  const [link] = await admin<{ externalLocationId: string }[]>`
+    select external_location_id as "externalLocationId"
+    from location_link
+    where organisation_id = ${input.organisationId}
+      and location_id = ${input.locationId}
+      and is_active = true
+    limit 1
+  `
+  if (!link) {
+    throw new Error(
+      `seedAwaitingApprovalPost: no active location_link for location ${input.locationId}`
+    )
+  }
+  await admin`
+    insert into gbp_local_post (
+      id, organisation_id, location_id, external_location_id,
+      topic_type, status, approval_requested_by
+    ) values (
+      ${id},
+      ${input.organisationId},
+      ${input.locationId},
+      ${link.externalLocationId},
+      'STANDARD',
+      'awaiting_approval',
+      ${input.requestedBy}
+    )
+  `
+  return { id }
+}
+
 export async function saveHumanDraft(
   baseUrl: string,
   cookie: string,
