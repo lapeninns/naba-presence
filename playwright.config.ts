@@ -15,7 +15,6 @@ export default defineConfig({
   // Legacy specs target the deleted frontend; re-enabled per rebuild milestone.
   testIgnore: [
     "**/accessibility.spec.ts",
-    "**/gbp-management-tabs.spec.ts",
     "**/review-provider-races.spec.ts",
     "**/routing.spec.ts",
   ],

@@ -309,23 +309,44 @@ export default async function startJourneyBridge(config: FullConfig) {
     `
 
     // Location read (profile + hours + food-menu eligibility) — one rich object
-    // covering every readMask the wave-1 tabs request.
+    // covering every readMask the wave-1 tabs request. `locationOverrides` is
+    // mutable (Task 8): the Business Information console's `update_location`
+    // publish re-fetches this same readMask GET to verify Google's readback
+    // matches the just-patched fields (lib/server/business-information.ts's
+    // `updateBusinessInformation`), so the stub has to reflect its own writes
+    // rather than stay static.
+    let locationOverrides: Record<string, unknown> = {}
+    const baseGoogleLocation: Record<string, unknown> = {
+      name: "locations/stub",
+      title: "Riverside Rooms",
+      phoneNumbers: { primaryPhone: "+44 20 7946 0000" },
+      profile: { description: "A calm riverside stay." },
+      storefrontAddress: { addressLines: ["1 River Road"], locality: "Bath", postalCode: "BA1 1AA", regionCode: "GB" },
+      websiteUri: "https://riverside.example",
+      categories: { primaryCategory: { name: "categories/gcid:lodging", displayName: "Hotel" } },
+      storeCode: "",
+      labels: [] as string[],
+      openInfo: { status: "OPEN" },
+      regularHours: { periods: [] },
+      specialHours: { specialHourPeriods: [] },
+      moreHours: [],
+      metadata: { canHaveFoodMenus: true, mapsUri: "https://maps.example/x", newReviewUri: "https://g.page/x/review" },
+    }
     stub.respond({ method: "GET", pathIncludes: "readMask" }, () => ({
       status: 200,
-      json: {
-        name: "locations/stub",
-        title: "Riverside Rooms",
-        phoneNumbers: { primaryPhone: "+44 20 7946 0000" },
-        profile: { description: "A calm riverside stay." },
-        storefrontAddress: { addressLines: ["1 River Road"], locality: "Bath", postalCode: "BA1 1AA", regionCode: "GB" },
-        websiteUri: "https://riverside.example",
-        categories: { primaryCategory: { displayName: "Hotel" } },
-        regularHours: { periods: [] },
-        specialHours: { specialHourPeriods: [] },
-        moreHours: [],
-        metadata: { canHaveFoodMenus: true, mapsUri: "https://maps.example/x", newReviewUri: "https://g.page/x/review" },
-      },
+      json: { ...baseGoogleLocation, ...locationOverrides },
     }))
+    // Business Information's `update_location`, Hours' patch, and
+    // Administration's `accept_google_update` all PATCH this same
+    // `{locationName}?updateMask=...&validateOnly=...` shape (both the
+    // validate-only dry run and the real write) — merge whatever was sent so
+    // the readMask GET above reflects it on the very next read, mirroring
+    // Google's own read-your-writes behaviour.
+    stub.respond({ method: "PATCH", pathIncludes: "validateOnly=" }, (call) => {
+      const body = (call.body ?? {}) as Record<string, unknown>
+      locationOverrides = { ...locationOverrides, ...body }
+      return { status: 200, json: { ...baseGoogleLocation, ...locationOverrides } }
+    })
     stub.respond({ method: "GET", pathIncludes: "/media" }, () => ({ status: 200, json: { mediaItems: [] } }))
     stub.respond({ method: "GET", pathIncludes: "/media/customers" }, () => ({ status: 200, json: { mediaItems: [] } }))
     stub.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({ status: 200, json: { localPosts: [], nextPageToken: null } }))
@@ -349,6 +370,145 @@ export default async function startJourneyBridge(config: FullConfig) {
       const body = (call.body ?? {}) as Record<string, unknown>
       return { status: 200, json: { name: "locations/stub/placeActionLinks/created", uri: body.uri, placeActionType: body.placeActionType, isPreferred: body.isPreferred ?? false } }
     })
+
+    // --- M8 console stubs (Task 8) ------------------------------------------
+    // Business Information / Industry / Administration each call Google
+    // sub-resources beyond the shared readMask GET above. Every path fragment
+    // below is read straight off lib/domain/google-contract.ts's request
+    // builders (the real client the server routes call through) — not
+    // guessed — since GOOGLE_API_PROXY_BASE strips the original host and the
+    // stub only ever sees `{path}{?query}`.
+    const primaryGoogleLocationName = googleLocationName(directReview.externalLocationId)
+    const primaryAccountName = connection.googleAccountName
+
+    // Business Information: attributes, attribute metadata, category/chain
+    // search (metadata's `pageSize=200` is unique to listGoogleAttributeMetadata
+    // — categories/chains both use pageSize=100 — so it can't collide with the
+    // location-attributes GET below, which sends no query at all).
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/attributes` },
+      () => ({
+        status: 200,
+        json: { name: `${primaryGoogleLocationName}/attributes`, attributes: [{ name: "attributes/wi_fi_free", values: [true] }] },
+      })
+    )
+    stub.respond(
+      { method: "PATCH", pathIncludes: `${primaryGoogleLocationName}/attributes` },
+      (call) => {
+        const body = (call.body ?? {}) as { attributes?: unknown }
+        return { status: 200, json: { name: `${primaryGoogleLocationName}/attributes`, attributes: body.attributes ?? [] } }
+      }
+    )
+    stub.respond({ method: "GET", pathIncludes: "pageSize=200" }, () => ({
+      status: 200,
+      json: {
+        attributeMetadata: [
+          { parent: "attributes/wi_fi_free", displayName: "Free Wi-Fi", groupDisplayName: "Amenities", valueType: "BOOL" },
+        ],
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "v1/categories?" }, () => ({
+      status: 200,
+      json: { categories: [{ name: "categories/gcid:lodging", displayName: "Hotel" }] },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "chains:search" }, () => ({ status: 200, json: { chains: [] } }))
+
+    // Industry: lodging / business calls / healthcare.
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/lodging:getGoogleUpdated` },
+      () => ({ status: 200, json: { diffMask: { paths: [] } } })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/lodging?` },
+      () => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, policies: { checkinTime: "15:00", checkoutTime: "11:00" } } })
+    )
+    stub.respond(
+      { method: "PATCH", pathIncludes: `${primaryGoogleLocationName}/lodging?` },
+      (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, ...(call.body as Record<string, unknown>) } })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/businesscallssettings` },
+      () => ({ status: 200, json: { name: `${primaryGoogleLocationName}/businesscallssettings`, callsState: "ENABLED" } })
+    )
+    stub.respond(
+      { method: "PATCH", pathIncludes: `${primaryGoogleLocationName}/businesscallssettings` },
+      (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}/businesscallssettings`, ...(call.body as Record<string, unknown>) } })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/businesscallsinsights` },
+      () => ({ status: 200, json: { businessCallsInsights: [] } })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/serviceList` },
+      () => ({ status: 200, json: { services: [] } })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/healthProviderAttributes` },
+      () => ({ status: 200, json: {} })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/insuranceNetworks` },
+      () => ({ status: 200, json: { networks: [] } })
+    )
+
+    // Administration: suggested update, voice of merchant, verification,
+    // admins/invitations, and the danger-zone mutations (transfer / delete).
+    // `:getGoogleUpdated` here (no `/lodging` in front) is Administration's
+    // own suggested-update GET — distinct from Industry's
+    // `${name}/lodging:getGoogleUpdated` above since that has `/lodging`
+    // between the location name and the colon.
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}:getGoogleUpdated` },
+      () => ({ status: 200, json: { diffMask: { paths: [] } } })
+    )
+    stub.respond({ method: "GET", pathIncludes: "VoiceOfMerchantState" }, () => ({
+      status: 200,
+      json: { hasVoiceOfMerchant: true },
+    }))
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/verifications` },
+      () => ({ status: 200, json: { verifications: [] } })
+    )
+    stub.respond({ method: "POST", pathIncludes: "fetchVerificationOptions" }, () => ({
+      status: 200,
+      json: { options: [{ verificationMethod: "EMAIL" }] },
+    }))
+    // Lowercase ":verify" (start_verification) never collides with the
+    // capital-V "fetchVerificationOptions"/"...Verifications" paths above.
+    stub.respond({ method: "POST", pathIncludes: ":verify" }, () => ({
+      status: 200,
+      json: { name: `${primaryGoogleLocationName}/verifications/e2e`, method: "EMAIL", state: "PENDING" },
+    }))
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/admins` },
+      () => ({
+        status: 200,
+        json: { admins: [{ name: `${primaryGoogleLocationName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
+      })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryAccountName}/admins` },
+      () => ({
+        status: 200,
+        json: { admins: [{ name: `${primaryAccountName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
+      })
+    )
+    stub.respond(
+      { method: "GET", pathIncludes: `${primaryAccountName}/invitations` },
+      () => ({ status: 200, json: { invitations: [] } })
+    )
+    stub.respond(
+      { method: "POST", pathIncludes: `${primaryAccountName}/locations` },
+      (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}-created`, ...(call.body as Record<string, unknown>) } })
+    )
+    stub.respond({ method: "POST", pathIncludes: ":transfer" }, (call) => ({
+      status: 200,
+      json: { name: primaryGoogleLocationName, destinationAccount: (call.body as Record<string, unknown> | undefined)?.destinationAccount ?? null },
+    }))
+    // Google's PERMANENT delete (deleteGoogleLocation) — the danger-zone
+    // journey's target. No other DELETE is stubbed for this org, so a broad
+    // match on the bare location name is unambiguous.
+    stub.respond({ method: "DELETE", pathIncludes: primaryGoogleLocationName }, () => ({ status: 200, json: {} }))
 
     // A separate approval-required org: a requester whose publish routes to
     // approval (202), and a distinct owner approver who approves (200).
