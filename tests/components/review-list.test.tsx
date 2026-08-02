@@ -26,7 +26,7 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
     googlePolicyViolation: null,
     replyBody: null,
     syncStatus: "succeeded",
-    capabilities: { canPublish: true, canEdit: true },
+    capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
     ...overrides,
   }
 }

@@ -26,6 +26,7 @@ import {
   evaluateApproval,
   evaluateDelete,
   evaluatePublish,
+  evaluateRequestApproval,
 } from "@/lib/inbox/actions"
 import { describeActionError } from "@/lib/inbox/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
@@ -64,6 +65,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const publishState = evaluatePublish({
     status: review.workflowStatus,
     canPublish: review.capabilities.canPublish,
+    hasVerifiedDraft: Boolean(verifiedDraft),
+    isDirty,
+  })
+  const requestApprovalState = evaluateRequestApproval({
+    status: review.workflowStatus,
+    canRequestApproval: review.capabilities.canRequestApproval,
     hasVerifiedDraft: Boolean(verifiedDraft),
     isDirty,
   })
@@ -123,6 +130,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   }
 
   const awaitingApproval = review.workflowStatus === "awaiting_approval"
+  // D2: a non-publisher in an approval-required org sees "Submit for
+  // approval" in place of the (otherwise disabled-for-them) Publish button.
+  // It reuses the same publish mutation -- the server routes a
+  // non-publisher's publish to `awaiting_approval` (lib/server/publishing.ts)
+  // -- so onPublish/describeOutcomeToast are shared unchanged.
+  const offerRequestApproval =
+    !review.capabilities.canPublish && review.capabilities.canRequestApproval
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -146,6 +160,15 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             {approval.isPending ? "Working…" : "Approve reply"}
           </Button>
         </>
+      ) : offerRequestApproval ? (
+        <Button
+          size="sm"
+          disabled={!requestApprovalState.enabled || publish.isPending}
+          title={requestApprovalState.reason}
+          onClick={() => void onPublish()}
+        >
+          {publish.isPending ? "Submitting…" : "Submit for approval"}
+        </Button>
       ) : (
         <Button
           size="sm"

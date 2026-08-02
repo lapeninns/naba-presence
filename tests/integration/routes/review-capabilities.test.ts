@@ -87,10 +87,21 @@ describeDatabase("review capabilities on inbox responses", () => {
     })
     expect(list.status).toBe(200)
     const listBody = (await list.json()) as {
-      items: { id: string; capabilities: { canPublish: boolean; canEdit: boolean } }[]
+      items: {
+        id: string
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }[]
     }
     const listed = listBody.items.find((item) => item.id === review.reviewId)
-    expect(listed?.capabilities).toEqual({ canPublish: true, canEdit: true })
+    expect(listed?.capabilities).toEqual({
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+    })
 
     const detail = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}`,
@@ -98,11 +109,18 @@ describeDatabase("review capabilities on inbox responses", () => {
     )
     expect(detail.status).toBe(200)
     const detailBody = (await detail.json()) as {
-      review: { capabilities: { canPublish: boolean; canEdit: boolean } }
+      review: {
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }
     }
     expect(detailBody.review.capabilities).toEqual({
       canPublish: true,
       canEdit: true,
+      canRequestApproval: false,
     })
   })
 
@@ -126,10 +144,21 @@ describeDatabase("review capabilities on inbox responses", () => {
       headers: { cookie: tenant.cookie },
     })
     const body = (await list.json()) as {
-      items: { id: string; capabilities: { canPublish: boolean; canEdit: boolean } }[]
+      items: {
+        id: string
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }[]
     }
     const listed = body.items.find((item) => item.id === review.reviewId)
-    expect(listed?.capabilities).toEqual({ canPublish: false, canEdit: false })
+    expect(listed?.capabilities).toEqual({
+      canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+    })
   })
 
   it("member ASSIGNED to the review's location with can_publish=false sees canPublish false, canEdit true", async () => {
@@ -161,10 +190,24 @@ describeDatabase("review capabilities on inbox responses", () => {
     })
     expect(list.status).toBe(200)
     const listBody = (await list.json()) as {
-      items: { id: string; capabilities: { canPublish: boolean; canEdit: boolean } }[]
+      items: {
+        id: string
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }[]
     }
     const listed = listBody.items.find((item) => item.id === review.reviewId)
-    expect(listed?.capabilities).toEqual({ canPublish: false, canEdit: true })
+    // organisation.approval_required defaults to true (see
+    // supabase/migrations/0001_initial.sql) and this tenant never overrides
+    // it, so a non-publishing-but-editing member can request approval.
+    expect(listed?.capabilities).toEqual({
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: true,
+    })
 
     const detail = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}`,
@@ -172,11 +215,90 @@ describeDatabase("review capabilities on inbox responses", () => {
     )
     expect(detail.status).toBe(200)
     const detailBody = (await detail.json()) as {
-      review: { capabilities: { canPublish: boolean; canEdit: boolean } }
+      review: {
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }
     }
     expect(detailBody.review.capabilities).toEqual({
       canPublish: false,
       canEdit: true,
+      canRequestApproval: true,
+    })
+  })
+
+  it("a non-publishing member can request approval only when the org requires approval", async () => {
+    const tenant = await createTestTenant(admin, {
+      role: "member",
+      canPublish: true, // org-wide fallback must NOT win once assigned
+    })
+    organisations.push(tenant.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: tenant.organisationId,
+    })
+    const review = await seedLinkedReview(admin, {
+      organisationId: tenant.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+      text: "Approval-required toggle review",
+      rating: 4,
+    })
+    await admin`
+      insert into location_member (
+        organisation_id, location_id, user_id, can_publish
+      ) values (
+        ${tenant.organisationId}, ${review.locationId}, ${tenant.userId}, false
+      )
+    `
+
+    // organisation.approval_required defaults to true.
+    const withApproval = await fetch(
+      `${server.baseUrl}/api/reviews/${review.reviewId}`,
+      { headers: { cookie: tenant.cookie } }
+    )
+    expect(withApproval.status).toBe(200)
+    const withApprovalBody = (await withApproval.json()) as {
+      review: {
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }
+    }
+    expect(withApprovalBody.review.capabilities).toEqual({
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: true,
+    })
+
+    await admin`
+      update organisation
+      set approval_required = false
+      where id = ${tenant.organisationId}
+    `
+
+    const withoutApproval = await fetch(
+      `${server.baseUrl}/api/reviews/${review.reviewId}`,
+      { headers: { cookie: tenant.cookie } }
+    )
+    expect(withoutApproval.status).toBe(200)
+    const withoutApprovalBody = (await withoutApproval.json()) as {
+      review: {
+        capabilities: {
+          canPublish: boolean
+          canEdit: boolean
+          canRequestApproval: boolean
+        }
+      }
+    }
+    expect(withoutApprovalBody.review.capabilities).toEqual({
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: false,
     })
   })
 
@@ -266,11 +388,20 @@ describeDatabase("review capabilities on inbox responses", () => {
       )
       expect(detail.status).toBe(200)
       const detailBody = (await detail.json()) as {
-        review: { capabilities: { canPublish: boolean; canEdit: boolean } }
+        review: {
+          capabilities: {
+            canPublish: boolean
+            canEdit: boolean
+            canRequestApproval: boolean
+          }
+        }
       }
+      // organisation.approval_required defaults to true here, so
+      // canRequestApproval mirrors !canPublish for this unassigned member.
       expect(detailBody.review.capabilities).toEqual({
         canPublish,
         canEdit: true,
+        canRequestApproval: !canPublish,
       })
     }
   )

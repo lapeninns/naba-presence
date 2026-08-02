@@ -34,7 +34,7 @@ const rowFixture = {
   googlePolicyViolation: null,
   replyBody: null,
   syncStatus: "succeeded",
-  capabilities: { canPublish: true, canEdit: true },
+  capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
 }
 
 afterEach(() => {
@@ -146,7 +146,11 @@ describe("fetchReviewDetail", () => {
                 metadataSummary: null,
               },
             ],
-            capabilities: { canPublish: false, canEdit: true },
+            capabilities: {
+              canPublish: false,
+              canEdit: true,
+              canRequestApproval: true,
+            },
             latestVerification: {
               verdict: "warn",
               reasons: [
@@ -166,6 +170,7 @@ describe("fetchReviewDetail", () => {
     expect(detail.review.capabilities).toEqual({
       canPublish: false,
       canEdit: true,
+      canRequestApproval: true,
     })
     expect(detail.review.drafts[0].verificationStatus).toBe("warn")
     expect(detail.review.timeline[0].actorName).toBe("Alex Owner")

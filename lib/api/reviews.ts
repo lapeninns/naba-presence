@@ -28,6 +28,7 @@ export type LatestVerification = z.infer<typeof latestVerificationSchema>
 const capabilitiesSchema = z.object({
   canPublish: z.boolean(),
   canEdit: z.boolean(),
+  canRequestApproval: z.boolean(),
 })
 export type ReviewCapabilities = z.infer<typeof capabilitiesSchema>
 

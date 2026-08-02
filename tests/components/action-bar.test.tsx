@@ -28,7 +28,7 @@ function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
       drafts: [
         { id: "d1", source: "ai", body: "Reply", bodyBytes: 5, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
       ],
-      reply: null, timeline: [], capabilities: { canPublish: true, canEdit: true },
+      reply: null, timeline: [], capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
       latestVerification: null,
       ...overrides,
     },
@@ -94,7 +94,11 @@ describe("ActionBar", () => {
   })
 
   it("disables Publish with a reason when the user cannot publish", () => {
-    stubHooks(detailWith({ capabilities: { canPublish: false, canEdit: true } }))
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+      })
+    )
     renderActionBar()
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeDisabled()
@@ -107,6 +111,67 @@ describe("ActionBar", () => {
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeDisabled()
     expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
+  })
+
+  // D2: a non-publisher in an approval-required org sees "Submit for
+  // approval" in place of the disabled Publish button, and it reuses the
+  // publish mutation (the server routes it to `awaiting_approval`).
+  it("offers Submit for approval to a non-publisher in an approval-required org and routes to approval", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi.fn().mockResolvedValue({ status: "awaiting_approval" })
+    )
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+      }),
+      publish
+    )
+    renderActionBar()
+    const button = screen.getByRole("button", { name: "Submit for approval" })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(publish.mutateAsync).toHaveBeenCalledWith({
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText("Reply submitted for approval.")
+      ).toBeInTheDocument()
+    )
+  })
+
+  it("does not offer Submit for approval when the org does not require approval", () => {
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+      })
+    )
+    renderActionBar()
+    expect(
+      screen.queryByRole("button", { name: "Submit for approval" })
+    ).not.toBeInTheDocument()
+  })
+
+  // R6: evaluateRequestApproval mirrors evaluatePublish's transition guard
+  // because both share the same publish mutation. Without it, a status the
+  // server no longer accepts as publish-requestable (e.g. an already
+  // "published" review) would render an enabled button whose click 409s.
+  it("disables Submit for approval when the status is not publish-requestable, even though canRequestApproval is true", () => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "published",
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+      })
+    )
+    renderActionBar()
+    const button = screen.getByRole("button", { name: "Submit for approval" })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute(
+      "title",
+      expect.stringContaining("cannot be submitted for approval")
+    )
   })
 
   it("shows Approve and Reject when awaiting approval", () => {

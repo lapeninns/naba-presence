@@ -6,9 +6,17 @@ import type { Session } from "@/lib/server/session"
 
 // One capability object per review, mirroring lib/server/permissions.ts
 // exactly:
-//   canPublish  === canPublishLocation(sql, session, locationId)
-//   canEdit     === (role !== 'viewer') && requireLocationAccess would pass
-export type ReviewCapabilities = { canPublish: boolean; canEdit: boolean }
+//   canPublish         === canPublishLocation(sql, session, locationId)
+//   canEdit            === (role !== 'viewer') && requireLocationAccess would pass
+//   canRequestApproval === canEdit && !canPublish && organisation.approval_required
+//     (D2: a non-publisher may submit a reply for approval only when the org
+//     requires it. Never true for a publisher — see executePublish's
+//     `!canPublish && approval_required` routing, lib/server/publishing.ts.)
+export type ReviewCapabilities = {
+  canPublish: boolean
+  canEdit: boolean
+  canRequestApproval: boolean
+}
 
 export async function reviewCapabilitiesForLocations(
   sql: TransactionSql,
@@ -19,15 +27,21 @@ export async function reviewCapabilitiesForLocations(
   const result = new Map<string, ReviewCapabilities>()
   if (unique.length === 0) return result
 
+  const [org] = await sql<{ approvalRequired: boolean }[]>`
+    select approval_required as "approvalRequired"
+    from organisation where id = ${session.organisationId}
+  `
+  const approvalRequired = org?.approvalRequired ?? false
+
   if (session.role === "owner" || session.role === "admin") {
     for (const id of unique) {
-      result.set(id, { canPublish: true, canEdit: true })
+      result.set(id, { canPublish: true, canEdit: true, canRequestApproval: false })
     }
     return result
   }
   if (session.role === "viewer") {
     for (const id of unique) {
-      result.set(id, { canPublish: false, canEdit: false })
+      result.set(id, { canPublish: false, canEdit: false, canRequestApproval: false })
     }
     return result
   }
@@ -60,7 +74,8 @@ export async function reviewCapabilitiesForLocations(
         : false
       : session.canPublish
     const canEdit = hasAssignments ? assigned : true
-    result.set(id, { canPublish, canEdit })
+    const canRequestApproval = canEdit && !canPublish && approvalRequired
+    result.set(id, { canPublish, canEdit, canRequestApproval })
   }
   return result
 }
@@ -71,7 +86,13 @@ export async function reviewCapabilities(
   locationId: string
 ): Promise<ReviewCapabilities> {
   const map = await reviewCapabilitiesForLocations(sql, session, [locationId])
-  return map.get(locationId) ?? { canPublish: false, canEdit: false }
+  return (
+    map.get(locationId) ?? {
+      canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+    }
+  )
 }
 
 // Per-location capabilities for the Locations workspace (spec §3):

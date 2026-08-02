@@ -48,7 +48,7 @@ const row = {
   googlePolicyViolation: null,
   replyBody: null,
   syncStatus: "succeeded",
-  capabilities: { canPublish: true, canEdit: true },
+  capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
 }
 
 describe("useReviews", () => {

@@ -43,6 +43,42 @@ export function evaluatePublish(input: {
   return { enabled: true }
 }
 
+// D2: mirrors evaluatePublish, including its transition guard, because the
+// affordance this gates reuses the SAME publish mutation (the server routes
+// a non-publisher's publish to `awaiting_approval` when the org requires
+// approval — see lib/server/publishing.ts's `!canPublish && approval_required`
+// branch). Without the identical `isAllowedReviewTransition(state,
+// "publish_requested")` check, this could enable a button for a status the
+// reused mutation would reject with a 409.
+export function evaluateRequestApproval(input: {
+  status: string
+  canRequestApproval: boolean
+  hasVerifiedDraft: boolean
+  isDirty: boolean
+}): ActionAvailability {
+  if (!input.canRequestApproval) return { enabled: false }
+  const state = asState(input.status)
+  if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
+    return {
+      enabled: false,
+      reason: "This reply cannot be submitted for approval from its current status.",
+    }
+  }
+  if (input.isDirty) {
+    return {
+      enabled: false,
+      reason: "Save your draft before submitting it for approval.",
+    }
+  }
+  if (!input.hasVerifiedDraft) {
+    return {
+      enabled: false,
+      reason: "Verify a draft before submitting it for approval.",
+    }
+  }
+  return { enabled: true }
+}
+
 export function evaluateApproval(input: {
   status: string
   canPublish: boolean

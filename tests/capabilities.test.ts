@@ -24,6 +24,10 @@ import type { Session } from "@/lib/server/session"
 type FakeQueryScript = {
   hasAssignments: boolean
   grants: { locationId: string; canPublish: boolean }[]
+  // D2: organisation.approval_required, read once per call regardless of
+  // role. Defaults to true, mirroring the DB column's own default (see
+  // supabase/migrations/0001_initial.sql).
+  approvalRequired?: boolean
 }
 
 function isTaggedTemplateCall(
@@ -36,6 +40,11 @@ function createFakeSql(script: FakeQueryScript): TransactionSql {
   const fn = (first: unknown) => {
     if (isTaggedTemplateCall(first)) {
       const text = first.join("¦")
+      if (text.includes('as "approvalRequired"')) {
+        return Promise.resolve([
+          { approvalRequired: script.approvalRequired ?? true },
+        ])
+      }
       if (text.includes('as "hasAssignments"')) {
         return Promise.resolve([{ hasAssignments: script.hasAssignments }])
       }
@@ -75,11 +84,33 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
     const sql = createFakeSql({
       hasAssignments: true,
       grants: [{ locationId: LOCATION_A, canPublish: false }],
+      approvalRequired: true,
     })
 
     const result = await reviewCapabilities(sql, session, LOCATION_A)
 
-    expect(result).toEqual({ canPublish: false, canEdit: true })
+    expect(result).toEqual({
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: true,
+    })
+  })
+
+  it("case 1b: same assignment, but the org does not require approval -> canRequestApproval false", async () => {
+    const session = makeSession({ canPublish: true })
+    const sql = createFakeSql({
+      hasAssignments: true,
+      grants: [{ locationId: LOCATION_A, canPublish: false }],
+      approvalRequired: false,
+    })
+
+    const result = await reviewCapabilities(sql, session, LOCATION_A)
+
+    expect(result).toEqual({
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: false,
+    })
   })
 
   it("case 2: member with assignments elsewhere but NOT assigned to this location -> canPublish false, canEdit false", async () => {
@@ -91,22 +122,37 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
     const sql = createFakeSql({
       hasAssignments: true,
       grants: [],
+      approvalRequired: true,
     })
 
     const result = await reviewCapabilities(sql, session, LOCATION_B)
 
-    expect(result).toEqual({ canPublish: false, canEdit: false })
+    // canEdit is false here, so canRequestApproval is false regardless of
+    // approvalRequired -- there is nothing to request approval for.
+    expect(result).toEqual({
+      canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+    })
   })
 
   it.each([true, false])(
     "case 3: member with NO assignments at all falls back to session.canPublish=%s, canEdit true",
     async (canPublish) => {
       const session = makeSession({ canPublish })
-      const sql = createFakeSql({ hasAssignments: false, grants: [] })
+      const sql = createFakeSql({
+        hasAssignments: false,
+        grants: [],
+        approvalRequired: true,
+      })
 
       const result = await reviewCapabilities(sql, session, LOCATION_A)
 
-      expect(result).toEqual({ canPublish, canEdit: true })
+      expect(result).toEqual({
+        canPublish,
+        canEdit: true,
+        canRequestApproval: !canPublish,
+      })
     }
   )
 
@@ -115,6 +161,7 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
     const sql = createFakeSql({
       hasAssignments: true,
       grants: [{ locationId: LOCATION_A, canPublish: true }],
+      approvalRequired: true,
     })
 
     const result = await reviewCapabilitiesForLocations(sql, session, [
@@ -124,10 +171,15 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
     ])
 
     expect(result.size).toBe(2)
-    expect(result.get(LOCATION_A)).toEqual({ canPublish: true, canEdit: true })
+    expect(result.get(LOCATION_A)).toEqual({
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+    })
     expect(result.get(LOCATION_B)).toEqual({
       canPublish: false,
       canEdit: false,
+      canRequestApproval: false,
     })
   })
 })

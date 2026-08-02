@@ -44,7 +44,7 @@ const detail: ReviewDetailData = {
     ],
     reply: null,
     timeline: [],
-    capabilities: { canPublish: true, canEdit: true },
+    capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
     latestVerification: null,
   },
 }
