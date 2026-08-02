@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { ChartCard, ReportingBarChart, ReportingLineChart } from "@/components/ui/chart"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,7 +17,12 @@ import { formatDate, formatDuration, formatNumber, formatPercent } from "@/lib/f
 
 export function ReplyPerformanceTab() {
   const [rangeId, setRangeId] = useState<ReplyRangeId>("30d")
-  const { current, previous } = resolveReplyRange(rangeId)
+  // Memoise the range: resolveReplyRange defaults `now` to `new Date()`, so
+  // calling it in the render body minted fresh from/to ISO strings every render
+  // -> a new useAnalyticsOverview query key -> refetch -> re-render -> an
+  // infinite fetch loop (72 requests in 5s, observed). Capture the window once
+  // per rangeId change so the query keys stay stable.
+  const { current, previous } = useMemo(() => resolveReplyRange(rangeId), [rangeId])
   const now = useAnalyticsOverview(current)
   const prior = useAnalyticsOverview(previous)
 
