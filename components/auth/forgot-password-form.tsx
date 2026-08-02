@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState, useTransition, type FormEvent } from "react"
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,18 @@ function ForgotPasswordForm() {
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [sentTo, setSentTo] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const alertRef = useRef<HTMLDivElement>(null)
+
+  // role="alert" is already an assertive live region, so this is a belt and
+  // braces enhancement: move keyboard/screen-reader focus to the banner
+  // whenever a server error lands with no field to blame it on. The alert
+  // only mounts once `message` is set, so this has to happen post-commit.
+  // Same idiom as sign-in-form.tsx.
+  useEffect(() => {
+    if (message && Object.keys(fieldErrors).length === 0) {
+      alertRef.current?.focus()
+    }
+  }, [message, fieldErrors])
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -49,8 +61,10 @@ function ForgotPasswordForm() {
         await authApi.requestPasswordReset(parsed.data.email)
         setSentTo(parsed.data.email)
       } catch (error) {
-        setFieldErrors(fieldErrorsFrom(error))
+        const errors = fieldErrorsFrom(error)
+        setFieldErrors(errors)
         setMessage(authErrorMessage(error))
+        if (errors.email) focusField("email")
       }
     })
   }
@@ -70,7 +84,11 @@ function ForgotPasswordForm() {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-      {message ? <AuthErrorAlert message={message} email={email} /> : null}
+      {message ? (
+        <div ref={alertRef} tabIndex={-1}>
+          <AuthErrorAlert message={message} email={email} />
+        </div>
+      ) : null}
 
       <Field error={fieldErrors.email}>
         <FieldLabel>Email address</FieldLabel>

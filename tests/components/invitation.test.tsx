@@ -115,4 +115,27 @@ describe("InvitationView", () => {
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
     expect(assign).toHaveBeenCalledWith("/invite/tok")
   })
+
+  it("asks a signed-in visitor already matching the invited email to sign out and continue", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      accepted: false,
+      expired: false,
+    })
+    const signOutSpy = vi.spyOn(authApi, "signOut").mockResolvedValue(undefined)
+    renderView({ displayName: "Aman Shrestha", email: "invited@example.test" })
+    expect(
+      await screen.findByText(
+        "You are signed in as invited@example.test. Sign out and continue to accept this invitation."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Sign out and continue" })
+    )
+    await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
+    expect(assign).toHaveBeenCalledWith("/invite/tok")
+  })
 })

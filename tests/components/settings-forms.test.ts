@@ -57,11 +57,32 @@ describe("privacyRequestFormSchema (mirror of privacy/requests createSchema)", (
 describe("legalHoldFormSchema (mirror of legal-holds createSchema)", () => {
   it("requires a reason of at least ten characters and a uuid review id", () => {
     expect(
-      legalHoldFormSchema.safeParse({ reviewId: "11111111-1111-1111-1111-111111111111", reason: "Litigation pending" }).success
+      legalHoldFormSchema.safeParse({ reviewId: "12345678-1234-4234-8234-123456789012", reason: "Litigation pending" }).success
     ).toBe(true)
     expect(legalHoldFormSchema.safeParse({ reviewId: "not-a-uuid", reason: "Litigation pending" }).success).toBe(false)
     expect(
-      legalHoldFormSchema.safeParse({ reviewId: "11111111-1111-1111-1111-111111111111", reason: "short" }).success
+      legalHoldFormSchema.safeParse({ reviewId: "12345678-1234-4234-8234-123456789012", reason: "short" }).success
+    ).toBe(false)
+  })
+
+  it("trims surrounding whitespace from the review id before validating", () => {
+    expect(
+      legalHoldFormSchema.safeParse({
+        reviewId: "  12345678-1234-4234-8234-123456789012  ",
+        reason: "Litigation pending",
+      }).success
+    ).toBe(true)
+  })
+
+  it("rejects a uuid-shaped id that is not a valid RFC 4122 uuid", () => {
+    // Right shape (8-4-4-4-12 hex groups) but an invalid variant nibble
+    // (must be 8/9/a/b) — a strict z.uuid() must reject this even though a
+    // looser shape-only regex would have accepted it.
+    expect(
+      legalHoldFormSchema.safeParse({
+        reviewId: "11111111-1111-1111-1111-111111111111",
+        reason: "Litigation pending",
+      }).success
     ).toBe(false)
   })
 })

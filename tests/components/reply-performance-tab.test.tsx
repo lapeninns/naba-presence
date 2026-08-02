@@ -7,7 +7,6 @@ describe("ReplyLocationsTable nulls-last honest-null (spec §8)", () => {
   it("sorts rows with null response rate last and renders — for nulls", () => {
     render(
       <ReplyLocationsTable
-        timezone="Europe/London"
         locations={[
           { id: "a", name: "Alpha", reviews: 3, averageRating: 4.2, responseRate: null, medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null, unresolvedComplaints: 0, verificationRejectionRate: null },
           { id: "b", name: "Bravo", reviews: 9, averageRating: 4.8, responseRate: 91, medianFirstResponseSeconds: 3600, p95FirstResponseSeconds: null, medianLatestEditSeconds: null, unresolvedComplaints: 1, verificationRejectionRate: null },

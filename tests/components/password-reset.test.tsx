@@ -66,6 +66,14 @@ describe("ResetPasswordForm", () => {
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
   })
 
+  it("treats a token over the 512-char upper bound like a missing one", () => {
+    render(<ResetPasswordForm tokenHash={"a".repeat(513)} />)
+    expect(
+      screen.getByRole("link", { name: "Request another link" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
+  })
+
   it("updates the password and lands on /home", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "completePasswordReset").mockResolvedValue(undefined)

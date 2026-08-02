@@ -14,7 +14,7 @@ function orderLocations(locations: AnalyticsLocation[]): AnalyticsLocation[] {
   })
 }
 
-export function ReplyLocationsTable({ locations }: { locations: AnalyticsLocation[]; timezone?: string }) {
+export function ReplyLocationsTable({ locations }: { locations: AnalyticsLocation[] }) {
   const rows = orderLocations(locations)
   return (
     <Table>

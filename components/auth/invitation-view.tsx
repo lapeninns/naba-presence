@@ -14,6 +14,16 @@ import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
 
+// Shared across the three dead-end branches below (not-found, already
+// accepted, expired) so the copy/href can't drift out of sync between them.
+function GoToSignInLink() {
+  return (
+    <Link href="/sign-in" className="underline underline-offset-4">
+      Go to sign in
+    </Link>
+  )
+}
+
 function InvitationView({
   token,
   viewer,
@@ -53,9 +63,7 @@ function InvitationView({
       <AuthCard title="Accept invitation">
         <AuthErrorAlert message={authErrorMessage(query.error)} />
         {notFound ? (
-          <Link href="/sign-in" className="underline underline-offset-4">
-            Go to sign in
-          </Link>
+          <GoToSignInLink />
         ) : (
           <Button type="button" onClick={() => query.refetch()}>
             Try again
@@ -73,9 +81,7 @@ function InvitationView({
         <Alert variant="info">
           <AlertTitle>You have already accepted this invitation.</AlertTitle>
         </Alert>
-        <Link href="/sign-in" className="underline underline-offset-4">
-          Go to sign in
-        </Link>
+        <GoToSignInLink />
       </AuthCard>
     )
   }
@@ -84,9 +90,7 @@ function InvitationView({
     return (
       <AuthCard title={`Join ${data.organisationName}`}>
         <AuthErrorAlert message={confirmStatusMessage("invitation_expired")} />
-        <Link href="/sign-in" className="underline underline-offset-4">
-          Go to sign in
-        </Link>
+        <GoToSignInLink />
       </AuthCard>
     )
   }

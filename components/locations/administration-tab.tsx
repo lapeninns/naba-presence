@@ -782,6 +782,10 @@ function InvitationRow({
     },
     onError: (error) => toast(describeActionError(error), "error"),
   })
+  // Both buttons share one mutation, keyed by `operation` — so only the
+  // clicked button's label/pending state should change, not both. `variables`
+  // holds whichever operation is in flight.
+  const pendingOperation = respond.isPending ? respond.variables : null
 
   return (
     <li className="flex items-center justify-between gap-2 rounded-(--nr-radius-card) border border-border p-3">
@@ -796,14 +800,14 @@ function InvitationRow({
           onClick={() => respond.mutate("decline_invitation")}
           disabled={disabled || Boolean(publishReason) || !name || respond.isPending}
         >
-          Decline
+          {pendingOperation === "decline_invitation" ? "Declining…" : "Decline"}
         </Button>
         <Button
           size="sm"
           onClick={() => respond.mutate("accept_invitation")}
           disabled={disabled || Boolean(publishReason) || !name || respond.isPending}
         >
-          Accept
+          {pendingOperation === "accept_invitation" ? "Accepting…" : "Accept"}
         </Button>
       </div>
     </li>

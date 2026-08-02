@@ -44,6 +44,46 @@ describe("AdministrationTab (read + non-destructive)", () => {
     expect(await screen.findByText("Primary owner")).toBeInTheDocument()
     expect(screen.queryByText("PRIMARY_OWNER")).not.toBeInTheDocument()
   })
+  it("shows a distinguishable pending state per invitation button, not both at once", async () => {
+    let resolvePatch: (() => void) | undefined
+    const patchGate = new Promise<void>((resolve) => { resolvePatch = resolve })
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/administration") && (init as RequestInit | undefined)?.method === "PATCH") {
+        await patchGate
+        return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
+      }
+      if (url.includes("/administration")) {
+        return jsonResponse({
+          administration: {
+            ...ADMIN.administration,
+            invitations: available({ invitations: [{ name: "locations/camden/admins/pending-1", role: "MANAGER" }] }),
+          },
+        })
+      }
+      return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)
+    const acceptButton = await screen.findByRole("button", { name: "Accept" })
+    const declineButton = screen.getByRole("button", { name: "Decline" })
+
+    await userEvent.click(acceptButton)
+
+    // Only the clicked (Accept) button flips to its pending label — Decline
+    // stays showing its idle label, just disabled while the shared mutation
+    // is in flight.
+    expect(await screen.findByRole("button", { name: "Accepting…" })).toBeInTheDocument()
+    expect(declineButton).toBeInTheDocument()
+    expect(declineButton).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Declining…" })).not.toBeInTheDocument()
+
+    resolvePatch?.()
+    await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled())
+  })
+
   it("create-admin sends the create_admin operation + confirmation", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AdministrationTab locationId="loc-1" locationName="Camden Hotel" />)

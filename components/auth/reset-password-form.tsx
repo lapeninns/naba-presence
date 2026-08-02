@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState, useTransition, type FormEvent } from "react"
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { PasswordField } from "@/components/auth/password-field"
@@ -48,6 +48,17 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [deadToken, setDeadToken] = useState(false)
   const [pending, startTransition] = useTransition()
+  const alertRef = useRef<HTMLDivElement>(null)
+
+  // role="alert" is already an assertive live region, so this is a belt and
+  // braces enhancement: move keyboard/screen-reader focus to the banner
+  // whenever a server error lands with no field to blame it on (including
+  // the dead-token banner-only state below). Same idiom as sign-in-form.tsx.
+  useEffect(() => {
+    if (message && Object.keys(fieldErrors).length === 0) {
+      alertRef.current?.focus()
+    }
+  }, [message, fieldErrors])
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -103,20 +114,25 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         <Link href="/forgot-password" className="underline underline-offset-4">
           Request another link
         </Link>
-        <Link href="/sign-in" className="underline underline-offset-4">
-          Back to sign in
-        </Link>
       </div>
     )
   }
 
   if (deadToken && message) {
-    return <AuthErrorAlert message={message} />
+    return (
+      <div ref={alertRef} tabIndex={-1}>
+        <AuthErrorAlert message={message} />
+      </div>
+    )
   }
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-      {message ? <AuthErrorAlert message={message} /> : null}
+      {message ? (
+        <div ref={alertRef} tabIndex={-1}>
+          <AuthErrorAlert message={message} />
+        </div>
+      ) : null}
 
       <PasswordField
         label="New password"

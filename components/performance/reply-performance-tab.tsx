@@ -69,7 +69,7 @@ export function ReplyPerformanceTab() {
           {now.data.locations.length === 0 ? (
             <ReportingPanel variant="empty" description="No location has reviews in this window." />
           ) : (
-            <ReplyLocationsTable locations={now.data.locations} timezone={timezone} />
+            <ReplyLocationsTable locations={now.data.locations} />
           )}
         </CardContent>
       </Card>
