@@ -121,7 +121,7 @@ export function ImportCard() {
                   {alreadyLinked || state === "imported" ? (
                     <Badge variant="secondary">Linked</Badge>
                   ) : typeof state === "object" ? (
-                    <span className="text-caption text-warning">{state.error}</span>
+                    <span className="text-caption text-destructive">{state.error}</span>
                   ) : (
                     <Badge variant="outline">Not linked</Badge>
                   )}
