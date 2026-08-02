@@ -271,7 +271,7 @@ function BusinessCallsSection({
         </div>
         <Select value={callsState} onValueChange={(value: string | null) => value && setCallsState(value)} disabled={disabled}>
           <SelectTrigger aria-label="Calls">
-            <SelectValue />
+            <SelectValue>{(value: string | null) => (value ? callsStateLabel(value) : "")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {CALLS_STATES.map((value) => (

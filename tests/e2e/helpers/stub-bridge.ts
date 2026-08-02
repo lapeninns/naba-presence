@@ -506,9 +506,13 @@ export default async function startJourneyBridge(config: FullConfig) {
       json: { name: primaryGoogleLocationName, destinationAccount: (call.body as Record<string, unknown> | undefined)?.destinationAccount ?? null },
     }))
     // Google's PERMANENT delete (deleteGoogleLocation) — the danger-zone
-    // journey's target. No other DELETE is stubbed for this org, so a broad
-    // match on the bare location name is unambiguous.
-    stub.respond({ method: "DELETE", pathIncludes: primaryGoogleLocationName }, () => ({ status: 200, json: {} }))
+    // journey's target. deleteGoogleLocation's URL is exactly
+    // `.../v1/{locationName}` with nothing after it, so `pathEndsWith` pins
+    // this rule to that exact resource. A plain `pathIncludes` match on the
+    // bare location name would ALSO match a location-scoped `delete_admin`
+    // DELETE (`.../v1/{locationName}/admins/{adminId}`, since the location
+    // name is a strict prefix of that path) and silently misroute it here.
+    stub.respond({ method: "DELETE", pathEndsWith: primaryGoogleLocationName }, () => ({ status: 200, json: {} }))
 
     // A separate approval-required org: a requester whose publish routes to
     // approval (202), and a distinct owner approver who approves (200).

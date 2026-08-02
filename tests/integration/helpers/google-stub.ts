@@ -14,17 +14,22 @@ export type GoogleStubResponse = {
 }
 
 type Handler = (call: GoogleStubCall) => GoogleStubResponse
-type Rule = {
-  method: string
-  pathIncludes: string
-  handler: Handler
-}
+type Matcher =
+  | { method: string; pathIncludes: string; pathEndsWith?: undefined }
+  | { method: string; pathIncludes?: undefined; pathEndsWith: string }
+type Rule = Matcher & { handler: Handler }
 
 export type GoogleStub = {
   baseUrl: string
   calls: GoogleStubCall[]
   respond(
-    matcher: { method: string; pathIncludes: string },
+    // `pathIncludes` is a plain substring match. Pass `pathEndsWith` instead
+    // (in place of `pathIncludes`) when a broader path is a strict prefix of
+    // a more specific one (e.g. a location's delete URL vs. that same
+    // location's `/admins/{id}` delete URL both contain the location name) —
+    // `endsWith` lets the rule match only the exact resource, not anything
+    // nested under it.
+    matcher: Matcher,
     handler: Handler
   ): void
   reset(): void
@@ -53,7 +58,9 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     const rule = rules.find(
       (candidate) =>
         candidate.method === call.method &&
-        call.path.includes(candidate.pathIncludes)
+        (candidate.pathEndsWith !== undefined
+          ? call.path.endsWith(candidate.pathEndsWith)
+          : call.path.includes(candidate.pathIncludes))
     )
     const result = rule ? rule.handler(call) : defaultResponse(call)
     if (result.delayMs) {
@@ -79,10 +86,7 @@ export async function startGoogleStub(): Promise<GoogleStub> {
   return {
     baseUrl: `http://127.0.0.1:${listeningPort}`,
     calls,
-    respond(
-      matcher: { method: string; pathIncludes: string },
-      handler: Handler
-    ) {
+    respond(matcher: Matcher, handler: Handler) {
       rules.unshift({ ...matcher, handler })
     },
     reset() {

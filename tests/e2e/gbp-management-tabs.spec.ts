@@ -31,6 +31,10 @@ test("Business Information editor renders live Google data with humanised fields
   // "Hotel"); the raw gcid string never reaches the page.
   await expect(page.getByText("Hotel", { exact: true })).toBeVisible()
   await expect(page.getByText(/gcid:/)).toHaveCount(0)
+  // Regression lock (spec §7, sibling fix to the Calls select below): the
+  // Open status trigger must read its humanised label on first paint too,
+  // never the raw Google enum ("OPEN").
+  await expect(page.getByRole("combobox", { name: "Open status" })).toHaveText("Open")
   await expect(page.getByRole("button", { name: "Publish to Google" })).toBeVisible()
   // serviceItems has no typed control (spec §12 pressure valve) -> a
   // read-only "not editable here yet" note, never raw JSON.
@@ -45,13 +49,12 @@ test("Industry editor humanises Business Calls state and surfaces a failing sect
   // The status badge already humanises correctly ("Currently On", never
   // "Currently ENABLED").
   await expect(page.getByText("Currently On")).toBeVisible()
-  // KNOWN DEFECT (see task-8-report.md): the Select control itself shows the
-  // raw Google enum on first paint, not the humanised label — Base UI's
-  // <Select.Value> resolves its label from registered <Select.Item>s, which
-  // only register once the popup has mounted at least once, so before any
-  // interaction it falls back to the raw string value. Left failing and
-  // unweakened per instructions; the fix belongs in industry-tab.tsx (T4),
-  // not this test.
+  // Base UI's <Select.Value> resolves its label from registered
+  // <Select.Item>s, which only register once the popup has mounted at least
+  // once — a bare <SelectValue /> would show the raw Google enum
+  // ("ENABLED") on first paint, before any interaction. industry-tab.tsx
+  // passes a children-render-function using callsStateLabel so the trigger
+  // matches the "Currently On" badge above from the very first render.
   await expect(page.getByRole("combobox", { name: "Calls" })).toHaveText("On")
   // The failing healthcareServices sub-resource shows the honest per-section
   // warning, never the raw Google error string.

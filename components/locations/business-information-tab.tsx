@@ -547,7 +547,7 @@ function BusinessInformationTabLoaded({
           <span className="text-ui font-medium">Open status</span>
           <Select value={draft.openStatus} onValueChange={(value: string | null) => value && setDraft((d) => ({ ...d, openStatus: value }))} disabled={disabled}>
             <SelectTrigger aria-label="Open status">
-              <SelectValue />
+              <SelectValue>{(value: string | null) => (value ? openStatusLabel(value) : "")}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {OPEN_STATUS_OPTIONS.map((status) => (

@@ -157,8 +157,15 @@ test.describe("locations", () => {
         await expect(page.getByText("This section is available to owners and admins")).toBeVisible()
         expect(industryResponses, `${cookie} industry GET must never fire for a non-manager`).toEqual([])
 
+        const administrationResponses: number[] = []
+        page.on("response", (response) => {
+          if (new URL(response.url()).pathname === `/api/locations/${state.primaryLocationId}/administration`) {
+            administrationResponses.push(response.status())
+          }
+        })
         await page.goto(`/locations/${state.primaryLocationId}/administration`)
         await expect(page.getByText("This section is available to owners and admins")).toBeVisible()
+        expect(administrationResponses, `${cookie} administration GET must never fire for a non-manager`).toEqual([])
       }
 
       expect(consoleErrors, `${cookie} console errors`).toEqual([])

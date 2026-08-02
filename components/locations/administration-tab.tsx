@@ -520,7 +520,7 @@ function StartVerification({
         <span className="text-ui font-medium">Verification method</span>
         <Select value={method} onValueChange={(value: string | null) => value && setMethod(value)} disabled={disabled}>
           <SelectTrigger aria-label="Verification method">
-            <SelectValue />
+            <SelectValue>{(value: string | null) => (value ? verificationMethodLabel(value) : "")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {methods.map((m) => (
@@ -630,7 +630,7 @@ function UpdateAdminRoleControl({
     <div className="flex items-center gap-2">
       <Select value={role} onValueChange={(value: string | null) => value && setRole(value)} disabled={disabled}>
         <SelectTrigger aria-label={`Role for ${admin.admin ?? name}`}>
-          <SelectValue />
+          <SelectValue>{(value: string | null) => (value ? adminRoleLabel(value) : "")}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {EDITABLE_ROLES.map((r) => (
@@ -811,6 +811,15 @@ function InvitationRow({
 }
 
 // --- Create admin ------------------------------------------------------
+// These are our own UI-level scope values (not a Google enum), but the
+// trigger still must not go blank/raw on first paint (spec §7) - factor the
+// label here so the SelectValue render-function and the SelectItems below
+// can never drift out of sync.
+const ADMIN_SCOPE_LABELS: Record<string, string> = {
+  location: "This location",
+  account: "The whole Google account",
+}
+
 function CreateAdminDialog({
   locationId,
   disabled,
@@ -868,11 +877,11 @@ function CreateAdminDialog({
             <span className="text-ui font-medium">Scope</span>
             <Select value={scope} onValueChange={(value: string | null) => value && setScope(value)}>
               <SelectTrigger aria-label="Scope">
-                <SelectValue />
+                <SelectValue>{(value: string | null) => (value ? (ADMIN_SCOPE_LABELS[value] ?? value) : "")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="location">This location</SelectItem>
-                <SelectItem value="account">The whole Google account</SelectItem>
+                <SelectItem value="location">{ADMIN_SCOPE_LABELS.location}</SelectItem>
+                <SelectItem value="account">{ADMIN_SCOPE_LABELS.account}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -885,7 +894,7 @@ function CreateAdminDialog({
             <span className="text-ui font-medium">Role</span>
             <Select value={role} onValueChange={(value: string | null) => value && setRole(value)}>
               <SelectTrigger aria-label="Role">
-                <SelectValue />
+                <SelectValue>{(value: string | null) => (value ? adminRoleLabel(value) : "")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {EDITABLE_ROLES.map((r) => (
