@@ -31,6 +31,11 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
 }
 
 function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
+  // The 500ms/150ms swipe+resize literals below aren't tokenised: 500ms has
+  // no matching --nr-duration-* step, and the global
+  // `prefers-reduced-motion: reduce` rule in app/globals.css already forces
+  // `transition-duration: 0.01ms !important` on every element, so both
+  // literals are neutralised for users who need reduced motion regardless.
   return (
     <ToastPrimitive.Root
       data-slot="toast"

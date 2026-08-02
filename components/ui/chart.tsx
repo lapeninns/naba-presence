@@ -82,7 +82,8 @@ export function ChartCard({
 
 const AXIS_PROPS = {
   stroke: "var(--muted-foreground)",
-  fontSize: 11,
+  // --text-caption is 0.6875rem (11px) — the exact caption type token.
+  fontSize: "var(--text-caption)",
   tickLine: false,
   axisLine: false,
 } as const
@@ -112,7 +113,7 @@ export function ReportingLineChart({
             border: "1px solid var(--border)",
             borderRadius: "var(--nr-radius-control)",
             color: "var(--popover-foreground)",
-            fontSize: "0.8125rem",
+            fontSize: "var(--text-ui)", // 0.8125rem — the ui type token
           }}
           labelFormatter={(value) => (xTickFormatter ? xTickFormatter(String(value)) : String(value))}
         />
@@ -159,7 +160,7 @@ export function ReportingBarChart({
             border: "1px solid var(--border)",
             borderRadius: "var(--nr-radius-control)",
             color: "var(--popover-foreground)",
-            fontSize: "0.8125rem",
+            fontSize: "var(--text-ui)", // 0.8125rem — the ui type token
           }}
           labelFormatter={(value) => (xTickFormatter ? xTickFormatter(String(value)) : String(value))}
         />

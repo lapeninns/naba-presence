@@ -34,4 +34,10 @@ describe("DangerZoneDialog (typed-name confirm)", () => {
     await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden")
     expect(screen.getByRole("button", { name: "Delete location" })).toBeDisabled()
   })
+  it("never enables the destructive button when expectedName is empty (defence-in-depth)", () => {
+    render(
+      <DangerZoneDialog open onOpenChange={() => {}} title="t" description="d" expectedName="" confirmLabel="Delete location" pending={false} onConfirm={() => {}} />
+    )
+    expect(screen.getByRole("button", { name: "Delete location" })).toBeDisabled()
+  })
 })

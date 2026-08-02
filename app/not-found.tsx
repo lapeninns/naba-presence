@@ -7,7 +7,7 @@ export const metadata = { title: "Page not found · NabaPresence" }
 
 export default function NotFound() {
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6 text-center">
+    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6 text-center">
       <div className="flex flex-col gap-1">
         <h1 className="text-lg font-semibold">Page not found</h1>
         <p className="text-sm text-muted-foreground">
@@ -25,6 +25,6 @@ export default function NotFound() {
       <Link href="/home" className={cn(buttonVariants())}>
         Go to Home
       </Link>
-    </div>
+    </main>
   )
 }

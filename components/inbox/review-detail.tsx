@@ -55,7 +55,13 @@ function ReviewDetail({
               : (review.reviewerDisplayName ?? "Anonymous")}
           </h2>
           <p className="text-caption text-muted-foreground">
-            <span aria-label={review.rating === null ? "No rating" : `${review.rating} stars`}>
+            <span
+              aria-label={
+                review.rating === null
+                  ? "No rating"
+                  : `${review.rating} star${review.rating === 1 ? "" : "s"}`
+              }
+            >
               {review.rating === null ? "—" : "★".repeat(review.rating)}
             </span>{" "}
             · <span>{review.locationName}</span> ·{" "}

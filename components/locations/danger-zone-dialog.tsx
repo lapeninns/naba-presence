@@ -27,7 +27,13 @@ export function DangerZoneDialog({
   onConfirm: () => void
 }) {
   const [typed, setTyped] = useState("")
-  const matches = typed.trim().toLowerCase() === expectedName.trim().toLowerCase()
+  // Defence-in-depth: an empty expectedName can never match, even against an
+  // empty typed value — unreachable today because every call site disables
+  // the dialog when locationName is empty, but this keeps the guard correct
+  // in isolation.
+  const matches =
+    expectedName.trim().length > 0 &&
+    typed.trim().toLowerCase() === expectedName.trim().toLowerCase()
   return (
     <AlertDialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) setTyped("") }}>
       <AlertDialogContent>

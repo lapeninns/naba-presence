@@ -15,7 +15,7 @@ async function openReview(page: Page, text: string) {
 }
 
 async function saveVerifiedDraft(page: Page, reviewId: string, body: string) {
-  await page.getByRole("textbox", { name: "Reply draft" }).fill(body)
+  await page.getByRole("textbox", { name: "Your reply" }).fill(body)
   const saved = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" &&
@@ -117,7 +117,7 @@ test.describe("inbox critical journeys", () => {
     await openReview(page, state.directReview.text)
     const publish = page.getByRole("button", { name: "Publish reply" })
     await expect(publish).toBeDisabled()
-    await expect(page.getByRole("textbox", { name: "Reply draft" })).toBeDisabled()
+    await expect(page.getByRole("textbox", { name: "Your reply" })).toBeDisabled()
   })
 
   test("dirty draft: switching reviews confirms before discarding edits", async ({
@@ -128,12 +128,12 @@ test.describe("inbox critical journeys", () => {
     await useCookie(page, baseURL, state.cookie)
     await page.goto("/inbox")
     await openReview(page, state.directReview.text)
-    await page.getByRole("textbox", { name: "Reply draft" }).fill("Unsaved edit in progress")
+    await page.getByRole("textbox", { name: "Your reply" }).fill("Unsaved edit in progress")
 
     // Cancelling the confirm keeps us on the same review with the text intact.
     page.once("dialog", (dialog) => dialog.dismiss())
     await page.getByRole("button").filter({ hasText: state.approvalReview.text }).first().click()
-    await expect(page.getByRole("textbox", { name: "Reply draft" })).toHaveValue(
+    await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Unsaved edit in progress"
     )
   })

@@ -94,7 +94,11 @@ export function HoursEditor({
         <h2 className="text-ui font-semibold">Special hours</h2>
         <ul className="flex flex-col gap-2">
           {value.special.map((entry, index) => (
-            <li key={index} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
+            // No stable resource id ships on a special-hours entry; its
+            // effectiveDate is unique once the user sets one, so key by that
+            // when present and fall back to the row's position for a
+            // freshly-added, still-empty row.
+            <li key={entry.effectiveDate || `special-${index}`} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
               <Input
                 type="date"
                 aria-label={`Special date ${index + 1}`}

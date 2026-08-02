@@ -27,10 +27,14 @@ function Alert({
   variant,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+  // destructive/warning interrupt and should be announced as role="alert";
+  // neutral default/success/info are informational, so role="status" (polite)
+  // avoids over-announcing them.
+  const role = variant === "destructive" || variant === "warning" ? "alert" : "status"
   return (
     <div
       data-slot="alert"
-      role="alert"
+      role={role}
       className={cn(alertVariants({ variant }), className)}
       {...props}
     />

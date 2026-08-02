@@ -84,6 +84,9 @@ export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; o
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Google's FoodMenu sections/items carry no stable resource id (they
+          are plain localized-label blobs), so a positional key is the best
+          available here — noted per the console-editor a11y pass. */}
       {sections.map((section, sectionIndex) => {
         const items = Array.isArray(section.items) ? (section.items as Json[]) : []
         const sectionLabel = label(section)
@@ -108,11 +111,11 @@ export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; o
                 const itemLabel = label(item)
                 return (
                   <li key={itemIndex} className="flex flex-wrap items-start gap-2">
-                    <Input aria-label={`Item name`} value={itemLabel.displayName} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, event.target.value, itemLabel.description) : it)))} className="w-48" />
-                    <Textarea aria-label={`Item description`} value={itemLabel.description} disabled={disabled} rows={1} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, itemLabel.displayName, event.target.value) : it)))} className="w-56" />
+                    <Input aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`} value={itemLabel.displayName} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, event.target.value, itemLabel.description) : it)))} className="w-48" />
+                    <Textarea aria-label={`Item description — section ${sectionIndex + 1}, item ${itemIndex + 1}`} value={itemLabel.description} disabled={disabled} rows={1} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, itemLabel.displayName, event.target.value) : it)))} className="w-56" />
                     <span className="flex items-center gap-1">
                       <span className="text-caption text-muted-foreground">{currencySymbol(currencyOf(item))}</span>
-                      <Input aria-label={`Item price`} inputMode="decimal" value={readPrice(item)} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withPrice(it, event.target.value) : it)))} className="w-24" />
+                      <Input aria-label={`Item price — section ${sectionIndex + 1}, item ${itemIndex + 1}`} inputMode="decimal" value={readPrice(item)} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withPrice(it, event.target.value) : it)))} className="w-24" />
                     </span>
                     {!disabled ? (
                       <Button variant="ghost" size="sm" onClick={() => setItems(sectionIndex, items.filter((_, i) => i !== itemIndex))}>

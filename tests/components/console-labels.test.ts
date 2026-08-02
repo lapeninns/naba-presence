@@ -27,7 +27,7 @@ describe("console-labels humanisation (§7 — no raw enums to users)", () => {
   it("maps attribute value types to a control kind", () => {
     expect(attributeControlKind("BOOL")).toBe("bool")
     expect(attributeControlKind("ENUM")).toBe("enum")
-    expect(attributeControlKind("REPEATED_ENUM")).toBe("repeated_enum")
+    expect(attributeControlKind("REPEATED_ENUM")).toBe("unsupported")
     expect(attributeControlKind("URL")).toBe("url")
     expect(attributeControlKind("PHOTOS_LIST")).toBe("unsupported")
   })

@@ -162,7 +162,7 @@ function renderInbox() {
 }
 
 async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
-  const textbox = screen.getByRole("textbox", { name: "Reply draft" })
+  const textbox = screen.getByRole("textbox", { name: "Your reply" })
   await user.type(textbox, " extra")
   return textbox
 }

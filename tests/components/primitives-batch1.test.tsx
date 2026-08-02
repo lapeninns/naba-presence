@@ -63,6 +63,18 @@ describe("status variants", () => {
       "Data may be out of date"
     )
   })
+  it("uses role=alert only for interrupting variants, role=status otherwise", () => {
+    const { rerender } = render(<Alert variant="destructive">Destructive</Alert>)
+    expect(screen.getByRole("alert")).toHaveTextContent("Destructive")
+    rerender(<Alert variant="warning">Warning</Alert>)
+    expect(screen.getByRole("alert")).toHaveTextContent("Warning")
+    rerender(<Alert variant="info">Info</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Info")
+    rerender(<Alert variant="success">Success</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Success")
+    rerender(<Alert variant="default">Default</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Default")
+  })
 })
 
 describe("loading primitives", () => {

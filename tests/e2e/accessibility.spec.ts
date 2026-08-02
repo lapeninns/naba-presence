@@ -775,7 +775,7 @@ for (const viewport of [
       await expect(selectedReview).toBeVisible()
       await expect(selectedReview.getByRole("heading").first()).toBeVisible()
       await expect(
-        selectedReview.getByRole("textbox", { name: "Reply draft" })
+        selectedReview.getByRole("textbox", { name: "Your reply" })
       ).toHaveValue("Updated draft reply for Jordan.")
       await expect(
         selectedReview.getByRole("combobox", { name: "Reply language" })

@@ -115,7 +115,7 @@ describe("ReplyComposer", () => {
       </Toaster>
     )
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
-    expect(screen.getByRole("textbox", { name: "Reply draft" })).toHaveValue(
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Existing draft body"
     )
   })
@@ -136,7 +136,7 @@ describe("ReplyComposer", () => {
       </Toaster>
     )
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
-    const textbox = screen.getByRole("textbox", { name: "Reply draft" })
+    const textbox = screen.getByRole("textbox", { name: "Your reply" })
     await user.clear(textbox)
     await user.type(textbox, "Edited reply body")
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
@@ -158,7 +158,7 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Toaster>
     )
-    const textbox = screen.getByRole("textbox", { name: "Reply draft" })
+    const textbox = screen.getByRole("textbox", { name: "Your reply" })
     // fireEvent, not userEvent.type: 4097 keystrokes would be needlessly slow
     // for what is purely a byte-count boundary check.
     fireEvent.change(textbox, { target: { value: "a".repeat(4097) } })
@@ -180,7 +180,7 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Toaster>
     )
-    await user.type(screen.getByRole("textbox", { name: "Reply draft" }), " extra")
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " extra")
     await user.click(screen.getByRole("button", { name: "Regenerate" }))
     // A confirm dialog appears; the regenerate has NOT fired yet.
     expect(

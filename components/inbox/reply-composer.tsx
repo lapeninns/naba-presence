@@ -156,7 +156,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
       <Textarea
         id="reply-draft"
-        aria-label="Reply draft"
         lang={review.detectedLanguageCode ?? undefined}
         dir="auto"
         value={body}

@@ -64,4 +64,15 @@ describe("ReviewDetail", () => {
     expect(screen.getByText("Slow service at breakfast.")).toBeInTheDocument()
     expect(screen.getByText("Riverside")).toBeInTheDocument()
   })
+
+  it("reads a one-star rating as singular, not '1 stars'", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: { review: { ...detail.review, rating: 1 } },
+    })
+    render(<ReviewDetail reviewId="rev-1" />)
+    expect(screen.getByLabelText("1 star")).toBeInTheDocument()
+    expect(screen.queryByLabelText("1 stars")).not.toBeInTheDocument()
+  })
 })
