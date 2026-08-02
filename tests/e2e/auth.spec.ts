@@ -52,11 +52,13 @@ test.describe("auth surfaces", () => {
     await page.getByLabel("Email address").fill("someone@example.test")
     await page.getByLabel("Password").fill("correct-horse-9")
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
-    await expect(page.getByRole("main").getByRole("alert")).toContainText(
-      "Confirm your email address to continue."
-    )
+    const alert = page.getByRole("main").getByRole("alert")
+    await expect(alert).toContainText("Confirm your email address to continue.")
+    // Scoped to the alert: the sign-in surface also renders its own
+    // always-visible resend affordance (D3), so more than one "Resend
+    // confirmation email" button is on screen at once.
     await expect(
-      page.getByRole("button", { name: "Resend confirmation email" })
+      alert.getByRole("button", { name: "Resend confirmation email" })
     ).toBeVisible()
   })
 

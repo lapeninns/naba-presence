@@ -285,6 +285,20 @@ function SignInForm({
             ? "Creating account…"
             : "Create account"}
       </Button>
+
+      {mode === "sign-in" ? (
+        // Always visible, never conditioned on the sign-in error (D3): a
+        // resend affordance gated on `email_not_verified` would itself
+        // confirm whether the address is registered. Showing it
+        // unconditionally keeps the resend path (spec §8) without adding an
+        // enumeration channel.
+        <div className="flex flex-col items-start gap-1 border-t pt-4">
+          <p className="text-caption text-muted-foreground">
+            Didn&apos;t receive a confirmation email?
+          </p>
+          <ResendConfirmationButton email={email} />
+        </div>
+      ) : null}
     </form>
   )
 }

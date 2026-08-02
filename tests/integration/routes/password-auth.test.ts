@@ -119,7 +119,7 @@ describeDatabase("email and password authentication", () => {
     expect(identity).toEqual({ userCount: 1, connectionCount: 1 })
   })
 
-  it("returns generic invalid credentials and a specific unconfirmed state", async () => {
+  it("returns the same generic invalid credentials for a wrong password and an unconfirmed account (D3)", async () => {
     const email = `auth-route-${randomUUID()}@nabapresence.test`
     emails.push(email)
     auth.addUser({
@@ -139,6 +139,9 @@ describeDatabase("email and password authentication", () => {
       error: "invalid_credentials",
     })
 
+    // D3: an unconfirmed account with the *correct* password must be
+    // indistinguishable from a wrong password - both are the generic
+    // invalid_credentials, not a registration-confirming email_not_verified.
     const unconfirmed = await fetch(
       `${server.baseUrl}/api/auth/password/login`,
       {
@@ -147,9 +150,9 @@ describeDatabase("email and password authentication", () => {
         body: JSON.stringify({ email, password: "Correct horse!42" }),
       }
     )
-    expect(unconfirmed.status).toBe(403)
+    expect(unconfirmed.status).toBe(401)
     expect(await unconfirmed.json()).toMatchObject({
-      error: "email_not_verified",
+      error: "invalid_credentials",
     })
   })
 

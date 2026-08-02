@@ -118,32 +118,31 @@ function identityFromUser(userValue: unknown): PasswordIdentity {
   }
 }
 
+// D3: the login surface must not reveal whether an email is registered. An
+// unverified account and a throttled attempt are made indistinguishable from a
+// wrong password - the real provider behaviour is unchanged; only the
+// user-facing code/status/message is normalised. (Sign-up / reset / resend keep
+// their own documented 429 handling.)
+function genericLoginFailure(): ApiError {
+  return new ApiError(401, "invalid_credentials", "The email or password is incorrect.")
+}
+
 function mapLoginFailure(error: unknown): never {
   if (error instanceof ApiError) throw error
   if (error instanceof AuthProviderError) {
     if (
       error.code === "email_not_confirmed" ||
-      error.code === "email_not_verified"
+      error.code === "email_not_verified" ||
+      error.status === 400 ||
+      error.status === 401 ||
+      error.status === 429            // 429 timing channel folded into the generic failure
     ) {
-      throw new ApiError(
-        403,
-        "email_not_verified",
-        "Confirm your email address before signing in."
-      )
-    }
-    if (error.status === 400 || error.status === 401) {
-      throw new ApiError(
-        401,
-        "invalid_credentials",
-        "The email or password is incorrect."
-      )
+      throw genericLoginFailure()
     }
     throw new ApiError(
-      error.status === 429 ? 429 : 503,
-      error.status === 429 ? "auth_rate_limited" : error.code,
-      error.status === 429
-        ? "Too many attempts. Try again later."
-        : "Email and password sign-in is temporarily unavailable."
+      503,
+      error.code,
+      "Email and password sign-in is temporarily unavailable."
     )
   }
   throw error
@@ -165,11 +164,7 @@ export async function signInWithPassword(
     }
     const identity = identityFromUser(payload.user)
     if (!identity.emailVerified) {
-      throw new ApiError(
-        403,
-        "email_not_verified",
-        "Confirm your email address before signing in."
-      )
+      throw genericLoginFailure() // was: ApiError(403, "email_not_verified", …)
     }
     return identity
   } catch (error) {

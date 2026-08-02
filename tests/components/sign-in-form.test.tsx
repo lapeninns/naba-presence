@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -60,12 +60,39 @@ describe("sign-in mode", () => {
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("Confirm your email address to continue.")
     expect(alert).not.toHaveTextContent("server copy")
+    // Scoped to the alert: the sign-in surface also renders its own
+    // always-visible resend affordance (D3), so more than one "Resend
+    // confirmation email" button can be on screen at once.
     await user.click(
-      screen.getByRole("button", { name: "Resend confirmation email" })
+      within(alert).getByRole("button", { name: "Resend confirmation email" })
     )
     await waitFor(() => expect(resend).toHaveBeenCalledWith("a@example.test"))
     expect(
-      await screen.findByText("Confirmation email sent.")
+      await within(alert).findByText("Confirmation email sent.")
+    ).toBeInTheDocument()
+  })
+
+  it("shows a generic sign-in error and never reveals whether the email is registered", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "signIn").mockRejectedValue(
+      new ApiClientError(401, "invalid_credentials", "The email or password is incorrect.")
+    )
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "real@x.test")
+    await user.type(screen.getByLabelText("Password"), "wrong-password-9")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(
+      await screen.findByText(/email or password is incorrect/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/confirm your email/i)).not.toBeInTheDocument()
+  })
+
+  it("offers a generic, always-visible resend affordance not tied to any error", () => {
+    render(<SignInForm />)
+    // Present on the sign-in surface before any submit - so it can never
+    // leak registration state by only appearing after a specific error.
+    expect(
+      screen.getByRole("button", { name: /resend confirmation/i })
     ).toBeInTheDocument()
   })
 
