@@ -70,14 +70,16 @@ test.describe("settings", () => {
       await page.goto("/settings")
       const nav = page.getByRole("navigation", { name: "Settings sections" })
       await expect(nav.getByRole("link", { name: "Policy" })).toBeVisible()
-      for (const gone of ["Team", "Compliance", "Connections"]) {
+      for (const gone of ["Team", "Compliance", "Connections", "Listing"]) {
         await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
       }
       // The read-only Policy form shows the gate reason, not an editable control.
       await expect(page.getByText("Only owners and admins can change these settings.")).toBeVisible()
       // A direct visit to a privileged route redirects to Policy.
-      await page.goto("/settings/team")
-      await expect(page).toHaveURL(/\/settings$/)
+      for (const privileged of ["/settings/team", "/settings/listing"]) {
+        await page.goto(privileged)
+        await expect(page).toHaveURL(/\/settings$/)
+      }
       await context.close()
     }
   })

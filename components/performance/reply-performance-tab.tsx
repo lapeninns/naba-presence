@@ -63,16 +63,19 @@ export function ReplyPerformanceTab() {
         </ChartCard>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-col gap-3">
-          <h3 className="text-title font-semibold tracking-tight">By location</h3>
-          {now.data.locations.length === 0 ? (
-            <ReportingPanel variant="empty" description="No location has reviews in this window." />
-          ) : (
+      {/* Only meaningful as a comparison. For a single-location org the table
+          would be one row restating the stat tiles directly above it, and at
+          zero it would be an empty panel saying what those tiles already say.
+          Derived from the data rather than a prop, so it reappears on its own
+          the moment a second location is added. */}
+      {now.data.locations.length > 1 ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3">
+            <h3 className="text-title font-semibold tracking-tight">By location</h3>
             <ReplyLocationsTable locations={now.data.locations} />
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

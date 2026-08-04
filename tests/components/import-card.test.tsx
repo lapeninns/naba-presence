@@ -14,7 +14,14 @@ vi.mock("@/lib/queries/use-connection-workspace", () => ({ useConnectionWorkspac
 vi.mock("@/lib/queries/use-google-accounts", () => ({ useGoogleAccounts: () => accountsMock() }))
 vi.mock("@/lib/queries/use-google-locations", () => ({ useGoogleLocations: () => locationsMock() }))
 vi.mock("@/lib/queries/use-location-import", () => ({ useLocationImport: () => importMock() }))
-vi.mock("@/lib/api/locations", () => ({ fetchManagementLocations: vi.fn(async () => ({ locations: [] })) }))
+vi.mock("@/lib/api/locations", () => ({
+  fetchManagementLocations: vi.fn(async () => ({ locations: [] })),
+  fetchLocations: vi.fn(async () => ({ locations: [] })),
+}))
+// ImportCard only ever renders behind /settings/connections, which the server
+// gates to owner/admin — so the directory it reads is always the management
+// view. The real useLocationDirectory runs underneath.
+vi.mock("@/lib/queries/use-session", () => ({ useSessionRole: () => "owner" }))
 
 function discovered(overrides: Partial<DiscoveredLocation>): DiscoveredLocation {
   return {

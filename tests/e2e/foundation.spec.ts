@@ -6,7 +6,7 @@ const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 test.describe("rebuild foundation", () => {
   test("boots to the shell with sound structure", async ({ page }) => {
     await page.goto("/home")
-    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible()
     expect(await page.getByRole("main").count()).toBe(1)
     // Skip link is the first tab stop and works
     await page.keyboard.press("Tab")
@@ -29,7 +29,7 @@ test.describe("rebuild foundation", () => {
     await page.getByRole("button", { name: "Open navigation" }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await expect(
-      page.getByRole("dialog").getByRole("link", { name: "Inbox" })
+      page.getByRole("dialog").getByRole("link", { name: "Reviews" })
     ).toBeVisible()
   })
 

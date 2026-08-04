@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
@@ -10,13 +9,13 @@ import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ApiClientError } from "@/lib/api/client"
-import { fetchManagementLocations } from "@/lib/api/locations"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
-import { queryKeys } from "@/lib/queries/keys"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useGoogleLocations } from "@/lib/queries/use-google-locations"
 import { useLocationImport } from "@/lib/queries/use-location-import"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+import { useSessionRole } from "@/lib/queries/use-session"
 import { describeActionError } from "@/lib/settings/action-errors"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
 
@@ -40,13 +39,21 @@ export function ImportCard() {
   }).accountName
 
   const discovery = useGoogleLocations(accountName)
-  const managed = useQuery({ queryKey: queryKeys.locationsManagement, queryFn: fetchManagementLocations, staleTime: 30_000 })
+  // Read the directory through the shared hook rather than writing a second,
+  // differently-shaped value into the same query key: this card and
+  // LocationsIndex live in one QueryClient, and whichever wrote last used to
+  // win.
+  const managed = useLocationDirectory(useSessionRole())
   const { link } = useLocationImport()
 
   const [rowState, setRowState] = useState<Record<string, RowState>>({})
   const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(null)
 
-  const linkedExternalIds = new Set((managed.data?.locations ?? []).map((location) => location.externalLocationId))
+  const linkedExternalIds = new Set(
+    (managed.data ?? [])
+      .map((location) => location.externalLocationId)
+      .filter((id): id is string => Boolean(id))
+  )
 
   const importOne = async (location: DiscoveredLocation, confirmRelink: boolean) => {
     setRowState((prev) => ({ ...prev, [location.id]: "pending" }))

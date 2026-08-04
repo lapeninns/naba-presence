@@ -2,8 +2,12 @@ export const queryKeys = {
   session: ["session"] as const,
   connections: ["connections"] as const,
   settings: ["settings"] as const,
-  locations: ["locations"] as const,
-  locationsManagement: ["locations", "management"] as const,
+  // Rooted at "location-directory", NOT "locations": React Query invalidation
+  // is prefix-matched, so a directory key of ["locations"] would shadow every
+  // ["locations", <id>, …] resource key below and make one import or unlink
+  // drop every per-location tab cache in the app.
+  locations: ["location-directory"] as const,
+  locationsManagement: ["location-directory", "management"] as const,
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,

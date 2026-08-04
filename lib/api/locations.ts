@@ -3,9 +3,18 @@ import { z } from "zod"
 import { apiFetch } from "./client"
 
 // GET /api/location-links returns the role-scoped location directory
-// (default view), name-ordered. We only need {id, name} for the filter, so
-// the schema strips googleLocationName even when present.
-const locationEntrySchema = z.object({ id: z.string(), name: z.string() })
+// (default view), name-ordered. The schema strips googleLocationName even
+// when present (owner/admin only) — nothing on this path needs it.
+//
+// `linked` is REQUIRED, not optional, and that is load-bearing: primary
+// location resolution ranks linked locations first, and if this payload could
+// silently omit the field, a member/viewer would resolve a different primary
+// than an owner on the same org with no type error to catch it.
+const locationEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  linked: z.boolean(),
+})
 export type LocationEntry = z.infer<typeof locationEntrySchema>
 
 const locationsResponseSchema = z.object({

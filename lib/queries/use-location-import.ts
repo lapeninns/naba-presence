@@ -34,11 +34,12 @@ function resolveClientTimezone(): string | undefined {
 
 export function useLocationImport() {
   const client = useQueryClient()
-  const invalidate = () =>
-    Promise.all([
-      client.invalidateQueries({ queryKey: queryKeys.locationsManagement }),
-      client.invalidateQueries({ queryKey: queryKeys.locations }),
-    ])
+  // One invalidation, not two: `locationsManagement` is ["location-directory",
+  // "management"], a prefix-child of `locations` (["location-directory"]), and
+  // React Query matches by prefix — so this already covers both directory
+  // views. It no longer reaches the ["locations", <id>, …] resource keys,
+  // which a link/unlink has no reason to drop.
+  const invalidate = () => client.invalidateQueries({ queryKey: queryKeys.locations })
   const link = useMutation({
     mutationFn: (input: { externalLocationId: string; confirmRelink?: boolean }) =>
       linkExternalLocation({ ...input, timezone: resolveClientTimezone() }),

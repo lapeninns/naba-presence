@@ -14,7 +14,7 @@ test.describe("home", () => {
     await page.goto("/home")
     await expect(page).toHaveURL("/home")
     await expect(
-      page.getByRole("heading", { name: "Home", level: 1 })
+      page.getByRole("heading", { name: "Overview", level: 1 })
     ).toBeVisible()
     // The KPI labels only render once the counts + analytics queries resolve,
     // so asserting them also proves the populated (non-loading, non-error)

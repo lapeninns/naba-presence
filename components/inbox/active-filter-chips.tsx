@@ -3,12 +3,16 @@
 import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import type { LocationEntry } from "@/lib/api/locations"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
+
+// Structural, not the wire schema's LocationEntry: the filter UI reads a name
+// off an id and nothing else, so tying it to the API payload would make every
+// added field a breaking change for this component and its fixtures.
+export type LocationOption = { id: string; name: string }
 
 type Chip = { label: string; removeLabel: string; clear: Partial<InboxState> }
 
-function buildChips(state: InboxState, locations: LocationEntry[]): Chip[] {
+function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   const chips: Chip[] = []
   if (state.locationId) {
     const name =
@@ -79,7 +83,7 @@ function ActiveFilterChips({
   onClear,
 }: {
   state: InboxState
-  locations: LocationEntry[]
+  locations: LocationOption[]
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
 }) {

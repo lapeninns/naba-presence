@@ -156,9 +156,13 @@ function useSessionReady(session: ShellSession | null) {
 
 function AppShell({
   session,
+  multiLocation = false,
   children,
 }: {
   session: ShellSession | null
+  // Resolved server-side in app/(dashboard)/layout.tsx, so the Locations item
+  // is right on the first paint and never flickers in or out.
+  multiLocation?: boolean
   children: React.ReactNode
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -192,7 +196,7 @@ function AppShell({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-          <Nav />
+          <Nav multiLocation={multiLocation} />
         </div>
 
         <div className="flex shrink-0 items-center gap-3 border-t border-sidebar-border/70 px-4 py-3">
@@ -249,7 +253,10 @@ function AppShell({
                 </SheetDescription>
               </SheetHeader>
               <div className="px-2 py-4">
-                <Nav onNavigate={() => setMobileNavOpen(false)} />
+                <Nav
+                  multiLocation={multiLocation}
+                  onNavigate={() => setMobileNavOpen(false)}
+                />
               </div>
             </SheetContent>
           </Sheet>

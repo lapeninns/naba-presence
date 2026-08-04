@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { projectDefault, projectManagement } from "@/lib/locations/directory"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -22,60 +24,15 @@ export async function GET(request: Request) {
     const managementView =
       new URL(request.url).searchParams.get("view") === "management"
     if (managementView) requireRole(session, ["owner", "admin"])
-    const locations = await withTenant(
-      session.organisationId,
-      (sql) => sql`
-        select
-          l.id::text as "locationId",
-          l.name,
-          l.address_json as address,
-          l.timezone,
-          ll.id::text as "linkId",
-          e.id::text as "externalLocationId",
-          e.google_location_name as "googleLocationName",
-          e.title as "googleTitle",
-          e.verified
-        from location l
-        left join location_link ll
-          on ll.location_id = l.id
-         and ll.is_active = true
-        left join external_location e on e.id = ll.external_location_id
-        ${
-          session.role === "owner" || session.role === "admin"
-            ? sql``
-            : sql`
-                where not exists (
-                  select 1
-                  from location_member lm
-                  where lm.user_id = ${session.userId}
-                )
-                or exists (
-                  select 1
-                  from location_member lm
-                  where lm.user_id = ${session.userId}
-                    and lm.location_id = l.id
-                )
-              `
-        }
-        order by lower(l.name)
-      `
-    )
-    if (managementView) return NextResponse.json({ locations })
+    // Query and projections are shared with the dashboard layout's RSC
+    // hydration (lib/server/location-directory.ts, lib/locations/directory.ts)
+    // so the HTTP and RSC paths cannot emit different shapes for the same org.
+    const rows = await listLocationDirectoryRows(session)
+    if (managementView) {
+      return NextResponse.json({ locations: projectManagement(rows) })
+    }
     return NextResponse.json({
-      locations: locations.map((location) => {
-        const record = location as {
-          locationId: string
-          name: string
-          googleLocationName: string | null
-        }
-        return {
-          id: record.locationId,
-          name: record.name,
-          ...(session.role === "owner" || session.role === "admin"
-            ? { googleLocationName: record.googleLocationName }
-            : {}),
-        }
-      }),
+      locations: projectDefault(rows, session.role),
     })
   } catch (error) {
     return apiError(error)

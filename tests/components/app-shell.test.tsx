@@ -40,7 +40,7 @@ function renderShell() {
     <QueryProvider>
       <AppShell session={session}>
         <PageFrame>
-          <PageHeader title="Inbox" description="Queue" />
+          <PageHeader title="Reviews" description="Queue" />
         </PageFrame>
       </AppShell>
     </QueryProvider>
@@ -57,11 +57,11 @@ describe("AppShell", () => {
 
   it("marks the active nav item", () => {
     renderShell()
-    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Reviews" })).toHaveAttribute(
       "aria-current",
       "page"
     )
-    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute(
       "aria-current"
     )
   })

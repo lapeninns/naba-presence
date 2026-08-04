@@ -265,16 +265,19 @@ describe("draft, publish, approval, reply, locations clients", () => {
       vi.fn(async () =>
         jsonResponse({
           locations: [
-            { id: "loc-1", name: "Riverside", googleLocationName: "locations/1" },
-            { id: "loc-2", name: "Old Town" },
+            { id: "loc-1", name: "Riverside", linked: true, googleLocationName: "locations/1" },
+            { id: "loc-2", name: "Old Town", linked: false },
           ],
         })
       )
     )
     const result = await fetchLocations()
+    // `linked` survives — primary-location resolution ranks on it, so this
+    // path must carry it for every role. `googleLocationName` is still
+    // stripped: it is owner/admin-only and nothing on this path needs it.
     expect(result.locations).toEqual([
-      { id: "loc-1", name: "Riverside" },
-      { id: "loc-2", name: "Old Town" },
+      { id: "loc-1", name: "Riverside", linked: true },
+      { id: "loc-2", name: "Old Town", linked: false },
     ])
   })
 })

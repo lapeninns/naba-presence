@@ -393,7 +393,7 @@ for (const theme of themes) {
       test("home", async ({ baseURL, page }) => {
         // Real journey tenant/cookie (see the module comment above): the
         // "Reviews and replies" copy this test used to assert on is gone
-        // (KpiCards/HomeCharts now read "Home" + "Trends"), and there's no
+        // (KpiCards/HomeCharts now read "Overview" + "Trends"), and there's no
         // longer a `/api/reviews/counts` mock here for KpiCards to hit either
         // — a real cookie makes that call (and any other this test doesn't
         // explicitly mock) resolve against the real, schema-correct backend
@@ -402,7 +402,7 @@ for (const theme of themes) {
         await applyCookie(page, baseURL, state.cookie)
         await page.goto("/home")
         await expect(
-          page.getByRole("heading", { name: "Home", level: 1 })
+          page.getByRole("heading", { name: "Overview", level: 1 })
         ).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Trends" })
@@ -455,6 +455,29 @@ for (const theme of themes) {
           page,
           `${viewport.name} ${theme} locations index`
         )
+      })
+
+      test("flat business routes", async ({ baseURL, page }) => {
+        // The single-business surface: every one of these resolves its
+        // location server-side, so none carries an id in the URL. Journey
+        // cookie because they render real tab components against real data.
+        const state = await readJourneyState()
+        await applyCookie(page, baseURL, state.cookie)
+        for (const [path, heading] of [
+          ["/profile", "Business profile"],
+          ["/profile/hours", "Opening hours"],
+          ["/photos", "Photos"],
+          ["/posts", "Posts"],
+        ] as const) {
+          await page.goto(path)
+          await expect(
+            page.getByRole("heading", { name: heading, level: 1 })
+          ).toBeVisible()
+          await expectAccessible(
+            page,
+            `${viewport.name} ${theme} ${path}`
+          )
+        }
       })
 
       test("location profile workspace", async ({ baseURL, page }) => {
@@ -647,7 +670,7 @@ for (const theme of themes) {
         })
         await page.goto("/inbox")
         await expect(
-          page.getByRole("heading", { name: "Inbox", level: 1 })
+          page.getByRole("heading", { name: "Reviews", level: 1 })
         ).toBeVisible()
         await expect(
           page.getByRole("button", { name: "More filters" })

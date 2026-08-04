@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 
+import { NoLocationEmpty } from "@/components/locations/no-location-empty"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
@@ -43,12 +44,7 @@ export function LocationsIndex({ role }: { role: string | null }) {
   }
   const locations = directory.data ?? []
   if (locations.length === 0) {
-    return (
-      <Empty
-        title="No locations yet"
-        description="Connect Google Business Profile and import your locations to manage them here."
-      />
-    )
+    return <NoLocationEmpty role={role} />
   }
 
   if (!management) {

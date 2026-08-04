@@ -34,15 +34,28 @@ describe("LocationsIndex", () => {
   })
 
   it("renders a plain single-column list for a member and no management columns", async () => {
-    vi.spyOn(locationsApi, "fetchLocations").mockResolvedValue({ locations: [{ id: "loc-9", name: "Old Town" }] })
+    vi.spyOn(locationsApi, "fetchLocations").mockResolvedValue({
+      locations: [{ id: "loc-9", name: "Old Town", linked: true }],
+    })
     renderIndex("member")
     expect(await screen.findByRole("link", { name: "Old Town" })).toHaveAttribute("href", "/locations/loc-9")
     expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument()
   })
 
-  it("shows an empty state when there are no locations", async () => {
+  it("points an owner at the connect flow when there are no locations", async () => {
     vi.spyOn(locationsApi, "fetchManagementLocations").mockResolvedValue({ locations: [] })
     renderIndex("owner")
-    expect(await screen.findByText("No locations yet")).toBeInTheDocument()
+    expect(await screen.findByText("No business connected yet")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Connect Google" })).toHaveAttribute(
+      "href",
+      "/settings/connections"
+    )
+  })
+
+  it("offers a member no connect link, since /settings/connections would bounce them", async () => {
+    vi.spyOn(locationsApi, "fetchLocations").mockResolvedValue({ locations: [] })
+    renderIndex("member")
+    expect(await screen.findByText("No business connected yet")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Connect Google" })).not.toBeInTheDocument()
   })
 })

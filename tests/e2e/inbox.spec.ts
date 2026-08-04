@@ -24,12 +24,35 @@ async function applyCookie(page: Page, baseURL: string | undefined, cookie: stri
 }
 
 test.describe("inbox", () => {
-  test("renders the cross-location review queue", async ({ page }) => {
+  test("renders the review queue", async ({ page }) => {
     await page.goto("/inbox")
     await expect(page).toHaveURL("/inbox")
     await expect(
-      page.getByRole("heading", { name: "Inbox", level: 1 })
+      page.getByRole("heading", { name: "Reviews", level: 1 })
     ).toBeVisible()
+    await expect(
+      page.getByRole("searchbox", { name: "Search reviews" })
+    ).toBeVisible()
+  })
+
+  test("offers a location filter only when the org has several locations", async ({
+    baseURL,
+    page,
+  }) => {
+    // The no-cookie LOCAL_BOOTSTRAP org is single-location, so the filter is
+    // deliberately hidden there; the journey tenant seeds two locations
+    // (tests/e2e/helpers/stub-bridge.ts) and is the case that needs it.
+    await page.goto("/inbox")
+    await expect(
+      page.getByRole("searchbox", { name: "Search reviews" })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("combobox", { name: "Filter by location" })
+    ).toBeHidden()
+
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox")
     await expect(
       page.getByRole("combobox", { name: "Filter by location" })
     ).toBeVisible()
@@ -63,8 +86,11 @@ test.describe("inbox", () => {
       page.on("pageerror", (error) => pageErrors.push(error.message))
       await page.emulateMedia({ colorScheme: theme })
       await page.goto("/inbox")
+      // Anchored on the search box, not the location combobox: the latter is
+      // hidden for single-location orgs, which would couple this a11y sweep to
+      // tenant shape.
       await expect(
-        page.getByRole("combobox", { name: "Filter by location" })
+        page.getByRole("searchbox", { name: "Search reviews" })
       ).toBeVisible()
       await page.waitForLoadState("networkidle")
       expect(consoleErrors, `${theme} console`).toEqual([])
@@ -74,8 +100,11 @@ test.describe("inbox", () => {
     test(`is axe-clean including structure (${theme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto("/inbox")
+      // Anchored on the search box, not the location combobox: the latter is
+      // hidden for single-location orgs, which would couple this a11y sweep to
+      // tenant shape.
       await expect(
-        page.getByRole("combobox", { name: "Filter by location" })
+        page.getByRole("searchbox", { name: "Search reviews" })
       ).toBeVisible()
       await page.waitForLoadState("networkidle")
       const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()

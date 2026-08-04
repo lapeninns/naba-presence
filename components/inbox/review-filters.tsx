@@ -8,7 +8,7 @@ import { MoreFiltersSheet } from "@/components/inbox/more-filters-sheet"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { LocationEntry } from "@/lib/api/locations"
+import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import type { InboxState } from "@/lib/inbox/url-state"
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map
@@ -33,11 +33,15 @@ const SORT_ITEMS: Record<string, string> = {
 function ReviewFilters({
   state,
   locations,
+  showLocationFilter = true,
   onChange,
   onClear,
 }: {
   state: InboxState
-  locations: LocationEntry[]
+  locations: LocationOption[]
+  // Server-resolved; see the note on InboxView in inbox-view.tsx for why this
+  // is not derived from `locations.length` here.
+  showLocationFilter?: boolean
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
 }) {
@@ -89,28 +93,36 @@ function ReviewFilters({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-44 flex-1">
-          <label htmlFor={locationId} className="sr-only">
-            Filter by location
-          </label>
-          <Combobox
-            items={locations}
-            value={selectedLocation}
-            onValueChange={(location: LocationEntry | null) =>
-              onChange({ locationId: location?.id })
-            }
-            itemToStringLabel={(location: LocationEntry) => location.name}
-          >
-            <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
-            <ComboboxContent>
-              {locations.map((location) => (
-                <ComboboxItem key={location.id} value={location}>
-                  {location.name}
-                </ComboboxItem>
-              ))}
-            </ComboboxContent>
-          </Combobox>
-        </div>
+        {/* Only the combobox is hidden for a single-location org — never the
+            ActiveFilterChips below. A `?locationId=` can still arrive in the
+            URL (components/home/attention-list.tsx links there unconditionally),
+            and the chip's "Remove location filter" button is the only thing
+            left that can clear it. Hiding the chip too would strand the user
+            in a filtered view with no way out. */}
+        {showLocationFilter ? (
+          <div className="min-w-44 flex-1">
+            <label htmlFor={locationId} className="sr-only">
+              Filter by location
+            </label>
+            <Combobox
+              items={locations}
+              value={selectedLocation}
+              onValueChange={(location: LocationOption | null) =>
+                onChange({ locationId: location?.id })
+              }
+              itemToStringLabel={(location: LocationOption) => location.name}
+            >
+              <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
+              <ComboboxContent>
+                {locations.map((location) => (
+                  <ComboboxItem key={location.id} value={location}>
+                    {location.name}
+                  </ComboboxItem>
+                ))}
+              </ComboboxContent>
+            </Combobox>
+          </div>
+        ) : null}
 
         <Select
           value={state.ratings.length === 1 ? String(state.ratings[0]) : "all"}

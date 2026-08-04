@@ -146,7 +146,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     !review.capabilities.canPublish && review.capabilities.canRequestApproval
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {awaitingApproval ? (
         <>
           <Button

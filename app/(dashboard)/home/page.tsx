@@ -4,14 +4,16 @@ import { DisconnectedBanner } from "@/components/home/disconnected-banner"
 import { HomeCharts } from "@/components/home/home-charts"
 import { KpiCards } from "@/components/home/kpi-cards"
 
-export const metadata = { title: "Home · NabaPresence" }
+// The route stays /home; only the name changes. See the note on NAV_ITEMS in
+// components/app-shell/nav.tsx.
+export const metadata = { title: "Overview · NabaPresence" }
 
 export default function HomePage() {
   return (
     <PageFrame width="wide">
       <PageHeader
-        title="Home"
-        description="Your Google presence across every connected location, for the last 30 days."
+        title="Overview"
+        description="How your business is doing on Google, over the last 30 days."
       />
       <DisconnectedBanner />
       <KpiCards />

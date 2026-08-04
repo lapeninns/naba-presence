@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
@@ -26,7 +25,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchLocations } from "@/lib/api/locations"
 import {
   autoSelectId,
   hasActiveFilters,
@@ -38,17 +36,18 @@ import {
   type Queue,
 } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
-import { queryKeys } from "@/lib/queries/keys"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+import { useSessionRole } from "@/lib/queries/use-session"
 
 // Page-based pagination over the loaded rows: 7 per page, Prev/Next controls.
 // The API is cursor-based, so "next page" past the loaded rows triggers one
 // fetchNextPage per click; already-loaded pages page locally.
 const PAGE_SIZE = 7
 
-function InboxViewInner() {
+function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const state = useMemo(
@@ -62,11 +61,11 @@ function InboxViewInner() {
   const reviewsQuery = useReviews(filters)
   const countsQuery = useReviewCounts(state.locationId)
   const health = useConnectionHealth()
-  const locationsQuery = useQuery({
-    queryKey: queryKeys.locations,
-    queryFn: fetchLocations,
-    staleTime: 30_000,
-  })
+  // Via the shared directory hook, not a bare useQuery on the same key: this
+  // view and LocationsIndex share one QueryClient across client navigation,
+  // and writing the raw `{locations: […]}` envelope here while the hook writes
+  // a mapped array meant whichever mounted last corrupted the other.
+  const locationsQuery = useLocationDirectory(useSessionRole())
 
   const reviews = flattenReviews(reviewsQuery.data)
 
@@ -256,8 +255,8 @@ function InboxViewInner() {
   // keyboard/screen-reader users land somewhere meaningful in the new pane
   // instead of losing their place (mirrors the same button re-focusing the
   // originating row on the way back, below). `.focus()` on the `xl:hidden`
-  // wrapper's button is a silent no-op at the xl breakpoint (its ancestor is
-  // `display: none` there), so this is harmless on desktop.
+  // button is a silent no-op at the xl breakpoint (it is `display: none`
+  // there), so this is harmless on desktop.
   const backButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (state.selected) backButtonRef.current?.focus()
@@ -282,7 +281,8 @@ function InboxViewInner() {
           />
           <ReviewFilters
             state={state}
-            locations={locationsQuery.data?.locations ?? []}
+            locations={locationsQuery.data ?? []}
+            showLocationFilter={showLocationFilter}
             onChange={onFilterChange}
             onClear={onClearFilters}
           />
@@ -327,32 +327,28 @@ function InboxViewInner() {
         )}
       >
         {state.selected ? (
-          <>
-            {/* Mobile-only return-to-list affordance; Back also works because
-                selection was pushed (spec §6). */}
-            <div className="border-b border-border/60 p-2 xl:hidden">
-              <Button
-                ref={backButtonRef}
-                variant="ghost"
-                size="sm"
-                onClick={onBackToList}
-              >
-                <ArrowLeftIcon aria-hidden />
-                Back to reviews
-              </Button>
-            </div>
-            <DetailErrorBoundary key={state.selected}>
-              <ReviewDetail
-                reviewId={state.selected}
-                footer={
-                  <div className="flex flex-col gap-4">
-                    <ReplyComposer reviewId={state.selected} />
-                    <ActionBar reviewId={state.selected} />
-                  </div>
-                }
-              />
-            </DetailErrorBoundary>
-          </>
+          <DetailErrorBoundary key={state.selected}>
+            <ReviewDetail
+              reviewId={state.selected}
+              leading={
+                // Mobile-only return-to-list affordance, pinned in the pane
+                // header; Back also works because selection was pushed
+                // (spec §6).
+                <Button
+                  ref={backButtonRef}
+                  variant="ghost"
+                  size="sm"
+                  onClick={onBackToList}
+                  className="-ml-2 xl:hidden"
+                >
+                  <ArrowLeftIcon aria-hidden />
+                  Back to reviews
+                </Button>
+              }
+              composer={<ReplyComposer reviewId={state.selected} />}
+              actions={<ActionBar reviewId={state.selected} />}
+            />
+          </DetailErrorBoundary>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
             <span className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -368,10 +364,17 @@ function InboxViewInner() {
   )
 }
 
-function InboxView() {
+// `showLocationFilter` is resolved on the server (app/(dashboard)/inbox/page.tsx)
+// rather than from the fetched location list, because the list is empty on the
+// first paint: a client-side length check would either flash the control in
+// for multi-location orgs or — worse — flash it out from under a single-location
+// user who was already reaching for it. Defaults to true so every existing
+// caller and test keeps a visible filter; a redundant control is a much better
+// failure mode than a silently missing one.
+function InboxView({ showLocationFilter = true }: { showLocationFilter?: boolean }) {
   return (
     <DirtyGuardProvider>
-      <InboxViewInner />
+      <InboxViewInner showLocationFilter={showLocationFilter} />
     </DirtyGuardProvider>
   )
 }

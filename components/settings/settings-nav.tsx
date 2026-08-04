@@ -11,6 +11,7 @@ const AREAS = [
   { href: "/settings/team", label: "Team", capability: "canManageTeam" as const },
   { href: "/settings/compliance", label: "Compliance", capability: "canViewCompliance" as const },
   { href: "/settings/connections", label: "Connections", capability: "canManageConnections" as const },
+  { href: "/settings/listing", label: "Listing", capability: "canEditSettings" as const },
 ]
 
 export function SettingsNav({ role }: { role: string | null }) {
