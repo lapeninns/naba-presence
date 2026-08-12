@@ -54,8 +54,25 @@ describeDatabase("per-location capabilities route", () => {
     )
     expect(response.status).toBe(200)
     return (await response.json()) as {
-      capabilities: { canEditCanonical: boolean; canPublish: boolean }
+      capabilities: {
+        canEditCanonical: boolean
+        canPublish: boolean
+        resources: Record<string, { state: string; reasonCode?: string }>
+      }
     }
+  }
+
+  function expectCaps(
+    actual: {
+      canEditCanonical: boolean
+      canPublish: boolean
+      resources: Record<string, { state: string; reasonCode?: string }>
+    },
+    expected: { canEditCanonical: boolean; canPublish: boolean }
+  ) {
+    expect(actual).toMatchObject(expected)
+    expect(actual.resources).toBeTypeOf("object")
+    expect(Object.keys(actual.resources).length).toBeGreaterThan(0)
   }
 
   beforeAll(async () => {
@@ -80,11 +97,11 @@ describeDatabase("per-location capabilities route", () => {
     })
     const admin2 = await seedMemberUser(admin, tenant.organisationId, "admin", false)
 
-    expect((await caps(tenant.cookie, location.locationId)).capabilities).toEqual({
+    expectCaps((await caps(tenant.cookie, location.locationId)).capabilities, {
       canEditCanonical: true,
       canPublish: true,
     })
-    expect((await caps(admin2.cookie, location.locationId)).capabilities).toEqual({
+    expectCaps((await caps(admin2.cookie, location.locationId)).capabilities, {
       canEditCanonical: true,
       canPublish: true,
     })
@@ -100,7 +117,7 @@ describeDatabase("per-location capabilities route", () => {
       googleAccountName: connection.googleAccountName,
     })
     const viewer = await seedMemberUser(admin, tenant.organisationId, "viewer", false)
-    expect((await caps(viewer.cookie, location.locationId)).capabilities).toEqual({
+    expectCaps((await caps(viewer.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
     })
@@ -117,11 +134,11 @@ describeDatabase("per-location capabilities route", () => {
     })
     const canPub = await seedMemberUser(admin, tenant.organisationId, "member", true)
     const noPub = await seedMemberUser(admin, tenant.organisationId, "member", false)
-    expect((await caps(canPub.cookie, location.locationId)).capabilities).toEqual({
+    expectCaps((await caps(canPub.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: true,
     })
-    expect((await caps(noPub.cookie, location.locationId)).capabilities).toEqual({
+    expectCaps((await caps(noPub.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
     })
@@ -157,17 +174,17 @@ describeDatabase("per-location capabilities route", () => {
       values (${tenant.organisationId}, ${assignedNoPublish.locationId}, ${member.userId}, false)
     `
     // assigned + can_publish
-    expect((await caps(member.cookie, assignedPublish.locationId)).capabilities).toEqual({
+    expectCaps((await caps(member.cookie, assignedPublish.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: true,
     })
     // assigned, no can_publish
-    expect((await caps(member.cookie, assignedNoPublish.locationId)).capabilities).toEqual({
+    expectCaps((await caps(member.cookie, assignedNoPublish.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
     })
     // has assignments but not to this location -> no publish
-    expect((await caps(member.cookie, unassigned.locationId)).capabilities).toEqual({
+    expectCaps((await caps(member.cookie, unassigned.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
     })

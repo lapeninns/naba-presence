@@ -120,7 +120,7 @@ async function mockReviewWorkspace(
           : [
               {
                 id: "review-state-a11y",
-                reviewer: { displayName: "Jordan Lee", isAnonymous: false },
+                reviewer: { displayName: "Jordan Lee", isAnonymous: false, profilePhotoUrl: null },
                 rating: 5,
                 location: { id: "location-state-a11y", name: "Camden" },
                 text: "A thoughtful and accessible review.",
@@ -156,6 +156,7 @@ async function mockReviewWorkspace(
           id: "review-state-a11y",
           reviewerDisplayName: "Jordan Lee",
           reviewerIsAnonymous: false,
+          reviewerProfilePhotoUrl: null,
           rating: 5,
           text: "A thoughtful and accessible review.",
           detectedLanguageCode: "en",
@@ -392,12 +393,9 @@ for (const theme of themes) {
 
       test("home", async ({ baseURL, page }) => {
         // Real journey tenant/cookie (see the module comment above): the
-        // "Reviews and replies" copy this test used to assert on is gone
-        // (KpiCards/HomeCharts now read "Overview" + "Trends"), and there's no
-        // longer a `/api/reviews/counts` mock here for KpiCards to hit either
-        // — a real cookie makes that call (and any other this test doesn't
-        // explicitly mock) resolve against the real, schema-correct backend
-        // instead of 401-ing and hard-redirecting to /sign-in.
+        // Overview page reads live counts + analytics (Your work / Health /
+        // Pulse). A real cookie makes those calls resolve against the real
+        // backend instead of 401-ing and hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto("/home")
@@ -405,7 +403,7 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Overview", level: 1 })
         ).toBeVisible()
         await expect(
-          page.getByRole("heading", { name: "Trends" })
+          page.getByRole("heading", { name: "Pulse" })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} home`)
       })
@@ -588,6 +586,7 @@ for (const theme of themes) {
                   reviewer: {
                     displayName: "Jordan Lee",
                     isAnonymous: false,
+                    profilePhotoUrl: null,
                   },
                   rating: 5,
                   location: { id: "location-a11y", name: "Camden" },
@@ -624,6 +623,7 @@ for (const theme of themes) {
                 id: "review-a11y",
                 reviewerDisplayName: "Jordan Lee",
                 reviewerIsAnonymous: false,
+                reviewerProfilePhotoUrl: null,
                 rating: 5,
                 text: "A thoughtful and accessible review.",
                 detectedLanguageCode: "en",
@@ -673,7 +673,7 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Reviews", level: 1 })
         ).toBeVisible()
         await expect(
-          page.getByRole("button", { name: "More filters" })
+          page.getByRole("button", { name: "Filters" })
         ).toBeVisible()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
@@ -708,38 +708,44 @@ for (const theme of themes) {
         })
         await expect(selectedReview).toBeVisible()
         await expect(selectedReview.getByRole("heading").first()).toBeVisible()
+
+        // This fixture's draft and live reply are the same words. The composer
+        // edits those words directly, so they appear exactly ONCE — the old
+        // pane rendered them as a "published reply" block AND a textarea.
         await expect(
           selectedReview.getByRole("textbox", { name: "Your reply" })
         ).toHaveValue("Thank you for your thoughtful review, Jordan.")
-        // Renamed from "Reply language" (components/inbox/reply-composer.tsx —
-        // the tone select, not a language picker).
+        await expect(selectedReview.getByText("In sync with Google")).toBeVisible()
+        await expect(selectedReview.getByText("Live on Google")).toBeHidden()
+        await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
+
+        // AI generate is manual: Regenerate (draft already exists) + tone are
+        // available, but nothing calls the LLM until the operator clicks.
+        await expect(
+          selectedReview.getByRole("button", { name: "Regenerate" })
+        ).toBeVisible()
         await expect(
           selectedReview.getByRole("combobox", { name: "Reply tone" })
         ).toBeVisible()
-        // Renamed from "Published business reply" (components/inbox/review-detail.tsx).
-        const publishedReply = selectedReview
-          .getByText("Your published reply", { exact: true })
-          .locator("..")
-        await expect(publishedReply).toContainText(
-          "Thank you for your thoughtful review, Jordan."
-        )
-        // The action-bar "Update reply" / "Approve and publish" toggle this
-        // test used to exercise no longer exists (components/inbox/action-bar.tsx
-        // has no such affordance) — the current ActionBar instead shows a single
-        // Publish/Submit-for-approval control plus a "Review actions" menu
-        // (covered by the "delete published reply confirmation" test below).
-        // This already-published review's Publish button stays disabled (no
-        // allowed transition from "published"), which is itself worth proving.
-        const publishButton = selectedReview.getByRole("button", {
-          name: "Publish reply",
-        })
-        await expect(publishButton).toBeVisible()
-        await expect(publishButton).toBeDisabled()
-        await expect(
-          selectedReview.getByRole("button", { name: "Review actions" })
-        ).toBeVisible()
+        // A clean pass is one line in the label row, not a bordered card, so
+        // there is no Verification heading unless something is wrong.
         await expect(
           selectedReview.getByRole("heading", { name: "Verification" })
+        ).toBeHidden()
+
+        // "Publish" is the wrong verb once a reply is live, and re-sending
+        // identical text is a no-op the domain has no transition for — so the
+        // primary is "Update reply", disabled, with the reason on the page.
+        const primary = selectedReview.getByRole("button", {
+          name: "Update reply",
+        })
+        await expect(primary).toBeVisible()
+        await expect(primary).toBeDisabled()
+        await expect(selectedReview).toContainText(
+          "Edit the reply above to publish a change."
+        )
+        await expect(
+          selectedReview.getByRole("button", { name: "Review actions" })
         ).toBeVisible()
         await expect(
           selectedReview.getByRole("heading", { name: "Activity" })
@@ -789,8 +795,6 @@ for (const theme of themes) {
       })
 
       test("disconnected review data state", async ({ page }) => {
-        // components/inbox/empty-states.tsx's current "disconnected" copy —
-        // there's no "Manage connections" link on this empty state.
         await mockReviewWorkspace(page, { disconnected: true })
         await page.goto("/inbox")
         await expect(
@@ -802,6 +806,9 @@ for (const theme of themes) {
             { exact: true }
           )
         ).toBeVisible()
+        await expect(
+          page.getByRole("link", { name: "Manage connection" })
+        ).toHaveAttribute("href", "/settings/connections")
         await expectAccessible(
           page,
           `${viewport.name} ${theme} disconnected review data`

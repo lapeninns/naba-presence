@@ -6,13 +6,32 @@ export class ApiClientError extends Error {
   readonly status: number
   readonly code: string
   readonly details?: unknown
+  readonly fieldErrors?: Record<string, string>
+  readonly retryable: boolean
+  readonly reconnectRequired: boolean
+  readonly requestId?: string
 
-  constructor(status: number, code: string, message: string, details?: unknown) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details?: unknown,
+    extras: {
+      fieldErrors?: Record<string, string>
+      retryable?: boolean
+      reconnectRequired?: boolean
+      requestId?: string
+    } = {}
+  ) {
     super(message)
     this.name = "ApiClientError"
     this.status = status
     this.code = code
     this.details = details
+    this.fieldErrors = extras.fieldErrors
+    this.retryable = Boolean(extras.retryable)
+    this.reconnectRequired = Boolean(extras.reconnectRequired)
+    this.requestId = extras.requestId
   }
 }
 
@@ -27,16 +46,31 @@ async function readPayload(response: Response): Promise<{
   error?: string
   message?: string
   details?: unknown
+  fieldErrors?: Record<string, string>
+  retryable?: boolean
+  reconnectRequired?: boolean
+  requestId?: string
   raw: unknown
 }> {
   const text = await response.text()
   try {
     const parsed: unknown = JSON.parse(text)
     const record = (parsed ?? {}) as Record<string, unknown>
+    const fieldErrors =
+      record.fieldErrors &&
+      typeof record.fieldErrors === "object" &&
+      !Array.isArray(record.fieldErrors)
+        ? (record.fieldErrors as Record<string, string>)
+        : undefined
     return {
       error: typeof record.error === "string" ? record.error : undefined,
       message: typeof record.message === "string" ? record.message : undefined,
       details: record.details,
+      fieldErrors,
+      retryable: record.retryable === true,
+      reconnectRequired: record.reconnectRequired === true,
+      requestId:
+        typeof record.requestId === "string" ? record.requestId : undefined,
       raw: parsed,
     }
   } catch {
@@ -74,7 +108,13 @@ export async function apiFetch<T = unknown>(
       response.status,
       code,
       payload.message ?? `Request failed (${response.status}).`,
-      payload.details
+      payload.details,
+      {
+        fieldErrors: payload.fieldErrors,
+        retryable: payload.retryable,
+        reconnectRequired: payload.reconnectRequired,
+        requestId: payload.requestId,
+      }
     )
   }
 

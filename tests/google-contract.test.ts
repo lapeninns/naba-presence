@@ -245,7 +245,7 @@ describe("Google API request contracts", () => {
     const customer = googleMediaListRequest({ accountName: "accounts/1", locationName: "locations/2", customer: true })
     expect(new URL(owner.url).pathname).toBe("/v4/accounts/1/locations/2/media")
     expect(new URL(customer.url).pathname).toBe("/v4/accounts/1/locations/2/media/customers")
-    expect(new URL(owner.url).searchParams.get("pageSize")).toBe("2500")
+    expect(new URL(owner.url).searchParams.get("pageSize")).toBe("100")
     const create = googleMediaCreateRequest({ accountName: "accounts/1", locationName: "locations/2", payload: { mediaFormat: "PHOTO", locationAssociation: { category: "FOOD_AND_DRINK" }, sourceUrl: "https://images.example.com/dish.jpg", description: "Dish" } })
     expect(create.init.method).toBe("POST")
     expect(JSON.parse(String(create.init.body))).toMatchObject({ mediaFormat: "PHOTO", locationAssociation: { category: "FOOD_AND_DRINK" } })

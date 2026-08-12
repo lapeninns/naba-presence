@@ -121,6 +121,13 @@ export async function upsertGoogleReview(
   const reviewId = String(payload.reviewId ?? name.split("/").pop() ?? "")
   if (!name || !reviewId) return null
   const reviewer = objectValue(payload.reviewer)
+  const isAnonymous = reviewer.isAnonymous === true || !reviewer.displayName
+  const profilePhotoUrl =
+    !isAnonymous &&
+    typeof reviewer.profilePhotoUrl === "string" &&
+    reviewer.profilePhotoUrl.trim()
+      ? reviewer.profilePhotoUrl.trim()
+      : null
   const text =
     typeof payload.comment === "string" && payload.comment.trim()
       ? payload.comment
@@ -163,6 +170,7 @@ export async function upsertGoogleReview(
       google_review_id_hash,
       reviewer_display_name,
       reviewer_is_anonymous,
+      reviewer_profile_photo_url,
       star_rating,
       review_text,
       detected_language_code,
@@ -184,7 +192,8 @@ export async function upsertGoogleReview(
       ${encryptSecret(reviewId)},
       ${sha256(reviewId)},
       ${reviewer.displayName ? String(reviewer.displayName) : null},
-      ${reviewer.isAnonymous === true || !reviewer.displayName},
+      ${isAnonymous},
+      ${profilePhotoUrl},
       ${ratingValue(payload.starRating)},
       ${text},
       ${language.code},
@@ -204,6 +213,7 @@ export async function upsertGoogleReview(
     set
       reviewer_display_name = excluded.reviewer_display_name,
       reviewer_is_anonymous = excluded.reviewer_is_anonymous,
+      reviewer_profile_photo_url = excluded.reviewer_profile_photo_url,
       star_rating = excluded.star_rating,
       review_text = excluded.review_text,
       detected_language_code = excluded.detected_language_code,

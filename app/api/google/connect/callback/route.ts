@@ -1,20 +1,20 @@
 import { cookies } from "next/headers"
-import { NextResponse } from "next/server"
+import { after, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import {
-  encryptSecret,
-  verifySignedValue,
-} from "@/lib/server/crypto"
+  prepareAutomaticGoogleReviewSetup,
+  type AutomaticGoogleSetup,
+} from "@/lib/server/automatic-google-setup"
+import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import {
-  requireRole,
-  requireSession,
-} from "@/lib/server/session"
+import { log } from "@/lib/server/logger"
+import { syncLinkedLocation } from "@/lib/server/reviews"
+import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
@@ -169,7 +169,54 @@ async function completeOAuth(request: Request) {
     })
     return row
   })
-  return { connection }
+  let setup: AutomaticGoogleSetup
+  try {
+    setup = await prepareAutomaticGoogleReviewSetup({
+      organisationId: session.organisationId,
+      userId: session.userId,
+      connectionId: connection.id,
+      accessToken: tokens.access_token,
+      requestId: rid.id,
+    })
+  } catch (error) {
+    const handledError =
+      error instanceof Error ? error : new Error(String(error))
+    log.warn("google.automatic_setup_fallback", {
+      requestId: rid.id,
+      organisationId: session.organisationId,
+      userId: session.userId,
+      error: handledError,
+    })
+    setup = { kind: "manual_error" }
+  }
+  if (setup.kind === "automatic" && getServerEnv().SYNC_ENABLED) {
+    after(async () => {
+      try {
+        const outcome = await syncLinkedLocation({
+          organisationId: session.organisationId,
+          externalLocationId: setup.externalLocationId,
+          type: "backfill",
+          maxPages: 10,
+        })
+        if (outcome.status === "failed") {
+          log.warn("google.automatic_review_sync_failed", {
+            requestId: rid.id,
+            organisationId: session.organisationId,
+            errorCode: outcome.errorCode,
+          })
+        }
+      } catch (error) {
+        const handledError =
+          error instanceof Error ? error : new Error(String(error))
+        log.error("google.automatic_review_sync_failed", {
+          requestId: rid.id,
+          organisationId: session.organisationId,
+          error: handledError,
+        })
+      }
+    })
+  }
+  return { connection, setup }
 }
 
 export async function GET(request: Request) {
@@ -188,10 +235,7 @@ export async function GET(request: Request) {
           ? "/sign-in"
           : "/connections"
       return NextResponse.redirect(
-        new URL(
-          `${path}?google=error&status=${status}`,
-          baseUrl
-        )
+        new URL(`${path}?google=error&status=${status}`, baseUrl)
       )
     }
     return response

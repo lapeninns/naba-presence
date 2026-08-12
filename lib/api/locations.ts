@@ -45,7 +45,19 @@ export function fetchManagementLocations() {
   return apiFetch("/api/location-links?view=management", { schema: managementResponseSchema })
 }
 
-const locationCapabilitiesSchema = z.object({ canEditCanonical: z.boolean(), canPublish: z.boolean() })
+const resourceCapabilitySchema = z.object({
+  state: z.enum(["available", "readOnly", "blocked", "unavailable"]),
+  reasonCode: z.string().optional(),
+})
+
+const locationCapabilitiesSchema = z.object({
+  canEditCanonical: z.boolean(),
+  canPublish: z.boolean(),
+  resources: z
+    .record(z.string(), resourceCapabilitySchema)
+    .optional()
+    .default({}),
+})
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>
 
 const capabilitiesResponseSchema = z.object({ capabilities: locationCapabilitiesSchema })

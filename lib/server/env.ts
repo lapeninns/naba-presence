@@ -104,14 +104,17 @@ export const serverEnvSchema = z.object({
   WEBHOOKS_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
-  GBP_PERFORMANCE_ENABLED: featureFlag(false),
-  GBP_KEYWORDS_ENABLED: featureFlag(false),
-  GBP_POSTS_ENABLED: featureFlag(false),
-  GBP_MEDIA_ENABLED: featureFlag(false),
-  GBP_FOOD_MENUS_ENABLED: featureFlag(false),
-  GBP_PLACE_ACTIONS_ENABLED: featureFlag(false),
-  GBP_PROFILE_WRITES_ENABLED: featureFlag(false),
+  GBP_PERFORMANCE_ENABLED: featureFlag(true),
+  GBP_KEYWORDS_ENABLED: featureFlag(true),
+  GBP_POSTS_ENABLED: featureFlag(true),
+  GBP_MEDIA_ENABLED: featureFlag(true),
+  GBP_FOOD_MENUS_ENABLED: featureFlag(true),
+  GBP_PLACE_ACTIONS_ENABLED: featureFlag(true),
+  GBP_PROFILE_WRITES_ENABLED: featureFlag(true),
+  IMPORT_REVIEW_ENABLED: featureFlag(true),
+  // Unused no-ops kept for deploy compatibility (lodging lives under Industry + PUBLISH_ENABLED).
   GBP_LODGING_ENABLED: featureFlag(false),
+  // Stub — Actions Center is not implemented.
   ACTIONS_CENTER_ENABLED: featureFlag(false),
 })
 

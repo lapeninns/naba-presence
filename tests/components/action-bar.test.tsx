@@ -20,6 +20,7 @@ function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
   return {
     review: {
       id: "rev-1", reviewerDisplayName: "Sam", reviewerIsAnonymous: false,
+      reviewerProfilePhotoUrl: null,
       rating: 4, text: "Nice", detectedLanguageCode: "en", languageConfidence: 0.9,
       createTime: "2026-07-30T10:00:00.000Z", updateTime: "2026-07-30T10:00:00.000Z",
       hasMedia: false, workflowStatus: "verified", locationId: "loc-1",
@@ -113,6 +114,99 @@ describe("ActionBar", () => {
     expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
   })
 
+  // A `title` attribute is invisible on touch and to most keyboard and
+  // screen-reader users, so the reason a button is off is now on the page and
+  // wired to the button it explains.
+  it("puts the reason a disabled action is unavailable on the page, not just in a title", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true)
+    const button = screen.getByRole("button", { name: "Publish reply" })
+    const reason = screen.getByText("Save your draft before publishing.")
+    expect(reason).toBeInTheDocument()
+    expect(button).toHaveAttribute("aria-describedby", reason.id)
+  })
+
+  // "Publish" is the wrong verb once something is already on Google.
+  it("calls the primary 'Update reply' once a reply is live", () => {
+    stubHooks(
+      detailWith({
+        drafts: [
+          { id: "d1", source: "human", body: "Thanks so much!", bodyBytes: 15, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T12:00:00.000Z" },
+        ],
+        reply: {
+          id: "reply-1",
+          body: "Thanks!",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      })
+    )
+    renderActionBar()
+    expect(screen.getByRole("button", { name: "Update reply" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Publish reply" })).not.toBeInTheDocument()
+  })
+
+  // Re-sending identical text is a pointless round-trip the domain has no
+  // transition for. The button holds its place — the composer edits the live
+  // words directly, so it comes back the moment they change.
+  it("disables the primary, with a reason, when nothing differs from what is live", () => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "published",
+        drafts: [
+          { id: "d1", source: "ai", body: "Thanks!", bodyBytes: 7, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+        ],
+        reply: {
+          id: "reply-1",
+          body: "Thanks!",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      })
+    )
+    renderActionBar()
+    const button = screen.getByRole("button", { name: "Update reply" })
+    expect(button).toBeDisabled()
+    const reason = screen.getByText("Edit the reply above to publish a change.")
+    expect(button).toHaveAttribute("aria-describedby", reason.id)
+    // Delete is still reachable.
+    expect(screen.getByRole("button", { name: "Review actions" })).toBeInTheDocument()
+  })
+
+  // `replyWork` reads server state, so it still says "settled" while the
+  // composer holds unsaved edits. Telling someone to edit the reply they are
+  // already editing is the wrong instruction.
+  it("asks for a save, not an edit, once the composer is dirty on a live reply", () => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "published",
+        drafts: [
+          { id: "d1", source: "ai", body: "Thanks!", bodyBytes: 7, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+        ],
+        reply: {
+          id: "reply-1",
+          body: "Thanks!",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      })
+    )
+    renderActionBar(true)
+    expect(screen.getByRole("button", { name: "Update reply" })).toBeDisabled()
+    expect(
+      screen.getByText("Save your draft before publishing.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Edit the reply above to publish a change.")
+    ).not.toBeInTheDocument()
+  })
+
   // D2: a non-publisher in an approval-required org sees "Submit for
   // approval" in place of the disabled Publish button, and it reuses the
   // publish mutation (the server routes it to `awaiting_approval`).
@@ -135,11 +229,12 @@ describe("ActionBar", () => {
       draftId: "d1",
       expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
     })
-    await waitFor(() =>
+    await waitFor(() => {
+      expect(screen.getByText("Submitted for approval")).toBeInTheDocument()
       expect(
-        screen.getByText("Reply submitted for approval.")
+        screen.getByText("A manager needs to approve it before it goes live.")
       ).toBeInTheDocument()
-    )
+    })
   })
 
   it("does not offer Submit for approval when the org does not require approval", () => {
@@ -207,7 +302,7 @@ describe("ActionBar", () => {
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
     await waitFor(() =>
-      expect(screen.getByText("Google declined this reply.")).toBeInTheDocument()
+      expect(screen.getByText("Google declined this reply")).toBeInTheDocument()
     )
     expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
   })

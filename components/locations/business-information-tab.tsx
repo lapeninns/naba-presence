@@ -36,7 +36,7 @@ import {
 import { businessInformationPayloadSchema } from "@/lib/domain/business-information"
 import { describeActionError } from "@/lib/locations/action-errors"
 import { categoryLabel, openStatusLabel } from "@/lib/locations/console-labels"
-import { editDisabledReason, publishDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
+import { editDisabledReason, resourceDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useBusinessInformation, useBusinessInformationMetadata } from "@/lib/queries/use-location-business-information"
@@ -372,7 +372,9 @@ function BusinessInformationTabLoaded({
   }, [initialAttributes, state.attributesHash])
 
   const editReason = editDisabledReason(caps)
-  const publishReason = editReason ?? publishDisabledReason(caps, state.writesEnabled)
+  const publishReason =
+    editReason ??
+    resourceDisabledReason(caps, "businessInformation", state.writesEnabled)
   const disabled = Boolean(editReason)
 
   const locationUpdate = useMemo(() => buildLocationUpdate(initial, draft), [initial, draft])
@@ -454,11 +456,13 @@ function BusinessInformationTabLoaded({
   return (
     <div className="flex flex-col gap-8">
       <p className="text-caption text-muted-foreground">
-        These details also sync via the{" "}
+        Categories, attributes, address, and open status are managed here and
+        publish straight to Google. Core name, phone, website, and description
+        also sync via the{" "}
         <Link href={`/locations/${locationId}`} className="underline">
           Profile tab
         </Link>
-        , which keeps them in step with NabaPresence.
+        , which keeps the NabaPresence copy in step.
       </p>
 
       <GateNote reason={editReason} />

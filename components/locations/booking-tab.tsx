@@ -21,7 +21,7 @@ import {
   type PlaceActionsState,
 } from "@/lib/api/location-booking"
 import { describeActionError } from "@/lib/locations/action-errors"
-import { publishDisabledReason } from "@/lib/locations/gating"
+import { resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
@@ -69,7 +69,7 @@ function BookingTabLoaded({
   const [preferred, setPreferred] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<PlaceActionLink | null>(null)
 
-  const writeReason = publishDisabledReason(caps, state.writesEnabled)
+  const writeReason = resourceDisabledReason(caps, "booking", state.writesEnabled)
   const disabled = Boolean(writeReason)
 
   const add = useMutation({

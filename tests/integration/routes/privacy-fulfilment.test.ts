@@ -165,6 +165,12 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       text: null,
       rawPayload: null,
     })
+    const [photo] = await admin<{ photo: string | null }[]>`
+      select reviewer_profile_photo_url as photo
+      from review
+      where id = ${fixture.review.reviewId}
+    `
+    expect(photo.photo).toBeNull()
     const [{ mediaCount }] = await admin<{ mediaCount: number }[]>`
       select count(*)::integer as "mediaCount"
       from review_media_item

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fetchLocationCapabilities, fetchManagementLocations } from "@/lib/api/locations"
 import { saveHours } from "@/lib/api/location-hours"
-import { uploadMediaFile } from "@/lib/api/location-media"
+import { fetchMedia, uploadMediaFile } from "@/lib/api/location-media"
 import { publishPost, updatePost } from "@/lib/api/location-posts"
 
 function jsonResponse(body: unknown, status = 200) {
@@ -29,11 +29,81 @@ describe("locations directory + capabilities clients", () => {
 
   it("fetchLocationCapabilities parses the capability envelope", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ capabilities: { canEditCanonical: false, canPublish: true } })))
-    expect(await fetchLocationCapabilities("loc-1")).toEqual({ canEditCanonical: false, canPublish: true })
+    expect(await fetchLocationCapabilities("loc-1")).toEqual({
+      canEditCanonical: false,
+      canPublish: true,
+      resources: {},
+    })
   })
 })
 
 describe("tab mutation clients", () => {
+  it("defaults an uncategorised Google customer photo to Additional", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      media: {
+        canPublish: true,
+        writesEnabled: false,
+        categories: ["ADDITIONAL"],
+        items: [{
+          id: "m1",
+          googleMediaName: "accounts/a/locations/l/media/customers/1",
+          ownership: "customer",
+          mediaFormat: "PHOTO",
+          category: null,
+          sourceUrl: null,
+          googleUrl: "https://google.example/customer.jpg",
+          thumbnailUrl: "https://google.example/customer-thumb.jpg",
+          description: null,
+          attribution: null,
+          dimensions: null,
+          insights: null,
+          googleHash: "hash",
+          createTime: "2026-08-04T09:00:00.000Z",
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 12,
+      },
+    })))
+
+    const media = await fetchMedia("loc-1")
+
+    expect(media.items[0]?.category).toBe("ADDITIONAL")
+  })
+
+  it("fetchMedia forwards category and ownership filters", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        media: {
+          canPublish: true,
+          writesEnabled: true,
+          categories: ["INTERIOR"],
+          items: [],
+          total: 0,
+          page: 2,
+          pageSize: 12,
+          category: "INTERIOR",
+          ownership: "merchant",
+        },
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await fetchMedia("loc-1", {
+      page: 2,
+      pageSize: 12,
+      category: "INTERIOR",
+      ownership: "merchant",
+    })
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string, "http://t")
+    expect(url.pathname).toBe("/api/locations/loc-1/media")
+    expect(url.searchParams.get("page")).toBe("2")
+    expect(url.searchParams.get("pageSize")).toBe("12")
+    expect(url.searchParams.get("category")).toBe("INTERIOR")
+    expect(url.searchParams.get("ownership")).toBe("merchant")
+  })
+
   it("saveHours PUTs the revision and hours", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ saved: true, revision: "3" }))
     vi.stubGlobal("fetch", fetchMock)

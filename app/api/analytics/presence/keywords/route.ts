@@ -2,8 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError } from "@/lib/server/http"
+import { apiError } from "@/lib/server/http"
 import { requireSession } from "@/lib/server/session"
 
 const querySchema = z.object({
@@ -27,13 +26,6 @@ type CheckpointRow = { status: string; lastErrorCode: string | null }
 export async function GET(request: Request) {
   try {
     const session = await requireSession()
-    if (!getServerEnv().GBP_KEYWORDS_ENABLED) {
-      throw new ApiError(
-        503,
-        "keywords_paused",
-        "Google search-keyword reporting is paused."
-      )
-    }
     const url = new URL(request.url)
     const query = querySchema.parse({
       range: url.searchParams.get("range") ?? undefined,

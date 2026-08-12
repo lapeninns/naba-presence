@@ -209,7 +209,7 @@ export function googleMediaListRequest(input: {
   customer: boolean
   pageToken?: string
 }) {
-  const params = new URLSearchParams({ pageSize: "2500" })
+  const params = new URLSearchParams({ pageSize: "100" })
   if (input.pageToken) params.set("pageToken", input.pageToken)
   const suffix = input.customer ? "/media/customers" : "/media"
   return {

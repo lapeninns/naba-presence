@@ -1,43 +1,17 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { administrationMutationSchema } from "@/lib/locations/forms/administration"
 import {
   loadLocationAdministration,
   matchGoogleLocations,
   mutateLocationAdministration,
 } from "@/lib/server/location-administration"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { apiError, serverRequestId } from "@/lib/server/http"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const OPERATIONS = [
-  "start_verification", "complete_verification", "create_admin",
-  "update_admin", "delete_admin", "accept_invitation",
-  "decline_invitation", "transfer_location", "create_location",
-  "delete_location", "accept_google_update",
-] as const
-
-const CONFIRMATIONS: Record<(typeof OPERATIONS)[number], string> = {
-  start_verification: "start_google_location_verification",
-  complete_verification: "complete_google_location_verification",
-  create_admin: "invite_google_administrator",
-  update_admin: "change_google_administrator_role",
-  delete_admin: "remove_google_administrator",
-  accept_invitation: "accept_google_invitation",
-  decline_invitation: "decline_google_invitation",
-  transfer_location: "transfer_google_location",
-  create_location: "create_google_location",
-  delete_location: "delete_google_location_permanently",
-  accept_google_update: "accept_google_suggested_update",
-}
-
-const mutationSchema = z.object({
-  operation: z.enum(OPERATIONS),
-  confirmation: z.string(),
-  payload: z.record(z.string(), z.unknown()).default({}),
-})
 
 export async function GET(
   _request: Request,
@@ -64,10 +38,12 @@ export async function POST(
   try {
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const { id } = await params
-    const input = z.object({
-      operation: z.literal("match_location"),
-      location: z.record(z.string(), z.unknown()),
-    }).parse(await request.json())
+    const input = z
+      .object({
+        operation: z.literal("match_location"),
+        location: z.record(z.string(), z.unknown()),
+      })
+      .parse(await request.json())
     return NextResponse.json({
       matches: await matchGoogleLocations({
         session,
@@ -88,14 +64,7 @@ export async function PATCH(
     const rid = serverRequestId(request)
     const session = requireRole(await requireSession(), ["owner", "admin"])
     const { id } = await params
-    const input = mutationSchema.parse(await request.json())
-    if (input.confirmation !== CONFIRMATIONS[input.operation]) {
-      throw new ApiError(
-        400,
-        "administration_confirmation_invalid",
-        "The confirmation does not match the requested Google operation."
-      )
-    }
+    const input = administrationMutationSchema.parse(await request.json())
     return NextResponse.json(
       await mutateLocationAdministration({
         session,

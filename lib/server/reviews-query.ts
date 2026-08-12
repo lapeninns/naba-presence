@@ -40,7 +40,8 @@ export function buildInboxQuery(
       ) as location,
       json_build_object(
         'displayName', r.reviewer_display_name,
-        'isAnonymous', r.reviewer_is_anonymous
+        'isAnonymous', r.reviewer_is_anonymous,
+        'profilePhotoUrl', r.reviewer_profile_photo_url
       ) as reviewer,
       r.star_rating as rating,
       r.review_text as text,

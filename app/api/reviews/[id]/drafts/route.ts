@@ -24,6 +24,8 @@ const inputSchema = z.object({
     .default("warm_professional"),
   languageOverride: z.string().trim().min(2).max(12).nullable().default(null),
   businessContext: z.string().trim().max(2000).nullable().default(null),
+  // Omit body → server generates (AI) or templates (rating-only).
+  // Include body → human save. Generation never runs unless the client omits body.
   body: z.string().trim().min(1).max(4096).optional(),
 })
 

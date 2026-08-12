@@ -31,10 +31,33 @@ describe("ActiveFilterChips", () => {
       />
     )
     expect(screen.getByText("Location: Riverside")).toBeInTheDocument()
-    expect(screen.getByText("Rating: 5")).toBeInTheDocument()
+    expect(screen.getByText("Rating: 5 stars")).toBeInTheDocument()
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
+    expect(screen.getByText("Verification: Failed")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove location filter" }))
     expect(onChange).toHaveBeenCalledWith({ locationId: undefined })
+  })
+
+  it("humanizes multi-value publish and sync chips", () => {
+    render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          locationId: undefined,
+          ratings: [1, 2],
+          search: "",
+          verification: [],
+          publishStatus: ["not_published", "failed"],
+          syncStatus: ["pending"],
+        }}
+        locations={[]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Rating: 1, 2 stars")).toBeInTheDocument()
+    expect(screen.getByText("Publish: Not published, Failed")).toBeInTheDocument()
+    expect(screen.getByText("Sync: Pending")).toBeInTheDocument()
   })
 
   it("offers Clear all when any filter is active", async () => {
@@ -62,5 +85,27 @@ describe("ActiveFilterChips", () => {
       />
     )
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it("formats date ranges and non-default sort as chips", () => {
+    render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          locationId: undefined,
+          ratings: [],
+          search: "",
+          verification: [],
+          dateFrom: "2026-07-09T00:00:00.000Z",
+          dateTo: "2026-07-15T00:00:00.000Z",
+          sort: "rating_asc",
+        }}
+        locations={[]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Date: 9 Jul – 15 Jul")).toBeInTheDocument()
+    expect(screen.getByText("Sort: Lowest rated")).toBeInTheDocument()
   })
 })

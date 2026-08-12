@@ -9,12 +9,16 @@ function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />
 }
 
-function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props) {
+function SelectTrigger({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Trigger.Props) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+        "inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
         className
       )}
       {...props}
@@ -29,7 +33,11 @@ function SelectValue(props: SelectPrimitive.Value.Props) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
-function SelectContent({ className, children, ...props }: SelectPrimitive.Popup.Props) {
+function SelectContent({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Popup.Props) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner sideOffset={6} className="z-50">
@@ -48,7 +56,11 @@ function SelectContent({ className, children, ...props }: SelectPrimitive.Popup.
   )
 }
 
-function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props) {
+function SelectItem({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Item.Props) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"

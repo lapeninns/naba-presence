@@ -23,7 +23,7 @@ async function saveVerifiedDraft(page: Page, reviewId: string, body: string) {
   )
   await page.getByRole("button", { name: "Save draft" }).click()
   expect((await saved).status()).toBe(201)
-  await expect(page.getByText("Passed", { exact: true })).toBeVisible()
+  await expect(page.getByText("Ready to publish", { exact: true })).toBeVisible()
 }
 
 test.describe("inbox critical journeys", () => {
@@ -87,7 +87,7 @@ test.describe("inbox critical journeys", () => {
     await page.getByRole("button", { name: "Publish reply" }).click()
     expect((await requested).status()).toBe(202)
     await expect(
-      page.getByText("Reply submitted for approval.", { exact: true })
+      page.getByText("Submitted for approval", { exact: true })
     ).toBeVisible()
 
     // Approver (owner) — a fresh context; the awaiting-approval tab shows it.

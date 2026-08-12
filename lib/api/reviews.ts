@@ -38,6 +38,7 @@ export const reviewRowSchema = z.object({
   reviewer: z.object({
     displayName: z.string().nullable(),
     isAnonymous: z.boolean(),
+    profilePhotoUrl: z.string().nullable(),
   }),
   rating: z.number().nullable(),
   text: z.string().nullable(),
@@ -70,6 +71,7 @@ export const reviewDetailSchema = z.object({
     id: z.string(),
     reviewerDisplayName: z.string().nullable(),
     reviewerIsAnonymous: z.boolean(),
+    reviewerProfilePhotoUrl: z.string().nullable(),
     rating: z.number().nullable(),
     text: z.string().nullable(),
     detectedLanguageCode: z.string().nullable(),

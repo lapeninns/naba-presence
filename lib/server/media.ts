@@ -24,6 +24,10 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
+import {
+  DEFAULT_MEDIA_PAGE_SIZE,
+  MAX_MEDIA_PAGE_SIZE,
+} from "@/lib/media-page"
 
 export const mediaCreateSchema = z.object({
   mediaFormat: z.enum(["PHOTO", "VIDEO"]),
@@ -130,37 +134,176 @@ async function cacheMedia(
         `
       }
     }
-    return sql`
+  })
+}
+
+/** Serve the DB cache instead of re-listing Google on every Photos view. */
+const MEDIA_CACHE_TTL_MS = 5 * 60 * 1000
+
+type MediaListItem = {
+  id: string
+  googleMediaName: string
+  ownership: string
+  mediaFormat: string
+  category: string | null
+  sourceUrl: string | null
+  googleUrl: string | null
+  thumbnailUrl: string | null
+  description: string | null
+  attribution: unknown
+  dimensions: unknown
+  insights: unknown
+  googleHash: string
+  createTime: string | null
+}
+
+export type MediaOwnershipFilter = "merchant" | "customer"
+
+async function readMediaPage(
+  organisationId: string,
+  locationId: string,
+  page: number,
+  pageSize: number,
+  filters: {
+    category?: GoogleMediaCategory
+    ownership?: MediaOwnershipFilter
+  } = {}
+): Promise<{ items: MediaListItem[]; total: number }> {
+  return withTenant(organisationId, async (sql) => {
+    const categoryFilter = filters.category
+      ? sql`and category = ${filters.category}`
+      : sql``
+    const ownershipFilter = filters.ownership
+      ? sql`and ownership = ${filters.ownership}`
+      : sql``
+    const [countRow] = await sql<{ total: number }[]>`
+      select count(*)::integer as total
+      from gbp_media_item
+      where location_id = ${locationId} and deleted_at is null
+      ${categoryFilter}
+      ${ownershipFilter}
+    `
+    const total = countRow?.total ?? 0
+    const offset = (page - 1) * pageSize
+    const items = await sql<MediaListItem[]>`
       select id::text as id, google_media_name as "googleMediaName",
         ownership, media_format as "mediaFormat", category, source_url as "sourceUrl",
         google_url as "googleUrl", thumbnail_url as "thumbnailUrl", description,
         attribution, dimensions, insights, google_hash as "googleHash",
         google_create_time as "createTime"
-      from gbp_media_item where location_id = ${locationId} and deleted_at is null
+      from gbp_media_item
+      where location_id = ${locationId} and deleted_at is null
+      ${categoryFilter}
+      ${ownershipFilter}
       order by ownership, google_create_time desc nulls last
+      limit ${pageSize} offset ${offset}
     `
+    return { items, total }
   })
 }
 
-export async function loadMedia(organisationId: string, session: Session, locationId: string) {
+async function mediaCacheStatus(organisationId: string, locationId: string) {
+  return withTenant(organisationId, async (sql) => {
+    const [row] = await sql<{ count: number; observedAt: string | null }[]>`
+      select
+        count(*)::integer as count,
+        max(observed_at)::text as "observedAt"
+      from gbp_media_item
+      where location_id = ${locationId} and deleted_at is null
+    `
+    return { count: row?.count ?? 0, observedAt: row?.observedAt ?? null }
+  })
+}
+
+function shouldSyncMediaCache(input: {
+  refresh: boolean
+  count: number
+  observedAt: string | null
+}): boolean {
+  if (input.refresh) return true
+  if (input.count === 0) return true
+  if (!input.observedAt) return true
+  const age = Date.now() - new Date(input.observedAt).getTime()
+  return !Number.isFinite(age) || age > MEDIA_CACHE_TTL_MS
+}
+
+export async function loadMedia(
+  organisationId: string,
+  session: Session,
+  locationId: string,
+  options: {
+    page?: number
+    pageSize?: number
+    refresh?: boolean
+    category?: GoogleMediaCategory
+    ownership?: MediaOwnershipFilter
+  } = {}
+) {
+  const page = Math.max(1, Math.floor(options.page ?? 1))
+  const pageSize = Math.min(
+    MAX_MEDIA_PAGE_SIZE,
+    Math.max(1, Math.floor(options.pageSize ?? DEFAULT_MEDIA_PAGE_SIZE))
+  )
+  const refresh = Boolean(options.refresh)
+  const category = options.category
+  const ownership = options.ownership
+
   const linked = await withTenant(organisationId, (sql) => context(sql, session, locationId))
-  const token = await connectionAccessToken(getDatabase(), organisationId, linked.connectionId)
-  const [merchant, customer] = await Promise.all([
-    googleMediaItems(token, { accountName: linked.accountName, locationName: linked.googleLocationName, customer: false }, { connectionKey: linked.connectionId }),
-    googleMediaItems(token, { accountName: linked.accountName, locationName: linked.googleLocationName, customer: true }, { connectionKey: linked.connectionId }),
-  ])
+  const cache = await mediaCacheStatus(organisationId, locationId)
+
+  if (shouldSyncMediaCache({ refresh, count: cache.count, observedAt: cache.observedAt })) {
+    const token = await connectionAccessToken(
+      getDatabase(),
+      organisationId,
+      linked.connectionId
+    )
+    const [merchant, customer] = await Promise.all([
+      googleMediaItems(
+        token,
+        {
+          accountName: linked.accountName,
+          locationName: linked.googleLocationName,
+          customer: false,
+        },
+        { connectionKey: linked.connectionId }
+      ),
+      googleMediaItems(
+        token,
+        {
+          accountName: linked.accountName,
+          locationName: linked.googleLocationName,
+          customer: true,
+        },
+        { connectionKey: linked.connectionId }
+      ),
+    ])
+    await cacheMedia(organisationId, locationId, linked, merchant, customer)
+  }
+
   const env = getServerEnv()
+  const { items, total } = await readMediaPage(
+    organisationId,
+    locationId,
+    page,
+    pageSize,
+    { category, ownership }
+  )
   return {
     canPublish: linked.canPublish,
-    writesEnabled: env.GBP_MEDIA_ENABLED && env.PUBLISH_ENABLED,
+    writesEnabled: env.PUBLISH_ENABLED,
     categories: GOOGLE_MEDIA_CATEGORIES,
-    items: await cacheMedia(organisationId, locationId, linked, merchant, customer),
+    items,
+    total,
+    page,
+    pageSize,
+    category: category ?? null,
+    ownership: ownership ?? null,
   }
 }
 
 function requireWrite(linked: MediaContext) {
   const env = getServerEnv()
-  if (!env.GBP_MEDIA_ENABLED || !env.PUBLISH_ENABLED) throw new ApiError(503, "media_paused", "Google media writes are paused.")
+  if (!env.PUBLISH_ENABLED) throw new ApiError(503, "media_paused", "Google media writes are paused.")
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
 }
 

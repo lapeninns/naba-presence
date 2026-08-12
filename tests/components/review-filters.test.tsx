@@ -6,7 +6,7 @@ import { ReviewFilters } from "@/components/inbox/review-filters"
 afterEach(() => vi.restoreAllMocks())
 
 describe("ReviewFilters", () => {
-  it("exposes a labelled location combobox and a search box", () => {
+  it("exposes search, sort, and inline rating without a filter dialog", () => {
     render(
       <ReviewFilters
         state={{
@@ -27,6 +27,13 @@ describe("ReviewFilters", () => {
       screen.getByRole("combobox", { name: "Filter by location" })
     ).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "Search reviews" })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "Sort reviews" })).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: "5 stars" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /More filters/ })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Filter by rating" })
+    ).not.toBeInTheDocument()
   })
 
   it("hides the location combobox for a single-location org but keeps a stale filter clearable", () => {

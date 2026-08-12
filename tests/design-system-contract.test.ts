@@ -114,7 +114,9 @@ describe("NabaPresence design system", () => {
       'width === "standard" && "max-w-(--nr-page-max-width)"'
     )
     expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
-    expect(pageFrame).toContain('width === "workspace" && "max-w-none"')
+    expect(pageFrame).toContain(
+      'width === "workspace" && "h-full max-w-none min-h-0 overflow-hidden"'
+    )
   })
 
   // re-enabled as deleted sections are re-admitted to app/design-system/page.tsx

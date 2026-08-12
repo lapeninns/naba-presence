@@ -1,16 +1,18 @@
 "use client"
 
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton"
 import { QUEUES, QUEUE_STATUS_MAP, type Queue } from "@/lib/inbox/url-state"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-const QUEUE_LABELS: Record<Queue, string> = {
-  all: "All reviews",
-  needs_reply: "Needs reply",
-  awaiting_approval: "Awaiting approval",
-  escalated: "Escalated",
-  published: "Published",
+// Short labels fit the narrow list pane; aria-label keeps the full name + count.
+const QUEUE_LABELS: Record<Queue, { short: string; full: string }> = {
+  all: { short: "All", full: "All reviews" },
+  needs_reply: { short: "Needs reply", full: "Needs reply" },
+  awaiting_approval: { short: "Approval", full: "Awaiting approval" },
+  escalated: { short: "Escalated", full: "Escalated" },
+  published: { short: "Published", full: "Published" },
 }
 
 function countFor(
@@ -27,29 +29,42 @@ function QueueTabs({
   queue,
   total,
   byStatus,
+  countsPending = false,
   onQueueChange,
 }: {
   queue: Queue
   total: number
   byStatus: Record<string, number>
+  /** Avoid flashing "0" on every tab while counts are still loading. */
+  countsPending?: boolean
   onQueueChange: (queue: Queue) => void
 }) {
   return (
     <Tabs
       value={queue}
       onValueChange={(value) => onQueueChange(value as Queue)}
+      className="gap-0"
     >
-      <TabsList aria-label="Review queues">
+      <TabsList
+        aria-label="Review queues"
+        className="gap-0.5 p-0.5"
+      >
         {QUEUES.map((item) => {
           const count = countFor(item, total, byStatus)
           const selected = item === queue
+          const labels = QUEUE_LABELS[item]
           return (
             <TabsTab
               key={item}
               value={item}
-              aria-label={`${QUEUE_LABELS[item]}, ${count}`}
+              aria-label={
+                countsPending
+                  ? `${labels.full}, loading count`
+                  : `${labels.full}, ${count}`
+              }
+              className="gap-1 px-2 py-1"
             >
-              <span>{QUEUE_LABELS[item]}</span>
+              <span>{labels.short}</span>
               {/* Selected tab sits on bg-background, so the chip uses the
                   accent tint (Google pale blue / dark tonal container) with
                   accent-foreground text — a measured pair (5.57:1 light,
@@ -57,16 +72,23 @@ function QueueTabs({
                   tint with explicit text-foreground (the inherited
                   muted-foreground on the tint pill measured 4.44:1, just
                   under AA). */}
-              <span
-                className={cn(
-                  "rounded-(--nr-radius-tag) px-1.5 py-px text-caption tabular-nums",
-                  selected
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-muted-foreground/15 text-foreground"
-                )}
-              >
-                {formatNumber(count)}
-              </span>
+              {countsPending ? (
+                <Skeleton
+                  aria-hidden
+                  className="h-4 w-5 rounded-(--nr-radius-tag)"
+                />
+              ) : (
+                <span
+                  className={cn(
+                    "rounded-(--nr-radius-tag) px-1.5 py-px text-caption tabular-nums",
+                    selected
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-muted-foreground/15 text-foreground"
+                  )}
+                >
+                  {formatNumber(count)}
+                </span>
+              )}
             </TabsTab>
           )
         })}

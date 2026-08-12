@@ -9,7 +9,7 @@ const mediaItemSchema = z.object({
   googleMediaName: z.string(),
   ownership: z.enum(["merchant", "customer"]),
   mediaFormat: z.string(),
-  category: z.string(),
+  category: z.string().nullable().transform((category) => category ?? "ADDITIONAL"),
   sourceUrl: z.string().nullable(),
   googleUrl: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
@@ -27,17 +27,41 @@ const mediaStateSchema = z.object({
   writesEnabled: z.boolean(),
   categories: z.array(z.string()),
   items: z.array(mediaItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  category: z.string().nullable().optional(),
+  ownership: z.enum(["merchant", "customer"]).nullable().optional(),
 })
 export type MediaState = z.infer<typeof mediaStateSchema>
 
 export const MEDIA_CATEGORIES = GOOGLE_MEDIA_CATEGORIES
 export type MediaCategory = GoogleMediaCategory
+export type MediaOwnership = "merchant" | "customer"
 
 const mutationResultSchema = z.object({ id: z.string(), status: z.string(), idempotent: z.boolean() })
 export type MediaMutationResult = z.infer<typeof mutationResultSchema>
 
-export function fetchMedia(id: string): Promise<MediaState> {
-  return apiFetch(`/api/locations/${id}/media`, { schema: z.object({ media: mediaStateSchema }) }).then((r) => r.media)
+export function fetchMedia(
+  id: string,
+  params: {
+    page?: number
+    pageSize?: number
+    refresh?: boolean
+    category?: MediaCategory
+    ownership?: MediaOwnership
+  } = {}
+): Promise<MediaState> {
+  const query = new URLSearchParams()
+  if (params.page) query.set("page", String(params.page))
+  if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.refresh) query.set("refresh", "1")
+  if (params.category) query.set("category", params.category)
+  if (params.ownership) query.set("ownership", params.ownership)
+  const suffix = query.size ? `?${query}` : ""
+  return apiFetch(`/api/locations/${id}/media${suffix}`, {
+    schema: z.object({ media: mediaStateSchema }),
+  }).then((r) => r.media)
 }
 
 export function createMediaFromUrl(

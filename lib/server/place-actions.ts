@@ -231,7 +231,7 @@ export async function loadPlaceActions(
   return {
     locationId,
     canPublish: context.canPublish,
-    writesEnabled: env.GBP_PLACE_ACTIONS_ENABLED && env.PUBLISH_ENABLED,
+    writesEnabled: env.PUBLISH_ENABLED,
     supportedTypes: GOOGLE_PLACE_ACTION_TYPES,
     links: live.stored.map((link) => ({
       ...link,
@@ -249,7 +249,7 @@ export async function loadPlaceActions(
 
 function requireWrites(context: PlaceActionContext) {
   const env = getServerEnv()
-  if (!env.GBP_PLACE_ACTIONS_ENABLED || !env.PUBLISH_ENABLED) {
+  if (!env.PUBLISH_ENABLED) {
     throw new ApiError(503, "place_actions_paused", "Place Action writes are paused.")
   }
   if (!context.canPublish) {

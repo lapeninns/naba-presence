@@ -16,7 +16,7 @@ export async function POST(
   context: { params: Promise<{ id: string; postId: string }> }
 ) {
   try {
-    if (!getServerEnv().GBP_POSTS_ENABLED || !getServerEnv().PUBLISH_ENABLED) {
+    if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
     }
     const rid = serverRequestId(request)

@@ -11,9 +11,29 @@ export const queryKeys = {
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
-  locationMedia: (id: string) => ["locations", id, "media"] as const,
+  locationMedia: (
+    id: string,
+    params: {
+      page?: number
+      category?: string | null
+      ownership?: string | null
+    } = {}
+  ) =>
+    [
+      "locations",
+      id,
+      "media",
+      params.page ?? 1,
+      params.category ?? null,
+      params.ownership ?? null,
+    ] as const,
+  locationActivity: (id: string, page = 1) =>
+    ["locations", id, "activity", page] as const,
   locationBooking: (id: string) => ["locations", id, "booking"] as const,
   locationMenu: (id: string) => ["locations", id, "menu"] as const,
+  locationImportReview: (id: string) =>
+    ["locations", id, "import-review"] as const,
+  importReviewCounts: ["import-review-counts"] as const,
   locationPosts: (id: string) => ["locations", id, "posts"] as const,
   locationBusinessInformation: (id: string) =>
     ["locations", id, "business-information"] as const,
@@ -33,6 +53,8 @@ export const queryKeys = {
   invitations: ["invitations"] as const,
   privacyRequests: ["privacy-requests"] as const,
   legalHolds: ["legal-holds"] as const,
+  operationsHealth: ["operations-health"] as const,
+  webhookFailures: ["webhook-failures"] as const,
   googleAccounts: (connectionId: string | null) =>
     ["google-accounts", connectionId] as const,
   googleLocations: (accountName: string | null) =>

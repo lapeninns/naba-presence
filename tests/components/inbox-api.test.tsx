@@ -17,7 +17,7 @@ function jsonResponse(body: unknown, status = 200) {
 const rowFixture = {
   id: "rev-1",
   location: { id: "loc-1", name: "Riverside" },
-  reviewer: { displayName: "Sam", isAnonymous: false },
+  reviewer: { displayName: "Sam", isAnonymous: false, profilePhotoUrl: null },
   rating: 5,
   text: "Lovely stay",
   detectedLanguageCode: "en",
@@ -105,6 +105,7 @@ describe("fetchReviewDetail", () => {
             id: "rev-1",
             reviewerDisplayName: "Sam",
             reviewerIsAnonymous: false,
+            reviewerProfilePhotoUrl: null,
             rating: 2,
             text: "Slow service",
             detectedLanguageCode: "en",
@@ -178,13 +179,13 @@ describe("fetchReviewDetail", () => {
 })
 
 describe("draft, publish, approval, reply, locations clients", () => {
-  it("generateOrSaveDraft omits body for a regenerate and posts it for an edit", async () => {
+  it("generateOrSaveDraft posts a human body", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(
         {
           draftId: "d2",
-          body: "Regenerated",
-          bodyBytes: 11,
+          body: "Edited reply",
+          bodyBytes: 12,
           evidenceHash: "h2",
           verification: { id: "v2", verdict: "pass", reasons: [] },
         },
@@ -192,13 +193,8 @@ describe("draft, publish, approval, reply, locations clients", () => {
       )
     )
     vi.stubGlobal("fetch", fetchMock)
-    await generateOrSaveDraft("rev-1", { tone: "concise" })
-    let init = fetchMock.mock.calls[0][1] as RequestInit
-    expect(JSON.parse(init.body as string)).toEqual({ tone: "concise" })
-
-    fetchMock.mockClear()
     await generateOrSaveDraft("rev-1", { body: "Edited reply" })
-    init = fetchMock.mock.calls[0][1] as RequestInit
+    const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(JSON.parse(init.body as string)).toEqual({ body: "Edited reply" })
   })
 

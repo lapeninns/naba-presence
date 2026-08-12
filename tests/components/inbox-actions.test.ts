@@ -52,12 +52,14 @@ describe("describeOutcomeToast", () => {
   it("shows success copy for an actually-published outcome", () => {
     expect(describeOutcomeToast("published")).toEqual({
       title: "Reply published",
+      description: "It is live on Google now.",
       type: "success",
     })
   })
   it("shows the awaiting-approval copy, not success", () => {
     expect(describeOutcomeToast("awaiting_approval")).toEqual({
-      title: "Reply submitted for approval.",
+      title: "Submitted for approval",
+      description: "A manager needs to approve it before it goes live.",
       type: "info",
     })
   })
@@ -68,7 +70,8 @@ describe("describeOutcomeToast", () => {
   })
   it("shows success copy when a reject decision returns the reply to draft", () => {
     expect(describeOutcomeToast("returned_to_draft")).toEqual({
-      title: "Reply returned to draft.",
+      title: "Reply sent back for edits",
+      description: "The author can revise it and submit again.",
       type: "success",
     })
   })

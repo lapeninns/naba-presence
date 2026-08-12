@@ -3,6 +3,14 @@
 import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  formatDateRangeChip,
+  formatPublishStatusChip,
+  formatRatingsChip,
+  formatSortChip,
+  formatSyncStatusChip,
+  formatVerificationChip,
+} from "@/lib/inbox/filter-labels"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
 
 // Structural, not the wire schema's LocationEntry: the filter UI reads a name
@@ -26,7 +34,7 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   }
   if (state.ratings.length) {
     chips.push({
-      label: `Rating: ${state.ratings.join(", ")}`,
+      label: formatRatingsChip(state.ratings),
       removeLabel: "Remove rating filter",
       clear: { ratings: [] },
     })
@@ -40,37 +48,44 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   }
   if (state.replyState) {
     chips.push({
-      label: `Reply: ${state.replyState === "replied" ? "Replied" : "Not replied"}`,
+      label: `Reply: ${state.replyState === "replied" ? "Replied" : "Unreplied"}`,
       removeLabel: "Remove reply-state filter",
       clear: { replyState: undefined },
     })
   }
   if (state.verification.length) {
     chips.push({
-      label: `Verification: ${state.verification.join(", ")}`,
+      label: formatVerificationChip(state.verification),
       removeLabel: "Remove verification filter",
       clear: { verification: [] },
     })
   }
   if (state.publishStatus.length) {
     chips.push({
-      label: `Publish: ${state.publishStatus.join(", ")}`,
+      label: formatPublishStatusChip(state.publishStatus),
       removeLabel: "Remove publish-status filter",
       clear: { publishStatus: [] },
     })
   }
   if (state.syncStatus.length) {
     chips.push({
-      label: `Sync: ${state.syncStatus.join(", ")}`,
+      label: formatSyncStatusChip(state.syncStatus),
       removeLabel: "Remove sync-status filter",
       clear: { syncStatus: [] },
     })
   }
   if (state.dateFrom || state.dateTo) {
     chips.push({
-      label: "Date range",
+      label: formatDateRangeChip(state.dateFrom, state.dateTo),
       removeLabel: "Remove date filter",
       clear: { dateFrom: undefined, dateTo: undefined },
+    })
+  }
+  if (state.sort && state.sort !== "updated_desc") {
+    chips.push({
+      label: formatSortChip(state.sort),
+      removeLabel: "Remove sort",
+      clear: { sort: "updated_desc" },
     })
   }
   return chips

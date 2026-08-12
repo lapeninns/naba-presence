@@ -25,6 +25,7 @@ export async function POST(request: Request) {
           r.google_review_id_ciphertext as "googleReviewIdCiphertext",
           r.reviewer_display_name as "reviewerDisplayName",
           r.reviewer_is_anonymous as "reviewerIsAnonymous",
+          r.reviewer_profile_photo_url as "reviewerProfilePhotoUrl",
           r.star_rating as rating,
           r.review_text as text,
           r.create_time as "createTime",

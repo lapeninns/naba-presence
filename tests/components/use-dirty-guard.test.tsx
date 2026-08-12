@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react"
+import { renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
@@ -25,18 +25,41 @@ describe("useDirtyGuard", () => {
     expect(takeStashedDraft("inbox:reply:rev-1")).toBe("hello")
   })
 
-  it("confirmDiscard is true when clean and defers to window.confirm when dirty", () => {
+  it("confirmDiscard is true when clean and asks when dirty", async () => {
+    const askConfirm = vi.fn().mockResolvedValue(false)
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+
     const clean = renderHook(() =>
-      useDirtyGuard({ key: "k", isDirty: false, snapshot: () => "x" })
+      useDirtyGuard({
+        key: "k",
+        isDirty: false,
+        snapshot: () => "x",
+        askConfirm,
+      })
     )
-    expect(clean.result.current.confirmDiscard()).toBe(true)
+    await expect(clean.result.current.confirmDiscard()).resolves.toBe(true)
+    expect(askConfirm).not.toHaveBeenCalled()
     expect(confirmSpy).not.toHaveBeenCalled()
 
     const dirty = renderHook(() =>
-      useDirtyGuard({ key: "k2", isDirty: true, snapshot: () => "x" })
+      useDirtyGuard({
+        key: "k2",
+        isDirty: true,
+        snapshot: () => "x",
+        askConfirm,
+      })
     )
-    expect(dirty.result.current.confirmDiscard()).toBe(false)
+    await expect(dirty.result.current.confirmDiscard()).resolves.toBe(false)
+    expect(askConfirm).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it("falls back to window.confirm when no askConfirm is provided", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const dirty = renderHook(() =>
+      useDirtyGuard({ key: "k2b", isDirty: true, snapshot: () => "x" })
+    )
+    await expect(dirty.result.current.confirmDiscard()).resolves.toBe(true)
     expect(confirmSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -64,5 +87,26 @@ describe("useDirtyGuard", () => {
     )
     expect(result.current.restore()).toBe("recovered")
     expect(result.current.restore()).toBeNull()
+  })
+
+  it("picks up a newly provided askConfirm without remounting", async () => {
+    const first = vi.fn().mockResolvedValue(false)
+    const second = vi.fn().mockResolvedValue(true)
+    const { result, rerender } = renderHook(
+      ({ askConfirm }: { askConfirm: () => Promise<boolean> }) =>
+        useDirtyGuard({
+          key: "k4",
+          isDirty: true,
+          snapshot: () => "x",
+          askConfirm,
+        }),
+      { initialProps: { askConfirm: first } }
+    )
+    await expect(result.current.confirmDiscard()).resolves.toBe(false)
+    rerender({ askConfirm: second })
+    await waitFor(async () => {
+      await expect(result.current.confirmDiscard()).resolves.toBe(true)
+    })
+    expect(second).toHaveBeenCalled()
   })
 })

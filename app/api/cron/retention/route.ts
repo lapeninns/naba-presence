@@ -167,6 +167,18 @@ async function retain(request: Request) {
           delete from food_menus_sync_attempt where expires_at <= now()
           returning id
         `
+        const importProposals = await sql`
+          delete from presence_import_proposal where expires_at <= now()
+          returning id
+        `
+        // Belt-and-braces: a crash between claim and mark strands a proposal
+        // in processing; fail it after 15 minutes so the identity unlocks.
+        const strandedProposals = await sql`
+          update presence_import_proposal
+          set status = 'failed', failure_code = 'proposal_apply_failed', decided_at = now()
+          where status = 'processing' and updated_at <= now() - interval '15 minutes'
+          returning id
+        `
         const counts = {
           auditLogs: auditLogs.count,
           media: media.count,
@@ -186,6 +198,8 @@ async function retain(request: Request) {
           googleMediaPayloads: googleMediaPayloads.count,
           foodMenuStates: foodMenuStates.count,
           foodMenuAttempts: foodMenuAttempts.count,
+          importProposals: importProposals.count,
+          strandedProposals: strandedProposals.count,
         }
         if (Object.values(counts).some((count) => count > 0)) {
           await writeAudit(sql, {

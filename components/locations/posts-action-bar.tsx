@@ -7,7 +7,7 @@ import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm
 import { Button, buttonVariants } from "@/components/ui/button"
 import { decidePostApproval, deletePost, publishPost, type Post } from "@/lib/api/location-posts"
 import { describeActionError } from "@/lib/locations/action-errors"
-import { publishDisabledReason } from "@/lib/locations/gating"
+import { resourceDisabledReason } from "@/lib/locations/gating"
 
 function describePublishOutcome(status: string) {
   return status === "awaiting_approval"
@@ -59,15 +59,18 @@ export function PostsActionBar({
     onError: (error) => toast(describeActionError(error), "error"),
   })
 
-  // Every posts mutation 503s when posts are paused (GBP_POSTS_ENABLED off), so
+  // Posts publish/approve/delete 503 when PUBLISH_ENABLED is off, so
   // gate every control on writesEnabled; live actions additionally need canPublish.
-  const pausedReason = writesEnabled ? null : "Google posts are currently paused."
-  const publishReason = pausedReason
-  const approveReason = publishDisabledReason(caps, writesEnabled)
+  const pausedReason = writesEnabled ? null : "Publishing to Google is currently unavailable."
+  const publishReason =
+    pausedReason ?? resourceDisabledReason(caps, "posts", writesEnabled)
+  const approveReason = resourceDisabledReason(caps, "posts", writesEnabled)
   const rejectReason = pausedReason
   // Deleting a live (published) post needs publish permission; a draft delete
   // still 503s when paused, so it is gated on writesEnabled too.
-  const deleteReason = post.googlePostName ? publishDisabledReason(caps, writesEnabled) : pausedReason
+  const deleteReason = post.googlePostName
+    ? resourceDisabledReason(caps, "posts", writesEnabled)
+    : pausedReason
 
   return (
     <div className="flex flex-wrap items-center gap-2">

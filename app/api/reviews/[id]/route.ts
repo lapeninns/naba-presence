@@ -20,6 +20,7 @@ export async function GET(
           r.id::text as id,
           r.reviewer_display_name as "reviewerDisplayName",
           r.reviewer_is_anonymous as "reviewerIsAnonymous",
+          r.reviewer_profile_photo_url as "reviewerProfilePhotoUrl",
           r.star_rating as rating,
           r.review_text as text,
           r.detected_language_code as "detectedLanguageCode",

@@ -23,6 +23,7 @@ export function OverwriteConfirmDialog({
   acknowledgementLabel,
   pending,
   onConfirm,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -33,6 +34,8 @@ export function OverwriteConfirmDialog({
   acknowledgementLabel?: string
   pending: boolean
   onConfirm: () => void
+  /** Optional preview content rendered between the description and controls. */
+  children?: React.ReactNode
 }) {
   const [ack, setAck] = useState(false)
   return (
@@ -46,6 +49,7 @@ export function OverwriteConfirmDialog({
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
+        {children}
         {requireAcknowledgement ? (
           <label className="flex items-start gap-2 text-ui">
             {/* Base UI's Checkbox auto-wires aria-labelledby to a wrapping

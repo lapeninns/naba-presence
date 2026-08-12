@@ -16,6 +16,7 @@ import { signOut } from "@/lib/api/auth"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 
 import { Nav } from "./nav"
+import { ReconnectBanner } from "./reconnect-banner"
 import { StatusChip } from "./status-chip"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -172,7 +173,10 @@ function AppShell({
   const displayName = session?.displayName ?? "Account"
 
   return (
-    <div className="min-h-svh md:flex">
+    // `h-svh` (not `min-h-svh`): the shell is viewport-locked so expanding
+    // content (e.g. inbox Activity) scrolls inside its pane instead of
+    // stretching the nav sidebar along with the page.
+    <div className="h-svh md:flex">
       <a
         href="#main"
         className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-3 focus-visible:left-3 focus-visible:z-50 focus-visible:rounded-(--nr-radius-control) focus-visible:bg-primary focus-visible:px-3 focus-visible:py-2 focus-visible:text-ui focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
@@ -227,7 +231,7 @@ function AppShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 px-5 md:px-(--nr-page-pad-x)">
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetTrigger
@@ -268,8 +272,13 @@ function AppShell({
         </header>
 
         {sessionReady ? <ConnectionAnnouncer /> : null}
+        {sessionReady ? <ReconnectBanner /> : null}
 
-        {sessionReady ? children : null}
+        {/* Scroll here for ordinary pages; workspace frames (`h-full`) fill
+            this box and scroll internally so the nav sidebar never grows. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {sessionReady ? children : null}
+        </div>
       </div>
     </div>
   )

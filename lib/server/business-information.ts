@@ -49,8 +49,7 @@ const READ_MASK = [
 ] as const
 
 function writesEnabled() {
-  const env = getServerEnv()
-  return env.PUBLISH_ENABLED && env.GBP_PROFILE_WRITES_ENABLED
+  return getServerEnv().PUBLISH_ENABLED
 }
 
 function errorCode(error: unknown, fallback: string) {

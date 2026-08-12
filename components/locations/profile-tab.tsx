@@ -1,9 +1,11 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { CanonicalDiff, type DiffStatus } from "@/components/locations/canonical-diff"
+import { ImportReviewPanel } from "@/components/locations/import-review-panel"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
@@ -122,18 +124,14 @@ function ProfileTabLoaded({
   useDirtyGuard({ key: `location-profile-${locationId}`, isDirty, snapshot: () => JSON.stringify(values) })
 
   const [publishOpen, setPublishOpen] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
 
   // Derived before the mutations that close over them (no use-before-define).
-  // Publish (to Google) only pushes the bidirectional fields; import (from
-  // Google) may pull any non-read-only field, incl. import_only ones the server
-  // permits (address / mapsUrl / reviewUrl) — see profile.ts assertSelectedFields.
+  // Publish (to Google) only pushes the bidirectional fields. Import (from
+  // Google) is handled per-field by the ImportReviewPanel suggestions queue,
+  // which replaced the all-or-nothing bulk import button (the API remains).
   const driftedEditable = profile.fields.filter((f) => EDITABLE.includes(f.key) && f.status !== "in_sync")
-  const driftedImport = profile.fields.filter((f) => f.policy !== "google_read_only" && f.status !== "in_sync")
   const publishFields = driftedEditable.map((f) => f.key)
-  const importFields = driftedImport.map((f) => f.key)
   const publishNeedsAck = driftedEditable.some((f) => f.status === "google_dirty" || f.status === "conflict")
-  const importNeedsAck = driftedImport.some((f) => f.status === "core_dirty" || f.status === "conflict")
 
   const save = useMutation({
     mutationFn: (input: { expectedCanonicalRevision: string; values: ReturnType<typeof toProfileValues> }) => saveProfile(locationId, input),
@@ -170,25 +168,6 @@ function ProfileTabLoaded({
     onError: (error) => toast(describeActionError(error), "error"),
   })
 
-  const importOp = useMutation({
-    mutationFn: (confirmOverwrite: boolean) =>
-      runProfileOperation(locationId, {
-        direction: "from_google",
-        confirmation: "import_google_profile_to_nabapresence",
-        selectedFields: importFields,
-        expectedCanonicalRevision: revision,
-        expectedCanonicalHash: profile.canonicalHash,
-        expectedGoogleHash: profile.googleHash,
-        confirmOverwriteCanonicalChanges: confirmOverwrite,
-      }),
-    onSuccess: () => {
-      setImportOpen(false)
-      invalidate()
-      toast("Imported details from Google", "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
-  })
-
   function submit() {
     const parsed = profileFormSchema.safeParse(values)
     if (!parsed.success) {
@@ -208,7 +187,6 @@ function ProfileTabLoaded({
   // Profile publish/import are owner/admin-gated at the route, so they use the
   // edit gate rather than the publish gate; publish also needs Google writes on.
   const publishReason = editReason ?? (!profile.googleWritesEnabled ? "Publishing to Google is currently unavailable." : publishFields.length === 0 ? "Everything is already in sync with Google." : null)
-  const importReason = editReason ?? (importFields.length === 0 ? "There are no Google changes to import." : null)
 
   const diffRows = profile.fields.map((f) => ({
     key: f.key,
@@ -220,10 +198,26 @@ function ProfileTabLoaded({
 
   return (
     <div className="flex flex-col gap-6">
+      <p className="text-caption text-muted-foreground">
+        Core identity fields live here and sync with NabaPresence. For categories,
+        attributes, address details, and open status, use{" "}
+        <Link href={`/locations/${locationId}/business-information`} className="underline">
+          Business information
+        </Link>
+        .
+      </p>
+
       <section className="flex flex-col gap-3">
         <h2 className="text-title font-semibold">NabaPresence vs Google</h2>
         <CanonicalDiff rows={diffRows} />
       </section>
+
+      <ImportReviewPanel
+        locationId={locationId}
+        resourceType="profile"
+        canonicalRevision={revision}
+        editDisabledReason={editReason}
+      />
 
       <section className="flex max-w-xl flex-col gap-4">
         <h2 className="text-title font-semibold">Edit details</h2>
@@ -261,9 +255,6 @@ function ProfileTabLoaded({
           <Button variant="outline" onClick={() => setPublishOpen(true)} disabled={Boolean(publishReason) || publish.isPending}>
             Publish to Google
           </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)} disabled={Boolean(importReason) || importOp.isPending}>
-            Import from Google
-          </Button>
         </div>
         {/* Deviation from the brief's reference impl (test wins, see task-5
             report): when editReason is set, publishReason === editReason
@@ -286,17 +277,6 @@ function ProfileTabLoaded({
         acknowledgementLabel="Google changed some of these fields independently. Overwrite them with your NabaPresence details."
         pending={publish.isPending}
         onConfirm={() => publish.mutate(publishNeedsAck)}
-      />
-      <OverwriteConfirmDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        title="Import these details from Google?"
-        description={`This replaces ${importFields.map((k) => FIELD_LABELS[k]).join(", ")} in NabaPresence with the values from Google.`}
-        confirmLabel="Import"
-        requireAcknowledgement={importNeedsAck}
-        acknowledgementLabel="You have unsaved NabaPresence changes to some of these fields. Overwrite them with Google’s values."
-        pending={importOp.isPending}
-        onConfirm={() => importOp.mutate(importNeedsAck)}
       />
     </div>
   )

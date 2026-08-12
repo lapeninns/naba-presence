@@ -35,7 +35,7 @@ import {
 import { describeActionError } from "@/lib/locations/action-errors"
 import { adminRoleLabel, verificationMethodLabel, verificationStateLabel } from "@/lib/locations/console-labels"
 import { createAdminSchema, transferLocationSchema, updateAdminSchema } from "@/lib/locations/forms/administration"
-import { editDisabledReason, publishDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
+import { editDisabledReason, resourceDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useAdministration } from "@/lib/queries/use-location-administration"
@@ -154,7 +154,9 @@ function AdministrationTabLoaded({
   toast: ToastFn
 }) {
   const editReason = editDisabledReason(caps)
-  const publishReason = editReason ?? publishDisabledReason(caps, state.writesEnabled)
+  const publishReason =
+    editReason ??
+    resourceDisabledReason(caps, "administration", state.writesEnabled)
   const disabled = Boolean(editReason)
 
   return (

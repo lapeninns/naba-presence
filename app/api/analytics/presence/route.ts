@@ -6,7 +6,6 @@ import {
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
 import { withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
 import { apiError } from "@/lib/server/http"
 import { requireSession } from "@/lib/server/session"
 
@@ -29,7 +28,6 @@ type CheckpointRow = { status: string; lastErrorCode: string | null }
 export async function GET(request: Request) {
   try {
     const session = await requireSession()
-    const env = getServerEnv()
     const url = new URL(request.url)
     const query = querySchema.parse({
       range: url.searchParams.get("range") ?? undefined,
@@ -140,8 +138,8 @@ export async function GET(request: Request) {
             .filter((value): value is string => Boolean(value))
         )
       ),
-      keywordsEnabled: env.GBP_KEYWORDS_ENABLED,
-      ingestionEnabled: env.GBP_PERFORMANCE_ENABLED,
+      keywordsEnabled: true,
+      ingestionEnabled: true,
     })
   } catch (error) {
     return apiError(error)

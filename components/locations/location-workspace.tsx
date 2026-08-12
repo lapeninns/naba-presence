@@ -3,6 +3,7 @@
 import { notFound, usePathname } from "next/navigation"
 
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
+import { LocationActivityPanel } from "@/components/locations/activity-panel"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { Badge } from "@/components/ui/badge"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
@@ -94,7 +95,10 @@ export function LocationWorkspace({
       ) : null}
 
       <LocationTabNav locationId={locationId} canManageConsoles={canManageConsoles} />
-      {children}
+      <div className="flex flex-col gap-8">
+        {children}
+        <LocationActivityPanel locationId={locationId} />
+      </div>
     </PageFrame>
   )
 }

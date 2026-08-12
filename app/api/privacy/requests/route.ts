@@ -197,6 +197,7 @@ export async function PATCH(request: Request) {
               update review
               set
                 reviewer_display_name = 'Removed reviewer',
+                reviewer_profile_photo_url = null,
                 review_text = null,
                 raw_payload = null
               where id in ${sql(reviewIds)}

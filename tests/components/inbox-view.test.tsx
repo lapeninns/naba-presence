@@ -31,7 +31,7 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",
     location: { id: "loc-1", name: "Riverside" },
-    reviewer: { displayName: "Sam Traveller", isAnonymous: false },
+    reviewer: { displayName: "Sam Traveller", isAnonymous: false, profilePhotoUrl: null },
     rating: 4,
     text: "Great stay, would return.",
     detectedLanguageCode: "en",
@@ -59,6 +59,7 @@ function reviewDetail(): ReviewDetailData {
       id: "rev-1",
       reviewerDisplayName: "Sam Traveller",
       reviewerIsAnonymous: false,
+      reviewerProfilePhotoUrl: null,
       rating: 4,
       text: "Great stay, would return.",
       detectedLanguageCode: "en",
@@ -169,56 +170,57 @@ async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
 
 // Each of these nav affordances drops `selected` from the URL, which would
 // unmount the (dirty) composer — Task 6 fix round 1: every one must gate
-// through the same dirtyGate() used by onSelect, prompting window.confirm
-// and aborting on "Cancel" so the edit and the selection both survive.
+// through the same dirtyGate() used by onSelect, prompting the discard
+// AlertDialog and aborting on "Keep editing" so the edit and the selection
+// both survive.
 describe("InboxView — dirty-guard gates nav that clears the selection", () => {
   it("gates a filter change (removing the active rating chip)", async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
     renderInbox()
     const textbox = await dirtyComposer(user)
 
     await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    confirmSpy.mockReturnValue(true)
     await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
+    await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
 
   it("gates a queue change", async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
     renderInbox()
     const textbox = await dirtyComposer(user)
 
     await user.click(screen.getByRole("tab", { name: /Needs reply/ }))
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    confirmSpy.mockReturnValue(true)
     await user.click(screen.getByRole("tab", { name: /Needs reply/ }))
+    await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
 
   it("gates 'Back to reviews'", async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
     renderInbox()
     const textbox = await dirtyComposer(user)
 
     await user.click(screen.getByRole("button", { name: "Back to reviews" }))
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    confirmSpy.mockReturnValue(true)
     await user.click(screen.getByRole("button", { name: "Back to reviews" }))
+    await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
@@ -228,17 +230,17 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
   // selection exactly like the explicit `selected: undefined` handlers.
   it("gates 'Clear all filters'", async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
     renderInbox()
     const textbox = await dirtyComposer(user)
 
     await user.click(screen.getByRole("button", { name: "Clear all filters" }))
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    confirmSpy.mockReturnValue(true)
     await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })

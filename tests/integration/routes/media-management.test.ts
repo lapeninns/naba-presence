@@ -144,7 +144,7 @@ describeDatabase("Google media management", () => {
     expect(create.status, await create.clone().text()).toBe(201)
     expect(await create.json()).toMatchObject({ status: "succeeded" })
 
-    const afterCreate = await fetch(base, {
+    const afterCreate = await fetch(`${base}?refresh=1`, {
       headers: { cookie: owner.cookie },
     })
     const merchantItem = (await afterCreate.json()).media.items.find(
@@ -178,7 +178,7 @@ describeDatabase("Google media management", () => {
     })
     expect(update.status, await update.clone().text()).toBe(200)
 
-    const afterUpdate = await fetch(base, {
+    const afterUpdate = await fetch(`${base}?refresh=1`, {
       headers: { cookie: owner.cookie },
     })
     const updated = (await afterUpdate.json()).media.items.find(
@@ -196,7 +196,9 @@ describeDatabase("Google media management", () => {
     })
     expect(remove.status, await remove.clone().text()).toBe(200)
 
-    const final = await fetch(base, { headers: { cookie: owner.cookie } })
+    const final = await fetch(`${base}?refresh=1`, {
+      headers: { cookie: owner.cookie },
+    })
     expect((await final.json()).media.items).toMatchObject([
       { ownership: "customer" },
     ])

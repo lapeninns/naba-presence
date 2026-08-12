@@ -248,7 +248,7 @@ export async function listLocalPosts(
   const env = getServerEnv()
   return {
     posts,
-    writesEnabled: env.GBP_POSTS_ENABLED && env.PUBLISH_ENABLED,
+    writesEnabled: env.PUBLISH_ENABLED,
     reconciliationError,
   }
 }

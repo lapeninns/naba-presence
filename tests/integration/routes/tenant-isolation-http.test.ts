@@ -73,7 +73,10 @@ describeDatabase("route tenant isolation", () => {
           cookie: tenantA.cookie,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tone: "warm_professional" }),
+        body: JSON.stringify({
+          tone: "warm_professional",
+          body: "Thanks for your review.",
+        }),
       }
     )
     expect(response.status).toBe(404)

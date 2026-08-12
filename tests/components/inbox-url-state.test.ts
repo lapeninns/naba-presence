@@ -26,6 +26,11 @@ describe("inbox url state", () => {
     expect(hasActiveFilters(state)).toBe(true)
   })
 
+  it("treats a non-default sort as an active filter", () => {
+    const state = parseInboxState(new URLSearchParams("sort=rating_asc"))
+    expect(hasActiveFilters(state)).toBe(true)
+  })
+
   it("parses every param including comma lists", () => {
     const state = parseInboxState(
       new URLSearchParams(

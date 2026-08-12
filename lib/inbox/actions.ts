@@ -24,21 +24,31 @@ export function evaluatePublish(input: {
       reason: "You do not have permission to publish for this location.",
     }
   }
+  // Draft-first ordering. Every condition below must pass either way, so this
+  // does not change WHETHER the action is available — only which reason gets
+  // reported. A brand-new review fails the transition guard AND has no draft;
+  // "save and verify a draft" is the one an operator can act on, and since
+  // the reason is now rendered on the page rather than hidden in a `title`, an
+  // unhelpful one is a visible dead end.
+  if (!input.hasVerifiedDraft) {
+    return {
+      enabled: false,
+      reason: "Save and verify a draft before publishing.",
+    }
+  }
+  // Ahead of the transition guard for the same reason: an edited reply on an
+  // already-published review fails BOTH checks, and saving is what moves it to
+  // `drafted` and opens the path. "Cannot be published from its current
+  // status" would be a true statement and a dead end.
+  if (input.isDirty) {
+    return { enabled: false, reason: "Save your draft before publishing." }
+  }
   const state = asState(input.status)
   if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
     return {
       enabled: false,
       reason: "This reply cannot be published from its current status.",
     }
-  }
-  if (!input.hasVerifiedDraft) {
-    return {
-      enabled: false,
-      reason: "Generate and verify a draft before publishing.",
-    }
-  }
-  if (input.isDirty) {
-    return { enabled: false, reason: "Save your draft before publishing." }
   }
   return { enabled: true }
 }
@@ -57,11 +67,12 @@ export function evaluateRequestApproval(input: {
   isDirty: boolean
 }): ActionAvailability {
   if (!input.canRequestApproval) return { enabled: false }
-  const state = asState(input.status)
-  if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
+  // Draft-first, for the same reason as evaluatePublish above: the reason is
+  // shown to the operator, so the actionable one wins when several apply.
+  if (!input.hasVerifiedDraft) {
     return {
       enabled: false,
-      reason: "This reply cannot be submitted for approval from its current status.",
+      reason: "Verify a draft before submitting it for approval.",
     }
   }
   if (input.isDirty) {
@@ -70,10 +81,11 @@ export function evaluateRequestApproval(input: {
       reason: "Save your draft before submitting it for approval.",
     }
   }
-  if (!input.hasVerifiedDraft) {
+  const state = asState(input.status)
+  if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
     return {
       enabled: false,
-      reason: "Verify a draft before submitting it for approval.",
+      reason: "This reply cannot be submitted for approval from its current status.",
     }
   }
   return { enabled: true }
@@ -113,6 +125,7 @@ export function evaluateDelete(input: {
 
 export type OutcomeToast = {
   title: string
+  description?: string
   type: "success" | "info" | "warning" | "error"
 }
 
@@ -128,22 +141,47 @@ export type OutcomeToast = {
 export function describeOutcomeToast(status: string): OutcomeToast {
   switch (status) {
     case "published":
-      return { title: "Reply published", type: "success" }
+      return {
+        title: "Reply published",
+        description: "It is live on Google now.",
+        type: "success",
+      }
     case "awaiting_approval":
-      return { title: "Reply submitted for approval.", type: "info" }
+      return {
+        title: "Submitted for approval",
+        description: "A manager needs to approve it before it goes live.",
+        type: "info",
+      }
     case "rejected":
-      return { title: "Google declined this reply.", type: "error" }
+      return {
+        title: "Google declined this reply",
+        description: "Edit the draft and try publishing again.",
+        type: "error",
+      }
     case "returned_to_draft":
-      return { title: "Reply returned to draft.", type: "success" }
+      return {
+        title: "Reply sent back for edits",
+        description: "The author can revise it and submit again.",
+        type: "success",
+      }
     case "deleted":
-      return { title: "Reply deleted", type: "success" }
+      return {
+        title: "Reply deleted",
+        description: "It is no longer shown on Google.",
+        type: "success",
+      }
     case "cancelled":
-      return { title: "Draft reply removed", type: "success" }
+      return {
+        title: "Draft reply removed",
+        description: "Nothing was live on Google.",
+        type: "success",
+      }
     default:
       // e.g. "pending" — an honest, non-committal message; never claims
       // the reply is published.
       return {
-        title: "Reply submitted. Its status will update shortly.",
+        title: "Reply submitted",
+        description: "Its status will update shortly.",
         type: "info",
       }
   }

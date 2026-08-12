@@ -12,8 +12,9 @@ const draftResultSchema = z.object({
 })
 export type DraftResult = z.infer<typeof draftResultSchema>
 
-// One endpoint is Generate/Regenerate/Save. Omit `body` -> the server
-// generates (AI) or templates (rating-only); include `body` -> human edit.
+// One endpoint is Generate / Regenerate / Save.
+// Omit `body` → the server generates (AI) or templates (rating-only) — only
+// when the operator clicks Generate. Include `body` → human edit / save.
 export type DraftInput = {
   tone?: "warm_professional" | "concise" | "empathetic"
   languageOverride?: string | null

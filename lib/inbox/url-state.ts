@@ -106,8 +106,9 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
   return params
 }
 
-// Everything except queue/sort/selected counts as an "active filter" for the
-// three-way empty-state distinction (D10).
+// Everything except queue/selected counts as an "active filter" for the
+// three-way empty-state distinction (D10). Non-default sort is included so
+// chips and "Clear all" can reset it.
 export function hasActiveFilters(state: InboxState): boolean {
   return Boolean(
     state.locationId ||
@@ -118,7 +119,8 @@ export function hasActiveFilters(state: InboxState): boolean {
       state.publishStatus.length ||
       state.syncStatus.length ||
       state.dateFrom ||
-      state.dateTo
+      state.dateTo ||
+      (state.sort && state.sort !== "updated_desc")
   )
 }
 

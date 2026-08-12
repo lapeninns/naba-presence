@@ -3,7 +3,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 
+import { ImportReviewPanel } from "@/components/locations/import-review-panel"
 import { MenuEditor } from "@/components/locations/menu-editor"
+import { MenuPublishPreview } from "@/components/locations/menu-publish-preview"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
@@ -16,7 +18,7 @@ import { publishFoodMenus, saveFoodMenus, type FoodMenu, type FoodMenusState } f
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/locations/action-errors"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
-import { editDisabledReason, publishDisabledReason } from "@/lib/locations/gating"
+import { editDisabledReason, resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
@@ -122,7 +124,7 @@ function MenuTabLoaded({
 
   const editReason = editDisabledReason(caps)
   const publishReason =
-    publishDisabledReason(caps, state.writesEnabled) ?? (state.status === "in_sync" ? "Menu already matches Google." : isDirty ? "Save your changes before publishing." : null)
+    resourceDisabledReason(caps, "menu", state.writesEnabled) ?? (state.status === "in_sync" ? "Menu already matches Google." : isDirty ? "Save your changes before publishing." : null)
   const draftCounts = countFoodMenus(draft as Array<Record<string, unknown>>)
 
   return (
@@ -135,6 +137,13 @@ function MenuTabLoaded({
           {draftCounts.sections} sections · {draftCounts.items} items
         </span>
       </div>
+
+      <ImportReviewPanel
+        locationId={locationId}
+        resourceType="food_menus"
+        canonicalRevision={state.canonicalResource.revision}
+        editDisabledReason={editReason}
+      />
 
       <MenuEditor menus={draft} onChange={setDraft} disabled={Boolean(editReason)} />
 
@@ -164,7 +173,12 @@ function MenuTabLoaded({
         acknowledgementLabel="I understand this replaces the whole food menu on Google."
         pending={publish.isPending}
         onConfirm={() => publish.mutate()}
-      />
+      >
+        <MenuPublishPreview
+          canonicalMenus={state.canonicalMenus}
+          googleMenus={state.googleMenus}
+        />
+      </OverwriteConfirmDialog>
     </div>
   )
 }

@@ -6,14 +6,16 @@ import { VerificationPanel } from "@/components/inbox/verification-panel"
 afterEach(() => vi.restoreAllMocks())
 
 describe("VerificationPanel", () => {
-  it("shows the Passed verdict and no reasons when clean", () => {
+  it("shows a quiet clean line without a verdict badge", () => {
     render(
       <VerificationPanel
         status="verified"
         verification={{ verdict: "pass", reasons: [] }}
       />
     )
-    expect(screen.getByText("Passed")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Verification" })).toBeInTheDocument()
+    expect(screen.getByText("No issues found in this reply.")).toBeInTheDocument()
+    expect(screen.queryByText("Passed")).not.toBeInTheDocument()
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument()
   })
 
@@ -30,7 +32,9 @@ describe("VerificationPanel", () => {
         }}
       />
     )
-    expect(screen.getByText("Failed")).toBeInTheDocument()
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument()
+    expect(screen.getByText("Blocking")).toBeInTheDocument()
+    expect(screen.getByText("Warning")).toBeInTheDocument()
     expect(
       screen.getByText("The reply contains an email address or phone number.")
     ).toBeInTheDocument()
@@ -39,8 +43,10 @@ describe("VerificationPanel", () => {
     ).toBeInTheDocument()
   })
 
-  it("renders a Pending verdict when there is no verification yet", () => {
+  it("explains that verification has not run yet", () => {
     render(<VerificationPanel status="new" verification={null} />)
-    expect(screen.getByText("Pending")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Verification" })).toBeInTheDocument()
+    expect(screen.getByText("Runs as soon as you save a draft.")).toBeInTheDocument()
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument()
   })
 })

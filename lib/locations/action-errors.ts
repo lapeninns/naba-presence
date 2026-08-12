@@ -50,6 +50,16 @@ const COPY: Record<string, string> = {
   business_calls_mask_invalid: "Only the calls setting can be changed here.",
   search_query_required: "Enter a search term.",
   administration_confirmation_invalid: "We couldn't confirm that action. Refresh and try again.",
+  // import review (suggestions from Google)
+  import_review_paused: "Google import review is currently paused.",
+  proposal_not_found: "That suggestion could not be found. It may have been removed.",
+  proposal_not_pending: "This suggestion has already been decided.",
+  proposal_superseded: "This suggestion was refreshed from Google. Review the latest version.",
+  proposal_target_missing: "The menu item this suggestion applies to no longer exists here.",
+  proposal_patch_invalid: "This suggestion could not be applied. Refresh from Google and try again.",
+  proposal_action_unsupported: "That action is not available for this suggestion.",
+  proposal_apply_failed: "This suggestion could not be applied. Try again shortly.",
+  import_confirmation_invalid: "We couldn't confirm that action. Refresh and try again.",
 }
 
 export function describeActionError(error: unknown): string {

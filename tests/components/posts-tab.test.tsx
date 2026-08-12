@@ -52,7 +52,7 @@ describe("PostsTab", () => {
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
-    expect(screen.getByText("Google posts are currently paused, so new posts cannot be composed.")).toBeInTheDocument()
+    expect(screen.getByText("Publishing to Google is currently unavailable, so new posts cannot be composed.")).toBeInTheDocument()
   })
 
   it("shows the second-approver copy path via an awaiting-approval post for a publisher", () => {

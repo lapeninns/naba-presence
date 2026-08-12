@@ -15,7 +15,7 @@ const MESSAGES: Record<string, string> = {
   google_mutation_ambiguous:
     "Google may have applied the change. Check its status before retrying.",
   google_publish_failed: "Google rejected the reply. Please try again.",
-  drafts_paused: "Draft generation is temporarily paused. Try again shortly.",
+  drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
   publishing_paused: "Publishing is temporarily paused. Try again shortly.",
   review_restricted: "This review is restricted from replies.",
   authentication_required: "Your session has expired. Please sign in again.",

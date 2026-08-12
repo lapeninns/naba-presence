@@ -22,9 +22,14 @@ describe("QueueTabs", () => {
   it("labels each tab with its derived count and marks the active queue selected", () => {
     render(<QueueTabs queue="all" total={16} byStatus={byStatus} onQueueChange={() => {}} />)
     // All reviews = total; needs_reply = new+drafted+verified+failed+rejected = 4
-    expect(screen.getByRole("tab", { name: /All reviews,\s+16/ })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /Needs reply,\s+4/ })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /Awaiting approval,\s+3/ })).toBeInTheDocument()
+    // Visible labels are short; aria-labels keep the full queue names.
+    expect(screen.getByRole("tab", { name: /All reviews,\s+16/ })).toHaveTextContent("All")
+    expect(screen.getByRole("tab", { name: /Needs reply,\s+4/ })).toHaveTextContent(
+      "Needs reply"
+    )
+    expect(screen.getByRole("tab", { name: /Awaiting approval,\s+3/ })).toHaveTextContent(
+      "Approval"
+    )
     expect(screen.getByRole("tab", { name: /Escalated,\s+4/ })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Published,\s+5/ })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /All reviews,\s+16/ })).toHaveAttribute(

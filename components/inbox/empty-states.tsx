@@ -1,8 +1,9 @@
 "use client"
 
+import Link from "next/link"
 import { InboxIcon, SearchXIcon, UnplugIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 
 const KIND_CONTENT = {
@@ -41,6 +42,16 @@ function EmptyState({
           <Button variant="outline" size="sm" onClick={onClear}>
             Clear filters
           </Button>
+        ) : kind === "disconnected" ? (
+          // prefetch={false}: mirrors DisconnectedBanner — avoid viewport
+          // prefetch of connections while e2e waits on networkidle.
+          <Link
+            href="/settings/connections"
+            prefetch={false}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Manage connection
+          </Link>
         ) : undefined
       }
     >

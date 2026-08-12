@@ -40,6 +40,16 @@ describe("deterministic reply verification", () => {
     ],
     ["unsafe language", "That was a shit experience.", "unsafe_language"],
     ["wrong location", "The Birmingham NEC team thanks you.", "wrong_location"],
+    [
+      "asks to delete review",
+      "Please delete your review and we will make it right.",
+      "asks_rating_change",
+    ],
+    [
+      "asks for five stars",
+      "Please leave us a 5-star review next time.",
+      "asks_rating_change",
+    ],
   ])("fails %s", (_name, body, code) => {
     const reasons = verify(body)
     expect(reasons).toContainEqual(

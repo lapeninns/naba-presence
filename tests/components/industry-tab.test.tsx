@@ -10,7 +10,15 @@ function jsonResponse(body: unknown, status = 200) {
 }
 const available = (data: unknown) => ({ data, error: null })
 const INDUSTRY = { industry: {
-  lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({}),
+  lodging: available({
+    policies: { checkinTime: { hours: 15, minutes: 0 } },
+    pets: { petsAllowed: false },
+  }),
+  lodgingUpdated: available({
+    diffMask: "pets,connectivity",
+    pets: { petsAllowed: true },
+    connectivity: { freeWifi: true },
+  }),
   calls: available({ callsState: "ENABLED" }), callInsights: available({}),
   healthcareServices: { data: null, error: "Google 500 boom" }, providerAttributes: available({}), insuranceNetworks: available({}),
   canManage: true, writesEnabled: true,
@@ -42,6 +50,15 @@ describe("IndustryTab", () => {
     renderWithProviders(<IndustryTab locationId="loc-1" />)
     expect(await screen.findByText(/couldn't load healthcare/i)).toBeInTheDocument()
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument()
+  })
+
+  it("applies Google suggested lodging values into the form", async () => {
+    stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<IndustryTab locationId="loc-1" />)
+    expect(await screen.findByText(/google suggests changes/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: /apply suggested values/i }))
+    expect(screen.getByLabelText("Pets allowed")).toBeChecked()
+    expect(screen.getByLabelText("Free Wi‑Fi")).toBeChecked()
   })
 
   it("business-calls publish sets callsState, masks only callsState, and sends the industry confirmation", async () => {

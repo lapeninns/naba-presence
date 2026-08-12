@@ -1,8 +1,5 @@
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
-import { AttentionList } from "@/components/home/attention-list"
-import { DisconnectedBanner } from "@/components/home/disconnected-banner"
-import { HomeCharts } from "@/components/home/home-charts"
-import { KpiCards } from "@/components/home/kpi-cards"
+import { OverviewView } from "@/components/home/overview-view"
 
 // The route stays /home; only the name changes. See the note on NAV_ITEMS in
 // components/app-shell/nav.tsx.
@@ -13,12 +10,9 @@ export default function HomePage() {
     <PageFrame width="wide">
       <PageHeader
         title="Overview"
-        description="How your business is doing on Google, over the last 30 days."
+        description="Open work waiting for you now, and how the last 30 days look on Google."
       />
-      <DisconnectedBanner />
-      <KpiCards />
-      <HomeCharts />
-      <AttentionList />
+      <OverviewView />
     </PageFrame>
   )
 }

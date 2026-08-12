@@ -31,7 +31,7 @@ afterEach(() => {
 const row = {
   id: "rev-1",
   location: { id: "loc-1", name: "Riverside" },
-  reviewer: { displayName: "Sam", isAnonymous: false },
+  reviewer: { displayName: "Sam", isAnonymous: false, profilePhotoUrl: null },
   rating: 5,
   text: "Lovely",
   detectedLanguageCode: "en",

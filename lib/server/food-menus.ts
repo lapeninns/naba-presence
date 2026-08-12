@@ -61,7 +61,7 @@ function asMenus(value: unknown): Array<Record<string, unknown>> {
     : []
 }
 
-async function liveState(session: Session, locationId: string) {
+export async function readLiveFoodMenus(session: Session, locationId: string) {
   const context = await contextFor(session, locationId)
   const token = await connectionAccessToken(getDatabase(), session.organisationId, context.connectionId)
   const googleLocation = await getGoogleLocation(token, context.googleLocationName, ["metadata"], { connectionKey: context.connectionId })
@@ -103,7 +103,7 @@ async function liveState(session: Session, locationId: string) {
     canonicalCounts: foodMenuCounts(canonicalMenus),
     googleCounts: foodMenuCounts(googleMenus),
     canPublish: context.canPublish,
-    writesEnabled: env.GBP_FOOD_MENUS_ENABLED && env.PUBLISH_ENABLED,
+    writesEnabled: env.PUBLISH_ENABLED && env.GBP_FOOD_MENUS_ENABLED,
   }
   await withTenant(session.organisationId, async (sql) => {
     await sql`
@@ -127,7 +127,7 @@ async function liveState(session: Session, locationId: string) {
 }
 
 export async function getFoodMenusState(session: Session, locationId: string) {
-  return (await liveState(session, locationId)).state
+  return (await readLiveFoodMenus(session, locationId)).state
 }
 
 export async function saveCanonicalFoodMenus(input: {
@@ -172,10 +172,10 @@ export async function publishFoodMenus(input: {
   requestId: string
 }) {
   const env = getServerEnv()
-  if (!env.GBP_FOOD_MENUS_ENABLED || !env.PUBLISH_ENABLED) {
+  if (!env.PUBLISH_ENABLED || !env.GBP_FOOD_MENUS_ENABLED) {
     throw new ApiError(503, "food_menus_paused", "Food Menu publishing is paused.")
   }
-  const live = await liveState(input.session, input.locationId)
+  const live = await readLiveFoodMenus(input.session, input.locationId)
   if (!live.state.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
   if (!live.state.eligible) throw new ApiError(409, "food_menus_not_eligible", "Google reports that this location cannot have Food Menus.")
   if (!input.confirmFullReplacement) throw new ApiError(409, "food_menus_confirmation_required", "Confirm the full Google Food Menus replacement.")

@@ -67,6 +67,26 @@ export function deterministicVerification(input: {
   if (/\b(fuck|shit|bitch|bastard)\b/iu.test(body)) {
     add("unsafe_language", "fail", "The reply contains unsafe language.")
   }
+  // Google review best practice: never ask guests to edit, delete, or raise
+  // their public rating in the reply itself.
+  if (
+    /\b(please\s+)?(update|edit|change|revise|remove|delete|take\s+down)\b.{0,40}\b(review|rating|stars?)\b/iu.test(
+      body
+    ) ||
+    /\b(review|rating|stars?)\b.{0,40}\b(update|edit|change|revise|remove|delete|take\s+down)\b/iu.test(
+      body
+    ) ||
+    /\b(leave|give|post)\s+(us\s+)?(a\s+)?(5|five)([-\s]?star)?\s+review\b/iu.test(
+      body
+    ) ||
+    /\braise\s+your\s+(rating|stars?)\b/iu.test(body)
+  ) {
+    add(
+      "asks_rating_change",
+      "fail",
+      "The reply asks the reviewer to change, remove, or raise their rating."
+    )
+  }
   const wrongLocation = input.otherLocationNames.find(
     (name) =>
       name !== input.locationName &&

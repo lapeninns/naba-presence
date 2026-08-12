@@ -15,7 +15,7 @@ export default async function PhotosPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Photos"
-        description="The photos customers see on your Google listing."
+        description="The photos and videos customers see on your Google listing."
       />
       {locationId ? (
         <PhotosTab locationId={locationId} />

@@ -64,6 +64,13 @@ services:
       DRAFTS_ENABLED: "true"
       PUBLISH_ENABLED: "true"
       SYNC_ENABLED: "true"
+      GBP_MEDIA_ENABLED: "true"
+      GBP_POSTS_ENABLED: "true"
+      GBP_FOOD_MENUS_ENABLED: "true"
+      GBP_PLACE_ACTIONS_ENABLED: "true"
+      GBP_PROFILE_WRITES_ENABLED: "true"
+      GBP_PERFORMANCE_ENABLED: "true"
+      GBP_KEYWORDS_ENABLED: "true"
       WEBHOOKS_ENABLED: ${WEBHOOKS_ENABLED:-false}
       LOCAL_BOOTSTRAP_ENABLED: "true"
       GOOGLE_REQUESTS_PER_SECOND: ${GOOGLE_REQUESTS_PER_SECOND:-8}
@@ -114,6 +121,8 @@ services:
       SCHEDULER_BASE_URL: http://web:3000
       RECONCILE_INTERVAL_SECONDS: "900"
       RETENTION_INTERVAL_SECONDS: "86400"
+      GBP_PERFORMANCE_ENABLED: "true"
+      GBP_KEYWORDS_ENABLED: "true"
     depends_on:
       web:
         condition: service_healthy

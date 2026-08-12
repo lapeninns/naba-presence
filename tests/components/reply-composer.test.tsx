@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -16,6 +16,7 @@ function reviewWith(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDeta
       id: "rev-1",
       reviewerDisplayName: "Sam",
       reviewerIsAnonymous: false,
+      reviewerProfilePhotoUrl: null,
       rating: 4,
       text: "Nice",
       detectedLanguageCode: "en",
@@ -39,12 +40,10 @@ function reviewWith(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDeta
   }
 }
 
-// Resolve a realistic DraftResult so runGenerate/onSave can read result.body /
-// result.verification without throwing.
 const DRAFT_RESULT = {
   draftId: "d-new",
-  body: "Generated reply body",
-  bodyBytes: 20,
+  body: "Saved reply body",
+  bodyBytes: 16,
   evidenceHash: "h",
   verification: { id: "v-new", verdict: "pass" as const, reasons: [] },
 }
@@ -75,11 +74,14 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe("ReplyComposer", () => {
-  it("labels the generate button 'Generate draft' when there is no draft yet", () => {
+  it("offers manual Generate draft and tone, without auto-calling the mutation on mount", () => {
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith(),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
       <Toaster>
@@ -87,20 +89,93 @@ describe("ReplyComposer", () => {
       </Toaster>
     )
     expect(screen.getByRole("button", { name: "Generate draft" })).toBeInTheDocument()
+    expect(screen.getByLabelText("Reply tone")).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveAttribute(
+      "placeholder",
+      "Write a reply, or generate one to start."
+    )
+    expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("labels it 'Regenerate' once a draft exists and seeds the textbox", () => {
+  it("posts tone without a body when Generate draft is clicked", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = vi.fn().mockResolvedValue({
+      ...DRAFT_RESULT,
+      body: "AI drafted reply",
+    })
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
+    await user.click(screen.getByRole("button", { name: "Generate draft" }))
+    expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty("body")
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      "AI drafted reply"
+    )
+  })
+
+  it("labels Regenerate when a draft already exists and confirms before replacing dirty edits", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = vi.fn().mockResolvedValue({
+      ...DRAFT_RESULT,
+      body: "Fresh AI draft",
+    })
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({
         workflowStatus: "drafted",
         drafts: [
           {
             id: "d1",
-            source: "ai",
+            source: "human",
             body: "Existing draft body",
             bodyBytes: 19,
             evidenceHash: "h",
-            modelName: "gpt",
+            modelName: null,
+            verificationStatus: "warn",
+            createdAt: "2026-07-30T10:05:00.000Z",
+          },
+        ],
+      }),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Toaster>
+        <ReplyComposer reviewId="rev-1" />
+      </Toaster>
+    )
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " edits")
+    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Discard and regenerate" }))
+    expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+  })
+
+  it("seeds the textbox from an existing draft", () => {
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith({
+        workflowStatus: "drafted",
+        drafts: [
+          {
+            id: "d1",
+            source: "human",
+            body: "Existing draft body",
+            bodyBytes: 19,
+            evidenceHash: "h",
+            modelName: null,
             verificationStatus: "warn",
             createdAt: "2026-07-30T10:05:00.000Z",
           },
@@ -114,10 +189,10 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Toaster>
     )
-    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Existing draft body"
     )
+    expect(screen.getByRole("button", { name: "Re-verify" })).toBeInTheDocument()
   })
 
   it("enables Save draft only after an edit and posts the edited body", async () => {
@@ -125,7 +200,7 @@ describe("ReplyComposer", () => {
     const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({ workflowStatus: "drafted", drafts: [
-        { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+        { id: "d1", source: "human", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
       ] }),
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
@@ -141,14 +216,17 @@ describe("ReplyComposer", () => {
     await user.type(textbox, "Edited reply body")
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
     await user.click(screen.getByRole("button", { name: "Save draft" }))
-    expect(mutateAsync).toHaveBeenCalledWith({ body: "Edited reply body" })
+    expect(mutateAsync).toHaveBeenCalledWith({
+      body: "Edited reply body",
+      tone: "warm_professional",
+    })
   })
 
   it("disables Save draft when the edit is over the 4096-byte limit", () => {
     const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({ workflowStatus: "drafted", drafts: [
-        { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+        { id: "d1", source: "human", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
       ] }),
     } as UseQueryResult<ReviewDetail>)
     vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
@@ -165,31 +243,90 @@ describe("ReplyComposer", () => {
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
   })
 
-  it("confirms before regenerating over unsaved edits", async () => {
-    const user = userEvent.setup()
-    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+  // The old pane rendered the live reply and an identical draft as two full
+  // blocks of the same text. The composer now edits the live words directly,
+  // so there is only ever one copy on screen.
+  const SETTLED = {
+    workflowStatus: "published",
+    reply: {
+      id: "reply-1",
+      body: "Thanks for the kind words!",
+      publishStatus: "published",
+      googleReplyState: "APPROVED",
+      googlePolicyViolation: null,
+      googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+    },
+    drafts: [
+      {
+        id: "d1",
+        source: "ai",
+        body: "Thanks for the kind words!",
+        bodyBytes: 26,
+        evidenceHash: "h",
+        modelName: "m",
+        verificationStatus: "pass",
+        createdAt: "2026-07-30T10:05:00.000Z",
+      },
+    ],
+  } satisfies Partial<ReviewDetail["review"]>
+
+  function renderSettled(overrides: Partial<ReviewDetail["review"]> = {}) {
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
-      data: reviewWith({ workflowStatus: "drafted", drafts: [
-        { id: "d1", source: "ai", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
-      ] }),
+      data: reviewWith({ ...SETTLED, ...overrides }),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
       <Toaster>
         <ReplyComposer reviewId="rev-1" />
       </Toaster>
     )
-    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " extra")
-    await user.click(screen.getByRole("button", { name: "Regenerate" }))
-    // A confirm dialog appears; the regenerate has NOT fired yet.
-    expect(
-      screen.getByRole("alertdialog", { name: /Discard your edits/ })
-    ).toBeInTheDocument()
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Discard and regenerate" }))
-    await waitFor(() =>
-      expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+  }
+
+  it("edits the live reply in place, with nothing to save until it changes", () => {
+    renderSettled()
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      "Thanks for the kind words!"
     )
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
+    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
+  })
+
+  it("drops the in-sync note the moment the text diverges", async () => {
+    const user = userEvent.setup()
+    renderSettled()
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " Really.")
+    expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
+  })
+
+  // Who wrote the words matters when they are about to go on a public profile
+  // under the business's name.
+  it("says who wrote the draft, and flags unsaved edits", async () => {
+    const user = userEvent.setup()
+    renderSettled()
+    expect(screen.getByText("Drafted by AI")).toBeInTheDocument()
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), "!")
+    expect(screen.getByText("Drafted by AI · unsaved edits")).toBeInTheDocument()
+  })
+
+  it("labels a hand-written draft as written by you", () => {
+    renderSettled({
+      drafts: [
+        {
+          id: "d2",
+          source: "human",
+          body: "Thanks so much for the kind words!",
+          bodyBytes: 34,
+          evidenceHash: "h",
+          modelName: null,
+          verificationStatus: "pass",
+          createdAt: "2026-07-30T12:00:00.000Z",
+        },
+      ],
+    })
+    expect(screen.getByText("Written by you")).toBeInTheDocument()
+    // The draft has moved on from what is live, so it is not in sync.
+    expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
   })
 })

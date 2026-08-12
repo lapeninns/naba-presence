@@ -1,19 +1,12 @@
 import { NextResponse } from "next/server"
 
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { apiError, serverRequestId } from "@/lib/server/http"
 import {
   createLocalPostDraft,
   listLocalPosts,
   localPostInputSchema,
 } from "@/lib/server/posts"
 import { requireSession } from "@/lib/server/session"
-
-function requirePostsEnabled() {
-  if (!getServerEnv().GBP_POSTS_ENABLED) {
-    throw new ApiError(503, "posts_paused", "Google Posts are paused.")
-  }
-}
 
 export async function GET(
   _request: Request,
@@ -35,7 +28,6 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    requirePostsEnabled()
     const rid = serverRequestId(request)
     const session = await requireSession()
     const { id } = await context.params

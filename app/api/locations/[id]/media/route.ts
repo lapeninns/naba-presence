@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
 import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
 import {
   createMedia,
@@ -16,14 +17,38 @@ const createSchema = mediaCreateSchema.extend({
   confirmation: z.literal("create_google_media"),
 })
 
+const mediaListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().optional(),
+  refresh: z.literal("1").optional(),
+  category: z.enum(GOOGLE_MEDIA_CATEGORIES).optional(),
+  ownership: z.enum(["merchant", "customer"]).optional(),
+})
+
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireSession()
     const { id } = await context.params
-    return NextResponse.json({ media: await loadMedia(session.organisationId, session, id) })
+    const url = new URL(request.url)
+    const query = mediaListQuerySchema.parse({
+      page: url.searchParams.get("page") ?? undefined,
+      pageSize: url.searchParams.get("pageSize") ?? undefined,
+      refresh: url.searchParams.get("refresh") ?? undefined,
+      category: url.searchParams.get("category") ?? undefined,
+      ownership: url.searchParams.get("ownership") ?? undefined,
+    })
+    return NextResponse.json({
+      media: await loadMedia(session.organisationId, session, id, {
+        page: query.page ?? 1,
+        pageSize: query.pageSize ?? 12,
+        refresh: query.refresh === "1",
+        category: query.category,
+        ownership: query.ownership,
+      }),
+    })
   } catch (error) { return apiError(error) }
 }
 

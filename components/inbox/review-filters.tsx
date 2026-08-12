@@ -1,29 +1,27 @@
 "use client"
 
 import { useEffect, useId, useState } from "react"
-import { SearchIcon } from "lucide-react"
+import { Loader2Icon, SearchIcon } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
-import { MoreFiltersSheet } from "@/components/inbox/more-filters-sheet"
+import {
+  AdvancedFilters,
+  MoreFiltersToggle,
+  RatingFilter,
+  ReplyFilter,
+  advancedFilterCount,
+} from "@/components/inbox/filter-controls"
 import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import type { InboxState } from "@/lib/inbox/url-state"
+import { cn } from "@/lib/utils"
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map
 // (a plain `{ value: label }` record) rather than from the rendered
 // `SelectItem` children — without it, the trigger would show the raw stored
-// value ("all", "updated_desc") instead of the sentence-case label.
-const RATING_ITEMS: Record<string, string> = {
-  all: "All ratings",
-  "5": "5 stars",
-  "4": "4 stars",
-  "3": "3 stars",
-  "2": "2 stars",
-  "1": "1 star",
-}
-
+// value ("updated_desc") instead of the sentence-case label.
 const SORT_ITEMS: Record<string, string> = {
   updated_desc: "Most recent",
   rating_desc: "Highest rated",
@@ -49,6 +47,12 @@ function ReviewFilters({
   const locationId = useId()
   const selectedLocation =
     locations.find((location) => location.id === state.locationId) ?? null
+  const advancedCount = advancedFilterCount(state)
+
+  // Start expanded when the URL already carries advanced filters (deep link /
+  // restored state). Operators can collapse it; we do not auto-reopen on every
+  // chip clear, which would fight intentional collapse.
+  const [moreOpen, setMoreOpen] = useState(() => advancedFilterCount(state) > 0)
 
   // Controlled + debounced search: local draft mirrors the URL's search, syncs
   // back when it is cleared externally ("Clear filters"/chip-clear), and writes
@@ -68,81 +72,39 @@ function ReviewFilters({
     return () => clearTimeout(timer)
   }, [searchDraft, state.search, onChange])
 
+  const searchPending = searchDraft !== state.search
+
   return (
-    <div className="flex flex-col gap-3">
-      {/* Search leads: it is the highest-frequency refinement in a queue
-          workflow, so it takes the full row; pickers line up beneath. */}
-      <div className="relative">
-        <SearchIcon
-          aria-hidden
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <label htmlFor={searchId} className="sr-only">
-          Search reviews
-        </label>
-        <Input
-          id={searchId}
-          type="search"
-          role="searchbox"
-          aria-label="Search reviews"
-          value={searchDraft}
-          placeholder="Search review text, reviewer, location…"
-          onChange={(event) => setSearchDraft(event.target.value)}
-          className="h-8 pl-9 text-ui shadow-none"
-        />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Only the combobox is hidden for a single-location org — never the
-            ActiveFilterChips below. A `?locationId=` can still arrive in the
-            URL (components/home/attention-list.tsx links there unconditionally),
-            and the chip's "Remove location filter" button is the only thing
-            left that can clear it. Hiding the chip too would strand the user
-            in a filtered view with no way out. */}
-        {showLocationFilter ? (
-          <div className="min-w-44 flex-1">
-            <label htmlFor={locationId} className="sr-only">
-              Filter by location
-            </label>
-            <Combobox
-              items={locations}
-              value={selectedLocation}
-              onValueChange={(location: LocationOption | null) =>
-                onChange({ locationId: location?.id })
-              }
-              itemToStringLabel={(location: LocationOption) => location.name}
-            >
-              <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
-              <ComboboxContent>
-                {locations.map((location) => (
-                  <ComboboxItem key={location.id} value={location}>
-                    {location.name}
-                  </ComboboxItem>
-                ))}
-              </ComboboxContent>
-            </Combobox>
-          </div>
-        ) : null}
-
-        <Select
-          value={state.ratings.length === 1 ? String(state.ratings[0]) : "all"}
-          onValueChange={(value: string | null) =>
-            onChange({ ratings: !value || value === "all" ? [] : [Number(value)] })
-          }
-          items={RATING_ITEMS}
-        >
-          <SelectTrigger aria-label="Filter by rating" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All ratings</SelectItem>
-            {[5, 4, 3, 2, 1].map((rating) => (
-              <SelectItem key={rating} value={String(rating)}>
-                {rating} star{rating === 1 ? "" : "s"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className="flex flex-col gap-2">
+      {/* Search + sort share one strip; filters live on the rows below — no
+          slide-over panel covering the detail pane. */}
+      <div className="flex items-center gap-1.5 rounded-(--nr-radius-field) border border-border/70 bg-muted/30 p-1">
+        <div className="relative min-w-0 flex-1">
+          <SearchIcon
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+          />
+          <label htmlFor={searchId} className="sr-only">
+            Search reviews
+          </label>
+          <Input
+            id={searchId}
+            type="search"
+            role="searchbox"
+            aria-label="Search reviews"
+            aria-busy={searchPending || undefined}
+            value={searchDraft}
+            placeholder="Search reviews…"
+            onChange={(event) => setSearchDraft(event.target.value)}
+            className="h-8 border-transparent bg-transparent pr-8 pl-8 text-ui shadow-none focus-visible:bg-card focus-visible:ring-ring/20"
+          />
+          {searchPending ? (
+            <Loader2Icon
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          ) : null}
+        </div>
 
         <Select
           value={state.sort}
@@ -151,7 +113,10 @@ function ReviewFilters({
           }
           items={SORT_ITEMS}
         >
-          <SelectTrigger aria-label="Sort reviews" className="w-36">
+          <SelectTrigger
+            aria-label="Sort reviews"
+            className="h-8 w-auto shrink-0 border-transparent bg-transparent shadow-none hover:bg-card"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -160,9 +125,76 @@ function ReviewFilters({
             <SelectItem value="rating_asc">Lowest rated</SelectItem>
           </SelectContent>
         </Select>
-
-        <MoreFiltersSheet state={state} onChange={onChange} />
       </div>
+
+      <RatingFilter
+        ratings={state.ratings}
+        onChange={(ratings) => onChange({ ratings })}
+      />
+
+      <ReplyFilter
+        replyState={state.replyState}
+        onChange={(replyState) => onChange({ replyState })}
+      />
+
+      <MoreFiltersToggle
+        open={moreOpen}
+        count={advancedCount}
+        onOpenChange={setMoreOpen}
+      />
+
+      <div
+        id="inbox-advanced-filters"
+        className={cn(
+          "grid transition-[grid-template-rows] duration-(--nr-duration-standard) ease-out",
+          moreOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {moreOpen || advancedCount > 0 ? (
+            <div
+              className={cn(
+                "pt-0.5 transition-opacity duration-(--nr-duration-fast)",
+                moreOpen ? "opacity-100" : "pointer-events-none opacity-0"
+              )}
+              inert={!moreOpen || undefined}
+            >
+              <AdvancedFilters state={state} onChange={onChange} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Only the combobox is hidden for a single-location org — never the
+          ActiveFilterChips below. A `?locationId=` can still arrive in the
+          URL (components/home/attention-list.tsx links there unconditionally),
+          and the chip's "Remove location filter" button is the only thing
+          left that can clear it. Hiding the chip too would strand the user
+          in a filtered view with no way out. */}
+      {showLocationFilter ? (
+        <div className="min-w-0">
+          <label htmlFor={locationId} className="sr-only">
+            Filter by location
+          </label>
+          <Combobox
+            items={locations}
+            value={selectedLocation}
+            onValueChange={(location: LocationOption | null) =>
+              onChange({ locationId: location?.id })
+            }
+            itemToStringLabel={(location: LocationOption) => location.name}
+          >
+            <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
+            <ComboboxContent>
+              {locations.map((location) => (
+                <ComboboxItem key={location.id} value={location}>
+                  {location.name}
+                </ComboboxItem>
+              ))}
+            </ComboboxContent>
+          </Combobox>
+        </div>
+      ) : null}
 
       <ActiveFilterChips
         state={state}

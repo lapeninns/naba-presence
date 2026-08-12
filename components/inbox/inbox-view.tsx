@@ -124,50 +124,58 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
   // discard confirm instead of vanishing.
   const onFilterChange = useCallback(
     (partial: Partial<InboxState>) => {
-      if (!dirtyGate()) return
-      updateState({ ...partial, selected: undefined }, "replace")
+      void (async () => {
+        if (!(await dirtyGate())) return
+        updateState({ ...partial, selected: undefined }, "replace")
+      })()
     },
     [dirtyGate, updateState]
   )
   const onQueueChange = useCallback(
     (queue: Queue) => {
-      if (!dirtyGate()) return
-      updateState({ queue, selected: undefined }, "replace")
+      void (async () => {
+        if (!(await dirtyGate())) return
+        updateState({ queue, selected: undefined }, "replace")
+      })()
     },
     [dirtyGate, updateState]
   )
   // Selection uses push so Back returns to the list on mobile (spec §6). Gated
   // behind the dirty guard: while the composer is dirty this either confirms
-  // discarding the edit (window.confirm) or blocks the selection change. The
+  // discarding the edit (AlertDialog) or blocks the selection change. The
   // boolean return tells ReviewList's arrow-key handler whether it's safe to
   // move DOM focus onto the target row (see review-list.tsx).
   const onSelect = useCallback(
-    (id: string): boolean => {
-      if (!dirtyGate()) return false
+    async (id: string): Promise<boolean> => {
+      if (!(await dirtyGate())) return false
       updateState({ selected: id }, "push")
       return true
     },
     [dirtyGate, updateState]
   )
   const onClearFilters = useCallback(() => {
-    if (!dirtyGate()) return
-    router.replace(
-      `/inbox?${serializeInboxState({
-        queue: state.queue,
-        ratings: [],
-        search: "",
-        sort: "updated_desc",
-        verification: [],
-        publishStatus: [],
-        syncStatus: [],
-      }).toString()}`
-    )
+    void (async () => {
+      if (!(await dirtyGate())) return
+      router.replace(
+        `/inbox?${serializeInboxState({
+          queue: state.queue,
+          ratings: [],
+          search: "",
+          sort: "updated_desc",
+          verification: [],
+          publishStatus: [],
+          syncStatus: [],
+        }).toString()}`
+      )
+    })()
   }, [dirtyGate, router, state.queue])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   const onBackToList = useCallback(() => {
-    if (!dirtyGate()) return
-    updateState({ selected: undefined }, "replace")
+    void (async () => {
+      if (!(await dirtyGate())) return
+      updateState({ selected: undefined }, "replace")
+    })()
   }, [dirtyGate, updateState])
 
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
@@ -191,15 +199,43 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
     }
   }, [reviewsReady, reviews, state, router, readIsDirty])
 
+  const isListRefreshing =
+    reviewsQuery.isFetching &&
+    !reviewsQuery.isPending &&
+    !reviewsQuery.isFetchingNextPage
+
+  // After Next past already-loaded rows, the page index advances before the
+  // cursor fetch lands — keep skeletons instead of flashing an empty list.
+  const waitingForPageRows =
+    !reviewsQuery.isPending &&
+    !reviewsQuery.isError &&
+    reviews.length > 0 &&
+    pageReviews.length === 0 &&
+    (reviewsQuery.isFetchingNextPage || !!reviewsQuery.hasNextPage)
+
+  function renderListSkeleton() {
+    return (
+      <div aria-busy="true" className="flex flex-col">
+        {[0, 1, 2, 3, 4].map((index) => (
+          <div
+            key={index}
+            className="flex items-start gap-3 border-b border-border/40 px-4 py-3"
+          >
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Skeleton className="h-3.5 w-28 rounded-(--nr-radius-tag)" />
+              <Skeleton className="h-3 w-40 rounded-(--nr-radius-tag)" />
+              <Skeleton className="h-3 w-full max-w-56 rounded-(--nr-radius-tag)" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   function renderList() {
     if (reviewsQuery.isPending) {
-      return (
-        <div aria-busy="true" className="flex flex-col">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <Skeleton key={index} className="mx-4 my-3 h-16 rounded-(--nr-radius-card)" />
-          ))}
-        </div>
-      )
+      return renderListSkeleton()
     }
     if (reviewsQuery.isError) {
       // A failed fetch is NOT "no reviews yet" (the empty-state copy for a
@@ -237,11 +273,15 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
         </div>
       )
     }
+    if (waitingForPageRows) {
+      return renderListSkeleton()
+    }
     return (
       <ReviewList
         reviews={pageReviews}
         selectedId={state.selected}
         onSelect={onSelect}
+        isRefreshing={isListRefreshing}
       />
     )
   }
@@ -272,11 +312,12 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
           mobilePane === "detail" ? "hidden xl:flex" : "flex"
         )}
       >
-        <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/40 p-4">
+        <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/40 px-3 py-3">
           <QueueTabs
             queue={state.queue}
             total={countsQuery.data?.total ?? 0}
             byStatus={countsQuery.data?.byStatus ?? {}}
+            countsPending={countsQuery.isPending}
             onQueueChange={onQueueChange}
           />
           <ReviewFilters
@@ -304,7 +345,9 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
             </Button>
             <span className="text-caption text-muted-foreground tabular-nums">
               Page {currentPage + 1}
-              {reviewsQuery.hasNextPage ? "" : ` of ${pageCount}`}
+              {reviewsQuery.hasNextPage
+                ? " · more available"
+                : ` of ${pageCount}`}
             </span>
             <Button
               variant="ghost"
@@ -328,26 +371,31 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
       >
         {state.selected ? (
           <DetailErrorBoundary key={state.selected}>
-            <ReviewDetail
-              reviewId={state.selected}
-              leading={
-                // Mobile-only return-to-list affordance, pinned in the pane
-                // header; Back also works because selection was pushed
-                // (spec §6).
-                <Button
-                  ref={backButtonRef}
-                  variant="ghost"
-                  size="sm"
-                  onClick={onBackToList}
-                  className="-ml-2 xl:hidden"
-                >
-                  <ArrowLeftIcon aria-hidden />
-                  Back to reviews
-                </Button>
-              }
-              composer={<ReplyComposer reviewId={state.selected} />}
-              actions={<ActionBar reviewId={state.selected} />}
-            />
+            <div
+              key={state.selected}
+              className="flex min-h-0 flex-1 flex-col duration-(--nr-duration-fast) animate-in fade-in-0"
+            >
+              <ReviewDetail
+                reviewId={state.selected}
+                leading={
+                  // Mobile-only return-to-list affordance, pinned in the pane
+                  // header; Back also works because selection was pushed
+                  // (spec §6).
+                  <Button
+                    ref={backButtonRef}
+                    variant="ghost"
+                    size="sm"
+                    onClick={onBackToList}
+                    className="-ml-2 xl:hidden"
+                  >
+                    <ArrowLeftIcon aria-hidden />
+                    Back to reviews
+                  </Button>
+                }
+                composer={<ReplyComposer reviewId={state.selected} />}
+                actions={<ActionBar reviewId={state.selected} />}
+              />
+            </div>
           </DetailErrorBoundary>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">

@@ -11,23 +11,28 @@ import { registerDraftSource, takeStashedDraft } from "@/lib/api/draft-stash"
 //   2. Arm `beforeunload` while dirty so a tab close/reload warns.
 //   3. Provide `confirmDiscard()` for in-app navigation / dialog dismissal.
 //   4. Provide `restore()` to recover a stashed draft on mount.
+//
+// `askConfirm` is injected by the host (inbox DirtyGuardProvider's AlertDialog,
+// or a test stub) so this hook stays UI-agnostic.
 export function useDirtyGuard({
   key,
   isDirty,
   snapshot,
+  askConfirm,
 }: {
   key: string
   isDirty: boolean
   snapshot: () => string
-}): { confirmDiscard: () => boolean; restore: () => string | null } {
+  askConfirm?: () => Promise<boolean>
+}): { confirmDiscard: () => Promise<boolean>; restore: () => string | null } {
   // Keep the latest dirtiness/snapshot in a ref so the registered source
   // function is stable but always reads current values. The write happens in
   // an effect (not during render) so refs are never mutated mid-render; every
   // consumer of `latest.current` below only runs from an event/effect, by
   // which point this effect has already committed the newest values.
-  const latest = useRef({ isDirty, snapshot })
+  const latest = useRef({ isDirty, snapshot, askConfirm })
   useEffect(() => {
-    latest.current = { isDirty, snapshot }
+    latest.current = { isDirty, snapshot, askConfirm }
   })
 
   useEffect(() => {
@@ -46,8 +51,10 @@ export function useDirtyGuard({
     return () => window.removeEventListener("beforeunload", handler)
   }, [isDirty])
 
-  const confirmDiscard = useCallback(() => {
+  const confirmDiscard = useCallback(async () => {
     if (!latest.current.isDirty) return true
+    const ask = latest.current.askConfirm
+    if (ask) return ask()
     return window.confirm(
       "You have unsaved changes to this reply. Discard them?"
     )

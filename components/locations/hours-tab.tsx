@@ -15,7 +15,7 @@ import { publishHours, saveHours, type HoursState, type NormalizedHours } from "
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/locations/action-errors"
 import { hoursFormSchema } from "@/lib/locations/forms/hours"
-import { editDisabledReason, publishDisabledReason } from "@/lib/locations/gating"
+import { editDisabledReason, resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useHours } from "@/lib/queries/use-location-hours"
@@ -132,7 +132,7 @@ function HoursTabLoaded({
   const editReason = editDisabledReason(caps)
   const needsAck = hours.status === "google_dirty" || hours.status === "conflict"
   const publishReason =
-    publishDisabledReason(caps, hours.writesEnabled) ?? (hours.status === "in_sync" ? "Opening hours already match Google." : isDirty ? "Save your changes before publishing." : null)
+    resourceDisabledReason(caps, "hours", hours.writesEnabled) ?? (hours.status === "in_sync" ? "Opening hours already match Google." : isDirty ? "Save your changes before publishing." : null)
 
   return (
     <div className="flex flex-col gap-6">

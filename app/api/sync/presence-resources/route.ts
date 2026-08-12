@@ -4,14 +4,18 @@ import { z } from "zod"
 import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { getFoodMenusState } from "@/lib/server/food-menus"
+import { readLiveFoodMenus } from "@/lib/server/food-menus"
 import { getHoursState } from "@/lib/server/hours"
 import { ApiError, apiError } from "@/lib/server/http"
+import {
+  raiseFoodMenuProposals,
+  raiseProfileProposals,
+} from "@/lib/server/import-review"
 import { withAdvisoryLock } from "@/lib/server/leases"
 import { loadMedia } from "@/lib/server/media"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
-import { getProfileState } from "@/lib/server/profile"
+import { readProfileStateBundle } from "@/lib/server/profile"
 import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -96,10 +100,44 @@ async function reconcileResource(
   locationId: string
 ) {
   if (resource === "hours") return getHoursState(session, locationId)
-  if (resource === "profile") return getProfileState(session, locationId)
+  if (resource === "profile") {
+    const bundle = await readProfileStateBundle(session, locationId)
+    // Proposal raising is isolated: a raise failure must not poison the
+    // state observation itself.
+    if (getServerEnv().IMPORT_REVIEW_ENABLED) {
+      try {
+        await raiseProfileProposals({
+          session,
+          locationId,
+          bundle,
+          via: "sweep",
+          requestId: "system:presence-resources",
+        })
+      } catch {
+        throw new ApiError(502, "proposal_raise_failed", "Import proposals could not be refreshed.")
+      }
+    }
+    return bundle.state
+  }
   if (resource === "posts") return listLocalPosts(session.organisationId, session, locationId)
   if (resource === "media") return loadMedia(session.organisationId, session, locationId)
-  if (resource === "foodMenus") return getFoodMenusState(session, locationId)
+  if (resource === "foodMenus") {
+    const live = await readLiveFoodMenus(session, locationId)
+    if (getServerEnv().IMPORT_REVIEW_ENABLED) {
+      try {
+        await raiseFoodMenuProposals({
+          session,
+          locationId,
+          live,
+          via: "sweep",
+          requestId: "system:presence-resources",
+        })
+      } catch {
+        throw new ApiError(502, "proposal_raise_failed", "Import proposals could not be refreshed.")
+      }
+    }
+    return live.state
+  }
   return loadPlaceActions(session.organisationId, session, locationId)
 }
 

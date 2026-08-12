@@ -17,6 +17,9 @@ describe("EmptyState", () => {
 
     rerender(<EmptyState kind="disconnected" />)
     expect(screen.getByText("Google is not connected")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Manage connection" })
+    ).toHaveAttribute("href", "/settings/connections")
   })
 
   it("clears filters on request", async () => {

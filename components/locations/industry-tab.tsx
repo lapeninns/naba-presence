@@ -16,8 +16,13 @@ import { useToastManager } from "@/components/ui/toast"
 import { publishIndustry, type IndustryState } from "@/lib/api/location-industry"
 import { describeActionError } from "@/lib/locations/action-errors"
 import { callsStateLabel } from "@/lib/locations/console-labels"
-import { touchedMask } from "@/lib/locations/forms/industry"
-import { editDisabledReason, publishDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
+import {
+  inputToTimeOfDay,
+  lodgingUpdatedPaths,
+  timeOfDayToInput,
+  touchedMask,
+} from "@/lib/locations/forms/industry"
+import { editDisabledReason, resourceDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useIndustry } from "@/lib/queries/use-location-industry"
@@ -81,19 +86,26 @@ function IndustryTabLoaded({
   toast: ToastFn
 }) {
   const editReason = editDisabledReason(caps)
-  const publishReason = editReason ?? publishDisabledReason(caps, state.writesEnabled)
+  const publishReason =
+    editReason ?? resourceDisabledReason(caps, "industry", state.writesEnabled)
 
   return (
     <div className="flex flex-col gap-8">
       <GateNote reason={editReason} />
 
-      <section className="flex max-w-sm flex-col gap-4">
+      <section className="flex max-w-2xl flex-col gap-4">
         <h2 className="text-title font-semibold">Lodging</h2>
         <SectionPanel title="Lodging" result={state.lodging}>
           {(data) => (
             <LodgingSection
               locationId={locationId}
               loaded={data as RawRecord}
+              suggested={
+                state.lodgingUpdated.error
+                  ? null
+                  : ((state.lodgingUpdated.data as RawRecord | null) ?? null)
+              }
+              suggestedError={state.lodgingUpdated.error}
               disabled={Boolean(editReason)}
               publishReason={publishReason}
               invalidate={invalidate}
@@ -136,9 +148,48 @@ function IndustryTabLoaded({
 }
 
 // --- Lodging -----------------------------------------------------------
+type AmenitySection =
+  | "pets"
+  | "parking"
+  | "accessibility"
+  | "connectivity"
+  | "foodAndDrink"
+  | "housekeeping"
+  | "wellness"
+  | "pools"
+
+function AmenityToggle({
+  id,
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string
+  label: string
+  checked: boolean
+  disabled: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <label className="flex items-center gap-2 text-ui" htmlFor={id}>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {label}
+    </label>
+  )
+}
+
 function LodgingSection({
   locationId,
   loaded,
+  suggested,
+  suggestedError,
   disabled,
   publishReason,
   invalidate,
@@ -146,6 +197,8 @@ function LodgingSection({
 }: {
   locationId: string
   loaded: RawRecord
+  suggested: RawRecord | null
+  suggestedError: string | null
   disabled: boolean
   publishReason: string | null
   invalidate: () => void
@@ -163,14 +216,31 @@ function LodgingSection({
   }, [loaded])
 
   const policies = asRecord(draft.policies)
+  const pets = asRecord(draft.pets)
+  const parking = asRecord(draft.parking)
+  const accessibility = asRecord(draft.accessibility)
+  const connectivity = asRecord(draft.connectivity)
+  const foodAndDrink = asRecord(draft.foodAndDrink)
+  const housekeeping = asRecord(draft.housekeeping)
+  const wellness = asRecord(draft.wellness)
+  const pools = asRecord(draft.pools)
+
   // Top-level keys the user actually touched (D8: everything else on the
   // record, including unknown sibling keys of `policies`, is preserved
   // as-is via the spread in the onChange handlers below).
   const mask = useMemo(() => touchedMask(loaded, draft), [loaded, draft])
-  const payload = useMemo(() => Object.fromEntries(mask.map((key) => [key, draft[key]])), [mask, draft])
+  const payload = useMemo(
+    () => Object.fromEntries(mask.map((key) => [key, draft[key]])),
+    [mask, draft]
+  )
 
   const save = useMutation({
-    mutationFn: () => publishIndustry(locationId, { operation: "update_lodging", updateMask: mask, payload }),
+    mutationFn: () =>
+      publishIndustry(locationId, {
+        operation: "update_lodging",
+        updateMask: mask,
+        payload,
+      }),
     onSuccess: () => {
       invalidate()
       toast("Lodging details published to Google", "success")
@@ -180,37 +250,244 @@ function LodgingSection({
 
   const checkinId = useId()
   const checkoutId = useId()
+  const baseId = useId()
+
+  const suggestedPaths = suggested ? lodgingUpdatedPaths(suggested) : []
+
+  function setPolicyTime(key: "checkinTime" | "checkoutTime", value: string) {
+    setDraft((prev) => ({
+      ...prev,
+      policies: {
+        ...asRecord(prev.policies),
+        [key]: value ? inputToTimeOfDay(value) : undefined,
+      },
+    }))
+  }
+
+  function setNested(section: AmenitySection, key: string, value: boolean) {
+    setDraft((prev) => ({
+      ...prev,
+      [section]: { ...asRecord(prev[section]), [key]: value },
+    }))
+  }
+
+  function applySuggested() {
+    if (!suggested || suggestedPaths.length === 0) return
+    setDraft((prev) => {
+      const next = { ...prev }
+      for (const path of suggestedPaths) {
+        const top = path.split(".")[0] ?? path
+        if (top === "name" || top === "metadata" || top === "diffMask") continue
+        if (top in suggested) next[top] = suggested[top]
+      }
+      return next
+    })
+    toast("Suggested lodging values applied to the form — review and save", "success")
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Field>
-        <FieldLabel htmlFor={checkinId}>Check-in time</FieldLabel>
-        <Input
-          id={checkinId}
-          type="time"
-          value={asString(policies.checkinTime)}
+    <div className="flex flex-col gap-6">
+      {suggestedError ? (
+        <p className="text-caption text-muted-foreground">
+          Google suggested lodging updates could not be loaded right now.
+        </p>
+      ) : suggestedPaths.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-(--nr-radius-card) border border-border px-3 py-2">
+          <p className="text-ui font-medium">Google suggested lodging updates</p>
+          <p className="text-caption text-muted-foreground">
+            Google suggests changes to{" "}
+            {suggestedPaths.map((path) => path.replace(/_/g, " ")).join(", ")}.
+            Apply them into this form, review, then save to publish.
+          </p>
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled}
+              onClick={applySuggested}
+            >
+              Apply suggested values
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-caption text-muted-foreground">
+          Google has not suggested lodging changes.
+        </p>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor={checkinId}>Check-in time</FieldLabel>
+          <Input
+            id={checkinId}
+            type="time"
+            value={timeOfDayToInput(policies.checkinTime)}
+            disabled={disabled}
+            onChange={(e) => setPolicyTime("checkinTime", e.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={checkoutId}>Check-out time</FieldLabel>
+          <Input
+            id={checkoutId}
+            type="time"
+            value={timeOfDayToInput(policies.checkoutTime)}
+            disabled={disabled}
+            onChange={(e) => setPolicyTime("checkoutTime", e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <fieldset className="flex flex-col gap-2" disabled={disabled}>
+        <legend className="text-ui font-medium">Pets and parking</legend>
+        <AmenityToggle
+          id={`${baseId}-pets`}
+          label="Pets allowed"
+          checked={Boolean(pets.petsAllowed)}
           disabled={disabled}
-          onChange={(e) =>
-            setDraft((prev) => ({ ...prev, policies: { ...asRecord(prev.policies), checkinTime: e.target.value } }))
+          onChange={(v) => setNested("pets", "petsAllowed", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-pets-free`}
+          label="Pets allowed free of charge"
+          checked={Boolean(pets.petsAllowedFree)}
+          disabled={disabled}
+          onChange={(v) => setNested("pets", "petsAllowedFree", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-parking`}
+          label="Parking available"
+          checked={Boolean(parking.parkingAvailable)}
+          disabled={disabled}
+          onChange={(v) => setNested("parking", "parkingAvailable", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-free-parking`}
+          label="Free parking"
+          checked={Boolean(parking.freeParking)}
+          disabled={disabled}
+          onChange={(v) => setNested("parking", "freeParking", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-valet`}
+          label="Valet parking"
+          checked={Boolean(parking.valetParkingAvailable)}
+          disabled={disabled}
+          onChange={(v) => setNested("parking", "valetParkingAvailable", v)}
+        />
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2" disabled={disabled}>
+        <legend className="text-ui font-medium">Accessibility</legend>
+        <AmenityToggle
+          id={`${baseId}-entrance`}
+          label="Step-free / accessible entrance"
+          checked={Boolean(accessibility.mobilityAccessibleEntrance)}
+          disabled={disabled}
+          onChange={(v) =>
+            setNested("accessibility", "mobilityAccessibleEntrance", v)
           }
         />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor={checkoutId}>Check-out time</FieldLabel>
-        <Input
-          id={checkoutId}
-          type="time"
-          value={asString(policies.checkoutTime)}
+        <AmenityToggle
+          id={`${baseId}-access-parking`}
+          label="Accessible parking"
+          checked={Boolean(accessibility.mobilityAccessibleParking)}
           disabled={disabled}
-          onChange={(e) =>
-            setDraft((prev) => ({ ...prev, policies: { ...asRecord(prev.policies), checkoutTime: e.target.value } }))
+          onChange={(v) =>
+            setNested("accessibility", "mobilityAccessibleParking", v)
           }
         />
-      </Field>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2" disabled={disabled}>
+        <legend className="text-ui font-medium">Connectivity</legend>
+        <AmenityToggle
+          id={`${baseId}-wifi`}
+          label="Wi‑Fi available"
+          checked={Boolean(connectivity.wifiAvailable)}
+          disabled={disabled}
+          onChange={(v) => setNested("connectivity", "wifiAvailable", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-free-wifi`}
+          label="Free Wi‑Fi"
+          checked={Boolean(connectivity.freeWifi)}
+          disabled={disabled}
+          onChange={(v) => setNested("connectivity", "freeWifi", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-public-wifi`}
+          label="Public-area Wi‑Fi"
+          checked={Boolean(connectivity.publicAreaWifiAvailable)}
+          disabled={disabled}
+          onChange={(v) =>
+            setNested("connectivity", "publicAreaWifiAvailable", v)
+          }
+        />
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2" disabled={disabled}>
+        <legend className="text-ui font-medium">Food, wellness, and housekeeping</legend>
+        <AmenityToggle
+          id={`${baseId}-breakfast`}
+          label="Breakfast available"
+          checked={Boolean(foodAndDrink.breakfastAvailable)}
+          disabled={disabled}
+          onChange={(v) => setNested("foodAndDrink", "breakfastAvailable", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-free-breakfast`}
+          label="Free breakfast"
+          checked={Boolean(foodAndDrink.freeBreakfast)}
+          disabled={disabled}
+          onChange={(v) => setNested("foodAndDrink", "freeBreakfast", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-restaurant`}
+          label="On-site restaurant"
+          checked={Boolean(foodAndDrink.restaurant)}
+          disabled={disabled}
+          onChange={(v) => setNested("foodAndDrink", "restaurant", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-fitness`}
+          label="Fitness centre"
+          checked={Boolean(wellness.fitnessCenter)}
+          disabled={disabled}
+          onChange={(v) => setNested("wellness", "fitnessCenter", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-pool`}
+          label="Pool"
+          checked={Boolean(pools.pool)}
+          disabled={disabled}
+          onChange={(v) => setNested("pools", "pool", v)}
+        />
+        <AmenityToggle
+          id={`${baseId}-housekeeping`}
+          label="Housekeeping available"
+          checked={Boolean(housekeeping.housekeepingAvailable)}
+          disabled={disabled}
+          onChange={(v) =>
+            setNested("housekeeping", "housekeepingAvailable", v)
+          }
+        />
+        <AmenityToggle
+          id={`${baseId}-daily-housekeeping`}
+          label="Daily housekeeping"
+          checked={Boolean(housekeeping.dailyHousekeeping)}
+          disabled={disabled}
+          onChange={(v) => setNested("housekeeping", "dailyHousekeeping", v)}
+        />
+      </fieldset>
+
       <div>
         <Button
           onClick={() => save.mutate()}
-          disabled={disabled || Boolean(publishReason) || mask.length === 0 || save.isPending}
+          disabled={
+            disabled || Boolean(publishReason) || mask.length === 0 || save.isPending
+          }
         >
           {save.isPending ? "Saving…" : "Save lodging"}
         </Button>

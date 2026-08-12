@@ -99,8 +99,7 @@ describeDatabase("provider request timeouts", () => {
     expect(checkpoint.last_error_code).toMatch(/timeout|google/i)
   }, 30_000)
 
-  it("fails a stalled OpenAI draft request with a bounded 502", async () => {
-    const startedAt = performance.now()
+  it("rejects auto-generate (no body) instead of calling OpenAI", async () => {
     const response = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
       {
@@ -112,17 +111,15 @@ describeDatabase("provider request timeouts", () => {
         body: JSON.stringify({ tone: "warm_professional" }),
       }
     )
-    const elapsedMs = performance.now() - startedAt
     const body = (await response.json()) as { error?: string }
 
-    expect(response.status).toBe(502)
-    expect(body.error).toBe("ai_timeout")
-    expect(elapsedMs).toBeLessThan(10_000)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe("invalid_request")
     expect(
       stub.calls.some(
         (call) =>
           call.method === "POST" && call.path.includes("/v1/responses")
       )
-    ).toBe(true)
+    ).toBe(false)
   }, 30_000)
 })

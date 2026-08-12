@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import {
   CheckIcon,
   CloudUploadIcon,
@@ -40,17 +40,15 @@ import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
+import { isLiveOnGoogle, replyWork } from "@/lib/inbox/review-situation"
+import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 const VERIFIED = new Set(["pass", "warn"])
-// The only `review_reply.publish_status` value that means "actually live on
-// Google" (see the check constraint in supabase/migrations/0001_initial.sql:
-// 'not_published' | 'awaiting_approval' | 'accepted' | 'published' |
-// 'rejected' | 'failed' | 'deleted'). 'accepted' is an in-flight/ambiguous
-// state, not a confirmed live reply — fix-round-1 IMPORTANT #4.
-const LIVE_ON_GOOGLE = new Set(["published"])
+const REJECT_NOTE_LIMIT = 2000
 
 function ActionBar({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
+  const reasonId = useId()
   const publish = usePublishReview(reviewId)
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
@@ -65,6 +63,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
 
   const review = detail.data?.review
   if (!review) return null
+
+  // `replyWork` centralises the "is anything actually pending?" question that
+  // the composer, the status strip and this bar all have to agree on — the
+  // same `publish_status === 'published'` test that used to live here as a
+  // local Set (see supabase/migrations/0001_initial.sql for the full enum;
+  // 'accepted' is in-flight, not a confirmed live reply — fix-round-1
+  // IMPORTANT #4).
+  const work = replyWork(review)
 
   const verifiedDraft = review.drafts.find(
     (draft) => draft.verificationStatus && VERIFIED.has(draft.verificationStatus)
@@ -86,9 +92,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     canPublish: review.capabilities.canPublish,
   })
   const deleteState = evaluateDelete({
-    hasPublishedReply: Boolean(
-      review.reply?.publishStatus && LIVE_ON_GOOGLE.has(review.reply.publishStatus)
-    ),
+    // Status, not body: a live reply is deletable even in the (anomalous) case
+    // where its text did not come back with the detail payload.
+    hasPublishedReply: isLiveOnGoogle(review.reply?.publishStatus),
     canPublish: review.capabilities.canPublish,
   })
 
@@ -108,6 +114,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // the reply) or any other non-published outcome can never render as
       // "published" (fix-round-1 CRITICAL #1).
       toasts.add(describeOutcomeToast(result.status))
+      if (result.status === "published") {
+        window.dispatchEvent(
+          new CustomEvent(PUBLISH_PULSE_EVENT, {
+            detail: { reviewId: review.id },
+          })
+        )
+      }
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
@@ -117,6 +130,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     try {
       const result = await approval.mutateAsync({ decision, note })
       toasts.add(describeOutcomeToast(result.status))
+      if (result.status === "published") {
+        window.dispatchEvent(
+          new CustomEvent(PUBLISH_PULSE_EVENT, {
+            detail: { reviewId: review.id },
+          })
+        )
+      }
       if (decision === "reject") {
         setRejectOpen(false)
         setRejectNote("")
@@ -145,8 +165,39 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const offerRequestApproval =
     !review.capabilities.canPublish && review.capabilities.canRequestApproval
 
+  // Nothing new to send: the live reply and the newest draft are the same
+  // words. The button stays in place (the composer edits the live text
+  // directly, so it becomes available the moment that text changes) but it is
+  // off, because re-sending identical words is a pointless round-trip the
+  // domain does not even allow a transition for.
+  // `work` is server state, so it still reads "settled" while the composer
+  // holds unsaved edits — without the dirty check the footer would tell you to
+  // edit a reply you are in the middle of editing.
+  const nothingToPublish = work.settled && !isDirty && !awaitingApproval
+  // "Publish" is the wrong verb once something is already on Google.
+  const publishLabel = work.liveBody !== null ? "Update reply" : "Publish reply"
+  const primaryState = awaitingApproval
+    ? approvalState
+    : offerRequestApproval
+      ? requestApprovalState
+      : publishState
+  // The reason a button is off was previously only in `title` — invisible on
+  // touch, and to most keyboard and screen-reader users. It is now text.
+  const blockedReason = nothingToPublish
+    ? "Edit the reply above to publish a change."
+    : !primaryState.enabled
+      ? primaryState.reason
+      : undefined
+
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {blockedReason ? (
+        <p id={reasonId} className="min-w-0 flex-1 text-caption text-muted-foreground">
+          {blockedReason}
+        </p>
+      ) : null}
+
+      <div className="ml-auto flex flex-wrap items-center gap-2">
       {awaitingApproval ? (
         <>
           <Button
@@ -154,6 +205,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             size="sm"
             disabled={!approvalState.enabled || approval.isPending}
             title={approvalState.reason}
+            aria-describedby={blockedReason ? reasonId : undefined}
             onClick={() => setRejectOpen(true)}
           >
             <XIcon aria-hidden />
@@ -163,17 +215,21 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             size="sm"
             disabled={!approvalState.enabled || approval.isPending}
             title={approvalState.reason}
+            aria-describedby={blockedReason ? reasonId : undefined}
             onClick={() => void onDecision("approve")}
           >
             <CheckIcon aria-hidden />
-            {approval.isPending ? "Working…" : "Approve reply"}
+            {approval.isPending ? "Approving…" : "Approve reply"}
           </Button>
         </>
       ) : offerRequestApproval ? (
         <Button
           size="sm"
-          disabled={!requestApprovalState.enabled || publish.isPending}
-          title={requestApprovalState.reason}
+          disabled={
+            nothingToPublish || !requestApprovalState.enabled || publish.isPending
+          }
+          title={blockedReason ?? requestApprovalState.reason}
+          aria-describedby={blockedReason ? reasonId : undefined}
           onClick={() => void onPublish()}
         >
           <SendHorizonalIcon aria-hidden />
@@ -182,12 +238,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       ) : (
         <Button
           size="sm"
-          disabled={!publishState.enabled || publish.isPending}
-          title={publishState.reason}
+          disabled={nothingToPublish || !publishState.enabled || publish.isPending}
+          title={blockedReason ?? publishState.reason}
+          aria-describedby={blockedReason ? reasonId : undefined}
           onClick={() => void onPublish()}
         >
           <CloudUploadIcon aria-hidden />
-          {publish.isPending ? "Publishing…" : "Publish reply"}
+          {publish.isPending ? "Publishing…" : publishLabel}
         </Button>
       )}
 
@@ -206,6 +263,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
+      </div>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent aria-label="Delete published reply?">
@@ -224,7 +282,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               disabled={remove.isPending}
               onClick={() => void onDelete()}
             >
-              Delete reply
+              {remove.isPending ? "Deleting…" : "Delete reply"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -253,11 +311,15 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </label>
           <Textarea
             id="reject-note"
-            maxLength={2000}
+            maxLength={REJECT_NOTE_LIMIT}
             value={rejectNote}
             onChange={(event) => setRejectNote(event.target.value)}
             placeholder="Explain what needs to change…"
           />
+          <p className="text-caption text-muted-foreground tabular-nums">
+            {rejectNote.length.toLocaleString("en-GB")} /{" "}
+            {REJECT_NOTE_LIMIT.toLocaleString("en-GB")}
+          </p>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" size="sm" />}>
               Cancel
@@ -270,7 +332,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 void onDecision("reject", rejectNote.trim() || undefined)
               }
             >
-              Confirm reject
+              {approval.isPending ? "Rejecting…" : "Confirm reject"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

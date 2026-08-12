@@ -44,7 +44,7 @@ const PROFILE_READ_MASK = [
   "metadata",
 ] as const
 
-type ProfileContext = {
+export type ProfileContext = {
   locationId: string
   locationName: string
   externalLocationId: string
@@ -228,6 +228,18 @@ async function readLiveProfile(session: Session, locationId: string) {
 }
 
 export async function getProfileState(session: Session, locationId: string): Promise<ProfileState> {
+  return (await readProfileStateBundle(session, locationId)).state
+}
+
+/**
+ * Same as getProfileState but also returns the location context, so callers
+ * that need external ids (the import-review raiser) avoid a second
+ * context+Google round-trip.
+ */
+export async function readProfileStateBundle(
+  session: Session,
+  locationId: string
+): Promise<{ state: ProfileState; context: ProfileContext }> {
   const [live, stored] = await Promise.all([
     readLiveProfile(session, locationId),
     loadStoredStates(session.organisationId, locationId),
@@ -260,13 +272,13 @@ export async function getProfileState(session: Session, locationId: string): Pro
   const additionalCategories = live.googleLocation.categories?.additionalCategories?.flatMap(
     (category) => category.displayName ?? category.name ?? []
   ) ?? []
-  return {
+  const state: ProfileState = {
     location: { id: live.context.locationId, name: live.context.locationName, googleLocationName: live.context.googleLocationName },
     canonicalResource: { revision: live.resource.revision, updatedAt: live.resource.updatedAt.toISOString() },
     canonicalHash: live.canonicalHash,
     googleHash: live.googleHash,
     canPublish: live.context.canPublish,
-    googleWritesEnabled: getServerEnv().GBP_PROFILE_WRITES_ENABLED,
+    googleWritesEnabled: getServerEnv().PUBLISH_ENABLED,
     fields,
     googleDetails: { primaryCategory, additionalCategories },
     latestAttempt: latestAttempt ? {
@@ -275,6 +287,7 @@ export async function getProfileState(session: Session, locationId: string): Pro
       finishedAt: latestAttempt.finishedAt?.toISOString() ?? null,
     } : null,
   }
+  return { state, context: live.context }
 }
 
 function assertSelectedFields(selectedFields: ProfileFieldKey[], direction: "to_google" | "from_google") {
@@ -400,7 +413,7 @@ export async function publishProfileToGoogle(input: {
   requestId: string
 }) {
   const env = getServerEnv()
-  if (!env.GBP_PROFILE_WRITES_ENABLED || !env.PUBLISH_ENABLED) {
+  if (!env.PUBLISH_ENABLED) {
     throw new ApiError(409, "profile_publishing_disabled", "Profile publishing is currently disabled.")
   }
   const selected = assertSelectedFields(input.selectedFields, "to_google")

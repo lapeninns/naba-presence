@@ -29,13 +29,6 @@ export async function POST(request: Request) {
       throw new ApiError(401, "authentication_required", "Authentication required.")
     }
     if (session) requireRole(session, ["owner", "admin"])
-    if (!getServerEnv().GBP_PERFORMANCE_ENABLED) {
-      throw new ApiError(
-        503,
-        "performance_paused",
-        "Google performance ingestion is paused."
-      )
-    }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
     const organisationIds = session
       ? [session.organisationId]

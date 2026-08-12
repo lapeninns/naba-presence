@@ -214,7 +214,7 @@ export async function getHoursState(
     updateMask: live.patch.updateMask,
     warnings: live.patch.warnings,
     canPublish: live.context.canPublish,
-    writesEnabled: getServerEnv().GBP_PROFILE_WRITES_ENABLED,
+    writesEnabled: getServerEnv().PUBLISH_ENABLED,
     lastReconciledAt: live.resource.lastReconciledAt?.toISOString() ?? null,
     latestAttempt: latestAttempt
       ? {
@@ -284,7 +284,7 @@ export async function publishCanonicalHours(input: {
   requestId: string
 }) {
   const env = getServerEnv()
-  if (!env.GBP_PROFILE_WRITES_ENABLED || !env.PUBLISH_ENABLED) {
+  if (!env.PUBLISH_ENABLED) {
     throw new ApiError(409, "hours_publishing_disabled", "Hours publishing is currently disabled.")
   }
   const live = await readLiveHours(input.session, input.locationId)
