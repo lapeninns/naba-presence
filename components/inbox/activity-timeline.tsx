@@ -213,7 +213,9 @@ function ActivityTimeline({
                       </span>
                     </span>
                   ) : null}
-                  {event.metadataSummary ? (
+                  {event.metadataSummary &&
+                  event.metadataSummary !==
+                    "Additional audit details recorded" ? (
                     <p className="mt-2 min-w-0 border-t border-border/50 pt-2 text-caption break-words text-muted-foreground/80 @min-[32rem]/activity-panel:sr-only @min-[52rem]/activity-panel:not-sr-only @min-[52rem]/activity-panel:block">
                       {event.metadataSummary}
                     </p>

@@ -99,6 +99,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>("warm_professional")
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [editingSettled, setEditingSettled] = useState(false)
   // Verification produced by THIS session's latest save/verify/generate;
   // null until the user acts, then the persisted review.latestVerification (D3)
   // shows verdict AND reasons on load.
@@ -125,6 +126,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     const stashed = restore()
     setBody(stashed ?? seededBody)
     setMutationVerification(null)
+    setEditingSettled(false)
   }, [review, reviewId, restore, seededBody])
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
@@ -193,6 +195,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   if (!review) return null
   const canEdit = review.capabilities.canEdit
+  const showSettledSummary =
+    settled && canEdit && !isDirty && !editingSettled && body.trim() !== ""
   const bytes = byteLength(body)
   const overLimit = bytes > BYTE_LIMIT
   const nearLimit = !overLimit && bytes >= BYTE_WARN_AT
@@ -209,6 +213,49 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const blocking = reasons.filter((reason) => reason.severity === "fail").length
   const provenance = latestDraft ? PROVENANCE[latestDraft.source] : null
   const shortcut = saveShortcutLabel()
+
+  if (showSettledSummary) {
+    return (
+      <section
+        aria-labelledby={`${fieldId}-heading`}
+        className="flex flex-col gap-2"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h3 id={`${fieldId}-heading`} className="text-ui font-semibold">
+            Your reply
+          </h3>
+          {provenance ? (
+            <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
+              <SparklesIcon aria-hidden className="size-3 shrink-0" />
+              {provenance}
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
+            <CircleCheckIcon
+              aria-hidden
+              className="size-3.5 shrink-0 text-success"
+            />
+            In sync with Google
+          </span>
+          <span aria-hidden className="flex-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEditingSettled(true)}
+          >
+            Edit reply
+          </Button>
+        </div>
+        <p
+          dir="auto"
+          lang={review.detectedLanguageCode ?? undefined}
+          className="rounded-(--nr-radius-field) border border-border/70 bg-muted/40 px-4 py-3 text-body whitespace-pre-line"
+        >
+          {body}
+        </p>
+      </section>
+    )
+  }
 
   return (
     <section

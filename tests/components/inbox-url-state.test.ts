@@ -12,9 +12,9 @@ import {
 } from "@/lib/inbox/url-state"
 
 describe("inbox url state", () => {
-  it("defaults to the all queue and updated_desc sort", () => {
+  it("defaults to the needs_reply queue and updated_desc sort", () => {
     const state = parseInboxState(new URLSearchParams())
-    expect(state.queue).toBe("all")
+    expect(state.queue).toBe("needs_reply")
     expect(state.sort).toBe("updated_desc")
     expect(state.ratings).toEqual([])
     expect(hasActiveFilters(state)).toBe(false)
@@ -48,9 +48,35 @@ describe("inbox url state", () => {
     expect(state.selected).toBe("rev-1")
   })
 
-  it("ignores an unknown queue and falls back to all", () => {
+  it("ignores an unknown queue and falls back to needs_reply", () => {
     const state = parseInboxState(new URLSearchParams("queue=nonsense"))
-    expect(state.queue).toBe("all")
+    expect(state.queue).toBe("needs_reply")
+  })
+
+  it("omits the default needs_reply queue from the URL", () => {
+    const params = serializeInboxState({
+      queue: "needs_reply",
+      ratings: [],
+      search: "",
+      sort: "updated_desc",
+      verification: [],
+      publishStatus: [],
+      syncStatus: [],
+    })
+    expect(params.has("queue")).toBe(false)
+  })
+
+  it("writes queue=all when the operator leaves the default", () => {
+    const params = serializeInboxState({
+      queue: "all",
+      ratings: [],
+      search: "",
+      sort: "updated_desc",
+      verification: [],
+      publishStatus: [],
+      syncStatus: [],
+    })
+    expect(params.get("queue")).toBe("all")
   })
 
   it("round-trips through serialize omitting defaults and empties", () => {

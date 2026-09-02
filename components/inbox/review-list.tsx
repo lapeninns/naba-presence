@@ -22,6 +22,7 @@ function ReviewList({
   reviews,
   selectedId,
   onSelect,
+  onMovePastEnd,
   timezone = "Europe/London",
   isRefreshing = false,
 }: {
@@ -33,6 +34,8 @@ function ReviewList({
   // moves DOM focus onto a row whose tabIndex is still -1, which would
   // desync the roving-tabindex invariant from the visible selection.
   onSelect: (id: string) => boolean | Promise<boolean>
+  /** Arrow past the first/last visible row — parent pages or fetches. */
+  onMovePastEnd?: (direction: "next" | "prev") => void
   timezone?: string
   /** Soft cue while a background refetch keeps previous rows visible. */
   isRefreshing?: boolean
@@ -46,7 +49,7 @@ function ReviewList({
     buttons?.[index]?.focus()
   }
 
-  // Below xl, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
+  // Below lg, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
   // selection and swaps this pane back into view; this list panel itself
   // never unmounts (it's only CSS-hidden while the detail pane shows), so
   // restoring focus here — to the row that was just deselected, or the
@@ -81,11 +84,17 @@ function ReviewList({
       void Promise.resolve(onSelect(reviews[index + 1].id)).then((ok) => {
         if (ok) focusRow(index + 1)
       })
+    } else if (event.key === "ArrowDown" && index === reviews.length - 1) {
+      event.preventDefault()
+      onMovePastEnd?.("next")
     } else if (event.key === "ArrowUp" && index > 0) {
       event.preventDefault()
       void Promise.resolve(onSelect(reviews[index - 1].id)).then((ok) => {
         if (ok) focusRow(index - 1)
       })
+    } else if (event.key === "ArrowUp" && index === 0) {
+      event.preventDefault()
+      onMovePastEnd?.("prev")
     } else if (event.key === "Home" && reviews.length > 0) {
       event.preventDefault()
       void Promise.resolve(onSelect(reviews[0].id)).then((ok) => {

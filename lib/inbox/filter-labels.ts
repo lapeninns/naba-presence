@@ -97,6 +97,7 @@ export function formatDateRangeChip(
 
 export const SORT_LABELS: Record<string, string> = {
   updated_desc: "Most recent",
+  updated_asc: "Oldest first",
   rating_desc: "Highest rated",
   rating_asc: "Lowest rated",
 }

@@ -53,6 +53,15 @@ function QueueTabs({
           const count = countFor(item, total, byStatus)
           const selected = item === queue
           const labels = QUEUE_LABELS[item]
+          // All + Needs reply stay put (the two ways into the queue). Other
+          // tabs hide at zero so Approval/Escalated don't occupy the strip
+          // when there is nothing there — unless that tab is the current
+          // one, so a deep link to an empty queue is still visible.
+          // While counts are loading, keep every tab so they don't pop in.
+          const alwaysShown = item === "all" || item === "needs_reply"
+          if (!countsPending && !alwaysShown && !selected && count === 0) {
+            return null
+          }
           return (
             <TabsTab
               key={item}

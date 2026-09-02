@@ -283,18 +283,23 @@ describe("ReplyComposer", () => {
     )
   }
 
-  it("edits the live reply in place, with nothing to save until it changes", () => {
+  it("edits the live reply in place, with nothing to save until it changes", async () => {
+    const user = userEvent.setup()
     renderSettled()
+    expect(screen.getByText("Thanks for the kind words!")).toBeInTheDocument()
+    expect(screen.queryByRole("textbox", { name: "Your reply" })).not.toBeInTheDocument()
+    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Thanks for the kind words!"
     )
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
-    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
   })
 
   it("drops the in-sync note the moment the text diverges", async () => {
     const user = userEvent.setup()
     renderSettled()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     await user.type(screen.getByRole("textbox", { name: "Your reply" }), " Really.")
     expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
@@ -306,6 +311,7 @@ describe("ReplyComposer", () => {
     const user = userEvent.setup()
     renderSettled()
     expect(screen.getByText("Drafted by AI")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     await user.type(screen.getByRole("textbox", { name: "Your reply" }), "!")
     expect(screen.getByText("Drafted by AI · unsaved edits")).toBeInTheDocument()
   })

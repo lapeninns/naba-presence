@@ -15,6 +15,16 @@ export const QUEUES: readonly Queue[] = [
   "published",
 ]
 
+// Operators open Reviews to work the backlog. An empty URL therefore lands
+// on Needs reply; All is an explicit `?queue=all`. Matches the Home work-
+// queue deep link (`/inbox?queue=needs_reply`) so `/inbox` and that href
+// are the same view.
+export const DEFAULT_QUEUE: Queue = "needs_reply"
+
+// Two-pane + auto-select. Tailwind `lg` (1024px) — `xl` (1280) left typical
+// laptop-plus-sidebar widths on the single-pane phone layout.
+export const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
+
 // Reproduces the legacy queue->statuses mapping. "needs_reply" is the states
 // that still require a human toward a reply (excluding the states that own
 // their own tab: awaiting_approval, escalated, published). `publish_requested`
@@ -35,7 +45,12 @@ export function queueToStatuses(queue: Queue): string[] | undefined {
   return statuses ? [...statuses] : undefined
 }
 
-const SORTS = ["updated_desc", "rating_desc", "rating_asc"] as const
+const SORTS = [
+  "updated_desc",
+  "updated_asc",
+  "rating_desc",
+  "rating_asc",
+] as const
 type Sort = (typeof SORTS)[number]
 
 export type InboxState = {
@@ -61,7 +76,7 @@ export function parseInboxState(params: URLSearchParams): InboxState {
   const rawQueue = params.get("queue")
   const queue = (QUEUES as readonly string[]).includes(rawQueue ?? "")
     ? (rawQueue as Queue)
-    : "all"
+    : DEFAULT_QUEUE
   const rawSort = params.get("sort")
   const sort = (SORTS as readonly string[]).includes(rawSort ?? "")
     ? (rawSort as Sort)
@@ -88,7 +103,7 @@ export function parseInboxState(params: URLSearchParams): InboxState {
 
 export function serializeInboxState(state: InboxState): URLSearchParams {
   const params = new URLSearchParams()
-  if (state.queue !== "all") params.set("queue", state.queue)
+  if (state.queue !== DEFAULT_QUEUE) params.set("queue", state.queue)
   if (state.locationId) params.set("locationId", state.locationId)
   if (state.ratings.length) params.set("rating", state.ratings.join(","))
   if (state.search) params.set("search", state.search)
@@ -140,7 +155,7 @@ export function toReviewsFilters(state: InboxState): ReviewsFilters {
   }
 }
 
-// Which pane the mobile (<xl) layout shows: the detail when a review is
+// Which pane the mobile (<lg) layout shows: the detail when a review is
 // selected, otherwise the list (spec §6). Desktop always shows both panes.
 export function mobilePaneFor(selected: string | undefined): "list" | "detail" {
   return selected ? "detail" : "list"

@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 // value ("updated_desc") instead of the sentence-case label.
 const SORT_ITEMS: Record<string, string> = {
   updated_desc: "Most recent",
+  updated_asc: "Oldest first",
   rating_desc: "Highest rated",
   rating_asc: "Lowest rated",
 }
@@ -94,7 +95,7 @@ function ReviewFilters({
             aria-label="Search reviews"
             aria-busy={searchPending || undefined}
             value={searchDraft}
-            placeholder="Search reviews…"
+            placeholder="Search reviewer or review text…"
             onChange={(event) => setSearchDraft(event.target.value)}
             className="h-8 border-transparent bg-transparent pr-8 pl-8 text-ui shadow-none focus-visible:bg-card focus-visible:ring-ring/20"
           />
@@ -121,27 +122,28 @@ function ReviewFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="updated_desc">Most recent</SelectItem>
+            <SelectItem value="updated_asc">Oldest first</SelectItem>
             <SelectItem value="rating_desc">Highest rated</SelectItem>
             <SelectItem value="rating_asc">Lowest rated</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <RatingFilter
-        ratings={state.ratings}
-        onChange={(ratings) => onChange({ ratings })}
-      />
-
-      <ReplyFilter
-        replyState={state.replyState}
-        onChange={(replyState) => onChange({ replyState })}
-      />
-
-      <MoreFiltersToggle
-        open={moreOpen}
-        count={advancedCount}
-        onOpenChange={setMoreOpen}
-      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <RatingFilter
+          ratings={state.ratings}
+          onChange={(ratings) => onChange({ ratings })}
+        />
+        <ReplyFilter
+          replyState={state.replyState}
+          onChange={(replyState) => onChange({ replyState })}
+        />
+        <MoreFiltersToggle
+          open={moreOpen}
+          count={advancedCount}
+          onOpenChange={setMoreOpen}
+        />
+      </div>
 
       <div
         id="inbox-advanced-filters"

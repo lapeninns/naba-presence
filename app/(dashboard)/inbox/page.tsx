@@ -12,7 +12,11 @@ export default async function InboxPage() {
     <PageFrame width="workspace" className="min-h-0 flex-1">
       <PageHeader
         title="Reviews"
-        description="Every Google review for your business, in one queue."
+        description={
+          <span className="max-lg:hidden">
+            Every Google review for your business, in one queue.
+          </span>
+        }
       />
       <InboxView showLocationFilter={locationCount > 1} />
     </PageFrame>

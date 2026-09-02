@@ -26,7 +26,7 @@ async function applyCookie(page: Page, baseURL: string | undefined, cookie: stri
 test.describe("inbox", () => {
   test("renders the review queue", async ({ page }) => {
     await page.goto("/inbox")
-    await expect(page).toHaveURL("/inbox")
+    expect(new URL(page.url()).pathname).toBe("/inbox")
     await expect(
       page.getByRole("heading", { name: "Reviews", level: 1 })
     ).toBeVisible()

@@ -139,7 +139,7 @@ export type ReviewsFilters = {
   dateFrom?: string
   dateTo?: string
   search?: string
-  sort?: "updated_desc" | "rating_desc" | "rating_asc"
+  sort?: "updated_desc" | "updated_asc" | "rating_desc" | "rating_asc"
 }
 
 // Serialise camelCase filters to the backend's snake_case wire vocabulary.

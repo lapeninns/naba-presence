@@ -91,7 +91,7 @@ function RatingFilter({
   onChange: (ratings: number[]) => void
 }) {
   return (
-    <div role="group" aria-label="Rating" className="grid grid-cols-5 gap-1">
+    <div role="group" aria-label="Rating" className="flex shrink-0 items-center gap-0.5">
       {RATING_OPTIONS.map((option) => {
         const checked = ratings.includes(option.value)
         return (
@@ -103,7 +103,7 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "flex h-8 items-center justify-center gap-1 rounded-(--nr-radius-control) border text-caption font-semibold tabular-nums transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-(--nr-radius-control) border px-1.5 text-caption font-semibold tabular-nums transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
               checked
                 ? "border-primary/40 bg-accent text-foreground"
                 : "border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -138,7 +138,7 @@ function ReplyFilter({
     <div
       role="radiogroup"
       aria-label="Reply state"
-      className="grid grid-cols-3 gap-1 rounded-(--nr-radius-control) border border-border/70 bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-(--nr-radius-control) border border-border/70 bg-muted/40 p-0.5"
     >
       {(
         [
@@ -163,7 +163,7 @@ function ReplyFilter({
               )
             }
             className={cn(
-              "rounded-[calc(var(--nr-radius-control)-2px)] px-1.5 py-1.5 text-center text-caption font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "rounded-[calc(var(--nr-radius-control)-2px)] px-2 py-1 text-center text-caption font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
               checked
                 ? "bg-card text-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
@@ -293,7 +293,7 @@ function MoreFiltersToggle({
       size="sm"
       aria-expanded={open}
       aria-controls="inbox-advanced-filters"
-      className="w-full justify-between"
+      className="h-7 shrink-0 gap-1.5 px-2.5"
       onClick={() => onOpenChange(!open)}
     >
       <span className="inline-flex items-center gap-1.5">

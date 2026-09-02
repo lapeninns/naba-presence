@@ -38,6 +38,36 @@ describe("QueueTabs", () => {
     )
   })
 
+  it("hides empty secondary queues unless they are selected", () => {
+    render(
+      <QueueTabs
+        queue="all"
+        total={9}
+        byStatus={{ new: 4, published: 5 }}
+        onQueueChange={() => {}}
+      />
+    )
+    expect(screen.getByRole("tab", { name: /All reviews/ })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /Needs reply/ })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /Published/ })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("tab", { name: /Awaiting approval/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: /Escalated/ })).not.toBeInTheDocument()
+  })
+
+  it("keeps an empty selected queue visible", () => {
+    render(
+      <QueueTabs
+        queue="escalated"
+        total={5}
+        byStatus={{ published: 5 }}
+        onQueueChange={() => {}}
+      />
+    )
+    expect(screen.getByRole("tab", { name: /Escalated,\s+0/ })).toBeInTheDocument()
+  })
+
   it("calls onQueueChange when a tab is chosen", async () => {
     const user = userEvent.setup()
     const onQueueChange = vi.fn()

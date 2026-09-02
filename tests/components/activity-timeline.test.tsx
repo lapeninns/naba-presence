@@ -32,6 +32,9 @@ describe("ActivityTimeline", () => {
     expect(
       screen.getByRole("list", { name: "Activity events" })
     ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Additional audit details recorded")
+    ).not.toBeInTheDocument()
   })
 
   it("shows an empty note when nothing has happened", () => {

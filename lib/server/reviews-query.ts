@@ -16,7 +16,7 @@ export type InboxFilters = {
   dateFrom?: string
   dateTo?: string
   search?: string
-  sort: "updated_desc" | "rating_desc" | "rating_asc"
+  sort: "updated_desc" | "updated_asc" | "rating_desc" | "rating_asc"
   pageSize: number
   cursor?: {
     updateTime: string
@@ -143,6 +143,10 @@ export function buildInboxQuery(
           ? sql`and (r.update_time, r.id) < (
               ${filters.cursor.updateTime}, ${filters.cursor.id}
             )`
+          : filters.cursor && filters.sort === "updated_asc"
+            ? sql`and (r.update_time, r.id) > (
+                ${filters.cursor.updateTime}, ${filters.cursor.id}
+              )`
           : filters.cursor && filters.sort === "rating_desc"
             ? filters.cursor.rating === null
               ? sql`and r.star_rating is null
@@ -203,7 +207,9 @@ export function buildInboxQuery(
               r.star_rating asc nulls last,
               r.update_time desc,
               r.id desc`
-          : sql`order by r.update_time desc, r.id desc`
+          : filters.sort === "updated_asc"
+            ? sql`order by r.update_time asc, r.id asc`
+            : sql`order by r.update_time desc, r.id desc`
     }
     limit ${filters.pageSize + 1}
   `

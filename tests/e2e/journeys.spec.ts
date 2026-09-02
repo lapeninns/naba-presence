@@ -32,7 +32,7 @@ test.describe("inbox critical journeys", () => {
     const state = await readJourneyState()
     await useCookie(page, baseURL, state.cookie)
 
-    await page.goto("/inbox")
+    await page.goto("/inbox?queue=all")
     const list = page.getByRole("region", { name: "Review list" })
     await expect(list.getByText(state.directReview.text, { exact: true })).toBeVisible()
     await expect(list.getByText(state.approvalReview.text, { exact: true })).toBeVisible()
@@ -126,7 +126,7 @@ test.describe("inbox critical journeys", () => {
   }) => {
     const state = await readJourneyState()
     await useCookie(page, baseURL, state.cookie)
-    await page.goto("/inbox")
+    await page.goto("/inbox?queue=all")
     await openReview(page, state.directReview.text)
     await page.getByRole("textbox", { name: "Your reply" }).fill("Unsaved edit in progress")
 

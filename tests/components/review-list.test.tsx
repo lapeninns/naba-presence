@@ -125,6 +125,25 @@ describe("ReviewList", () => {
     expect(first).toHaveFocus()
   })
 
+  it("asks the parent to page when the arrow key runs off either end", async () => {
+    const user = userEvent.setup()
+    const onMovePastEnd = vi.fn()
+    render(
+      <ReviewList
+        reviews={[row({ id: "a", text: "First" }), row({ id: "b", text: "Second" })]}
+        selectedId="b"
+        onSelect={() => true}
+        onMovePastEnd={onMovePastEnd}
+      />
+    )
+    screen.getByRole("button", { name: /Second/ }).focus()
+    await user.keyboard("{ArrowDown}")
+    expect(onMovePastEnd).toHaveBeenCalledWith("next")
+    screen.getByRole("button", { name: /First/ }).focus()
+    await user.keyboard("{ArrowUp}")
+    expect(onMovePastEnd).toHaveBeenCalledWith("prev")
+  })
+
   it("shows the year only when a review is not from the current year", () => {
     render(
       <ReviewList

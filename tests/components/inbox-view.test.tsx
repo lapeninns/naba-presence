@@ -196,13 +196,13 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     renderInbox()
     const textbox = await dirtyComposer(user)
 
-    await user.click(screen.getByRole("tab", { name: /Needs reply/ }))
+    await user.click(screen.getByRole("tab", { name: /All reviews/ }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(screen.getByRole("tab", { name: /Needs reply/ }))
+    await user.click(screen.getByRole("tab", { name: /All reviews/ }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -269,5 +269,43 @@ describe("InboxView — list fetch failure", () => {
     expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(refetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("InboxView — next and previous review", () => {
+  it("moves selection to the next loaded review", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [
+              row(),
+              row({
+                id: "rev-2",
+                reviewer: {
+                  displayName: "Pat Guest",
+                  isAnonymous: false,
+                  profilePhotoUrl: null,
+                },
+                text: "Second stay.",
+              }),
+            ],
+            nextCursor: null,
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+
+    renderInbox()
+    expect(screen.getByRole("button", { name: "Previous review" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Next review" }))
+    expect(push).toHaveBeenCalled()
+    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
   })
 })

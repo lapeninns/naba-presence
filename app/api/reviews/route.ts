@@ -37,7 +37,12 @@ const syncStatuses = [
   "failed",
   "cancelled",
 ] as const
-const sorts = ["updated_desc", "rating_desc", "rating_asc"] as const
+const sorts = [
+  "updated_desc",
+  "updated_asc",
+  "rating_desc",
+  "rating_asc",
+] as const
 
 const querySchema = z.object({
   locationId: z.uuid().optional(),

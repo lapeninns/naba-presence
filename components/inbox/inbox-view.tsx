@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   autoSelectId,
+  DESKTOP_MEDIA_QUERY,
   hasActiveFilters,
   mobilePaneFor,
   parseInboxState,
@@ -35,6 +36,12 @@ import {
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
+import {
+  adjacentReviewId,
+  pageForIndex,
+  type AdjacentDirection,
+} from "@/lib/inbox/queue-nav"
+import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 import { cn } from "@/lib/utils"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
@@ -91,7 +98,7 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
 
   const onPrevPage = useCallback(() => {
     setPage((p) => Math.max(0, p - 1))
-  }, [])
+  }, [setPage])
   const onNextPage = useCallback(() => {
     const next = currentPage + 1
     // Crossing into rows the client doesn't have yet: fetch the API's next
@@ -104,7 +111,7 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
       void reviewsQuery.fetchNextPage()
     }
     setPage(next)
-  }, [currentPage, reviews.length, reviewsQuery])
+  }, [currentPage, reviews.length, reviewsQuery, setPage])
 
   const updateState = useCallback(
     (partial: Partial<InboxState>, mode: "replace" | "push") => {
@@ -178,6 +185,43 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
     })()
   }, [dirtyGate, updateState])
 
+  const selectedIndex = state.selected
+    ? reviews.findIndex((review) => review.id === state.selected)
+    : -1
+  const hasPrevReview = selectedIndex > 0
+  const hasNextReview =
+    selectedIndex >= 0 &&
+    (selectedIndex < reviews.length - 1 || !!reviewsQuery.hasNextPage)
+
+  const onAdjacentReview = useCallback(
+    async (direction: AdjacentDirection) => {
+      if (!(await dirtyGate())) return false
+      const nextId = adjacentReviewId(reviews, state.selected, direction)
+      if (nextId) {
+        const index = reviews.findIndex((review) => review.id === nextId)
+        setPage(pageForIndex(index, PAGE_SIZE))
+        updateState({ selected: nextId }, "push")
+        return true
+      }
+      if (
+        direction === "next" &&
+        reviewsQuery.hasNextPage &&
+        !reviewsQuery.isFetchingNextPage
+      ) {
+        const result = await reviewsQuery.fetchNextPage()
+        const newItems = result.data?.pages.at(-1)?.items ?? []
+        const firstNew = newItems[0]
+        if (firstNew) {
+          setPage(pageForIndex(reviews.length, PAGE_SIZE))
+          updateState({ selected: firstNew.id }, "push")
+          return true
+        }
+      }
+      return false
+    },
+    [dirtyGate, reviews, reviewsQuery, setPage, state.selected, updateState]
+  )
+
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
   // the first row (replace, so it adds no history). Reads live dirtiness
   // imperatively via `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
@@ -190,7 +234,7 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
       isDirty: readIsDirty(),
       isDesktop:
         typeof window !== "undefined" &&
-        window.matchMedia("(min-width: 1280px)").matches,
+        window.matchMedia(DESKTOP_MEDIA_QUERY).matches,
     })
     if (id) {
       router.replace(
@@ -198,6 +242,18 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
       )
     }
   }, [reviewsReady, reviews, state, router, readIsDirty])
+
+  // After a successful publish, move to the next review so the 674-item
+  // backlog is a loop rather than "Back to reviews" + another click.
+  useEffect(() => {
+    function onPublished(event: Event) {
+      const detail = (event as CustomEvent<{ reviewId?: string }>).detail
+      if (detail?.reviewId !== state.selected) return
+      void onAdjacentReview("next")
+    }
+    window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
+    return () => window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
+  }, [onAdjacentReview, state.selected])
 
   const isListRefreshing =
     reviewsQuery.isFetching &&
@@ -281,21 +337,24 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
         reviews={pageReviews}
         selectedId={state.selected}
         onSelect={onSelect}
+        onMovePastEnd={(direction) => {
+          void onAdjacentReview(direction)
+        }}
         isRefreshing={isListRefreshing}
       />
     )
   }
 
-  // Below xl, show one pane: the list, or the detail when a review is selected
-  // (spec §6). At xl both panes are always visible (two-pane split).
+  // Below lg, show one pane: the list, or the detail when a review is selected
+  // (spec §6). At lg both panes are always visible (two-pane split).
   const mobilePane = mobilePaneFor(state.selected)
 
-  // Below xl, selecting a review swaps the visible pane from the list to the
+  // Below lg, selecting a review swaps the visible pane from the list to the
   // detail view — move focus to the pane's own "Back to reviews" control so
   // keyboard/screen-reader users land somewhere meaningful in the new pane
   // instead of losing their place (mirrors the same button re-focusing the
-  // originating row on the way back, below). `.focus()` on the `xl:hidden`
-  // button is a silent no-op at the xl breakpoint (it is `display: none`
+  // originating row on the way back, below). `.focus()` on the `lg:hidden`
+  // button is a silent no-op at the lg breakpoint (it is `display: none`
   // there), so this is harmless on desktop.
   const backButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -303,13 +362,13 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
   }, [state.selected])
 
   return (
-    <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
+    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
       {/* Queue pane: solid card (design-system hierarchy: lists stay solid,
           not glass), shadow elevates it off the tinted page background. */}
       <div
         className={cn(
           "min-h-0 flex-col overflow-hidden rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card)",
-          mobilePane === "detail" ? "hidden xl:flex" : "flex"
+          mobilePane === "detail" ? "hidden lg:flex" : "flex"
         )}
       >
         <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/40 px-3 py-3">
@@ -365,8 +424,8 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
       <section
         aria-label="Selected review"
         className={cn(
-          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card) xl:flex xl:flex-col",
-          mobilePane === "detail" ? "flex flex-col" : "hidden xl:flex"
+          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card) lg:flex lg:flex-col",
+          mobilePane === "detail" ? "flex flex-col" : "hidden lg:flex"
         )}
       >
         {state.selected ? (
@@ -386,11 +445,33 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
                     variant="ghost"
                     size="sm"
                     onClick={onBackToList}
-                    className="-ml-2 xl:hidden"
+                    className="-ml-2 lg:hidden"
                   >
                     <ArrowLeftIcon aria-hidden />
                     Back to reviews
                   </Button>
+                }
+                navigation={
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Previous review"
+                      disabled={!hasPrevReview}
+                      onClick={() => void onAdjacentReview("prev")}
+                    >
+                      <ChevronLeftIcon aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Next review"
+                      disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
+                      onClick={() => void onAdjacentReview("next")}
+                    >
+                      <ChevronRightIcon aria-hidden />
+                    </Button>
+                  </div>
                 }
                 composer={<ReplyComposer reviewId={state.selected} />}
                 actions={<ActionBar reviewId={state.selected} />}

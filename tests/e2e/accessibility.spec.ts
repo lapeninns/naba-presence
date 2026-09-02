@@ -668,12 +668,12 @@ for (const theme of themes) {
             },
           })
         })
-        await page.goto("/inbox")
+        await page.goto("/inbox?queue=all")
         await expect(
           page.getByRole("heading", { name: "Reviews", level: 1 })
         ).toBeVisible()
         await expect(
-          page.getByRole("button", { name: "Filters" })
+          page.getByRole("button", { name: /More filters/ })
         ).toBeVisible()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
@@ -710,14 +710,21 @@ for (const theme of themes) {
         await expect(selectedReview.getByRole("heading").first()).toBeVisible()
 
         // This fixture's draft and live reply are the same words. The composer
-        // edits those words directly, so they appear exactly ONCE — the old
-        // pane rendered them as a "published reply" block AND a textarea.
+        // collapses to a read-only summary until the operator chooses to edit.
         await expect(
-          selectedReview.getByRole("textbox", { name: "Your reply" })
-        ).toHaveValue("Thank you for your thoughtful review, Jordan.")
+          selectedReview.getByText("Thank you for your thoughtful review, Jordan.")
+        ).toBeVisible()
         await expect(selectedReview.getByText("In sync with Google")).toBeVisible()
         await expect(selectedReview.getByText("Live on Google")).toBeHidden()
         await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
+        await expect(
+          selectedReview.getByRole("textbox", { name: "Your reply" })
+        ).toBeHidden()
+
+        await selectedReview.getByRole("button", { name: "Edit reply" }).click()
+        await expect(
+          selectedReview.getByRole("textbox", { name: "Your reply" })
+        ).toHaveValue("Thank you for your thoughtful review, Jordan.")
 
         // AI generate is manual: Regenerate (draft already exists) + tone are
         // available, but nothing calls the LLM until the operator clicks.

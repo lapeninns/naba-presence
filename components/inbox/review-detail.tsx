@@ -64,18 +64,23 @@ function languageName(code: string | null): string | null {
 
 function PaneHeader({
   leading,
+  navigation,
   children,
   strip,
 }: {
   leading?: ReactNode
+  navigation?: ReactNode
   children?: ReactNode
   strip?: ReactNode
 }) {
   return (
     <header className="flex shrink-0 flex-col border-b border-border/60">
-      {leading ? (
-        <div className="border-b border-border/50 px-3 py-2 xl:hidden">
-          {leading}
+      {leading || navigation ? (
+        <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
+          {leading ? <div className="min-w-0 lg:hidden">{leading}</div> : null}
+          {navigation ? (
+            <div className="ml-auto flex shrink-0 items-center">{navigation}</div>
+          ) : null}
         </div>
       ) : null}
       <div className="@container/review-identity flex items-center gap-3 px-4 py-3 sm:px-5">
@@ -487,12 +492,15 @@ function ActionFooterSkeleton() {
 function ReviewDetail({
   reviewId,
   leading,
+  navigation,
   composer,
   actions,
 }: {
   reviewId: string
   /** Slot at the head of the pinned header (the mobile return-to-list control). */
   leading?: ReactNode
+  /** Previous / next review controls, pinned in the pane chrome. */
+  navigation?: ReactNode
   /** Reply workspace, rendered after the review in the scroll region. */
   composer?: ReactNode
   /** Lifecycle actions, pinned below the scroll region so the CTA never scrolls away. */
@@ -503,7 +511,7 @@ function ReviewDetail({
   if (query.isPending) {
     return (
       <div aria-busy="true" className="flex min-h-0 flex-1 flex-col">
-        <PaneHeader leading={leading}>
+        <PaneHeader leading={leading} navigation={navigation}>
           <Skeleton className="size-10 rounded-full" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-36 rounded-(--nr-radius-tag)" />
@@ -525,7 +533,7 @@ function ReviewDetail({
   if (query.isError || !query.data) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PaneHeader leading={leading} />
+        <PaneHeader leading={leading} navigation={navigation} />
         <div className="p-6">
           <Alert variant="destructive">
             <AlertTitle>We could not load this review.</AlertTitle>
@@ -549,7 +557,11 @@ function ReviewDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PaneHeader leading={leading} strip={<SituationStrip review={review} />}>
+      <PaneHeader
+        leading={leading}
+        navigation={navigation}
+        strip={<SituationStrip review={review} />}
+      >
         <ReviewerIdentity review={review} />
       </PaneHeader>
 
