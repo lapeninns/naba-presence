@@ -4,15 +4,22 @@ import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
-import { withTenant } from "@/lib/server/db"
-import { ApiError } from "@/lib/server/http"
+import { jsonColumn, withTenant } from "@/lib/server/db"
 import {
-  canPublishLocation,
-  requireLocationAccess,
-} from "@/lib/server/permissions"
+  attemptStore,
+  loadLinkedLocation,
+  type AttemptStore,
+  type LinkedLocation,
+} from "@/lib/server/gbp-write"
 import type { Session } from "@/lib/server/session"
 
-export type GbpLocationContext = {
+// Thin façade over lib/server/gbp-write.ts for the "complete GBP management"
+// surfaces (business-information.ts, industry-management.ts,
+// location-administration.ts), which share the gbp_management_mutation table.
+// The signatures below are frozen for those callers; the internals delegate
+// to the shared pipeline pieces.
+
+export type GbpLocationContext = Omit<LinkedLocation, "googleAccountId"> & {
   externalLocationId: string
   connectionId: string
   googleAccountId: string
@@ -40,34 +47,46 @@ export async function resolveGbpLocationContext(
   session: Session,
   locationId: string
 ): Promise<GbpLocationContext> {
-  await requireLocationAccess(sql, session, locationId)
-  const [row] = await sql<Omit<GbpLocationContext, "canPublish">[]>`
-    select
-      el.id::text as "externalLocationId",
-      el.google_connection_id::text as "connectionId",
-      ga.id::text as "googleAccountId",
-      el.google_account_name as "accountName",
-      el.google_location_name as "googleLocationName"
-    from location_link ll
-    join external_location el on el.id = ll.external_location_id
-    join google_account ga
-      on ga.google_connection_id = el.google_connection_id
-     and ga.google_account_name = el.google_account_name
-    where ll.location_id = ${locationId}
-      and ll.is_active = true
-    limit 1
-  `
-  if (!row) {
-    throw new ApiError(
-      409,
-      "google_location_not_linked",
-      "Link this location to Google first."
-    )
-  }
+  const linked = await loadLinkedLocation(sql, session, locationId, {
+    requireGoogleAccount: true,
+  })
   return {
-    ...row,
-    canPublish: await canPublishLocation(sql, session, locationId),
+    ...linked,
+    connectionId: linked.googleConnectionId,
+    googleAccountId: linked.googleAccountId as string,
+    accountName: linked.googleAccountName,
   }
+}
+
+/**
+ * gbp_management_mutation as an AttemptStore. Its CHECK constraint knows
+ * started/validated/succeeded/failed/ambiguous, so the in-flight vocabulary
+ * maps onto `started` and "publishing" (validateOnly passed, real call next)
+ * onto `validated`.
+ */
+export const gbpManagementAttemptStore: AttemptStore = attemptStore({
+  table: "gbp_management_mutation",
+  statuses: {
+    validating: "started",
+    validated: "validated",
+    publishing: "validated",
+  },
+  columns: {
+    errorCode: "last_error_code",
+    response: "google_response",
+    validatedAt: "validated_at",
+  },
+})
+
+export function gbpManagementIdempotencyKey(input: {
+  resourceType: string
+  operation: string
+  targetResourceName?: string
+  locationId?: string
+  googleAccountId?: string
+  requestId: string
+}) {
+  return `${input.resourceType}:${input.operation}:${input.targetResourceName ?? input.locationId ?? input.googleAccountId}:${input.requestId}`
 }
 
 export async function cacheGbpSnapshot(input: {
@@ -79,7 +98,9 @@ export async function cacheGbpSnapshot(input: {
   payload: unknown
 }) {
   const hash = stableGoogleHash(input.payload)
-  await withTenant(input.organisationId, (sql) => sql`
+  await withTenant(
+    input.organisationId,
+    (sql) => sql`
     insert into gbp_resource_snapshot (
       organisation_id, location_id, google_account_id, resource_type,
       resource_name, payload, google_hash
@@ -87,7 +108,7 @@ export async function cacheGbpSnapshot(input: {
       ${input.organisationId}, ${input.locationId ?? null},
       ${input.googleAccountId ?? null}, ${input.resourceType},
       ${input.resourceName},
-      ${sql.json(JSON.parse(JSON.stringify(input.payload)) as never)}, ${hash}
+      ${jsonColumn(sql, input.payload)}, ${hash}
     )
     on conflict (organisation_id, resource_type, resource_name) do update set
       location_id = excluded.location_id,
@@ -96,7 +117,8 @@ export async function cacheGbpSnapshot(input: {
       google_hash = excluded.google_hash,
       observed_at = now(),
       expires_at = now() + interval '30 days'
-  `)
+  `
+  )
   return hash
 }
 
@@ -113,31 +135,36 @@ export async function startGbpMutation(input: {
   updateMask?: string[]
   payload?: unknown
 }) {
-  const idempotencyKey = `${input.resourceType}:${input.operation}:${input.targetResourceName ?? input.locationId ?? input.googleAccountId}:${input.requestId}`
+  const key = gbpManagementIdempotencyKey(input)
   return withTenant(input.organisationId, async (sql) => {
-    const [existing] = await sql<{ id: string; status: string }[]>`
-      select id::text as id, status
-      from gbp_management_mutation
-      where idempotency_key = ${idempotencyKey}
-    `
-    if (existing) return { ...existing, idempotent: true }
-    const [created] = await sql<{ id: string; status: string }[]>`
-      insert into gbp_management_mutation (
-        organisation_id, location_id, google_account_id, actor_user_id,
-        resource_type, operation, target_resource_name, status,
-        idempotency_key, expected_google_hash, update_mask,
-        requested_payload
-      ) values (
-        ${input.organisationId}, ${input.locationId ?? null},
-        ${input.googleAccountId ?? null}, ${input.session.userId},
-        ${input.resourceType}, ${input.operation},
-        ${input.targetResourceName ?? null}, 'started', ${idempotencyKey},
-        ${input.expectedGoogleHash ?? null}, ${input.updateMask ?? []},
-        ${input.payload === undefined ? null : sql.json(JSON.parse(JSON.stringify(input.payload)) as never)}
-      )
-      returning id::text as id, status
-    `
-    return { ...created, idempotent: false }
+    const existing = await gbpManagementAttemptStore.find(sql, {
+      organisationId: input.organisationId,
+      key,
+    })
+    if (existing) {
+      return { id: existing.id, status: existing.rawStatus, idempotent: true }
+    }
+    const created = await gbpManagementAttemptStore.start(sql, {
+      organisationId: input.organisationId,
+      actorUserId: input.session.userId,
+      requestId: input.requestId,
+      key,
+      existing: null,
+      intent: {
+        location_id: input.locationId ?? null,
+        google_account_id: input.googleAccountId ?? null,
+        resource_type: input.resourceType,
+        operation: input.operation,
+        target_resource_name: input.targetResourceName ?? null,
+        expected_google_hash: input.expectedGoogleHash ?? null,
+        update_mask: input.updateMask ?? [],
+        requested_payload:
+          input.payload === undefined
+            ? null
+            : (txn: TransactionSql) => jsonColumn(txn, input.payload),
+      },
+    })
+    return { id: created.id, status: created.rawStatus, idempotent: false }
   })
 }
 
@@ -148,17 +175,19 @@ export async function settleGbpMutation(input: {
   response?: unknown
   errorCode?: string
 }) {
-  await withTenant(input.organisationId, (sql) => sql`
-    update gbp_management_mutation set
-      status = ${input.status},
-      google_response = ${input.response === undefined ? null : sql.json(JSON.parse(JSON.stringify(input.response)) as never)},
-      last_error_code = ${input.errorCode ?? null},
-      validated_at = case when ${input.status} in ('validated', 'succeeded')
-        then coalesce(validated_at, now()) else validated_at end,
-      finished_at = case when ${input.status} in ('succeeded', 'failed', 'ambiguous')
-        then now() else finished_at end
-    where id = ${input.mutationId}
-  `)
+  await withTenant(input.organisationId, (sql) =>
+    input.status === "validated"
+      ? gbpManagementAttemptStore.markPublishing(sql, {
+          id: input.mutationId,
+          validated: true,
+        })
+      : gbpManagementAttemptStore.settle(sql, {
+          id: input.mutationId,
+          status: input.status,
+          errorCode: input.errorCode ?? null,
+          response: input.response,
+        })
+  )
 }
 
 export async function auditGbpMutation(input: {

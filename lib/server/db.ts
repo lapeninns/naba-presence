@@ -1,7 +1,12 @@
 import "server-only"
 
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
-import postgres, { type Sql, type TransactionSql } from "postgres"
+import postgres, {
+  type JSONValue,
+  type Parameter,
+  type Sql,
+  type TransactionSql,
+} from "postgres"
 
 import { getServerEnv } from "@/lib/server/env"
 
@@ -39,6 +44,34 @@ export function getDatabase(): Sql {
     })
   }
   return globalThis.__nabaSql
+}
+
+/**
+ * Anything that can build a jsonb parameter: the pooled `Sql`, a
+ * `TransactionSql` from `withTenant`, or a test double that implements `json`.
+ */
+export type JsonSql = { json: Sql["json"] }
+
+/**
+ * Builds a jsonb column parameter from any value: `sql.json(value)` after a
+ * JSON round-trip that strips `undefined` members, prototypes, Dates (to ISO
+ * strings) and anything else postgres.js refuses to serialise. This is THE
+ * way to write a jsonb column; do not inline
+ * `sql.json(JSON.parse(JSON.stringify(x)) as never)` again.
+ *
+ * `undefined` and `null` both become the JSON literal `null` (a non-null
+ * jsonb). Use `jsonColumnOrNull` when the column itself should be SQL NULL.
+ */
+export function jsonColumn(sql: JsonSql, value: unknown): Parameter {
+  return sql.json(JSON.parse(JSON.stringify(value ?? null)) as JSONValue)
+}
+
+/** `jsonColumn`, except `undefined`/`null` write SQL NULL instead of jsonb null. */
+export function jsonColumnOrNull(
+  sql: JsonSql,
+  value: unknown
+): Parameter | null {
+  return value === undefined || value === null ? null : jsonColumn(sql, value)
 }
 
 export async function withTenant<T>(
