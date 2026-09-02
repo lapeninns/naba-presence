@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const registerResponseSchema = z.object({
   authenticated: z.boolean(),
@@ -67,8 +67,9 @@ export async function signOut(): Promise<void> {
   await apiFetch("/api/session", { method: "DELETE" })
 }
 
-export async function lookupInvitation(token: string) {
+export async function lookupInvitation(token: string, options?: RequestOptions) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
     schema: invitationSchema,
+    ...options,
   })
 }

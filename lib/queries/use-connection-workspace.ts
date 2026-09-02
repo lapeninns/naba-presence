@@ -6,13 +6,14 @@ import { useToastManager } from "@/components/ui/toast"
 import { disconnectConnection, fetchConnections, startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/settings/action-errors"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useConnectionWorkspace() {
   const client = useQueryClient()
   const toast = useToastManager()
   const query = useQuery({
     queryKey: queryKeys.connections,
-    queryFn: fetchConnections,
+    queryFn: (ctx) => fetchConnections(requestOptions(ctx)),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   })

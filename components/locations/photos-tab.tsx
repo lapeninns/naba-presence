@@ -181,7 +181,7 @@ export function PhotosTab({ locationId }: { locationId: string }) {
         media
       )
       await queryClient.invalidateQueries({
-        queryKey: ["locations", locationId, "media"],
+        queryKey: queryKeys.locationMediaAll(locationId),
       })
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
@@ -196,7 +196,7 @@ export function PhotosTab({ locationId }: { locationId: string }) {
       return
     }
     await queryClient.invalidateQueries({
-      queryKey: ["locations", locationId, "media"],
+      queryKey: queryKeys.locationMediaAll(locationId),
     })
   }
 

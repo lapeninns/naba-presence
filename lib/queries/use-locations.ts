@@ -9,6 +9,7 @@ import {
   type DirectoryEntry,
 } from "@/lib/locations/directory"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 // Re-exported so existing importers keep working; the type and its mappers
 // live in lib/locations/directory.ts because the server layout needs them too
@@ -28,14 +29,14 @@ export function useLocationDirectory(role: string | null | undefined) {
   const management = role === "owner" || role === "admin"
   return useQuery({
     queryKey: management ? queryKeys.locationsManagement : queryKeys.locations,
-    queryFn: async (): Promise<DirectoryEntry[]> => {
+    queryFn: async (ctx): Promise<DirectoryEntry[]> => {
+      const options = requestOptions(ctx)
       if (management) {
-        const { locations } = await fetchManagementLocations()
+        const { locations } = await fetchManagementLocations(options)
         return toDirectoryEntriesFromManagement(locations)
       }
-      const { locations } = await fetchLocations()
+      const { locations } = await fetchLocations(options)
       return toDirectoryEntriesFromDefault(locations)
     },
-    staleTime: 30_000,
   })
 }

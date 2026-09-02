@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 import { MEMBER_ROLES, type MemberRole } from "@/lib/settings/forms/invitation"
 
 export const invitationSchema = z.object({
@@ -20,8 +20,8 @@ const revokedResponseSchema = z.object({ revoked: z.literal(true) })
 
 export type Invitation = z.infer<typeof invitationSchema>
 
-export function fetchInvitations() {
-  return apiFetch("/api/invitations", { schema: invitationsResponseSchema })
+export function fetchInvitations(options?: RequestOptions) {
+  return apiFetch("/api/invitations", { schema: invitationsResponseSchema, ...options })
 }
 
 export function createInvitation(input: { email: string; role: MemberRole; canPublish: boolean }) {

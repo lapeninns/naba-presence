@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { GOOGLE_PLACE_ACTION_TYPES, type GooglePlaceActionType } from "@/lib/domain/google-contract"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const linkSchema = z.object({
   id: z.string(),
@@ -34,10 +34,11 @@ export type PlaceActionType = GooglePlaceActionType
 
 const mutationResultSchema = z.object({ id: z.string(), status: z.string(), idempotent: z.boolean() })
 
-export function fetchPlaceActions(id: string): Promise<PlaceActionsState> {
-  return apiFetch(`/api/locations/${id}/place-actions`, { schema: z.object({ placeActions: placeActionsStateSchema }) }).then(
-    (r) => r.placeActions
-  )
+export function fetchPlaceActions(id: string, options?: RequestOptions): Promise<PlaceActionsState> {
+  return apiFetch(`/api/locations/${id}/place-actions`, {
+    schema: z.object({ placeActions: placeActionsStateSchema }),
+    ...options,
+  }).then((r) => r.placeActions)
 }
 
 export function createPlaceAction(id: string, input: { uri: string; placeActionType: PlaceActionType; isPreferred: boolean }) {

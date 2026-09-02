@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import { BUSINESS_INFORMATION_UPDATE_MASKS, businessInformationPayloadSchema, googleAttributeSchema } from "@/lib/domain/business-information"
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 // The Google location + attributes are freeform (they vary by category and by
 // what the merchant has set), so keep them as passthrough records — the editor
@@ -28,9 +28,10 @@ export type GoogleAttribute = z.infer<typeof googleAttributeSchema>
 export type BusinessInformationState = z.infer<typeof businessInformationStateSchema>
 export type BusinessMask = (typeof BUSINESS_INFORMATION_UPDATE_MASKS)[number]
 
-export function fetchBusinessInformation(id: string): Promise<BusinessInformationState> {
+export function fetchBusinessInformation(id: string, options?: RequestOptions): Promise<BusinessInformationState> {
   return apiFetch(`/api/locations/${id}/business-information`, {
     schema: z.object({ businessInformation: businessInformationStateSchema }),
+    ...options,
   }).then((r) => r.businessInformation)
 }
 
@@ -72,8 +73,12 @@ export function publishBusinessAttributes(
 
 export function fetchBusinessInformationMetadata(
   id: string,
-  params: { type: "categories" | "chains"; query: string; regionCode?: string; languageCode?: string }
+  params: { type: "categories" | "chains"; query: string; regionCode?: string; languageCode?: string },
+  options?: RequestOptions
 ): Promise<{ result: unknown }> {
   const query = new URLSearchParams({ type: params.type, query: params.query, regionCode: params.regionCode ?? "GB", languageCode: params.languageCode ?? "en" })
-  return apiFetch(`/api/locations/${id}/business-information?${query}`, { schema: z.object({ result: z.unknown() }) })
+  return apiFetch(`/api/locations/${id}/business-information?${query}`, {
+    schema: z.object({ result: z.unknown() }),
+    ...options,
+  })
 }

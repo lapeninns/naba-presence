@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const sectionResultSchema = z.object({ data: z.unknown(), error: z.string().nullable() })
 export type SectionResult<T = unknown> = { data: T; error: string | null }
@@ -20,8 +20,11 @@ export type IndustryState = z.infer<typeof industryStateSchema>
 export type IndustryOperation =
   | "update_lodging" | "update_business_calls" | "update_healthcare_services" | "update_healthcare_provider_attributes"
 
-export function fetchIndustry(id: string): Promise<IndustryState> {
-  return apiFetch(`/api/locations/${id}/industry`, { schema: z.object({ industry: industryStateSchema }) }).then((r) => r.industry)
+export function fetchIndustry(id: string, options?: RequestOptions): Promise<IndustryState> {
+  return apiFetch(`/api/locations/${id}/industry`, {
+    schema: z.object({ industry: industryStateSchema }),
+    ...options,
+  }).then((r) => r.industry)
 }
 
 const mutationResultSchema = z.object({ id: z.string(), status: z.string(), idempotent: z.boolean() })

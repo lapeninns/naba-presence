@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
+import { queryKeys } from "@/lib/queries/keys"
 
 // Shared across the three dead-end branches below (not-found, already
 // accepted, expired) so the copy/href can't drift out of sync between them.
@@ -35,7 +36,7 @@ function InvitationView({
   // double the wait before every error branch below renders (and briefly
   // hide the 404-vs-500 distinction behind a silent retry).
   const query = useQuery({
-    queryKey: ["invitation", token],
+    queryKey: queryKeys.invitation(token),
     queryFn: () => authApi.lookupInvitation(token),
     retry: false,
   })

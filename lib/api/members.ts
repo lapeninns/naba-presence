@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 import { MEMBER_ROLES, type MemberRole } from "@/lib/settings/forms/invitation"
 
 export const memberSchema = z.object({
@@ -27,8 +27,8 @@ const removedResponseSchema = z.object({ removed: z.literal(true) })
 export type Member = z.infer<typeof memberSchema>
 export type { MemberRole }
 
-export function fetchMembers() {
-  return apiFetch("/api/members", { schema: membersResponseSchema })
+export function fetchMembers(options?: RequestOptions) {
+  return apiFetch("/api/members", { schema: membersResponseSchema, ...options })
 }
 
 export function updateMember(input: { userId: string; role: MemberRole; canPublish: boolean }) {

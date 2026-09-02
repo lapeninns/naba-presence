@@ -1,19 +1,15 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 
 import { decideApproval } from "@/lib/api/approval"
-import { queryKeys } from "./keys"
+import { useInvalidateReviewWrites } from "./invalidate"
 
 export function useApprovalDecision(reviewId: string) {
-  const client = useQueryClient()
+  const invalidate = useInvalidateReviewWrites(reviewId)
   return useMutation({
     mutationFn: (input: { decision: "approve" | "reject"; note?: string }) =>
       decideApproval(reviewId, input),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(reviewId) })
-      void client.invalidateQueries({ queryKey: ["reviews"] })
-      void client.invalidateQueries({ queryKey: ["review-counts"] })
-    },
+    onSuccess: invalidate,
   })
 }

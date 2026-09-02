@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
 
 export const notificationSettingSchema = z.object({
@@ -13,9 +13,10 @@ const settingResponseSchema = z.object({ setting: notificationSettingSchema })
 
 export type NotificationSetting = z.infer<typeof notificationSettingSchema>
 
-export function fetchNotificationSetting(accountId: string) {
+export function fetchNotificationSetting(accountId: string, options?: RequestOptions) {
   return apiFetch(`/api/google/notifications?account_id=${encodeURIComponent(accountId)}`, {
     schema: settingResponseSchema,
+    ...options,
   })
 }
 

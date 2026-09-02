@@ -35,11 +35,24 @@ export class ApiClientError extends Error {
   }
 }
 
-type ApiFetchOptions<T> = {
+/**
+ * Per-request options every `lib/api` read function accepts and forwards.
+ *
+ * - `signal`: aborts the underlying fetch. React Query hands one to every
+ *   `queryFn`; forwarding it means a superseded request (a new inbox search
+ *   keystroke, a rapid filter toggle, an unmounted tab) is cancelled instead
+ *   of racing the live one.
+ * - `background`: see the 401 rule on `apiFetch`.
+ */
+export type RequestOptions = {
+  signal?: AbortSignal
+  background?: boolean
+}
+
+type ApiFetchOptions<T> = RequestOptions & {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
   schema?: ZodType<T>
-  signal?: AbortSignal
 }
 
 async function readPayload(response: Response): Promise<{
@@ -86,11 +99,25 @@ function handleUnauthorized(): void {
   window.location.assign(`/sign-in?next=${next}`)
 }
 
+/**
+ * 401 rule: a `401 authentication_required` stashes every registered draft
+ * and hard-navigates to `/sign-in?next=…` ONLY for foreground requests — the
+ * ones a user is waiting on (initial query loads, mutations, imperative calls
+ * from components). Background requests (`background: true`) throw the
+ * `ApiClientError` and nothing else, so a window-focus or interval refetch of
+ * data already on screen cannot yank the user off a half-edited page.
+ *
+ * `lib/queries` decides which is which: `requestOptions(ctx)` marks a fetch
+ * as background when its query already holds data (React Query's own
+ * definition of a refetch), which is exactly what focus/interval refetches
+ * are. Callers outside React Query never set `background`, so they keep the
+ * redirect.
+ */
 export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions<T> = {}
 ): Promise<T> {
-  const { method = "GET", body, schema, signal } = options
+  const { method = "GET", body, schema, signal, background = false } = options
   const response = await fetch(path, {
     method,
     signal,
@@ -101,7 +128,11 @@ export async function apiFetch<T = unknown>(
 
   if (!response.ok) {
     const code = payload.error ?? "http_error"
-    if (response.status === 401 && code === "authentication_required") {
+    if (
+      response.status === 401 &&
+      code === "authentication_required" &&
+      !background
+    ) {
       handleUnauthorized()
     }
     throw new ApiClientError(

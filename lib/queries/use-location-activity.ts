@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { fetchLocationActivity } from "@/lib/api/location-activity"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useLocationActivity(
   id: string,
@@ -13,7 +14,6 @@ export function useLocationActivity(
   const pageSize = options.pageSize ?? 20
   return useQuery({
     queryKey: queryKeys.locationActivity(id, page),
-    queryFn: () => fetchLocationActivity(id, { page, pageSize }),
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchLocationActivity(id, { page, pageSize }, requestOptions(ctx)),
   })
 }

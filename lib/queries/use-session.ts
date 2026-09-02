@@ -4,12 +4,12 @@ import { useQuery } from "@tanstack/react-query"
 
 import { fetchSession } from "@/lib/api/session"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useSession() {
   return useQuery({
     queryKey: queryKeys.session,
-    queryFn: fetchSession,
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchSession(requestOptions(ctx)),
   })
 }
 

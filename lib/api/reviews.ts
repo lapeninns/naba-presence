@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const verificationReasonSchema = z.object({
   code: z.string(),
@@ -163,13 +163,18 @@ function toWireParams(filters: ReviewsFilters, cursor: string | null) {
   return params
 }
 
-export function fetchReviews(filters: ReviewsFilters, cursor: string | null) {
+export function fetchReviews(
+  filters: ReviewsFilters,
+  cursor: string | null,
+  options?: RequestOptions
+) {
   const query = toWireParams(filters, cursor).toString()
   return apiFetch(query ? `/api/reviews?${query}` : "/api/reviews", {
     schema: reviewsPageSchema,
+    ...options,
   })
 }
 
-export function fetchReviewDetail(id: string) {
-  return apiFetch(`/api/reviews/${id}`, { schema: reviewDetailSchema })
+export function fetchReviewDetail(id: string, options?: RequestOptions) {
+  return apiFetch(`/api/reviews/${id}`, { schema: reviewDetailSchema, ...options })
 }

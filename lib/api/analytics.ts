@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const analyticsSummarySchema = z.object({
   reviewVolume: z.number(),
@@ -62,7 +62,7 @@ export function fetchAnalyticsOverview(params?: {
   from?: string
   to?: string
   granularity?: "day" | "week" | "month"
-}) {
+}, options?: RequestOptions) {
   const query = new URLSearchParams()
   if (params?.from) query.set("from", params.from)
   if (params?.to) query.set("to", params.to)
@@ -70,5 +70,6 @@ export function fetchAnalyticsOverview(params?: {
   const suffix = query.size ? `?${query}` : ""
   return apiFetch(`/api/analytics/overview${suffix}`, {
     schema: analyticsOverviewSchema,
+    ...options,
   })
 }

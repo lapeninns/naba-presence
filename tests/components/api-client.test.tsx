@@ -126,6 +126,65 @@ describe("apiFetch", () => {
   })
 })
 
+describe("apiFetch 401 rule", () => {
+  const unauthorized = () =>
+    jsonResponse(401, {
+      error: "authentication_required",
+      message: "Please sign in.",
+    })
+
+  it("a background 401 throws without stashing drafts or navigating", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => unauthorized()))
+    const assign = vi.fn()
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/inbox",
+      search: "",
+      assign,
+    })
+    registerDraftSource("review:42", () => "half-written reply")
+    const error = (await apiFetch("/api/probe", { background: true }).catch(
+      (e) => e
+    )) as ApiClientError
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(error.status).toBe(401)
+    expect(error.code).toBe("authentication_required")
+    expect(assign).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem("naba:draft:review:42")).toBeNull()
+  })
+
+  it("a foreground 401 (background omitted or false) still redirects", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => unauthorized()))
+    const assign = vi.fn()
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/inbox",
+      search: "",
+      assign,
+    })
+    await expect(
+      apiFetch("/api/probe", { background: false })
+    ).rejects.toBeInstanceOf(ApiClientError)
+    expect(assign).toHaveBeenCalledWith(
+      "/sign-in?next=" + encodeURIComponent("/inbox")
+    )
+  })
+
+  it("a background 401 with a different code is an ordinary error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(401, { error: "invalid_token" }))
+    )
+    const assign = vi.fn()
+    vi.stubGlobal("location", { ...window.location, assign })
+    const error = (await apiFetch("/api/probe", { background: true }).catch(
+      (e) => e
+    )) as ApiClientError
+    expect(error.code).toBe("invalid_token")
+    expect(assign).not.toHaveBeenCalled()
+  })
+})
+
 describe("apiFetch request construction", () => {
   it("sends method, JSON content-type, and a stringified body for a POST", async () => {
     const fetchMock = vi.fn<typeof fetch>(

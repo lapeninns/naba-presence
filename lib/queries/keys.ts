@@ -11,6 +11,9 @@ export const queryKeys = {
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
+  // Prefix of every `locationMedia(id, …)` key: the photos tab invalidates all
+  // pages/filters of one location's media at once after an upload or refresh.
+  locationMediaAll: (id: string) => ["locations", id, "media"] as const,
   locationMedia: (
     id: string,
     params: {
@@ -42,6 +45,12 @@ export const queryKeys = {
     ["locations", id, "administration"] as const,
   businessInformationMetadata: (id: string, type: string, query: string) =>
     ["locations", id, "business-information", "metadata", type, query] as const,
+  // Prefixes of every `reviewCounts(scope)` / `reviews(scope, filters)` key.
+  // Review writes (draft, verify, approve, publish, delete reply) change list
+  // membership and counts under every scope and filter, so they invalidate
+  // these rather than guessing the active filters.
+  reviewCountsAll: ["review-counts"] as const,
+  reviewsAll: ["reviews"] as const,
   reviewCounts: (scope: string) => ["review-counts", scope] as const,
   reviews: (scope: string, filters: unknown) =>
     ["reviews", scope, filters] as const,
@@ -51,6 +60,7 @@ export const queryKeys = {
   settingsCapabilities: ["settings-capabilities"] as const,
   members: ["members"] as const,
   invitations: ["invitations"] as const,
+  invitation: (token: string) => ["invitation", token] as const,
   privacyRequests: ["privacy-requests"] as const,
   legalHolds: ["legal-holds"] as const,
   operationsHealth: ["operations-health"] as const,

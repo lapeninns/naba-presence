@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const keywordRowSchema = z.object({
   rank: z.number(),
@@ -24,10 +24,14 @@ export const keywordsResponseSchema = z.object({
 export type KeywordRow = z.infer<typeof keywordRowSchema>
 export type KeywordsResponse = z.infer<typeof keywordsResponseSchema>
 
-export function fetchKeywords(params: { range: string; locationId?: string }) {
+export function fetchKeywords(
+  params: { range: string; locationId?: string },
+  options?: RequestOptions
+) {
   const query = new URLSearchParams({ range: params.range })
   if (params.locationId) query.set("locationId", params.locationId)
   return apiFetch(`/api/analytics/presence/keywords?${query}`, {
     schema: keywordsResponseSchema,
+    ...options,
   })
 }

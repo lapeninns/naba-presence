@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 // GET /api/location-links returns the role-scoped location directory
 // (default view), name-ordered. The schema strips googleLocationName even
@@ -22,8 +22,8 @@ const locationsResponseSchema = z.object({
 })
 export type LocationsResponse = z.infer<typeof locationsResponseSchema>
 
-export function fetchLocations() {
-  return apiFetch("/api/location-links", { schema: locationsResponseSchema })
+export function fetchLocations(options?: RequestOptions) {
+  return apiFetch("/api/location-links", { schema: locationsResponseSchema, ...options })
 }
 
 const managementLocationSchema = z.object({
@@ -41,8 +41,11 @@ export type ManagementLocation = z.infer<typeof managementLocationSchema>
 
 const managementResponseSchema = z.object({ locations: z.array(managementLocationSchema) })
 
-export function fetchManagementLocations() {
-  return apiFetch("/api/location-links?view=management", { schema: managementResponseSchema })
+export function fetchManagementLocations(options?: RequestOptions) {
+  return apiFetch("/api/location-links?view=management", {
+    schema: managementResponseSchema,
+    ...options,
+  })
 }
 
 const resourceCapabilitySchema = z.object({
@@ -62,6 +65,9 @@ export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>
 
 const capabilitiesResponseSchema = z.object({ capabilities: locationCapabilitiesSchema })
 
-export function fetchLocationCapabilities(id: string): Promise<LocationCapabilities> {
-  return apiFetch(`/api/locations/${id}/capabilities`, { schema: capabilitiesResponseSchema }).then((r) => r.capabilities)
+export function fetchLocationCapabilities(id: string, options?: RequestOptions): Promise<LocationCapabilities> {
+  return apiFetch(`/api/locations/${id}/capabilities`, {
+    schema: capabilitiesResponseSchema,
+    ...options,
+  }).then((r) => r.capabilities)
 }

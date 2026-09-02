@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { cancelBackfill, fetchBackfillProgress, startBackfill, type BackfillProgress } from "@/lib/api/backfill"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 function anyRunning(progress: { progress: BackfillProgress } | undefined): boolean {
   return (progress?.progress.items ?? []).some(
@@ -15,7 +16,7 @@ export function useBackfill() {
   const client = useQueryClient()
   const query = useQuery({
     queryKey: queryKeys.backfill,
-    queryFn: () => fetchBackfillProgress(),
+    queryFn: (ctx) => fetchBackfillProgress(undefined, requestOptions(ctx)),
     refetchInterval: (q) => (anyRunning(q.state.data) ? 3_000 : false),
   })
   const invalidate = () => client.invalidateQueries({ queryKey: queryKeys.backfill })

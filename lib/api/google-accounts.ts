@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const googleAccountSchema = z.object({
   id: z.string(),
@@ -16,11 +16,11 @@ const accountsResponseSchema = z.object({ accounts: z.array(googleAccountSchema)
 
 export type GoogleAccount = z.infer<typeof googleAccountSchema>
 
-export function fetchGoogleAccounts(connectionId?: string | null) {
+export function fetchGoogleAccounts(connectionId?: string | null, options?: RequestOptions) {
   const path = connectionId
     ? `/api/google/accounts?connection_id=${encodeURIComponent(connectionId)}`
     : "/api/google/accounts"
-  return apiFetch(path, { schema: accountsResponseSchema })
+  return apiFetch(path, { schema: accountsResponseSchema, ...options })
 }
 
 export function saveActiveAccounts(accountIds: string[]) {

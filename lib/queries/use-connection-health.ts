@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { fetchConnections } from "@/lib/api/connections"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export type ConnectionHealth =
   | "loading"
@@ -23,7 +24,7 @@ const LABELS: Record<ConnectionHealth, string> = {
 export function useConnectionHealth() {
   const query = useQuery({
     queryKey: queryKeys.connections,
-    queryFn: fetchConnections,
+    queryFn: (ctx) => fetchConnections(requestOptions(ctx)),
     refetchInterval: 60_000,
   })
   const status: ConnectionHealth = query.data

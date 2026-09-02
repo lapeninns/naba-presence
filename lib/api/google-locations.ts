@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const discoveredLocationSchema = z.object({
   id: z.string(),
@@ -15,9 +15,9 @@ const locationsResponseSchema = z.object({ locations: z.array(discoveredLocation
 
 export type DiscoveredLocation = z.infer<typeof discoveredLocationSchema>
 
-export function fetchGoogleLocations(accountName?: string | null) {
+export function fetchGoogleLocations(accountName?: string | null, options?: RequestOptions) {
   const path = accountName
     ? `/api/google/locations?account_name=${encodeURIComponent(accountName)}`
     : "/api/google/locations"
-  return apiFetch(path, { schema: locationsResponseSchema })
+  return apiFetch(path, { schema: locationsResponseSchema, ...options })
 }

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export type HoursUpdateMask = "regularHours" | "specialHours" | "moreHours"
 
@@ -46,8 +46,11 @@ const hoursStateSchema = z.object({
 })
 export type HoursState = z.infer<typeof hoursStateSchema>
 
-export function fetchHours(id: string): Promise<HoursState> {
-  return apiFetch(`/api/locations/${id}/hours`, { schema: z.object({ hours: hoursStateSchema }) }).then((r) => r.hours)
+export function fetchHours(id: string, options?: RequestOptions): Promise<HoursState> {
+  return apiFetch(`/api/locations/${id}/hours`, {
+    schema: z.object({ hours: hoursStateSchema }),
+    ...options,
+  }).then((r) => r.hours)
 }
 
 export function saveHours(id: string, input: { expectedCanonicalRevision: string; hours: NormalizedHours }) {

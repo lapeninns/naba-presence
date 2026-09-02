@@ -22,8 +22,8 @@ import {
   useDirtyGate,
   useReadIsDirty,
 } from "@/components/inbox/dirty-context"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   autoSelectId,
@@ -313,31 +313,33 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
   }
 
   function renderList() {
-    if (reviewsQuery.isPending) {
-      return renderListSkeleton()
-    }
-    if (reviewsQuery.isError) {
-      // A failed fetch is NOT "no reviews yet" (the empty-state copy for a
-      // genuinely empty queue) -- that would silently mask a real error with
-      // no way to retry. Mirrors ReviewDetail's error branch.
-      return (
-        <div className="p-6">
-          <Alert variant="destructive">
-            <AlertTitle>We could not load your reviews.</AlertTitle>
-            <AlertDescription className="flex flex-col items-start gap-2">
-              <span>Check your connection, then try again.</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void reviewsQuery.refetch()}
-              >
-                Try again
-              </Button>
-            </AlertDescription>
-          </Alert>
-        </div>
-      )
-    }
+    // A failed fetch is NOT "no reviews yet" (the empty-state copy for a
+    // genuinely empty queue) -- that would silently mask a real error with no
+    // way to retry. QueryStates renders the retry alert; the queue-specific
+    // empty states stay in renderLoadedList.
+    return (
+      <QueryStates
+        status={
+          reviewsQuery.isPending
+            ? "pending"
+            : reviewsQuery.isError
+              ? "error"
+              : "ready"
+        }
+        pending={renderListSkeleton()}
+        error={{
+          title: "We could not load your reviews.",
+          cause: reviewsQuery.error,
+          className: "p-6",
+        }}
+        onRetry={() => void reviewsQuery.refetch()}
+      >
+        {renderLoadedList}
+      </QueryStates>
+    )
+  }
+
+  function renderLoadedList() {
     if (reviews.length === 0) {
       const total = countsQuery.data?.total ?? 0
       const kind =

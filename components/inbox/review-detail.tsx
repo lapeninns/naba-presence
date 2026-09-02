@@ -11,9 +11,9 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
   DialogContent,
@@ -545,21 +545,12 @@ function ReviewDetail({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <PaneHeader leading={leading} navigation={navigation} />
-        <div className="p-6">
-          <Alert variant="destructive">
-            <AlertTitle>We could not load this review.</AlertTitle>
-            <AlertDescription className="flex flex-col items-start gap-2">
-              <span>Check your connection, then try again.</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void query.refetch()}
-              >
-                Try again
-              </Button>
-            </AlertDescription>
-          </Alert>
-        </div>
+        <QueryError
+          title="We could not load this review."
+          cause={query.error}
+          onRetry={() => void query.refetch()}
+          className="p-6"
+        />
       </div>
     )
   }

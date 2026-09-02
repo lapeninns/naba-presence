@@ -1,18 +1,14 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 
 import { deletePublishedReply } from "@/lib/api/reply"
-import { queryKeys } from "./keys"
+import { useInvalidateReviewWrites } from "./invalidate"
 
 export function useDeleteReply(reviewId: string) {
-  const client = useQueryClient()
+  const invalidate = useInvalidateReviewWrites(reviewId)
   return useMutation({
     mutationFn: () => deletePublishedReply(reviewId),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(reviewId) })
-      void client.invalidateQueries({ queryKey: ["reviews"] })
-      void client.invalidateQueries({ queryKey: ["review-counts"] })
-    },
+    onSuccess: invalidate,
   })
 }

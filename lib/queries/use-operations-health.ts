@@ -7,12 +7,12 @@ import {
   fetchWebhookFailures,
 } from "@/lib/api/operations-health"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useOperationsHealth(enabled = true) {
   return useQuery({
     queryKey: queryKeys.operationsHealth,
-    queryFn: fetchOperationsHealth,
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchOperationsHealth(requestOptions(ctx)),
     enabled,
   })
 }
@@ -20,8 +20,7 @@ export function useOperationsHealth(enabled = true) {
 export function useWebhookFailures(enabled = true) {
   return useQuery({
     queryKey: queryKeys.webhookFailures,
-    queryFn: fetchWebhookFailures,
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchWebhookFailures(requestOptions(ctx)),
     enabled,
   })
 }

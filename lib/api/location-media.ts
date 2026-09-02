@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { GOOGLE_MEDIA_CATEGORIES, type GoogleMediaCategory } from "@/lib/domain/google-contract"
 
-import { ApiClientError, apiFetch } from "./client"
+import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 
 const mediaItemSchema = z.object({
   id: z.string(),
@@ -50,7 +50,8 @@ export function fetchMedia(
     refresh?: boolean
     category?: MediaCategory
     ownership?: MediaOwnership
-  } = {}
+  } = {},
+  options?: RequestOptions
 ): Promise<MediaState> {
   const query = new URLSearchParams()
   if (params.page) query.set("page", String(params.page))
@@ -61,6 +62,7 @@ export function fetchMedia(
   const suffix = query.size ? `?${query}` : ""
   return apiFetch(`/api/locations/${id}/media${suffix}`, {
     schema: z.object({ media: mediaStateSchema }),
+    ...options,
   }).then((r) => r.media)
 }
 

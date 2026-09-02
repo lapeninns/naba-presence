@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const PROFILE_FIELD_KEYS = ["name", "description", "phone", "address", "mapsUrl", "reviewUrl", "website"] as const
 export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number]
@@ -39,8 +39,11 @@ const profileStateSchema = z.object({
 export type ProfileState = z.infer<typeof profileStateSchema>
 export type ProfileField = z.infer<typeof profileFieldSchema>
 
-export function fetchProfile(id: string): Promise<ProfileState> {
-  return apiFetch(`/api/locations/${id}/profile`, { schema: z.object({ profile: profileStateSchema }) }).then((r) => r.profile)
+export function fetchProfile(id: string, options?: RequestOptions): Promise<ProfileState> {
+  return apiFetch(`/api/locations/${id}/profile`, {
+    schema: z.object({ profile: profileStateSchema }),
+    ...options,
+  }).then((r) => r.profile)
 }
 
 export function saveProfile(

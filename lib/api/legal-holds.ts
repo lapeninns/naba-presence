@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const legalHoldSchema = z.object({
   id: z.string(),
@@ -26,8 +26,8 @@ const releasedResponseSchema = z.object({ released: z.literal(true) })
 
 export type LegalHold = z.infer<typeof legalHoldSchema>
 
-export function fetchLegalHolds() {
-  return apiFetch("/api/legal-holds", { schema: holdsResponseSchema })
+export function fetchLegalHolds(options?: RequestOptions) {
+  return apiFetch("/api/legal-holds", { schema: holdsResponseSchema, ...options })
 }
 
 export function createLegalHold(input: { reviewId: string; reason: string }) {

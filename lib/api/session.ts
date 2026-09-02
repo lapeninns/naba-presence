@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const sessionSchema = z.object({
   userId: z.string(),
@@ -19,6 +19,6 @@ export const sessionResponseSchema = z.object({
 export type SessionUser = z.infer<typeof sessionSchema>
 export type SessionResponse = z.infer<typeof sessionResponseSchema>
 
-export function fetchSession() {
-  return apiFetch("/api/session", { schema: sessionResponseSchema })
+export function fetchSession(options?: RequestOptions) {
+  return apiFetch("/api/session", { schema: sessionResponseSchema, ...options })
 }

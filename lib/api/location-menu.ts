@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export type FoodMenu = Record<string, unknown>
 
@@ -22,8 +22,11 @@ const foodMenusStateSchema = z.object({
 })
 export type FoodMenusState = z.infer<typeof foodMenusStateSchema>
 
-export function fetchFoodMenus(id: string): Promise<FoodMenusState> {
-  return apiFetch(`/api/locations/${id}/food-menus`, { schema: z.object({ foodMenus: foodMenusStateSchema }) }).then((r) => r.foodMenus)
+export function fetchFoodMenus(id: string, options?: RequestOptions): Promise<FoodMenusState> {
+  return apiFetch(`/api/locations/${id}/food-menus`, {
+    schema: z.object({ foodMenus: foodMenusStateSchema }),
+    ...options,
+  }).then((r) => r.foodMenus)
 }
 
 export function saveFoodMenus(id: string, input: { expectedCanonicalRevision: string; menus: FoodMenu[] }) {

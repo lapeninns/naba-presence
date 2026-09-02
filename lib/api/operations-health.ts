@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const countRowSchema = z.object({
   status: z.string(),
@@ -46,8 +46,8 @@ const operationsHealthSchema = z.object({
 })
 export type OperationsHealth = z.infer<typeof operationsHealthSchema>
 
-export function fetchOperationsHealth(): Promise<OperationsHealth> {
-  return apiFetch("/api/operations/health", { schema: operationsHealthSchema })
+export function fetchOperationsHealth(options?: RequestOptions): Promise<OperationsHealth> {
+  return apiFetch("/api/operations/health", { schema: operationsHealthSchema, ...options })
 }
 
 const webhookFailureSchema = z.object({
@@ -61,9 +61,10 @@ const webhookFailureSchema = z.object({
 })
 export type WebhookFailure = z.infer<typeof webhookFailureSchema>
 
-export function fetchWebhookFailures(): Promise<WebhookFailure[]> {
+export function fetchWebhookFailures(options?: RequestOptions): Promise<WebhookFailure[]> {
   return apiFetch("/api/webhooks/google/pubsub/failures", {
     schema: z.object({ items: z.array(webhookFailureSchema) }),
+    ...options,
   }).then((r) => r.items)
 }
 

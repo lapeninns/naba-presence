@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const sectionResultSchema = z.object({ data: z.unknown(), error: z.string().nullable() })
 export type SectionResult<T = unknown> = { data: T; error: string | null }
@@ -44,8 +44,11 @@ export const DANGER_ZONE_OPERATIONS: ReadonlySet<AdministrationOperation> = new 
   "delete_admin", "transfer_location", "delete_location",
 ])
 
-export function fetchAdministration(id: string): Promise<AdministrationState> {
-  return apiFetch(`/api/locations/${id}/administration`, { schema: z.object({ administration: administrationStateSchema }) }).then((r) => r.administration)
+export function fetchAdministration(id: string, options?: RequestOptions): Promise<AdministrationState> {
+  return apiFetch(`/api/locations/${id}/administration`, {
+    schema: z.object({ administration: administrationStateSchema }),
+    ...options,
+  }).then((r) => r.administration)
 }
 
 export function matchGoogleLocation(id: string, location: Record<string, unknown>): Promise<{ matches: unknown }> {

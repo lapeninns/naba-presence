@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import type { LocalPostFormValues } from "@/lib/locations/forms/local-post"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const postSchema = z.object({
   id: z.string(),
@@ -31,8 +31,8 @@ const postsStateSchema = z.object({
 })
 export type PostsState = z.infer<typeof postsStateSchema>
 
-export function fetchPosts(id: string): Promise<PostsState> {
-  return apiFetch(`/api/locations/${id}/posts`, { schema: postsStateSchema })
+export function fetchPosts(id: string, options?: RequestOptions): Promise<PostsState> {
+  return apiFetch(`/api/locations/${id}/posts`, { schema: postsStateSchema, ...options })
 }
 
 export function createPost(id: string, input: LocalPostFormValues) {

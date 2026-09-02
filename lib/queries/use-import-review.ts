@@ -10,19 +10,19 @@ import {
   type DecideProposalInput,
 } from "@/lib/api/location-import-review"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useImportReview(id: string, resourceType?: "profile" | "food_menus") {
   return useQuery({
     queryKey: [...queryKeys.locationImportReview(id), resourceType ?? "all"],
-    queryFn: () => fetchImportReview(id, resourceType),
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchImportReview(id, resourceType, requestOptions(ctx)),
   })
 }
 
 export function useImportReviewCounts() {
   return useQuery({
     queryKey: queryKeys.importReviewCounts,
-    queryFn: fetchImportReviewCounts,
+    queryFn: (ctx) => fetchImportReviewCounts(requestOptions(ctx)),
     staleTime: 60_000,
   })
 }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/api/location-media"
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useMedia(
   id: string,
@@ -25,13 +26,16 @@ export function useMedia(
   const ownership = options.ownership ?? null
   return useQuery({
     queryKey: queryKeys.locationMedia(id, { page, category, ownership }),
-    queryFn: () =>
-      fetchMedia(id, {
-        page,
-        pageSize,
-        category: category ?? undefined,
-        ownership: ownership ?? undefined,
-      }),
-    staleTime: 30_000,
+    queryFn: (ctx) =>
+      fetchMedia(
+        id,
+        {
+          page,
+          pageSize,
+          category: category ?? undefined,
+          ownership: ownership ?? undefined,
+        },
+        requestOptions(ctx)
+      ),
   })
 }

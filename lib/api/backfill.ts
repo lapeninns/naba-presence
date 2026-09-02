@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const BACKFILL_STATUSES = [
   "not_started",
@@ -37,11 +37,11 @@ const cancelResponseSchema = z.object({ progress: backfillProgressSchema }).loos
 export type BackfillItem = z.infer<typeof backfillItemSchema>
 export type BackfillProgress = z.infer<typeof backfillProgressSchema>
 
-export function fetchBackfillProgress(externalLocationId?: string) {
+export function fetchBackfillProgress(externalLocationId?: string, options?: RequestOptions) {
   const path = externalLocationId
     ? `/api/sync/backfill?external_location_id=${encodeURIComponent(externalLocationId)}`
     : "/api/sync/backfill"
-  return apiFetch(path, { schema: progressResponseSchema })
+  return apiFetch(path, { schema: progressResponseSchema, ...options })
 }
 
 export function startBackfill(input: { externalLocationIds?: string[]; maxPagesPerLocation: number }) {

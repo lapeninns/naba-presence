@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const proposalSchema = z.object({
   id: z.string(),
@@ -51,11 +51,13 @@ export type ImportReviewList = z.infer<typeof listSchema>
 
 export function fetchImportReview(
   id: string,
-  resourceType?: "profile" | "food_menus"
+  resourceType?: "profile" | "food_menus",
+  options?: RequestOptions
 ): Promise<ImportReviewList> {
   const query = resourceType ? `?resourceType=${resourceType}` : ""
   return apiFetch(`/api/locations/${id}/import-review${query}`, {
     schema: listSchema,
+    ...options,
   })
 }
 
@@ -111,6 +113,6 @@ const countsSchema = z.object({
   ),
 })
 
-export function fetchImportReviewCounts() {
-  return apiFetch("/api/import-review/counts", { schema: countsSchema })
+export function fetchImportReviewCounts(options?: RequestOptions) {
+  return apiFetch("/api/import-review/counts", { schema: countsSchema, ...options })
 }

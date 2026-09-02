@@ -81,3 +81,57 @@ export function composeDisabledReason(writesEnabled: boolean): string | null {
     ? null
     : "Publishing to Google is currently unavailable, so new posts cannot be composed."
 }
+
+// --- LocationTab shell helpers (Sprint 4.1) --------------------------------
+// Pure evaluators consumed by components/locations/location-tab.tsx. Kept here
+// so the shell stays a thin renderer and the rules are unit-testable without
+// React.
+
+/** A capability flag a whole tab can require before its resource query fires. */
+export type LocationGate = "canEditCanonical" | "canPublish"
+
+/** Default notice title for a tab whose `requires` gate is not satisfied. */
+export const GATED_SECTION_TITLE = "This section is available to owners and admins"
+
+/**
+ * True only when the capability is known AND set. `caps` is undefined while
+ * the capabilities query is pending (or failed), which reads as "not satisfied"
+ * — never a false positive — so an owner/admin-only GET is never fired before
+ * the role is known.
+ */
+export function gateSatisfied(
+  caps: LocationCapabilities | undefined,
+  gate: LocationGate | undefined
+): boolean {
+  if (!gate) return true
+  return caps?.[gate] === true
+}
+
+export type TabGateReasons = {
+  /** `editReason !== null` — canonical editors should be disabled. */
+  disabled: boolean
+  /** Why canonical editing is blocked, or null. */
+  editReason: string | null
+  /** Why writing/publishing this resource to Google is blocked, or null. */
+  publishReason: string | null
+}
+
+/**
+ * The `{ disabled, editReason, publishReason }` triple every tab used to derive
+ * by hand. With a `resourceKey` the per-resource capability state wins
+ * (`resourceDisabledReason`); without one it falls back to the plain publish
+ * gate (`publishDisabledReason`). `publishReason` is the resource gate only —
+ * tabs that want "cannot edit" to also block publishing compose
+ * `editReason ?? publishReason` themselves.
+ */
+export function tabGateReasons(
+  caps: LocationCapabilities | undefined,
+  resourceKey: string | undefined,
+  writesEnabled: boolean
+): TabGateReasons {
+  const editReason = editDisabledReason(caps)
+  const publishReason = resourceKey
+    ? resourceDisabledReason(caps, resourceKey, writesEnabled)
+    : publishDisabledReason(caps, writesEnabled)
+  return { disabled: editReason !== null, editReason, publishReason }
+}

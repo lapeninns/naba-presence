@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 
 import { fetchMembers } from "@/lib/api/members"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useMembers() {
-  return useQuery({ queryKey: queryKeys.members, queryFn: fetchMembers, staleTime: 30_000 })
+  return useQuery({ queryKey: queryKeys.members, queryFn: (ctx) => fetchMembers(requestOptions(ctx)) })
 }

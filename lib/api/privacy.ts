@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { ApiClientError, apiFetch } from "./client"
+import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 import { PRIVACY_REQUEST_TYPES } from "@/lib/settings/forms/privacy-request"
 
 export const privacyRequestSchema = z.object({
@@ -40,8 +40,8 @@ const resolutionResponseSchema = z.object({
 
 export type PrivacyRequest = z.infer<typeof privacyRequestSchema>
 
-export function fetchPrivacyRequests() {
-  return apiFetch("/api/privacy/requests", { schema: requestsResponseSchema })
+export function fetchPrivacyRequests(options?: RequestOptions) {
+  return apiFetch("/api/privacy/requests", { schema: requestsResponseSchema, ...options })
 }
 
 export function createPrivacyRequest(input: {

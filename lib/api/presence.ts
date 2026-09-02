@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import { GOOGLE_PERFORMANCE_METRICS } from "@/lib/domain/google-contract"
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 const metricTotalsSchema = z.object(
   Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number()]))
@@ -28,10 +28,14 @@ export const presenceResponseSchema = z.object({
 export type PresenceStatus = z.infer<typeof presenceStateSchema>
 export type PresenceResponse = z.infer<typeof presenceResponseSchema>
 
-export function fetchPresence(params: { range: string; locationId?: string }) {
+export function fetchPresence(
+  params: { range: string; locationId?: string },
+  options?: RequestOptions
+) {
   const query = new URLSearchParams({ range: params.range })
   if (params.locationId) query.set("locationId", params.locationId)
   return apiFetch(`/api/analytics/presence?${query}`, {
     schema: presenceResponseSchema,
+    ...options,
   })
 }

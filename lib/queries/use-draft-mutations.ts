@@ -1,18 +1,9 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 
 import { generateOrSaveDraft, verifyDraft, type DraftInput } from "@/lib/api/drafts"
-import { queryKeys } from "./keys"
-
-function useInvalidateReviewWrites(reviewId: string) {
-  const client = useQueryClient()
-  return () => {
-    void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(reviewId) })
-    void client.invalidateQueries({ queryKey: ["reviews"] })
-    void client.invalidateQueries({ queryKey: ["review-counts"] })
-  }
-}
+import { useInvalidateReviewWrites } from "./invalidate"
 
 export function useGenerateOrSaveDraft(reviewId: string) {
   const invalidate = useInvalidateReviewWrites(reviewId)

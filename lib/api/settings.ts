@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 export const orgSettingsSchema = z.object({
   approvalRequired: z.boolean(),
@@ -24,8 +24,11 @@ export type SettingsPatchInput = {
   directPublishConsent: boolean
 }
 
-export async function fetchSettings(): Promise<OrgSettings> {
-  const { settings } = await apiFetch("/api/settings", { schema: settingsResponseSchema })
+export async function fetchSettings(options?: RequestOptions): Promise<OrgSettings> {
+  const { settings } = await apiFetch("/api/settings", {
+    schema: settingsResponseSchema,
+    ...options,
+  })
   return settings
 }
 

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { fetchAnalyticsOverview } from "@/lib/api/analytics"
 import { queryKeys } from "./keys"
+import { requestOptions } from "./request-options"
 
 export function useAnalyticsOverview(params?: {
   from?: string
@@ -13,7 +14,6 @@ export function useAnalyticsOverview(params?: {
   const keyParams = params ?? { window: "last-30-days" }
   return useQuery({
     queryKey: queryKeys.analytics("overview", keyParams),
-    queryFn: () => fetchAnalyticsOverview(params),
-    staleTime: 30_000,
+    queryFn: (ctx) => fetchAnalyticsOverview(params, requestOptions(ctx)),
   })
 }
