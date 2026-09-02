@@ -4,27 +4,39 @@ import type { TransactionSql } from "postgres"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
-  connectionAccessToken,
+  idempotencyKey,
+  loadLinkedLocation,
+  requireGbpWrite,
+  requirePublishGrant,
+  runGbpWrite,
+  type AttemptRow,
+  type AttemptStore,
+  type LinkedLocation,
+} from "@/lib/server/gbp-write"
+import {
   createGoogleLocalPost,
   deleteGoogleLocalPost,
   getGoogleLocalPost,
-  GoogleMutationAmbiguousError,
   googleLocalPosts,
   patchGoogleLocalPost,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import {
-  canPublishLocation,
-  requireLocationAccess,
-} from "@/lib/server/permissions"
+import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 const callToActionSchema = z
   .object({
-    actionType: z.enum(["BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "CALL"]),
+    actionType: z.enum([
+      "BOOK",
+      "ORDER",
+      "SHOP",
+      "LEARN_MORE",
+      "SIGN_UP",
+      "CALL",
+    ]),
     url: z.url().optional(),
   })
   .optional()
@@ -50,7 +62,10 @@ export const localPostInputSchema = z
     scheduledTime: z.iso.datetime().optional(),
   })
   .superRefine((value, context) => {
-    if ((value.topicType === "EVENT" || value.topicType === "OFFER") && !value.event) {
+    if (
+      (value.topicType === "EVENT" || value.topicType === "OFFER") &&
+      !value.event
+    ) {
       context.addIssue({
         code: "custom",
         path: ["event"],
@@ -68,30 +83,95 @@ export const localPostInputSchema = z
 
 export type LocalPostInput = z.infer<typeof localPostInputSchema>
 
-type PostsLocationContext = {
-  externalLocationId: string
-  connectionId: string
-  accountName: string
-  googleLocationName: string
+// Posts keep their historical not-linked code (`location_not_linked`, not the
+// pipeline default `google_location_not_linked`).
+const POSTS_NOT_LINKED = {
+  notLinked: {
+    code: "location_not_linked",
+    message: "Link this location to Google first.",
+  },
 }
 
-async function postsLocationContext(
+// Provider-mutation boundary: both the global publish control and the Posts
+// capability flag must be on. Local drafts are never gated.
+const POSTS_PAUSED = {
+  status: 503,
+  code: "publishing_paused",
+  message: "Google Posts publishing is paused.",
+}
+
+const stringOrNull = (value: unknown) =>
+  typeof value === "string" ? value : null
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {}
+
+// ---------------------------------------------------------------------------
+// Reconciliation (live Google posts -> gbp_local_post)
+// ---------------------------------------------------------------------------
+
+async function fetchLiveLocalPosts(linked: LinkedLocation) {
+  const token = await linked.accessToken()
+  const live: Array<Record<string, unknown>> = []
+  const seenTokens = new Set<string>()
+  let pageToken: string | undefined
+  for (let page = 0; page < 100; page += 1) {
+    const response = await googleLocalPosts(
+      token,
+      {
+        accountName: linked.googleAccountName,
+        locationName: linked.googleLocationName,
+        pageToken,
+      },
+      { connectionKey: linked.googleConnectionId }
+    )
+    live.push(...(response.localPosts ?? []))
+    if (!response.nextPageToken || seenTokens.has(response.nextPageToken)) break
+    seenTokens.add(response.nextPageToken)
+    pageToken = response.nextPageToken
+  }
+  return live
+}
+
+async function upsertLiveLocalPost(
   sql: TransactionSql,
-  session: Session,
-  locationId: string
-): Promise<PostsLocationContext> {
-  await requireLocationAccess(sql, session, locationId)
-  const [row] = await sql<PostsLocationContext[]>`
-    select el.id::text as "externalLocationId",
-      el.google_connection_id::text as "connectionId",
-      el.google_account_name as "accountName",
-      el.google_location_name as "googleLocationName"
-    from location_link ll
-    join external_location el on el.id = ll.external_location_id
-    where ll.location_id = ${locationId} and ll.is_active = true
-    limit 1`
-  if (!row) throw new ApiError(409, "location_not_linked", "Link this location to Google first.")
-  return row
+  linked: LinkedLocation,
+  locationId: string,
+  name: string,
+  post: Record<string, unknown>
+) {
+  const state = stringOrNull(post.state)
+  await sql`
+    insert into gbp_local_post (
+      organisation_id, location_id, external_location_id, topic_type,
+      language_code, summary, call_to_action, event, offer, media,
+      status, google_post_name, google_state, google_search_url,
+      provider_payload, provider_payload_expires_at,
+      provider_create_time, provider_update_time
+    ) values (
+      ${linked.organisationId}, ${locationId}, ${linked.externalLocationId}, ${String(post.topicType)},
+      ${typeof post.languageCode === "string" ? post.languageCode : "en-GB"},
+      ${typeof post.summary === "string" ? post.summary : ""},
+      ${jsonColumnOrNull(sql, post.callToAction)},
+      ${jsonColumnOrNull(sql, post.event)},
+      ${jsonColumnOrNull(sql, post.offer)},
+      ${jsonColumn(sql, Array.isArray(post.media) ? post.media : [])},
+      ${state === "REJECTED" ? "failed" : "published"}, ${name}, ${state},
+      ${stringOrNull(post.searchUrl)},
+      ${jsonColumn(sql, post)}, now() + interval '30 days',
+      ${stringOrNull(post.createTime)},
+      ${stringOrNull(post.updateTime)}
+    ) on conflict (organisation_id, google_post_name) do update set
+      topic_type = excluded.topic_type, language_code = excluded.language_code,
+      summary = excluded.summary, call_to_action = excluded.call_to_action,
+      event = excluded.event, offer = excluded.offer, media = excluded.media,
+      status = excluded.status, google_state = excluded.google_state,
+      google_search_url = excluded.google_search_url,
+      provider_payload = excluded.provider_payload,
+      provider_payload_expires_at = excluded.provider_payload_expires_at,
+      provider_create_time = excluded.provider_create_time,
+      provider_update_time = excluded.provider_update_time,
+      last_error_code = case when excluded.status = 'published' then null else gbp_local_post.last_error_code end`
 }
 
 async function reconcileLocalPosts(
@@ -99,64 +179,21 @@ async function reconcileLocalPosts(
   session: Session,
   locationId: string
 ) {
-  const context = await withTenant(organisationId, (sql) =>
-    postsLocationContext(sql, session, locationId)
+  const linked = await withTenant(organisationId, (sql) =>
+    loadLinkedLocation(sql, session, locationId, POSTS_NOT_LINKED)
   )
-  const token = await connectionAccessToken(getDatabase(), organisationId, context.connectionId)
-  const live: Array<Record<string, unknown>> = []
-  const seenTokens = new Set<string>()
-  let pageToken: string | undefined
-  for (let page = 0; page < 100; page += 1) {
-    const response = await googleLocalPosts(token, {
-      accountName: context.accountName,
-      locationName: context.googleLocationName,
-      pageToken,
-    }, { connectionKey: context.connectionId })
-    live.push(...(response.localPosts ?? []))
-    if (!response.nextPageToken || seenTokens.has(response.nextPageToken)) break
-    seenTokens.add(response.nextPageToken)
-    pageToken = response.nextPageToken
-  }
+  const live = await fetchLiveLocalPosts(linked)
   await withTenant(organisationId, async (sql) => {
     const liveNames = new Set<string>()
     for (const post of live) {
-      const name = typeof post.name === "string" ? post.name : null
-      const topicType = post.topicType
-      if (!name || !["STANDARD", "EVENT", "OFFER"].includes(String(topicType))) continue
+      const name = stringOrNull(post.name)
+      if (
+        !name ||
+        !["STANDARD", "EVENT", "OFFER"].includes(String(post.topicType))
+      )
+        continue
       liveNames.add(name)
-      const payload = JSON.parse(JSON.stringify(post))
-      const state = typeof post.state === "string" ? post.state : null
-      await sql`
-        insert into gbp_local_post (
-          organisation_id, location_id, external_location_id, topic_type,
-          language_code, summary, call_to_action, event, offer, media,
-          status, google_post_name, google_state, google_search_url,
-          provider_payload, provider_payload_expires_at,
-          provider_create_time, provider_update_time
-        ) values (
-          ${organisationId}, ${locationId}, ${context.externalLocationId}, ${String(topicType)},
-          ${typeof post.languageCode === "string" ? post.languageCode : "en-GB"},
-          ${typeof post.summary === "string" ? post.summary : ""},
-          ${post.callToAction ? sql.json(JSON.parse(JSON.stringify(post.callToAction))) : null},
-          ${post.event ? sql.json(JSON.parse(JSON.stringify(post.event))) : null},
-          ${post.offer ? sql.json(JSON.parse(JSON.stringify(post.offer))) : null},
-          ${sql.json(Array.isArray(post.media) ? JSON.parse(JSON.stringify(post.media)) : [])},
-          ${state === "REJECTED" ? "failed" : "published"}, ${name}, ${state},
-          ${typeof post.searchUrl === "string" ? post.searchUrl : null},
-          ${sql.json(payload)}, now() + interval '30 days',
-          ${typeof post.createTime === "string" ? post.createTime : null},
-          ${typeof post.updateTime === "string" ? post.updateTime : null}
-        ) on conflict (organisation_id, google_post_name) do update set
-          topic_type = excluded.topic_type, language_code = excluded.language_code,
-          summary = excluded.summary, call_to_action = excluded.call_to_action,
-          event = excluded.event, offer = excluded.offer, media = excluded.media,
-          status = excluded.status, google_state = excluded.google_state,
-          google_search_url = excluded.google_search_url,
-          provider_payload = excluded.provider_payload,
-          provider_payload_expires_at = excluded.provider_payload_expires_at,
-          provider_create_time = excluded.provider_create_time,
-          provider_update_time = excluded.provider_update_time,
-          last_error_code = case when excluded.status = 'published' then null else gbp_local_post.last_error_code end`
+      await upsertLiveLocalPost(sql, linked, locationId, name, post)
     }
     const stored = await sql<{ id: string; googlePostName: string }[]>`
       select id::text as id, google_post_name as "googlePostName"
@@ -170,13 +207,14 @@ async function reconcileLocalPosts(
   })
 }
 
-type PostContext = {
+// ---------------------------------------------------------------------------
+// Post rows
+// ---------------------------------------------------------------------------
+
+type LocalPost = {
   id: string
   locationId: string
   externalLocationId: string
-  connectionId: string
-  accountName: string
-  googleLocationName: string
   googlePostName: string | null
   status: string
   topicType: "STANDARD" | "EVENT" | "OFFER"
@@ -191,7 +229,41 @@ type PostContext = {
   requireTwoPersonApproval: boolean
 }
 
-function providerPayload(post: PostContext) {
+/** The post row (404 `post_not_found`). Callers check location access first. */
+async function loadPost(
+  sql: TransactionSql,
+  locationId: string,
+  postId: string
+): Promise<LocalPost> {
+  const [post] = await sql<LocalPost[]>`
+    select
+      p.id::text as id,
+      p.location_id::text as "locationId",
+      p.external_location_id::text as "externalLocationId",
+      p.google_post_name as "googlePostName",
+      p.status,
+      p.topic_type as "topicType",
+      p.language_code as "languageCode",
+      p.summary,
+      p.call_to_action as "callToAction",
+      p.event,
+      p.offer,
+      p.media,
+      p.scheduled_publish_time as "scheduledTime",
+      p.approval_requested_by::text as "approvalRequestedBy",
+      o.require_two_person_approval as "requireTwoPersonApproval"
+    from gbp_local_post p
+    join organisation o on o.id = p.organisation_id
+    where p.id = ${postId}
+      and p.location_id = ${locationId}
+      and p.status <> 'deleted'
+    limit 1
+  `
+  if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
+  return post
+}
+
+function providerPayload(post: LocalPost) {
   return Object.fromEntries(
     Object.entries({
       languageCode: post.languageCode,
@@ -215,9 +287,10 @@ export async function listLocalPosts(
   try {
     await reconcileLocalPosts(organisationId, session, locationId)
   } catch (error) {
-    reconciliationError = error && typeof error === "object" && "code" in error
-      ? String(error.code)
-      : "google_posts_reconciliation_failed"
+    reconciliationError =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "google_posts_reconciliation_failed"
   }
   const posts = await withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
@@ -252,22 +325,6 @@ export async function listLocalPosts(
   }
 }
 
-async function linkedLocation(sql: Parameters<Parameters<typeof withTenant>[1]>[0], locationId: string) {
-  const [linked] = await sql<
-    { externalLocationId: string }[]
-  >`
-    select ll.external_location_id::text as "externalLocationId"
-    from location_link ll
-    where ll.location_id = ${locationId}
-      and ll.is_active = true
-    limit 1
-  `
-  if (!linked) {
-    throw new ApiError(409, "location_not_linked", "Link this location to Google first.")
-  }
-  return linked
-}
-
 export async function createLocalPostDraft(
   organisationId: string,
   session: Session,
@@ -276,8 +333,12 @@ export async function createLocalPostDraft(
   requestId: string
 ) {
   return withTenant(organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId)
-    const linked = await linkedLocation(sql, locationId)
+    const linked = await loadLinkedLocation(
+      sql,
+      session,
+      locationId,
+      POSTS_NOT_LINKED
+    )
     const [post] = await sql<{ id: string }[]>`
       insert into gbp_local_post (
         organisation_id, location_id, external_location_id,
@@ -286,10 +347,10 @@ export async function createLocalPostDraft(
       ) values (
         ${organisationId}, ${locationId}, ${linked.externalLocationId},
         ${input.topicType}, ${input.languageCode}, ${input.summary},
-        ${input.callToAction ? sql.json(input.callToAction) : null},
-        ${input.event ? sql.json(JSON.parse(JSON.stringify(input.event))) : null},
-        ${input.offer ? sql.json(input.offer) : null},
-        ${sql.json(input.media)}, ${input.scheduledTime ?? null}, ${session.userId}
+        ${jsonColumnOrNull(sql, input.callToAction)},
+        ${jsonColumnOrNull(sql, input.event)},
+        ${jsonColumnOrNull(sql, input.offer)},
+        ${jsonColumn(sql, input.media)}, ${input.scheduledTime ?? null}, ${session.userId}
       )
       returning id::text as id
     `
@@ -322,10 +383,10 @@ export async function updateLocalPostDraft(
         topic_type = ${input.topicType},
         language_code = ${input.languageCode},
         summary = ${input.summary},
-        call_to_action = ${input.callToAction ? sql.json(input.callToAction) : null},
-        event = ${input.event ? sql.json(JSON.parse(JSON.stringify(input.event))) : null},
-        offer = ${input.offer ? sql.json(input.offer) : null},
-        media = ${sql.json(input.media)},
+        call_to_action = ${jsonColumnOrNull(sql, input.callToAction)},
+        event = ${jsonColumnOrNull(sql, input.event)},
+        offer = ${jsonColumnOrNull(sql, input.offer)},
+        media = ${jsonColumn(sql, input.media)},
         scheduled_publish_time = ${input.scheduledTime ?? null},
         status = case when status = 'published' then status else 'draft' end,
         last_error_code = null
@@ -348,54 +409,126 @@ export async function updateLocalPostDraft(
   })
 }
 
-async function loadPostContext(
-  organisationId: string,
-  session: Session,
-  locationId: string,
+// ---------------------------------------------------------------------------
+// Attempt store
+// ---------------------------------------------------------------------------
+
+type LocalPostAttemptIntent = {
   postId: string
-) {
-  return withTenant(organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId)
-    const [post] = await sql<PostContext[]>`
-      select
-        p.id::text as id,
-        p.location_id::text as "locationId",
-        p.external_location_id::text as "externalLocationId",
-        el.google_connection_id::text as "connectionId",
-        el.google_account_name as "accountName",
-        el.google_location_name as "googleLocationName",
-        p.google_post_name as "googlePostName",
-        p.status,
-        p.topic_type as "topicType",
-        p.language_code as "languageCode",
-        p.summary,
-        p.call_to_action as "callToAction",
-        p.event,
-        p.offer,
-        p.media,
-        p.scheduled_publish_time as "scheduledTime",
-        p.approval_requested_by::text as "approvalRequestedBy",
-        o.require_two_person_approval as "requireTwoPersonApproval"
-      from gbp_local_post p
-      join external_location el on el.id = p.external_location_id
-      join organisation o on o.id = p.organisation_id
-      where p.id = ${postId}
-        and p.location_id = ${locationId}
-        and p.status <> 'deleted'
-      limit 1
-    `
-    if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
-    return { post, canPublish: await canPublishLocation(sql, session, locationId) }
-  })
+  operation: "create" | "update" | "delete"
+  payload: Record<string, unknown>
+  /** create/update only: the approver when published through the approval flow. */
+  approvedBy: string | null
 }
 
-// Provider-mutation boundary: both the global publish control and the Posts
-// capability flag must be on. Local drafts are never gated.
-function requirePostWrites() {
-  if (!gbpWritesEnabled(getServerEnv(), "posts")) {
-    throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
+function attemptRow(row: { id: string; status: string }): AttemptRow {
+  return {
+    id: row.id,
+    status: row.status === "started" ? "validating" : row.status,
+    rawStatus: row.status,
   }
 }
+
+async function markPostPublished(
+  sql: TransactionSql,
+  postId: string,
+  response: Record<string, unknown>
+) {
+  await sql`
+    update gbp_local_post
+    set
+      status = 'published',
+      google_post_name = ${stringOrNull(response.name)},
+      google_state = ${stringOrNull(response.state)},
+      google_search_url = ${stringOrNull(response.searchUrl)},
+      provider_payload = ${jsonColumn(sql, response)},
+      provider_payload_expires_at = now() + interval '30 days',
+      provider_create_time = ${stringOrNull(response.createTime)},
+      provider_update_time = ${stringOrNull(response.updateTime)},
+      last_error_code = null
+    where id = ${postId}
+  `
+}
+
+/**
+ * gbp_local_post_attempt as an AttemptStore, hand-written because every
+ * transition also moves gbp_local_post.status: `start` marks the post
+ * `publishing` (create/update), `settle` marks it `published` with the
+ * provider read-back, `failed`/`ambiguous` with the error code, or `deleted`
+ * after a successful delete. The table's CHECK constraint only knows
+ * started/succeeded/failed/ambiguous, so the in-flight vocabulary maps onto
+ * `started` and `markPublishing` has nothing to record.
+ */
+const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
+  async find(sql, input) {
+    const [row] = await sql<{ id: string; status: string }[]>`
+      select id::text as id, status
+      from gbp_local_post_attempt
+      where organisation_id = ${input.organisationId}
+        and idempotency_key = ${input.key}
+      limit 1
+    `
+    return row ? attemptRow(row) : null
+  },
+
+  async start(sql, input) {
+    const { postId, operation, payload, approvedBy } = input.intent
+    const [row] = await sql<{ id: string; status: string }[]>`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation,
+        status, idempotency_key, intended_payload
+      ) values (
+        ${input.organisationId}, ${postId}, ${input.actorUserId},
+        ${operation}, 'started', ${input.key}, ${jsonColumn(sql, payload)}
+      )
+      returning id::text as id, status
+    `
+    if (operation !== "delete") {
+      await sql`
+        update gbp_local_post
+        set status = 'publishing', approved_by = ${approvedBy}
+        where id = ${postId}
+      `
+    }
+    return attemptRow(row)
+  },
+
+  async markPublishing() {},
+
+  async settle(sql, input) {
+    const succeeded = input.status === "succeeded"
+    const [attempt] = await sql<{ postId: string; operation: string }[]>`
+      update gbp_local_post_attempt
+      set status = ${input.status},
+        provider_error_code = ${succeeded ? null : input.errorCode},
+        provider_http_status = ${input.httpStatus ?? null},
+        provider_response = ${jsonColumnOrNull(sql, input.response)},
+        finished_at = now()
+      where id = ${input.id}
+      returning post_id::text as "postId", operation
+    `
+    if (!attempt) return
+    if (attempt.operation === "delete") {
+      if (succeeded) {
+        await sql`update gbp_local_post set status = 'deleted', provider_payload = null where id = ${attempt.postId}`
+      }
+      return
+    }
+    if (!succeeded) {
+      await sql`
+        update gbp_local_post
+        set status = ${input.status}, last_error_code = ${input.errorCode}
+        where id = ${attempt.postId}
+      `
+      return
+    }
+    await markPostPublished(sql, attempt.postId, asRecord(input.response))
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Publish / approve / delete
+// ---------------------------------------------------------------------------
 
 export async function requestOrPublishLocalPost(input: {
   organisationId: string
@@ -405,14 +538,23 @@ export async function requestOrPublishLocalPost(input: {
   requestId: string
   approval?: boolean
 }) {
-  requirePostWrites()
-  const context = await loadPostContext(
+  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+  const { linked, post } = await withTenant(
     input.organisationId,
-    input.session,
-    input.locationId,
-    input.postId
+    async (sql) => {
+      const linked = await loadLinkedLocation(
+        sql,
+        input.session,
+        input.locationId,
+        POSTS_NOT_LINKED
+      )
+      return {
+        linked,
+        post: await loadPost(sql, input.locationId, input.postId),
+      }
+    }
   )
-  if (!context.canPublish) {
+  if (!linked.canPublish) {
     await withTenant(input.organisationId, async (sql) => {
       await sql`
         update gbp_local_post
@@ -424,103 +566,100 @@ export async function requestOrPublishLocalPost(input: {
   }
   if (
     input.approval &&
-    context.post.requireTwoPersonApproval &&
-    context.post.approvalRequestedBy === input.session.userId
+    post.requireTwoPersonApproval &&
+    post.approvalRequestedBy === input.session.userId
   ) {
-    throw new ApiError(403, "second_approver_required", "A different authorised user must approve this post.")
-  }
-  const operation = context.post.googlePostName ? "update" : "create"
-  const payload = providerPayload(context.post)
-  const idempotencyKey = `${input.postId}:${operation}:${input.requestId}`
-  const attempt = await withTenant(input.organisationId, async (sql) => {
-    const [row] = await sql<{ id: string }[]>`
-      insert into gbp_local_post_attempt (
-        organisation_id, post_id, actor_user_id, operation,
-        status, idempotency_key, intended_payload
-      ) values (
-        ${input.organisationId}, ${input.postId}, ${input.session.userId},
-        ${operation}, 'started', ${idempotencyKey}, ${sql.json(JSON.parse(JSON.stringify(payload)))}
-      )
-      returning id::text as id
-    `
-    await sql`
-      update gbp_local_post
-      set status = 'publishing', approved_by = ${input.approval ? input.session.userId : null}
-      where id = ${input.postId}
-    `
-    return row
-  })
-  try {
-    const token = await connectionAccessToken(
-      getDatabase(),
-      input.organisationId,
-      context.post.connectionId
+    throw new ApiError(
+      403,
+      "second_approver_required",
+      "A different authorised user must approve this post."
     )
-    const response = operation === "create"
-      ? await createGoogleLocalPost(token, {
-          accountName: context.post.accountName,
-          locationName: context.post.googleLocationName,
-          payload,
-        }, { connectionKey: context.post.connectionId })
-      : await patchGoogleLocalPost(token, {
-          postName: context.post.googlePostName!,
-          updateMask: ["languageCode", "summary", "callToAction", "event", "offer", "media", "scheduledTime", "topicType"],
-          payload,
-        }, { connectionKey: context.post.connectionId })
-    const name = typeof response.name === "string" ? response.name : context.post.googlePostName
-    const readback = name
-      ? await getGoogleLocalPost(token, name, { connectionKey: context.post.connectionId })
-      : response
-    await settlePostSuccess(input.organisationId, input.postId, attempt.id, readback)
-    return { status: "published" as const, postId: input.postId, googlePostName: name }
-  } catch (error) {
-    const ambiguous = error instanceof GoogleMutationAmbiguousError
-    const code = error && typeof error === "object" && "code" in error
-      ? String(error.code)
-      : "google_post_failed"
-    await withTenant(input.organisationId, async (sql) => {
-      await sql`
-        update gbp_local_post_attempt
-        set status = ${ambiguous ? "ambiguous" : "failed"}, provider_error_code = ${code}, finished_at = now()
-        where id = ${attempt.id}
-      `
-      await sql`
-        update gbp_local_post
-        set status = ${ambiguous ? "ambiguous" : "failed"}, last_error_code = ${code}
-        where id = ${input.postId}
-      `
-    })
-    throw error
   }
+  return publishLocalPost({ ...input, linked, post })
 }
 
-async function settlePostSuccess(
-  organisationId: string,
-  postId: string,
-  attemptId: string,
-  response: Record<string, unknown>
-) {
-  await withTenant(organisationId, async (sql) => {
-    await sql`
-      update gbp_local_post_attempt
-      set status = 'succeeded', provider_response = ${sql.json(JSON.parse(JSON.stringify(response)))}, finished_at = now()
-      where id = ${attemptId}
-    `
-    await sql`
-      update gbp_local_post
-      set
-        status = 'published',
-        google_post_name = ${typeof response.name === "string" ? response.name : null},
-        google_state = ${typeof response.state === "string" ? response.state : null},
-        google_search_url = ${typeof response.searchUrl === "string" ? response.searchUrl : null},
-        provider_payload = ${sql.json(JSON.parse(JSON.stringify(response)))},
-        provider_payload_expires_at = now() + interval '30 days',
-        provider_create_time = ${typeof response.createTime === "string" ? response.createTime : null},
-        provider_update_time = ${typeof response.updateTime === "string" ? response.updateTime : null},
-        last_error_code = null
-      where id = ${postId}
-    `
+async function publishLocalPost(input: {
+  organisationId: string
+  session: Session
+  postId: string
+  requestId: string
+  approval?: boolean
+  linked: LinkedLocation
+  post: LocalPost
+}) {
+  const { linked, post } = input
+  const operation = post.googlePostName ? "update" : "create"
+  const payload = providerPayload(post)
+  const options = { connectionKey: linked.googleConnectionId }
+  let googlePostName = post.googlePostName
+  await runGbpWrite<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    LocalPostAttemptIntent
+  >({
+    organisationId: input.organisationId,
+    actorUserId: input.session.userId,
+    requestId: input.requestId,
+    store: localPostAttempts,
+    key: idempotencyKey([input.postId, operation, input.requestId]),
+    intent: {
+      postId: input.postId,
+      operation,
+      payload,
+      approvedBy: input.approval ? input.session.userId : null,
+    },
+    // The key carries the request id, so any existing row is this request replayed.
+    onExisting: "replay",
+    failureCode: "google_post_failed",
+    mutate: async () => {
+      const token = await linked.accessToken()
+      return operation === "create"
+        ? createGoogleLocalPost(
+            token,
+            {
+              accountName: linked.googleAccountName,
+              locationName: linked.googleLocationName,
+              payload,
+            },
+            options
+          )
+        : patchGoogleLocalPost(
+            token,
+            {
+              postName: post.googlePostName as string,
+              updateMask: [
+                "languageCode",
+                "summary",
+                "callToAction",
+                "event",
+                "offer",
+                "media",
+                "scheduledTime",
+                "topicType",
+              ],
+              payload,
+            },
+            options
+          )
+    },
+    onAmbiguous: "fail",
+    readback: {
+      read: async ({ response }) => {
+        googlePostName = stringOrNull(response?.name) ?? post.googlePostName
+        return googlePostName
+          ? getGoogleLocalPost(
+              await linked.accessToken(),
+              googlePostName,
+              options
+            )
+          : (response ?? {})
+      },
+      // Posts store the read-back as the post's provider payload rather than
+      // comparing it with the intent: Google normalises post bodies.
+      verify: () => true,
+    },
   })
+  return { status: "published" as const, postId: input.postId, googlePostName }
 }
 
 export async function deleteLocalPost(input: {
@@ -530,42 +669,48 @@ export async function deleteLocalPost(input: {
   postId: string
   requestId: string
 }) {
-  const context = await loadPostContext(input.organisationId, input.session, input.locationId, input.postId)
-  if (!context.post.googlePostName) {
-    await withTenant(input.organisationId, (sql) => sql`
-      update gbp_local_post set status = 'deleted' where id = ${input.postId}
-    `)
-    return { status: "deleted" as const }
-  }
-  requirePostWrites()
-  if (!context.canPublish) throw new ApiError(403, "publish_permission_required", "Publish permission is required to delete a live post.")
-  const attempt = await withTenant(input.organisationId, async (sql) => {
-    const [row] = await sql<{ id: string }[]>`
-      insert into gbp_local_post_attempt (
-        organisation_id, post_id, actor_user_id, operation, status,
-        idempotency_key, intended_payload
-      ) values (
-        ${input.organisationId}, ${input.postId}, ${input.session.userId},
-        'delete', 'started', ${`${input.postId}:delete:${input.requestId}`}, '{}'::jsonb
-      ) returning id::text as id
-    `
-    return row
+  const post = await withTenant(input.organisationId, async (sql) => {
+    await requireLocationAccess(sql, input.session, input.locationId)
+    return loadPost(sql, input.locationId, input.postId)
   })
-  try {
-    const token = await connectionAccessToken(getDatabase(), input.organisationId, context.post.connectionId)
-    await deleteGoogleLocalPost(token, context.post.googlePostName, { connectionKey: context.post.connectionId })
-    await withTenant(input.organisationId, async (sql) => {
-      await sql`update gbp_local_post_attempt set status = 'succeeded', finished_at = now() where id = ${attempt.id}`
-      await sql`update gbp_local_post set status = 'deleted', provider_payload = null where id = ${input.postId}`
-    })
+  if (!post.googlePostName) {
+    await withTenant(
+      input.organisationId,
+      (sql) => sql`
+      update gbp_local_post set status = 'deleted' where id = ${input.postId}
+    `
+    )
     return { status: "deleted" as const }
-  } catch (error) {
-    const ambiguous = error instanceof GoogleMutationAmbiguousError
-    await withTenant(input.organisationId, (sql) => sql`
-      update gbp_local_post_attempt
-      set status = ${ambiguous ? "ambiguous" : "failed"}, finished_at = now()
-      where id = ${attempt.id}
-    `)
-    throw error
   }
+  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+  const linked = await withTenant(input.organisationId, (sql) =>
+    loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED)
+  )
+  requirePublishGrant(linked, {
+    code: "publish_permission_required",
+    message: "Publish permission is required to delete a live post.",
+  })
+  const googlePostName = post.googlePostName
+  await runGbpWrite<void, never, LocalPostAttemptIntent>({
+    organisationId: input.organisationId,
+    actorUserId: input.session.userId,
+    requestId: input.requestId,
+    store: localPostAttempts,
+    key: idempotencyKey([input.postId, "delete", input.requestId]),
+    intent: {
+      postId: input.postId,
+      operation: "delete",
+      payload: {},
+      approvedBy: null,
+    },
+    onExisting: "replay",
+    failureCode: "google_post_failed",
+    mutate: async () => {
+      await deleteGoogleLocalPost(await linked.accessToken(), googlePostName, {
+        connectionKey: linked.googleConnectionId,
+      })
+    },
+    onAmbiguous: "fail",
+  })
+  return { status: "deleted" as const }
 }

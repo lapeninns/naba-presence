@@ -19,16 +19,22 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
-  connectionAccessToken,
+  attemptStore,
+  idempotencyKey,
+  loadLinkedLocation,
+  requireGbpWrite,
+  requirePublishGrant,
+  runGbpWrite,
+  type LinkedLocation,
+} from "@/lib/server/gbp-write"
+import {
   getGoogleLocation,
-  GoogleMutationAmbiguousError,
   patchGoogleLocationHours,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 const HOURS_READ_MASK = [
@@ -41,15 +47,16 @@ const HOURS_READ_MASK = [
   "metadata",
 ] as const
 
-type HoursContext = {
-  locationId: string
-  locationName: string
-  timezone: string
-  externalLocationId: string
-  googleLocationName: string
-  googleConnectionId: string
-  canPublish: boolean
-}
+/** hours_sync_attempt already carries the full canonical status vocabulary. */
+const hoursAttempts = attemptStore({
+  table: "hours_sync_attempt",
+  columns: {
+    httpStatus: "provider_http_status",
+    responseHash: "provider_response_hash",
+    validatedAt: "validated_at",
+    startedAt: "started_at",
+  },
+})
 
 export type HoursState = {
   location: {
@@ -80,63 +87,54 @@ export type HoursState = {
   } | null
 }
 
-function jsonValue(value: unknown) {
-  return JSON.parse(JSON.stringify(value))
-}
-
-async function loadContext(
-  sql: TransactionSql,
+async function linkedHoursLocation(
   session: Session,
   locationId: string
-): Promise<HoursContext> {
-  await requireLocationAccess(sql, session, locationId)
-  const [row] = await sql<Omit<HoursContext, "canPublish">[]>`
-    select
-      l.id::text as "locationId",
-      l.name as "locationName",
-      l.timezone,
-      e.id::text as "externalLocationId",
-      e.google_location_name as "googleLocationName",
-      e.google_connection_id::text as "googleConnectionId"
-    from location l
-    left join location_link ll
-      on ll.location_id = l.id and ll.is_active = true
-    left join external_location e on e.id = ll.external_location_id
-    where l.id = ${locationId}
-    limit 1
-  `
-  if (!row) {
-    throw new ApiError(404, "location_not_found", "The requested location was not found.")
-  }
-  if (!row.externalLocationId || !row.googleLocationName || !row.googleConnectionId) {
-    throw new ApiError(
-      409,
-      "google_location_not_linked",
-      "Link this location to Google before managing hours."
+): Promise<LinkedLocation> {
+  try {
+    return await withTenant(session.organisationId, (sql) =>
+      loadLinkedLocation(sql, session, locationId, {
+        notLinked: {
+          message: "Link this location to Google before managing hours.",
+        },
+      })
     )
+  } catch (error) {
+    // TODO(gbp-write): loadLinkedLocation has no `notFound` message override, and
+    // hours' 404 body has always read "The requested location was not found."
+    // Add a `notFound: { message }` option to the helper and delete this catch.
+    if (
+      error instanceof ApiError &&
+      error.status === 404 &&
+      error.code === "location_not_found"
+    ) {
+      throw new ApiError(
+        404,
+        "location_not_found",
+        "The requested location was not found."
+      )
+    }
+    throw error
   }
-  return { ...row, canPublish: await canPublishLocation(sql, session, locationId) }
 }
 
-function contextFor(session: Session, locationId: string) {
-  return withTenant(session.organisationId, (sql) =>
-    loadContext(sql, session, locationId)
-  )
+async function fetchGoogleHours(
+  linked: LinkedLocation,
+  accessToken: string,
+  options: { maxAttempts?: number } = {}
+) {
+  return (await getGoogleLocation(
+    accessToken,
+    linked.googleLocationName,
+    [...HOURS_READ_MASK],
+    { connectionKey: linked.googleConnectionId, ...options }
+  )) as GoogleLocationHours
 }
 
 async function readLiveHours(session: Session, locationId: string) {
-  const context = await contextFor(session, locationId)
-  const accessToken = await connectionAccessToken(
-    getDatabase(),
-    session.organisationId,
-    context.googleConnectionId
-  )
-  const googleLocation = (await getGoogleLocation(
-    accessToken,
-    context.googleLocationName,
-    [...HOURS_READ_MASK],
-    { connectionKey: context.googleConnectionId }
-  )) as GoogleLocationHours
+  const linked = await linkedHoursLocation(session, locationId)
+  const accessToken = await linked.accessToken()
+  const googleLocation = await fetchGoogleHours(linked, accessToken)
   const google = normalizeGoogleHours(googleLocation)
   const resource = await withTenant(session.organisationId, (sql) =>
     ensureCanonicalResource<NormalizedHours>({
@@ -153,7 +151,7 @@ async function readLiveHours(session: Session, locationId: string) {
   const canonicalHash = hashHours(canonical)
   const googleHash = hashHours(google)
   return {
-    context,
+    linked,
     accessToken,
     googleLocation,
     google,
@@ -171,18 +169,24 @@ async function readLiveHours(session: Session, locationId: string) {
   }
 }
 
+type LiveHours = Awaited<ReturnType<typeof readLiveHours>>
+
 export async function getHoursState(
   session: Session,
   locationId: string
 ): Promise<HoursState> {
   const live = await readLiveHours(session, locationId)
-  const latestAttempt = await withTenant(session.organisationId, async (sql) => {
-    const [attempt] = await sql<{
-      id: string
-      status: string
-      createdAt: Date
-      finishedAt: Date | null
-    }[]>`
+  const latestAttempt = await withTenant(
+    session.organisationId,
+    async (sql) => {
+      const [attempt] = await sql<
+        {
+          id: string
+          status: string
+          createdAt: Date
+          finishedAt: Date | null
+        }[]
+      >`
       select
         id::text as id,
         status,
@@ -193,14 +197,15 @@ export async function getHoursState(
       order by created_at desc
       limit 1
     `
-    return attempt ?? null
-  })
+      return attempt ?? null
+    }
+  )
   return {
     location: {
-      id: live.context.locationId,
-      name: live.context.locationName,
-      googleLocationName: live.context.googleLocationName,
-      timezone: live.context.timezone,
+      id: live.linked.locationId,
+      name: live.linked.locationName,
+      googleLocationName: live.linked.googleLocationName,
+      timezone: live.linked.timezone,
     },
     canonicalResource: {
       revision: live.resource.revision,
@@ -213,7 +218,7 @@ export async function getHoursState(
     googleHash: live.googleHash,
     updateMask: live.patch.updateMask,
     warnings: live.patch.warnings,
-    canPublish: live.context.canPublish,
+    canPublish: live.linked.canPublish,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
     lastReconciledAt: live.resource.lastReconciledAt?.toISOString() ?? null,
     latestAttempt: latestAttempt
@@ -233,47 +238,44 @@ export async function saveCanonicalHours(input: {
   hours: NormalizedHours
   requestId: string
 }) {
-  const context = await contextFor(input.session, input.locationId)
-  if (!context.canPublish) {
-    throw new ApiError(403, "canonical_edit_permission_required", "You cannot edit this location.")
+  const linked = await linkedHoursLocation(input.session, input.locationId)
+  if (!linked.canPublish) {
+    throw new ApiError(
+      403,
+      "canonical_edit_permission_required",
+      "You cannot edit this location."
+    )
   }
-  const resource = await withTenant(input.session.organisationId, async (sql) => {
-    const updated = await updateCanonicalResource({
-      sql,
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      resourceType: "hours",
-      expectedRevision: input.expectedCanonicalRevision,
-      payload: input.hours,
-    })
-    await writeAudit(sql, {
-      organisationId: input.session.organisationId,
-      actorUserId: input.session.userId,
-      action: "hours.canonical.updated",
-      subjectType: "location",
-      subjectId: input.locationId,
-      requestId: input.requestId,
-      metadata: { revision: updated.revision, canonicalHash: hashHours(input.hours) },
-    })
-    return updated
-  })
+  const resource = await withTenant(
+    input.session.organisationId,
+    async (sql) => {
+      const updated = await updateCanonicalResource({
+        sql,
+        organisationId: input.session.organisationId,
+        locationId: input.locationId,
+        resourceType: "hours",
+        expectedRevision: input.expectedCanonicalRevision,
+        payload: input.hours,
+      })
+      await writeAudit(sql, {
+        organisationId: input.session.organisationId,
+        actorUserId: input.session.userId,
+        action: "hours.canonical.updated",
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: {
+          revision: updated.revision,
+          canonicalHash: hashHours(input.hours),
+        },
+      })
+      return updated
+    }
+  )
   return { saved: true as const, revision: resource.revision }
 }
 
-async function settleFailure(input: {
-  organisationId: string
-  attemptId: string
-  status: "failed" | "ambiguous" | "stale"
-  code: string
-}) {
-  await withTenant(input.organisationId, (sql) => sql`
-    update hours_sync_attempt
-    set status = ${input.status}, provider_error_code = ${input.code}, finished_at = now()
-    where id = ${input.attemptId}
-  `)
-}
-
-export async function publishCanonicalHours(input: {
+type PublishHoursInput = {
   session: Session
   locationId: string
   expectedCanonicalRevision: string
@@ -282,14 +284,17 @@ export async function publishCanonicalHours(input: {
   approvedUpdateMask: GoogleHoursUpdateMask[]
   confirmOverwriteGoogleChanges: boolean
   requestId: string
-}) {
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) {
-    throw new ApiError(409, "hours_publishing_disabled", "Hours publishing is currently disabled.")
-  }
-  const live = await readLiveHours(input.session, input.locationId)
-  if (!live.context.canPublish) {
-    throw new ApiError(403, "publish_permission_required", "You cannot publish this location.")
-  }
+}
+
+/**
+ * The pre-flight snapshot checks, in order: the reviewed snapshot must still
+ * match the live one (stale -> 409), an in-sync schedule short-circuits, and
+ * overwriting independent Google changes needs an explicit confirmation.
+ */
+function checkPublishSnapshot(
+  live: LiveHours,
+  input: PublishHoursInput
+): "in_sync" | "proceed" {
   const approvedMask = [...new Set(input.approvedUpdateMask)].sort()
   if (
     live.resource.revision !== input.expectedCanonicalRevision ||
@@ -297,128 +302,122 @@ export async function publishCanonicalHours(input: {
     live.googleHash !== input.expectedGoogleHash ||
     approvedMask.join(",") !== [...live.patch.updateMask].sort().join(",")
   ) {
-    throw new ApiError(409, "hours_snapshot_stale", "The schedule changed after review. Refresh first.")
+    throw new ApiError(
+      409,
+      "hours_snapshot_stale",
+      "The schedule changed after review. Refresh first."
+    )
   }
-  if (live.status === "in_sync") return { status: "in_sync" as const, idempotent: true }
-  if (["google_dirty", "conflict"].includes(live.status) && !input.confirmOverwriteGoogleChanges) {
+  if (live.status === "in_sync") return "in_sync"
+  if (
+    ["google_dirty", "conflict"].includes(live.status) &&
+    !input.confirmOverwriteGoogleChanges
+  ) {
     throw new ApiError(
       409,
       "google_hours_overwrite_confirmation_required",
       "Google changed independently. Confirm that NabaPresence should overwrite it."
     )
   }
-  const payloadHash = sha256(JSON.stringify(live.patch.payload))
-  const idempotencyKey = sha256([
-    input.session.organisationId,
-    live.context.externalLocationId,
+  return "proceed"
+}
+
+/** durable intent -> validateOnly -> PATCH -> readback -> settle + reconcile + audit */
+async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
+  const { session, locationId } = input
+  const { linked, accessToken, patch } = live
+  const payloadHash = sha256(JSON.stringify(patch.payload))
+  const key = idempotencyKey([
+    session.organisationId,
+    linked.externalLocationId,
     "hours_publish",
     live.resource.revision,
     live.googleHash,
     payloadHash,
-  ].join(":"))
-  const attempt = await withTenant(input.session.organisationId, async (sql) => {
-    const [existing] = await sql<{ id: string; status: string }[]>`
-      select id::text as id, status from hours_sync_attempt
-      where idempotency_key = ${idempotencyKey} limit 1
-    `
-    if (existing?.status === "succeeded") return { ...existing, idempotent: true }
-    if (existing && ["validating", "validated", "publishing"].includes(existing.status)) {
-      throw new ApiError(409, "hours_publish_in_progress", "This publish is already in progress.")
-    }
-    const [row] = existing
-      ? await sql<{ id: string; status: string }[]>`
-          update hours_sync_attempt set status = 'validating', actor_user_id = ${input.session.userId},
-            provider_error_code = null, started_at = now(), finished_at = null
-          where id = ${existing.id} returning id::text as id, status
-        `
-      : await sql<{ id: string; status: string }[]>`
-          insert into hours_sync_attempt (
-            organisation_id, location_id, external_location_id, actor_user_id,
-            operation, status, idempotency_key, pinned_canonical_revision,
-            pinned_canonical_hash, pinned_google_hash, update_mask, intended_payload, warnings
-          ) values (
-            ${input.session.organisationId}, ${input.locationId}, ${live.context.externalLocationId},
-            ${input.session.userId}, 'publish', 'validating', ${idempotencyKey},
-            ${live.resource.revision}, ${live.canonicalHash}, ${live.googleHash},
-            ${live.patch.updateMask}, ${sql.json(jsonValue(live.patch.payload))},
-            ${sql.json(jsonValue(live.patch.warnings))}
-          ) returning id::text as id, status
-        `
-    return { ...row, idempotent: false }
-  })
-  if (attempt.idempotent) {
-    return { status: "published" as const, attemptId: attempt.id, idempotent: true }
-  }
+  ])
+  const patchHours = (validateOnly: boolean) =>
+    patchGoogleLocationHours(
+      accessToken,
+      {
+        locationName: linked.googleLocationName,
+        updateMask: patch.updateMask,
+        validateOnly,
+        payload: patch.payload,
+      },
+      { connectionKey: linked.googleConnectionId }
+    )
 
-  let phase: "validating" | "publishing" = "validating"
-  try {
-    await patchGoogleLocationHours(live.accessToken, {
-      locationName: live.context.googleLocationName,
-      updateMask: live.patch.updateMask,
-      validateOnly: true,
-      payload: live.patch.payload,
-    }, { connectionKey: live.context.googleConnectionId })
-    await withTenant(input.session.organisationId, (sql) => sql`
-      update hours_sync_attempt set status = 'publishing', validated_at = now()
-      where id = ${attempt.id}
-    `)
-    phase = "publishing"
-    await patchGoogleLocationHours(live.accessToken, {
-      locationName: live.context.googleLocationName,
-      updateMask: live.patch.updateMask,
-      validateOnly: false,
-      payload: live.patch.payload,
-    }, { connectionKey: live.context.googleConnectionId })
-  } catch (error) {
-    const ambiguous = error instanceof GoogleMutationAmbiguousError && phase === "publishing"
-    await settleFailure({
-      organisationId: input.session.organisationId,
-      attemptId: attempt.id,
-      status: ambiguous ? "ambiguous" : "failed",
-      code: error instanceof ApiError ? error.code : "google_hours_publish_failed",
-    })
-    if (!ambiguous) throw error
-  }
-
-  const readBack = normalizeGoogleHours((await getGoogleLocation(
-    live.accessToken,
-    live.context.googleLocationName,
-    [...HOURS_READ_MASK],
-    { connectionKey: live.context.googleConnectionId, maxAttempts: 3 }
-  )) as GoogleLocationHours)
-  const readBackHash = hashHours(readBack)
-  if (readBackHash !== live.canonicalHash) {
-    await settleFailure({
-      organisationId: input.session.organisationId,
-      attemptId: attempt.id,
-      status: "failed",
-      code: "google_readback_mismatch",
-    })
-    throw new ApiError(502, "google_readback_mismatch", "Google read-back did not match NabaPresence.")
-  }
-  await withTenant(input.session.organisationId, async (sql) => {
-    await sql`
-      update hours_sync_attempt set status = 'succeeded', provider_http_status = 200,
-        provider_error_code = null, provider_response_hash = ${readBackHash}, finished_at = now()
-      where id = ${attempt.id}
-    `
-    await reconcileCanonicalResource({
-      sql,
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      resourceType: "hours",
-      canonicalHash: live.canonicalHash,
-      googleHash: readBackHash,
-    })
-    await writeAudit(sql, {
-      organisationId: input.session.organisationId,
-      actorUserId: input.session.userId,
+  return runGbpWrite({
+    organisationId: session.organisationId,
+    actorUserId: session.userId,
+    requestId: input.requestId,
+    store: hoursAttempts,
+    key,
+    intent: {
+      location_id: locationId,
+      external_location_id: linked.externalLocationId,
+      operation: "publish",
+      pinned_canonical_revision: live.resource.revision,
+      pinned_canonical_hash: live.canonicalHash,
+      pinned_google_hash: live.googleHash,
+      update_mask: patch.updateMask,
+      intended_payload: (sql: TransactionSql) => jsonColumn(sql, patch.payload),
+      warnings: (sql: TransactionSql) => jsonColumn(sql, patch.warnings),
+    },
+    inProgress: {
+      code: "hours_publish_in_progress",
+      message: "This publish is already in progress.",
+    },
+    failureCode: "google_hours_publish_failed",
+    validate: async () => {
+      await patchHours(true)
+    },
+    mutate: () => patchHours(false),
+    onAmbiguous: "readback",
+    readback: {
+      read: async () =>
+        normalizeGoogleHours(
+          await fetchGoogleHours(linked, accessToken, { maxAttempts: 3 })
+        ),
+      verify: ({ readback }) => hashHours(readback) === live.canonicalHash,
+      hash: hashHours,
+    },
+    onSuccess: (sql, ctx) =>
+      reconcileCanonicalResource({
+        sql,
+        organisationId: session.organisationId,
+        locationId,
+        resourceType: "hours",
+        canonicalHash: live.canonicalHash,
+        googleHash: ctx.readbackHash as string,
+      }),
+    audit: (ctx) => ({
       action: "hours.publish.succeeded",
       subjectType: "hours_sync_attempt",
-      subjectId: attempt.id,
-      requestId: input.requestId,
-      metadata: { locationId: input.locationId, canonicalRevision: live.resource.revision },
-    })
+      subjectId: ctx.attemptId,
+      metadata: { locationId, canonicalRevision: live.resource.revision },
+    }),
   })
-  return { status: "published" as const, attemptId: attempt.id, idempotent: false }
+}
+
+export async function publishCanonicalHours(input: PublishHoursInput) {
+  requireGbpWrite(getServerEnv(), "profileWrites", {
+    status: 409,
+    code: "hours_publishing_disabled",
+    message: "Hours publishing is currently disabled.",
+  })
+  const live = await readLiveHours(input.session, input.locationId)
+  requirePublishGrant(live.linked, {
+    code: "publish_permission_required",
+    message: "You cannot publish this location.",
+  })
+  if (checkPublishSnapshot(live, input) === "in_sync") {
+    return { status: "in_sync" as const, idempotent: true }
+  }
+  const result = await publishHoursToGoogle(live, input)
+  return {
+    status: "published" as const,
+    attemptId: result.attemptId,
+    idempotent: result.idempotent,
+  }
 }

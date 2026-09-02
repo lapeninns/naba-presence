@@ -22,7 +22,7 @@ export const DELETE = route({
       organisationId: session.organisationId,
       session,
       reviewId: params.id,
-      serverRequestId: requestId,
+      requestId,
     })
     if (outcome.status === "ambiguous") {
       throw new ApiError(

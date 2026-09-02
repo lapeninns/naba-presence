@@ -186,7 +186,7 @@ export const POST = route({
       reviewId: id,
       draftId: decision.draftId,
       expectedReviewUpdateTime: decision.expectedReviewUpdateTime,
-      serverRequestId: requestId,
+      requestId,
     })
     if (outcome.status === "ambiguous") {
       throw new ApiError(

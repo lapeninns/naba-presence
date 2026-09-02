@@ -31,7 +31,7 @@ export const POST = route({
       reviewId: params.id,
       draftId: input.draftId,
       expectedReviewUpdateTime: input.expectedReviewUpdateTime,
-      serverRequestId: requestId,
+      requestId,
     })
 
     if (outcome.status === "awaiting_approval") {
