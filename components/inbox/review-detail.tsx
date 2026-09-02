@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -39,7 +39,7 @@ import {
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { cn } from "@/lib/utils"
-import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
+import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 type Review = ReviewDetailData["review"]
 
@@ -114,15 +114,26 @@ function SituationStrip({ review }: { review: Review }) {
   })
   const Icon = SITUATION_TONE_ICON[situation.tone]
 
+  // The ring stays up for PUBLISH_PULSE_MS — the same constant InboxView waits
+  // on before advancing — so the pulse is visible before this strip unmounts.
+  const pulseTimer = useRef<number | undefined>(undefined)
   useEffect(() => {
     function onPublished(event: Event) {
       const detail = (event as CustomEvent<{ reviewId?: string }>).detail
       if (detail?.reviewId !== review.id) return
       setPulse(true)
-      window.setTimeout(() => setPulse(false), 1600)
+      window.clearTimeout(pulseTimer.current)
+      pulseTimer.current = window.setTimeout(() => {
+        pulseTimer.current = undefined
+        setPulse(false)
+      }, PUBLISH_PULSE_MS)
     }
     window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
-    return () => window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
+    return () => {
+      window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
+      window.clearTimeout(pulseTimer.current)
+      pulseTimer.current = undefined
+    }
   }, [review.id])
 
   return (

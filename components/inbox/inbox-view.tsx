@@ -41,7 +41,7 @@ import {
   pageForIndex,
   type AdjacentDirection,
 } from "@/lib/inbox/queue-nav"
-import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
+import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 import { cn } from "@/lib/utils"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
@@ -244,16 +244,39 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
   }, [reviewsReady, reviews, state, router, readIsDirty])
 
   // After a successful publish, move to the next review so the 674-item
-  // backlog is a loop rather than "Back to reviews" + another click.
+  // backlog is a loop rather than "Back to reviews" + another click. The move
+  // waits PUBLISH_PULSE_MS so the situation strip's success ring (which lives
+  // in the detail pane keyed on `state.selected`, and so unmounts on
+  // navigation) is actually seen. The latest handler and selection are read
+  // through refs so the window listener subscribes once, not on every render
+  // (`onAdjacentReview` follows `reviewsQuery`, which is a new object each
+  // render).
+  const onAdjacentReviewRef = useRef(onAdjacentReview)
+  const selectedRef = useRef(state.selected)
   useEffect(() => {
+    onAdjacentReviewRef.current = onAdjacentReview
+    selectedRef.current = state.selected
+  }, [onAdjacentReview, state.selected])
+  useEffect(() => {
+    let timer: number | undefined
     function onPublished(event: Event) {
-      const detail = (event as CustomEvent<{ reviewId?: string }>).detail
-      if (detail?.reviewId !== state.selected) return
-      void onAdjacentReview("next")
+      const reviewId = (event as CustomEvent<{ reviewId?: string }>).detail
+        ?.reviewId
+      if (!reviewId || reviewId !== selectedRef.current) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = undefined
+        // The operator moved on during the pulse — do not yank them again.
+        if (selectedRef.current !== reviewId) return
+        void onAdjacentReviewRef.current("next")
+      }, PUBLISH_PULSE_MS)
     }
     window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
-    return () => window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
-  }, [onAdjacentReview, state.selected])
+    return () => {
+      window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
+      window.clearTimeout(timer)
+    }
+  }, [])
 
   const isListRefreshing =
     reviewsQuery.isFetching &&

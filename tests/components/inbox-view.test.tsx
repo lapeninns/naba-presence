@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -8,6 +8,7 @@ import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail as ReviewDetailData, ReviewRow } from "@/lib/api/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
+import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as reviewsHook from "@/lib/queries/use-reviews"
@@ -307,5 +308,106 @@ describe("InboxView — next and previous review", () => {
     await user.click(screen.getByRole("button", { name: "Next review" }))
     expect(push).toHaveBeenCalled()
     expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+})
+
+// The detail pane is keyed on the selected id, so advancing on the same tick
+// as the publish event unmounted the situation strip before its success ring
+// ever painted. The move now waits out the pulse (one shared constant), and
+// the window listener is subscribed once rather than on every render.
+describe("InboxView — publish pulse, then advance", () => {
+  function twoReviews() {
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [row(), row({ id: "rev-2", text: "Second stay." })],
+            nextCursor: null,
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+  }
+
+  function publish(reviewId: string) {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId } })
+      )
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("keeps the published review selected for the pulse, then moves on", async () => {
+    twoReviews()
+    renderInbox()
+
+    publish("rev-1")
+    // Still on rev-1 while the strip is pulsing.
+    expect(push).not.toHaveBeenCalled()
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS - 1)
+    })
+    expect(push).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("ignores a publish for a review that is not the selected one", async () => {
+    twoReviews()
+    renderInbox()
+
+    publish("rev-2")
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS)
+    })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it("subscribes to the publish event once, not on every render", () => {
+    twoReviews()
+    const add = vi.spyOn(window, "addEventListener")
+    const remove = vi.spyOn(window, "removeEventListener")
+    const view = renderInbox()
+    const subscriptions = () =>
+      add.mock.calls.filter(([type]) => type === PUBLISH_PULSE_EVENT).length
+    const unsubscriptions = () =>
+      remove.mock.calls.filter(([type]) => type === PUBLISH_PULSE_EVENT).length
+
+    // Two on mount: this view's, and the situation strip's inside the detail
+    // pane. Neither should churn as the tree re-renders.
+    const mounted = subscriptions()
+    expect(mounted).toBeGreaterThan(0)
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    expect(subscriptions()).toBe(mounted)
+    expect(unsubscriptions()).toBe(0)
   })
 })

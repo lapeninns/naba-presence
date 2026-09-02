@@ -129,6 +129,22 @@ describeDatabase("Google Performance analytics", () => {
   })
 })
 
+const DAY_MS = 86_400_000
+
+// The presence report filters on a UTC calendar window ending today (28d
+// here) and the restatement sync re-requests the trailing 10 days, so the
+// stubbed metric date must be relative to "now" rather than a fixed day.
+// Three days ago sits inside both windows and survives a UTC midnight
+// rollover between this computation and the server's own clock.
+function metricDate(daysAgo = 3) {
+  const date = new Date(Date.now() - daysAgo * DAY_MS)
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  }
+}
+
 function series(metric: string, value: number) {
   return {
     dailyMetricTimeSeries: {
@@ -136,7 +152,7 @@ function series(metric: string, value: number) {
       timeSeries: {
         datedValues: [
           {
-            date: { year: 2026, month: 7, day: 30 },
+            date: metricDate(),
             value: String(value),
           },
         ],

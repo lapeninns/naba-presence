@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseQueryResult } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
+import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 function fakeDetail(value: Partial<UseQueryResult<ReviewDetailData>>) {
   vi.spyOn(detailHook, "useReviewDetail").mockReturnValue(
@@ -306,6 +307,46 @@ describe("ReviewDetail", () => {
     expect(screen.queryByRole("button", { name: "Publish reply" })).not.toBeInTheDocument()
     expect(container.querySelector("footer")).not.toBeNull()
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+  })
+
+  // The success ring must outlive the event tick: InboxView waits the same
+  // PUBLISH_PULSE_MS before navigating away, so this is what the operator
+  // actually sees between "Publish" and the next review.
+  it("pulses the situation strip for the shared pulse duration after a publish", () => {
+    vi.useFakeTimers()
+    try {
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      render(<ReviewDetail reviewId="rev-1" />)
+      const strip = screen.getByRole("status")
+      expect(strip).not.toHaveClass("ring-2")
+
+      // Another review's publish is not this strip's business.
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId: "rev-9" } })
+        )
+      })
+      expect(strip).not.toHaveClass("ring-2")
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId: "rev-1" } })
+        )
+      })
+      expect(strip).toHaveClass("ring-2")
+
+      act(() => {
+        vi.advanceTimersByTime(PUBLISH_PULSE_MS - 1)
+      })
+      expect(strip).toHaveClass("ring-2")
+
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(strip).not.toHaveClass("ring-2")
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("says so plainly when there is a rating but no written review", () => {

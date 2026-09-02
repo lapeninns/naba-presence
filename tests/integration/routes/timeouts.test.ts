@@ -99,7 +99,12 @@ describeDatabase("provider request timeouts", () => {
     expect(checkpoint.last_error_code).toMatch(/timeout|google/i)
   }, 30_000)
 
-  it("rejects auto-generate (no body) instead of calling OpenAI", async () => {
+  // Drafts contract (lib/api/drafts.ts, app/api/reviews/[id]/drafts/route.ts):
+  // omitting `body` asks the server to generate. The seeded review has text,
+  // so this is the AI path, not the rating-only template.
+  it("attempts AI generation when body is omitted and fails a stalled OpenAI call within the route budget", async () => {
+    const callsBefore = openAiCalls()
+    const startedAt = performance.now()
     const response = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
       {
@@ -111,15 +116,48 @@ describeDatabase("provider request timeouts", () => {
         body: JSON.stringify({ tone: "warm_professional" }),
       }
     )
+    const elapsedMs = performance.now() - startedAt
     const body = (await response.json()) as { error?: string }
 
-    expect(response.status).toBe(400)
-    expect(body.error).toBe("invalid_request")
-    expect(
-      stub.calls.some(
-        (call) =>
-          call.method === "POST" && call.path.includes("/v1/responses")
-      )
-    ).toBe(false)
+    expect(response.status, JSON.stringify(body)).toBe(502)
+    expect(body.error).toBe("ai_timeout")
+    expect(elapsedMs).toBeLessThan(10_000)
+    expect(openAiCalls()).toBe(callsBefore + 1)
   }, 30_000)
+
+  it("returns 503 ai_not_configured without calling OpenAI when body is omitted and no key is set", async () => {
+    // OPENAI_API_KEY is deliberately left at the harness default ("") while
+    // OPENAI_BASE_URL still points at the stub, so any leaked call is recorded.
+    const unconfigured = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      OPENAI_BASE_URL: stub.baseUrl,
+    })
+    try {
+      const callsBefore = openAiCalls()
+      const response = await fetch(
+        `${unconfigured.baseUrl}/api/reviews/${review.reviewId}/drafts`,
+        {
+          method: "POST",
+          headers: {
+            cookie: owner.cookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ tone: "warm_professional" }),
+        }
+      )
+      const body = (await response.json()) as { error?: string }
+
+      expect(response.status, JSON.stringify(body)).toBe(503)
+      expect(body.error).toBe("ai_not_configured")
+      expect(openAiCalls()).toBe(callsBefore)
+    } finally {
+      await unconfigured.stop()
+    }
+  }, 60_000)
+
+  function openAiCalls(): number {
+    return stub.calls.filter(
+      (call) => call.method === "POST" && call.path.includes("/v1/responses")
+    ).length
+  }
 })

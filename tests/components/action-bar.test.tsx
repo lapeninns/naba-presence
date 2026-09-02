@@ -65,7 +65,7 @@ function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutati
 // (needs a DirtyGuardProvider). This host supplies both; `dirty` marks the
 // composer dirty so Publish must disable with the save-first reason.
 function DirtyStamp({ dirty }: { dirty: boolean }) {
-  useRegisterDirtyGuard(dirty, () => true)
+  useRegisterDirtyGuard(dirty, async () => true)
   return null
 }
 function renderActionBar(dirty = false) {

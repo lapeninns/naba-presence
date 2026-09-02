@@ -9,6 +9,8 @@ import { startAppServer } from "../helpers/app-server"
 import {
   createTestTenant,
   destroyTenants,
+  seedGoogleConnection,
+  seedLinkedLocation,
   seedReview,
 } from "../helpers/tenant"
 
@@ -114,6 +116,31 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     })
     expect(response.status).toBe(201)
     return (await response.json()).request as { id: string }
+  }
+
+  async function runRetention() {
+    const organisations: { organisationId: string; profileSnapshots: number }[] =
+      []
+    let cursor: string | null = null
+    do {
+      const query = new URLSearchParams({ batch_size: "100" })
+      if (cursor) query.set("cursor", cursor)
+      const response = await fetch(
+        `${server.baseUrl}/api/cron/retention?${query}`,
+        {
+          method: "POST",
+          headers: { authorization: "Bearer route-harness-cron-secret" },
+        }
+      )
+      expect(response.status).toBe(200)
+      const payload = (await response.json()) as {
+        organisations: typeof organisations
+        nextCursor: string | null
+      }
+      organisations.push(...payload.organisations)
+      cursor = payload.nextCursor
+    } while (cursor)
+    return organisations
   }
 
   function fulfil(cookie: string, id: string, resolutionNote = "Fulfilled.") {
@@ -431,6 +458,82 @@ describeDatabase("privacy fulfilment and audit retention", () => {
         `
       })
     ).rejects.toThrow(/audit_log is append-only/)
+  })
+
+  it("purges expired profile snapshots without violating snapshot_expires_at", async () => {
+    const fixture = await createFixture()
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: fixture.owner.organisationId,
+    })
+    const linked = await seedLinkedLocation(admin, {
+      organisationId: fixture.owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const [state] = await admin<{ id: string }[]>`
+      insert into profile_field_state (
+        organisation_id,
+        location_id,
+        external_location_id,
+        field_key,
+        policy,
+        status,
+        canonical_value,
+        google_value,
+        canonical_hash,
+        google_hash,
+        canonical_revision,
+        snapshot_expires_at
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${linked.locationId},
+        ${linked.externalLocationId},
+        'name',
+        'bidirectional',
+        'in_sync',
+        '{"value":"Expired canonical name"}'::jsonb,
+        '{"value":"Expired google name"}'::jsonb,
+        'canonical-hash',
+        'google-hash',
+        '1',
+        now() - interval '1 day'
+      )
+      returning id
+    `
+
+    const first = await runRetention()
+    expect(
+      first.find(
+        (entry) => entry.organisationId === fixture.owner.organisationId
+      )?.profileSnapshots
+    ).toBe(1)
+
+    const [purged] = await admin<
+      {
+        canonicalValue: unknown
+        googleValue: unknown
+        snapshotExpiresAt: Date | null
+      }[]
+    >`
+      select
+        canonical_value as "canonicalValue",
+        google_value as "googleValue",
+        snapshot_expires_at as "snapshotExpiresAt"
+      from profile_field_state
+      where id = ${state.id}
+    `
+    expect(purged.canonicalValue).toBeNull()
+    expect(purged.googleValue).toBeNull()
+    expect(purged.snapshotExpiresAt).toBeInstanceOf(Date)
+
+    // Already-cleared rows are not counted again on the next run.
+    const second = await runRetention()
+    expect(
+      second.find(
+        (entry) => entry.organisationId === fixture.owner.organisationId
+      )?.profileSnapshots ?? 0
+    ).toBe(0)
   })
 
   it("guards formula-prefixed values in the routed audit CSV export", async () => {
