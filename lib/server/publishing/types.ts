@@ -10,9 +10,20 @@
 
 import type { Session } from "@/lib/server/session"
 
-/** `publish_attempt.status` CHECK constraint vocabulary (0001_initial.sql). */
+/**
+ * `publish_attempt.status` CHECK constraint vocabulary (0001_initial.sql,
+ * widened by 0035_reply_state_machine.sql). `superseded` is not a provider
+ * verdict: it retires an attempt whose mutation the reply has moved past, and
+ * unlike `failed` it leaves the row re-armable under its own key.
+ */
 export type PublishAttemptStatus =
-  "started" | "accepted" | "succeeded" | "retryable" | "failed" | "ambiguous"
+  | "started"
+  | "accepted"
+  | "succeeded"
+  | "retryable"
+  | "failed"
+  | "ambiguous"
+  | "superseded"
 
 /** `publish_attempt.operation`. */
 export type PublishAttemptOperation = "publish" | "delete"

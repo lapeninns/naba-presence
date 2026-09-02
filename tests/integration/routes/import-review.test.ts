@@ -41,7 +41,9 @@ describeDatabase("import review queue", () => {
   it("raises, supersedes, and decides Google-side menu and profile drift", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
-    const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
     const linked = await seedLinkedReview(admin, {
       organisationId: owner.organisationId,
       connectionId: connection.connectionId,
@@ -58,17 +60,28 @@ describeDatabase("import review queue", () => {
       metadata: { canHaveFoodMenus: true },
     }
     let providerMenus: Array<Record<string, unknown>> = []
-    google.respond({ method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` }, () => ({ status: 200, json: providerLocation }))
-    google.respond({ method: "GET", pathIncludes: "/foodMenus" }, () => ({ status: 200, json: { menus: providerMenus } }))
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+    google.respond({ method: "GET", pathIncludes: "/foodMenus" }, () => ({
+      status: 200,
+      json: { menus: providerMenus },
+    }))
     google.respond({ method: "PATCH", pathIncludes: "/foodMenus" }, (call) => {
-      providerMenus = (call.body as { menus: Array<Record<string, unknown>> }).menus
+      providerMenus = (call.body as { menus: Array<Record<string, unknown>> })
+        .menus
       return { status: 200, json: { menus: providerMenus } }
     })
 
     const root = `${server.baseUrl}/api/locations/${linked.locationId}`
 
     // Establish a published baseline so drift classification has anchors.
-    const initialMenus = await getJson(`${root}/food-menus`, owner.cookie, "foodMenus")
+    const initialMenus = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
     const canonicalMenus = [
       {
         labels: [{ displayName: "Main", languageCode: "en-GB" }],
@@ -78,7 +91,9 @@ describeDatabase("import review queue", () => {
             items: [
               {
                 labels: [{ displayName: "Steak pie", languageCode: "en-GB" }],
-                attributes: { price: { currencyCode: "GBP", units: "16", nanos: 0 } },
+                attributes: {
+                  price: { currencyCode: "GBP", units: "16", nanos: 0 },
+                },
               },
             ],
           },
@@ -89,7 +104,11 @@ describeDatabase("import review queue", () => {
       expectedCanonicalRevision: initialMenus.canonicalResource.revision,
       menus: canonicalMenus,
     })
-    const reviewedMenus = await getJson(`${root}/food-menus`, owner.cookie, "foodMenus")
+    const reviewedMenus = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
     const publish = await fetch(`${root}/food-menus`, {
       method: "POST",
       headers: jsonHeaders(owner.cookie, "publish-menus"),
@@ -104,7 +123,12 @@ describeDatabase("import review queue", () => {
     expect(publish.status, await publish.clone().text()).toBe(200)
 
     // A refresh while in sync raises nothing but pins identities.
-    const inSyncRefresh = await postJson(`${root}/import-review/refresh`, owner.cookie, "refresh-in-sync", { resourceType: "food_menus" })
+    const inSyncRefresh = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-in-sync",
+      { resourceType: "food_menus" }
+    )
     expect(inSyncRefresh.outcomes.foodMenus.skipped).toBe("in_sync")
     const pins = await admin<{ googlePath: string }[]>`
       select google_path as "googlePath" from food_menu_item_identity
@@ -114,7 +138,9 @@ describeDatabase("import review queue", () => {
 
     // Google-side edit: price change + a brand-new item.
     providerMenus = structuredClone(providerMenus)
-    const section = (providerMenus[0].sections as Array<Record<string, unknown>>)[0]
+    const section = (
+      providerMenus[0].sections as Array<Record<string, unknown>>
+    )[0]
     const items = section.items as Array<Record<string, unknown>>
     ;(items[0].attributes as { price: { units: string } }).price.units = "18"
     items.push({
@@ -122,29 +148,65 @@ describeDatabase("import review queue", () => {
       attributes: { price: { currencyCode: "GBP", units: "14", nanos: 0 } },
     })
 
-    const refreshed = await postJson(`${root}/import-review/refresh`, owner.cookie, "refresh-drift", { resourceType: "food_menus" })
+    const refreshed = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-drift",
+      { resourceType: "food_menus" }
+    )
     expect(refreshed.outcomes.foodMenus.raised).toBe(2)
 
-    const list = await getJson(`${root}/import-review?resourceType=food_menus`, owner.cookie, "proposals")
+    const list = await getJson(
+      `${root}/import-review?resourceType=food_menus`,
+      owner.cookie,
+      "proposals"
+    )
     expect(list).toHaveLength(2)
-    const changed = list.find((row: { kind: string }) => row.kind === "item_changed")
-    const added = list.find((row: { kind: string }) => row.kind === "item_added_on_google")
+    const changed = list.find(
+      (row: { kind: string }) => row.kind === "item_changed"
+    )
+    const added = list.find(
+      (row: { kind: string }) => row.kind === "item_added_on_google"
+    )
     expect(changed.matchStatus).toBe("previous_identity")
     expect(added.itemLabel).toBe("Fish & chips")
 
-    // A second refresh supersedes and re-raises identical suggestions.
-    const secondRefresh = await postJson(`${root}/import-review/refresh`, owner.cookie, "refresh-again", { resourceType: "food_menus" })
-    expect(secondRefresh.outcomes.foodMenus).toMatchObject({ raised: 2, superseded: 2 })
+    // A second refresh with Google unchanged leaves the open review alone.
+    // Superseding and re-inserting per tick would 409 an Apply the user
+    // started one tick earlier and resurrect anything already decided.
+    const secondRefresh = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-again",
+      { resourceType: "food_menus" }
+    )
+    expect(secondRefresh.outcomes.foodMenus).toMatchObject({
+      raised: 0,
+      superseded: 0,
+    })
     const superseded = await admin<{ count: string }[]>`
       select count(*)::text as count from presence_import_proposal
       where location_id = ${linked.locationId} and status = 'superseded'
     `
-    expect(Number(superseded[0].count)).toBe(2)
+    expect(Number(superseded[0].count)).toBe(0)
 
     // Apply the price change.
-    const fresh = await getJson(`${root}/import-review?resourceType=food_menus`, owner.cookie, "proposals")
-    const freshChanged = fresh.find((row: { kind: string }) => row.kind === "item_changed")
-    const menusBefore = await getJson(`${root}/food-menus`, owner.cookie, "foodMenus")
+    const fresh = await getJson(
+      `${root}/import-review?resourceType=food_menus`,
+      owner.cookie,
+      "proposals"
+    )
+    expect(fresh.map((row: { id: string }) => row.id).sort()).toEqual(
+      list.map((row: { id: string }) => row.id).sort()
+    )
+    const freshChanged = fresh.find(
+      (row: { kind: string }) => row.kind === "item_changed"
+    )
+    const menusBefore = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
     const decided = await postJson(
       `${root}/import-review/${freshChanged.id}/decision`,
       owner.cookie,
@@ -156,29 +218,41 @@ describeDatabase("import review queue", () => {
       }
     )
     expect(decided.proposal.status).toBe("applied")
-    const menusAfter = await getJson(`${root}/food-menus`, owner.cookie, "foodMenus")
-    expect(Number(menusAfter.canonicalResource.revision)).toBe(Number(menusBefore.canonicalResource.revision) + 1)
+    const menusAfter = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
+    expect(Number(menusAfter.canonicalResource.revision)).toBe(
+      Number(menusBefore.canonicalResource.revision) + 1
+    )
     const pie = (
-      (menusAfter.canonicalMenus[0].sections as Array<Record<string, unknown>>)[0]
-        .items as Array<{ attributes: { price: { units: string } } }>
+      (
+        menusAfter.canonicalMenus[0].sections as Array<Record<string, unknown>>
+      )[0].items as Array<{ attributes: { price: { units: string } } }>
     )[0]
     expect(pie.attributes.price.units).toBe("18")
 
     // Deciding the same proposal again conflicts.
-    const again = await fetch(`${root}/import-review/${freshChanged.id}/decision`, {
-      method: "POST",
-      headers: jsonHeaders(owner.cookie, "decide-twice"),
-      body: JSON.stringify({
-        action: "ignore",
-        confirmation: "import_google_food_menus_to_nabapresence",
-        expectedCanonicalRevision: menusAfter.canonicalResource.revision,
-      }),
-    })
+    const again = await fetch(
+      `${root}/import-review/${freshChanged.id}/decision`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "decide-twice"),
+        body: JSON.stringify({
+          action: "ignore",
+          confirmation: "import_google_food_menus_to_nabapresence",
+          expectedCanonicalRevision: menusAfter.canonicalResource.revision,
+        }),
+      }
+    )
     expect(again.status).toBe(409)
     expect((await again.json()).error).toBe("proposal_not_pending")
 
     // Ignore the added item.
-    const freshAdded = fresh.find((row: { kind: string }) => row.kind === "item_added_on_google")
+    const freshAdded = fresh.find(
+      (row: { kind: string }) => row.kind === "item_added_on_google"
+    )
     const ignored = await postJson(
       `${root}/import-review/${freshAdded.id}/decision`,
       owner.cookie,
@@ -194,38 +268,86 @@ describeDatabase("import review queue", () => {
     // A stale revision fails the decision and records the failure honestly.
     providerMenus = structuredClone(providerMenus)
     ;(
-      ((providerMenus[0].sections as Array<Record<string, unknown>>)[0]
-        .items as Array<Record<string, unknown>>)[0].attributes as {
+      (
+        (providerMenus[0].sections as Array<Record<string, unknown>>)[0]
+          .items as Array<Record<string, unknown>>
+      )[0].attributes as {
         price: { units: string }
       }
     ).price.units = "19"
-    await postJson(`${root}/import-review/refresh`, owner.cookie, "refresh-stale", { resourceType: "food_menus" })
-    const staleList = await getJson(`${root}/import-review?resourceType=food_menus`, owner.cookie, "proposals")
-    const staleRow = staleList.find((row: { kind: string }) => row.kind === "item_changed")
-    const staleDecision = await fetch(`${root}/import-review/${staleRow.id}/decision`, {
-      method: "POST",
-      headers: jsonHeaders(owner.cookie, "decide-stale"),
-      body: JSON.stringify({
-        action: "apply",
-        confirmation: "import_google_food_menus_to_nabapresence",
-        expectedCanonicalRevision: "1",
-      }),
-    })
+    await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-stale",
+      { resourceType: "food_menus" }
+    )
+    const staleList = await getJson(
+      `${root}/import-review?resourceType=food_menus`,
+      owner.cookie,
+      "proposals"
+    )
+    // Only the price moved on Google. The ignored "Fish & chips" suggestion
+    // must not come back: Ignore holds until Google changes that item.
+    expect(
+      staleList.some(
+        (row: { kind: string }) => row.kind === "item_added_on_google"
+      )
+    ).toBe(false)
+    const staleRow = staleList.find(
+      (row: { kind: string }) => row.kind === "item_changed"
+    )
+    const staleDecision = await fetch(
+      `${root}/import-review/${staleRow.id}/decision`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "decide-stale"),
+        body: JSON.stringify({
+          action: "apply",
+          confirmation: "import_google_food_menus_to_nabapresence",
+          expectedCanonicalRevision: "1",
+        }),
+      }
+    )
     expect(staleDecision.status).toBe(409)
-    const failedRow = await admin<{ status: string; failureCode: string }[]>`
-      select status, failure_code as "failureCode" from presence_import_proposal
-      where id = ${staleRow.id}
+    // An optimistic-lock miss wrote nothing, so the claim is released rather
+    // than burned: the retry with a fresh revision finds the row pending. Only
+    // outcomes a retry cannot fix leave a proposal `failed`.
+    const releasedRow = await admin<
+      { status: string; failureCode: string | null; decision: string | null }[]
+    >`
+      select status, failure_code as "failureCode", decision
+      from presence_import_proposal where id = ${staleRow.id}
     `
-    expect(failedRow[0]).toMatchObject({ status: "failed", failureCode: "canonical_resource_stale" })
+    expect(releasedRow[0]).toMatchObject({
+      status: "pending",
+      failureCode: null,
+      decision: null,
+    })
 
     // Profile: Google-side rename raises a field proposal; apply imports it.
     await getJson(`${root}/profile`, owner.cookie, "profile") // establish per-field baselines
     providerLocation = { ...providerLocation, title: "The Old Crown" }
-    const profileRefresh = await postJson(`${root}/import-review/refresh`, owner.cookie, "refresh-profile", { resourceType: "profile" })
+    const profileRefresh = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-profile",
+      { resourceType: "profile" }
+    )
     expect(profileRefresh.outcomes.profile.raised).toBe(1)
-    const profileRows = await getJson(`${root}/import-review?resourceType=profile`, owner.cookie, "proposals")
-    expect(profileRows[0]).toMatchObject({ kind: "field_changed", fieldKey: "name" })
-    const profileState = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const profileRows = await getJson(
+      `${root}/import-review?resourceType=profile`,
+      owner.cookie,
+      "proposals"
+    )
+    expect(profileRows[0]).toMatchObject({
+      kind: "field_changed",
+      fieldKey: "name",
+    })
+    const profileState = await getJson(
+      `${root}/profile`,
+      owner.cookie,
+      "profile"
+    )
     const applied = await postJson(
       `${root}/import-review/${profileRows[0].id}/decision`,
       owner.cookie,
@@ -237,21 +359,29 @@ describeDatabase("import review queue", () => {
       }
     )
     expect(applied.proposal.status).toBe("applied")
-    const profileAfter = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const profileAfter = await getJson(
+      `${root}/profile`,
+      owner.cookie,
+      "profile"
+    )
     expect(
-      profileAfter.fields.find((field: { key: string }) => field.key === "name").canonicalValue
+      profileAfter.fields.find((field: { key: string }) => field.key === "name")
+        .canonicalValue
     ).toBe("The Old Crown")
 
     // A mismatched confirmation literal is rejected before any claim.
-    const wrongConfirmation = await fetch(`${root}/import-review/${freshAdded.id}/decision`, {
-      method: "POST",
-      headers: jsonHeaders(owner.cookie, "decide-wrong-confirmation"),
-      body: JSON.stringify({
-        action: "ignore",
-        confirmation: "import_google_profile_to_nabapresence",
-        expectedCanonicalRevision: profileAfter.canonicalResource.revision,
-      }),
-    })
+    const wrongConfirmation = await fetch(
+      `${root}/import-review/${freshAdded.id}/decision`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "decide-wrong-confirmation"),
+        body: JSON.stringify({
+          action: "ignore",
+          confirmation: "import_google_profile_to_nabapresence",
+          expectedCanonicalRevision: profileAfter.canonicalResource.revision,
+        }),
+      }
+    )
     expect(wrongConfirmation.status).toBe(400)
 
     // The cron sweep raises proposals too (menu drift reintroduced above).
@@ -260,25 +390,33 @@ describeDatabase("import review queue", () => {
     let sweepOutcome: { resource: string; status: string } | undefined
     let cursor: string | null = null
     for (let page = 0; page < 20 && !sweepOutcome; page += 1) {
-      const sweep = await fetch(`${server.baseUrl}/api/sync/presence-resources`, {
-        method: "POST",
-        headers: {
-          authorization: "Bearer route-harness-cron-secret",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          maxOrganisations: 25,
-          ...(cursor ? { organisationCursor: cursor } : {}),
-        }),
-      })
+      const sweep = await fetch(
+        `${server.baseUrl}/api/sync/presence-resources`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer route-harness-cron-secret",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            maxOrganisations: 25,
+            ...(cursor ? { organisationCursor: cursor } : {}),
+          }),
+        }
+      )
       expect(sweep.status, await sweep.clone().text()).toBe(200)
       const body = (await sweep.json()) as {
-        outcomes: Array<{ organisationId: string; resource: string; status: string }>
+        outcomes: Array<{
+          organisationId: string
+          resource: string
+          status: string
+        }>
         nextCursor: string | null
       }
       sweepOutcome = body.outcomes.find(
         (outcome) =>
-          outcome.organisationId === owner.organisationId && outcome.resource === "foodMenus"
+          outcome.organisationId === owner.organisationId &&
+          outcome.resource === "foodMenus"
       )
       if (!body.nextCursor) break
       cursor = body.nextCursor
@@ -288,9 +426,13 @@ describeDatabase("import review queue", () => {
     // Cross-tenant isolation: a second organisation sees none of it.
     const outsider = await createTestTenant(admin)
     organisations.push(outsider.organisationId)
-    const foreign = await fetch(`${root}/import-review`, { headers: { cookie: outsider.cookie } })
+    const foreign = await fetch(`${root}/import-review`, {
+      headers: { cookie: outsider.cookie },
+    })
     expect(foreign.status).toBe(404)
-    const counts = await fetch(`${server.baseUrl}/api/import-review/counts`, { headers: { cookie: outsider.cookie } })
+    const counts = await fetch(`${server.baseUrl}/api/import-review/counts`, {
+      headers: { cookie: outsider.cookie },
+    })
     expect(counts.status).toBe(200)
     expect((await counts.json()).counts).toEqual([])
   }, 60_000)
@@ -322,7 +464,9 @@ describeDatabase("import review kill switch", () => {
   it("pauses refresh and decisions, and the list reports the flag", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
-    const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
     const linked = await seedLinkedReview(admin, {
       organisationId: owner.organisationId,
       connectionId: connection.connectionId,
@@ -353,9 +497,14 @@ describeDatabase("import review kill switch", () => {
     expect(decision.status).toBe(503)
     expect((await decision.json()).error).toBe("import_review_paused")
 
-    const list = await fetch(`${root}/import-review`, { headers: { cookie: owner.cookie } })
+    const list = await fetch(`${root}/import-review`, {
+      headers: { cookie: owner.cookie },
+    })
     expect(list.status).toBe(200)
-    expect(await list.json()).toMatchObject({ importReviewEnabled: false, proposals: [] })
+    expect(await list.json()).toMatchObject({
+      importReviewEnabled: false,
+      proposals: [],
+    })
   }, 30_000)
 })
 
@@ -365,7 +514,12 @@ async function getJson(url: string, cookie: string, key: string) {
   return (await response.json())[key]
 }
 
-async function putJson(url: string, cookie: string, requestId: string, body: unknown) {
+async function putJson(
+  url: string,
+  cookie: string,
+  requestId: string,
+  body: unknown
+) {
   const response = await fetch(url, {
     method: "PUT",
     headers: jsonHeaders(cookie, requestId),
@@ -375,7 +529,12 @@ async function putJson(url: string, cookie: string, requestId: string, body: unk
   return response.json()
 }
 
-async function postJson(url: string, cookie: string, requestId: string, body: unknown) {
+async function postJson(
+  url: string,
+  cookie: string,
+  requestId: string,
+  body: unknown
+) {
   const response = await fetch(url, {
     method: "POST",
     headers: jsonHeaders(cookie, requestId),
@@ -386,5 +545,9 @@ async function postJson(url: string, cookie: string, requestId: string, body: un
 }
 
 function jsonHeaders(cookie: string, requestId: string) {
-  return { cookie, "content-type": "application/json", "x-request-id": requestId }
+  return {
+    cookie,
+    "content-type": "application/json",
+    "x-request-id": requestId,
+  }
 }

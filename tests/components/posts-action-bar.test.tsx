@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   publishPost: vi.fn(),
   decidePostApproval: vi.fn(),
   deletePost: vi.fn(),
+  fetchPosts: vi.fn(),
 }))
 vi.mock("@/lib/api/location-posts", () => api)
 
@@ -24,7 +25,7 @@ const MEMBER: LocationCapabilities = { canEditCanonical: false, canPublish: fals
 function post(overrides: Partial<Post> = {}): Post {
   return {
     id: "p1", topicType: "STANDARD", languageCode: "en-GB", summary: "Open late tonight", callToAction: null, event: null, offer: null, media: [],
-    scheduledTime: null, status: "draft", googlePostName: null, googleState: null, googleSearchUrl: null, lastErrorCode: null,
+    status: "draft", googlePostName: null, googleState: null, googleSearchUrl: null, lastErrorCode: null,
     createdAt: "2026-08-01T00:00:00.000Z", updatedAt: "2026-08-01T00:00:00.000Z", ...overrides,
   }
 }

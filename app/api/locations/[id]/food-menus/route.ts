@@ -15,6 +15,9 @@ import {
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+// The publish POST does a live Google read, the menu PATCH and a read-back;
+// the platform default would cut it off mid-write.
+export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 
@@ -30,7 +33,12 @@ export const PUT = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: saveFoodMenusSchema,
-  handler: ({ session, params, body, requestId }): Promise<SaveFoodMenusResult> =>
+  handler: ({
+    session,
+    params,
+    body,
+    requestId,
+  }): Promise<SaveFoodMenusResult> =>
     saveCanonicalFoodMenus({
       session,
       locationId: params.id,
@@ -43,7 +51,12 @@ export const PUT = route({
 export const POST = route({
   params: paramsSchema,
   body: publishFoodMenusSchema,
-  handler: ({ session, params, body, requestId }): Promise<PublishFoodMenusResult> =>
+  handler: ({
+    session,
+    params,
+    body,
+    requestId,
+  }): Promise<PublishFoodMenusResult> =>
     publishFoodMenus({
       session,
       locationId: params.id,

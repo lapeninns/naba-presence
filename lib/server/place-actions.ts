@@ -327,7 +327,12 @@ type PlaceActionWrite<TResponse, TReadback> = {
 
 /**
  * One place-action mutation through the shared pipeline. Keys include the
- * request id, so any existing row for the key is replayed as idempotent.
+ * request id, so any existing row for the key is replayed as idempotent --
+ * and, because that id is a fresh UUID per HTTP request, no two requests
+ * share a key and the replay branch never fires across them: a double-submit
+ * of "add booking link" creates the link on Google twice. Re-keying on the
+ * content needs a token the client mints per user intent (see the same note
+ * in lib/server/media.ts); it sends none yet.
  */
 async function runPlaceActionWrite<TResponse, TReadback>(
   input: PlaceActionWrite<TResponse, TReadback>

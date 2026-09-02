@@ -11,6 +11,7 @@ import {
   type AttemptStore,
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
+import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 // Thin façade over lib/server/gbp-write.ts for the "complete GBP management"
@@ -78,6 +79,55 @@ export const gbpManagementAttemptStore: AttemptStore = attemptStore({
   },
 })
 
+/**
+ * Google's own dedupe id for locations.create -- the `requestId` query
+ * parameter googleLocationCreateRequest builds (lib/domain/google-contract.ts).
+ *
+ * It must identify the location being created, never the HTTP request:
+ * `ctx.requestId` is a fresh UUID per request (lib/server/http.ts), so a
+ * client that retries after a lost response used to arrive with a different
+ * one and defeat the single server-side guard against a second real Google
+ * listing. Creating a location is the one irreversible mutation on these
+ * surfaces, so its dedupe key is derived from the content instead.
+ *
+ * Shaped as a v5 UUID because Google documents the parameter as a UUID; the
+ * bytes are the content digest, so the same intent always yields the same id.
+ */
+export function googleCreateRequestId(input: {
+  organisationId: string
+  accountName: string
+  payload: unknown
+}): string {
+  const digest = sha256(
+    [
+      input.organisationId,
+      input.accountName,
+      stableGoogleHash(input.payload),
+    ].join(":")
+  )
+  const variant = ((parseInt(digest.slice(16, 17), 16) & 0x3) | 0x8).toString(
+    16
+  )
+  return [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    `5${digest.slice(13, 16)}`,
+    `${variant}${digest.slice(17, 20)}`,
+    digest.slice(20, 32),
+  ].join("-")
+}
+
+/**
+ * The gbp_management_mutation key. It is deliberately still request-scoped:
+ * `startGbpMutation` replays ANY existing row for the key as idempotent, so a
+ * content-derived key would make a failed patch permanently unretryable and
+ * would swallow legitimate repeats these surfaces support (resending a
+ * verification PIN, re-adding an admin, patching a field back to an earlier
+ * value). Deduplicating a client retry needs a token the client mints per
+ * user intent and resends unchanged; until it sends one, the ledger row is
+ * per-request and Google's own `requestId` guards the irreversible create
+ * (see googleCreateRequestId).
+ */
 export function gbpManagementIdempotencyKey(input: {
   resourceType: string
   operation: string
@@ -164,7 +214,25 @@ export async function startGbpMutation(input: {
             : (txn: TransactionSql) => jsonColumn(txn, input.payload),
       },
     })
-    return { id: created.id, status: created.rawStatus, idempotent: false }
+    if (created) {
+      return { id: created.id, status: created.rawStatus, idempotent: false }
+    }
+    // `start` claims the key with `on conflict do nothing`, so null means a
+    // concurrent request inserted this key first. Answer from its row, the
+    // same as if `find` had seen it -- the alternative is a unique violation
+    // that aborts the tenant transaction and surfaces as a 500.
+    const winner = await gbpManagementAttemptStore.find(sql, {
+      organisationId: input.organisationId,
+      key,
+    })
+    if (!winner) {
+      throw new ApiError(
+        409,
+        "gbp_mutation_in_progress",
+        "This change is already being applied."
+      )
+    }
+    return { id: winner.id, status: winner.rawStatus, idempotent: true }
   })
 }
 

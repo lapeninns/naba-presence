@@ -10,7 +10,10 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
-import { deleteWorkflowTarget } from "@/lib/domain/workflow"
+import {
+  deleteWorkflowTarget,
+  type ReviewWorkflowState,
+} from "@/lib/domain/workflow"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
@@ -27,6 +30,7 @@ import {
   markAttemptSucceeded,
   rearmAttempt,
   recordAttemptFailure,
+  supersedeQueuedSiblings,
   writePublishAttemptEvent,
   type ExistingAttempt,
 } from "./attempt"
@@ -46,7 +50,7 @@ import type {
 /** The review + reply join a delete is decided on. */
 export type DeleteRecord = {
   review_id: string
-  workflow_status: string
+  workflow_status: ReviewWorkflowState
   google_review_name_ciphertext: Buffer
   location_id: string
   connection_id: string
@@ -148,10 +152,19 @@ async function cancelLocally(
       published_by = null
     where id = ${record.review_reply_id}
   `
+  // A cancel out of `publish_requested` is withdrawing a publish that was
+  // accepted locally and parked on a back-off, so the queued attempt has to
+  // be retired in the same transaction: left armed, the runner would replay
+  // the reply the operator just cancelled.
+  await supersedeQueuedSiblings(sql, {
+    organisationId: input.organisationId,
+    reviewReplyId: record.review_reply_id,
+    reason: "cancelled_locally",
+  })
   await setReviewWorkflow(
     sql,
     record.review_id,
-    deleteWorkflowTarget("local_cancel")
+    deleteWorkflowTarget("local_cancel", record.workflow_status)
   )
   await writeAudit(sql, {
     organisationId: input.organisationId,
@@ -205,12 +218,13 @@ function resolveExistingDeleteAttempt(
   return null
 }
 
+/** Returns null when a concurrent request won the idempotency key. */
 async function startDeleteIntent(
   sql: TransactionSql,
   input: ReplyDeleteInput,
   record: DeleteRecord,
   key: { idempotencyKey: string; existing: ExistingAttempt | null }
-): Promise<DeleteIntent> {
+): Promise<DeleteIntent | null> {
   const attempt = key.existing
     ? await rearmAttempt(sql, { attemptId: key.existing.id })
     : await insertAttempt(sql, {
@@ -221,7 +235,15 @@ async function startDeleteIntent(
         requestBodyHash: sha256(""),
         operation: "delete",
         intendedBody: null,
+        publishGeneration: record.publish_generation,
       })
+  if (!attempt) return null
+  await supersedeQueuedSiblings(sql, {
+    organisationId: input.organisationId,
+    reviewReplyId: record.review_reply_id,
+    keepAttemptId: attempt.id,
+    reason: "superseded_by_delete",
+  })
   await writePublishAttemptEvent(sql, {
     organisationId: input.organisationId,
     publishAttemptId: attempt.id,
@@ -291,7 +313,24 @@ async function prepareDelete(input: ReplyDeleteInput): Promise<DeletePhaseOne> {
       idempotencyKey,
       existing,
     })
-    return { kind: "proceed", ...intent }
+    if (intent) return { kind: "proceed", ...intent }
+
+    // A concurrent delete committed this key first; resolve against its row
+    // rather than letting the unique violation surface as a 500.
+    const winner = await findAttemptByKey(sql, {
+      organisationId: input.organisationId,
+      idempotencyKey,
+    })
+    if (!winner) {
+      throw new ApiError(409, "publish_in_progress", "A delete is in flight.")
+    }
+    return (
+      resolveExistingDeleteAttempt(winner) ?? {
+        kind: "needs_recovery",
+        attemptId: winner.id,
+        operation: "delete",
+      }
+    )
   })
 }
 

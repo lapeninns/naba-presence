@@ -199,6 +199,73 @@ describeDatabase("durable reply deletion", () => {
     }
   )
 
+  it("cancels a publish parked on a back-off out of publish_requested", async () => {
+    const fixture = await seedDeleteState({
+      workflow: "publish_requested",
+      publish: "accepted",
+      providerUpdated: false,
+    })
+    const [queued] = await admin<{ id: string }[]>`
+      insert into publish_attempt (
+        organisation_id,
+        review_reply_id,
+        idempotency_key,
+        request_body_hash,
+        intended_body,
+        status,
+        attempt_no,
+        operation,
+        next_attempt_at,
+        publish_generation
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${fixture.replyId},
+        ${randomUUID()},
+        ${sha256("Reply to delete")},
+        'Reply to delete',
+        'retryable',
+        1,
+        'publish',
+        ${new Date(Date.now() + 60_000)},
+        0
+      )
+      returning id::text as id
+    `
+
+    const response = await deleteReply(fixture)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await response.json()).status).toBe("cancelled")
+    expect(stub.calls).toHaveLength(0)
+    const [settled] = await admin<
+      { publish_status: string; workflow_status: string }[]
+    >`
+      select rr.publish_status, r.workflow_status
+      from review_reply rr
+      join review r on r.id = rr.review_id
+      where rr.id = ${fixture.replyId}
+    `
+    // 'drafted' is not reachable from 'publish_requested'; a withdrawn
+    // publish intent settles 'failed', which is re-draftable.
+    expect(settled).toEqual({
+      publish_status: "not_published",
+      workflow_status: "failed",
+    })
+    // The queued attempt must not survive the cancel, or the runner replays
+    // the reply the operator just withdrew.
+    const [retired] = await admin<
+      { status: string; provider_error_code: string | null }[]
+    >`
+      select status, provider_error_code
+      from publish_attempt
+      where id = ${queued.id}
+    `
+    expect(retired).toEqual({
+      status: "superseded",
+      provider_error_code: "cancelled_locally",
+    })
+  })
+
   it("refuses delete while a publish attempt is in flight", async () => {
     const fixture = await seedDeleteState({
       workflow: "publish_requested",
@@ -254,58 +321,54 @@ describeDatabase("durable reply deletion", () => {
     expect(attempt).toEqual({ status: "succeeded", operation: "delete" })
   })
 
-  it(
-    "recovers a timed-out delete without issuing a second mutation",
-    async () => {
-      const fixture = await seedDeleteState({
-        workflow: "published",
-        publish: "published",
-      })
-      stub.respond({ method: "DELETE", pathIncludes: "/reply" }, () => ({
-        status: 200,
-        json: {},
-        delayMs: 25_000,
-      }))
+  it("recovers a timed-out delete without issuing a second mutation", async () => {
+    const fixture = await seedDeleteState({
+      workflow: "published",
+      publish: "published",
+    })
+    stub.respond({ method: "DELETE", pathIncludes: "/reply" }, () => ({
+      status: 200,
+      json: {},
+      delayMs: 25_000,
+    }))
 
-      const first = await deleteReply(fixture)
-      expect(first.status).toBe(502)
-      expect((await first.json()).error).toBe("google_mutation_ambiguous")
-      const [ambiguous] = await admin<
-        { id: string; status: string; operation: string }[]
-      >`
+    const first = await deleteReply(fixture)
+    expect(first.status).toBe(502)
+    expect((await first.json()).error).toBe("google_mutation_ambiguous")
+    const [ambiguous] = await admin<
+      { id: string; status: string; operation: string }[]
+    >`
         select id::text as id, status, operation
         from publish_attempt
         where review_reply_id = ${fixture.replyId}
       `
-      expect(ambiguous).toMatchObject({
-        status: "ambiguous",
-        operation: "delete",
-      })
+    expect(ambiguous).toMatchObject({
+      status: "ambiguous",
+      operation: "delete",
+    })
 
-      stub.reset()
-      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
-        status: 200,
-        json: { reviewId: "stub" },
-      }))
-      const second = await deleteReply(fixture)
-      expect(second.status).toBe(200)
-      expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
-      expect(
-        stub.calls.filter((call) => call.method === "DELETE")
-      ).toHaveLength(0)
-      const [settled] = await admin<
-        { status: string; publish_generation: number }[]
-      >`
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+      status: 200,
+      json: { reviewId: "stub" },
+    }))
+    const second = await deleteReply(fixture)
+    expect(second.status).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
+    expect(stub.calls.filter((call) => call.method === "DELETE")).toHaveLength(
+      0
+    )
+    const [settled] = await admin<
+      { status: string; publish_generation: number }[]
+    >`
         select pa.status, rr.publish_generation
         from publish_attempt pa
         join review_reply rr on rr.id = pa.review_reply_id
         where pa.id = ${ambiguous.id}
       `
-      expect(settled).toEqual({
-        status: "succeeded",
-        publish_generation: 1,
-      })
-    },
-    35_000
-  )
+    expect(settled).toEqual({
+      status: "succeeded",
+      publish_generation: 1,
+    })
+  }, 35_000)
 })

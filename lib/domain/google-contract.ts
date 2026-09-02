@@ -27,9 +27,7 @@ export type GoogleLocationReadField =
   | "labels"
 
 export type GoogleHoursUpdateMask =
-  | "regularHours"
-  | "specialHours"
-  | "moreHours"
+  "regularHours" | "specialHours" | "moreHours"
 
 export const GOOGLE_PERFORMANCE_METRICS = [
   "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
@@ -103,8 +101,7 @@ export const GOOGLE_PLACE_ACTION_TYPES = [
   "SHOP_ONLINE",
 ] as const
 
-export type GooglePlaceActionType =
-  (typeof GOOGLE_PLACE_ACTION_TYPES)[number]
+export type GooglePlaceActionType = (typeof GOOGLE_PLACE_ACTION_TYPES)[number]
 
 export const GOOGLE_MEDIA_CATEGORIES = [
   "COVER",
@@ -122,8 +119,7 @@ export const GOOGLE_MEDIA_CATEGORIES = [
   "ADDITIONAL",
 ] as const
 
-export type GoogleMediaCategory =
-  (typeof GOOGLE_MEDIA_CATEGORIES)[number]
+export type GoogleMediaCategory = (typeof GOOGLE_MEDIA_CATEGORIES)[number]
 
 export const GOOGLE_NOTIFICATION_TYPES = [
   "GOOGLE_UPDATE",
@@ -134,8 +130,7 @@ export const GOOGLE_NOTIFICATION_TYPES = [
   "VOICE_OF_MERCHANT_UPDATED",
 ] as const
 
-export type GoogleNotificationType =
-  (typeof GOOGLE_NOTIFICATION_TYPES)[number]
+export type GoogleNotificationType = (typeof GOOGLE_NOTIFICATION_TYPES)[number]
 
 export function googlePlaceActionLinksListRequest(input: {
   locationName: string
@@ -511,6 +506,13 @@ export function googleChainsSearchRequest(query: string) {
   } satisfies { url: string; init: RequestInit }
 }
 
+/**
+ * `requestId` is Google's own dedupe key for this create, and creating a
+ * location is irreversible: it must identify the location being created, not
+ * the HTTP request that asked for it, or a retry after a lost response makes
+ * a second listing. Callers derive it with googleCreateRequestId
+ * (lib/server/gbp-management.ts); never pass a per-request id.
+ */
 export function googleLocationCreateRequest(input: {
   accountName: string
   requestId: string
@@ -595,8 +597,10 @@ export function googleLodgingRequest(input: {
   const name = `${input.locationName}/lodging`
   const params = new URLSearchParams()
   if (input.operation !== "patch") params.set("readMask", "*")
-  if (input.updateMask?.length) params.set("updateMask", input.updateMask.join(","))
-  const suffix = input.operation === "getGoogleUpdated" ? ":getGoogleUpdated" : ""
+  if (input.updateMask?.length)
+    params.set("updateMask", input.updateMask.join(","))
+  const suffix =
+    input.operation === "getGoogleUpdated" ? ":getGoogleUpdated" : ""
   return {
     url: `https://mybusinesslodging.googleapis.com/v1/${name}${suffix}?${params}`,
     init: {
@@ -618,13 +622,15 @@ export function googleBusinessCallsRequest(input: {
 }) {
   const settingsName = `${input.locationName}/businesscallssettings`
   const params = new URLSearchParams()
-  if (input.updateMask?.length) params.set("updateMask", input.updateMask.join(","))
+  if (input.updateMask?.length)
+    params.set("updateMask", input.updateMask.join(","))
   if (input.filter) params.set("filter", input.filter)
   if (input.pageToken) params.set("pageToken", input.pageToken)
   if (input.operation === "insights") params.set("pageSize", "100")
-  const path = input.operation === "insights"
-    ? `${input.locationName}/businesscallsinsights`
-    : settingsName
+  const path =
+    input.operation === "insights"
+      ? `${input.locationName}/businesscallsinsights`
+      : settingsName
   return {
     url: `https://mybusinessbusinesscalls.googleapis.com/v1/${path}?${params}`,
     init: {
@@ -649,7 +655,8 @@ export function googleHealthcareRequest(input: {
   const params = new URLSearchParams()
   if (input.resource !== "serviceList") params.set("languageCode", "en")
   if (input.resource === "insuranceNetworks") params.set("pageSize", "10000")
-  if (input.updateMask?.length) params.set("updateMask", input.updateMask.join(","))
+  if (input.updateMask?.length)
+    params.set("updateMask", input.updateMask.join(","))
   return {
     url: `https://mybusiness.googleapis.com/v4/${name}?${params}`,
     init: {

@@ -166,7 +166,9 @@ import "server-only"
  *
  * 6. Behaviour knobs to preserve the module's current semantics:
  *      onExisting  "resume" (hours, profile, food menus): succeeded -> idempotent,
- *                  in flight -> 409 `inProgress`, terminal failure -> re-arm.
+ *                  in flight -> 409 `inProgress` inside the grace window and
+ *                  readback recovery past it (see "In-flight recovery"),
+ *                  terminal failure -> re-arm.
  *                  "replay" (media, place actions, posts, management): any
  *                  existing row for the key is returned as idempotent
  *                  (their keys already include the request id).
@@ -220,6 +222,38 @@ import "server-only"
  * docs/architecture.md says ambiguous writes are read before any retry.
  *
  * =====================================================================
+ * In-flight recovery -- why an interrupted publish does not strand
+ * =====================================================================
+ *
+ * Phase (a) commits the intent in its own transaction and every later phase
+ * runs outside it, so a request that dies in between (function timeout,
+ * instance recycled mid-deploy, a settle transaction that fails to commit)
+ * leaves the row in flight with nothing to move it: no GBP attempt table has
+ * a lease, `reclaim_expired_jobs` does not touch them, and the retention cron
+ * only deletes them once `expires_at` passes -- 365 days for hours and
+ * profile, 180 for food menus. An unchanged snapshot re-derives the same key,
+ * so without recovery the same publish would 409 for the rest of that year.
+ *
+ * So a "resume" surface 409s an in-flight row only inside IN_FLIGHT_GRACE_MS.
+ * Past it the row is treated as interrupted and settled from what the
+ * provider actually holds, exactly as lib/server/publishing/recover.ts does
+ * for reply publishes:
+ *
+ *   readback.read throws            -> ambiguous (state still unknown), rethrown
+ *   readback.verify true            -> succeeded: settle + onSuccess + audit,
+ *                                      and this request returns `idempotent`
+ *                                      without writing to the provider
+ *   readback.verify false or throws -> failed: the intent is demonstrably not
+ *                                      live, so the row is settled and this
+ *                                      request re-arms it and publishes
+ *
+ * This is safe because the key pins the intent: two requests share a key only
+ * when they intend the same write (module revision + snapshot hashes +
+ * payload hash), so `verify` is comparing the provider against exactly the
+ * intent the stranded row carries. A surface with no `readback` keeps the
+ * 409 -- there is nothing to compare against.
+ *
+ * =====================================================================
  * What deliberately does NOT use runGbpWrite: the reply pipeline
  * =====================================================================
  *
@@ -256,6 +290,7 @@ import {
 import { connectionAccessToken } from "@/lib/server/google/connections"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import {
   canPublishLocation,
   requireLocationAccess,
@@ -511,6 +546,12 @@ export type AttemptRow = {
   status: GbpAttemptStatus | (string & {})
   /** The status exactly as stored in the module's table. */
   rawStatus: string
+  /**
+   * When the attempt was (re-)armed, from the store's `startedAt` column.
+   * Null when the table has none, which keeps an in-flight row on the plain
+   * 409 because its age -- and so whether it was interrupted -- is unknown.
+   */
+  startedAt?: Date | null
 }
 
 /**
@@ -571,11 +612,16 @@ export interface AttemptStore<TIntent = IntentColumns> {
     sql: TransactionSql,
     input: { organisationId: string; key: string }
   ): Promise<AttemptRow | null>
-  /** Insert the intent as `validating` (or re-arm `existing`). */
+  /**
+   * Insert the intent as `validating` (or re-arm `existing`). Null means
+   * another request claimed the key between `find` and this insert; the
+   * pipeline re-reads it rather than letting the unique violation abort the
+   * tenant transaction.
+   */
   start(
     sql: TransactionSql,
     input: AttemptStartInput<TIntent>
-  ): Promise<AttemptRow>
+  ): Promise<AttemptRow | null>
   /** Phase (c): the provider call is about to happen; `validated` when validateOnly passed. */
   markPublishing(
     sql: TransactionSql,
@@ -641,10 +687,12 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
     config.statuses?.[status] ?? status
   const toCanonical = (raw: string): AttemptRow["status"] =>
     GBP_ATTEMPT_STATUSES.find((status) => toTable(status) === raw) ?? raw
-  const rowOf = (row: { id: string; status: string }): AttemptRow => ({
+  type SelectedRow = { id: string; status: string; startedAt?: Date | null }
+  const rowOf = (row: SelectedRow): AttemptRow => ({
     id: row.id,
     status: toCanonical(row.status),
     rawStatus: row.status,
+    startedAt: row.startedAt ?? null,
   })
   const resolveIntent = (sql: TransactionSql, intent: IntentColumns) =>
     Object.fromEntries(
@@ -656,8 +704,11 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
 
   return {
     async find(sql, input) {
-      const [row] = await sql<{ id: string; status: string }[]>`
-        select id::text as id, status
+      const startedAt = columns.startedAt
+        ? sql`, ${sql(columns.startedAt)} as "startedAt"`
+        : sql``
+      const [row] = await sql<SelectedRow[]>`
+        select id::text as id, status${startedAt}
         from ${sql(table)}
         where organisation_id = ${input.organisationId}
           and idempotency_key = ${input.key}
@@ -674,7 +725,7 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
         }
         if (columns.actorUserId) rearm[columns.actorUserId] = input.actorUserId
         if (columns.errorCode) rearm[columns.errorCode] = null
-        const [row] = await sql<{ id: string; status: string }[]>`
+        const [row] = await sql<SelectedRow[]>`
           update ${sql(table)}
           set ${sql(rearm)}${columns.startedAt ? sql`, ${sql(columns.startedAt)} = now()` : sql``}
           where id = ${input.existing.id}
@@ -691,11 +742,23 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
         ...resolveIntent(sql, input.intent),
       }
       if (columns.actorUserId) insert[columns.actorUserId] = input.actorUserId
-      const [row] = await sql<{ id: string; status: string }[]>`
+      // Two identical requests can both pass `find` before either inserts, and
+      // every attempt table carries `unique (organisation_id,
+      // idempotency_key)`: without this the loser's whole tenant transaction
+      // aborts on a 23505, which mapError can only render as a 500. Claiming
+      // the key instead lets the pipeline re-read the winner and answer with
+      // the module's own in-progress 409. Skipped when a `retry: "insert"`
+      // re-arm supplies its own `${key}:${requestId}`, where no conflict can
+      // arise and `do nothing` would hide a real one.
+      const claim = input.existing
+        ? sql``
+        : sql`on conflict (organisation_id, idempotency_key) do nothing`
+      const [row] = await sql<SelectedRow[]>`
         insert into ${sql(table)} ${sql(insert)}
+        ${claim}
         returning id::text as id, status
       `
-      return rowOf(row)
+      return row ? rowOf(row) : null
     },
 
     async markPublishing(sql, input) {
@@ -757,6 +820,23 @@ export function providerErrorCode(error: unknown, fallback: string): string {
 
 export function isAmbiguousProviderError(error: unknown): boolean {
   return error instanceof GoogleMutationAmbiguousError
+}
+
+/** The phase a provider write failed in (see "Ambiguous vs failed" above). */
+export type GbpWritePhase =
+  "validate" | "mutate" | "readback_read" | "readback_verify"
+
+/**
+ * The one ambiguity policy, exported so the surfaces that still run their own
+ * phase machine (lib/server/business-information.ts) classify identically.
+ */
+export function classifyFailure(
+  phase: GbpWritePhase,
+  error: unknown
+): Exclude<GbpSettledStatus, "succeeded"> {
+  if (phase === "validate") return "failed"
+  if (phase === "readback_read") return "ambiguous"
+  return isAmbiguousProviderError(error) ? "ambiguous" : "failed"
 }
 
 // ---------------------------------------------------------------------------
@@ -876,20 +956,21 @@ export type GbpWriteResult<TResponse, TReadback> =
       TReadback
     >)
 
-type Phase = "validate" | "mutate" | "readback_read" | "readback_verify"
-
-function classifyFailure(
-  phase: Phase,
-  error: unknown
-): Exclude<GbpSettledStatus, "succeeded"> {
-  if (phase === "validate") return "failed"
-  if (phase === "readback_read") return "ambiguous"
-  return isAmbiguousProviderError(error) ? "ambiguous" : "failed"
-}
+/**
+ * How long an in-flight attempt is assumed to still be running. Inside the
+ * window a second request for the same key gets the module's 409; past it the
+ * row is treated as interrupted and recovered by readback. The same window
+ * lib/server/publishing/recover.ts uses -- the two pipelines make the same
+ * judgement about the same kind of row -- and comfortably longer than the
+ * `maxDuration = 60` the hours, profile and food-menus routes declare, so a
+ * row past it cannot still belong to a live request of theirs.
+ */
+const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000
 
 /**
  * The phase machine:
- *   (a) tenant txn: find/start the attempt row as `validating`
+ *   (a) tenant txn: find/start the attempt row as `validating`, recovering an
+ *       interrupted one by readback first (see "In-flight recovery")
  *   (b) outside any txn: optional validateOnly call
  *   (c) tenant txn: mark `publishing`
  *   (d) outside any txn: the provider call
@@ -913,48 +994,217 @@ export async function runGbpWrite<
       'runGbpWrite: `inProgress` is required when onExisting is "resume"'
     )
   }
-
-  // (a) durable intent
-  const started = await withTenant(input.organisationId, async (sql) => {
-    const existing = await input.store.find(sql, {
-      organisationId: input.organisationId,
-      key: input.key,
-    })
-    if (existing) {
-      if (onExisting === "replay" || existing.status === "succeeded") {
-        return { idempotent: true as const, row: existing }
-      }
-      if (isInFlightStatus(existing.status)) {
-        const inProgress = input.inProgress as GateError
-        throw new ApiError(
-          inProgress.status ?? 409,
-          inProgress.code,
-          inProgress.message
+  const scope = { organisationId: input.organisationId, key: input.key }
+  const inProgressError = () =>
+    input.inProgress
+      ? new ApiError(
+          input.inProgress.status ?? 409,
+          input.inProgress.code,
+          input.inProgress.message
         )
-      }
+      : // Unreachable for "resume" (asserted above) and for "replay", whose
+        // keys are request-scoped, so no second request can be holding one.
+        new ApiError(409, "attempt_in_progress", "This write is in progress.")
+
+  /** What an existing row means, before anything is written. */
+  type Decision =
+    | { kind: "idempotent"; row: AttemptRow }
+    | { kind: "in_flight"; row: AttemptRow }
+    | { kind: "start"; row: AttemptRow | null }
+  /** What phase (a) settled on. */
+  type Claim =
+    | { kind: "idempotent"; row: AttemptRow }
+    | { kind: "in_flight"; row: AttemptRow }
+    | { kind: "started"; row: AttemptRow }
+
+  const decide = (existing: AttemptRow | null): Decision => {
+    if (!existing) return { kind: "start", row: null }
+    if (onExisting === "replay" || existing.status === "succeeded") {
+      return { kind: "idempotent", row: existing }
     }
-    const row = await input.store.start(sql, {
-      organisationId: input.organisationId,
-      actorUserId: input.actorUserId,
-      requestId: input.requestId,
-      key: input.key,
-      intent: input.intent,
-      existing,
+    if (isInFlightStatus(existing.status)) {
+      return { kind: "in_flight", row: existing }
+    }
+    return { kind: "start", row: existing }
+  }
+
+  /**
+   * (a) durable intent. An in-flight row is RETURNED rather than thrown so
+   * the caller can recover it outside this transaction -- the readback is a
+   * provider call and never runs inside an open tenant transaction.
+   */
+  const claim = (): Promise<Claim> =>
+    withTenant(input.organisationId, async (sql) => {
+      const decided = decide(await input.store.find(sql, scope))
+      if (decided.kind !== "start") return decided
+      const row = await input.store.start(sql, {
+        organisationId: input.organisationId,
+        actorUserId: input.actorUserId,
+        requestId: input.requestId,
+        key: input.key,
+        intent: input.intent,
+        existing: decided.row,
+      })
+      if (row) return { kind: "started" as const, row }
+      // The key was claimed between the find and the insert. The winner's
+      // transaction has committed (the unique index would otherwise still be
+      // blocking ours), so re-read and answer from its row.
+      const again = decide(await input.store.find(sql, scope))
+      if (again.kind === "start") throw inProgressError()
+      return again
     })
-    return { idempotent: false as const, row }
-  })
-  if (started.idempotent) {
-    return {
-      idempotent: true,
-      attemptId: started.row.id,
-      status: started.row.status,
-      rawStatus: started.row.rawStatus,
+
+  const settleSucceeded = async (
+    success: GbpWriteSuccess<TResponse, TReadback>,
+    httpStatus?: number
+  ) => {
+    try {
+      await withTenant(input.organisationId, async (sql) => {
+        await input.store.settle(sql, {
+          id: success.attemptId,
+          status: "succeeded",
+          errorCode: null,
+          response: success.readback ?? success.response,
+          responseHash: success.readbackHash ?? null,
+          httpStatus,
+        })
+        if (input.onSuccess) await input.onSuccess(sql, success)
+        const audit =
+          typeof input.audit === "function" ? input.audit(success) : input.audit
+        if (audit) {
+          await writeAudit(sql, {
+            organisationId: input.organisationId,
+            actorUserId: input.actorUserId,
+            action: audit.action,
+            subjectType: audit.subjectType,
+            subjectId: audit.subjectId,
+            requestId: input.requestId,
+            metadata: audit.metadata,
+          })
+        }
+      })
+    } catch (error) {
+      // The provider write landed but this transaction did not commit, so the
+      // row is still in flight and the module's own success work (canonical
+      // reconcile, audit) did not happen. Record that, because the repair is
+      // out of this request's hands: the next request for the same key
+      // recovers the row by readback rather than 409ing on it forever.
+      log.error("gbp_write.settle_failed", {
+        organisationId: input.organisationId,
+        requestId: input.requestId,
+        attemptId: success.attemptId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
   }
-  const attemptId = started.row.id
+
+  const settleFailure = (
+    attemptId: string,
+    status: Exclude<GbpSettledStatus, "succeeded">,
+    errorCode: string
+  ) =>
+    withTenant(input.organisationId, (sql) =>
+      input.store.settle(sql, { id: attemptId, status, errorCode })
+    )
+
+  /**
+   * An attempt left in flight by an interrupted request. Returns the settled
+   * success when the provider proves the write landed, or null when it proves
+   * it did not and the caller should re-arm the row and publish.
+   */
+  const recoverInFlight = async (
+    row: AttemptRow
+  ): Promise<GbpWriteSuccess<TResponse, TReadback> | null> => {
+    const startedAt = row.startedAt
+    const readbackSpec = input.readback
+    if (
+      !startedAt ||
+      Date.now() - startedAt.getTime() < IN_FLIGHT_GRACE_MS ||
+      !readbackSpec
+    ) {
+      throw inProgressError()
+    }
+    let readback: TReadback
+    try {
+      readback = await readbackSpec.read({
+        attemptId: row.id,
+        response: undefined,
+        providerAmbiguous: true,
+      })
+    } catch (error) {
+      // The provider state is still unknown, so the row stays unknown too.
+      await settleFailure(
+        row.id,
+        "ambiguous",
+        providerErrorCode(error, input.failureCode)
+      )
+      throw error
+    }
+    let verified: boolean | string = false
+    let readbackHash: string | undefined
+    let mismatchCode = readbackSpec.mismatch?.code ?? "google_readback_mismatch"
+    try {
+      verified = readbackSpec.verify({ readback, response: undefined })
+      if (verified !== false) {
+        readbackHash =
+          typeof verified === "string"
+            ? verified
+            : readbackSpec.hash?.(readback)
+      }
+    } catch (error) {
+      // Food menus throws instead of returning false; either way the read
+      // completed, so the provider state is known and it is not the intent.
+      verified = false
+      mismatchCode = providerErrorCode(error, mismatchCode)
+    }
+    if (verified === false) {
+      await settleFailure(row.id, "failed", mismatchCode)
+      return null
+    }
+    const success: GbpWriteSuccess<TResponse, TReadback> = {
+      attemptId: row.id,
+      response: undefined,
+      readback,
+      readbackHash,
+      providerAmbiguous: true,
+    }
+    await settleSucceeded(success)
+    return success
+  }
+
+  let claimed = await claim()
+  if (claimed.kind === "in_flight") {
+    const recovered = await recoverInFlight(claimed.row)
+    if (recovered) {
+      // The interrupted write had landed; it is now settled, reconciled and
+      // audited, and this request wrote nothing of its own.
+      const settled = await withTenant(input.organisationId, (sql) =>
+        input.store.find(sql, scope)
+      )
+      return {
+        idempotent: true,
+        attemptId: recovered.attemptId,
+        status: settled?.status ?? "succeeded",
+        rawStatus: settled?.rawStatus ?? "succeeded",
+      }
+    }
+    // The row is settled `failed` now, so this re-arms it.
+    claimed = await claim()
+    if (claimed.kind === "in_flight") throw inProgressError()
+  }
+  if (claimed.kind === "idempotent") {
+    return {
+      idempotent: true,
+      attemptId: claimed.row.id,
+      status: claimed.row.status,
+      rawStatus: claimed.row.rawStatus,
+    }
+  }
+  const attemptId = claimed.row.id
   const ctx: GbpWritePhaseContext = { attemptId }
 
-  let phase: Phase = "validate"
+  let phase: GbpWritePhase = "validate"
   let response: TResponse | undefined
   let readback: TReadback | undefined
   let readbackHash: string | undefined
@@ -1007,12 +1257,10 @@ export async function runGbpWrite<
     }
   } catch (error) {
     // (f) settle failure
-    await withTenant(input.organisationId, (sql) =>
-      input.store.settle(sql, {
-        id: attemptId,
-        status: classifyFailure(phase, error),
-        errorCode: providerErrorCode(error, input.failureCode),
-      })
+    await settleFailure(
+      attemptId,
+      classifyFailure(phase, error),
+      providerErrorCode(error, input.failureCode)
     )
     throw error
   }
@@ -1025,30 +1273,7 @@ export async function runGbpWrite<
     readbackHash,
     providerAmbiguous,
   }
-  await withTenant(input.organisationId, async (sql) => {
-    await input.store.settle(sql, {
-      id: attemptId,
-      status: "succeeded",
-      errorCode: null,
-      response: readback ?? response,
-      responseHash: readbackHash ?? null,
-      httpStatus: 200,
-    })
-    if (input.onSuccess) await input.onSuccess(sql, success)
-    const audit =
-      typeof input.audit === "function" ? input.audit(success) : input.audit
-    if (audit) {
-      await writeAudit(sql, {
-        organisationId: input.organisationId,
-        actorUserId: input.actorUserId,
-        action: audit.action,
-        subjectType: audit.subjectType,
-        subjectId: audit.subjectId,
-        requestId: input.requestId,
-        metadata: audit.metadata,
-      })
-    }
-  })
+  await settleSucceeded(success, 200)
   return { idempotent: false, status: "succeeded", ...success }
 }
 

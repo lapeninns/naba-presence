@@ -99,11 +99,23 @@ describeDatabase("durable publish lifecycle", () => {
     return value
   }
 
+  function runJobs() {
+    return fetch(`${server.baseUrl}/api/jobs/run`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer route-harness-cron-secret",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    })
+  }
+
   async function seedPublishAttempt(
     fixture: Fixture,
     input: {
-      status: "started" | "ambiguous"
+      status: "started" | "ambiguous" | "retryable"
       startedAt?: Date
+      nextAttemptAt?: Date
     }
   ) {
     const bodyHash = sha256(fixture.body)
@@ -136,7 +148,9 @@ describeDatabase("durable publish lifecycle", () => {
         attempt_no,
         operation,
         intended_body,
-        started_at
+        started_at,
+        next_attempt_at,
+        publish_generation
       )
       values (
         ${fixture.owner.organisationId},
@@ -148,7 +162,9 @@ describeDatabase("durable publish lifecycle", () => {
         1,
         'publish',
         ${fixture.body},
-        ${input.startedAt ?? new Date()}
+        ${input.startedAt ?? new Date()},
+        ${input.nextAttemptAt ?? null},
+        0
       )
       returning id::text as id
     `
@@ -190,9 +206,7 @@ describeDatabase("durable publish lifecycle", () => {
     const publishPromise = publish(fixture)
     const inflight = await waitFor(
       async () => {
-        const [attempt] = await admin<
-          { status: string; operation: string }[]
-        >`
+        const [attempt] = await admin<{ status: string; operation: string }[]>`
           select pa.status, pa.operation
           from publish_attempt pa
           join review_reply rr on rr.id = pa.review_reply_id
@@ -301,6 +315,161 @@ describeDatabase("durable publish lifecycle", () => {
     )
   })
 
+  it("supersedes a queued delete when newer text is published", async () => {
+    const fixture = await createFixture("Thank you for the note about parking.")
+    expect((await publish(fixture)).status).toBe(200)
+
+    // The delete is rate-limited, so it parks as 'retryable' with the DELETE
+    // still armed for the next tick.
+    stub.respond({ method: "DELETE", pathIncludes: "/reply" }, () => ({
+      status: 429,
+      json: { error: { status: "RESOURCE_EXHAUSTED", message: "slow down" } },
+    }))
+    const deleted = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/reply`,
+      { method: "DELETE", headers: { cookie: fixture.owner.cookie } }
+    )
+    expect(deleted.status, await deleted.clone().text()).toBe(429)
+    const [queued] = await admin<{ id: string; status: string }[]>`
+      select pa.id::text as id, pa.status
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      where rr.review_id = ${fixture.review.reviewId}
+        and pa.operation = 'delete'
+    `
+    expect(queued.status).toBe("retryable")
+
+    const newBody = "Thank you - we have added two more parking bays since."
+    const detailResponse = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    const detail = (await detailResponse.json()) as {
+      review: { updateTime: string }
+    }
+    const secondDraft = await saveHumanDraft(
+      server.baseUrl,
+      fixture.owner.cookie,
+      fixture.review.reviewId,
+      newBody
+    )
+    const deletesBeforeRepublish = stub.calls.filter(
+      (call) => call.method === "DELETE"
+    ).length
+    const republish = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/publish`,
+      {
+        method: "POST",
+        headers: {
+          cookie: fixture.owner.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draftId: secondDraft.draftId,
+          expectedReviewUpdateTime: detail.review.updateTime,
+        }),
+      }
+    )
+    expect(republish.status, await republish.clone().text()).toBe(200)
+
+    // The armed delete is retired rather than left for the runner: replaying
+    // it would remove the reply that was just published.
+    const [retired] = await admin<
+      { status: string; provider_error_code: string | null }[]
+    >`
+      select status, provider_error_code
+      from publish_attempt
+      where id = ${queued.id}
+    `
+    expect(retired).toEqual({
+      status: "superseded",
+      provider_error_code: "superseded_by_publish",
+    })
+    expect(stub.calls.filter((call) => call.method === "DELETE")).toHaveLength(
+      deletesBeforeRepublish
+    )
+    const [live] = await admin<
+      { current_body: string; publish_status: string }[]
+    >`
+      select current_body, publish_status
+      from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(live).toEqual({
+      current_body: newBody,
+      publish_status: "published",
+    })
+  })
+
+  it("refuses to publish a draft for a restricted review", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review
+      set restricted_at = now()
+      where id = ${fixture.review.reviewId}
+    `
+
+    const response = await publish(fixture)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("review_restricted")
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+  })
+
+  it("kills a queued retry when the review is restricted after it is queued", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, {
+      status: "retryable",
+      nextAttemptAt: new Date(Date.now() - 60_000),
+    })
+    await admin`
+        update review
+        set restricted_at = now()
+        where id = ${fixture.review.reviewId}
+      `
+    // Any attempt left over from an earlier case recovers harmlessly
+    // against this readback; the assertions below are scoped to this
+    // review's own resource name.
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+      status: 200,
+      json: { reviewId: "stub" },
+    }))
+
+    const ran = await runJobs()
+    expect(ran.status, await ran.clone().text()).toBe(200)
+
+    expect(
+      stub.calls.filter(
+        (call) =>
+          call.method === "PUT" && call.path.includes(fixture.review.reviewId)
+      )
+    ).toHaveLength(0)
+    const [settled] = await admin<
+      {
+        status: string
+        provider_error_code: string | null
+        publish_status: string
+        workflow_status: string
+      }[]
+    >`
+        select
+          pa.status,
+          pa.provider_error_code,
+          rr.publish_status,
+          r.workflow_status
+        from publish_attempt pa
+        join review_reply rr on rr.id = pa.review_reply_id
+        join review r on r.id = rr.review_id
+        where pa.id = ${seeded.attemptId}
+      `
+    expect(settled).toEqual({
+      status: "failed",
+      provider_error_code: "review_restricted",
+      publish_status: "failed",
+      workflow_status: "failed",
+    })
+  }, 30_000)
+
   it("permits republishing identical text after a delete", async () => {
     const body = "Thank you for the kind words about our breakfast."
     const fixture = await createFixture(body)
@@ -376,9 +545,7 @@ describeDatabase("durable publish lifecycle", () => {
       "delete",
       "publish",
     ])
-    expect(attempts[0].idempotency_key).not.toBe(
-      attempts[2].idempotency_key
-    )
+    expect(attempts[0].idempotency_key).not.toBe(attempts[2].idempotency_key)
   })
 
   it("rejects publish without expectedReviewUpdateTime", async () => {
@@ -483,20 +650,17 @@ describeDatabase("durable publish lifecycle", () => {
 
   it("ingests review-level moderation state from a backfill", async () => {
     const fixture = await createFixture()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({
-        status: 200,
-        json: {
-          reviews: [
-            {
-              ...moderationFixtures.rejected,
-              name: fixture.review.googleReviewName,
-            },
-          ],
-        },
-      })
-    )
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: {
+        reviews: [
+          {
+            ...moderationFixtures.rejected,
+            name: fixture.review.googleReviewName,
+          },
+        ],
+      },
+    }))
 
     const response = await fetch(`${server.baseUrl}/api/sync/backfill`, {
       method: "POST",
@@ -538,6 +702,57 @@ describeDatabase("durable publish lifecycle", () => {
       select status from publish_attempt where id = ${seeded.attemptId}
     `
     expect(attempt.status).toBe("succeeded")
+  })
+
+  it("keeps a rejection Google returned to the recovery readback", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, { status: "ambiguous" })
+    // Google applied the reply and then rejected it: the comment matches, so
+    // the recovery succeeds, but the moderation verdict has to survive.
+    stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+      status: 200,
+      json: {
+        reviewId: "stub",
+        reviewReply: {
+          comment: fixture.body,
+          updateTime: "2026-08-20T10:00:00.000Z",
+          policyViolation: "SPAM",
+        },
+        reviewReplyState: "REJECTED",
+      },
+    }))
+
+    const response = await publish(fixture)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await response.json()).status).toBe("rejected")
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const [attempt] = await admin<{ status: string }[]>`
+      select status from publish_attempt where id = ${seeded.attemptId}
+    `
+    expect(attempt.status).toBe("succeeded")
+    const [settled] = await admin<
+      {
+        publish_status: string
+        google_reply_state: string
+        first_published_at: Date | null
+        workflow_status: string
+      }[]
+    >`
+      select
+        rr.publish_status,
+        rr.google_reply_state,
+        rr.first_published_at,
+        r.workflow_status
+      from review_reply rr
+      join review r on r.id = rr.review_id
+      where rr.review_id = ${fixture.review.reviewId}
+    `
+    expect(settled).toEqual({
+      publish_status: "rejected",
+      google_reply_state: "REJECTED",
+      first_published_at: null,
+      workflow_status: "rejected",
+    })
   })
 
   it("re-sends once when an ambiguous publish was not applied", async () => {
@@ -596,35 +811,25 @@ describeDatabase("durable publish lifecycle", () => {
     expect(stub.calls).toHaveLength(0)
   })
 
-  it(
-    "leaves an ambiguous attempt unresolved when the recovery GET times out",
-    async () => {
-      const fixture = await createFixture()
-      const seeded = await seedPublishAttempt(fixture, {
-        status: "ambiguous",
-      })
-      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
-        status: 200,
-        json: {},
-        delayMs: 20_000,
-      }))
+  it("leaves an ambiguous attempt unresolved when the recovery GET times out", async () => {
+    const fixture = await createFixture()
+    const seeded = await seedPublishAttempt(fixture, {
+      status: "ambiguous",
+    })
+    stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+      status: 200,
+      json: {},
+      delayMs: 20_000,
+    }))
 
-      const response = await publish(fixture)
-      expect(response.status).toBe(502)
-      expect((await response.json()).error).toBe(
-        "google_mutation_ambiguous"
-      )
-      expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(
-        1
-      )
-      expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(
-        0
-      )
-      const [attempt] = await admin<{ status: string }[]>`
+    const response = await publish(fixture)
+    expect(response.status).toBe(502)
+    expect((await response.json()).error).toBe("google_mutation_ambiguous")
+    expect(stub.calls.filter((call) => call.method === "GET")).toHaveLength(1)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const [attempt] = await admin<{ status: string }[]>`
         select status from publish_attempt where id = ${seeded.attemptId}
       `
-      expect(attempt.status).toBe("ambiguous")
-    },
-    25_000
-  )
+    expect(attempt.status).toBe("ambiguous")
+  }, 25_000)
 })

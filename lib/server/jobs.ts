@@ -30,6 +30,13 @@ import "server-only"
  * UPDATE SKIP LOCKED without writing anything, so the row lock died with the
  * claiming transaction while the item was still being worked.
  *
+ * The kill switches are enforced at the claim, not inside the work: a claimed
+ * row is already 'running' with a lease, so a runner that claims and then
+ * skips re-arms the row every tick and reports a backlog that is only its own
+ * churn. `claimableKinds` turns the flags into the `p_kinds` filter, and a
+ * paused kind keeps its status and its `next_attempt_at` until the flag comes
+ * back (docs/runbook.md, "Kill switches").
+ *
  * Concurrency is bounded by `JOBS_CONCURRENCY` and, independently, by the
  * database pool and the process-local Google pacer
  * (`GOOGLE_REQUESTS_PER_SECOND`). Provider-bound items therefore overlap
@@ -44,15 +51,26 @@ import "server-only"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
-import { recoverAttempt, retryPublishAttempt } from "@/lib/server/publishing"
+import {
+  recoverAttempt,
+  retryPublishAttempt,
+  writePublishAttemptEvent,
+} from "@/lib/server/publishing"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 /** The five things the runner knows how to do. */
-export type JobKind =
-  "webhook" | "webhook_dead" | "checkpoint" | "recover" | "retry"
+const JOB_KINDS = [
+  "webhook",
+  "webhook_dead",
+  "checkpoint",
+  "recover",
+  "retry",
+] as const
+
+export type JobKind = (typeof JOB_KINDS)[number]
 
 type ClaimedJob = {
   kind: JobKind
@@ -70,29 +88,102 @@ export type JobSummary = {
   dead: number
 }
 
+/** What one tick shares with every item it runs. */
+type Tick = {
+  /** The run's `ctx.requestId`, correlating every row this tick writes. */
+  requestId: string
+  summary: JobSummary
+}
+
 const WEBHOOK_MAX_RETRIES = 5
 
 /**
- * Runs `work` over `items` with at most `limit` in flight. Rejections are
- * impossible: every worker settles its own item.
+ * How many failed readbacks an ambiguous attempt gets before it stops being
+ * claimable. Mirrored by `recovery_attempts < 8` in `claim_due_jobs` (0034),
+ * so the ceiling holds even if this settle is ever lost.
+ */
+const MAX_RECOVERY_ATTEMPTS = 8
+
+/**
+ * Recovery back-off. Slower and longer-tailed than the publish retry curve:
+ * a readback is cheap but the thing it is waiting for -- a Google outage, a
+ * propagation delay -- is measured in minutes, and the eight attempts have to
+ * span enough of one that a transient fault is not mistaken for a permanent
+ * unreadable review.
+ */
+const RECOVERY_RETRY_BASE_MS = 2_000
+const RECOVERY_RETRY_CAP_MS = 300_000
+
+/** How long a reconnect-blocked attempt waits before it looks again. */
+const RECOVERY_PARK_MS = 15 * 60_000
+
+/**
+ * How long an attempt may stay reconnect-blocked before it is abandoned.
+ * Twice the seven-day disconnect purge window, so a tenant who is going to
+ * come back has had every chance to.
+ */
+const RECOVERY_PARK_LIMIT = "14 days"
+
+function recoveryDelayMs(attempts: number) {
+  return retryDelayMs(
+    attempts,
+    Math.random,
+    RECOVERY_RETRY_BASE_MS,
+    RECOVERY_RETRY_CAP_MS
+  )
+}
+
+/**
+ * The kinds this process may claim. `PUBLISH_ENABLED` covers the two publish
+ * kinds and `SYNC_ENABLED` the three ingestion kinds, exactly as the runbook
+ * describes them; `JOBS_ENABLED` off claims nothing at all.
+ */
+function claimableKinds(env: ServerEnv): JobKind[] {
+  if (!env.JOBS_ENABLED) return []
+  return JOB_KINDS.filter((kind) =>
+    kind === "recover" || kind === "retry"
+      ? env.PUBLISH_ENABLED
+      : env.SYNC_ENABLED
+  )
+}
+
+/**
+ * Runs `work` over `items` with at most `limit` in flight, stopping at the
+ * tick deadline. Rejections are impossible: every worker settles its own
+ * item. Items the deadline leaves unstarted keep their lease and are
+ * re-armed by the reaper -- which, unlike a claim, costs no retry budget.
  */
 async function runPool<T>(
   items: readonly T[],
   limit: number,
+  deadline: number,
   work: (item: T) => Promise<void>
 ): Promise<void> {
   let cursor = 0
+  // Shared across the workers. Nothing in a batch may still be calling Google
+  // after the tick has answered its HTTP request, so a worker that somehow
+  // rejects stops its siblings pulling new items, and all of them are awaited
+  // even then. Whatever is already in flight is left to settle: killing an
+  // item mid-provider-call is what creates ambiguous attempts.
+  let stopped = false
   const workers = Array.from(
     { length: Math.max(1, Math.min(limit, items.length)) },
     async () => {
-      while (cursor < items.length) {
+      while (!stopped && cursor < items.length && Date.now() < deadline) {
         const item = items[cursor]
         cursor += 1
-        await work(item)
+        try {
+          await work(item)
+        } catch (error) {
+          stopped = true
+          throw error
+        }
       }
     }
   )
-  await Promise.all(workers)
+  for (const result of await Promise.allSettled(workers)) {
+    if (result.status === "rejected") throw result.reason
+  }
 }
 
 async function reclaimExpired(): Promise<void> {
@@ -113,6 +204,7 @@ async function claimBatch(options: {
   limit: number
   leaseSeconds: number
   perOrganisation: number
+  kinds: JobKind[]
 }): Promise<ClaimedJob[]> {
   return getDatabase()<ClaimedJob[]>`
     select
@@ -125,7 +217,8 @@ async function claimBatch(options: {
     from claim_due_jobs(
       ${options.limit},
       ${options.leaseSeconds},
-      ${options.perOrganisation}
+      ${options.perOrganisation},
+      ${options.kinds}::text[]
     )
   `
 }
@@ -151,7 +244,10 @@ async function releaseLease(job: ClaimedJob): Promise<void> {
 }
 
 /** Mark a claimed webhook dead and record why, atomically. */
-async function markWebhookDead(job: ClaimedJob): Promise<void> {
+async function markWebhookDead(
+  job: ClaimedJob,
+  requestId: string
+): Promise<void> {
   await withTenant(job.organisationId, async (sql) => {
     await sql`
       update processed_webhook_event
@@ -167,7 +263,7 @@ async function markWebhookDead(job: ClaimedJob): Promise<void> {
       action: "webhook.dead_lettered",
       subjectType: "webhook_event",
       subjectId: job.jobId,
-      requestId: crypto.randomUUID(),
+      requestId,
       metadata: { retryCount: job.retryCount },
     })
   })
@@ -175,14 +271,21 @@ async function markWebhookDead(job: ClaimedJob): Promise<void> {
 
 async function rescheduleWebhook(job: ClaimedJob, error: unknown) {
   await withTenant(job.organisationId, async (sql) => {
+    // `and status = 'processing'` for the same reason settleWebhookEvent
+    // carries it: a claim the reaper already took back must not be counted
+    // against the retry budget twice, nor resurrect a row it no longer owns.
     await sql`
       update processed_webhook_event
       set
         status = 'failed',
         last_error_code = 'job_failed',
+        retry_count = retry_count + 1,
         lease_expires_at = null,
-        next_attempt_at = ${new Date(Date.now() + retryDelayMs(job.retryCount))}
+        next_attempt_at = ${new Date(
+          Date.now() + retryDelayMs(job.retryCount + 1)
+        )}
       where id = ${job.jobId}
+        and status = 'processing'
     `
   })
   log.error("jobs.webhook_failed", {
@@ -194,6 +297,9 @@ async function rescheduleWebhook(job: ClaimedJob, error: unknown) {
 
 async function rescheduleCheckpoint(job: ClaimedJob, error: unknown) {
   await withTenant(job.organisationId, async (sql) => {
+    // Only a row this tick still holds: `syncLinkedLocation` settles its own
+    // failures, including the terminal 'dead' one, and re-arming that here
+    // would put a dead-lettered checkpoint back in the claim window.
     await sql`
       update sync_checkpoint
       set
@@ -205,12 +311,41 @@ async function rescheduleCheckpoint(job: ClaimedJob, error: unknown) {
         )},
         finished_at = now()
       where id = ${job.jobId}
+        and status = 'running'
     `
   })
   log.error("jobs.checkpoint_failed", {
     organisationId: job.organisationId,
     checkpointId: job.jobId,
     error,
+  })
+}
+
+/**
+ * `syncLinkedLocation` reports `location_not_linked` before it touches the
+ * checkpoint, so the row this tick moved to 'running' would otherwise be
+ * re-armed by the reaper every 15 minutes for ever -- and an unlinked
+ * location has no work left to do. 'cancelled' is terminal (0030) and, with
+ * no `next_attempt_at`, drops the row out of the backlog gauge too.
+ */
+async function cancelUnlinkedCheckpoint(job: ClaimedJob): Promise<void> {
+  await withTenant(job.organisationId, async (sql) => {
+    await sql`
+      update sync_checkpoint
+      set
+        status = 'cancelled',
+        last_error_code = 'location_not_linked',
+        next_attempt_at = null,
+        finished_at = now(),
+        lease_expires_at = null
+      where id = ${job.jobId}
+        and status = 'running'
+    `
+  })
+  log.warn("jobs.checkpoint_cancelled", {
+    organisationId: job.organisationId,
+    checkpointId: job.jobId,
+    errorCode: "location_not_linked",
   })
 }
 
@@ -222,7 +357,9 @@ async function rescheduleAttempt(job: ClaimedJob, error: unknown) {
         status = case when status = 'started' then 'ambiguous' else status end,
         provider_error_code = 'job_failed',
         lease_expires_at = null,
-        next_attempt_at = ${new Date(Date.now() + retryDelayMs(1))}
+        next_attempt_at = ${new Date(
+          Date.now() + retryDelayMs(job.retryCount + 1)
+        )}
       where id = ${job.jobId}
         and status in ('started', 'ambiguous', 'retryable')
     `
@@ -235,25 +372,187 @@ async function rescheduleAttempt(job: ClaimedJob, error: unknown) {
 }
 
 /**
+ * A recovery readback that failed, settled against `recovery_attempts` (0034)
+ * rather than `attempt_no`: nothing on this path increments `attempt_no`, so
+ * every back-off derived from it was the same 250-500 ms and the attempt
+ * re-armed itself for ever.
+ *
+ * A reconnect-blocked attempt parks WITHOUT counting. `readGoogleReview`
+ * surfaces every failure as `GoogleMutationAmbiguousError`, so the exception
+ * cannot tell a dead connection from an unreadable review -- the connection
+ * can. Work blocked on a person reconnecting must not spend a budget nobody
+ * could have made it spend more slowly, or a queued reply is dead-lettered
+ * for the length of an outage the tenant alone can end.
+ */
+async function settleRecoveryFailure(
+  job: ClaimedJob,
+  error: unknown,
+  requestId: string
+): Promise<void> {
+  const outcome = await withTenant(job.organisationId, async (sql) => {
+    const [attempt] = await sql<
+      {
+        recoveryAttempts: number
+        reviewId: string
+        blocked: boolean
+        abandoned: boolean
+      }[]
+    >`
+      select
+        pa.recovery_attempts as "recoveryAttempts",
+        rr.review_id::text as "reviewId",
+        pa.started_at < now() - ${RECOVERY_PARK_LIMIT}::interval as abandoned,
+        (
+          gc.id is null
+          or gc.status not in ('active', 'expired')
+          or exists (
+            select 1
+            from connection_task ct
+            where ct.google_connection_id = gc.id
+              and ct.task_type = 'reconnect'
+              and ct.status = 'open'
+          )
+        ) as blocked
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      join review r on r.id = rr.review_id
+      join external_location el on el.id = r.external_location_id
+      left join google_connection gc on gc.id = el.google_connection_id
+      where pa.id = ${job.jobId}
+        and pa.status = 'ambiguous'
+      limit 1
+    `
+    if (!attempt) return "stale"
+
+    if (attempt.blocked && !attempt.abandoned) {
+      await sql`
+        update publish_attempt
+        set
+          provider_error_code = 'reconnect_blocked',
+          lease_expires_at = null,
+          next_attempt_at = ${new Date(Date.now() + RECOVERY_PARK_MS)}
+        where id = ${job.jobId}
+          and status = 'ambiguous'
+      `
+      return "parked"
+    }
+
+    // Parking is unbounded in ATTEMPTS by design (conflicts.md C5):
+    // reconnecting upserts on (organisation_id, google_subject) and flips the
+    // connection back to 'active', so a revoked or expired grant really is
+    // curable by a person, and spending the recovery budget on it would
+    // dead-letter a reply for the length of an outage only the tenant can end.
+    // It is bounded in TIME instead: a grant nobody restores in two weeks --
+    // twice the disconnect purge window -- is abandoned, and the attempt stops
+    // taking a claim slot in every tick forever. Settled like exhaustion:
+    // never `applyFailedReply`, because 'ambiguous' means the write may have
+    // landed at Google and failing the reply would assert a state nobody saw.
+    if (attempt.blocked) {
+      await sql`
+        update publish_attempt
+        set
+          status = 'failed',
+          provider_error_code = 'reconnect_abandoned',
+          next_attempt_at = null,
+          lease_expires_at = null,
+          finished_at = now()
+        where id = ${job.jobId}
+          and status = 'ambiguous'
+      `
+      await writePublishAttemptEvent(sql, {
+        organisationId: job.organisationId,
+        publishAttemptId: job.jobId,
+        eventType: "completed",
+        payload: { result: "reconnect_abandoned" },
+      })
+      await writeAudit(sql, {
+        organisationId: job.organisationId,
+        action: "review.reply.reconnect_abandoned",
+        subjectType: "review",
+        subjectId: attempt.reviewId,
+        requestId,
+        metadata: { publishAttemptId: job.jobId },
+      })
+      return "abandoned"
+    }
+
+    const attempts = attempt.recoveryAttempts + 1
+    if (attempts < MAX_RECOVERY_ATTEMPTS) {
+      await sql`
+        update publish_attempt
+        set
+          provider_error_code = 'job_failed',
+          recovery_attempts = ${attempts},
+          lease_expires_at = null,
+          next_attempt_at = ${new Date(Date.now() + recoveryDelayMs(attempts))}
+        where id = ${job.jobId}
+          and status = 'ambiguous'
+      `
+      return "rescheduled"
+    }
+
+    // Terminal, but deliberately NOT `applyFailedReply`: 'ambiguous' means
+    // the write may have landed at Google, and failing the reply would assert
+    // a provider state nobody ever observed. The attempt stops being
+    // claimable; the audit row is the operator's handle for a manual readback
+    // (docs/runbook.md, "Jobs runner").
+    await sql`
+      update publish_attempt
+      set
+        status = 'failed',
+        provider_error_code = 'recovery_exhausted',
+        recovery_attempts = ${attempts},
+        next_attempt_at = null,
+        lease_expires_at = null,
+        finished_at = now()
+      where id = ${job.jobId}
+        and status = 'ambiguous'
+    `
+    await writePublishAttemptEvent(sql, {
+      organisationId: job.organisationId,
+      publishAttemptId: job.jobId,
+      eventType: "completed",
+      payload: { result: "recovery_exhausted", recoveryAttempts: attempts },
+    })
+    await writeAudit(sql, {
+      organisationId: job.organisationId,
+      action: "review.reply.recovery_exhausted",
+      subjectType: "review",
+      subjectId: attempt.reviewId,
+      requestId,
+      metadata: { publishAttemptId: job.jobId, recoveryAttempts: attempts },
+    })
+    return "exhausted"
+  })
+  const terminal = outcome === "exhausted" || outcome === "abandoned"
+  log[terminal ? "error" : "warn"]("jobs.recovery_failed", {
+    organisationId: job.organisationId,
+    attemptId: job.jobId,
+    outcome,
+    error,
+  })
+}
+
+/**
  * Runs one claimed item to settlement. Never throws: a failure reschedules
  * the item and is counted, so one poisoned job cannot end the tick.
  */
-async function runJob(job: ClaimedJob, summary: JobSummary): Promise<void> {
+async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
   try {
     switch (job.kind) {
       case "webhook_dead": {
-        summary.webhooks += 1
-        summary.dead += 1
-        await markWebhookDead(job)
+        tick.summary.webhooks += 1
+        tick.summary.dead += 1
+        await markWebhookDead(job, tick.requestId)
         return
       }
 
       case "webhook": {
-        summary.webhooks += 1
+        tick.summary.webhooks += 1
         if (!job.externalLocationId) {
           // An unlinked location can never be synced; retrying is pointless.
-          await markWebhookDead(job)
-          summary.dead += 1
+          await markWebhookDead(job, tick.requestId)
+          tick.summary.dead += 1
           return
         }
         const outcome = await syncLinkedLocation({
@@ -261,30 +560,52 @@ async function runJob(job: ClaimedJob, summary: JobSummary): Promise<void> {
           externalLocationId: job.externalLocationId,
           type: "notification",
           maxPages: 1,
+          requestId: tick.requestId,
         })
+        const settlement = await withTenant(job.organisationId, async (sql) => {
+          const status = await settleWebhookEvent(sql, job.jobId, outcome)
+          if (status === "failed") {
+            // The claim counts claims (`claim_count`, 0034); the retry budget
+            // counts failures, and this is the only place one is observed.
+            await sql`
+              update processed_webhook_event
+              set retry_count = retry_count + 1
+              where id = ${job.jobId}
+                and status = 'failed'
+            `
+          }
+          return status
+        })
+        // `job.retryCount` is the count BEFORE this failure, so this is the
+        // last one the budget allows. Dead-lettering it here rather than
+        // waiting for the next tick's 'webhook_dead' claim keeps the terminal
+        // state, its audit row and the failure that earned it in one tick.
         if (
-          outcome.status === "failed" &&
-          job.retryCount >= WEBHOOK_MAX_RETRIES
+          settlement === "failed" &&
+          job.retryCount + 1 >= WEBHOOK_MAX_RETRIES
         ) {
-          await markWebhookDead(job)
-          summary.dead += 1
-          return
+          await markWebhookDead(job, tick.requestId)
+          tick.summary.dead += 1
         }
-        await withTenant(job.organisationId, (sql) =>
-          settleWebhookEvent(sql, job.jobId, outcome)
-        )
         return
       }
 
       case "checkpoint": {
-        summary.checkpoints += 1
+        tick.summary.checkpoints += 1
         if (!job.externalLocationId || !job.syncType) return
-        await syncLinkedLocation({
+        const outcome = await syncLinkedLocation({
           organisationId: job.organisationId,
           externalLocationId: job.externalLocationId,
           type: job.syncType,
           maxPages: 5,
+          requestId: tick.requestId,
         })
+        if (
+          outcome.status === "failed" &&
+          outcome.errorCode === "location_not_linked"
+        ) {
+          await cancelUnlinkedCheckpoint(job)
+        }
         return
       }
 
@@ -297,18 +618,36 @@ async function runJob(job: ClaimedJob, summary: JobSummary): Promise<void> {
                 attemptId: job.jobId,
               })
             : await retryPublishAttempt(job.organisationId, job.jobId)
-        if (result !== "skipped") summary.attempts += 1
+        if (result !== "skipped") tick.summary.attempts += 1
         return
       }
     }
   } catch (error) {
-    if (job.kind === "webhook" || job.kind === "webhook_dead") {
-      await rescheduleWebhook(job, error)
-    } else if (job.kind === "checkpoint") {
-      await rescheduleCheckpoint(job, error)
-    } else {
-      summary.attempts += 1
-      await rescheduleAttempt(job, error)
+    try {
+      if (job.kind === "webhook" || job.kind === "webhook_dead") {
+        await rescheduleWebhook(job, error)
+      } else if (job.kind === "checkpoint") {
+        await rescheduleCheckpoint(job, error)
+      } else {
+        tick.summary.attempts += 1
+        if (job.kind === "recover") {
+          await settleRecoveryFailure(job, error, tick.requestId)
+        } else {
+          await rescheduleAttempt(job, error)
+        }
+      }
+    } catch (rescheduleError) {
+      // Makes the contract above true. A throw from here would abort the
+      // tick, release the advisory lock and answer the request while the rest
+      // of the batch is still mutating claimed rows; the lease is the
+      // recovery path, so the reaper collects whatever this failed to settle.
+      log.error("jobs.reschedule_failed", {
+        organisationId: job.organisationId,
+        kind: job.kind,
+        jobId: job.jobId,
+        error,
+        rescheduleError,
+      })
     }
   } finally {
     await releaseLease(job)
@@ -317,8 +656,12 @@ async function runJob(job: ClaimedJob, summary: JobSummary): Promise<void> {
 
 export async function runDueJobs(options: {
   budgetMs: number
+  requestId: string
 }): Promise<JobSummary> {
   const env = getServerEnv()
+  // Written even while paused: the heartbeat means "the scheduler reached the
+  // web process", which on-call alerts on, and a kill switch must not read as
+  // a dead scheduler.
   await getDatabase()`
     insert into ops_heartbeat (name, beat_at)
     values ('scheduler', now())
@@ -326,9 +669,6 @@ export async function runDueJobs(options: {
     set beat_at = excluded.beat_at
   `
 
-  await reclaimExpired()
-
-  const deadline = Date.now() + Math.max(0, options.budgetMs)
   const summary: JobSummary = {
     webhooks: 0,
     checkpoints: 0,
@@ -336,19 +676,42 @@ export async function runDueJobs(options: {
     dead: 0,
   }
 
+  const kinds = claimableKinds(env)
+  if (kinds.length < JOB_KINDS.length) {
+    log.warn("jobs.kinds_paused", {
+      requestId: options.requestId,
+      jobsEnabled: env.JOBS_ENABLED,
+      publishEnabled: env.PUBLISH_ENABLED,
+      syncEnabled: env.SYNC_ENABLED,
+      claiming: kinds,
+    })
+  }
+  if (kinds.length === 0) return summary
+
+  await reclaimExpired()
+
+  const deadline = Date.now() + Math.max(0, options.budgetMs)
+  const tick: Tick = { requestId: options.requestId, summary }
+
   // The lease must outlive the slowest item in a batch. Google calls are
   // bounded by GOOGLE_TIMEOUT_MS and a checkpoint runs up to five pages, so
   // the tick budget plus a margin is the right ceiling.
   const leaseSeconds = Math.ceil(options.budgetMs / 1000) + 60
 
-  while (Date.now() < deadline) {
+  // Stop claiming once there is not even one provider call's worth of budget
+  // left: a claimed row that never runs is stranded until its lease expires,
+  // which is the whole reason a killed tick used to look like a failure.
+  while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
     const batch = await claimBatch({
       limit: env.JOBS_BATCH_SIZE,
       leaseSeconds,
       perOrganisation: env.JOBS_PER_ORGANISATION,
+      kinds,
     })
     if (batch.length === 0) break
-    await runPool(batch, env.JOBS_CONCURRENCY, (job) => runJob(job, summary))
+    await runPool(batch, env.JOBS_CONCURRENCY, deadline, (job) =>
+      runJob(job, tick)
+    )
   }
 
   return summary

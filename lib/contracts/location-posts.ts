@@ -66,7 +66,6 @@ export const localPostInputSchema = z
       .array(z.object({ sourceUrl: z.url() }))
       .max(10)
       .default([]),
-    scheduledTime: z.iso.datetime().optional(),
   })
   .superRefine((value, context) => {
     if (
@@ -102,7 +101,17 @@ export type PostApprovalDecision = z.infer<typeof postApprovalDecisionSchema>
 // Responses
 // ---------------------------------------------------------------------------
 
-/** One `gbp_local_post` row as GET `/posts` lists it (timestamps as ISO strings). */
+/**
+ * One `gbp_local_post` row as GET `/posts` lists it (timestamps as ISO
+ * strings).
+ *
+ * There is deliberately no `scheduledTime`: the column it came from was
+ * written, echoed and sent to Google, but nothing ever published a post when
+ * its time arrived — no job kind, no scheduler tick — so the field promised a
+ * behaviour the system does not have. `gbp_local_post.scheduled_publish_time`
+ * stays in the schema (dropping it buys nothing) but is no longer read or
+ * written. Scheduling needs a due-posts claim before the field comes back.
+ */
 export const postRowSchema = z.object({
   id: z.string(),
   topicType: z.enum(LOCAL_POST_TOPIC_TYPES),
@@ -112,7 +121,6 @@ export const postRowSchema = z.object({
   event: z.unknown(),
   offer: z.unknown(),
   media: z.unknown(),
-  scheduledTime: z.string().nullable(),
   status: z.enum(LOCAL_POST_STATUSES),
   googlePostName: z.string().nullable(),
   googleState: z.string().nullable(),
@@ -141,11 +149,15 @@ export type PostCreateResponse = z.infer<typeof postCreateResponseSchema>
  * Outcome of `requestOrPublishLocalPost`: returned by POST `/publish`
  * (202 when awaiting approval, else 200), by POST `/approval` on approve, and
  * by PATCH `/posts/[postId]` when the edited post was already live.
+ *
+ * `rejected` is a write that landed: Google accepted the post and returned it
+ * in state REJECTED, so it exists (and has a name) but nobody can see it.
+ * Reporting it as `published` told the operator the opposite of the truth.
  */
 export const postPublishOutcomeSchema = z.union([
   z.object({ status: z.literal("awaiting_approval") }),
   z.object({
-    status: z.literal("published"),
+    status: z.enum(["published", "rejected"]),
     postId: z.string(),
     googlePostName: z.string().nullable(),
   }),
