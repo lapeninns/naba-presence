@@ -1,14 +1,11 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
   REVIEW_WORKFLOW_STATES,
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
-import { withTenant } from "@/lib/server/db"
-import { apiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -16,14 +13,10 @@ const querySchema = z.object({
   locationId: z.uuid().optional(),
 })
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireSession()
-    const params = new URL(request.url).searchParams
-    const query = querySchema.parse({
-      locationId: params.get("locationId") ?? undefined,
-    })
-    const rows = await withTenant(session.organisationId, async (sql) => {
+export const GET = route({
+  query: querySchema,
+  handler: async ({ session, query, tenant }) => {
+    const rows = await tenant(async (sql) => {
       if (query.locationId) {
         await requireLocationAccess(sql, session, query.locationId)
       }
@@ -62,11 +55,9 @@ export async function GET(request: Request) {
       REVIEW_WORKFLOW_STATES.map((status) => [status, 0])
     ) as Record<ReviewWorkflowState, number>
     for (const row of rows) byStatus[row.workflowStatus] = row.count
-    return NextResponse.json({
+    return {
       total: rows.reduce((total, row) => total + row.count, 0),
       byStatus,
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

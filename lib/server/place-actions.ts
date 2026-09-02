@@ -10,7 +10,7 @@ import {
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   createGooglePlaceActionLink,
@@ -231,7 +231,7 @@ export async function loadPlaceActions(
   return {
     locationId,
     canPublish: context.canPublish,
-    writesEnabled: env.PUBLISH_ENABLED,
+    writesEnabled: gbpWritesEnabled(env, "placeActions"),
     supportedTypes: GOOGLE_PLACE_ACTION_TYPES,
     links: live.stored.map((link) => ({
       ...link,
@@ -248,8 +248,7 @@ export async function loadPlaceActions(
 }
 
 function requireWrites(context: PlaceActionContext) {
-  const env = getServerEnv()
-  if (!env.PUBLISH_ENABLED) {
+  if (!gbpWritesEnabled(getServerEnv(), "placeActions")) {
     throw new ApiError(503, "place_actions_paused", "Place Action writes are paused.")
   }
   if (!context.canPublish) {

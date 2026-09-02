@@ -45,7 +45,38 @@ function errorBody(input: {
   }
 }
 
+export const REQUEST_ID_HEADER = "x-request-id"
+
+/**
+ * Echoes the server request id on a response so clients and logs can be
+ * correlated. Headers on a fetched Response are immutable, so fall back to a
+ * copy in that case.
+ */
+export function withRequestIdHeader<T extends Response>(
+  response: T,
+  requestId: string
+): T {
+  try {
+    response.headers.set(REQUEST_ID_HEADER, requestId)
+    return response
+  } catch {
+    const copy = new NextResponse(response.body, response)
+    copy.headers.set(REQUEST_ID_HEADER, requestId)
+    return copy as unknown as T
+  }
+}
+
+/**
+ * Maps anything thrown by a handler to a JSON error response. Pass the
+ * server request id so the body and the `x-request-id` header carry it; the
+ * route wrapper (`lib/server/route.ts`) always does.
+ */
 export function apiError(error: unknown, requestId?: string) {
+  const response = mapError(error, requestId)
+  return requestId ? withRequestIdHeader(response, requestId) : response
+}
+
+function mapError(error: unknown, requestId?: string) {
   if (error instanceof ApiError) {
     return NextResponse.json(
       errorBody({
@@ -72,7 +103,7 @@ export function apiError(error: unknown, requestId?: string) {
       { status: 400 }
     )
   }
-  log.error("api.unhandled_error", { error })
+  log.error("api.unhandled_error", { error, requestId })
   return NextResponse.json(
     errorBody({
       code: "internal_error",

@@ -22,7 +22,7 @@ import {
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   getGoogleLocation,
@@ -278,7 +278,7 @@ export async function readProfileStateBundle(
     canonicalHash: live.canonicalHash,
     googleHash: live.googleHash,
     canPublish: live.context.canPublish,
-    googleWritesEnabled: getServerEnv().PUBLISH_ENABLED,
+    googleWritesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
     fields,
     googleDetails: { primaryCategory, additionalCategories },
     latestAttempt: latestAttempt ? {
@@ -412,8 +412,7 @@ export async function publishProfileToGoogle(input: {
   confirmOverwriteGoogleChanges: boolean
   requestId: string
 }) {
-  const env = getServerEnv()
-  if (!env.PUBLISH_ENABLED) {
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) {
     throw new ApiError(409, "profile_publishing_disabled", "Profile publishing is currently disabled.")
   }
   const selected = assertSelectedFields(input.selectedFields, "to_google")

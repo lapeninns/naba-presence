@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   googleBusinessCallsApi,
@@ -57,7 +57,7 @@ export async function loadIndustryManagement(session: Session, locationId: strin
   ] as const) {
     if (result.data) await cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName, payload: result.data })
   }
-  return { lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks, canManage: linked.canPublish, writesEnabled: getServerEnv().PUBLISH_ENABLED }
+  return { lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites") }
 }
 
 export type IndustryOperation = "update_lodging" | "update_business_calls" | "update_healthcare_services" | "update_healthcare_provider_attributes"
@@ -72,7 +72,7 @@ export async function mutateIndustryManagement(input: {
 }) {
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
-  if (!getServerEnv().PUBLISH_ENABLED) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
   const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
   const resourceType = input.operation === "update_lodging" ? "lodging" : input.operation === "update_business_calls" ? "business_calls" : input.operation === "update_healthcare_services" ? "healthcare_services" : "healthcare_provider_attributes"
   const attempt = await startGbpMutation({ organisationId: input.session.organisationId, session: input.session, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType, operation: input.operation, targetResourceName: linked.googleLocationName, requestId: input.requestId, updateMask: input.updateMask, payload: input.payload })

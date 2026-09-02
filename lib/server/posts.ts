@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   createGoogleLocalPost,
@@ -245,10 +245,9 @@ export async function listLocalPosts(
       order by updated_at desc
     `
   })
-  const env = getServerEnv()
   return {
     posts,
-    writesEnabled: env.PUBLISH_ENABLED,
+    writesEnabled: gbpWritesEnabled(getServerEnv(), "posts"),
     reconciliationError,
   }
 }
@@ -390,6 +389,14 @@ async function loadPostContext(
   })
 }
 
+// Provider-mutation boundary: both the global publish control and the Posts
+// capability flag must be on. Local drafts are never gated.
+function requirePostWrites() {
+  if (!gbpWritesEnabled(getServerEnv(), "posts")) {
+    throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
+  }
+}
+
 export async function requestOrPublishLocalPost(input: {
   organisationId: string
   session: Session
@@ -398,6 +405,7 @@ export async function requestOrPublishLocalPost(input: {
   requestId: string
   approval?: boolean
 }) {
+  requirePostWrites()
   const context = await loadPostContext(
     input.organisationId,
     input.session,
@@ -529,6 +537,7 @@ export async function deleteLocalPost(input: {
     `)
     return { status: "deleted" as const }
   }
+  requirePostWrites()
   if (!context.canPublish) throw new ApiError(403, "publish_permission_required", "Publish permission is required to delete a live post.")
   const attempt = await withTenant(input.organisationId, async (sql) => {
     const [row] = await sql<{ id: string }[]>`

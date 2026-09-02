@@ -9,17 +9,17 @@ import type { Session } from "@/lib/server/session"
 
 // These tests exercise the security-critical MEMBER branch of
 // reviewCapabilitiesForLocations/reviewCapabilities directly, with a
-// stubbed `sql` so the two internal queries (hasAssignments existence
-// check, and the per-location `location_member` grants lookup) are fully
+// stubbed `sql` so the queries it issues (the organisation approval flag,
+// and the single grantsFor query from lib/server/permissions.ts that reads
+// hasAssignments + the per-location `location_member` grants) are fully
 // controlled. This is faster and more precise than round-tripping through
 // a real Postgres instance for every role x membership permutation.
 //
-// The stub distinguishes the two queries issued by capabilities.ts by
-// inspecting the literal SQL text (each query has a unique column alias),
-// and separately supports `sql(array)` being called as a plain function
-// (not as a tagged template) to build the `location_id in (...)` fragment
-// -- postgres.js's real `sql` export supports both call shapes, and
-// capabilities.ts relies on both.
+// The stub distinguishes the queries by inspecting the literal SQL text
+// (each query has a unique column alias), and separately supports
+// `sql(array)` being called as a plain function (not as a tagged template)
+// to build the `location_id in (...)` fragment -- postgres.js's real `sql`
+// export supports both call shapes, and grantsFor relies on both.
 
 type FakeQueryScript = {
   hasAssignments: boolean
@@ -45,11 +45,17 @@ function createFakeSql(script: FakeQueryScript): TransactionSql {
           { approvalRequired: script.approvalRequired ?? true },
         ])
       }
-      if (text.includes('as "hasAssignments"')) {
-        return Promise.resolve([{ hasAssignments: script.hasAssignments }])
-      }
-      if (text.includes('as "locationId"')) {
-        return Promise.resolve(script.grants)
+      if (text.includes('as "hasAssignments"') && text.includes("as grants")) {
+        // grantsFor: one row, grants as the json_object_agg map (null when
+        // the member is assigned to none of the requested locations).
+        const grants = script.grants.length
+          ? Object.fromEntries(
+              script.grants.map((grant) => [grant.locationId, grant.canPublish])
+            )
+          : null
+        return Promise.resolve([
+          { hasAssignments: script.hasAssignments, grants },
+        ])
       }
       throw new Error(`FakeSql: unexpected query -- ${text}`)
     }

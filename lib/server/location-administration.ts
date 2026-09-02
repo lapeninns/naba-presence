@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   createGoogleLocation,
@@ -101,7 +101,7 @@ export async function loadLocationAdministration(
     accountName: linked.accountName,
     googleLocationName: linked.googleLocationName,
     canManage: linked.canPublish,
-    writesEnabled: getServerEnv().PUBLISH_ENABLED,
+    writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
   }
 }
 
@@ -120,7 +120,7 @@ export async function mutateLocationAdministration(input: {
 }) {
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this Google location.")
-  if (!getServerEnv().PUBLISH_ENABLED) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
   const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
   const target = typeof input.payload.name === "string" ? input.payload.name : linked.googleLocationName
   const resourceType = input.operation.includes("verification")

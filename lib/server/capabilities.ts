@@ -2,13 +2,23 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
-import { getServerEnv } from "@/lib/server/env"
+import {
+  type GbpFlags,
+  gbpIngestionEnabled,
+  gbpWritesEnabled,
+  getServerEnv,
+} from "@/lib/server/env"
+import {
+  NO_GRANT,
+  grantsFor,
+  isManagerialRole,
+} from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-// One capability object per review, mirroring lib/server/permissions.ts
-// exactly:
-//   canPublish         === canPublishLocation(sql, session, locationId)
-//   canEdit            === (role !== 'viewer') && requireLocationAccess would pass
+// One capability object per review. The location rule itself lives ONLY in
+// lib/server/permissions.ts (grantsFor); this module just projects it:
+//   canPublish         === grant.canPublish (canPublishLocation)
+//   canEdit            === grant.canEdit    (visible && role !== 'viewer')
 //   canRequestApproval === canEdit && !canPublish && organisation.approval_required
 //     (D2: a non-publisher may submit a reply for approval only when the org
 //     requires it. Never true for a publisher — see executePublish's
@@ -34,47 +44,9 @@ export async function reviewCapabilitiesForLocations(
   `
   const approvalRequired = org?.approvalRequired ?? false
 
-  if (session.role === "owner" || session.role === "admin") {
-    for (const id of unique) {
-      result.set(id, { canPublish: true, canEdit: true, canRequestApproval: false })
-    }
-    return result
-  }
-  if (session.role === "viewer") {
-    for (const id of unique) {
-      result.set(id, { canPublish: false, canEdit: false, canRequestApproval: false })
-    }
-    return result
-  }
-
-  // member: mirror locationGrant/canPublishLocation/requireLocationAccess.
-  const [assignmentScope] = await sql<{ hasAssignments: boolean }[]>`
-    select exists (
-      select 1 from location_member where user_id = ${session.userId}
-    ) as "hasAssignments"
-  `
-  const hasAssignments = assignmentScope.hasAssignments
-  const grants = hasAssignments
-    ? await sql<{ locationId: string; canPublish: boolean }[]>`
-        select
-          location_id::text as "locationId",
-          can_publish as "canPublish"
-        from location_member
-        where user_id = ${session.userId}
-          and location_id in ${sql(unique)}
-      `
-    : []
-  const grantByLocation = new Map(
-    grants.map((grant) => [grant.locationId, grant.canPublish])
-  )
+  const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const assigned = grantByLocation.has(id)
-    const canPublish = hasAssignments
-      ? assigned
-        ? (grantByLocation.get(id) ?? false)
-        : false
-      : session.canPublish
-    const canEdit = hasAssignments ? assigned : true
+    const { canEdit, canPublish } = grants.get(id) ?? NO_GRANT
     const canRequestApproval = canEdit && !canPublish && approvalRequired
     result.set(id, { canPublish, canEdit, canRequestApproval })
   }
@@ -142,11 +114,38 @@ const RESOURCE_KEYS: LocationResourceKey[] = [
   "administration",
 ]
 
+// Per-resource write availability, mirroring the per-surface kill switch each
+// lib/server module checks at its provider-mutation/ingestion boundary
+// (profile/hours/businessInformation/industry/administration are all Google
+// Business Information writes). A paused surface stays visible read-only.
+export function resourceWritesEnabled(
+  env: GbpFlags
+): Record<LocationResourceKey, boolean> {
+  const profileWrites = gbpWritesEnabled(env, "profileWrites")
+  return {
+    profile: profileWrites,
+    hours: profileWrites,
+    businessInformation: profileWrites,
+    industry: profileWrites,
+    administration: profileWrites,
+    photos: gbpWritesEnabled(env, "media"),
+    posts: gbpWritesEnabled(env, "posts"),
+    menu: gbpWritesEnabled(env, "foodMenus"),
+    booking: gbpWritesEnabled(env, "placeActions"),
+    performance:
+      env.PUBLISH_ENABLED && gbpIngestionEnabled(env, "performance"),
+  }
+}
+
+const NO_RESOURCE_WRITES = Object.fromEntries(
+  RESOURCE_KEYS.map((key) => [key, false])
+) as Record<LocationResourceKey, boolean>
+
 function buildResources(input: {
   canEditCanonical: boolean
   canPublish: boolean
   linked: boolean
-  publishesEnabled: boolean
+  publishesEnabled: Record<LocationResourceKey, boolean>
 }): Record<LocationResourceKey, ResourceCapability> {
   const { canEditCanonical, canPublish, linked, publishesEnabled } = input
   const resources = {} as Record<LocationResourceKey, ResourceCapability>
@@ -170,7 +169,7 @@ function buildResources(input: {
       continue
     }
 
-    if (!publishesEnabled) {
+    if (!publishesEnabled[key]) {
       resources[key] = {
         state: canEditCanonical || key === "performance" ? "readOnly" : "blocked",
         reasonCode: "publishing_paused",
@@ -201,7 +200,7 @@ export async function locationCapabilitiesForIds(
   const result = new Map<string, LocationCapabilities>()
   if (unique.length === 0) return result
 
-  const publishesEnabled = getServerEnv().PUBLISH_ENABLED
+  const publishesEnabled = resourceWritesEnabled(getServerEnv())
 
   const links = await sql<{ locationId: string }[]>`
     select location_id::text as "locationId"
@@ -210,70 +209,16 @@ export async function locationCapabilitiesForIds(
       and is_active = true
   `
   const linkedIds = new Set(links.map((row) => row.locationId))
+  const canEditCanonical = isManagerialRole(session.role)
 
-  if (session.role === "owner" || session.role === "admin") {
-    for (const id of unique) {
-      result.set(id, {
-        canEditCanonical: true,
-        canPublish: true,
-        resources: buildResources({
-          canEditCanonical: true,
-          canPublish: true,
-          linked: linkedIds.has(id),
-          publishesEnabled,
-        }),
-      })
-    }
-    return result
-  }
-  if (session.role === "viewer") {
-    for (const id of unique) {
-      result.set(id, {
-        canEditCanonical: false,
-        canPublish: false,
-        resources: buildResources({
-          canEditCanonical: false,
-          canPublish: false,
-          linked: linkedIds.has(id),
-          publishesEnabled,
-        }),
-      })
-    }
-    return result
-  }
-
-  // member: mirror locationGrant/canPublishLocation exactly.
-  const [assignmentScope] = await sql<{ hasAssignments: boolean }[]>`
-    select exists (
-      select 1 from location_member where user_id = ${session.userId}
-    ) as "hasAssignments"
-  `
-  const hasAssignments = assignmentScope.hasAssignments
-  const grants = hasAssignments
-    ? await sql<{ locationId: string; canPublish: boolean }[]>`
-        select
-          location_id::text as "locationId",
-          can_publish as "canPublish"
-        from location_member
-        where user_id = ${session.userId}
-          and location_id in ${sql(unique)}
-      `
-    : []
-  const grantByLocation = new Map(
-    grants.map((grant) => [grant.locationId, grant.canPublish])
-  )
+  const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const assigned = grantByLocation.has(id)
-    const canPublish = hasAssignments
-      ? assigned
-        ? (grantByLocation.get(id) ?? false)
-        : false
-      : session.canPublish
+    const { canPublish } = grants.get(id) ?? NO_GRANT
     result.set(id, {
-      canEditCanonical: false,
+      canEditCanonical,
       canPublish,
       resources: buildResources({
-        canEditCanonical: false,
+        canEditCanonical,
         canPublish,
         linked: linkedIds.has(id),
         publishesEnabled,
@@ -297,7 +242,7 @@ export async function locationCapabilities(
         canEditCanonical: false,
         canPublish: false,
         linked: false,
-        publishesEnabled: false,
+        publishesEnabled: NO_RESOURCE_WRITES,
       }),
     }
   )
@@ -316,7 +261,7 @@ export type SettingsCapabilities = {
 }
 
 export function settingsCapabilities(session: Session): SettingsCapabilities {
-  const managerial = session.role === "owner" || session.role === "admin"
+  const managerial = isManagerialRole(session.role)
   return {
     canManageTeam: managerial,
     canManageConnections: managerial,

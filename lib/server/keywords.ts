@@ -5,11 +5,13 @@ import { metrics, trace } from "@opentelemetry/api"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   googleSearchKeywordImpressions,
   type GoogleSearchKeywordPoint,
 } from "@/lib/server/google"
+import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 
 const keywordTracer = trace.getTracer("nabapresence.keywords")
@@ -246,6 +248,11 @@ export async function syncDueKeywords(
   organisationId: string,
   options: { externalLocationId?: string; maxLocations?: number } = {}
 ): Promise<KeywordSyncOutcome[]> {
+  // Ingestion boundary: GBP_KEYWORDS_ENABLED pauses provider reads and
+  // checkpoint creation; stored keyword months stay readable.
+  if (!gbpIngestionEnabled(getServerEnv(), "keywords")) {
+    throw new ApiError(503, "sync_paused", "Search keyword ingestion is paused.")
+  }
   await ensureKeywordCheckpoints(organisationId)
   const outcomes: KeywordSyncOutcome[] = []
   const maxLocations = Math.min(25, Math.max(1, options.maxLocations ?? 10))

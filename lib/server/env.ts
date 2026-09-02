@@ -112,10 +112,6 @@ export const serverEnvSchema = z.object({
   GBP_PLACE_ACTIONS_ENABLED: featureFlag(true),
   GBP_PROFILE_WRITES_ENABLED: featureFlag(true),
   IMPORT_REVIEW_ENABLED: featureFlag(true),
-  // Unused no-ops kept for deploy compatibility (lodging lives under Industry + PUBLISH_ENABLED).
-  GBP_LODGING_ENABLED: featureFlag(false),
-  // Stub — Actions Center is not implemented.
-  ACTIONS_CENTER_ENABLED: featureFlag(false),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
@@ -127,4 +123,59 @@ export function getServerEnv(): ServerEnv {
     cachedEnv = serverEnvSchema.parse(process.env)
   }
   return cachedEnv
+}
+
+// Per-surface Google Business Profile kill switches (docs/architecture.md,
+// "Standalone canonical resources"). A provider mutation runs only when both
+// the global publish control and the surface's own flag are on; ingestion
+// surfaces (performance, keywords) are read-only and answer to their flag
+// alone. Modules call these at their provider-mutation/ingestion boundary and
+// lib/server/capabilities.ts mirrors them so the UI can show its paused-write
+// notice without hiding the surface.
+export type GbpWriteSurface =
+  | "profileWrites"
+  | "posts"
+  | "media"
+  | "placeActions"
+  | "foodMenus"
+
+export type GbpIngestionSurface = "performance" | "keywords"
+
+export type GbpFlags = Pick<
+  ServerEnv,
+  | "PUBLISH_ENABLED"
+  | "GBP_PROFILE_WRITES_ENABLED"
+  | "GBP_POSTS_ENABLED"
+  | "GBP_MEDIA_ENABLED"
+  | "GBP_PLACE_ACTIONS_ENABLED"
+  | "GBP_FOOD_MENUS_ENABLED"
+  | "GBP_PERFORMANCE_ENABLED"
+  | "GBP_KEYWORDS_ENABLED"
+>
+
+const GBP_SURFACE_FLAG: Record<
+  GbpWriteSurface | GbpIngestionSurface,
+  keyof GbpFlags
+> = {
+  profileWrites: "GBP_PROFILE_WRITES_ENABLED",
+  posts: "GBP_POSTS_ENABLED",
+  media: "GBP_MEDIA_ENABLED",
+  placeActions: "GBP_PLACE_ACTIONS_ENABLED",
+  foodMenus: "GBP_FOOD_MENUS_ENABLED",
+  performance: "GBP_PERFORMANCE_ENABLED",
+  keywords: "GBP_KEYWORDS_ENABLED",
+}
+
+export function gbpWritesEnabled(
+  env: GbpFlags,
+  surface: GbpWriteSurface
+): boolean {
+  return env.PUBLISH_ENABLED && env[GBP_SURFACE_FLAG[surface]]
+}
+
+export function gbpIngestionEnabled(
+  env: GbpFlags,
+  surface: GbpIngestionSurface
+): boolean {
+  return env[GBP_SURFACE_FLAG[surface]]
 }

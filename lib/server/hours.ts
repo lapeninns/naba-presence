@@ -20,7 +20,7 @@ import {
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   getGoogleLocation,
@@ -214,7 +214,7 @@ export async function getHoursState(
     updateMask: live.patch.updateMask,
     warnings: live.patch.warnings,
     canPublish: live.context.canPublish,
-    writesEnabled: getServerEnv().PUBLISH_ENABLED,
+    writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
     lastReconciledAt: live.resource.lastReconciledAt?.toISOString() ?? null,
     latestAttempt: latestAttempt
       ? {
@@ -283,8 +283,7 @@ export async function publishCanonicalHours(input: {
   confirmOverwriteGoogleChanges: boolean
   requestId: string
 }) {
-  const env = getServerEnv()
-  if (!env.PUBLISH_ENABLED) {
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) {
     throw new ApiError(409, "hours_publishing_disabled", "Hours publishing is currently disabled.")
   }
   const live = await readLiveHours(input.session, input.locationId)

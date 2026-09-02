@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { sha256 } from "@/lib/server/crypto"
+import { visibilityPredicate } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 export type InboxFilters = {
@@ -181,21 +182,11 @@ export function buildInboxQuery(
                   )`
               : sql``
       }
-      ${
-        filters.role === "owner" || filters.role === "admin"
-          ? sql``
-          : sql`and (
-              not exists (
-                select 1 from location_member lm
-                where lm.user_id = ${filters.userId}
-              )
-              or exists (
-                select 1 from location_member lm
-                where lm.user_id = ${filters.userId}
-                  and lm.location_id = r.location_id
-              )
-            )`
-      }
+      and ${visibilityPredicate(
+        sql,
+        { role: filters.role, userId: filters.userId },
+        sql`r.location_id`
+      )}
     ${
       filters.sort === "rating_desc"
         ? sql`order by

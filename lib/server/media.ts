@@ -10,7 +10,7 @@ import {
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   createGoogleMediaItem,
@@ -290,7 +290,7 @@ export async function loadMedia(
   )
   return {
     canPublish: linked.canPublish,
-    writesEnabled: env.PUBLISH_ENABLED,
+    writesEnabled: gbpWritesEnabled(env, "media"),
     categories: GOOGLE_MEDIA_CATEGORIES,
     items,
     total,
@@ -302,8 +302,7 @@ export async function loadMedia(
 }
 
 function requireWrite(linked: MediaContext) {
-  const env = getServerEnv()
-  if (!env.PUBLISH_ENABLED) throw new ApiError(503, "media_paused", "Google media writes are paused.")
+  if (!gbpWritesEnabled(getServerEnv(), "media")) throw new ApiError(503, "media_paused", "Google media writes are paused.")
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
 }
 

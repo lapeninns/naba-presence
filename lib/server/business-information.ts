@@ -8,7 +8,7 @@ import {
   googleAttributeSchema,
 } from "@/lib/domain/business-information"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   getGoogleLocation,
@@ -49,7 +49,7 @@ const READ_MASK = [
 ] as const
 
 function writesEnabled() {
-  return getServerEnv().PUBLISH_ENABLED
+  return gbpWritesEnabled(getServerEnv(), "profileWrites")
 }
 
 function errorCode(error: unknown, fallback: string) {
