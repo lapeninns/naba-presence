@@ -1,13 +1,9 @@
-import { z } from "zod"
+import { reviewCountsSchema } from "@/lib/contracts/reviews"
 
 import { apiFetch, type RequestOptions } from "./client"
 
-export const reviewCountsSchema = z.object({
-  total: z.number(),
-  byStatus: z.record(z.string(), z.number()),
-})
-
-export type ReviewCounts = z.infer<typeof reviewCountsSchema>
+export { reviewCountsSchema } from "@/lib/contracts/reviews"
+export type { ReviewCounts } from "@/lib/contracts/reviews"
 
 export function fetchReviewCounts(locationId?: string, options?: RequestOptions) {
   const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""

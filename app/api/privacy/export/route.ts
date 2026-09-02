@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { privacyExportBodySchema } from "@/lib/contracts/privacy"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
@@ -8,13 +8,9 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-const querySchema = z.object({
-  subject: z.string().trim().min(3).max(240),
-})
-
 export const POST = route({
   roles: ["owner"],
-  body: querySchema,
+  body: privacyExportBodySchema,
   handler: async ({
     session,
     body: query,

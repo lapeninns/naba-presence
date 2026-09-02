@@ -1,20 +1,10 @@
-import { z } from "zod"
+import { publishResultSchema, type PublishInput } from "@/lib/contracts/reviews"
 
 import { apiFetch } from "./client"
 
-const publishResultSchema = z.object({
-  reviewReplyId: z.string(),
-  publishAttemptId: z.string(),
-  status: z.string(),
-  googleReplyState: z.string().nullable(),
-  idempotent: z.boolean().optional(),
-})
-export type PublishResult = z.infer<typeof publishResultSchema>
+export type { PublishInput, PublishResult } from "@/lib/contracts/reviews"
 
-export function publishReview(
-  reviewId: string,
-  input: { draftId: string; expectedReviewUpdateTime: string }
-) {
+export function publishReview(reviewId: string, input: PublishInput) {
   return apiFetch(`/api/reviews/${reviewId}/publish`, {
     method: "POST",
     body: input,

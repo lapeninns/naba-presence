@@ -1,6 +1,12 @@
 import { z } from "zod"
 
-import { administrationMutationSchema } from "@/lib/locations/forms/administration"
+import {
+  administrationMatchSchema,
+  administrationMutationSchema,
+  type AdministrationMatchResponse,
+  type AdministrationMutationResult,
+  type AdministrationResponse,
+} from "@/lib/contracts/location-administration"
 import {
   loadLocationAdministration,
   matchGoogleLocations,
@@ -13,37 +19,34 @@ export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 
-const matchSchema = z.object({
-  operation: z.literal("match_location"),
-  location: z.record(z.string(), z.unknown()),
-})
-
 export const GET = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
-  handler: async ({ session, params }) => ({
-    administration: await loadLocationAdministration(session, params.id),
-  }),
+  handler: async ({ session, params }) =>
+    ({
+      administration: await loadLocationAdministration(session, params.id),
+    }) satisfies AdministrationResponse,
 })
 
 export const POST = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
-  body: matchSchema,
-  handler: async ({ session, params, body }) => ({
-    matches: await matchGoogleLocations({
-      session,
-      locationId: params.id,
-      location: body.location,
-    }),
-  }),
+  body: administrationMatchSchema,
+  handler: async ({ session, params, body }) =>
+    ({
+      matches: await matchGoogleLocations({
+        session,
+        locationId: params.id,
+        location: body.location,
+      }),
+    }) satisfies AdministrationMatchResponse,
 })
 
 export const PATCH = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: administrationMutationSchema,
-  handler: ({ session, params, body, requestId }) =>
+  handler: ({ session, params, body, requestId }): Promise<AdministrationMutationResult> =>
     mutateLocationAdministration({
       session,
       locationId: params.id,

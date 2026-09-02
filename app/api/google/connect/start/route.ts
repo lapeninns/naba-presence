@@ -1,6 +1,9 @@
 import { cookies } from "next/headers"
-import { z } from "zod"
 
+import {
+  connectStartBodySchema,
+  type ConnectStartResponse,
+} from "@/lib/contracts/connections"
 import { randomToken, signValue } from "@/lib/server/crypto"
 import {
   GOOGLE_OAUTH_CALLBACK_PATH,
@@ -11,11 +14,9 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-const inputSchema = z.object({})
-
 export const POST = route({
   roles: ["owner", "admin"],
-  body: inputSchema,
+  body: connectStartBodySchema,
   handler: async ({ session }) => {
     const nonce = randomToken(24)
     const verifier = randomToken(64)
@@ -41,6 +42,6 @@ export const POST = route({
         state: nonce,
         codeChallenge: pkceChallenge(verifier),
       }),
-    }
+    } satisfies ConnectStartResponse
   },
 })

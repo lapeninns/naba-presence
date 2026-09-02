@@ -1,24 +1,15 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
+import {
+  connectStartResponseSchema,
+  connectionsResponseSchema,
+  disconnectResponseSchema,
+} from "@/lib/contracts/connections"
 
-export const connectionSummarySchema = z.object({
-  id: z.string(),
-  googleEmail: z.string().nullable(),
-  status: z.string(),
-  scope: z.string().optional(),
-  notificationsEnabled: z.boolean(),
-  lastRefreshAt: z.string().nullable(),
-  lastErrorCode: z.string().nullable(),
-  reconnectRequired: z.boolean(),
-  createdAt: z.string(),
-})
-
-export const connectionsResponseSchema = z.object({
-  connections: z.array(connectionSummarySchema),
-})
-
-export type ConnectionSummary = z.infer<typeof connectionSummarySchema>
+export {
+  connectionSummarySchema,
+  connectionsResponseSchema,
+  type ConnectionSummary,
+} from "@/lib/contracts/connections"
 
 export function fetchConnections(options?: RequestOptions) {
   return apiFetch("/api/google/connections", {
@@ -27,11 +18,12 @@ export function fetchConnections(options?: RequestOptions) {
   })
 }
 
-const authorizationResponseSchema = z.object({ authorizationUrl: z.string() })
-const disconnectResponseSchema = z.object({ status: z.literal("disconnected") })
-
 export function startGoogleConnect() {
-  return apiFetch("/api/google/connect/start", { method: "POST", body: {}, schema: authorizationResponseSchema })
+  return apiFetch("/api/google/connect/start", {
+    method: "POST",
+    body: {},
+    schema: connectStartResponseSchema,
+  })
 }
 
 export function disconnectConnection(id: string) {

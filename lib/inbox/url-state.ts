@@ -1,4 +1,15 @@
-import type { ReviewsFilters } from "@/lib/api/reviews"
+import {
+  DEFAULT_REVIEW_SORT,
+  isReviewPublishStatus,
+  isReviewReplyState,
+  isReviewSort,
+  isReviewSyncStatus,
+  isReviewVerificationStatus,
+  type ReviewReplyState,
+  type ReviewSort,
+  type ReviewWorkflowState,
+  type ReviewsFilters,
+} from "@/lib/contracts/reviews"
 
 export type Queue =
   | "all"
@@ -32,7 +43,10 @@ export const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
 // actionable tab — it appears only under the All queue, by design. This is a
 // defensible baseline the owner may refine; the per-tab count in queue-tabs
 // derives from exactly this map so the count and the list always agree.
-export const QUEUE_STATUS_MAP: Record<Queue, readonly string[] | null> = {
+export const QUEUE_STATUS_MAP: Record<
+  Queue,
+  readonly ReviewWorkflowState[] | null
+> = {
   all: null,
   needs_reply: ["new", "drafted", "verified", "failed", "rejected"],
   awaiting_approval: ["awaiting_approval"],
@@ -40,26 +54,23 @@ export const QUEUE_STATUS_MAP: Record<Queue, readonly string[] | null> = {
   published: ["published"],
 }
 
-export function queueToStatuses(queue: Queue): string[] | undefined {
+export function queueToStatuses(
+  queue: Queue
+): ReviewWorkflowState[] | undefined {
   const statuses = QUEUE_STATUS_MAP[queue]
   return statuses ? [...statuses] : undefined
 }
 
-const SORTS = [
-  "updated_desc",
-  "updated_asc",
-  "rating_desc",
-  "rating_asc",
-] as const
-type Sort = (typeof SORTS)[number]
-
+// URL state is deliberately loose (`string[]`): the filter controls toggle
+// plain strings, and `toReviewsFilters` narrows to the contract vocabulary
+// right before the wire, dropping anything the URL carried that we don't know.
 export type InboxState = {
   queue: Queue
   locationId?: string
   ratings: number[]
   search: string
-  sort: Sort
-  replyState?: "replied" | "unreplied"
+  sort: ReviewSort
+  replyState?: ReviewReplyState
   verification: string[]
   publishStatus: string[]
   syncStatus: string[]
@@ -77,11 +88,9 @@ export function parseInboxState(params: URLSearchParams): InboxState {
   const queue = (QUEUES as readonly string[]).includes(rawQueue ?? "")
     ? (rawQueue as Queue)
     : DEFAULT_QUEUE
-  const rawSort = params.get("sort")
-  const sort = (SORTS as readonly string[]).includes(rawSort ?? "")
-    ? (rawSort as Sort)
-    : "updated_desc"
-  const rawReply = params.get("replyState")
+  const rawSort = params.get("sort") ?? ""
+  const sort = isReviewSort(rawSort) ? rawSort : DEFAULT_REVIEW_SORT
+  const rawReply = params.get("replyState") ?? ""
   return {
     queue,
     locationId: params.get("locationId") ?? undefined,
@@ -90,8 +99,7 @@ export function parseInboxState(params: URLSearchParams): InboxState {
       .filter((n) => Number.isInteger(n)),
     search: params.get("search") ?? "",
     sort,
-    replyState:
-      rawReply === "replied" || rawReply === "unreplied" ? rawReply : undefined,
+    replyState: isReviewReplyState(rawReply) ? rawReply : undefined,
     verification: csv(params.get("verification")),
     publishStatus: csv(params.get("publishStatus")),
     syncStatus: csv(params.get("syncStatus")),
@@ -107,7 +115,7 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
   if (state.locationId) params.set("locationId", state.locationId)
   if (state.ratings.length) params.set("rating", state.ratings.join(","))
   if (state.search) params.set("search", state.search)
-  if (state.sort !== "updated_desc") params.set("sort", state.sort)
+  if (state.sort !== DEFAULT_REVIEW_SORT) params.set("sort", state.sort)
   if (state.replyState) params.set("replyState", state.replyState)
   if (state.verification.length)
     params.set("verification", state.verification.join(","))
@@ -135,19 +143,25 @@ export function hasActiveFilters(state: InboxState): boolean {
       state.syncStatus.length ||
       state.dateFrom ||
       state.dateTo ||
-      (state.sort && state.sort !== "updated_desc")
+      (state.sort && state.sort !== DEFAULT_REVIEW_SORT)
   )
 }
 
+function nonEmpty<T>(values: T[]): T[] | undefined {
+  return values.length ? values : undefined
+}
+
+// URL state → the contract's filter set: expands the queue into workflow
+// statuses, drops empties, and narrows the loose URL lists to the vocabulary.
 export function toReviewsFilters(state: InboxState): ReviewsFilters {
   return {
     locationId: state.locationId,
-    ratings: state.ratings.length ? state.ratings : undefined,
+    ratings: nonEmpty(state.ratings),
     statuses: queueToStatuses(state.queue),
     replyState: state.replyState,
-    verification: state.verification.length ? state.verification : undefined,
-    publishStatus: state.publishStatus.length ? state.publishStatus : undefined,
-    syncStatus: state.syncStatus.length ? state.syncStatus : undefined,
+    verification: nonEmpty(state.verification.filter(isReviewVerificationStatus)),
+    publishStatus: nonEmpty(state.publishStatus.filter(isReviewPublishStatus)),
+    syncStatus: nonEmpty(state.syncStatus.filter(isReviewSyncStatus)),
     dateFrom: state.dateFrom,
     dateTo: state.dateTo,
     search: state.search || undefined,

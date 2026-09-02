@@ -1,14 +1,17 @@
-import { z } from "zod"
-
+import {
+  keywordsQuerySchema,
+  type KeywordRange,
+  type KeywordsResponse,
+} from "@/lib/contracts/analytics"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
-const querySchema = z.object({
-  range: z.enum(["1m", "6m", "12m", "18m"]).default("6m"),
-  locationId: z.uuid().optional(),
-})
-
-const RANGE_MONTHS = { "1m": 1, "6m": 6, "12m": 12, "18m": 18 }
+const RANGE_MONTHS: Record<KeywordRange, number> = {
+  "1m": 1,
+  "6m": 6,
+  "12m": 12,
+  "18m": 18,
+}
 
 type KeywordRow = {
   keyword: string
@@ -23,7 +26,7 @@ type CheckpointRow = { status: string; lastErrorCode: string | null }
 
 export const GET = route({
   query: (searchParams) =>
-    querySchema.parse({
+    keywordsQuerySchema.parse({
       range: searchParams.get("range") ?? undefined,
       locationId: searchParams.get("locationId") ?? undefined,
     }),
@@ -121,6 +124,6 @@ export const GET = route({
             .filter((value): value is string => Boolean(value))
         )
       ),
-    }
+    } satisfies KeywordsResponse
   },
 })

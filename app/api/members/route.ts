@@ -1,19 +1,15 @@
-import { z } from "zod"
-
+import {
+  memberRemoveSchema,
+  memberUpdateSchema,
+  type MemberRemovedResponse,
+  type MemberRole,
+} from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const roleSchema = z.enum(["owner", "admin", "member", "viewer"])
-const updateSchema = z.object({
-  userId: z.uuid(),
-  role: roleSchema,
-  canPublish: z.boolean(),
-})
-const deleteSchema = z.object({ userId: z.uuid() })
 
 export const GET = route({
   roles: ["owner", "admin"],
@@ -69,7 +65,7 @@ export const POST = route({
 
 export const PATCH = route({
   roles: ["owner", "admin"],
-  body: updateSchema,
+  body: memberUpdateSchema,
   handler: async ({
     session,
     body: input,
@@ -80,7 +76,7 @@ export const PATCH = route({
     assertRoleChangeAllowed(session.role, input.role)
     const member = await tenant(async (sql) => {
       const [current] = await sql<
-        { role: z.infer<typeof roleSchema>; canPublish: boolean }[]
+        { role: MemberRole; canPublish: boolean }[]
       >`
         select role, can_publish as "canPublish"
         from member
@@ -139,7 +135,7 @@ export const PATCH = route({
 
 export const DELETE = route({
   roles: ["owner", "admin"],
-  body: deleteSchema,
+  body: memberRemoveSchema,
   handler: async ({
     session,
     body: input,
@@ -155,7 +151,7 @@ export const DELETE = route({
       )
     }
     await tenant(async (sql) => {
-      const [current] = await sql<{ role: z.infer<typeof roleSchema> }[]>`
+      const [current] = await sql<{ role: MemberRole }[]>`
         select role from member where user_id = ${input.userId} limit 1
       `
       if (!current) {
@@ -192,6 +188,6 @@ export const DELETE = route({
         },
       })
     })
-    return { removed: true }
+    return { removed: true } satisfies MemberRemovedResponse
   },
 })

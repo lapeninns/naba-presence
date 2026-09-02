@@ -1,70 +1,49 @@
-import { z } from "zod"
-
+import {
+  placeActionMutationOutcomeSchema,
+  placeActionsResponseSchema,
+  type PlaceActionDeleteRequest,
+  type PlaceActionInput,
+  type PlaceActionLink,
+  type PlaceActionMutationOutcome,
+  type PlaceActionsState,
+  type PlaceActionUpdateRequest,
+} from "@/lib/contracts/location-place-actions"
 import { GOOGLE_PLACE_ACTION_TYPES, type GooglePlaceActionType } from "@/lib/domain/google-contract"
 
 import { apiFetch, type RequestOptions } from "./client"
 
-const linkSchema = z.object({
-  id: z.string(),
-  googleLinkName: z.string(),
-  providerType: z.string(),
-  isEditable: z.boolean(),
-  uri: z.string(),
-  placeActionType: z.string(),
-  isPreferred: z.boolean(),
-  googleHash: z.string(),
-  observedAt: z.string(),
-})
-export type PlaceActionLink = z.infer<typeof linkSchema>
-
-const placeActionsStateSchema = z.object({
-  locationId: z.string(),
-  canPublish: z.boolean(),
-  writesEnabled: z.boolean(),
-  supportedTypes: z.array(z.string()),
-  links: z.array(linkSchema),
-  latestMutation: z
-    .object({ id: z.string(), operation: z.string(), status: z.string(), createdAt: z.string(), finishedAt: z.string().nullable() })
-    .nullable(),
-})
-export type PlaceActionsState = z.infer<typeof placeActionsStateSchema>
+export type { PlaceActionLink, PlaceActionMutationOutcome, PlaceActionsState }
 
 export const PLACE_ACTION_TYPES = GOOGLE_PLACE_ACTION_TYPES
 export type PlaceActionType = GooglePlaceActionType
 
-const mutationResultSchema = z.object({ id: z.string(), status: z.string(), idempotent: z.boolean() })
-
 export function fetchPlaceActions(id: string, options?: RequestOptions): Promise<PlaceActionsState> {
   return apiFetch(`/api/locations/${id}/place-actions`, {
-    schema: z.object({ placeActions: placeActionsStateSchema }),
+    schema: placeActionsResponseSchema,
     ...options,
   }).then((r) => r.placeActions)
 }
 
-export function createPlaceAction(id: string, input: { uri: string; placeActionType: PlaceActionType; isPreferred: boolean }) {
+export function createPlaceAction(id: string, input: PlaceActionInput) {
   return apiFetch(`/api/locations/${id}/place-actions`, {
     method: "POST",
     body: { ...input, confirmation: "create_google_place_action" },
-    schema: mutationResultSchema,
+    schema: placeActionMutationOutcomeSchema,
   })
 }
 
-export function updatePlaceAction(
-  id: string,
-  linkId: string,
-  input: { uri: string; placeActionType: PlaceActionType; isPreferred: boolean; expectedGoogleHash: string }
-) {
+export function updatePlaceAction(id: string, linkId: string, input: Omit<PlaceActionUpdateRequest, "confirmation">) {
   return apiFetch(`/api/locations/${id}/place-actions/${linkId}`, {
     method: "PATCH",
     body: { ...input, confirmation: "update_google_place_action" },
-    schema: mutationResultSchema,
+    schema: placeActionMutationOutcomeSchema,
   })
 }
 
-export function deletePlaceAction(id: string, linkId: string, input: { expectedGoogleHash: string }) {
+export function deletePlaceAction(id: string, linkId: string, input: Omit<PlaceActionDeleteRequest, "confirmation">) {
   return apiFetch(`/api/locations/${id}/place-actions/${linkId}`, {
     method: "DELETE",
     body: { ...input, confirmation: "delete_google_place_action" },
-    schema: mutationResultSchema,
+    schema: placeActionMutationOutcomeSchema,
   })
 }

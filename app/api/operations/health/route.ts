@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 
+import type { OperationsHealth } from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
-type AlertingFields = {
-  failedWebhookEvents: number
-  deadWebhookEvents: number
-  oldestFailedEventAgeSeconds: number | null
-  ambiguousPublishAttempts: number
-  staleStartedAttempts: number
-  dueJobBacklog: number
-  checkpointFailures24h: number
-  connectionErrors24h: number
-}
+type AlertingFields = Pick<
+  OperationsHealth,
+  | "failedWebhookEvents"
+  | "deadWebhookEvents"
+  | "oldestFailedEventAgeSeconds"
+  | "ambiguousPublishAttempts"
+  | "staleStartedAttempts"
+  | "dueJobBacklog"
+  | "checkpointFailures24h"
+  | "connectionErrors24h"
+>
 
 async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
   const [fields] = await sql<AlertingFields[]>`
@@ -97,7 +99,10 @@ async function schedulerHeartbeatAt() {
     from ops_heartbeat
     where name = 'scheduler'
   `
-  return heartbeat?.schedulerHeartbeatAt ?? null
+  // Normalised here so the tenant projection below can be checked against
+  // the wire contract; `NextResponse.json` would have emitted the same ISO
+  // string from the `Date`.
+  return heartbeat?.schedulerHeartbeatAt?.toISOString() ?? null
 }
 
 async function platformHealth() {
@@ -188,13 +193,13 @@ export const GET = route({
           )::integer as "failures24h"
         from processed_webhook_event
       `
-      const connections = await sql`
+      const connections = await sql<OperationsHealth["connections"]>`
         select status, count(*)::integer as count
         from google_connection
         group by status
         order by status
       `
-      const publish = await sql`
+      const publish = await sql<OperationsHealth["publish24h"]>`
         select
           status,
           count(*)::integer as count
@@ -203,7 +208,7 @@ export const GET = route({
         group by status
         order by status
       `
-      const rejections = await sql`
+      const rejections = await sql<OperationsHealth["replyRejections30d"]>`
         select
           coalesce(google_policy_violation, 'unspecified') as code,
           count(*)::integer as count
@@ -255,7 +260,7 @@ export const GET = route({
         providerTotalDivergence30d: providerDivergence.count,
         ...alerting,
         schedulerHeartbeatAt: heartbeat,
-      }
+      } satisfies OperationsHealth
     })
     return NextResponse.json(health, {
       headers: { "cache-control": "private, no-store" },

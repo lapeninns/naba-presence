@@ -1,3 +1,7 @@
+import type {
+  OrganisationSummary,
+  OrganisationsResponse,
+} from "@/lib/contracts/session"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -5,7 +9,7 @@ export const runtime = "nodejs"
 export const GET = route({
   handler: async ({ session, tenant }) => {
     const items = await tenant(
-      (sql) => sql`
+      (sql) => sql<OrganisationSummary[]>`
         select
           organisation_id::text as "organisationId",
           name,
@@ -13,6 +17,6 @@ export const GET = route({
         from list_user_organisations(${session.userId})
       `
     )
-    return { items }
+    return { items } satisfies OrganisationsResponse
   },
 })

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { registerSchema } from "@/lib/domain/auth"
+import { registerSchema, type RegisterResponse } from "@/lib/contracts/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { getServerEnv } from "@/lib/server/env"
 import { signUpWithPassword } from "@/lib/server/password-auth"
@@ -31,13 +31,13 @@ export const POST = route({
         requestId,
         clientRequestId,
       })
-      return { authenticated: true }
+      return { authenticated: true } satisfies RegisterResponse
     }
     return NextResponse.json(
       {
         authenticated: false,
         confirmationRequired: result.confirmationRequired,
-      },
+      } satisfies RegisterResponse,
       { status: 202 }
     )
   },

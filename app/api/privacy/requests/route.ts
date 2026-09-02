@@ -1,36 +1,16 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  privacyRequestCreateSchema,
+  privacyRequestUpdateSchema,
+  type PrivacyRequestType,
+} from "@/lib/contracts/privacy"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const requestType = z.enum([
-  "access",
-  "rectification",
-  "erasure",
-  "restriction",
-])
-const status = z.enum(["pending", "in_progress", "completed", "rejected"])
-const createSchema = z.object({
-  requestType,
-  subjectReference: z.string().trim().min(3).max(240),
-  reason: z.string().trim().max(2000).optional(),
-})
-const statusUpdateSchema = z.object({
-  id: z.uuid(),
-  status,
-  resolutionNote: z.string().trim().min(3).max(2000),
-})
-const fulfilSchema = z.object({
-  id: z.uuid(),
-  action: z.literal("fulfil"),
-  resolutionNote: z.string().trim().min(3).max(2000),
-})
-const updateSchema = z.union([fulfilSchema, statusUpdateSchema])
 
 export const GET = route({
   roles: ["owner", "admin"],
@@ -60,7 +40,7 @@ export const GET = route({
 
 export const POST = route({
   roles: ["owner", "admin"],
-  body: createSchema,
+  body: privacyRequestCreateSchema,
   handler: async ({
     session,
     body: input,
@@ -112,7 +92,7 @@ export const POST = route({
 
 export const PATCH = route({
   roles: ["owner"],
-  body: updateSchema,
+  body: privacyRequestUpdateSchema,
   handler: async ({
     session,
     body: input,
@@ -125,11 +105,7 @@ export const PATCH = route({
         const [privacyRequest] = await sql<
           {
             id: string
-            requestType:
-              | "access"
-              | "rectification"
-              | "erasure"
-              | "restriction"
+            requestType: PrivacyRequestType
             status: string
             subjectReference: string
           }[]

@@ -1,5 +1,10 @@
 import "server-only"
 
+import type {
+  IndustryMutationResult,
+  IndustryOperation,
+  IndustryState,
+} from "@/lib/contracts/location-industry"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -34,7 +39,7 @@ function errorCode(error: unknown, fallback: string) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : fallback
 }
 
-export async function loadIndustryManagement(session: Session, locationId: string) {
+export async function loadIndustryManagement(session: Session, locationId: string): Promise<IndustryState> {
   const linked = await context(session, locationId)
   const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
   const options = { connectionKey: linked.connectionId }
@@ -60,7 +65,7 @@ export async function loadIndustryManagement(session: Session, locationId: strin
   return { lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites") }
 }
 
-export type IndustryOperation = "update_lodging" | "update_business_calls" | "update_healthcare_services" | "update_healthcare_provider_attributes"
+export type { IndustryOperation }
 
 export async function mutateIndustryManagement(input: {
   session: Session
@@ -69,7 +74,7 @@ export async function mutateIndustryManagement(input: {
   payload: Record<string, unknown>
   updateMask: string[]
   requestId: string
-}) {
+}): Promise<IndustryMutationResult> {
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
   if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")

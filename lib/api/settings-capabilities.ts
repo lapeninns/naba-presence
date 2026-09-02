@@ -1,22 +1,19 @@
-import { z } from "zod"
+import {
+  settingsCapabilitiesResponseSchema,
+  settingsCapabilitiesSchema,
+  type SettingsCapabilities,
+} from "@/lib/contracts/location-capabilities"
 
 import { apiFetch, type RequestOptions } from "./client"
 
-export const settingsCapabilitiesSchema = z.object({
-  canManageTeam: z.boolean(),
-  canManageConnections: z.boolean(),
-  canEditSettings: z.boolean(),
-  canViewCompliance: z.boolean(),
-  canManageCompliance: z.boolean(),
-})
-
-const responseSchema = z.object({ capabilities: settingsCapabilitiesSchema })
-
-export type SettingsCapabilities = z.infer<typeof settingsCapabilitiesSchema>
+// The shape lives in lib/contracts/location-capabilities.ts; re-exported for
+// existing importers.
+export { settingsCapabilitiesSchema }
+export type { SettingsCapabilities }
 
 export async function fetchSettingsCapabilities(options?: RequestOptions): Promise<SettingsCapabilities> {
   const { capabilities } = await apiFetch("/api/settings/capabilities", {
-    schema: responseSchema,
+    schema: settingsCapabilitiesResponseSchema,
     ...options,
   })
   return capabilities

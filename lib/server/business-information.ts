@@ -1,12 +1,14 @@
 import "server-only"
 
-import { z } from "zod"
-
-import {
-  assertBusinessInformationMask,
-  businessInformationPayloadSchema,
-  googleAttributeSchema,
-} from "@/lib/domain/business-information"
+import type {
+  AttributeMetadata,
+  BusinessInformationMetadataType,
+  BusinessInformationMutationResult,
+  BusinessInformationPayload,
+  BusinessInformationState,
+  GoogleAttribute,
+} from "@/lib/contracts/location-business-information"
+import { assertBusinessInformationMask } from "@/lib/domain/business-information"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -87,7 +89,7 @@ async function loadedContext(session: Session, locationId: string) {
 export async function loadBusinessInformation(
   session: Session,
   locationId: string
-) {
+): Promise<BusinessInformationState> {
   const linked = await loadedContext(session, locationId)
   const token = await connectionAccessToken(
     getDatabase(),
@@ -128,7 +130,9 @@ export async function loadBusinessInformation(
   return {
     location,
     attributes,
-    attributeMetadata: metadata.attributeMetadata ?? [],
+    // The Google client types metadata rows as passthrough records; the wire
+    // contract pins the `parent` id every row carries (the client parses it).
+    attributeMetadata: (metadata.attributeMetadata ?? []) as AttributeMetadata[],
     locationHash,
     attributesHash,
     canPublish: linked.canPublish,
@@ -139,11 +143,11 @@ export async function loadBusinessInformation(
 export async function updateBusinessInformation(input: {
   session: Session
   locationId: string
-  payload: z.infer<typeof businessInformationPayloadSchema>
+  payload: BusinessInformationPayload
   updateMask: string[]
   expectedGoogleHash: string
   requestId: string
-}) {
+}): Promise<BusinessInformationMutationResult> {
   const linked = await loadedContext(input.session, input.locationId)
   if (!linked.canPublish) {
     throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
@@ -255,11 +259,11 @@ export async function updateBusinessInformation(input: {
 export async function updateBusinessAttributes(input: {
   session: Session
   locationId: string
-  attributes: Array<z.infer<typeof googleAttributeSchema>>
+  attributes: GoogleAttribute[]
   attributeMask: string[]
   expectedGoogleHash: string
   requestId: string
-}) {
+}): Promise<BusinessInformationMutationResult> {
   const linked = await loadedContext(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
   if (!writesEnabled()) throw new ApiError(503, "business_information_paused", "Google Business Information writes are paused.")
@@ -296,7 +300,7 @@ export async function updateBusinessAttributes(input: {
 export async function searchBusinessInformationMetadata(input: {
   session: Session
   locationId: string
-  type: "categories" | "chains"
+  type: BusinessInformationMetadataType
   query: string
   regionCode: string
   languageCode: string

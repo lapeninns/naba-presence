@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { reviewIdParamsSchema, type VerifyResult } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { verifyStoredDraft } from "@/lib/server/drafts"
 import { ApiError } from "@/lib/server/http"
@@ -11,7 +10,7 @@ export const maxDuration = 60
 
 export const POST = route({
   roles: ["owner", "admin", "member"],
-  params: z.object({ id: z.uuid() }),
+  params: reviewIdParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
     const { id } = params
     const result = await tenant(async (sql) => {
@@ -64,6 +63,6 @@ export const POST = route({
       })
       return verification
     })
-    return { verification: result }
+    return { verification: result } satisfies VerifyResult
   },
 })

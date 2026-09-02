@@ -1,26 +1,14 @@
-import { z } from "zod"
+import {
+  draftResultSchema,
+  verifyResultSchema,
+  type DraftInput,
+} from "@/lib/contracts/reviews"
 
 import { apiFetch } from "./client"
-import { verificationSchema } from "./reviews"
 
-const draftResultSchema = z.object({
-  draftId: z.string(),
-  body: z.string(),
-  bodyBytes: z.number(),
-  evidenceHash: z.string().nullable(),
-  verification: verificationSchema,
-})
-export type DraftResult = z.infer<typeof draftResultSchema>
+export type { DraftInput, DraftResult, VerifyResult } from "@/lib/contracts/reviews"
 
-// One endpoint is Generate / Regenerate / Save.
-// Omit `body` → the server generates (AI) or templates (rating-only) — only
-// when the operator clicks Generate. Include `body` → human edit / save.
-export type DraftInput = {
-  tone?: "warm_professional" | "concise" | "empathetic"
-  languageOverride?: string | null
-  body?: string
-}
-
+// One endpoint is Generate / Regenerate / Save (see draftInputSchema).
 export function generateOrSaveDraft(reviewId: string, input: DraftInput) {
   return apiFetch(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
@@ -28,9 +16,6 @@ export function generateOrSaveDraft(reviewId: string, input: DraftInput) {
     schema: draftResultSchema,
   })
 }
-
-const verifyResultSchema = z.object({ verification: verificationSchema })
-export type VerifyResult = z.infer<typeof verifyResultSchema>
 
 export function verifyDraft(draftId: string) {
   return apiFetch(`/api/drafts/${draftId}/verify`, {

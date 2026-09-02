@@ -8,10 +8,10 @@ import {
   hashHours,
   normalizeGoogleHours,
   type GoogleLocationHours,
-  type HoursDriftStatus,
   type NormalizedHours,
 } from "@/lib/domain/hours"
 import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
+import type { HoursState } from "@/lib/contracts/location-hours"
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
@@ -58,64 +58,21 @@ const hoursAttempts = attemptStore({
   },
 })
 
-export type HoursState = {
-  location: {
-    id: string
-    name: string
-    googleLocationName: string
-    timezone: string
-  }
-  canonicalResource: {
-    revision: string
-    updatedAt: string
-  }
-  status: HoursDriftStatus
-  canonical: NormalizedHours
-  google: NormalizedHours
-  canonicalHash: string
-  googleHash: string
-  updateMask: GoogleHoursUpdateMask[]
-  warnings: string[]
-  canPublish: boolean
-  writesEnabled: boolean
-  lastReconciledAt: string | null
-  latestAttempt: {
-    id: string
-    status: string
-    createdAt: string
-    finishedAt: string | null
-  } | null
-}
+/** The GET response shape is owned by the wire contract; re-exported for server callers. */
+export type { HoursState }
 
 async function linkedHoursLocation(
   session: Session,
   locationId: string
 ): Promise<LinkedLocation> {
-  try {
-    return await withTenant(session.organisationId, (sql) =>
-      loadLinkedLocation(sql, session, locationId, {
-        notLinked: {
-          message: "Link this location to Google before managing hours.",
-        },
-      })
-    )
-  } catch (error) {
-    // TODO(gbp-write): loadLinkedLocation has no `notFound` message override, and
-    // hours' 404 body has always read "The requested location was not found."
-    // Add a `notFound: { message }` option to the helper and delete this catch.
-    if (
-      error instanceof ApiError &&
-      error.status === 404 &&
-      error.code === "location_not_found"
-    ) {
-      throw new ApiError(
-        404,
-        "location_not_found",
-        "The requested location was not found."
-      )
-    }
-    throw error
-  }
+  return withTenant(session.organisationId, (sql) =>
+    loadLinkedLocation(sql, session, locationId, {
+      notFound: { message: "The requested location was not found." },
+      notLinked: {
+        message: "Link this location to Google before managing hours.",
+      },
+    })
+  )
 }
 
 async function fetchGoogleHours(

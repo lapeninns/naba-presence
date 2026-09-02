@@ -1,4 +1,4 @@
-import { loginSchema } from "@/lib/domain/auth"
+import { loginSchema, type LoginResponse } from "@/lib/contracts/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { signInWithPassword } from "@/lib/server/password-auth"
 import { route } from "@/lib/server/route"
@@ -16,6 +16,6 @@ export const POST = route({
       requestId,
       clientRequestId,
     })
-    return { authenticated: true }
+    return { authenticated: true } satisfies LoginResponse
   },
 })

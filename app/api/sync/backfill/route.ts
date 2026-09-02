@@ -1,6 +1,11 @@
 import type { TransactionSql } from "postgres"
 import { z } from "zod"
 
+import {
+  BACKFILL_STATUSES,
+  backfillCancelSchema,
+  backfillStartSchema,
+} from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -13,15 +18,6 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const inputSchema = z.object({
-  externalLocationIds: z.array(z.uuid()).max(50).optional(),
-  maxPagesPerLocation: z.number().int().min(1).max(20).default(10),
-})
-
-const cancellationSchema = z.object({
-  externalLocationIds: z.array(z.uuid()).min(1).max(50),
-})
 
 async function backfillProgress(
   sql: TransactionSql,
@@ -62,14 +58,7 @@ async function backfillProgress(
     order by lower(e.title)
   `
   const counts = Object.fromEntries(
-    [
-      "not_started",
-      "pending",
-      "running",
-      "succeeded",
-      "failed",
-      "cancelled",
-    ].map((status) => [
+    BACKFILL_STATUSES.map((status) => [
       status,
       items.filter((item) => item.status === status).length,
     ])
@@ -101,7 +90,7 @@ export const POST = route({
     }
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
-    const input = inputSchema.parse(await request.json().catch(() => ({})))
+    const input = backfillStartSchema.parse(await request.json().catch(() => ({})))
     const correlationId = requestId
     const locations = await tenant(async (sql) => {
       const locations = await linkedLocations(
@@ -163,7 +152,7 @@ export const POST = route({
 
 export const DELETE = route({
   roles: ["owner", "admin"],
-  body: cancellationSchema,
+  body: backfillCancelSchema,
   handler: ({ session, body, requestId, clientRequestId, tenant }) =>
     tenant(async (sql) => {
       const running = await sql<{ location_name: string }[]>`

@@ -14,6 +14,13 @@ import {
   type MenuProposalDraft,
 } from "@/lib/domain/food-menu-import"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
+import type {
+  ImportProposal,
+  ImportReviewCounts,
+  PendingProposalCount,
+  RaiseOutcome,
+  RaiseTrigger,
+} from "@/lib/contracts/location-import-review"
 import {
   classifyResourceDrift,
   planDecision,
@@ -44,32 +51,10 @@ import {
 import type { readProfileStateBundle } from "@/lib/server/profile"
 import type { Session } from "@/lib/server/session"
 
-export type RaiseTrigger = "sweep" | "manual"
-
-export type ImportProposal = {
-  id: string
-  resourceType: ProposalResourceType
-  identityKey: string
-  kind: ProposalKind
-  fieldKey: string | null
-  googlePath: string | null
-  sectionLabel: string | null
-  itemLabel: string | null
-  matchStatus: string | null
-  matchConfidence: number | null
-  canonicalValue: unknown
-  googleValue: unknown
-  suggestedPatch: unknown
-  warnings: string[]
-  status: ProposalStatus
-  decision: string | null
-  failureCode: string | null
-  pinnedCanonicalRevision: string
-  raisedVia: RaiseTrigger
-  observedAt: string
-  decidedAt: string | null
-  createdAt: string
-}
+// The proposal projection, raise outcome and count shapes are the wire
+// contract (lib/contracts/location-import-review.ts); re-exported here for
+// existing server-side importers.
+export type { ImportProposal, RaiseOutcome, RaiseTrigger }
 
 type ProposalRow = {
   id: string
@@ -283,12 +268,6 @@ async function replaceMenuIdentities(
   }
 }
 
-export type RaiseOutcome = {
-  raised: number
-  superseded: number
-  skipped: "disabled" | "not_eligible" | "core_dirty" | "in_sync" | null
-}
-
 /**
  * Stages Google-side food-menu drift as import proposals. Suggestion-only:
  * this never mutates canonical data. Called from the presence-resources sweep
@@ -456,7 +435,7 @@ export async function listImportProposals(input: {
   includeDecided?: boolean
 }): Promise<{
   proposals: ImportProposal[]
-  counts: { pending: number; profile: number; foodMenus: number }
+  counts: ImportReviewCounts
 }> {
   return withTenant(input.session.organisationId, async (sql) => {
     await requireLocationAccess(sql, input.session, input.locationId)
@@ -481,9 +460,7 @@ export async function listImportProposals(input: {
         }
       order by resource_type, section_label nulls first, item_label nulls first, created_at desc
     `
-    const [counts] = await sql<
-      { pending: number; profile: number; foodMenus: number }[]
-    >`
+    const [counts] = await sql<ImportReviewCounts[]>`
       select
         count(*) filter (where status = 'pending')::int as pending,
         count(*) filter (where status = 'pending' and resource_type = 'profile')::int as profile,
@@ -500,21 +477,9 @@ export async function listImportProposals(input: {
 
 export async function pendingProposalCounts(input: {
   session: Session
-}): Promise<
-  Array<{
-    locationId: string
-    resourceType: ProposalResourceType
-    pending: number
-  }>
-> {
+}): Promise<PendingProposalCount[]> {
   return withTenant(input.session.organisationId, async (sql) => {
-    const rows = await sql<
-      {
-        locationId: string
-        resourceType: ProposalResourceType
-        pending: number
-      }[]
-    >`
+    const rows = await sql<PendingProposalCount[]>`
       select
         p.location_id::text as "locationId",
         p.resource_type as "resourceType",

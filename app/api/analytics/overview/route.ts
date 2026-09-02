@@ -1,19 +1,14 @@
 import type { TransactionSql } from "postgres"
-import { z } from "zod"
 
+import {
+  analyticsOverviewQuerySchema,
+  type AnalyticsGranularity,
+} from "@/lib/contracts/analytics"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
-
-const querySchema = z.object({
-  from: z.iso.datetime().optional(),
-  to: z.iso.datetime().optional(),
-  granularity: z.enum(["day", "week", "month"]).default("day"),
-})
-
-type Granularity = z.infer<typeof querySchema>["granularity"]
 
 type ReportWindow = { from: string; to: string }
 
@@ -108,7 +103,7 @@ async function loadSeries(
   sql: TransactionSql,
   session: Session,
   { from, to }: ReportWindow,
-  granularity: Granularity,
+  granularity: AnalyticsGranularity,
   timezone: string
 ) {
   const bucketInterval =
@@ -289,7 +284,7 @@ async function loadProviderTotals(sql: TransactionSql, session: Session) {
 
 export const GET = route({
   query: (searchParams) =>
-    querySchema.parse({
+    analyticsOverviewQuerySchema.parse({
       from: searchParams.get("from") ?? undefined,
       to: searchParams.get("to") ?? undefined,
       granularity: searchParams.get("granularity") ?? undefined,

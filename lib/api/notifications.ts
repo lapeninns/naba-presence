@@ -1,33 +1,30 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
-import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
+import {
+  notificationSettingResponseSchema,
+  type NotificationPatchInput,
+} from "@/lib/contracts/notifications"
 
-export const notificationSettingSchema = z.object({
-  name: z.string(),
-  pubsubTopic: z.string().optional(),
-  notificationTypes: z.array(z.enum(GOOGLE_NOTIFICATION_TYPES)).optional(),
-})
-
-const settingResponseSchema = z.object({ setting: notificationSettingSchema })
-
-export type NotificationSetting = z.infer<typeof notificationSettingSchema>
+export {
+  notificationSettingSchema,
+  type NotificationSetting,
+} from "@/lib/contracts/notifications"
 
 export function fetchNotificationSetting(accountId: string, options?: RequestOptions) {
   return apiFetch(`/api/google/notifications?account_id=${encodeURIComponent(accountId)}`, {
-    schema: settingResponseSchema,
+    schema: notificationSettingResponseSchema,
     ...options,
   })
 }
 
-export function saveNotificationSetting(input: {
-  accountId: string
-  pubsubTopic: string
-  notificationTypes: string[]
-}) {
+// `notificationTypes` is accepted as `string[]` here: the hook widens its
+// checkbox state before calling, and the server validates against the
+// contract enum.
+export function saveNotificationSetting(
+  input: Omit<NotificationPatchInput, "notificationTypes"> & { notificationTypes: string[] }
+) {
   return apiFetch("/api/google/notifications", {
     method: "PATCH",
     body: input,
-    schema: settingResponseSchema,
+    schema: notificationSettingResponseSchema,
   })
 }

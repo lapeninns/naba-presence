@@ -1,32 +1,27 @@
-import { z } from "zod"
+import {
+  linkLocationResponseSchema,
+  unlinkLocationResponseSchema,
+  type LinkLocationInput,
+  type LocationLink,
+} from "@/lib/contracts/location-links"
 
 import { apiFetch } from "./client"
 
-const linkResponseSchema = z.object({
-  link: z.object({
-    id: z.string(),
-    locationId: z.string(),
-    externalLocationId: z.string(),
-    isActive: z.boolean(),
-  }),
-})
-const unlinkedResponseSchema = z.object({ unlinked: z.literal(true) })
+// The link shape lives in lib/contracts/location-links.ts; the old alias is
+// kept for existing importers.
+export type LinkResult = LocationLink
 
-export type LinkResult = z.infer<typeof linkResponseSchema>["link"]
-
-export function linkExternalLocation(input: {
-  externalLocationId: string
-  locationId?: string
-  name?: string
-  timezone?: string
-  confirmRelink?: boolean
-}) {
-  return apiFetch("/api/location-links", { method: "POST", body: input, schema: linkResponseSchema })
+export function linkExternalLocation(input: LinkLocationInput) {
+  return apiFetch("/api/location-links", {
+    method: "POST",
+    body: input,
+    schema: linkLocationResponseSchema,
+  })
 }
 
 export function unlinkExternalLocation(externalLocationId: string) {
   return apiFetch(
     `/api/location-links?externalLocationId=${encodeURIComponent(externalLocationId)}`,
-    { method: "DELETE", schema: unlinkedResponseSchema }
+    { method: "DELETE", schema: unlinkLocationResponseSchema }
   )
 }

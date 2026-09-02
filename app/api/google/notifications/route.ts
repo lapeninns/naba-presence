@@ -1,7 +1,6 @@
 import type { TransactionSql } from "postgres"
-import { z } from "zod"
 
-import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
+import { notificationPatchSchema } from "@/lib/contracts/notifications"
 import { writeAudit } from "@/lib/server/audit"
 import {
   connectionAccessToken,
@@ -13,20 +12,6 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const notificationSchema = z.object({
-  accountId: z.uuid(),
-  pubsubTopic: z
-    .string()
-    .regex(
-      /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][\w.-]{2,254}$/
-    )
-    .or(z.literal("")),
-  notificationTypes: z
-    .array(z.enum(GOOGLE_NOTIFICATION_TYPES))
-    .transform((items) => [...new Set(items)])
-    .default([...GOOGLE_NOTIFICATION_TYPES]),
-})
 
 async function accountForNotifications(
   sql: TransactionSql,
@@ -82,7 +67,7 @@ export const GET = route({
 
 export const PATCH = route({
   roles: ["owner", "admin"],
-  body: notificationSchema,
+  body: notificationPatchSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     const setting = await tenant(async (sql) => {
       const account = await accountForNotifications(sql, body.accountId)

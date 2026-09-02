@@ -1,8 +1,12 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
-import { z } from "zod"
 
+import {
+  placeActionInputSchema,
+  type PlaceActionInput,
+  type PlaceActionLink,
+} from "@/lib/contracts/location-place-actions"
 import {
   GOOGLE_PLACE_ACTION_TYPES,
   type GooglePlaceActionType,
@@ -34,31 +38,17 @@ import {
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
-export const placeActionInputSchema = z.object({
-  uri: z
-    .url()
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
-      message: "Place Action links must use http or https.",
-    }),
-  placeActionType: z.enum(GOOGLE_PLACE_ACTION_TYPES),
-  isPreferred: z.boolean().default(false),
-})
-
-export type PlaceActionInput = z.infer<typeof placeActionInputSchema>
+// Request/response shapes live in the contract; the old names stay exported
+// from here for one sprint so existing imports keep working.
+export { placeActionInputSchema, type PlaceActionInput }
 
 type PlaceActionOperation = "create" | "update" | "delete"
 
 type GoogleRecord = Record<string, unknown>
 
-type StoredLink = {
-  id: string
-  googleLinkName: string
-  providerType: string
-  isEditable: boolean
-  uri: string
+/** A `PlaceActionLink` row before `observedAt` is serialised to ISO. */
+type StoredLink = Omit<PlaceActionLink, "placeActionType" | "observedAt"> & {
   placeActionType: GooglePlaceActionType
-  isPreferred: boolean
-  googleHash: string
   observedAt: Date
 }
 

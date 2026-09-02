@@ -1,5 +1,8 @@
-import { z } from "zod"
-
+import {
+  presenceQuerySchema,
+  type PresenceRange,
+  type PresenceResponse,
+} from "@/lib/contracts/analytics"
 import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
@@ -7,12 +10,12 @@ import {
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
-const querySchema = z.object({
-  range: z.enum(["28d", "90d", "12m", "18m"]).default("28d"),
-  locationId: z.uuid().optional(),
-})
-
-const RANGE_DAYS = { "28d": 28, "90d": 90, "12m": 365, "18m": 548 }
+const RANGE_DAYS: Record<PresenceRange, number> = {
+  "28d": 28,
+  "90d": 90,
+  "12m": 365,
+  "18m": 548,
+}
 
 type MetricRow = {
   metric: GooglePerformanceMetric
@@ -25,7 +28,7 @@ type CheckpointRow = { status: string; lastErrorCode: string | null }
 
 export const GET = route({
   query: (searchParams) =>
-    querySchema.parse({
+    presenceQuerySchema.parse({
       range: searchParams.get("range") ?? undefined,
       locationId: searchParams.get("locationId") ?? undefined,
     }),
@@ -124,6 +127,6 @@ export const GET = route({
       ),
       keywordsEnabled: true,
       ingestionEnabled: true,
-    }
+    } satisfies PresenceResponse
   },
 })

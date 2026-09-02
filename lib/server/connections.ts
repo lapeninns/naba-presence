@@ -1,23 +1,15 @@
 import "server-only"
 
+import type { ConnectionSummary } from "@/lib/contracts/connections"
 import { withTenant } from "@/lib/server/db"
 import type { Session } from "@/lib/server/session"
 
-export type ConnectionSummary = {
-  id: string
-  googleEmail: string | null
-  status: string
-  scope?: string
-  notificationsEnabled: boolean
-  lastRefreshAt: string | null
-  lastErrorCode: string | null
-  reconnectRequired: boolean
-  createdAt: string
-}
+export type { ConnectionSummary }
 
 // The row shape as postgres.js actually returns it: `timestamptz` columns
 // (no `::text` cast) parse to `Date` instances, not strings. See
-// `ConnectionSummary` above for the normalised shape callers receive.
+// `ConnectionSummary` in `lib/contracts/connections` for the normalised
+// shape callers receive.
 type ConnectionRow = {
   id: string
   googleEmail: string | null

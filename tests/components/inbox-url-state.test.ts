@@ -115,6 +115,21 @@ describe("inbox url state", () => {
     expect(filters.locationId).toBe("loc-1")
   })
 
+  it("narrows loose URL lists to the contract vocabulary before the wire", () => {
+    const filters = toReviewsFilters(
+      parseInboxState(
+        new URLSearchParams(
+          "verification=pass,bogus&publishStatus=nope&syncStatus=failed,cancelled&sort=bogus&replyState=maybe"
+        )
+      )
+    )
+    expect(filters.verification).toEqual(["pass"])
+    expect(filters.publishStatus).toBeUndefined()
+    expect(filters.syncStatus).toEqual(["failed", "cancelled"])
+    expect(filters.sort).toBe("updated_desc")
+    expect(filters.replyState).toBeUndefined()
+  })
+
   it("shows the detail pane on mobile only when a review is selected", () => {
     expect(mobilePaneFor(undefined)).toBe("list")
     expect(mobilePaneFor("rev-1")).toBe("detail")

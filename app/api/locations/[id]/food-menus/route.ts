@@ -1,6 +1,13 @@
 import { z } from "zod"
 
 import {
+  publishFoodMenusSchema,
+  saveFoodMenusSchema,
+  type FoodMenusResponse,
+  type PublishFoodMenusResult,
+  type SaveFoodMenusResult,
+} from "@/lib/contracts/location-food-menus"
+import {
   getFoodMenusState,
   publishFoodMenus,
   saveCanonicalFoodMenus,
@@ -11,31 +18,19 @@ export const runtime = "nodejs"
 
 const paramsSchema = z.object({ id: z.uuid() })
 
-const saveSchema = z.object({
-  expectedCanonicalRevision: z.string().regex(/^\d+$/),
-  menus: z.array(z.record(z.string(), z.unknown())).max(100),
-})
-
-const publishSchema = z.object({
-  confirmation: z.literal("publish_nabapresence_food_menus_to_google"),
-  expectedCanonicalRevision: z.string().regex(/^\d+$/),
-  expectedCanonicalHash: z.string().length(64),
-  expectedGoogleHash: z.string().length(64),
-  confirmFullReplacement: z.literal(true),
-})
-
 export const GET = route({
   params: paramsSchema,
-  handler: async ({ session, params }) => ({
-    foodMenus: await getFoodMenusState(session, params.id),
-  }),
+  handler: async ({ session, params }) =>
+    ({
+      foodMenus: await getFoodMenusState(session, params.id),
+    }) satisfies FoodMenusResponse,
 })
 
 export const PUT = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
-  body: saveSchema,
-  handler: ({ session, params, body, requestId }) =>
+  body: saveFoodMenusSchema,
+  handler: ({ session, params, body, requestId }): Promise<SaveFoodMenusResult> =>
     saveCanonicalFoodMenus({
       session,
       locationId: params.id,
@@ -47,8 +42,8 @@ export const PUT = route({
 
 export const POST = route({
   params: paramsSchema,
-  body: publishSchema,
-  handler: ({ session, params, body, requestId }) =>
+  body: publishFoodMenusSchema,
+  handler: ({ session, params, body, requestId }): Promise<PublishFoodMenusResult> =>
     publishFoodMenus({
       session,
       locationId: params.id,

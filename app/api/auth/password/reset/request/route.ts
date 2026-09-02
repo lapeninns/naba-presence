@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 
-import { resetRequestSchema } from "@/lib/domain/auth"
+import {
+  resetRequestSchema,
+  type ResetRequestResponse,
+} from "@/lib/contracts/auth"
 import { getServerEnv } from "@/lib/server/env"
 import { requestPasswordReset } from "@/lib/server/password-auth"
 import { route } from "@/lib/server/route"
@@ -20,7 +23,7 @@ export const POST = route({
         accepted: true,
         message:
           "If an account exists for that email, a reset link has been sent.",
-      },
+      } satisfies ResetRequestResponse,
       { status: 202 }
     )
   },

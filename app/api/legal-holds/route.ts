@@ -1,17 +1,15 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  legalHoldCreateSchema,
+  legalHoldReleaseSchema,
+  type LegalHoldReleasedResponse,
+} from "@/lib/contracts/legal-holds"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const createSchema = z.object({
-  reviewId: z.uuid(),
-  reason: z.string().trim().min(10).max(1000),
-})
-const releaseSchema = z.object({ reviewId: z.uuid() })
 
 export const GET = route({
   roles: ["owner", "admin"],
@@ -36,7 +34,7 @@ export const GET = route({
 
 export const POST = route({
   roles: ["owner"],
-  body: createSchema,
+  body: legalHoldCreateSchema,
   handler: async ({
     session,
     body: input,
@@ -97,7 +95,7 @@ export const POST = route({
 
 export const DELETE = route({
   roles: ["owner"],
-  body: releaseSchema,
+  body: legalHoldReleaseSchema,
   handler: async ({
     session,
     body: input,
@@ -105,7 +103,7 @@ export const DELETE = route({
     clientRequestId,
     tenant,
   }) => {
-    const released = await tenant(async (sql) => {
+    await tenant(async (sql) => {
       const [row] = await sql`
         update legal_hold
         set released_by = ${session.userId}, released_at = now()
@@ -129,8 +127,7 @@ export const DELETE = route({
         requestId,
         metadata: { clientRequestId },
       })
-      return true
     })
-    return { released }
+    return { released: true } satisfies LegalHoldReleasedResponse
   },
 })

@@ -30,6 +30,12 @@ import type { Session } from "@/lib/server/session"
 //     unconditionally.
 //   * Gating a single location (throws 404 when hidden):
 //       await requireLocationAccess(sql, session, locationId)
+//     The default 404 is the legacy `review_not_found`; callers whose
+//     subject is not a review pass their own code/message:
+//       await requireLocationAccess(sql, session, locationId,
+//         { code: "location_not_found", message: "..." })
+//     (lib/server/gbp-write.ts `loadLinkedLocation` does this so a hidden
+//     location reads exactly like a nonexistent one.)
 //   * Asking whether the session may publish to one location:
 //       await canPublishLocation(sql, session, locationId)
 //   * Many locations at once (one query), e.g. for capability payloads:
@@ -149,17 +155,21 @@ async function grantFor(
   return grants.get(locationId) ?? NO_GRANT
 }
 
+/** The 404 raised by `requireLocationAccess` when the location is hidden. */
+export type LocationNotFound = { code?: string; message?: string }
+
 export async function requireLocationAccess(
   sql: TransactionSql,
   session: GrantScope,
-  locationId: string
+  locationId: string,
+  notFound: LocationNotFound = {}
 ) {
   const grant = await grantFor(sql, session, locationId)
   if (!grant.visible) {
     throw new ApiError(
       404,
-      "review_not_found",
-      "The requested review was not found."
+      notFound.code ?? "review_not_found",
+      notFound.message ?? "The requested review was not found."
     )
   }
 }

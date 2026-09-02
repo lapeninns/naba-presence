@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  approvalInputSchema,
+  reviewIdParamsSchema,
+  type ApprovalResult,
+} from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -14,11 +18,6 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-const inputSchema = z.object({
-  decision: z.enum(["approve", "reject"]),
-  note: z.string().trim().max(2000).optional(),
-})
-
 /**
  * Approval product rules:
  * 1. Non-publishers request approval and are recorded as the requester.
@@ -30,8 +29,8 @@ const inputSchema = z.object({
  * 6. Rejection returns the reply to draft and records the decision and note.
  */
 export const POST = route({
-  params: z.object({ id: z.uuid() }),
-  body: inputSchema,
+  params: reviewIdParamsSchema,
+  body: approvalInputSchema,
   handler: async ({
     session,
     params,
@@ -178,7 +177,7 @@ export const POST = route({
     })
 
     if (decision.kind === "rejected") {
-      return { status: "returned_to_draft" }
+      return { status: "returned_to_draft" } satisfies ApprovalResult
     }
     const outcome = await executePublish({
       organisationId: session.organisationId,
@@ -208,6 +207,6 @@ export const POST = route({
       publishAttemptId: outcome.attemptId,
       reviewReplyId: outcome.reviewReplyId,
       idempotent: outcome.idempotent,
-    })
+    } satisfies ApprovalResult)
   },
 })

@@ -1,6 +1,10 @@
 import { z } from "zod"
 
-import { industryMutationSchema } from "@/lib/locations/forms/industry"
+import {
+  industryMutationSchema,
+  type IndustryMutationResult,
+  type IndustryResponse,
+} from "@/lib/contracts/location-industry"
 import {
   loadIndustryManagement,
   mutateIndustryManagement,
@@ -16,16 +20,17 @@ const paramsSchema = z.object({ id: z.uuid() })
 export const GET = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
-  handler: async ({ session, params }) => ({
-    industry: await loadIndustryManagement(session, params.id),
-  }),
+  handler: async ({ session, params }) =>
+    ({
+      industry: await loadIndustryManagement(session, params.id),
+    }) satisfies IndustryResponse,
 })
 
 export const PATCH = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: industryMutationSchema,
-  handler: ({ session, params, body, requestId }) => {
+  handler: ({ session, params, body, requestId }): Promise<IndustryMutationResult> => {
     if (
       body.operation === "update_business_calls" &&
       body.updateMask.some((field) => field !== "callsState")

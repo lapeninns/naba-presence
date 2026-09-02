@@ -1,4 +1,8 @@
-import type { LocationEntry, ManagementLocation } from "@/lib/api/locations"
+import type {
+  DirectoryRow,
+  LocationEntry,
+  ManagementLocation,
+} from "@/lib/contracts/location-links"
 
 // Pure — deliberately NOT "use client" and NOT "server-only". These mappers
 // run on both sides: the client hook maps a fetched payload with them, and the
@@ -6,23 +10,10 @@ import type { LocationEntry, ManagementLocation } from "@/lib/api/locations"
 // cache. Sharing one implementation is what makes the RSC and HTTP paths
 // produce identical objects instead of two shapes that drift.
 //
-// The type-only imports above are erased at build time, so nothing here pulls
-// the API client's fetch machinery into a server bundle.
-
-// The directory row exactly as lib/server/location-directory.ts selects it.
-// Declared here rather than in the server module so both the route handler and
-// the pure projections can name it without importing "server-only" code.
-export type DirectoryRow = {
-  locationId: string
-  name: string
-  address: unknown | null
-  timezone: string
-  linkId: string | null
-  externalLocationId: string | null
-  googleLocationName: string | null
-  googleTitle: string | null
-  verified: boolean | null
-}
+// The row and entry shapes are the wire contract
+// (lib/contracts/location-links.ts); `DirectoryRow` is re-exported for the
+// existing importers of this module.
+export type { DirectoryRow }
 
 export function projectManagement(
   rows: readonly DirectoryRow[]
@@ -57,8 +48,9 @@ export function projectDefault(
 }
 
 // `linked` is required. See the note on locationEntrySchema in
-// lib/api/locations.ts — primary-location resolution ranks on it, so a payload
-// that could omit it would let two roles resolve different primaries silently.
+// lib/contracts/location-links.ts — primary-location resolution ranks on it,
+// so a payload that could omit it would let two roles resolve different
+// primaries silently.
 export type DirectoryEntry = {
   id: string
   name: string

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  draftInputSchema,
+  reviewIdParamsSchema,
+  type DraftResult,
+} from "@/lib/contracts/reviews"
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
 import { generateReply } from "@/lib/server/ai"
@@ -14,21 +18,10 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-const inputSchema = z.object({
-  tone: z
-    .enum(["warm_professional", "concise", "empathetic"])
-    .default("warm_professional"),
-  languageOverride: z.string().trim().min(2).max(12).nullable().default(null),
-  businessContext: z.string().trim().max(2000).nullable().default(null),
-  // Omit body → server generates (AI) or templates (rating-only).
-  // Include body → human save. Generation never runs unless the client omits body.
-  body: z.string().trim().min(1).max(4096).optional(),
-})
-
 export const POST = route({
   roles: ["owner", "admin", "member"],
-  params: z.object({ id: z.uuid() }),
-  body: inputSchema,
+  params: reviewIdParamsSchema,
+  body: draftInputSchema,
   handler: async ({
     session,
     params,
@@ -210,7 +203,7 @@ export const POST = route({
         bodyBytes: Buffer.byteLength(generated.reply, "utf8"),
         evidenceHash,
         verification,
-      }
+      } satisfies DraftResult
     })
     return NextResponse.json(result, { status: 201 })
   },

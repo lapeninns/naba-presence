@@ -14,6 +14,7 @@ import {
   type NormalizedProfile,
   type ProfileFieldKey,
 } from "@/lib/domain/profile"
+import type { ProfileState } from "@/lib/contracts/location-profile"
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
@@ -69,33 +70,8 @@ type StoredFieldState = {
   lastReconciledAt: Date | null
 }
 
-export type ProfileState = {
-  location: { id: string; name: string; googleLocationName: string }
-  canonicalResource: { revision: string; updatedAt: string }
-  canonicalHash: string
-  googleHash: string
-  canPublish: boolean
-  googleWritesEnabled: boolean
-  fields: Array<{
-    key: ProfileFieldKey
-    policy: (typeof PROFILE_FIELD_POLICIES)[ProfileFieldKey]
-    status: ReturnType<typeof classifyProfileField>
-    canonicalValue: string | null
-    googleValue: string | null
-    canonicalHash: string
-    googleHash: string
-    lastReconciledAt: string | null
-  }>
-  googleDetails: { primaryCategory: string | null; additionalCategories: string[] }
-  latestAttempt: {
-    id: string
-    direction: string
-    status: string
-    selectedFields: string[]
-    createdAt: string
-    finishedAt: string | null
-  } | null
-}
+/** The GET response shape is owned by the wire contract; re-exported for server callers. */
+export type { ProfileState }
 
 /** profile_sync_attempt behind the shared AttemptStore interface. */
 const profileAttempts = attemptStore({

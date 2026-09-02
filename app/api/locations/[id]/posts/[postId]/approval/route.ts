@@ -1,5 +1,9 @@
 import { z } from "zod"
 
+import {
+  postApprovalDecisionSchema,
+  type PostApprovalOutcome,
+} from "@/lib/contracts/location-posts"
 import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -7,11 +11,9 @@ import { requireLocationAccess } from "@/lib/server/permissions"
 import { requestOrPublishLocalPost } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
-const inputSchema = z.object({ decision: z.enum(["approve", "reject"]) })
-
 export const POST = route({
   params: z.object({ id: z.string(), postId: z.string() }),
-  body: inputSchema,
+  body: postApprovalDecisionSchema,
   handler: async ({ session, params, body, requestId, tenant }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
@@ -38,15 +40,15 @@ export const POST = route({
           requestId,
         })
       })
-      return { status: "draft" }
+      return { status: "draft" } satisfies PostApprovalOutcome
     }
-    return requestOrPublishLocalPost({
+    return (await requestOrPublishLocalPost({
       organisationId: session.organisationId,
       session,
       locationId: id,
       postId,
       requestId,
       approval: true,
-    })
+    })) satisfies PostApprovalOutcome
   },
 })

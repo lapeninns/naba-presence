@@ -1,8 +1,12 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
-import { z } from "zod"
 
+import {
+  localPostInputSchema,
+  type LocalPostInput,
+  type PostRow,
+} from "@/lib/contracts/location-posts"
 import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
@@ -27,61 +31,9 @@ import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-const callToActionSchema = z
-  .object({
-    actionType: z.enum([
-      "BOOK",
-      "ORDER",
-      "SHOP",
-      "LEARN_MORE",
-      "SIGN_UP",
-      "CALL",
-    ]),
-    url: z.url().optional(),
-  })
-  .optional()
-
-export const localPostInputSchema = z
-  .object({
-    topicType: z.enum(["STANDARD", "EVENT", "OFFER"]),
-    languageCode: z.string().trim().min(2).max(16).default("en-GB"),
-    summary: z.string().trim().max(1500).default(""),
-    callToAction: callToActionSchema,
-    event: z.record(z.string(), z.unknown()).optional(),
-    offer: z
-      .object({
-        couponCode: z.string().trim().max(100).optional(),
-        redeemOnlineUrl: z.url().optional(),
-        termsConditions: z.string().trim().max(5000).optional(),
-      })
-      .optional(),
-    media: z
-      .array(z.object({ sourceUrl: z.url() }))
-      .max(10)
-      .default([]),
-    scheduledTime: z.iso.datetime().optional(),
-  })
-  .superRefine((value, context) => {
-    if (
-      (value.topicType === "EVENT" || value.topicType === "OFFER") &&
-      !value.event
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["event"],
-        message: "Event details are required for event and offer posts.",
-      })
-    }
-    if (value.topicType === "OFFER" && !value.offer) {
-      context.addIssue({
-        code: "custom",
-        path: ["offer"],
-        message: "Offer details are required for offer posts.",
-      })
-    }
-  })
-
-export type LocalPostInput = z.infer<typeof localPostInputSchema>
+// Request/response shapes live in the contract; the old names stay exported
+// from here for one sprint so existing imports keep working.
+export { localPostInputSchema, type LocalPostInput }
 
 // Posts keep their historical not-linked code (`location_not_linked`, not the
 // pipeline default `google_location_not_linked`).
@@ -211,6 +163,17 @@ async function reconcileLocalPosts(
 // Post rows
 // ---------------------------------------------------------------------------
 
+/**
+ * A `PostRow` as it leaves the database: postgres.js hands timestamps back as
+ * `Date`, which `NextResponse.json` serialises to the ISO strings the
+ * contract declares.
+ */
+type PostListRow = Omit<PostRow, "scheduledTime" | "createdAt" | "updatedAt"> & {
+  scheduledTime: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
 type LocalPost = {
   id: string
   locationId: string
@@ -294,7 +257,7 @@ export async function listLocalPosts(
   }
   const posts = await withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
-    return sql`
+    return sql<PostListRow[]>`
       select
         id::text as id,
         topic_type as "topicType",

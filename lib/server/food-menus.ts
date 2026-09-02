@@ -2,6 +2,12 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import type {
+  FoodMenu,
+  FoodMenusState,
+  PublishFoodMenusResult,
+  SaveFoodMenusResult,
+} from "@/lib/contracts/location-food-menus"
 import { foodMenuCounts, hashFoodMenus } from "@/lib/domain/food-menus"
 import { googleFoodMenusName } from "@/lib/domain/google-contract"
 import { writeAudit } from "@/lib/server/audit"
@@ -30,7 +36,7 @@ import {
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
-type Menus = Array<Record<string, unknown>>
+type Menus = FoodMenu[]
 
 /**
  * food_menus_sync_attempt as an AttemptStore. Its CHECK constraint knows
@@ -155,7 +161,7 @@ export async function readLiveFoodMenus(session: Session, locationId: string) {
     googleCounts: foodMenuCounts(googleMenus),
     canPublish: context.canPublish,
     writesEnabled: env.PUBLISH_ENABLED && env.GBP_FOOD_MENUS_ENABLED,
-  }
+  } satisfies FoodMenusState
   await recordFoodMenusState({
     session,
     locationId,
@@ -180,7 +186,7 @@ export async function saveCanonicalFoodMenus(input: {
   expectedCanonicalRevision: string
   menus: Menus
   requestId: string
-}) {
+}): Promise<SaveFoodMenusResult> {
   const context = await linkedFoodMenusLocation(input.session, input.locationId)
   requirePublishGrant(context, {
     code: "canonical_edit_permission_required",
@@ -285,7 +291,7 @@ function foodMenusReadback(
   }
 }
 
-export async function publishFoodMenus(input: PublishFoodMenusInput) {
+export async function publishFoodMenus(input: PublishFoodMenusInput): Promise<PublishFoodMenusResult> {
   requireGbpWrite(getServerEnv(), "foodMenus", {
     code: "food_menus_paused",
     message: "Food Menu publishing is paused.",

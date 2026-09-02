@@ -1,8 +1,8 @@
 import "server-only"
 
+import type { DirectoryRow } from "@/lib/contracts/location-links"
 import { withTenant } from "@/lib/server/db"
 import { visibilityPredicate } from "@/lib/server/permissions"
-import type { DirectoryRow } from "@/lib/locations/directory"
 import type { Session } from "@/lib/server/session"
 
 // The role-scoped location directory query, shared by GET /api/location-links

@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { keywordsSyncSchema } from "@/lib/contracts/sync"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { syncDueKeywords } from "@/lib/server/keywords"
@@ -9,13 +8,6 @@ import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const inputSchema = z.object({
-  externalLocationId: z.uuid().optional(),
-  organisationCursor: z.uuid().optional(),
-  maxOrganisations: z.number().int().min(1).max(100).default(25),
-  maxLocations: z.number().int().min(1).max(25).default(10),
-})
 
 // Session-or-cron hybrid: an owner/admin session syncs its own organisation,
 // the cron token (no session) walks every organisation. Declared `public` so
@@ -34,7 +26,7 @@ export const POST = route({
   auth: "public",
   handler: async ({ request }) => {
     const session = await authenticate(request)
-    const input = inputSchema.parse(await request.json().catch(() => ({})))
+    const input = keywordsSyncSchema.parse(await request.json().catch(() => ({})))
     // Cross-tenant enumeration: the cron walks every organisation that has a
     // job route, so this one read deliberately runs outside withTenant.
     const organisationIds = session

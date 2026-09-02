@@ -487,6 +487,90 @@ describe("gbp-write", () => {
     expect(await audits()).toHaveLength(0)
   })
 
+  it("readback.verify may return the hash string, which is stored without calling hash", async () => {
+    let hashCalls = 0
+    const result = await run({
+      readback: {
+        read: async () => ({ hash: "from-verify" }),
+        verify: ({ readback }) => readback.hash,
+        hash: (readback) => {
+          hashCalls += 1
+          return `rehashed:${readback.hash}`
+        },
+      },
+    })
+    if (result.idempotent) throw new Error("unreachable")
+    expect(result.readbackHash).toBe("from-verify")
+    expect(hashCalls).toBe(0)
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("succeeded")
+    expect(row.provider_response_hash).toBe("from-verify")
+  })
+
+  it("readback.verify returning true still uses hash, and an empty-string hash counts as verified", async () => {
+    const viaHash = await run({
+      readback: {
+        read: async () => ({ hash: "x" }),
+        verify: () => true,
+        hash: (readback) => `hashed:${readback.hash}`,
+      },
+    })
+    if (viaHash.idempotent) throw new Error("unreachable")
+    expect(viaHash.readbackHash).toBe("hashed:x")
+
+    await db.exec("delete from write_attempt; delete from audit_log;")
+    const empty = await run({
+      readback: {
+        read: async () => ({ hash: "" }),
+        verify: ({ readback }) => readback.hash,
+      },
+    })
+    if (empty.idempotent) throw new Error("unreachable")
+    expect(empty.readbackHash).toBe("")
+  })
+
+  it("validate may resolve to a value; it is ignored", async () => {
+    const result = await run({
+      validate: async () => {
+        calls.push("validate")
+        return { name: "locations/1", validateOnly: true }
+      },
+    })
+    expect(result.idempotent).toBe(false)
+    expect(calls).toEqual(["validate", "mutate", "read"])
+    const [row] = await rows("write_attempt")
+    expect(row.validated_at).not.toBeNull()
+  })
+
+  it("intent callbacks are contextually typed without an annotation", async () => {
+    // No explicit type arguments and no `(sql: TransactionSql)` annotation:
+    // the `intent` literal is typed by the store's IntentColumns, so `sql`
+    // here is a TransactionSql (this test fails `pnpm typecheck` under
+    // noImplicitAny otherwise).
+    const result = await runGbpWrite(
+      {
+        organisationId: ORG,
+        actorUserId: USER,
+        requestId: "req-typed",
+        store: hoursStyle,
+        key: idempotencyKey([ORG, EXTERNAL, "typed"]),
+        intent: {
+          location_id: LOCATION,
+          operation: "publish",
+          intended_payload: (sql) => sql.json({ typed: true }),
+        },
+        inProgress: { code: "in_progress", message: "in progress" },
+        failureCode: "failed",
+        mutate: async () => ({ name: "locations/1" }),
+        onAmbiguous: "fail",
+      },
+      { withTenant }
+    )
+    expect(result.idempotent).toBe(false)
+    const [row] = await rows("write_attempt")
+    expect(row.intended_payload).toEqual({ typed: true })
+  })
+
   it("a readback that cannot be read leaves the attempt ambiguous", async () => {
     await expect(
       run({
@@ -798,14 +882,106 @@ describe("loadLinkedLocation", () => {
     ).rejects.toMatchObject({ status: 409, code: "google_location_not_linked" })
   })
 
+  const MISSING = "00000000-0000-4000-8000-0000000000ff"
+  const OTHER_USER = "00000000-0000-4000-8000-0000000000aa"
+
   it("raises 404 for a location that does not exist", async () => {
     await expect(
-      loadLinkedLocation(
-        pgliteSql(db),
-        session,
-        "00000000-0000-4000-8000-0000000000ff"
-      )
-    ).rejects.toMatchObject({ status: 404, code: "location_not_found" })
+      loadLinkedLocation(pgliteSql(db), session, MISSING)
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "location_not_found",
+      message: "Location not found.",
+    })
+  })
+
+  it("notFound overrides the 404 code and message (field by field)", async () => {
+    await expect(
+      loadLinkedLocation(pgliteSql(db), session, MISSING, {
+        notFound: { message: "The requested location was not found." },
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "location_not_found",
+      message: "The requested location was not found.",
+    })
+    await expect(
+      loadLinkedLocation(pgliteSql(db), session, MISSING, {
+        notFound: { code: "post_location_not_found", message: "Nope." },
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "post_location_not_found",
+      message: "Nope.",
+    })
+  })
+
+  it("a nonexistent id is the module's 404 even for a member with assignments elsewhere", async () => {
+    // Before the ordering fix requireLocationAccess ran first and a member
+    // asking for an unknown id got the legacy `review_not_found`.
+    await db.query("insert into location_member values ($1, $2, true)", [
+      USER,
+      UNLINKED,
+    ])
+    try {
+      await expect(
+        loadLinkedLocation(
+          pgliteSql(db),
+          { ...session, role: "member" },
+          MISSING,
+          { notFound: { message: "The requested location was not found." } }
+        )
+      ).rejects.toMatchObject({
+        status: 404,
+        code: "location_not_found",
+        message: "The requested location was not found.",
+      })
+    } finally {
+      await db.query("delete from location_member")
+    }
+  })
+
+  it("a hidden-but-existing location surfaces as the same notFound, never review_not_found", async () => {
+    // The member is assigned to UNLINKED only, so LOCATION exists but is hidden.
+    await db.query("insert into location_member values ($1, $2, true)", [
+      USER,
+      UNLINKED,
+    ])
+    try {
+      const member = { ...session, role: "member" as const }
+      await expect(
+        loadLinkedLocation(pgliteSql(db), member, LOCATION)
+      ).rejects.toMatchObject({
+        status: 404,
+        code: "location_not_found",
+        message: "Location not found.",
+      })
+      await expect(
+        loadLinkedLocation(pgliteSql(db), member, LOCATION, {
+          notFound: { code: "post_location_not_found", message: "Nope." },
+        })
+      ).rejects.toMatchObject({
+        code: "post_location_not_found",
+        message: "Nope.",
+      })
+      // Visibility is still enforced by the same grant: the assigned
+      // location loads, and another user's assignments do not hide it.
+      await expect(
+        loadLinkedLocation(pgliteSql(db), member, UNLINKED)
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "google_location_not_linked",
+      })
+      await expect(
+        loadLinkedLocation(
+          pgliteSql(db),
+          { ...member, userId: OTHER_USER },
+          LOCATION
+        )
+      ).resolves.toMatchObject({ locationId: LOCATION })
+    } finally {
+      await db.query("delete from location_member")
+    }
   })
 
   it("reports canPublish false for a viewer", async () => {

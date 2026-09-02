@@ -1,33 +1,21 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
+import {
+  registerResponseSchema,
+  type RegisterInput,
+  type ResendConfirmationInput,
+  type ResetPasswordInput,
+  type ResetRequestInput,
+  type SignInInput,
+} from "@/lib/contracts/auth"
+import { invitationLookupSchema } from "@/lib/contracts/invitations"
 
-const registerResponseSchema = z.object({
-  authenticated: z.boolean(),
-  confirmationRequired: z.boolean().optional(),
-})
-
-const invitationSchema = z.object({
-  organisationName: z.string(),
-  email: z.string(),
-  accepted: z.boolean(),
-  expired: z.boolean(),
-})
-
-export async function signIn(input: {
-  email: string
-  password: string
-  inviteToken?: string
-}): Promise<void> {
+export async function signIn(input: SignInInput): Promise<void> {
   await apiFetch("/api/auth/password/login", { method: "POST", body: input })
 }
 
-export async function register(input: {
-  displayName: string
-  email: string
-  password: string
-  inviteToken?: string
-}): Promise<{ authenticated: boolean; confirmationRequired: boolean }> {
+export async function register(
+  input: RegisterInput
+): Promise<{ authenticated: boolean; confirmationRequired: boolean }> {
   const result = await apiFetch("/api/auth/password/register", {
     method: "POST",
     body: input,
@@ -42,14 +30,11 @@ export async function register(input: {
 export async function requestPasswordReset(email: string): Promise<void> {
   await apiFetch("/api/auth/password/reset/request", {
     method: "POST",
-    body: { email },
+    body: { email } satisfies ResetRequestInput,
   })
 }
 
-export async function completePasswordReset(input: {
-  tokenHash: string
-  password: string
-}): Promise<void> {
+export async function completePasswordReset(input: ResetPasswordInput): Promise<void> {
   await apiFetch("/api/auth/password/reset/complete", {
     method: "POST",
     body: input,
@@ -59,7 +44,7 @@ export async function completePasswordReset(input: {
 export async function resendConfirmation(email: string): Promise<void> {
   await apiFetch("/api/auth/password/resend", {
     method: "POST",
-    body: { email },
+    body: { email } satisfies ResendConfirmationInput,
   })
 }
 
@@ -69,7 +54,7 @@ export async function signOut(): Promise<void> {
 
 export async function lookupInvitation(token: string, options?: RequestOptions) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
-    schema: invitationSchema,
+    schema: invitationLookupSchema,
     ...options,
   })
 }

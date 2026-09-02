@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { localPostInputSchema } from "@/lib/server/posts"
+import { localPostInputSchema } from "@/lib/contracts/location-posts"
 
 describe("Local Posts validation", () => {
   it("accepts standard, event, and offer payloads", () => {

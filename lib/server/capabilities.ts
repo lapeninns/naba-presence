@@ -3,6 +3,15 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import {
+  LOCATION_RESOURCE_KEYS,
+  type LocationCapabilities,
+  type LocationResourceKey,
+  type ResourceCapability,
+  type ResourceCapabilityState,
+  type SettingsCapabilities,
+} from "@/lib/contracts/location-capabilities"
+import type { ReviewCapabilities } from "@/lib/contracts/reviews"
+import {
   type GbpFlags,
   gbpIngestionEnabled,
   gbpWritesEnabled,
@@ -15,7 +24,8 @@ import {
 } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-// One capability object per review. The location rule itself lives ONLY in
+// One capability object per review (shape: ReviewCapabilities in
+// lib/contracts/reviews.ts). The location rule itself lives ONLY in
 // lib/server/permissions.ts (grantsFor); this module just projects it:
 //   canPublish         === grant.canPublish (canPublishLocation)
 //   canEdit            === grant.canEdit    (visible && role !== 'viewer')
@@ -23,11 +33,6 @@ import type { Session } from "@/lib/server/session"
 //     (D2: a non-publisher may submit a reply for approval only when the org
 //     requires it. Never true for a publisher — see executePublish's
 //     `!canPublish && approval_required` routing, lib/server/publishing.ts.)
-export type ReviewCapabilities = {
-  canPublish: boolean
-  canEdit: boolean
-  canRequestApproval: boolean
-}
 
 export async function reviewCapabilitiesForLocations(
   sql: TransactionSql,
@@ -72,47 +77,16 @@ export async function reviewCapabilities(
 //   canEditCanonical === role in {owner, admin}  (the canonical-PUT route gate)
 //   canPublish        === canPublishLocation(sql, session, locationId)
 //   resources         === per-surface availability for UI gating (Slice 0 manifest)
-export type ResourceCapabilityState =
-  | "available"
-  | "readOnly"
-  | "blocked"
-  | "unavailable"
-
-export type ResourceCapability = {
-  state: ResourceCapabilityState
-  reasonCode?: string
+// The wire shape and the resource-key vocabulary live in
+// lib/contracts/location-capabilities.ts; re-exported here for existing
+// server-side importers.
+export type {
+  LocationCapabilities,
+  LocationResourceKey,
+  ResourceCapability,
+  ResourceCapabilityState,
+  SettingsCapabilities,
 }
-
-export type LocationResourceKey =
-  | "profile"
-  | "hours"
-  | "businessInformation"
-  | "photos"
-  | "posts"
-  | "menu"
-  | "booking"
-  | "performance"
-  | "industry"
-  | "administration"
-
-export type LocationCapabilities = {
-  canEditCanonical: boolean
-  canPublish: boolean
-  resources: Record<LocationResourceKey, ResourceCapability>
-}
-
-const RESOURCE_KEYS: LocationResourceKey[] = [
-  "profile",
-  "hours",
-  "businessInformation",
-  "photos",
-  "posts",
-  "menu",
-  "booking",
-  "performance",
-  "industry",
-  "administration",
-]
 
 // Per-resource write availability, mirroring the per-surface kill switch each
 // lib/server module checks at its provider-mutation/ingestion boundary
@@ -138,7 +112,7 @@ export function resourceWritesEnabled(
 }
 
 const NO_RESOURCE_WRITES = Object.fromEntries(
-  RESOURCE_KEYS.map((key) => [key, false])
+  LOCATION_RESOURCE_KEYS.map((key) => [key, false])
 ) as Record<LocationResourceKey, boolean>
 
 function buildResources(input: {
@@ -150,7 +124,7 @@ function buildResources(input: {
   const { canEditCanonical, canPublish, linked, publishesEnabled } = input
   const resources = {} as Record<LocationResourceKey, ResourceCapability>
 
-  for (const key of RESOURCE_KEYS) {
+  for (const key of LOCATION_RESOURCE_KEYS) {
     if (!linked) {
       resources[key] = {
         state: "unavailable",
@@ -252,14 +226,6 @@ export async function locationCapabilities(
 //   canManageTeam/canManageConnections/canEditSettings/canViewCompliance === role in {owner, admin}
 //   canManageCompliance === role === "owner"
 // Pure role predicates that mirror the route guards; no SQL.
-export type SettingsCapabilities = {
-  canManageTeam: boolean
-  canManageConnections: boolean
-  canEditSettings: boolean
-  canViewCompliance: boolean
-  canManageCompliance: boolean
-}
-
 export function settingsCapabilities(session: Session): SettingsCapabilities {
   const managerial = isManagerialRole(session.role)
   return {

@@ -1,5 +1,10 @@
 import "server-only"
 
+import type {
+  AdministrationMutationResult,
+  AdministrationOperation,
+  AdministrationState,
+} from "@/lib/contracts/location-administration"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -56,7 +61,7 @@ async function safe<T>(operation: () => Promise<T>) {
 export async function loadLocationAdministration(
   session: Session,
   locationId: string
-) {
+): Promise<AdministrationState> {
   const linked = await context(session, locationId)
   const token = await connectionAccessToken(
     getDatabase(), session.organisationId, linked.connectionId
@@ -105,11 +110,7 @@ export async function loadLocationAdministration(
   }
 }
 
-type AdministrationOperation =
-  | "start_verification" | "complete_verification"
-  | "create_admin" | "update_admin" | "delete_admin"
-  | "accept_invitation" | "decline_invitation" | "transfer_location"
-  | "create_location" | "delete_location" | "accept_google_update"
+export type { AdministrationOperation }
 
 export async function mutateLocationAdministration(input: {
   session: Session
@@ -117,7 +118,7 @@ export async function mutateLocationAdministration(input: {
   operation: AdministrationOperation
   payload: Record<string, unknown>
   requestId: string
-}) {
+}): Promise<AdministrationMutationResult> {
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this Google location.")
   if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")

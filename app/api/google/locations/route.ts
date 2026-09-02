@@ -1,3 +1,7 @@
+import type {
+  DiscoveredLocation,
+  GoogleLocationsResponse,
+} from "@/lib/contracts/google"
 import { connectionAccessToken, googleLocations } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
@@ -65,7 +69,7 @@ export const GET = route({
           "Discover Google accounts first."
         )
       }
-      const discovered: Record<string, unknown>[] = []
+      const discovered: DiscoveredLocation[] = []
       for (const account of accounts) {
         const accessToken = await connectionAccessToken(
           sql,
@@ -176,6 +180,6 @@ export const GET = route({
       }
       return discovered
     })
-    return { locations }
+    return { locations } satisfies GoogleLocationsResponse
   },
 })

@@ -1,4 +1,7 @@
-import { resetPasswordSchema } from "@/lib/domain/auth"
+import {
+  resetPasswordSchema,
+  type ResetCompleteResponse,
+} from "@/lib/contracts/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import {
   updatePasswordWithToken,
@@ -22,6 +25,6 @@ export const POST = route({
       requestId,
       clientRequestId,
     })
-    return { updated: true, authenticated: true }
+    return { updated: true, authenticated: true } satisfies ResetCompleteResponse
   },
 })

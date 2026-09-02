@@ -1,5 +1,7 @@
-import { z } from "zod"
-
+import {
+  reviewIdParamsSchema,
+  type DeleteReplyResult,
+} from "@/lib/contracts/reviews"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { executeReplyDelete } from "@/lib/server/publishing"
@@ -9,7 +11,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const DELETE = route({
-  params: z.object({ id: z.uuid() }),
+  params: reviewIdParamsSchema,
   handler: async ({ session, params, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
@@ -34,6 +36,6 @@ export const DELETE = route({
     return {
       status: outcome.status,
       publishAttemptId: outcome.attemptId,
-    }
+    } satisfies DeleteReplyResult
   },
 })

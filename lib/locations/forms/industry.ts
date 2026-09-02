@@ -3,9 +3,7 @@ import { z } from "zod"
 // Client-safe leaves for the fields the industry editor actually touches. The
 // server payload is a freeform record (z.record) so these mirror only the leaves
 // the UI writes — everything else on the Google resource is preserved (D8).
-export const businessCallsLeafSchema = z.object({
-  callsState: z.enum(["ENABLED", "DISABLED"]),
-})
+// (`businessCallsLeafSchema` is part of the wire contract; see the re-export below.)
 export const lodgingLeafSchema = z.object({
   policies: z
     .object({
@@ -140,39 +138,12 @@ export function touchedMask(
   )
 }
 
-/** Server route mutation envelope (Slice 0). */
-export const industryOperationSchema = z.enum([
-  "update_lodging",
-  "update_business_calls",
-  "update_healthcare_services",
-  "update_healthcare_provider_attributes",
-])
-export type IndustryOperation = z.infer<typeof industryOperationSchema>
-
-export const industryMutationSchema = z.discriminatedUnion("operation", [
-  z.object({
-    operation: z.literal("update_lodging"),
-    confirmation: z.literal("publish_industry_data_to_google"),
-    updateMask: z.array(z.string().trim().min(1)).min(1),
-    payload: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    operation: z.literal("update_business_calls"),
-    confirmation: z.literal("publish_industry_data_to_google"),
-    updateMask: z.array(z.literal("callsState")).min(1).max(1),
-    payload: businessCallsLeafSchema,
-  }),
-  z.object({
-    operation: z.literal("update_healthcare_services"),
-    confirmation: z.literal("publish_industry_data_to_google"),
-    updateMask: z.array(z.string().trim().min(1)).min(1),
-    payload: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    operation: z.literal("update_healthcare_provider_attributes"),
-    confirmation: z.literal("publish_industry_data_to_google"),
-    updateMask: z.array(z.string().trim().min(1)).min(1),
-    payload: z.record(z.string(), z.unknown()),
-  }),
-])
-export type IndustryMutation = z.infer<typeof industryMutationSchema>
+// The route mutation envelope lives in the wire contract; re-exported here so
+// existing form-side imports keep resolving.
+export {
+  businessCallsLeafSchema,
+  industryMutationSchema,
+  industryOperationSchema,
+  type IndustryMutation,
+  type IndustryOperation,
+} from "@/lib/contracts/location-industry"

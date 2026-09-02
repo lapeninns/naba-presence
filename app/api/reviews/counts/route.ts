@@ -1,9 +1,9 @@
-import { z } from "zod"
-
 import {
   REVIEW_WORKFLOW_STATES,
+  reviewCountsQuerySchema,
+  type ReviewCounts,
   type ReviewWorkflowState,
-} from "@/lib/domain/workflow"
+} from "@/lib/contracts/reviews"
 import {
   requireLocationAccess,
   visibilityPredicate,
@@ -12,12 +12,8 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-const querySchema = z.object({
-  locationId: z.uuid().optional(),
-})
-
 export const GET = route({
-  query: querySchema,
+  query: reviewCountsQuerySchema,
   handler: async ({ session, query, tenant }) => {
     const rows = await tenant(async (sql) => {
       if (query.locationId) {
@@ -45,6 +41,6 @@ export const GET = route({
     return {
       total: rows.reduce((total, row) => total + row.count, 0),
       byStatus,
-    }
+    } satisfies ReviewCounts
   },
 })

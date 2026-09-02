@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  publishInputSchema,
+  reviewIdParamsSchema,
+} from "@/lib/contracts/reviews"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { executePublish } from "@/lib/server/publishing"
@@ -9,14 +12,12 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-const inputSchema = z.object({
-  draftId: z.uuid(),
-  expectedReviewUpdateTime: z.string().min(1),
-})
-
+// Response shape: `PublishResult` (lib/contracts/reviews.ts). Not `satisfies`-
+// checked here because `PublishOutcome.reviewReplyId` is declared optional in
+// lib/server/publishing/types.ts although every non-failed outcome sets it.
 export const POST = route({
-  params: z.object({ id: z.uuid() }),
-  body: inputSchema,
+  params: reviewIdParamsSchema,
+  body: publishInputSchema,
   handler: async ({ session, params, body: input, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(

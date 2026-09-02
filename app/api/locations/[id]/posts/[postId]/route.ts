@@ -1,10 +1,14 @@
 import { z } from "zod"
 
+import {
+  localPostInputSchema,
+  type PostDeleteOutcome,
+  type PostUpdateResponse,
+} from "@/lib/contracts/location-posts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import {
   deleteLocalPost,
-  localPostInputSchema,
   requestOrPublishLocalPost,
   updateLocalPostDraft,
 } from "@/lib/server/posts"
@@ -29,30 +33,30 @@ export const PATCH = route({
       if (!getServerEnv().PUBLISH_ENABLED) {
         throw new ApiError(503, "publishing_paused", "Publishing is paused.")
       }
-      return requestOrPublishLocalPost({
+      return (await requestOrPublishLocalPost({
         organisationId: session.organisationId,
         session,
         locationId: id,
         postId,
         requestId,
-      })
+      })) satisfies PostUpdateResponse
     }
-    return { post }
+    return { post } satisfies PostUpdateResponse
   },
 })
 
 export const DELETE = route({
   params: paramsSchema,
-  handler: ({ session, params, requestId }) => {
+  handler: async ({ session, params, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Publishing is paused.")
     }
-    return deleteLocalPost({
+    return (await deleteLocalPost({
       organisationId: session.organisationId,
       session,
       locationId: params.id,
       postId: params.postId,
       requestId,
-    })
+    })) satisfies PostDeleteOutcome
   },
 })

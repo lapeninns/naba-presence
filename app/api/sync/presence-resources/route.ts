@@ -1,5 +1,7 @@
-import { z } from "zod"
-
+import {
+  presenceResourcesSyncSchema,
+  type PresenceResourcesSyncInput,
+} from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { readLiveFoodMenus } from "@/lib/server/food-menus"
@@ -19,12 +21,6 @@ import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const schema = z.object({
-  organisationCursor: z.uuid().optional(),
-  maxOrganisations: z.number().int().min(1).max(25).default(10),
-  maxLocations: z.number().int().min(1).max(10).default(5),
-})
 
 const resources = ["hours", "profile", "posts", "media", "foodMenus", "placeActions"] as const
 
@@ -140,7 +136,7 @@ async function reconcileResource(
   return loadPlaceActions(session.organisationId, session, locationId)
 }
 
-async function reconcileOrganisations(input: z.infer<typeof schema>) {
+async function reconcileOrganisations(input: PresenceResourcesSyncInput) {
   // Cross-tenant enumeration: the cron walks every organisation that has a
   // job route, so this one read deliberately runs outside withTenant.
   const database = getDatabase()
@@ -182,7 +178,7 @@ async function reconcileOrganisations(input: z.infer<typeof schema>) {
 
 export const POST = route({
   auth: "cron",
-  body: schema,
+  body: presenceResourcesSyncSchema,
   handler: async ({ body }) => {
     const result = await withAdvisoryLock("naba:presence-resources", () =>
       reconcileOrganisations(body)

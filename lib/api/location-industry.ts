@@ -1,41 +1,33 @@
-import { z } from "zod"
+import {
+  INDUSTRY_CONFIRMATION,
+  industryMutationResultSchema,
+  industryResponseSchema,
+  type IndustryMutation,
+  type IndustryOperation,
+  type IndustryState,
+} from "@/lib/contracts/location-industry"
 
 import { apiFetch, type RequestOptions } from "./client"
 
-const sectionResultSchema = z.object({ data: z.unknown(), error: z.string().nullable() })
-export type SectionResult<T = unknown> = { data: T; error: string | null }
-
-const industryStateSchema = z.object({
-  lodging: sectionResultSchema,
-  lodgingUpdated: sectionResultSchema,
-  calls: sectionResultSchema,
-  callInsights: sectionResultSchema,
-  healthcareServices: sectionResultSchema,
-  providerAttributes: sectionResultSchema,
-  insuranceNetworks: sectionResultSchema,
-  canManage: z.boolean(),
-  writesEnabled: z.boolean(),
-})
-export type IndustryState = z.infer<typeof industryStateSchema>
-export type IndustryOperation =
-  | "update_lodging" | "update_business_calls" | "update_healthcare_services" | "update_healthcare_provider_attributes"
+export type { IndustryOperation, IndustryState, SectionResult } from "@/lib/contracts/location-industry"
 
 export function fetchIndustry(id: string, options?: RequestOptions): Promise<IndustryState> {
   return apiFetch(`/api/locations/${id}/industry`, {
-    schema: z.object({ industry: industryStateSchema }),
+    schema: industryResponseSchema,
     ...options,
   }).then((r) => r.industry)
 }
-
-const mutationResultSchema = z.object({ id: z.string(), status: z.string(), idempotent: z.boolean() })
 
 export function publishIndustry(
   id: string,
   input: { operation: IndustryOperation; updateMask: string[]; payload: Record<string, unknown> }
 ) {
+  // The editor builds the mask/payload from freeform Google leaves; the route
+  // narrows them per operation (e.g. business calls) before anything is sent on.
+  const body = { operation: input.operation, confirmation: INDUSTRY_CONFIRMATION, updateMask: input.updateMask, payload: input.payload } satisfies Record<keyof IndustryMutation, unknown>
   return apiFetch(`/api/locations/${id}/industry`, {
     method: "PATCH",
-    body: { operation: input.operation, confirmation: "publish_industry_data_to_google", updateMask: input.updateMask, payload: input.payload },
-    schema: mutationResultSchema,
+    body,
+    schema: industryMutationResultSchema,
   })
 }

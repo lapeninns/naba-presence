@@ -1,13 +1,34 @@
 // Shared human labels for inbox filter values. The More filters sheet and the
 // active-filter chips must agree; chips used to leak wire enums
 // (`not_published`, `pass`) while the sheet already showed friendly names.
+//
+// Values come from the contract vocabulary; each option list is checked
+// against it so a value added there without a label fails to typecheck.
+
+import {
+  REVIEW_SORT_LABELS,
+  type ReviewPublishStatus,
+  type ReviewSort,
+  type ReviewSyncStatus,
+  type ReviewVerificationStatus,
+} from "@/lib/contracts/reviews"
+
+type Option<V extends string> = {
+  readonly value: V
+  readonly label: string
+  readonly ariaLabel?: string
+}
+
+// Every vocabulary value must appear exactly once as an option.
+type Exhaustive<V extends string, T extends readonly Option<V>[]> =
+  Exclude<V, T[number]["value"]> extends never ? T : never
 
 export const VERIFICATION_OPTIONS = [
   { value: "pass", label: "Passed" },
   { value: "warn", label: "Review needed" },
   { value: "fail", label: "Failed" },
   { value: "pending", label: "Pending" },
-] as const
+] as const satisfies readonly Option<ReviewVerificationStatus>[]
 
 // Publish/sync status share a few labels with verification and with each
 // other ("Failed", "Pending"). `ariaLabel` disambiguates every non-verification
@@ -20,7 +41,7 @@ export const PUBLISH_STATUS_OPTIONS = [
   { value: "rejected", label: "Rejected" },
   { value: "failed", label: "Failed", ariaLabel: "Publish status: Failed" },
   { value: "deleted", label: "Deleted" },
-] as const
+] as const satisfies readonly Option<ReviewPublishStatus>[]
 
 export const SYNC_STATUS_OPTIONS = [
   { value: "pending", label: "Pending", ariaLabel: "Sync status: Pending" },
@@ -28,7 +49,25 @@ export const SYNC_STATUS_OPTIONS = [
   { value: "succeeded", label: "Succeeded" },
   { value: "failed", label: "Failed", ariaLabel: "Sync status: Failed" },
   { value: "cancelled", label: "Cancelled" },
-] as const
+] as const satisfies readonly Option<ReviewSyncStatus>[]
+
+// Compile-time exhaustiveness: `Exhaustive<V, T>` collapses to `never` when a
+// vocabulary value has no option, and `never` is not assignable to a tuple.
+const _verificationExhaustive: Exhaustive<
+  ReviewVerificationStatus,
+  typeof VERIFICATION_OPTIONS
+> = VERIFICATION_OPTIONS
+const _publishExhaustive: Exhaustive<
+  ReviewPublishStatus,
+  typeof PUBLISH_STATUS_OPTIONS
+> = PUBLISH_STATUS_OPTIONS
+const _syncExhaustive: Exhaustive<
+  ReviewSyncStatus,
+  typeof SYNC_STATUS_OPTIONS
+> = SYNC_STATUS_OPTIONS
+void _verificationExhaustive
+void _publishExhaustive
+void _syncExhaustive
 
 export const RATING_OPTIONS = [
   { value: 5, label: "5 stars" },
@@ -95,13 +134,9 @@ export function formatDateRangeChip(
   return "Date range"
 }
 
-export const SORT_LABELS: Record<string, string> = {
-  updated_desc: "Most recent",
-  updated_asc: "Oldest first",
-  rating_desc: "Highest rated",
-  rating_asc: "Lowest rated",
-}
+// The sort labels are the contract's (they are the sort vocabulary itself).
+export const SORT_LABELS: Record<ReviewSort, string> = REVIEW_SORT_LABELS
 
 export function formatSortChip(sort: string): string {
-  return `Sort: ${SORT_LABELS[sort] ?? sort}`
+  return `Sort: ${(SORT_LABELS as Record<string, string>)[sort] ?? sort}`
 }

@@ -1,39 +1,30 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
+import {
+  legalHoldCreatedResponseSchema,
+  legalHoldReleasedResponseSchema,
+  legalHoldsResponseSchema,
+  type LegalHoldCreateInput,
+  type LegalHoldReleaseInput,
+} from "@/lib/contracts/legal-holds"
 
-export const legalHoldSchema = z.object({
-  id: z.string(),
-  reviewId: z.string(),
-  reason: z.string(),
-  approvedBy: z.string(),
-  releasedBy: z.string().nullable(),
-  releasedAt: z.string().nullable(),
-  createdAt: z.string(),
-})
-
-const holdsResponseSchema = z.object({ holds: z.array(legalHoldSchema) })
-const createResponseSchema = z.object({
-  hold: z.object({
-    id: z.string(),
-    reviewId: z.string(),
-    reason: z.string(),
-    approvedBy: z.string(),
-    createdAt: z.string(),
-  }),
-})
-const releasedResponseSchema = z.object({ released: z.literal(true) })
-
-export type LegalHold = z.infer<typeof legalHoldSchema>
+export { legalHoldSchema, type LegalHold } from "@/lib/contracts/legal-holds"
 
 export function fetchLegalHolds(options?: RequestOptions) {
-  return apiFetch("/api/legal-holds", { schema: holdsResponseSchema, ...options })
+  return apiFetch("/api/legal-holds", { schema: legalHoldsResponseSchema, ...options })
 }
 
-export function createLegalHold(input: { reviewId: string; reason: string }) {
-  return apiFetch("/api/legal-holds", { method: "POST", body: input, schema: createResponseSchema })
+export function createLegalHold(input: LegalHoldCreateInput) {
+  return apiFetch("/api/legal-holds", {
+    method: "POST",
+    body: input,
+    schema: legalHoldCreatedResponseSchema,
+  })
 }
 
 export function releaseLegalHold(reviewId: string) {
-  return apiFetch("/api/legal-holds", { method: "DELETE", body: { reviewId }, schema: releasedResponseSchema })
+  return apiFetch("/api/legal-holds", {
+    method: "DELETE",
+    body: { reviewId } satisfies LegalHoldReleaseInput,
+    schema: legalHoldReleasedResponseSchema,
+  })
 }

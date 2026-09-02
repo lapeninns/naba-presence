@@ -1,8 +1,16 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
-import { z } from "zod"
 
+import {
+  MAX_MEDIA_UPLOAD_BYTES,
+  mediaCreateSchema,
+  mediaUploadFieldsSchema,
+  type MediaCreateInput,
+  type MediaItemWire,
+  type MediaOwnership,
+  type MediaUploadFields,
+} from "@/lib/contracts/location-media"
 import {
   GOOGLE_MEDIA_CATEGORIES,
   type GoogleMediaCategory,
@@ -33,28 +41,14 @@ import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 import { DEFAULT_MEDIA_PAGE_SIZE, MAX_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 
-export const mediaCreateSchema = z.object({
-  mediaFormat: z.enum(["PHOTO", "VIDEO"]),
-  category: z.enum(GOOGLE_MEDIA_CATEGORIES),
-  sourceUrl: z
-    .url()
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol)),
-  description: z.string().trim().max(1500).optional(),
-})
+// Request shapes live in the contract; the old names stay exported from here
+// for one sprint so existing imports keep working.
+export { MAX_MEDIA_UPLOAD_BYTES, mediaCreateSchema, mediaUploadFieldsSchema }
 
 const MEDIA_UPLOAD_TYPES = {
   PHOTO: ["image/jpeg", "image/png"],
   VIDEO: ["video/mp4", "video/quicktime"],
 } as const
-
-export const MAX_MEDIA_UPLOAD_BYTES = 75 * 1024 * 1024
-
-export const mediaUploadFieldsSchema = z.object({
-  mediaFormat: z.enum(["PHOTO", "VIDEO"]),
-  category: z.enum(GOOGLE_MEDIA_CATEGORIES),
-  description: z.string().trim().max(1500).optional(),
-  confirmation: z.literal("create_google_media"),
-})
 
 /** A Google media item as the API returns it (untyped beyond object shape). */
 type GoogleMediaItem = Record<string, unknown>
@@ -170,24 +164,10 @@ async function cacheMedia(
 /** Serve the DB cache instead of re-listing Google on every Photos view. */
 const MEDIA_CACHE_TTL_MS = 5 * 60 * 1000
 
-type MediaListItem = {
-  id: string
-  googleMediaName: string
-  ownership: string
-  mediaFormat: string
-  category: string | null
-  sourceUrl: string | null
-  googleUrl: string | null
-  thumbnailUrl: string | null
-  description: string | null
-  attribution: unknown
-  dimensions: unknown
-  insights: unknown
-  googleHash: string
-  createTime: string | null
-}
+/** One listed row, exactly as the contract's `mediaItemSchema` receives it. */
+type MediaListItem = MediaItemWire
 
-export type MediaOwnershipFilter = "merchant" | "customer"
+export type MediaOwnershipFilter = MediaOwnership
 
 async function readMediaPage(
   organisationId: string,
@@ -566,7 +546,7 @@ export async function createMedia(input: {
   organisationId: string
   session: Session
   locationId: string
-  payload: z.infer<typeof mediaCreateSchema>
+  payload: MediaCreateInput
   requestId: string
 }) {
   const linked = await withTenant(input.organisationId, (sql) =>
@@ -634,7 +614,7 @@ export async function uploadMedia(input: {
   organisationId: string
   session: Session
   locationId: string
-  payload: z.infer<typeof mediaUploadFieldsSchema>
+  payload: MediaUploadFields
   file: MediaUploadFile
   requestId: string
 }) {

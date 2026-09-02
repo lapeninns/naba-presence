@@ -1,27 +1,17 @@
 import { z } from "zod"
 
 import {
-  placeActionInputSchema,
-  removePlaceAction,
-  updatePlaceAction,
-} from "@/lib/server/place-actions"
+  placeActionDeleteRequestSchema,
+  placeActionUpdateRequestSchema,
+} from "@/lib/contracts/location-place-actions"
+import { removePlaceAction, updatePlaceAction } from "@/lib/server/place-actions"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string(), linkId: z.string() })
 
-const updateSchema = placeActionInputSchema.extend({
-  expectedGoogleHash: z.string().length(64),
-  confirmation: z.literal("update_google_place_action"),
-})
-
-const deleteSchema = z.object({
-  expectedGoogleHash: z.string().length(64),
-  confirmation: z.literal("delete_google_place_action"),
-})
-
 export const PATCH = route({
   params: paramsSchema,
-  body: updateSchema,
+  body: placeActionUpdateRequestSchema,
   handler: ({ session, params, body, requestId }) =>
     updatePlaceAction({
       organisationId: session.organisationId,
@@ -40,7 +30,7 @@ export const PATCH = route({
 
 export const DELETE = route({
   params: paramsSchema,
-  body: deleteSchema,
+  body: placeActionDeleteRequestSchema,
   handler: ({ session, params, body, requestId }) =>
     removePlaceAction({
       organisationId: session.organisationId,

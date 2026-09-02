@@ -1,5 +1,9 @@
-import { z } from "zod"
-
+import {
+  invitationLookupParamsSchema,
+  invitationRevokeParamsSchema,
+  type InvitationLookup,
+  type InvitationRevokedResponse,
+} from "@/lib/contracts/invitations"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
@@ -10,7 +14,7 @@ export const runtime = "nodejs"
 
 export const GET = route({
   auth: "public",
-  params: z.object({ token: z.string() }),
+  params: invitationLookupParamsSchema,
   handler: async ({ params }) => {
     // Cross-tenant by design: the invitee has no session yet, so the token
     // is resolved via lookup_invitation() outside withTenant.
@@ -42,13 +46,13 @@ export const GET = route({
       email: invitation.email,
       accepted,
       expired: !accepted && invitation.expiresAt.getTime() <= Date.now(),
-    }
+    } satisfies InvitationLookup
   },
 })
 
 export const DELETE = route({
   roles: ["owner", "admin"],
-  params: z.object({ token: z.uuid() }),
+  params: invitationRevokeParamsSchema,
   handler: async ({ session, params, requestId, tenant }) => {
     const invitationId = params.token
     await tenant(async (sql) => {
@@ -70,6 +74,6 @@ export const DELETE = route({
         requestId,
       })
     })
-    return { revoked: true }
+    return { revoked: true } satisfies InvitationRevokedResponse
   },
 })

@@ -1,5 +1,7 @@
-import { z } from "zod"
-
+import {
+  sessionSwitchSchema,
+  type SessionResponse,
+} from "@/lib/contracts/session"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
@@ -9,8 +11,6 @@ import { setSessionCookie, type Session } from "@/lib/server/session"
 import { createSession } from "@/lib/server/session-store"
 
 export const runtime = "nodejs"
-
-const inputSchema = z.object({ organisationId: z.uuid() })
 
 /**
  * Switching organisations legitimately touches two tenants, so the route
@@ -26,7 +26,7 @@ const inputSchema = z.object({ organisationId: z.uuid() })
  * sign the user out on a transient failure.
  */
 export const POST = route({
-  body: inputSchema,
+  body: sessionSwitchSchema,
   handler: async ({
     session: current,
     body,
@@ -96,6 +96,6 @@ export const POST = route({
       `
     })
     await setSessionCookie(switched.token)
-    return { session: switched.session }
+    return { session: switched.session } satisfies SessionResponse
   },
 })

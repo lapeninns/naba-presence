@@ -46,7 +46,10 @@ import "server-only"
  *    (locationId, locationName, timezone, externalLocationId,
  *    googleConnectionId, googleAccountName, googleAccountId, googleLocationName,
  *    canPublish, accessToken()). Modules that used a different not-linked code
- *    (posts: `location_not_linked`) pass `notLinked: { code }` to keep it.
+ *    (posts: `location_not_linked`) pass `notLinked: { code }` to keep it;
+ *    modules with their own 404 wording pass `notFound: { code?, message? }`
+ *    (a nonexistent id and a hidden-but-existing id both raise it). Do not
+ *    catch-and-rethrow the 404 to reword it.
  *    `linked.accessToken()` replaces `connectionAccessToken(getDatabase(), ...)`.
  *
  * 2. Gate. Replace the inline `gbpWritesEnabled` check with
@@ -177,7 +180,14 @@ import "server-only"
  *      find, return the match or rethrow); the helper then sees either a
  *      response or the original ambiguous error.
  *
- * 7. jsonb columns: use `jsonColumn(sql, value)` from lib/server/db.ts.
+ * 7. jsonb columns: use `jsonColumn(sql, value)` from lib/server/db.ts as an
+ *    intent callback, `intended_payload: (sql) => jsonColumn(sql, payload)`.
+ *    `sql` is contextually typed (`IntentValue`); no annotation is needed
+ *    unless the module supplies its own `TIntent` (posts).
+ *
+ * 8. `validate` may return anything (`Promise<unknown>`), so pass the
+ *    provider call itself. `readback.verify` may return the readback hash
+ *    string instead of `true` to skip a second hashing pass in `hash`.
  *
  * =====================================================================
  * Ambiguous vs failed -- the classification policy
@@ -208,9 +218,27 @@ import "server-only"
  * (fail) keep their current behaviour while migrating; the intended
  * convergence is "readback" wherever a readback exists, because
  * docs/architecture.md says ambiguous writes are read before any retry.
+ *
+ * =====================================================================
+ * What deliberately does NOT use runGbpWrite: the reply pipeline
+ * =====================================================================
+ *
+ * lib/server/publishing/* (review reply publish / delete) shares this
+ * module's discipline and its `isAmbiguousProviderError` primitive but keeps
+ * its own attempt store and phase machine. Its `publish_attempt` row
+ * schedules automatic retries (`retryable`, `next_attempt_at`,
+ * `attempt_no`, 429 back-off) that the succeeded/failed/ambiguous settle
+ * vocabulary here cannot express; an in-flight or ambiguous row is
+ * recovered by readback and intended-body comparison (recover.ts) rather
+ * than rejected with a 409; a permanent failure is a 409 rather than a
+ * re-arm; and a provider failure is returned as an outcome the routes map,
+ * not thrown. Forcing that through `runGbpWrite` would mean smuggling the
+ * provider error through `settle` and control-flow signals through `find`.
+ * The full boundary statement lives in the barrel header of
+ * lib/server/publishing.ts; keep the two in step.
  */
 
-import type { TransactionSql } from "postgres"
+import type { Parameter, TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
@@ -288,6 +316,13 @@ export type LinkedLocation = {
 }
 
 export type LoadLinkedLocationOptions = {
+  /**
+   * Override the 404 raised when the location does not exist in the tenant
+   * OR exists but is hidden from the session (both surface as the same
+   * code/message so a hidden id is indistinguishable from a missing one).
+   * Defaults to `location_not_found` / "Location not found."
+   */
+  notFound?: { code?: string; message?: string }
   /** Override the 409 raised when the location has no active Google link. */
   notLinked?: { code?: string; message?: string }
   /** Also require a `google_account` row (raises the not-linked 409 otherwise). */
@@ -306,10 +341,15 @@ type LinkedLocationRow = {
 }
 
 /**
- * The single "linked Google location" loader: location visibility
- * (`requireLocationAccess`), the location -> active link -> external
- * location -> google account join, the `location_not_found` 404 and the
+ * The single "linked Google location" loader: the location -> active link
+ * -> external location -> google account join (which doubles as the
+ * within-tenant existence check), then location visibility
+ * (`requireLocationAccess`), the `location_not_found` 404 and the
  * `google_location_not_linked` 409, plus the publish grant.
+ *
+ * Existence is checked before visibility on purpose: a nonexistent id and a
+ * hidden-but-existing id both raise the module's `notFound` code/message,
+ * never `requireLocationAccess`'s legacy `review_not_found`.
  */
 export async function loadLinkedLocation(
   sql: TransactionSql,
@@ -317,7 +357,10 @@ export async function loadLinkedLocation(
   locationId: string,
   options: LoadLinkedLocationOptions = {}
 ): Promise<LinkedLocation> {
-  await requireLocationAccess(sql, session, locationId)
+  const notFound = {
+    code: options.notFound?.code ?? "location_not_found",
+    message: options.notFound?.message ?? "Location not found.",
+  }
   const [row] = await sql<LinkedLocationRow[]>`
     select
       l.id::text as "locationId",
@@ -339,8 +382,9 @@ export async function loadLinkedLocation(
     limit 1
   `
   if (!row) {
-    throw new ApiError(404, "location_not_found", "Location not found.")
+    throw new ApiError(404, notFound.code, notFound.message)
   }
+  await requireLocationAccess(sql, session, locationId, notFound)
   const notLinked = () =>
     new ApiError(
       409,
@@ -470,14 +514,34 @@ export type AttemptRow = {
 }
 
 /**
- * A module's intent columns. Values are written as-is (postgres.js handles
- * strings, numbers, booleans, arrays, Dates); a function is called with the
- * transaction's `sql` so jsonb columns can use `jsonColumn(sql, value)`.
+ * What an intent column may hold when written as-is: postgres.js handles
+ * strings, numbers, booleans, arrays and Dates, and `Parameter` is what
+ * `jsonColumn(sql, value)` / `sql.json(...)` produce. Plain objects are
+ * deliberately excluded -- postgres.js cannot serialise them; use a
+ * `jsonColumn` callback instead. `undefined` is written as SQL NULL.
  */
-export type IntentColumns = Record<
-  string,
-  unknown | ((sql: TransactionSql) => unknown)
->
+export type IntentColumnValue =
+  | Parameter
+  | string
+  | number
+  | boolean
+  | Date
+  | null
+  | undefined
+  | readonly unknown[]
+
+/**
+ * One intent column: a value written as-is, or a function called with the
+ * transaction's `sql` so jsonb columns can use `jsonColumn(sql, value)`.
+ * Exactly one member of this union has a call signature, so an inline
+ * `(sql) => jsonColumn(sql, payload)` is contextually typed without an
+ * annotation under `noImplicitAny`.
+ */
+export type IntentValue =
+  IntentColumnValue | ((sql: TransactionSql) => IntentColumnValue)
+
+/** A module's intent columns (the default `TIntent` for `attemptStore`). */
+export type IntentColumns = Record<string, IntentValue>
 
 export type AttemptStartInput<TIntent> = {
   organisationId: string
@@ -719,12 +783,20 @@ export type GbpReadback<TResponse, TReadback> = {
     response: TResponse | undefined
     providerAmbiguous: boolean
   }) => Promise<TReadback>
-  /** True when the readback proves the intent applied. */
+  /**
+   * `true` when the readback proves the intent applied, `false` when it
+   * proves it did not (-> `mismatch`). May instead return the readback hash
+   * as a string, which counts as verified AND becomes `readbackHash`, so a
+   * module that hashes to compare does not hash again in `hash`.
+   */
   verify: (input: {
     readback: TReadback
     response: TResponse | undefined
-  }) => boolean
-  /** Stored in the store's responseHash column and passed to onSuccess/audit. */
+  }) => boolean | string
+  /**
+   * Stored in the store's responseHash column and passed to onSuccess/audit.
+   * Not called when `verify` already returned the hash.
+   */
   hash?: (readback: TReadback) => string
   /** Thrown (and recorded) when verify is false; default 502 google_readback_mismatch. */
   mismatch?: GateError
@@ -763,8 +835,12 @@ type GbpWriteBase<TResponse, TReadback, TIntent> = {
   inProgress?: GateError
   /** Recorded when a thrown error carries no code. */
   failureCode: string
-  /** Optional validateOnly provider call; any failure settles `failed`. */
-  validate?: (ctx: GbpWritePhaseContext) => Promise<void>
+  /**
+   * Optional validateOnly provider call; any failure settles `failed`. The
+   * resolved value is ignored, so a provider call that returns something can
+   * be passed directly without an `async () => { await ... }` wrapper.
+   */
+  validate?: (ctx: GbpWritePhaseContext) => Promise<unknown>
   /** The real provider call. */
   mutate: (ctx: GbpWritePhaseContext) => Promise<TResponse>
   /** Runs inside the settle transaction after the row is marked succeeded, before the audit. */
@@ -915,7 +991,8 @@ export async function runGbpWrite<
         providerAmbiguous,
       })
       phase = "readback_verify"
-      if (!input.readback.verify({ readback, response })) {
+      const verified = input.readback.verify({ readback, response })
+      if (verified === false) {
         const mismatch = input.readback.mismatch
         throw new ApiError(
           mismatch?.status ?? 502,
@@ -923,7 +1000,10 @@ export async function runGbpWrite<
           mismatch?.message ?? "Google read-back did not match NabaPresence."
         )
       }
-      readbackHash = input.readback.hash?.(readback)
+      readbackHash =
+        typeof verified === "string"
+          ? verified
+          : input.readback.hash?.(readback)
     }
   } catch (error) {
     // (f) settle failure

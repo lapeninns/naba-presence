@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { sweepSchema } from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -13,13 +12,6 @@ import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const inputSchema = z.object({
-  externalLocationIds: z.array(z.uuid()).max(50).optional(),
-  organisationCursor: z.uuid().optional(),
-  maxOrganisations: z.number().int().min(1).max(100).default(25),
-  maxPagesPerLocation: z.number().int().min(1).max(50).default(50),
-})
 
 type SweepFailure = {
   organisationId: string
@@ -51,7 +43,7 @@ export const POST = route({
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
-    const input = inputSchema.parse(await request.json().catch(() => ({})))
+    const input = sweepSchema.parse(await request.json().catch(() => ({})))
     // Cross-tenant enumeration: the cron walks every organisation that has a
     // job route, so this one read deliberately runs outside withTenant.
     const organisationIds = session

@@ -476,4 +476,36 @@ describe("permissions against PGlite", () => {
       canPublishLocation(sql, makeSession({ role: "admin" }), LOCATION_C)
     ).resolves.toBe(true)
   })
+
+  it("requireLocationAccess lets the caller supply the 404 code and message", async () => {
+    const session = makeSession()
+    await expect(
+      requireLocationAccess(sql, session, LOCATION_C, {
+        code: "location_not_found",
+        message: "The requested location was not found.",
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "location_not_found",
+      message: "The requested location was not found.",
+    })
+    // Partial overrides fall back field by field to the legacy review 404.
+    await expect(
+      requireLocationAccess(sql, session, LOCATION_C, {
+        code: "location_not_found",
+      })
+    ).rejects.toMatchObject({
+      code: "location_not_found",
+      message: "The requested review was not found.",
+    })
+    await expect(
+      requireLocationAccess(sql, session, LOCATION_C, {})
+    ).rejects.toMatchObject({ code: "review_not_found" })
+    // A visible location never throws, whatever the override.
+    await expect(
+      requireLocationAccess(sql, session, LOCATION_A, {
+        code: "location_not_found",
+      })
+    ).resolves.toBeUndefined()
+  })
 })

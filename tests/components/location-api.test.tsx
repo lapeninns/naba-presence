@@ -32,7 +32,6 @@ describe("locations directory + capabilities clients", () => {
     expect(await fetchLocationCapabilities("loc-1")).toEqual({
       canEditCanonical: false,
       canPublish: true,
-      resources: {},
     })
   })
 })

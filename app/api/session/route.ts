@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import type { SessionResponse } from "@/lib/contracts/session"
 import { route } from "@/lib/server/route"
 import {
   clearSession,
@@ -19,7 +20,7 @@ export const GET = route({
       process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
         ? await ensureDevelopmentSession()
         : await getSession()
-    return { session }
+    return { session } satisfies SessionResponse
   },
 })
 

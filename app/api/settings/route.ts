@@ -1,34 +1,9 @@
-import { z } from "zod"
-
+import { settingsPatchSchema } from "@/lib/contracts/settings"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const settingsSchema = z.object({
-  approvalRequired: z.boolean(),
-  requireTwoPersonApproval: z.boolean().optional(),
-  rawContentRetentionDays: z.number().int().min(1).max(30),
-  defaultLanguageCode: z
-    .string()
-    .trim()
-    .regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/),
-  defaultTimezone: z
-    .string()
-    .trim()
-    .min(1)
-    .max(80)
-    .refine((value) => {
-      try {
-        new Intl.DateTimeFormat("en", { timeZone: value })
-        return true
-      } catch {
-        return false
-      }
-    }, "Use a valid IANA timezone."),
-  directPublishConsent: z.boolean().default(false),
-})
 
 export const GET = route({
   handler: async ({ session, tenant }) => {
@@ -59,7 +34,7 @@ export const GET = route({
 
 export const PATCH = route({
   roles: ["owner", "admin"],
-  body: settingsSchema,
+  body: settingsPatchSchema,
   handler: async ({
     session,
     body: input,

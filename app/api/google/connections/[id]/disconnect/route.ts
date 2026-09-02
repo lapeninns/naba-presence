@@ -1,5 +1,7 @@
-import { z } from "zod"
-
+import {
+  disconnectParamsSchema,
+  type DisconnectResponse,
+} from "@/lib/contracts/connections"
 import { writeAudit } from "@/lib/server/audit"
 import {
   connectionAccessToken,
@@ -12,7 +14,7 @@ export const runtime = "nodejs"
 
 export const POST = route({
   roles: ["owner", "admin"],
-  params: z.object({ id: z.string() }),
+  params: disconnectParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
     const { id } = params
     await tenant(async (sql) => {
@@ -126,6 +128,6 @@ export const POST = route({
         },
       })
     })
-    return { status: "disconnected" }
+    return { status: "disconnected" } satisfies DisconnectResponse
   },
 })

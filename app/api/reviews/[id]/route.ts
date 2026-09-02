@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { reviewIdParamsSchema } from "@/lib/contracts/reviews"
 import { reviewCapabilities } from "@/lib/server/capabilities"
 import { ApiError } from "@/lib/server/http"
 import { visibilityPredicate } from "@/lib/server/permissions"
@@ -8,7 +7,7 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 
 export const GET = route({
-  params: z.object({ id: z.uuid() }),
+  params: reviewIdParamsSchema,
   handler: async ({ session, params, tenant }) => {
     const { id } = params
     const review = await tenant(async (sql) => {

@@ -15,19 +15,20 @@ import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/compon
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
+import {
+  DEFAULT_REVIEW_SORT,
+  REVIEW_SORT_LABELS,
+  REVIEW_SORTS,
+  isReviewSort,
+} from "@/lib/contracts/reviews"
 import type { InboxState } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map
 // (a plain `{ value: label }` record) rather than from the rendered
 // `SelectItem` children — without it, the trigger would show the raw stored
-// value ("updated_desc") instead of the sentence-case label.
-const SORT_ITEMS: Record<string, string> = {
-  updated_desc: "Most recent",
-  updated_asc: "Oldest first",
-  rating_desc: "Highest rated",
-  rating_asc: "Lowest rated",
-}
+// value ("updated_desc") instead of the sentence-case label. Both the map and
+// the rendered items come from the contract's sort vocabulary.
 
 function ReviewFilters({
   state,
@@ -110,9 +111,11 @@ function ReviewFilters({
         <Select
           value={state.sort}
           onValueChange={(value: string | null) =>
-            onChange({ sort: (value ?? "updated_desc") as InboxState["sort"] })
+            onChange({
+              sort: value && isReviewSort(value) ? value : DEFAULT_REVIEW_SORT,
+            })
           }
-          items={SORT_ITEMS}
+          items={REVIEW_SORT_LABELS}
         >
           <SelectTrigger
             aria-label="Sort reviews"
@@ -121,10 +124,11 @@ function ReviewFilters({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="updated_desc">Most recent</SelectItem>
-            <SelectItem value="updated_asc">Oldest first</SelectItem>
-            <SelectItem value="rating_desc">Highest rated</SelectItem>
-            <SelectItem value="rating_asc">Lowest rated</SelectItem>
+            {REVIEW_SORTS.map((sort) => (
+              <SelectItem key={sort} value={sort}>
+                {REVIEW_SORT_LABELS[sort]}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

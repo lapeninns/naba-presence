@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { accountSelectionSchema } from "@/lib/contracts/google"
 import { writeAudit } from "@/lib/server/audit"
 import { connectionAccessToken, googleAccounts } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
@@ -109,13 +108,9 @@ export const GET = route({
   },
 })
 
-const selectionSchema = z.object({
-  accountIds: z.array(z.uuid()).max(100),
-})
-
 export const PATCH = route({
   roles: ["owner", "admin"],
-  body: selectionSchema,
+  body: accountSelectionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     const accounts = await tenant(async (sql) => {
       await sql`

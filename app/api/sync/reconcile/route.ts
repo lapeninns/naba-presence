@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { reconcileSchema } from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -16,12 +15,6 @@ import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-const inputSchema = z.object({
-  externalLocationIds: z.array(z.uuid()).max(50).optional(),
-  organisationCursor: z.uuid().optional(),
-  maxOrganisations: z.number().int().min(1).max(100).default(25),
-})
 
 type ReconcileFailure = {
   organisationId: string
@@ -62,7 +55,7 @@ async function reconcile({
   if (!getServerEnv().SYNC_ENABLED) {
     throw new ApiError(503, "sync_paused", "Review sync is paused.")
   }
-  const input = inputSchema.parse(await request.json().catch(() => ({})))
+  const input = reconcileSchema.parse(await request.json().catch(() => ({})))
   const correlationId = requestId
   const configuredBudget = Number(
     process.env.RECONCILE_BUDGET_MS ?? 45_000

@@ -1,63 +1,44 @@
-import { z } from "zod"
-
 import { ApiClientError, apiFetch, type RequestOptions } from "./client"
-import { PRIVACY_REQUEST_TYPES } from "@/lib/settings/forms/privacy-request"
+import {
+  privacyRequestCreatedResponseSchema,
+  privacyRequestResolutionResponseSchema,
+  privacyRequestsResponseSchema,
+  type PrivacyExportInput,
+  type PrivacyRequestCreateInput,
+  type UpdatePrivacyInput,
+} from "@/lib/contracts/privacy"
 
-export const privacyRequestSchema = z.object({
-  id: z.string(),
-  requestType: z.enum(PRIVACY_REQUEST_TYPES),
-  status: z.string(),
-  subjectReference: z.string(),
-  reason: z.string().nullable(),
-  requestedBy: z.string(),
-  resolvedBy: z.string().nullable(),
-  resolutionNote: z.string().nullable(),
-  resolvedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
-
-const requestsResponseSchema = z.object({ requests: z.array(privacyRequestSchema) })
-const createResponseSchema = z.object({
-  request: z.object({
-    id: z.string(),
-    requestType: z.enum(PRIVACY_REQUEST_TYPES),
-    status: z.string(),
-    subjectReference: z.string(),
-    createdAt: z.string(),
-  }),
-})
-const resolutionResponseSchema = z.object({
-  request: z.object({
-    id: z.string(),
-    requestType: z.enum(PRIVACY_REQUEST_TYPES),
-    status: z.string(),
-    subjectReference: z.string(),
-    resolutionNote: z.string().nullable(),
-    resolvedAt: z.string().nullable(),
-  }),
-})
-
-export type PrivacyRequest = z.infer<typeof privacyRequestSchema>
+export {
+  privacyRequestSchema,
+  type PrivacyRequest,
+  type UpdatePrivacyInput,
+} from "@/lib/contracts/privacy"
 
 export function fetchPrivacyRequests(options?: RequestOptions) {
-  return apiFetch("/api/privacy/requests", { schema: requestsResponseSchema, ...options })
+  return apiFetch("/api/privacy/requests", {
+    schema: privacyRequestsResponseSchema,
+    ...options,
+  })
 }
 
-export function createPrivacyRequest(input: {
-  requestType: string
-  subjectReference: string
-  reason?: string
-}) {
-  return apiFetch("/api/privacy/requests", { method: "POST", body: input, schema: createResponseSchema })
+// `requestType` is accepted as a plain string here: the card widens its form
+// state before calling, and the server validates against the contract enum.
+export function createPrivacyRequest(
+  input: Omit<PrivacyRequestCreateInput, "requestType"> & { requestType: string }
+) {
+  return apiFetch("/api/privacy/requests", {
+    method: "POST",
+    body: input,
+    schema: privacyRequestCreatedResponseSchema,
+  })
 }
-
-export type UpdatePrivacyInput =
-  | { id: string; action: "fulfil"; resolutionNote: string }
-  | { id: string; status: string; resolutionNote: string }
 
 export function updatePrivacyRequest(input: UpdatePrivacyInput) {
-  return apiFetch("/api/privacy/requests", { method: "PATCH", body: input, schema: resolutionResponseSchema })
+  return apiFetch("/api/privacy/requests", {
+    method: "PATCH",
+    body: input,
+    schema: privacyRequestResolutionResponseSchema,
+  })
 }
 
 // The export is a private, no-store attachment. The subject travels in the JSON
@@ -68,7 +49,7 @@ export async function exportPrivacyData(subject: string): Promise<void> {
   const response = await fetch("/api/privacy/export", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ subject }),
+    body: JSON.stringify({ subject } satisfies PrivacyExportInput),
   })
   if (!response.ok) {
     let code = "http_error"

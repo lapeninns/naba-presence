@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  invitationCreateSchema,
+  type InvitationCreatedResponse,
+  type InvitationsResponse,
+} from "@/lib/contracts/invitations"
+import { type MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import {
   decryptSecret,
@@ -14,13 +19,6 @@ import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const roleSchema = z.enum(["owner", "admin", "member", "viewer"])
-const invitationSchema = z.object({
-  email: z.email().transform((value) => value.toLowerCase()),
-  role: roleSchema,
-  canPublish: z.boolean().default(false),
-})
 
 function isUniqueViolation(error: unknown) {
   return (
@@ -39,7 +37,7 @@ export const GET = route({
         Array<{
           id: string
           email: string
-          role: z.infer<typeof roleSchema>
+          role: MemberRole
           canPublish: boolean
           tokenCiphertext: Buffer
           expiresAt: Date
@@ -63,19 +61,22 @@ export const GET = route({
       const baseUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
       return rows.map(({ tokenCiphertext, ...row }) => ({
         ...row,
+        expiresAt: row.expiresAt.toISOString(),
+        acceptedAt: row.acceptedAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
         inviteUrl: new URL(
           `/invite/${decryptSecret(tokenCiphertext)}`,
           baseUrl
         ).toString(),
       }))
     })
-    return { items }
+    return { items } satisfies InvitationsResponse
   },
 })
 
 export const POST = route({
   roles: ["owner", "admin"],
-  body: invitationSchema,
+  body: invitationCreateSchema,
   handler: async ({
     request,
     session,
@@ -86,10 +87,19 @@ export const POST = route({
   }) => {
     assertRoleChangeAllowed(session.role, input.role)
     const token = randomToken()
-    let invitation
+    let invitation: InvitationCreatedResponse["invitation"]
     try {
       invitation = await tenant(async (sql) => {
-        const [row] = await sql`
+        const [row] = await sql<
+          Array<{
+            id: string
+            email: string
+            role: MemberRole
+            canPublish: boolean
+            expiresAt: Date
+            createdAt: Date
+          }>
+        >`
           insert into invitation (
             organisation_id,
             email,
@@ -132,7 +142,11 @@ export const POST = route({
             clientRequestId,
           },
         })
-        return row
+        return {
+          ...row,
+          expiresAt: row.expiresAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+        }
       })
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -150,7 +164,7 @@ export const POST = route({
       {
         invitation,
         inviteUrl: new URL(`/invite/${token}`, baseUrl).toString(),
-      },
+      } satisfies InvitationCreatedResponse,
       { status: 201 }
     )
   },

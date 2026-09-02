@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { auditLogQuerySchema } from "@/lib/contracts/operations"
 import { writeAudit } from "@/lib/server/audit"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-
-const querySchema = z.object({
-  from: z.iso.datetime().optional(),
-  to: z.iso.datetime().optional(),
-  action: z.string().trim().max(120).optional(),
-  pageSize: z.number().int().min(1).max(1000).default(200),
-  cursor: z.object({ createdAt: z.iso.datetime(), id: z.uuid() }).optional(),
-})
 
 function decodeCursor(value: string | null) {
   if (!value) return undefined
@@ -37,7 +29,7 @@ function csvCell(value: unknown) {
 export const GET = route({
   roles: ["owner", "admin"],
   query: (params) => ({
-    ...querySchema.parse({
+    ...auditLogQuerySchema.parse({
       from: params.get("from") ?? undefined,
       to: params.get("to") ?? undefined,
       action: params.get("action") ?? undefined,

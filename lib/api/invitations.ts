@@ -1,33 +1,28 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
-import { MEMBER_ROLES, type MemberRole } from "@/lib/settings/forms/invitation"
+import {
+  invitationCreatedResponseSchema,
+  invitationRevokedResponseSchema,
+  invitationsResponseSchema,
+  type InvitationCreateInput,
+} from "@/lib/contracts/invitations"
 
-export const invitationSchema = z.object({
-  id: z.string(),
-  email: z.string(),
-  role: z.enum(MEMBER_ROLES),
-  canPublish: z.boolean(),
-  expiresAt: z.string(),
-  acceptedAt: z.string().nullable().optional(),
-  createdAt: z.string(),
-  inviteUrl: z.string().optional(),
-})
-
-const invitationsResponseSchema = z.object({ items: z.array(invitationSchema) })
-const createResponseSchema = z.object({ invitation: invitationSchema, inviteUrl: z.string() })
-const revokedResponseSchema = z.object({ revoked: z.literal(true) })
-
-export type Invitation = z.infer<typeof invitationSchema>
+export { invitationSchema, type Invitation } from "@/lib/contracts/invitations"
 
 export function fetchInvitations(options?: RequestOptions) {
   return apiFetch("/api/invitations", { schema: invitationsResponseSchema, ...options })
 }
 
-export function createInvitation(input: { email: string; role: MemberRole; canPublish: boolean }) {
-  return apiFetch("/api/invitations", { method: "POST", body: input, schema: createResponseSchema })
+export function createInvitation(input: InvitationCreateInput) {
+  return apiFetch("/api/invitations", {
+    method: "POST",
+    body: input,
+    schema: invitationCreatedResponseSchema,
+  })
 }
 
 export function revokeInvitation(id: string) {
-  return apiFetch(`/api/invitations/${id}`, { method: "DELETE", schema: revokedResponseSchema })
+  return apiFetch(`/api/invitations/${id}`, {
+    method: "DELETE",
+    schema: invitationRevokedResponseSchema,
+  })
 }

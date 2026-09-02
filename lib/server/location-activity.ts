@@ -1,29 +1,24 @@
 import "server-only"
 
+import type {
+  LocationActivityItem,
+  LocationActivityQuery,
+  LocationActivityState,
+} from "@/lib/contracts/location-activity"
 import { withTenant } from "@/lib/server/db"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-export type LocationActivityItem = {
-  id: string
-  resourceType: string
-  operation: string
-  status: string
-  targetResourceName: string | null
-  lastErrorCode: string | null
-  updateMask: string[]
-  createdAt: string
-  finishedAt: string | null
-  actorUserId: string
-  actorDisplayName: string | null
-}
+// The item/state shapes are the wire contract
+// (lib/contracts/location-activity.ts); re-exported for existing importers.
+export type { LocationActivityItem, LocationActivityState }
 
 export async function listLocationActivity(
   organisationId: string,
   session: Session,
   locationId: string,
-  options: { page?: number; pageSize?: number } = {}
-) {
+  options: LocationActivityQuery = {}
+): Promise<LocationActivityState> {
   const page = Math.max(1, Math.floor(options.page ?? 1))
   const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize ?? 20)))
   const offset = (page - 1) * pageSize
@@ -36,21 +31,7 @@ export async function listLocationActivity(
       where location_id = ${locationId}
     `
     const total = countRow?.total ?? 0
-    const items = await sql<
-      {
-        id: string
-        resourceType: string
-        operation: string
-        status: string
-        targetResourceName: string | null
-        lastErrorCode: string | null
-        updateMask: string[]
-        createdAt: string
-        finishedAt: string | null
-        actorUserId: string
-        actorDisplayName: string | null
-      }[]
-    >`
+    const items = await sql<LocationActivityItem[]>`
       select
         m.id::text as id,
         m.resource_type as "resourceType",

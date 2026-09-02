@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ReviewFilters } from "@/components/inbox/review-filters"
+import { REVIEW_SORT_LABELS } from "@/lib/contracts/reviews"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -28,6 +29,10 @@ describe("ReviewFilters", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "Search reviews" })).toBeInTheDocument()
     expect(screen.getByRole("combobox", { name: "Sort reviews" })).toBeInTheDocument()
+    // The trigger label comes from the contract's sort vocabulary.
+    expect(
+      screen.getByRole("combobox", { name: "Sort reviews" })
+    ).toHaveTextContent(REVIEW_SORT_LABELS.updated_desc)
     expect(screen.getByRole("checkbox", { name: "5 stars" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /More filters/ })).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

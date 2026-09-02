@@ -1,32 +1,22 @@
-import { z } from "zod"
-
 import { apiFetch, type RequestOptions } from "./client"
+import {
+  googleAccountsResponseSchema,
+  type AccountSelectionInput,
+} from "@/lib/contracts/google"
 
-export const googleAccountSchema = z.object({
-  id: z.string(),
-  googleAccountName: z.string(),
-  accountName: z.string(),
-  type: z.string().nullable(),
-  role: z.string().nullable(),
-  permissionLevel: z.string().nullable(),
-  isActive: z.boolean(),
-})
-
-const accountsResponseSchema = z.object({ accounts: z.array(googleAccountSchema) })
-
-export type GoogleAccount = z.infer<typeof googleAccountSchema>
+export { googleAccountSchema, type GoogleAccount } from "@/lib/contracts/google"
 
 export function fetchGoogleAccounts(connectionId?: string | null, options?: RequestOptions) {
   const path = connectionId
     ? `/api/google/accounts?connection_id=${encodeURIComponent(connectionId)}`
     : "/api/google/accounts"
-  return apiFetch(path, { schema: accountsResponseSchema, ...options })
+  return apiFetch(path, { schema: googleAccountsResponseSchema, ...options })
 }
 
-export function saveActiveAccounts(accountIds: string[]) {
+export function saveActiveAccounts(accountIds: AccountSelectionInput["accountIds"]) {
   return apiFetch("/api/google/accounts", {
     method: "PATCH",
-    body: { accountIds },
-    schema: accountsResponseSchema,
+    body: { accountIds } satisfies AccountSelectionInput,
+    schema: googleAccountsResponseSchema,
   })
 }

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import {
+  linkLocationRequestSchema,
+  unlinkLocationQuerySchema,
+  type LinkLocationResponse,
+  type LocationLink,
+  type LocationsResponse,
+  type ManagementLocationsResponse,
+  type UnlinkLocationResponse,
+} from "@/lib/contracts/location-links"
 import { projectDefault, projectManagement } from "@/lib/locations/directory"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
@@ -9,14 +17,6 @@ import { route } from "@/lib/server/route"
 import { requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
-
-const linkSchema = z.object({
-  externalLocationId: z.uuid(),
-  locationId: z.uuid().optional(),
-  name: z.string().trim().min(1).max(160).optional(),
-  timezone: z.string().trim().min(1).max(80).default("Europe/London"),
-  confirmRelink: z.boolean().default(false),
-})
 
 export const GET = route({
   query: (searchParams) => ({
@@ -31,15 +31,19 @@ export const GET = route({
     // so the HTTP and RSC paths cannot emit different shapes for the same org.
     const rows = await listLocationDirectoryRows(session)
     if (query.managementView) {
-      return { locations: projectManagement(rows) }
+      return {
+        locations: projectManagement(rows),
+      } satisfies ManagementLocationsResponse
     }
-    return { locations: projectDefault(rows, session.role) }
+    return {
+      locations: projectDefault(rows, session.role),
+    } satisfies LocationsResponse
   },
 })
 
 export const POST = route({
   roles: ["owner", "admin"],
-  body: linkSchema,
+  body: linkLocationRequestSchema,
   handler: async ({
     session,
     body: input,
@@ -150,7 +154,7 @@ export const POST = route({
           "That internal location is already linked to another Google location."
         )
       }
-      const [row] = await sql`
+      const [row] = await sql<LocationLink[]>`
         insert into location_link (
           organisation_id,
           location_id,
@@ -205,7 +209,7 @@ export const POST = route({
         actorUserId: session.userId,
         action: isRelink ? "location.relinked" : "location.linked",
         subjectType: "location_link",
-        subjectId: String(row.id),
+        subjectId: row.id,
         requestId,
         metadata: {
           locationId,
@@ -217,16 +221,18 @@ export const POST = route({
       })
       return row
     })
-    return NextResponse.json({ link }, { status: 201 })
+    return NextResponse.json({ link } satisfies LinkLocationResponse, {
+      status: 201,
+    })
   },
 })
 
 export const DELETE = route({
   roles: ["owner", "admin"],
-  // Parsed as a bare uuid (not an object schema) so a missing/invalid value
+  // A bare uuid (see unlinkLocationQuerySchema) so a missing/invalid value
   // keeps producing the `_root` field error the old handler emitted.
   query: (searchParams) =>
-    z.uuid().parse(searchParams.get("externalLocationId")),
+    unlinkLocationQuerySchema.parse(searchParams.get("externalLocationId")),
   handler: async ({
     session,
     query: externalLocationId,
@@ -279,6 +285,6 @@ export const DELETE = route({
         },
       })
     })
-    return { unlinked: true }
+    return { unlinked: true } satisfies UnlinkLocationResponse
   },
 })

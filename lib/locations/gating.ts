@@ -1,19 +1,12 @@
-export type ResourceCapabilityState =
-  | "available"
-  | "readOnly"
-  | "blocked"
-  | "unavailable"
+import type {
+  LocationCapabilities,
+  ResourceCapability,
+  ResourceCapabilityState,
+} from "@/lib/contracts/location-capabilities"
 
-export type ResourceCapability = {
-  state: ResourceCapabilityState
-  reasonCode?: string
-}
-
-export type LocationCapabilities = {
-  canEditCanonical: boolean
-  canPublish: boolean
-  resources?: Record<string, ResourceCapability>
-}
+// The capability shape is the wire contract; re-exported so the tab
+// components keep one import site for both the evaluators and their input.
+export type { LocationCapabilities, ResourceCapability, ResourceCapabilityState }
 
 const REASON_COPY: Record<string, string> = {
   google_location_not_linked: "Link this location to Google first.",

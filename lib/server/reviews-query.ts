@@ -1,38 +1,94 @@
 import "server-only"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 
+import type {
+  ReviewRow,
+  ReviewSort,
+  ReviewsCursor,
+  ReviewsQuery,
+} from "@/lib/contracts/reviews"
 import { sha256 } from "@/lib/server/crypto"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-export type InboxFilters = {
-  locationId?: string
-  ratings?: number[]
-  statuses?: string[]
-  replyStates?: string[]
-  verificationStatuses?: string[]
-  publishStatuses?: string[]
-  syncStatuses?: string[]
-  dateFrom?: string
-  dateTo?: string
-  search?: string
-  sort: "updated_desc" | "updated_asc" | "rating_desc" | "rating_asc"
-  pageSize: number
-  cursor?: {
-    updateTime: string
-    id: string
-    rating?: number | null
-  }
+/** The decoded wire query (lib/contracts/reviews.ts) plus the caller. */
+export type InboxFilters = ReviewsQuery & {
   role: Session["role"]
   userId: string
+}
+
+/**
+ * One list row as the SQL below returns it: the contract's `ReviewRow` minus
+ * `capabilities` (added by the route), with timestamps still `Date`s until
+ * `NextResponse.json` serialises them.
+ */
+export type InboxQueryRow = Omit<
+  ReviewRow,
+  "capabilities" | "createTime" | "updateTime"
+> & {
+  createTime: Date | string
+  updateTime: Date | string
+}
+
+// Per-sort ordering and keyset predicate, keyed by the contract's sort
+// vocabulary so a new `ReviewSort` fails to compile until both are defined.
+const ORDER_BY: Record<ReviewSort, (sql: TransactionSql) => Fragment> = {
+  updated_desc: (sql) => sql`order by r.update_time desc, r.id desc`,
+  updated_asc: (sql) => sql`order by r.update_time asc, r.id asc`,
+  rating_desc: (sql) => sql`order by
+    r.star_rating desc nulls last,
+    r.update_time desc,
+    r.id desc`,
+  rating_asc: (sql) => sql`order by
+    r.star_rating asc nulls last,
+    r.update_time desc,
+    r.id desc`,
+}
+
+// Rating sorts place nulls last, so a null-rated boundary row continues
+// within the null block; a rated boundary row admits lower/higher ratings,
+// every null, or the same rating further down the (update_time, id) key.
+function ratingCursor(
+  sql: TransactionSql,
+  cursor: ReviewsCursor,
+  direction: "<" | ">"
+): Fragment {
+  if (cursor.rating === null || cursor.rating === undefined) {
+    return sql`and r.star_rating is null
+      and (r.update_time, r.id) < (${cursor.updateTime}, ${cursor.id})`
+  }
+  const beyond =
+    direction === "<"
+      ? sql`r.star_rating < ${cursor.rating}`
+      : sql`r.star_rating > ${cursor.rating}`
+  return sql`and (
+    ${beyond}
+    or r.star_rating is null
+    or (
+      r.star_rating = ${cursor.rating}
+      and (r.update_time, r.id) < (${cursor.updateTime}, ${cursor.id})
+    )
+  )`
+}
+
+const CURSOR_PREDICATE: Record<
+  ReviewSort,
+  (sql: TransactionSql, cursor: ReviewsCursor) => Fragment
+> = {
+  updated_desc: (sql, cursor) =>
+    sql`and (r.update_time, r.id) < (${cursor.updateTime}, ${cursor.id})`,
+  updated_asc: (sql, cursor) =>
+    sql`and (r.update_time, r.id) > (${cursor.updateTime}, ${cursor.id})`,
+  rating_desc: (sql, cursor) => ratingCursor(sql, cursor, "<"),
+  rating_asc: (sql, cursor) => ratingCursor(sql, cursor, ">"),
 }
 
 export function buildInboxQuery(
   sql: TransactionSql,
   filters: InboxFilters
 ) {
-  return sql`
+  return sql<InboxQueryRow[]>`
     select
       r.id::text as id,
       json_build_object(
@@ -110,27 +166,27 @@ export function buildInboxQuery(
           : sql``
       }
       ${
-        filters.replyStates?.length === 1
-          ? filters.replyStates[0] === "replied"
-            ? sql`and rr.current_body is not null`
-            : sql`and rr.current_body is null`
-          : sql``
+        filters.replyState === "replied"
+          ? sql`and rr.current_body is not null`
+          : filters.replyState === "unreplied"
+            ? sql`and rr.current_body is null`
+            : sql``
       }
       ${
-        filters.verificationStatuses?.length
+        filters.verification?.length
           ? sql`and coalesce(d.verification_status, 'pending')
-              in ${sql(filters.verificationStatuses)}`
+              in ${sql(filters.verification)}`
           : sql``
       }
       ${
-        filters.publishStatuses?.length
+        filters.publishStatus?.length
           ? sql`and coalesce(rr.publish_status, 'not_published')
-              in ${sql(filters.publishStatuses)}`
+              in ${sql(filters.publishStatus)}`
           : sql``
       }
       ${
-        filters.syncStatuses?.length
-          ? sql`and sc.status in ${sql(filters.syncStatuses)}`
+        filters.syncStatus?.length
+          ? sql`and sc.status in ${sql(filters.syncStatus)}`
           : sql``
       }
       ${
@@ -140,68 +196,16 @@ export function buildInboxQuery(
       }
       ${filters.dateTo ? sql`and r.update_time <= ${filters.dateTo}` : sql``}
       ${
-        filters.cursor && filters.sort === "updated_desc"
-          ? sql`and (r.update_time, r.id) < (
-              ${filters.cursor.updateTime}, ${filters.cursor.id}
-            )`
-          : filters.cursor && filters.sort === "updated_asc"
-            ? sql`and (r.update_time, r.id) > (
-                ${filters.cursor.updateTime}, ${filters.cursor.id}
-              )`
-          : filters.cursor && filters.sort === "rating_desc"
-            ? filters.cursor.rating === null
-              ? sql`and r.star_rating is null
-                  and (r.update_time, r.id) < (
-                    ${filters.cursor.updateTime}, ${filters.cursor.id}
-                  )`
-              : sql`and (
-                  r.star_rating < ${filters.cursor.rating!}
-                  or r.star_rating is null
-                  or (
-                    r.star_rating = ${filters.cursor.rating!}
-                    and (r.update_time, r.id) < (
-                      ${filters.cursor.updateTime}, ${filters.cursor.id}
-                    )
-                  )
-                )`
-            : filters.cursor && filters.sort === "rating_asc"
-              ? filters.cursor.rating === null
-                ? sql`and r.star_rating is null
-                    and (r.update_time, r.id) < (
-                      ${filters.cursor.updateTime}, ${filters.cursor.id}
-                    )`
-                : sql`and (
-                    r.star_rating > ${filters.cursor.rating!}
-                    or r.star_rating is null
-                    or (
-                      r.star_rating = ${filters.cursor.rating!}
-                      and (r.update_time, r.id) < (
-                        ${filters.cursor.updateTime}, ${filters.cursor.id}
-                      )
-                    )
-                  )`
-              : sql``
+        filters.cursor
+          ? CURSOR_PREDICATE[filters.sort](sql, filters.cursor)
+          : sql``
       }
       and ${visibilityPredicate(
         sql,
         { role: filters.role, userId: filters.userId },
         sql`r.location_id`
       )}
-    ${
-      filters.sort === "rating_desc"
-        ? sql`order by
-            r.star_rating desc nulls last,
-            r.update_time desc,
-            r.id desc`
-        : filters.sort === "rating_asc"
-          ? sql`order by
-              r.star_rating asc nulls last,
-              r.update_time desc,
-              r.id desc`
-          : filters.sort === "updated_asc"
-            ? sql`order by r.update_time asc, r.id asc`
-            : sql`order by r.update_time desc, r.id desc`
-    }
+    ${ORDER_BY[filters.sort](sql)}
     limit ${filters.pageSize + 1}
   `
 }

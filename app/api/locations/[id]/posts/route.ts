@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
-  createLocalPostDraft,
-  listLocalPosts,
   localPostInputSchema,
-} from "@/lib/server/posts"
+  type PostCreateResponse,
+} from "@/lib/contracts/location-posts"
+import { createLocalPostDraft, listLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string() })
@@ -27,6 +27,8 @@ export const POST = route({
       body,
       requestId
     )
-    return NextResponse.json({ post }, { status: 201 })
+    return NextResponse.json({ post } satisfies PostCreateResponse, {
+      status: 201,
+    })
   },
 })
