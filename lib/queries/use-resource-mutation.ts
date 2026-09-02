@@ -8,10 +8,10 @@ import {
 } from "@tanstack/react-query"
 
 import { useToastManager } from "@/components/ui/toast"
-// The ONE indirection for error copy. Sprint 4.4 merges the three action-errors
-// modules into `@/lib/errors/action-errors`; when it lands, swap this import
-// line and nothing else.
-import { describeActionError as describeResourceError } from "@/lib/locations/action-errors"
+import {
+  describeActionError,
+  type ActionErrorContext,
+} from "@/lib/errors/action-errors"
 
 export type ResourceMutationOptions<TData, TVariables> = {
   mutationFn: (variables: TVariables) => Promise<TData>
@@ -30,6 +30,12 @@ export type ResourceMutationOptions<TData, TVariables> = {
    * toasted and handed to `onError` as `message`.
    */
   errorToast?: (error: unknown) => string
+  /**
+   * Surface handed to `describeActionError` for the two approval codes whose
+   * copy differs between review replies and Google posts. Ignored when
+   * `errorToast` is set.
+   */
+  errorContext?: ActionErrorContext
   /** Extra success work (reset local state, close a dialog). Runs before invalidation. */
   onSuccess?: (data: TData, variables: TVariables) => void
   /** Extra error work; `message` is the already-humanised copy. Runs before the toast. */
@@ -54,6 +60,7 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     invalidate,
     successToast,
     errorToast,
+    errorContext,
     onSuccess,
     onError,
   } = options
@@ -75,7 +82,9 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
       if (title) toasts.add({ title, type: "success" })
     },
     onError: (error, variables) => {
-      const message = (errorToast ?? describeResourceError)(error)
+      const message = errorToast
+        ? errorToast(error)
+        : describeActionError(error, { context: errorContext })
       onError?.(error, message, variables)
       toasts.add({ title: message, type: "error" })
     },

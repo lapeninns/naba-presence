@@ -1,8 +1,10 @@
+import { HydrationBoundary } from "@tanstack/react-query"
 import { redirect } from "next/navigation"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { AdministrationTab } from "@/components/locations/administration-tab"
 import { NoLocationEmpty } from "@/components/locations/no-location-empty"
+import { locationTabPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
 import { getSession } from "@/lib/server/session"
 
@@ -22,6 +24,10 @@ export default async function SettingsListingPage() {
     redirect("/settings")
   }
   const { locationId, locationName } = await resolvePrimaryLocation()
+  const state = await prefetch(
+    session,
+    locationTabPrefetch(locationId, "administration")
+  )
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -29,10 +35,12 @@ export default async function SettingsListingPage() {
         description="Who can manage this business on Google, how it is verified, and advanced listing actions."
       />
       {locationId ? (
-        <AdministrationTab
-          locationId={locationId}
-          locationName={locationName ?? undefined}
-        />
+        <HydrationBoundary state={state}>
+          <AdministrationTab
+            locationId={locationId}
+            locationName={locationName ?? undefined}
+          />
+        </HydrationBoundary>
       ) : (
         <NoLocationEmpty role={session.role} />
       )}

@@ -1,20 +1,26 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useId, useMemo } from "react"
 
+import { LocationTab } from "@/components/locations/location-tab"
 import { SectionPanel } from "@/components/locations/section-panel"
 import { GateNote } from "@/components/locations/publish-gate"
-import { TabError, TabLoading } from "@/components/locations/tab-states"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Empty } from "@/components/ui/empty"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useToastManager } from "@/components/ui/toast"
-import { publishIndustry, type IndustryState } from "@/lib/api/location-industry"
-import { describeActionError } from "@/lib/locations/action-errors"
+import {
+  publishIndustry,
+  type IndustryState,
+} from "@/lib/api/location-industry"
 import { callsStateLabel } from "@/lib/locations/console-labels"
 import {
   inputToTimeOfDay,
@@ -22,10 +28,10 @@ import {
   timeOfDayToInput,
   touchedMask,
 } from "@/lib/locations/forms/industry"
-import { editDisabledReason, resourceDisabledReason, type LocationCapabilities } from "@/lib/locations/gating"
+import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
 import { queryKeys } from "@/lib/queries/keys"
-import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useIndustry } from "@/lib/queries/use-location-industry"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 // --- raw Google leaf -> typed accessor helpers -----------------------------
 // `lodging`/healthcare sub-resources arrive as passthrough records (D8) —
@@ -33,62 +39,51 @@ import { useIndustry } from "@/lib/queries/use-location-industry"
 type RawRecord = Record<string, unknown>
 
 function asRecord(value: unknown): RawRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as RawRecord) : {}
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawRecord)
+    : {}
 }
 function asString(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
-type ToastFn = (title: string, type: "success" | "error") => void
-
+// D4: the GET is owner/admin-only server-side. `requires` keeps the shell from
+// mounting `useIndustry` until the role is known and satisfied, so a member
+// never fires the 403 request.
 export function IndustryTab({ locationId }: { locationId: string }) {
-  const queryClient = useQueryClient()
-  const toasts = useToastManager()
-  const capsQuery = useLocationCapabilities(locationId)
-  const caps = capsQuery.data
-  // D4: the GET is owner/admin-only server-side — gate the query itself on
-  // canEditCanonical so a non-owner/admin never fires the 403 request. `caps`
-  // is undefined while the capabilities query is still pending, which keeps
-  // `enabled` false (not a false positive) until we actually know the role.
-  const industryQuery = useIndustry(locationId, { enabled: caps?.canEditCanonical === true })
-
-  if (capsQuery.isPending) return <TabLoading />
-  if (caps?.canEditCanonical !== true) {
-    return <Empty title="This section is available to owners and admins" />
-  }
-  if (industryQuery.isPending) return <TabLoading />
-  if (industryQuery.isError) return <TabError error={industryQuery.error} onRetry={() => industryQuery.refetch()} />
-
   return (
-    <IndustryTabLoaded
+    <LocationTab
       locationId={locationId}
-      state={industryQuery.data}
-      caps={caps}
-      invalidate={() => {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.locationIndustry(locationId) })
-      }}
-      toast={(title, type) => toasts.add({ title, type })}
-    />
+      useResource={useIndustry}
+      resource="industry"
+      requires="canEditCanonical"
+    >
+      {({ data: state, disabled, editReason, publishReason }) => (
+        <IndustryEditor
+          locationId={locationId}
+          state={state}
+          disabled={disabled}
+          editReason={editReason}
+          publishReason={editReason ?? publishReason}
+        />
+      )}
+    </LocationTab>
   )
 }
 
-function IndustryTabLoaded({
+function IndustryEditor({
   locationId,
   state,
-  caps,
-  invalidate,
-  toast,
+  disabled,
+  editReason,
+  publishReason,
 }: {
   locationId: string
   state: IndustryState
-  caps: LocationCapabilities
-  invalidate: () => void
-  toast: ToastFn
+  disabled: boolean
+  editReason: string | null
+  publishReason: string | null
 }) {
-  const editReason = editDisabledReason(caps)
-  const publishReason =
-    editReason ?? resourceDisabledReason(caps, "industry", state.writesEnabled)
-
   return (
     <div className="flex flex-col gap-8">
       <GateNote reason={editReason} />
@@ -106,10 +101,8 @@ function IndustryTabLoaded({
                   : ((state.lodgingUpdated.data as RawRecord | null) ?? null)
               }
               suggestedError={state.lodgingUpdated.error}
-              disabled={Boolean(editReason)}
+              disabled={disabled}
               publishReason={publishReason}
-              invalidate={invalidate}
-              toast={toast}
             />
           )}
         </SectionPanel>
@@ -122,10 +115,8 @@ function IndustryTabLoaded({
             <BusinessCallsSection
               locationId={locationId}
               loaded={data as RawRecord}
-              disabled={Boolean(editReason)}
+              disabled={disabled}
               publishReason={publishReason}
-              invalidate={invalidate}
-              toast={toast}
             />
           )}
         </SectionPanel>
@@ -134,12 +125,19 @@ function IndustryTabLoaded({
       <section className="flex flex-col gap-4">
         <h2 className="text-title font-semibold">Healthcare</h2>
         <p className="text-caption text-muted-foreground">
-          Google holds healthcare service and provider details for this listing that can&apos;t be edited here yet.
+          Google holds healthcare service and provider details for this listing
+          that can&apos;t be edited here yet.
         </p>
-        <SectionPanel title="Healthcare services" result={state.healthcareServices}>
+        <SectionPanel
+          title="Healthcare services"
+          result={state.healthcareServices}
+        >
           {(data) => <HealthcareServicesReadOnly data={data as RawRecord} />}
         </SectionPanel>
-        <SectionPanel title="Provider attributes" result={state.providerAttributes}>
+        <SectionPanel
+          title="Provider attributes"
+          result={state.providerAttributes}
+        >
           {(data) => <ProviderAttributesReadOnly data={data as RawRecord} />}
         </SectionPanel>
       </section>
@@ -192,8 +190,6 @@ function LodgingSection({
   suggestedError,
   disabled,
   publishReason,
-  invalidate,
-  toast,
 }: {
   locationId: string
   loaded: RawRecord
@@ -201,19 +197,11 @@ function LodgingSection({
   suggestedError: string | null
   disabled: boolean
   publishReason: string | null
-  invalidate: () => void
-  toast: ToastFn
 }) {
-  const [draft, setDraft] = useState<RawRecord>(loaded)
-  // idiom (b): setState-in-effect -> ref-guard. Only reset local edits when
-  // the loaded resource actually changes (e.g. a refetch after a successful
-  // publish), not on every incidental re-render of `loaded`.
-  const loadedRef = useRef(loaded)
-  useEffect(() => {
-    if (loadedRef.current === loaded) return
-    loadedRef.current = loaded
-    setDraft(loaded)
-  }, [loaded])
+  // Google-direct resources carry no revision; the loaded record's identity
+  // (a new object per refetch) is the "server value changed" token.
+  const [draft, setDraft] = useResetOnRevision<RawRecord>(loaded, loaded)
+  const toasts = useToastManager()
 
   const policies = asRecord(draft.policies)
   const pets = asRecord(draft.pets)
@@ -234,18 +222,15 @@ function LodgingSection({
     [mask, draft]
   )
 
-  const save = useMutation({
+  const save = useResourceMutation({
     mutationFn: () =>
       publishIndustry(locationId, {
         operation: "update_lodging",
         updateMask: mask,
         payload,
       }),
-    onSuccess: () => {
-      invalidate()
-      toast("Lodging details published to Google", "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+    invalidate: [queryKeys.locationIndustry(locationId)],
+    successToast: "Lodging details published to Google",
   })
 
   const checkinId = useId()
@@ -282,7 +267,10 @@ function LodgingSection({
       }
       return next
     })
-    toast("Suggested lodging values applied to the form — review and save", "success")
+    toasts.add({
+      title: "Suggested lodging values applied to the form — review and save",
+      type: "success",
+    })
   }
 
   return (
@@ -293,7 +281,9 @@ function LodgingSection({
         </p>
       ) : suggestedPaths.length > 0 ? (
         <div className="flex flex-col gap-2 rounded-(--nr-radius-card) border border-border px-3 py-2">
-          <p className="text-ui font-medium">Google suggested lodging updates</p>
+          <p className="text-ui font-medium">
+            Google suggested lodging updates
+          </p>
           <p className="text-caption text-muted-foreground">
             Google suggests changes to{" "}
             {suggestedPaths.map((path) => path.replace(/_/g, " ")).join(", ")}.
@@ -428,7 +418,9 @@ function LodgingSection({
       </fieldset>
 
       <fieldset className="flex flex-col gap-2" disabled={disabled}>
-        <legend className="text-ui font-medium">Food, wellness, and housekeeping</legend>
+        <legend className="text-ui font-medium">
+          Food, wellness, and housekeeping
+        </legend>
         <AmenityToggle
           id={`${baseId}-breakfast`}
           label="Breakfast available"
@@ -486,7 +478,10 @@ function LodgingSection({
         <Button
           onClick={() => save.mutate()}
           disabled={
-            disabled || Boolean(publishReason) || mask.length === 0 || save.isPending
+            disabled ||
+            Boolean(publishReason) ||
+            mask.length === 0 ||
+            save.isPending
           }
         >
           {save.isPending ? "Saving…" : "Save lodging"}
@@ -505,50 +500,54 @@ function BusinessCallsSection({
   loaded,
   disabled,
   publishReason,
-  invalidate,
-  toast,
 }: {
   locationId: string
   loaded: RawRecord
   disabled: boolean
   publishReason: string | null
-  invalidate: () => void
-  toast: ToastFn
 }) {
   const initial = asString(loaded.callsState) || "ENABLED"
-  const [callsState, setCallsState] = useState(initial)
-  // idiom (b): ref-guard, as above.
-  const initialRef = useRef(initial)
-  useEffect(() => {
-    if (initialRef.current === initial) return
-    initialRef.current = initial
-    setCallsState(initial)
-  }, [initial])
+  // The loaded value is its own revision token: local edits survive until a
+  // refetch actually changes it.
+  const [callsState, setCallsState] = useResetOnRevision(initial, initial)
 
   const dirty = callsState !== initial
 
-  const save = useMutation({
+  const save = useResourceMutation({
     // The server 422s business_calls_mask_invalid for any mask other than
     // exactly ["callsState"] — hard-code it rather than deriving it.
     mutationFn: () =>
-      publishIndustry(locationId, { operation: "update_business_calls", updateMask: ["callsState"], payload: { callsState } }),
-    onSuccess: () => {
-      invalidate()
-      toast("Calls setting published to Google", "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+      publishIndustry(locationId, {
+        operation: "update_business_calls",
+        updateMask: ["callsState"],
+        payload: { callsState },
+      }),
+    invalidate: [queryKeys.locationIndustry(locationId)],
+    successToast: "Calls setting published to Google",
   })
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-ui font-medium">Accept calls from customers</span>
-          <Badge variant={initial === "ENABLED" ? "success" : "outline"}>Currently {callsStateLabel(initial)}</Badge>
+          <span className="text-ui font-medium">
+            Accept calls from customers
+          </span>
+          <Badge variant={initial === "ENABLED" ? "success" : "outline"}>
+            Currently {callsStateLabel(initial)}
+          </Badge>
         </div>
-        <Select value={callsState} onValueChange={(value: string | null) => value && setCallsState(value)} disabled={disabled}>
+        <Select
+          value={callsState}
+          onValueChange={(value: string | null) =>
+            value && setCallsState(value)
+          }
+          disabled={disabled}
+        >
           <SelectTrigger aria-label="Calls">
-            <SelectValue>{(value: string | null) => (value ? callsStateLabel(value) : "")}</SelectValue>
+            <SelectValue>
+              {(value: string | null) => (value ? callsStateLabel(value) : "")}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {CALLS_STATES.map((value) => (
@@ -560,7 +559,12 @@ function BusinessCallsSection({
         </Select>
       </div>
       <div>
-        <Button onClick={() => save.mutate()} disabled={disabled || Boolean(publishReason) || !dirty || save.isPending}>
+        <Button
+          onClick={() => save.mutate()}
+          disabled={
+            disabled || Boolean(publishReason) || !dirty || save.isPending
+          }
+        >
           {save.isPending ? "Saving…" : "Save calls"}
         </Button>
       </div>
@@ -576,7 +580,9 @@ function HealthcareServicesReadOnly({ data }: { data: RawRecord }) {
     <div className="flex flex-col gap-0.5 text-ui">
       <span className="font-medium">Healthcare services</span>
       <span className="text-caption text-muted-foreground">
-        {count > 0 ? `Google lists ${count} service${count === 1 ? "" : "s"} for this listing. ` : ""}
+        {count > 0
+          ? `Google lists ${count} service${count === 1 ? "" : "s"} for this listing. `
+          : ""}
         Not editable here yet.
       </span>
     </div>
@@ -589,7 +595,9 @@ function ProviderAttributesReadOnly({ data }: { data: RawRecord }) {
     <div className="flex flex-col gap-0.5 text-ui">
       <span className="font-medium">Provider attributes</span>
       <span className="text-caption text-muted-foreground">
-        {hasAttributes ? "Google holds provider attributes for this listing. " : ""}
+        {hasAttributes
+          ? "Google holds provider attributes for this listing. "
+          : ""}
         Not editable here yet.
       </span>
     </div>

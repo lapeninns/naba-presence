@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation"
 
+import { HydrationBoundary } from "@tanstack/react-query"
+
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { IndustryTab } from "@/components/locations/industry-tab"
 import { NoLocationEmpty } from "@/components/locations/no-location-empty"
+import { locationTabPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
 import { getSession } from "@/lib/server/session"
 
@@ -18,6 +21,10 @@ export default async function IndustryPage() {
     redirect("/profile")
   }
   const { locationId } = await resolvePrimaryLocation()
+  const state = await prefetch(
+    session,
+    locationTabPrefetch(locationId, "industry")
+  )
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -25,7 +32,9 @@ export default async function IndustryPage() {
         description="Extra details Google collects for your kind of business."
       />
       {locationId ? (
-        <IndustryTab locationId={locationId} />
+        <HydrationBoundary state={state}>
+          <IndustryTab locationId={locationId} />
+        </HydrationBoundary>
       ) : (
         <NoLocationEmpty role={session.role} />
       )}

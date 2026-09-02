@@ -1,18 +1,17 @@
 "use client"
 
-import { useMutation } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { decidePostApproval, deletePost, publishPost, type Post } from "@/lib/api/location-posts"
-import { describeActionError } from "@/lib/locations/action-errors"
+import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
+import { queryKeys } from "@/lib/queries/keys"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
-function describePublishOutcome(status: string) {
-  return status === "awaiting_approval"
-    ? { title: "Post submitted for approval.", type: "success" as const }
-    : { title: "Post published to Google", type: "success" as const }
+function publishOutcomeTitle(status: string) {
+  return status === "awaiting_approval" ? "Post submitted for approval." : "Post published to Google"
 }
 
 export function PostsActionBar({
@@ -20,43 +19,33 @@ export function PostsActionBar({
   post,
   caps,
   writesEnabled,
-  invalidate,
-  toast,
 }: {
   locationId: string
   post: Post
-  caps: { canEditCanonical: boolean; canPublish: boolean } | undefined
+  caps: LocationCapabilities | undefined
   writesEnabled: boolean
-  invalidate: () => void
-  toast: (title: string, type: "success" | "error") => void
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const invalidate = [queryKeys.locationPosts(locationId)]
 
-  const publish = useMutation({
+  const publish = useResourceMutation({
     mutationFn: () => publishPost(locationId, post.id),
-    onSuccess: (result) => {
-      const outcome = describePublishOutcome(result.status)
-      invalidate()
-      toast(outcome.title, outcome.type)
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+    invalidate,
+    successToast: (result) => publishOutcomeTitle(result.status),
+    errorContext: "post",
   })
-  const decide = useMutation({
+  const decide = useResourceMutation({
     mutationFn: (decision: "approve" | "reject") => decidePostApproval(locationId, post.id, decision),
-    onSuccess: (result, decision) => {
-      invalidate()
-      toast(decision === "reject" ? "Sent back to draft" : describePublishOutcome(result.status).title, "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+    invalidate,
+    successToast: (result, decision) => (decision === "reject" ? "Sent back to draft" : publishOutcomeTitle(result.status)),
+    errorContext: "post",
   })
-  const remove = useMutation({
+  const remove = useResourceMutation({
     mutationFn: () => deletePost(locationId, post.id),
-    onSuccess: () => {
-      setDeleteOpen(false)
-      invalidate()
-      toast("Post deleted", "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+    invalidate,
+    successToast: "Post deleted",
+    errorContext: "post",
+    onSuccess: () => setDeleteOpen(false),
   })
 
   // Posts publish/approve/delete 503 when PUBLISH_ENABLED is off, so

@@ -1,11 +1,15 @@
 "use client"
 
+import { useState } from "react"
+
+import { LocationTab } from "@/components/locations/location-tab"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { TabError, TabLoading } from "@/components/locations/tab-states"
-import { useLocationActivity } from "@/lib/queries/use-location-activity"
+import type { LocationActivityState } from "@/lib/contracts/location-activity"
 import { formatNumber } from "@/lib/format"
-import { useState } from "react"
+import { useLocationActivity } from "@/lib/queries/use-location-activity"
+
+const PAGE_SIZE = 10
 
 function humanise(value: string): string {
   const lower = value.toLowerCase().replace(/_/g, " ")
@@ -22,16 +26,30 @@ function statusVariant(
 
 export function LocationActivityPanel({ locationId }: { locationId: string }) {
   const [page, setPage] = useState(1)
-  const query = useLocationActivity(locationId, { page, pageSize: 10 })
-
-  if (query.isPending) return <TabLoading />
-  if (query.isError) {
-    return (
-      <TabError error={query.error} onRetry={() => void query.refetch()} />
-    )
+  // The page is part of the query key, so the resource hook closes over it.
+  // It always calls the same hook, which is all the shell requires.
+  function useActivityPage(id: string) {
+    return useLocationActivity(id, { page, pageSize: PAGE_SIZE })
   }
 
-  const activity = query.data
+  return (
+    <LocationTab locationId={locationId} useResource={useActivityPage}>
+      {({ data: activity }) => (
+        <ActivityList activity={activity} page={page} onPageChange={setPage} />
+      )}
+    </LocationTab>
+  )
+}
+
+function ActivityList({
+  activity,
+  page,
+  onPageChange,
+}: {
+  activity: LocationActivityState
+  page: number
+  onPageChange: (next: number) => void
+}) {
   const pageCount = Math.max(1, Math.ceil(activity.total / activity.pageSize))
 
   return (
@@ -88,7 +106,7 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
                 variant="ghost"
                 size="sm"
                 disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                onClick={() => onPageChange(Math.max(1, page - 1))}
               >
                 Previous
               </Button>
@@ -99,9 +117,7 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
                 variant="ghost"
                 size="sm"
                 disabled={page >= pageCount}
-                onClick={() =>
-                  setPage((current) => Math.min(pageCount, current + 1))
-                }
+                onClick={() => onPageChange(Math.min(pageCount, page + 1))}
               >
                 Next
               </Button>

@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
-
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { publishBusinessAttributes, publishBusinessInformation } from "@/lib/api/location-business-information"
@@ -80,19 +77,5 @@ describe("location management contracts: client bodies parse under the route sch
   })
 })
 
-describe("location management contracts stay client-safe", () => {
-  it.each([
-    "gbp-management",
-    "location-administration",
-    "location-booking",
-    "location-business-information",
-    "location-food-menus",
-    "location-industry",
-  ])("lib/contracts/%s.ts imports nothing server-only", (name) => {
-    const source = readFileSync(join(process.cwd(), "lib", "contracts", `${name}.ts`), "utf8")
-    // Only import specifiers count — comments may mention what is excluded.
-    expect(source).not.toMatch(/import\s+["']server-only["']/)
-    expect(source).not.toMatch(/from\s+["']@\/lib\/server\//)
-    expect(source).not.toMatch(/from\s+["']node:/)
-  })
-})
+// Client-safety of every lib/contracts module (no server-only / node:* / lib/server
+// reachable through the import graph) is asserted in tests/contracts-client-safe.test.ts.

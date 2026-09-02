@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
 
-type AdminRow = { name?: string; admin?: string; role?: string; pendingInvitation?: boolean }
+export type AdminRow = { name?: string; admin?: string; role?: string; pendingInvitation?: boolean }
 
 export function AdminsTable({
   admins, invitations, renderActions,

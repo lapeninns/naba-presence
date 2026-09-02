@@ -1,6 +1,19 @@
-import { ProfileTab } from "@/components/locations/profile-tab"
+import { HydrationBoundary } from "@tanstack/react-query"
 
-export default async function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  return <ProfileTab locationId={id} />
+import { ProfileTab } from "@/components/locations/profile-tab"
+import { locationTabPrefetch, prefetch } from "@/lib/server/prefetch"
+import { getSession } from "@/lib/server/session"
+
+export default async function ProfilePage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const [{ id }, session] = await Promise.all([params, getSession()])
+  const state = await prefetch(session, locationTabPrefetch(id, "profile"))
+  return (
+    <HydrationBoundary state={state}>
+      <ProfileTab locationId={id} />
+    </HydrationBoundary>
+  )
 }

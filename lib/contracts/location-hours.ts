@@ -1,28 +1,25 @@
 // Wire contract for /api/locations/[id]/hours. Client-safe: no "server-only",
-// nothing from lib/server, and only type imports from lib/domain (lib/domain/
-// hours.ts hashes with node:crypto, which the client bundle cannot resolve).
+// nothing from lib/server, and only the client-safe vocabulary from lib/domain
+// (lib/domain/hours.ts hashes with node:crypto; see lib/domain/README.md).
 import { z } from "zod"
 
-import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
-import type { HoursDriftStatus, NormalizedHours } from "@/lib/domain/hours"
+import {
+  HOURS_DRIFT_STATUSES,
+  HOURS_UPDATE_MASKS,
+  type NormalizedHours,
+} from "@/lib/domain/hours-vocabulary"
 
 export type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
-export type { HoursDriftStatus, NormalizedHours } from "@/lib/domain/hours"
+export {
+  HOURS_DRIFT_STATUSES,
+  HOURS_UPDATE_MASKS,
+  type HoursDriftStatus,
+  type NormalizedHours,
+} from "@/lib/domain/hours-vocabulary"
 
-// Vocabularies. `satisfies` rejects members the domain union does not know;
-// an omitted member fails where lib/server/hours.ts assigns its domain-typed
-// state to `HoursState`, so the tuples cannot drift from the domain in either
-// direction.
-export const HOURS_UPDATE_MASKS = [
-  "regularHours",
-  "specialHours",
-  "moreHours",
-] as const satisfies readonly GoogleHoursUpdateMask[]
+// Vocabularies come from the domain; the schemas only wrap them.
 export const hoursUpdateMaskSchema = z.enum(HOURS_UPDATE_MASKS)
-
-export const hoursDriftStatusSchema = z.enum(
-  ["in_sync", "core_dirty", "google_dirty", "conflict"] as const satisfies readonly HoursDriftStatus[]
-)
+export const hoursDriftStatusSchema = z.enum(HOURS_DRIFT_STATUSES)
 
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 const revisionSchema = z.string().regex(/^\d+$/)

@@ -1,6 +1,18 @@
-// Contract for /api/locations/[id]/food-menus. Client-safe: zod only.
-// (lib/domain/food-menus.ts hashes with node:crypto and must not be imported here.)
+// Contract for /api/locations/[id]/food-menus. Client-safe: zod plus the
+// client-safe vocabulary from lib/domain (lib/domain/food-menus.ts hashes with
+// node:crypto and must not be imported here; see lib/domain/README.md).
 import { z } from "zod"
+
+import {
+  FOOD_MENUS_SYNC_STATUSES,
+  type FoodMenuCounts,
+} from "@/lib/domain/food-menus-vocabulary"
+
+export {
+  FOOD_MENUS_SYNC_STATUSES,
+  type FoodMenuCounts,
+  type FoodMenusSyncStatus,
+} from "@/lib/domain/food-menus-vocabulary"
 
 // --- menu hierarchy ---------------------------------------------------------
 // Google FoodMenu resources are passthrough records: the editor reads known
@@ -28,13 +40,9 @@ export const foodMenuCountsSchema = z.object({
   sections: z.number(),
   items: z.number(),
   options: z.number(),
-})
-export type FoodMenuCounts = z.infer<typeof foodMenuCountsSchema>
+}) satisfies z.ZodType<FoodMenuCounts>
 
 // --- GET ------------------------------------------------------------------
-
-export const FOOD_MENUS_SYNC_STATUSES = ["in_sync", "drift"] as const
-export type FoodMenusSyncStatus = (typeof FOOD_MENUS_SYNC_STATUSES)[number]
 
 export const foodMenusStateSchema = z.object({
   location: z.object({ id: z.string(), name: z.string(), googleLocationName: z.string() }),

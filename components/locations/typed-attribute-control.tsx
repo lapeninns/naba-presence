@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { AttributeMetadata, GoogleAttribute } from "@/lib/api/location-business-information"
 import { attributeControlKind } from "@/lib/locations/console-labels"
+import { enumOptionsFor } from "@/lib/locations/google-values"
 
 // Renders a single typed Google attribute control from its metadata. Only the
 // well-understood value types get an editor; anything else is read-only with the
@@ -20,7 +21,7 @@ export function TypedAttributeControl({
   const name = metadata.parent
   const label = metadata.displayName ?? name
   const kind = attributeControlKind(metadata.valueType)
-  const enumOptions = extractEnumOptions(metadata)
+  const enumOptions = enumOptionsFor(metadata)
 
   if (kind === "bool") {
     const checked = attribute?.values?.[0] === true
@@ -66,11 +67,4 @@ export function TypedAttributeControl({
       <span className="text-caption text-muted-foreground">Not editable here yet.</span>
     </div>
   )
-}
-
-function extractEnumOptions(metadata: AttributeMetadata): Array<{ value: string; label: string }> {
-  const meta = metadata as unknown as { valueMetadata?: Array<{ value?: string; displayName?: string }> }
-  return (meta.valueMetadata ?? [])
-    .filter((entry): entry is { value: string; displayName?: string } => typeof entry.value === "string")
-    .map((entry) => ({ value: entry.value, label: entry.displayName ?? entry.value }))
 }

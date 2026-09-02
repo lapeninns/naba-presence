@@ -1,18 +1,29 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { LocationTab } from "@/components/locations/location-tab"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
-import { TabError, TabLoading } from "@/components/locations/tab-states"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useToastManager } from "@/components/ui/toast"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   createPlaceAction,
   deletePlaceAction,
@@ -20,11 +31,9 @@ import {
   type PlaceActionType,
   type PlaceActionsState,
 } from "@/lib/api/location-booking"
-import { describeActionError } from "@/lib/locations/action-errors"
-import { resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
-import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 export function humaniseActionType(type: string): string {
   const lower = type.toLowerCase().replace(/_/g, " ")
@@ -32,65 +41,65 @@ export function humaniseActionType(type: string): string {
 }
 
 export function BookingTab({ locationId }: { locationId: string }) {
-  const queryClient = useQueryClient()
-  const toasts = useToastManager()
-  const bookingQuery = usePlaceActions(locationId)
-  const caps = useLocationCapabilities(locationId).data
-
-  if (bookingQuery.isPending) return <TabLoading />
-  if (bookingQuery.isError) return <TabError error={bookingQuery.error} onRetry={() => bookingQuery.refetch()} />
-
   return (
-    <BookingTabLoaded
+    <LocationTab
       locationId={locationId}
-      state={bookingQuery.data}
-      caps={caps}
-      invalidate={() => void queryClient.invalidateQueries({ queryKey: queryKeys.locationBooking(locationId) })}
-      toast={(title, type: "success" | "error") => toasts.add({ title, type })}
-    />
+      useResource={usePlaceActions}
+      resource="booking"
+    >
+      {({ data: state, publishReason }) => (
+        <BookingLinks
+          locationId={locationId}
+          state={state}
+          writeReason={publishReason}
+        />
+      )}
+    </LocationTab>
   )
 }
 
-function BookingTabLoaded({
+function BookingLinks({
   locationId,
   state,
-  caps,
-  invalidate,
-  toast,
+  writeReason,
 }: {
   locationId: string
   state: PlaceActionsState
-  caps: { canEditCanonical: boolean; canPublish: boolean } | undefined
-  invalidate: () => void
-  toast: (title: string, type: "success" | "error") => void
+  /** Why Google writes are blocked for this resource, or null. Booking links are Google-direct, so this is the only gate. */
+  writeReason: string | null
 }) {
-  const [type, setType] = useState<PlaceActionType>((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION")
+  const [type, setType] = useState<PlaceActionType>(
+    (state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION"
+  )
   const [uri, setUri] = useState("")
   const [preferred, setPreferred] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<PlaceActionLink | null>(null)
 
-  const writeReason = resourceDisabledReason(caps, "booking", state.writesEnabled)
-  const disabled = Boolean(writeReason)
+  const disabled = writeReason !== null
 
-  const add = useMutation({
-    mutationFn: () => createPlaceAction(locationId, { uri, placeActionType: type, isPreferred: preferred }),
+  const add = useResourceMutation({
+    mutationFn: () =>
+      createPlaceAction(locationId, {
+        uri,
+        placeActionType: type,
+        isPreferred: preferred,
+      }),
+    invalidate: [queryKeys.locationBooking(locationId)],
+    successToast: "Booking link added",
     onSuccess: () => {
       setUri("")
       setPreferred(false)
-      invalidate()
-      toast("Booking link added", "success")
     },
-    onError: (error) => toast(describeActionError(error), "error"),
   })
 
-  const remove = useMutation({
-    mutationFn: (link: PlaceActionLink) => deletePlaceAction(locationId, link.id, { expectedGoogleHash: link.googleHash }),
-    onSuccess: () => {
-      setDeleteTarget(null)
-      invalidate()
-      toast("Booking link removed", "success")
-    },
-    onError: (error) => toast(describeActionError(error), "error"),
+  const remove = useResourceMutation({
+    mutationFn: (link: PlaceActionLink) =>
+      deletePlaceAction(locationId, link.id, {
+        expectedGoogleHash: link.googleHash,
+      }),
+    invalidate: [queryKeys.locationBooking(locationId)],
+    successToast: "Booking link removed",
+    onSuccess: () => setDeleteTarget(null),
   })
 
   return (
@@ -112,12 +121,28 @@ function BookingTabLoaded({
             <TableBody>
               {state.links.map((link) => (
                 <TableRow key={link.id}>
-                  <TableCell className="font-medium">{humaniseActionType(link.placeActionType)}</TableCell>
-                  <TableCell className="max-w-[240px] truncate text-muted-foreground">{link.uri}</TableCell>
-                  <TableCell>{link.isPreferred ? <Badge variant="secondary">Preferred</Badge> : "—"}</TableCell>
+                  <TableCell className="font-medium">
+                    {humaniseActionType(link.placeActionType)}
+                  </TableCell>
+                  <TableCell className="max-w-[240px] truncate text-muted-foreground">
+                    {link.uri}
+                  </TableCell>
+                  <TableCell>
+                    {link.isPreferred ? (
+                      <Badge variant="secondary">Preferred</Badge>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                   <TableCell>
                     {link.isEditable ? (
-                      <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(link)} disabled={disabled} aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(link)}
+                        disabled={disabled}
+                        aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}
+                      >
                         Remove
                       </Button>
                     ) : (
@@ -136,7 +161,10 @@ function BookingTabLoaded({
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-ui">
             <span className="text-caption text-muted-foreground">Type</span>
-            <Select value={type} onValueChange={(next) => setType(next as PlaceActionType)}>
+            <Select
+              value={type}
+              onValueChange={(next) => setType(next as PlaceActionType)}
+            >
               <SelectTrigger className="w-56" aria-label="Booking link type">
                 <SelectValue />
               </SelectTrigger>
@@ -151,13 +179,29 @@ function BookingTabLoaded({
           </label>
           <label className="flex flex-col gap-1 text-ui">
             <span className="text-caption text-muted-foreground">Link</span>
-            <Input value={uri} onChange={(event) => setUri(event.target.value)} placeholder="https://…" inputMode="url" className="w-72" disabled={disabled} />
+            <Input
+              value={uri}
+              onChange={(event) => setUri(event.target.value)}
+              placeholder="https://…"
+              inputMode="url"
+              className="w-72"
+              disabled={disabled}
+            />
           </label>
           <label className="flex items-center gap-2 text-ui">
-            <Checkbox checked={preferred} onCheckedChange={(value) => setPreferred(value === true)} disabled={disabled} aria-label="Preferred link" />
+            <Checkbox
+              checked={preferred}
+              onCheckedChange={(value) => setPreferred(value === true)}
+              disabled={disabled}
+              aria-label="Preferred link"
+            />
             Preferred
           </label>
-          <Button variant="outline" onClick={() => add.mutate()} disabled={disabled || uri.trim().length === 0 || add.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => add.mutate()}
+            disabled={disabled || uri.trim().length === 0 || add.isPending}
+          >
             Add booking link
           </Button>
         </div>

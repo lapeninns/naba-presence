@@ -1,56 +1,26 @@
+// Client-safe: imports only zod and the *-vocabulary modules (no node:crypto).
+// The vocabularies live in lib/domain/import-review-vocabulary.ts and are
+// re-exported here. See lib/domain/README.md.
 import { z } from "zod"
 
 import {
   PROFILE_FIELD_KEYS,
   classifyProfileField,
   type ProfileDriftStatus,
-} from "@/lib/domain/profile"
+} from "@/lib/domain/profile-vocabulary"
+import type {
+  ProposalDecisionAction,
+  ProposalKind,
+  ProposalResourceType,
+  ProposalStatus,
+} from "@/lib/domain/import-review-vocabulary"
 
 // Drift classification is shared with the profile surface; re-exported here so
 // import-review consumers have a single import site.
 export { classifyProfileField as classifyResourceDrift }
 export type { ProfileDriftStatus }
 
-export const PROPOSAL_RESOURCE_TYPES = ["profile", "food_menus"] as const
-export type ProposalResourceType = (typeof PROPOSAL_RESOURCE_TYPES)[number]
-
-export const PROPOSAL_KINDS = [
-  "field_changed",
-  "item_changed",
-  "item_added_on_google",
-  "item_missing_from_google",
-  "section_added_on_google",
-  "section_missing_from_google",
-  "structure_changed",
-] as const
-export type ProposalKind = (typeof PROPOSAL_KINDS)[number]
-
-export const PROPOSAL_STATUSES = [
-  "pending",
-  "processing",
-  "applied",
-  "ignored",
-  "failed",
-  "superseded",
-] as const
-export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number]
-
-export const PROPOSAL_DECISION_ACTIONS = [
-  "apply",
-  "ignore",
-  "delete_local",
-  "keep_local",
-] as const
-export type ProposalDecisionAction =
-  (typeof PROPOSAL_DECISION_ACTIONS)[number]
-
-export const MATCH_STATUSES = [
-  "previous_identity",
-  "label_price",
-  "label_unique",
-  "unmatched",
-] as const
-export type MenuMatchStatus = (typeof MATCH_STATUSES)[number]
+export * from "@/lib/domain/import-review-vocabulary"
 
 // Stored suggested_patch payloads are re-parsed defensively at decision time.
 // Never trust what an earlier version of the code wrote into the database.

@@ -13,6 +13,15 @@ import type { MediaState } from "@/lib/api/location-media"
 const useMediaMock = vi.fn()
 const useCapsMock = vi.fn()
 const updateMediaCategoryMock = vi.fn()
+const replace = vi.fn()
+// The tab reads page/filters from the URL; each test seeds this before render.
+let searchParams = new URLSearchParams()
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: vi.fn() }),
+  usePathname: () => "/locations/loc-1/photos",
+  useSearchParams: () => searchParams,
+}))
 
 vi.mock("@/lib/queries/use-location-media", () => ({
   useMedia: () => useMediaMock(),
@@ -97,7 +106,40 @@ function renderTab() {
 
 afterEach(() => {
   vi.clearAllMocks()
+  searchParams = new URLSearchParams()
 })
+
+function loaded(media: MediaState) {
+  useMediaMock.mockReturnValue({
+    data: media,
+    isPending: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  })
+  useCapsMock.mockReturnValue({
+    data: { canEditCanonical: true, canPublish: true },
+  })
+}
+
+function manyItems(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `m${index}`,
+    googleMediaName: `accounts/a/locations/l/media/${index}`,
+    ownership: "merchant" as const,
+    mediaFormat: "PHOTO",
+    category: "ADDITIONAL",
+    sourceUrl: null,
+    googleUrl: `https://g/${index}`,
+    thumbnailUrl: `https://g/${index}t`,
+    description: null,
+    attribution: null,
+    dimensions: null,
+    insights: null,
+    googleHash: `h${index}`,
+    createTime: "2026-07-01T00:00:00.000Z",
+  }))
+}
 
 describe("PhotosTab", () => {
   it("opens the redesigned add-media workspace for a publisher", async () => {
@@ -213,22 +255,7 @@ describe("PhotosTab", () => {
   })
 
   it("paginates current media instead of rendering every image at once", () => {
-    const items = Array.from({ length: 15 }, (_, index) => ({
-      id: `m${index}`,
-      googleMediaName: `accounts/a/locations/l/media/${index}`,
-      ownership: "merchant" as const,
-      mediaFormat: "PHOTO",
-      category: "ADDITIONAL",
-      sourceUrl: null,
-      googleUrl: `https://g/${index}`,
-      thumbnailUrl: `https://g/${index}t`,
-      description: null,
-      attribution: null,
-      dimensions: null,
-      insights: null,
-      googleHash: `h${index}`,
-      createTime: "2026-07-01T00:00:00.000Z",
-    }))
+    const items = manyItems(15)
     useMediaMock.mockReturnValue({
       data: makeMedia({
         items: items.slice(0, 12),
@@ -328,5 +355,60 @@ describe("PhotosTab", () => {
     expect(isPatchableMediaCategory("COVER")).toBe(false)
     expect(isPatchableMediaCategory("PROFILE")).toBe(false)
     expect(isPatchableMediaCategory("INTERIOR")).toBe(true)
+  })
+
+  // Sprint 4.2c: page and browse filters live in the URL so a filtered page
+  // survives reload and sharing. Changing a filter resets to page 1; defaults
+  // are dropped so the plain photos URL stays canonical.
+  it("writes an ownership filter to the URL with replace and resets the page", async () => {
+    const user = userEvent.setup()
+    searchParams = new URLSearchParams("page=2")
+    loaded(makeMedia({ items: manyItems(12), total: 15 }))
+    renderTab()
+    expect(screen.getByText("13–15 of 15 · Page 2 of 2")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Customer photos" }))
+    expect(replace).toHaveBeenCalledWith(
+      "/locations/loc-1/photos?ownership=customer",
+      { scroll: false }
+    )
+  })
+
+  it("pages through the URL and drops page 1 from it", async () => {
+    const user = userEvent.setup()
+    loaded(makeMedia({ items: manyItems(12), total: 15 }))
+    const first = renderTab()
+    await user.click(screen.getByRole("button", { name: "Next" }))
+    expect(replace).toHaveBeenLastCalledWith("/locations/loc-1/photos?page=2", {
+      scroll: false,
+    })
+    first.unmount()
+
+    searchParams = new URLSearchParams("page=2")
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Previous" }))
+    expect(replace).toHaveBeenLastCalledWith("/locations/loc-1/photos", {
+      scroll: false,
+    })
+  })
+
+  it("reflects the URL's filters as pressed and clears them back to the bare URL", async () => {
+    const user = userEvent.setup()
+    searchParams = new URLSearchParams("ownership=customer&category=INTERIOR&page=3")
+    loaded(makeMedia({ items: [], total: 0 }))
+    renderTab()
+    expect(
+      screen.getByRole("button", { name: "Customer photos" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    )
+    expect(screen.getByText("No matching photos")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }))
+    expect(replace).toHaveBeenCalledWith("/locations/loc-1/photos", {
+      scroll: false,
+    })
   })
 })

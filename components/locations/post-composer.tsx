@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { GateNote } from "@/components/locations/publish-gate"
@@ -9,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { createPost } from "@/lib/api/location-posts"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
-import { describeActionError } from "@/lib/locations/action-errors"
 import { localPostFormSchema, type LocalPostFormValues } from "@/lib/locations/forms/local-post"
+import { queryKeys } from "@/lib/queries/keys"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 const TOPICS = [
   { value: "STANDARD", label: "Update" },
@@ -21,13 +21,9 @@ const TOPICS = [
 export function PostComposer({
   locationId,
   disabledReason,
-  invalidate,
-  toast,
 }: {
   locationId: string
   disabledReason: string | null
-  invalidate: () => void
-  toast: (title: string, type: "success" | "error") => void
 }) {
   const [topicType, setTopicType] = useState<"STANDARD" | "EVENT" | "OFFER">("STANDARD")
   const [summary, setSummary] = useState("")
@@ -37,15 +33,15 @@ export function PostComposer({
   const isDirty = summary.trim().length > 0 || eventTitle.trim().length > 0
   useDirtyGuard({ key: `location-posts-composer-${locationId}`, isDirty, snapshot: () => JSON.stringify({ topicType, summary, eventTitle }) })
 
-  const create = useMutation({
+  const create = useResourceMutation({
     mutationFn: (input: LocalPostFormValues) => createPost(locationId, input),
+    invalidate: [queryKeys.locationPosts(locationId)],
+    successToast: "Draft saved",
+    errorContext: "post",
     onSuccess: () => {
       setSummary("")
       setEventTitle("")
-      invalidate()
-      toast("Draft saved", "success")
     },
-    onError: (err) => toast(describeActionError(err), "error"),
   })
 
   const disabled = Boolean(disabledReason)

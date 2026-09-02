@@ -1,39 +1,27 @@
 // Wire contract for /api/locations/[id]/profile. Client-safe: no "server-only",
-// nothing from lib/server, and only type imports from lib/domain (lib/domain/
-// profile.ts hashes with node:crypto, which the client bundle cannot resolve).
+// nothing from lib/server, and only the client-safe vocabulary from lib/domain
+// (lib/domain/profile.ts hashes with node:crypto; see lib/domain/README.md).
 import { z } from "zod"
 
-import type {
-  ProfileDriftStatus,
-  ProfileFieldKey,
-  ProfileFieldPolicy,
-} from "@/lib/domain/profile"
+import {
+  PROFILE_DRIFT_STATUSES,
+  PROFILE_FIELD_KEYS,
+  PROFILE_FIELD_POLICY_KINDS,
+} from "@/lib/domain/profile-vocabulary"
 
-export type { ProfileDriftStatus, ProfileFieldKey, ProfileFieldPolicy } from "@/lib/domain/profile"
+export {
+  PROFILE_DRIFT_STATUSES,
+  PROFILE_FIELD_KEYS,
+  PROFILE_FIELD_POLICY_KINDS,
+  type ProfileDriftStatus,
+  type ProfileFieldKey,
+  type ProfileFieldPolicy,
+} from "@/lib/domain/profile-vocabulary"
 
-// Vocabularies. The domain's PROFILE_FIELD_KEYS value lives in the node:crypto
-// module, so the tuple is restated here and pinned to the domain type both
-// ways: `satisfies` rejects members the domain union does not know, and an
-// omitted member fails where lib/server/profile.ts assigns its domain-typed
-// fields to `ProfileState`.
-export const PROFILE_FIELD_KEYS = [
-  "name",
-  "description",
-  "phone",
-  "address",
-  "mapsUrl",
-  "reviewUrl",
-  "website",
-] as const satisfies readonly ProfileFieldKey[]
+// Vocabularies come from the domain; the schemas only wrap them.
 export const profileFieldKeySchema = z.enum(PROFILE_FIELD_KEYS)
-
-export const profileFieldPolicySchema = z.enum(
-  ["bidirectional", "import_only", "google_read_only"] as const satisfies readonly ProfileFieldPolicy[]
-)
-
-export const profileDriftStatusSchema = z.enum(
-  ["in_sync", "core_dirty", "google_dirty", "conflict"] as const satisfies readonly ProfileDriftStatus[]
-)
+export const profileFieldPolicySchema = z.enum(PROFILE_FIELD_POLICY_KINDS)
+export const profileDriftStatusSchema = z.enum(PROFILE_DRIFT_STATUSES)
 
 const revisionSchema = z.string().regex(/^\d+$/)
 const hashSchema = z.string().length(64)

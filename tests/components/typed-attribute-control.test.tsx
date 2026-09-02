@@ -30,4 +30,30 @@ describe("TypedAttributeControl", () => {
     expect(screen.getByText(/not editable here yet/i)).toBeInTheDocument()
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
   })
+  it("renders an ENUM attribute as a select whose trigger shows the option's display name, never the raw value", async () => {
+    const onChange = vi.fn()
+    render(
+      <TypedAttributeControl
+        metadata={{
+          parent: "attributes/wheelchair",
+          displayName: "Wheelchair access",
+          valueType: "ENUM",
+          valueMetadata: [
+            { value: "FULL", displayName: "Full access" },
+            { value: "PARTIAL", displayName: "Partial access" },
+          ],
+        }}
+        attribute={{ name: "attributes/wheelchair", repeatedEnumValue: { setValues: ["FULL"] } }}
+        disabled={false}
+        onChange={onChange}
+      />
+    )
+    const trigger = screen.getByRole("combobox", { name: "Wheelchair access" })
+    await userEvent.click(trigger)
+    await userEvent.click(await screen.findByRole("option", { name: "Partial access" }))
+    expect(onChange).toHaveBeenCalledWith({
+      name: "attributes/wheelchair",
+      repeatedEnumValue: { setValues: ["PARTIAL"] },
+    })
+  })
 })

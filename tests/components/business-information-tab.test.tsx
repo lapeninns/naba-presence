@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -44,7 +44,8 @@ describe("BusinessInformationTab", () => {
     stubRoutes({ caps: { canEditCanonical: false, canPublish: false } })
     renderWithProviders(<BusinessInformationTab locationId="loc-1" />)
     expect(await screen.findByDisplayValue("Camden Hotel")).toBeDisabled()
-    expect(screen.getByText("Only owners and admins can edit this location.")).toBeInTheDocument()
+    expect(await screen.findByText("Only owners and admins can edit this location.")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("Camden Hotel")).toBeDisabled()
   })
 
   it("does not crash picking an additional category when no primary category is set", async () => {
@@ -78,7 +79,9 @@ describe("BusinessInformationTab", () => {
     await screen.findByDisplayValue("Camden Hotel")
     expect(screen.getByText("No primary category set.")).toBeInTheDocument()
 
+    // Editors stay disabled until the capabilities query has answered.
     const addInput = screen.getByLabelText("Add another category")
+    await waitFor(() => expect(addInput).toBeEnabled())
     await userEvent.type(addInput, "spa")
     const option = await screen.findByRole("option", { name: "Spa" })
     await userEvent.click(option)
@@ -93,6 +96,7 @@ describe("BusinessInformationTab", () => {
     const fetchSpy = vi.mocked(fetch)
     renderWithProviders(<BusinessInformationTab locationId="loc-1" />)
     const title = await screen.findByDisplayValue("Camden Hotel")
+    await waitFor(() => expect(title).toBeEnabled())
     await userEvent.clear(title)
     await userEvent.type(title, "Camden Boutique Hotel")
     await userEvent.click(screen.getByRole("button", { name: /publish/i }))

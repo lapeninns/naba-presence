@@ -2,78 +2,36 @@
  * Wire contract for `/api/locations/[id]/import-review/**` and
  * GET `/api/import-review/counts`.
  *
- * Client-safe: no `server-only`, no `lib/server` imports. Shared by the
- * routes (query/body schemas, response types),
- * `lib/api/location-import-review.ts` (response schemas) and
+ * Client-safe: no `server-only`, no `lib/server` imports, and only the
+ * client-safe `lib/domain/import-review-vocabulary` module from the domain
+ * (see lib/domain/README.md). Shared by the routes (query/body schemas,
+ * response types), `lib/api/location-import-review.ts` (response schemas) and
  * `lib/server/import-review.ts` (the proposal projection types).
- *
- * The vocabularies are declared here rather than imported from
- * `lib/domain/import-review`, because that module value-imports
- * `lib/domain/profile`, which needs `node:crypto` — a client bundle cannot
- * carry it. Type-only imports (erased at build) keep the two in lock-step:
- * `satisfies` proves every wire value is a domain value, and
- * `IMPORT_REVIEW_VOCABULARY_LINKED` fails to compile when a domain value is
- * missing from the wire.
  */
 import { z } from "zod"
 
-import type {
-  ProposalDecisionAction,
-  ProposalKind,
-  ProposalResourceType,
-  ProposalStatus,
-} from "@/lib/domain/import-review"
+import {
+  PROPOSAL_DECISION_ACTIONS,
+  PROPOSAL_KINDS,
+  PROPOSAL_RESOURCE_TYPES,
+  PROPOSAL_STATUSES,
+  type ProposalResourceType,
+} from "@/lib/domain/import-review-vocabulary"
 
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------
 
-export const PROPOSAL_RESOURCE_TYPES = [
-  "profile",
-  "food_menus",
-] as const satisfies readonly ProposalResourceType[]
-
-export const PROPOSAL_KINDS = [
-  "field_changed",
-  "item_changed",
-  "item_added_on_google",
-  "item_missing_from_google",
-  "section_added_on_google",
-  "section_missing_from_google",
-  "structure_changed",
-] as const satisfies readonly ProposalKind[]
-
-export const PROPOSAL_STATUSES = [
-  "pending",
-  "processing",
-  "applied",
-  "ignored",
-  "failed",
-  "superseded",
-] as const satisfies readonly ProposalStatus[]
-
-export const PROPOSAL_DECISION_ACTIONS = [
-  "apply",
-  "ignore",
-  "delete_local",
-  "keep_local",
-] as const satisfies readonly ProposalDecisionAction[]
-
-type Covers<Wire extends string, Domain extends string> = [Domain] extends [
-  Wire,
-]
-  ? true
-  : never
-
-/** Compile-time proof that every domain value is representable on the wire. */
-export const IMPORT_REVIEW_VOCABULARY_LINKED: Covers<
-  (typeof PROPOSAL_RESOURCE_TYPES)[number],
-  ProposalResourceType
-> &
-  Covers<(typeof PROPOSAL_KINDS)[number], ProposalKind> &
-  Covers<(typeof PROPOSAL_STATUSES)[number], ProposalStatus> &
-  Covers<(typeof PROPOSAL_DECISION_ACTIONS)[number], ProposalDecisionAction> =
-  true
+export {
+  PROPOSAL_DECISION_ACTIONS,
+  PROPOSAL_KINDS,
+  PROPOSAL_RESOURCE_TYPES,
+  PROPOSAL_STATUSES,
+  type ProposalDecisionAction,
+  type ProposalKind,
+  type ProposalResourceType,
+  type ProposalStatus,
+} from "@/lib/domain/import-review-vocabulary"
 
 /** How a proposal was raised: the presence-resources sweep or a manual refresh. */
 export const RAISE_TRIGGERS = ["sweep", "manual"] as const

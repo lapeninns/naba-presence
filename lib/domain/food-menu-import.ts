@@ -1,8 +1,10 @@
 // Pure structural diff and match ladder for Google FoodMenus import review.
 // IMPORTANT: this module must stay free of node:crypto (and any server-only
 // imports) — the publish-preview dialog reuses it in the client bundle.
-// Hashing lives in lib/domain/food-menus.ts.
-import type { MenuMatchStatus, MenuPatch } from "@/lib/domain/import-review"
+// Hashing lives in lib/domain/food-menus.ts; the client-safe vocabularies in
+// the *-vocabulary.ts modules (see lib/domain/README.md).
+import type { MenuMatchStatus } from "@/lib/domain/import-review-vocabulary"
+import type { MenuPatch } from "@/lib/domain/import-review"
 
 type MenuNode = Record<string, unknown>
 
