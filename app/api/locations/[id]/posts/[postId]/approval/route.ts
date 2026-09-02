@@ -1,30 +1,24 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { requestOrPublishLocalPost } from "@/lib/server/posts"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 const inputSchema = z.object({ decision: z.enum(["approve", "reject"]) })
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string; postId: string }> }
-) {
-  try {
+export const POST = route({
+  params: z.object({ id: z.string(), postId: z.string() }),
+  body: inputSchema,
+  handler: async ({ session, params, body, requestId, tenant }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
     }
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, postId } = await context.params
-    const { decision } = inputSchema.parse(await request.json())
-    if (decision === "reject") {
-      await withTenant(session.organisationId, async (sql) => {
+    const { id, postId } = params
+    if (body.decision === "reject") {
+      await tenant(async (sql) => {
         await requireLocationAccess(sql, session, id)
         const [post] = await sql<{ id: string }[]>`
           update gbp_local_post
@@ -41,22 +35,18 @@ export async function POST(
           action: "post.approval.rejected",
           subjectType: "local_post",
           subjectId: postId,
-          requestId: rid.id,
+          requestId,
         })
       })
-      return NextResponse.json({ status: "draft" })
+      return { status: "draft" }
     }
-    return NextResponse.json(
-      await requestOrPublishLocalPost({
-        organisationId: session.organisationId,
-        session,
-        locationId: id,
-        postId,
-        requestId: rid.id,
-        approval: true,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return requestOrPublishLocalPost({
+      organisationId: session.organisationId,
+      session,
+      locationId: id,
+      postId,
+      requestId,
+      approval: true,
+    })
+  },
+})

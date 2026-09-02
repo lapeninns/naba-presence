@@ -3,35 +3,35 @@ import { NextResponse } from "next/server"
 import { registerSchema } from "@/lib/domain/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { getServerEnv } from "@/lib/server/env"
-import { apiError, serverRequestId } from "@/lib/server/http"
 import { signUpWithPassword } from "@/lib/server/password-auth"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const input = registerSchema.parse(await request.json())
+export const POST = route({
+  auth: "public",
+  body: registerSchema,
+  handler: async ({ request, body, requestId, clientRequestId }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const confirmationUrl = new URL("/auth/confirm", baseUrl)
     confirmationUrl.searchParams.set("flow", "signup")
-    if (input.inviteToken) {
-      confirmationUrl.searchParams.set("inviteToken", input.inviteToken)
+    if (body.inviteToken) {
+      confirmationUrl.searchParams.set("inviteToken", body.inviteToken)
     }
     const result = await signUpWithPassword({
-      email: input.email,
-      password: input.password,
-      displayName: input.displayName,
+      email: body.email,
+      password: body.password,
+      displayName: body.displayName,
       redirectTo: confirmationUrl.toString(),
     })
     if (result.identity) {
       await completeEmailAuthentication({
         identity: result.identity,
-        inviteToken: input.inviteToken,
-        requestId: rid.id,
-        clientRequestId: rid.clientId,
+        inviteToken: body.inviteToken,
+        requestId,
+        clientRequestId,
       })
-      return NextResponse.json({ authenticated: true })
+      return { authenticated: true }
     }
     return NextResponse.json(
       {
@@ -40,7 +40,5 @@ export async function POST(request: Request) {
       },
       { status: 202 }
     )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

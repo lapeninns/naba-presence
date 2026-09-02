@@ -1,24 +1,24 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import { connectionAccessToken, googleAccounts } from "@/lib/server/google"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function GET(request: Request) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const connectionId = new URL(request.url).searchParams.get("connection_id")
-    const accounts = await withTenant(session.organisationId, async (sql) => {
-      const [connection] = connectionId
+export const GET = route({
+  roles: ["owner", "admin"],
+  query: (searchParams) => ({
+    connectionId: searchParams.get("connection_id"),
+  }),
+  handler: async ({ session, query, tenant }) => {
+    const accounts = await tenant(async (sql) => {
+      const [connection] = query.connectionId
         ? await sql<{ id: string }[]>`
             select id::text as id
             from google_connection
-            where id = ${connectionId} and status = 'active'
+            where id = ${query.connectionId} and status = 'active'
             limit 1
           `
         : await sql<{ id: string }[]>`
@@ -105,26 +105,23 @@ export async function GET(request: Request) {
         order by account_name, google_account_name
       `
     })
-    return NextResponse.json({ accounts })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { accounts }
+  },
+})
 
 const selectionSchema = z.object({
   accountIds: z.array(z.uuid()).max(100),
 })
 
-export async function PATCH(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = selectionSchema.parse(await request.json())
-    const accounts = await withTenant(session.organisationId, async (sql) => {
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  body: selectionSchema,
+  handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
+    const accounts = await tenant(async (sql) => {
       await sql`
         update google_account
         set is_active = ${
-          input.accountIds.length ? sql`id in ${sql(input.accountIds)}` : false
+          body.accountIds.length ? sql`id in ${sql(body.accountIds)}` : false
         }
       `
       await writeAudit(sql, {
@@ -133,10 +130,10 @@ export async function PATCH(request: Request) {
         action: "google.accounts.activated",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: rid.id,
+        requestId,
         metadata: {
-          accountIds: input.accountIds,
-          clientRequestId: rid.clientId,
+          accountIds: body.accountIds,
+          clientRequestId,
         },
       })
       return sql`
@@ -152,8 +149,6 @@ export async function PATCH(request: Request) {
         order by account_name, google_account_name
       `
     })
-    return NextResponse.json({ accounts })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { accounts }
+  },
+})

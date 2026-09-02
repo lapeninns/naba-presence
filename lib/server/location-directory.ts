@@ -1,6 +1,7 @@
 import "server-only"
 
 import { withTenant } from "@/lib/server/db"
+import { visibilityPredicate } from "@/lib/server/permissions"
 import type { DirectoryRow } from "@/lib/locations/directory"
 import type { Session } from "@/lib/server/session"
 
@@ -33,23 +34,7 @@ export async function listLocationDirectoryRows(
         on ll.location_id = l.id
        and ll.is_active = true
       left join external_location e on e.id = ll.external_location_id
-      ${
-        session.role === "owner" || session.role === "admin"
-          ? sql``
-          : sql`
-              where not exists (
-                select 1
-                from location_member lm
-                where lm.user_id = ${session.userId}
-              )
-              or exists (
-                select 1
-                from location_member lm
-                where lm.user_id = ${session.userId}
-                  and lm.location_id = l.id
-              )
-            `
-      }
+      where ${visibilityPredicate(sql, session, sql`l.id`)}
       -- Human-facing display order for the API response and the /locations
       -- table. Primary-location resolution deliberately does NOT depend on it:
       -- see comparePrimaryCandidates in lib/locations/primary-location.ts.

@@ -1,12 +1,10 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { readLiveFoodMenus } from "@/lib/server/food-menus"
 import { getHoursState } from "@/lib/server/hours"
-import { ApiError, apiError } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   raiseFoodMenuProposals,
   raiseProfileProposals,
@@ -16,6 +14,7 @@ import { loadMedia } from "@/lib/server/media"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
 import { readProfileStateBundle } from "@/lib/server/profile"
+import { route } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -141,52 +140,55 @@ async function reconcileResource(
   return loadPlaceActions(session.organisationId, session, locationId)
 }
 
-export async function POST(request: Request) {
-  try {
-    const token = request.headers.get("authorization")?.replace(/^Bearer /, "")
-    if (!secretEqual(token, getServerEnv().CRON_SECRET)) {
-      throw new ApiError(401, "invalid_cron_token", "Invalid cron token.")
-    }
-    const input = schema.parse(await request.json().catch(() => ({})))
-    const result = await withAdvisoryLock("naba:presence-resources", async () => {
-      const database = getDatabase()
-      const organisations = await database<{ id: string }[]>`
-        select organisation_id::text as id from organisation_job_route
-        ${input.organisationCursor ? database`where organisation_id > ${input.organisationCursor}` : database``}
-        order by organisation_id limit ${input.maxOrganisations}`
-      const outcomes = []
-      for (const organisation of organisations) {
-        const context = await tenantContext(organisation.id, input.maxLocations)
-        if (!context) continue
-        for (const location of context.locations) {
-          for (const resource of resources) {
-            try {
-              await reconcileResource(resource, context.session, location.id)
-              await recordOutcome({ organisationId: organisation.id, locationId: location.id, resource, status: "succeeded" })
-              outcomes.push({ organisationId: organisation.id, locationId: location.id, resource, status: "succeeded" })
-            } catch (error) {
-              const errorCode = error && typeof error === "object" && "code" in error
-                ? String(error.code)
-                : "presence_reconciliation_failed"
-              await recordOutcome({ organisationId: organisation.id, locationId: location.id, resource, status: "failed", errorCode })
-              outcomes.push({
-                organisationId: organisation.id,
-                locationId: location.id,
-                resource,
-                status: "failed",
-                errorCode,
-              })
-            }
-          }
+async function reconcileOrganisations(input: z.infer<typeof schema>) {
+  // Cross-tenant enumeration: the cron walks every organisation that has a
+  // job route, so this one read deliberately runs outside withTenant.
+  const database = getDatabase()
+  const organisations = await database<{ id: string }[]>`
+    select organisation_id::text as id from organisation_job_route
+    ${input.organisationCursor ? database`where organisation_id > ${input.organisationCursor}` : database``}
+    order by organisation_id limit ${input.maxOrganisations}`
+  const outcomes = []
+  for (const organisation of organisations) {
+    const context = await tenantContext(organisation.id, input.maxLocations)
+    if (!context) continue
+    for (const location of context.locations) {
+      for (const resource of resources) {
+        try {
+          await reconcileResource(resource, context.session, location.id)
+          await recordOutcome({ organisationId: organisation.id, locationId: location.id, resource, status: "succeeded" })
+          outcomes.push({ organisationId: organisation.id, locationId: location.id, resource, status: "succeeded" })
+        } catch (error) {
+          const errorCode = error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : "presence_reconciliation_failed"
+          await recordOutcome({ organisationId: organisation.id, locationId: location.id, resource, status: "failed", errorCode })
+          outcomes.push({
+            organisationId: organisation.id,
+            locationId: location.id,
+            resource,
+            status: "failed",
+            errorCode,
+          })
         }
       }
-      return {
-        outcomes,
-        nextCursor: organisations.length === input.maxOrganisations ? organisations.at(-1)?.id ?? null : null,
-      }
-    })
-    return NextResponse.json("skipped" in result ? { skipped: true, outcomes: [], nextCursor: null } : { skipped: false, ...result })
-  } catch (error) {
-    return apiError(error)
+    }
+  }
+  return {
+    outcomes,
+    nextCursor: organisations.length === input.maxOrganisations ? organisations.at(-1)?.id ?? null : null,
   }
 }
+
+export const POST = route({
+  auth: "cron",
+  body: schema,
+  handler: async ({ body }) => {
+    const result = await withAdvisoryLock("naba:presence-resources", () =>
+      reconcileOrganisations(body)
+    )
+    return "skipped" in result
+      ? { skipped: true, outcomes: [], nextCursor: null }
+      : { skipped: false, ...result }
+  },
+})

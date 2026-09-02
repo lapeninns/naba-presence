@@ -1,10 +1,8 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -32,10 +30,9 @@ const settingsSchema = z.object({
   directPublishConsent: z.boolean().default(false),
 })
 
-export async function GET() {
-  try {
-    const session = await requireSession()
-    const settings = await withTenant(session.organisationId, async (sql) => {
+export const GET = route({
+  handler: async ({ session, tenant }) => {
+    const settings = await tenant(async (sql) => {
       const [row] = await sql`
         select
           approval_required as "approvalRequired",
@@ -56,17 +53,20 @@ export async function GET() {
       }
       return row
     })
-    return NextResponse.json({ settings })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { settings }
+  },
+})
 
-export async function PATCH(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = settingsSchema.parse(await request.json())
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  body: settingsSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
     if (
       !input.approvalRequired &&
       (session.role !== "owner" || !input.directPublishConsent)
@@ -77,7 +77,7 @@ export async function PATCH(request: Request) {
         "An owner must explicitly consent before direct publishing is enabled."
       )
     }
-    const settings = await withTenant(session.organisationId, async (sql) => {
+    const settings = await tenant(async (sql) => {
       const [row] = await sql`
         update organisation
         set
@@ -115,13 +115,11 @@ export async function PATCH(request: Request) {
         action: "organisation.settings.updated",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: rid.id,
-        metadata: { ...input, clientRequestId: rid.clientId },
+        requestId,
+        metadata: { ...input, clientRequestId },
       })
       return row
     })
-    return NextResponse.json({ settings })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { settings }
+  },
+})

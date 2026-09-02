@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 
-import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError } from "@/lib/server/http"
+import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -90,6 +88,8 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
 }
 
 async function schedulerHeartbeatAt() {
+  // Platform-level read: ops_heartbeat is not tenant-scoped, so it is read
+  // outside withTenant.
   const [heartbeat] = await getDatabase()<
     { schedulerHeartbeatAt: Date | null }[]
   >`
@@ -101,6 +101,9 @@ async function schedulerHeartbeatAt() {
 }
 
 async function platformHealth() {
+  // Cross-tenant enumeration: the platform monitor walks every organisation
+  // that has a job route, so this one read deliberately runs outside
+  // withTenant; each organisation's counters are then read inside its tenant.
   const organisations = await getDatabase()<{ id: string }[]>`
     select organisation_id::text as id
     from organisation_job_route
@@ -141,15 +144,17 @@ async function platformHealth() {
   }
 }
 
-export async function GET(request: Request) {
-  try {
-    if (new URL(request.url).searchParams.get("scope") === "platform") {
-      const token = request.headers
-        .get("authorization")
-        ?.replace(/^Bearer /, "")
-      if (!secretEqual(token, getServerEnv().CRON_SECRET)) {
-        throw new ApiError(401, "invalid_cron_token", "Invalid cron token.")
-      }
+// Session-or-cron hybrid: `?scope=platform` is authenticated with the cron
+// bearer token, everything else with an owner/admin session. Neither wrapper
+// mode covers both, so the route is "public" and does its own auth per branch.
+export const GET = route({
+  auth: "public",
+  query: (searchParams) => ({
+    platform: searchParams.get("scope") === "platform",
+  }),
+  handler: async ({ request, query }) => {
+    if (query.platform) {
+      requireCronToken(request)
       return NextResponse.json(await platformHealth(), {
         headers: { "cache-control": "no-store" },
       })
@@ -255,7 +260,5 @@ export async function GET(request: Request) {
     return NextResponse.json(health, {
       headers: { "cache-control": "private, no-store" },
     })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

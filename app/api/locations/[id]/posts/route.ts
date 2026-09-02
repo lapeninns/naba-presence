@@ -1,46 +1,32 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
-import { apiError, serverRequestId } from "@/lib/server/http"
 import {
   createLocalPostDraft,
   listLocalPosts,
   localPostInputSchema,
 } from "@/lib/server/posts"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
-export async function GET(
-  _request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await context.params
-    return NextResponse.json(
-      await listLocalPosts(session.organisationId, session, id)
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+const paramsSchema = z.object({ id: z.string() })
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id } = await context.params
-    const input = localPostInputSchema.parse(await request.json())
+export const GET = route({
+  params: paramsSchema,
+  handler: ({ session, params }) =>
+    listLocalPosts(session.organisationId, session, params.id),
+})
+
+export const POST = route({
+  params: paramsSchema,
+  body: localPostInputSchema,
+  handler: async ({ session, params, body, requestId }) => {
     const post = await createLocalPostDraft(
       session.organisationId,
       session,
-      id,
-      input,
-      rid.id
+      params.id,
+      body,
+      requestId
     )
     return NextResponse.json({ post }, { status: 201 })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { apiError, serverRequestId } from "@/lib/server/http"
 import {
   placeActionInputSchema,
   removePlaceAction,
   updatePlaceAction,
 } from "@/lib/server/place-actions"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
+
+const paramsSchema = z.object({ id: z.string(), linkId: z.string() })
 
 const updateSchema = placeActionInputSchema.extend({
   expectedGoogleHash: z.string().length(64),
@@ -19,57 +19,35 @@ const deleteSchema = z.object({
   confirmation: z.literal("delete_google_place_action"),
 })
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string; linkId: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, linkId } = await context.params
-    const input = updateSchema.parse(await request.json())
-    const expectedGoogleHash = input.expectedGoogleHash
-    const payload = {
-      uri: input.uri,
-      placeActionType: input.placeActionType,
-      isPreferred: input.isPreferred,
-    }
-    return NextResponse.json(
-      await updatePlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId: id,
-        linkId,
-        payload,
-        expectedGoogleHash,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const PATCH = route({
+  params: paramsSchema,
+  body: updateSchema,
+  handler: ({ session, params, body, requestId }) =>
+    updatePlaceAction({
+      organisationId: session.organisationId,
+      session,
+      locationId: params.id,
+      linkId: params.linkId,
+      payload: {
+        uri: body.uri,
+        placeActionType: body.placeActionType,
+        isPreferred: body.isPreferred,
+      },
+      expectedGoogleHash: body.expectedGoogleHash,
+      requestId,
+    }),
+})
 
-export async function DELETE(
-  request: Request,
-  context: { params: Promise<{ id: string; linkId: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, linkId } = await context.params
-    const input = deleteSchema.parse(await request.json())
-    return NextResponse.json(
-      await removePlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId: id,
-        linkId,
-        expectedGoogleHash: input.expectedGoogleHash,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const DELETE = route({
+  params: paramsSchema,
+  body: deleteSchema,
+  handler: ({ session, params, body, requestId }) =>
+    removePlaceAction({
+      organisationId: session.organisationId,
+      session,
+      locationId: params.id,
+      linkId: params.linkId,
+      expectedGoogleHash: body.expectedGoogleHash,
+      requestId,
+    }),
+})

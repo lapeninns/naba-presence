@@ -2,9 +2,9 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { executePublish } from "@/lib/server/publishing"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -14,13 +14,10 @@ const inputSchema = z.object({
   expectedReviewUpdateTime: z.string().min(1),
 })
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
+export const POST = route({
+  params: z.object({ id: z.uuid() }),
+  body: inputSchema,
+  handler: async ({ session, params, body: input, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
         503,
@@ -28,15 +25,13 @@ export async function POST(
         "Publishing is temporarily paused."
       )
     }
-    const { id } = await context.params
-    const input = inputSchema.parse(await request.json())
     const outcome = await executePublish({
       organisationId: session.organisationId,
       session,
-      reviewId: id,
+      reviewId: params.id,
       draftId: input.draftId,
       expectedReviewUpdateTime: input.expectedReviewUpdateTime,
-      serverRequestId: rid.id,
+      serverRequestId: requestId,
     })
 
     if (outcome.status === "awaiting_approval") {
@@ -66,14 +61,12 @@ export async function POST(
       )
     }
 
-    return NextResponse.json({
+    return {
       reviewReplyId: outcome.reviewReplyId,
       publishAttemptId: outcome.attemptId,
       status: outcome.status,
       googleReplyState: outcome.googleReplyState,
       idempotent: outcome.idempotent,
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

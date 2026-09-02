@@ -1,36 +1,29 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { requestOrPublishLocalPost } from "@/lib/server/posts"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string; postId: string }> }
-) {
-  try {
+export const POST = route({
+  params: z.object({ id: z.string(), postId: z.string() }),
+  handler: async ({ session, params, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
     }
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, postId } = await context.params
     const outcome = await requestOrPublishLocalPost({
       organisationId: session.organisationId,
       session,
-      locationId: id,
-      postId,
-      requestId: rid.id,
+      locationId: params.id,
+      postId: params.postId,
+      requestId,
     })
-    return NextResponse.json(
-      outcome,
-      { status: outcome.status === "awaiting_approval" ? 202 : 200 }
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return NextResponse.json(outcome, {
+      status: outcome.status === "awaiting_approval" ? 202 : 200,
+    })
+  },
+})

@@ -3,9 +3,8 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, sha256 } from "@/lib/server/crypto"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -13,12 +12,17 @@ const querySchema = z.object({
   subject: z.string().trim().min(3).max(240),
 })
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner"])
-    const query = querySchema.parse(await request.json())
-    const exported = await withTenant(session.organisationId, async (sql) => {
+export const POST = route({
+  roles: ["owner"],
+  body: querySchema,
+  handler: async ({
+    session,
+    body: query,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
+    const exported = await tenant(async (sql) => {
       const encryptedReviews = await sql`
         select
           r.id::text as id,
@@ -87,10 +91,10 @@ export async function POST(request: Request) {
         action: "privacy.data.exported",
         subjectType: "privacy_subject",
         subjectId: query.subject,
-        requestId: rid.id,
+        requestId,
         metadata: {
           records: reviews.length,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return {
@@ -107,7 +111,5 @@ export async function POST(request: Request) {
         "content-disposition": 'attachment; filename="privacy-export.json"',
       },
     })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

@@ -4,7 +4,10 @@ import {
   REVIEW_WORKFLOW_STATES,
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
-import { requireLocationAccess } from "@/lib/server/permissions"
+import {
+  requireLocationAccess,
+  visibilityPredicate,
+} from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -31,23 +34,7 @@ export const GET = route({
               ? sql`and r.location_id = ${query.locationId}`
               : sql``
           }
-          ${
-            session.role === "owner" || session.role === "admin"
-              ? sql``
-              : sql`and (
-                  not exists (
-                    select 1
-                    from location_member lm
-                    where lm.user_id = ${session.userId}
-                  )
-                  or exists (
-                    select 1
-                    from location_member lm
-                    where lm.user_id = ${session.userId}
-                      and lm.location_id = r.location_id
-                  )
-                )`
-          }
+          and ${visibilityPredicate(sql, session, sql`r.location_id`)}
         group by r.workflow_status
       `
     })

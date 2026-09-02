@@ -1,20 +1,17 @@
-import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { reviewCapabilities } from "@/lib/server/capabilities"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError } from "@/lib/server/http"
-import { requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { visibilityPredicate } from "@/lib/server/permissions"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function GET(
-  _request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await context.params
-    const review = await withTenant(session.organisationId, async (sql) => {
+export const GET = route({
+  params: z.object({ id: z.uuid() }),
+  handler: async ({ session, params, tenant }) => {
+    const { id } = params
+    const review = await tenant(async (sql) => {
       const [row] = await sql`
         select
           r.id::text as id,
@@ -98,21 +95,7 @@ export async function GET(
         join external_location e on e.id = r.external_location_id
         where r.id = ${id}
           and r.provider_deleted_at is null
-          ${
-            session.role === "owner" || session.role === "admin"
-              ? sql``
-              : sql`and (
-                  not exists (
-                    select 1 from location_member lm
-                    where lm.user_id = ${session.userId}
-                  )
-                  or exists (
-                    select 1 from location_member lm
-                    where lm.user_id = ${session.userId}
-                      and lm.location_id = r.location_id
-                  )
-                )`
-          }
+          and ${visibilityPredicate(sql, session, sql`r.location_id`)}
         limit 1
       `
       if (!row) {
@@ -144,8 +127,6 @@ export async function GET(
         capabilities,
       }
     })
-    return NextResponse.json({ review })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { review }
+  },
+})

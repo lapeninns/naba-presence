@@ -1,72 +1,58 @@
-import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   deleteLocalPost,
   localPostInputSchema,
   requestOrPublishLocalPost,
   updateLocalPostDraft,
 } from "@/lib/server/posts"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string; postId: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, postId } = await context.params
+const paramsSchema = z.object({ id: z.string(), postId: z.string() })
+
+export const PATCH = route({
+  params: paramsSchema,
+  body: localPostInputSchema,
+  handler: async ({ session, params, body, requestId }) => {
+    const { id, postId } = params
     const post = await updateLocalPostDraft(
       session.organisationId,
       session,
       id,
       postId,
-      localPostInputSchema.parse(await request.json()),
-      rid.id
+      body,
+      requestId
     )
     if (post.status === "published") {
       if (!getServerEnv().PUBLISH_ENABLED) {
         throw new ApiError(503, "publishing_paused", "Publishing is paused.")
       }
-      return NextResponse.json(
-        await requestOrPublishLocalPost({
-          organisationId: session.organisationId,
-          session,
-          locationId: id,
-          postId,
-          requestId: rid.id,
-        })
-      )
-    }
-    return NextResponse.json({ post })
-  } catch (error) {
-    return apiError(error)
-  }
-}
-
-export async function DELETE(
-  request: Request,
-  context: { params: Promise<{ id: string; postId: string }> }
-) {
-  try {
-    if (!getServerEnv().PUBLISH_ENABLED) {
-      throw new ApiError(503, "publishing_paused", "Publishing is paused.")
-    }
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id, postId } = await context.params
-    return NextResponse.json(
-      await deleteLocalPost({
+      return requestOrPublishLocalPost({
         organisationId: session.organisationId,
         session,
         locationId: id,
         postId,
-        requestId: rid.id,
+        requestId,
       })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+    return { post }
+  },
+})
+
+export const DELETE = route({
+  params: paramsSchema,
+  handler: ({ session, params, requestId }) => {
+    if (!getServerEnv().PUBLISH_ENABLED) {
+      throw new ApiError(503, "publishing_paused", "Publishing is paused.")
+    }
+    return deleteLocalPost({
+      organisationId: session.organisationId,
+      session,
+      locationId: params.id,
+      postId: params.postId,
+      requestId,
+    })
+  },
+})

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   createMedia,
   loadMedia,
@@ -11,7 +11,9 @@ import {
   mediaUploadFieldsSchema,
   uploadMedia,
 } from "@/lib/server/media"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
+
+const paramsSchema = z.object({ id: z.string() })
 
 const createSchema = mediaCreateSchema.extend({
   confirmation: z.literal("create_google_media"),
@@ -28,35 +30,26 @@ const mediaListQuerySchema = z.object({
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  try {
-    const session = await requireSession()
-    const { id } = await context.params
-    const url = new URL(request.url)
-    const query = mediaListQuerySchema.parse({
-      page: url.searchParams.get("page") ?? undefined,
-      pageSize: url.searchParams.get("pageSize") ?? undefined,
-      refresh: url.searchParams.get("refresh") ?? undefined,
-      category: url.searchParams.get("category") ?? undefined,
-      ownership: url.searchParams.get("ownership") ?? undefined,
-    })
-    return NextResponse.json({
-      media: await loadMedia(session.organisationId, session, id, {
-        page: query.page ?? 1,
-        pageSize: query.pageSize ?? 12,
-        refresh: query.refresh === "1",
-        category: query.category,
-        ownership: query.ownership,
-      }),
-    })
-  } catch (error) { return apiError(error) }
-}
+export const GET = route({
+  params: paramsSchema,
+  query: mediaListQuerySchema,
+  handler: async ({ session, params, query }) => ({
+    media: await loadMedia(session.organisationId, session, params.id, {
+      page: query.page ?? 1,
+      pageSize: query.pageSize ?? 12,
+      refresh: query.refresh === "1",
+      category: query.category,
+      ownership: query.ownership,
+    }),
+  }),
+})
 
-export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id } = await context.params
+// The upload branch is multipart/form-data, so the body is read from the
+// request directly here rather than through a `body` schema; the JSON
+// create branch parses its own body for the same reason.
+export const POST = route({
+  params: paramsSchema,
+  handler: async ({ request, session, params, requestId }) => {
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const form = await request.formData()
       const file = form.get("file")
@@ -88,7 +81,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         await uploadMedia({
           organisationId: session.organisationId,
           session,
-          locationId: id,
+          locationId: params.id,
           payload: input,
           file: {
             name: file.name,
@@ -96,18 +89,26 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             size: file.size,
             bytes: await file.arrayBuffer(),
           },
-          requestId: rid.id,
+          requestId,
         }),
         { status: 201 }
       )
     }
     const input = createSchema.parse(await request.json())
-    return NextResponse.json(await createMedia({
-      organisationId: session.organisationId,
-      session,
-      locationId: id,
-      payload: { mediaFormat: input.mediaFormat, category: input.category, sourceUrl: input.sourceUrl, description: input.description },
-      requestId: rid.id,
-    }), { status: 201 })
-  } catch (error) { return apiError(error) }
-}
+    return NextResponse.json(
+      await createMedia({
+        organisationId: session.organisationId,
+        session,
+        locationId: params.id,
+        payload: {
+          mediaFormat: input.mediaFormat,
+          category: input.category,
+          sourceUrl: input.sourceUrl,
+          description: input.description,
+        },
+        requestId,
+      }),
+      { status: 201 }
+    )
+  },
+})

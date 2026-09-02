@@ -37,7 +37,10 @@ import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import type { readLiveFoodMenus } from "@/lib/server/food-menus"
 import { ApiError } from "@/lib/server/http"
-import { requireLocationAccess } from "@/lib/server/permissions"
+import {
+  requireLocationAccess,
+  visibilityPredicate,
+} from "@/lib/server/permissions"
 import type { readProfileStateBundle } from "@/lib/server/profile"
 import type { Session } from "@/lib/server/session"
 
@@ -112,7 +115,9 @@ function mapProposal(row: ProposalRow): ImportProposal {
     googleValue: row.google_value,
     suggestedPatch: row.suggested_patch,
     warnings: Array.isArray(row.warnings)
-      ? row.warnings.filter((entry): entry is string => typeof entry === "string")
+      ? row.warnings.filter(
+          (entry): entry is string => typeof entry === "string"
+        )
       : [],
     status: row.status,
     decision: row.decision,
@@ -135,7 +140,11 @@ const PROPOSAL_COLUMNS = `
 
 function assertImportReviewEnabled() {
   if (!getServerEnv().IMPORT_REVIEW_ENABLED) {
-    throw new ApiError(503, "import_review_paused", "Google import review is paused.")
+    throw new ApiError(
+      503,
+      "import_review_paused",
+      "Google import review is paused."
+    )
   }
 }
 
@@ -179,7 +188,11 @@ async function insertProposals(input: {
   batchId: string
   raisedVia: RaiseTrigger
   raisedBy: string | null
-  pinned: { canonicalRevision: string; canonicalHash: string; googleHash: string }
+  pinned: {
+    canonicalRevision: string
+    canonicalHash: string
+    googleHash: string
+  }
   drafts: ProposalInsert[]
 }): Promise<number> {
   let inserted = 0
@@ -219,14 +232,16 @@ async function loadMenuIdentities(
   sql: TransactionSql,
   locationId: string
 ): Promise<MenuItemIdentity[]> {
-  const rows = await sql<{
-    google_path: string
-    local_path: string
-    section_label: string
-    item_label: string
-    price_units: string | null
-    price_nanos: number | null
-  }[]>`
+  const rows = await sql<
+    {
+      google_path: string
+      local_path: string
+      section_label: string
+      item_label: string
+      price_units: string | null
+      price_nanos: number | null
+    }[]
+  >`
     select google_path, local_path, section_label, item_label, price_units, price_nanos
     from food_menu_item_identity
     where location_id = ${locationId}
@@ -366,7 +381,9 @@ export async function raiseFoodMenuProposals(input: {
       },
       drafts: drafts.map((draft) => ({
         ...draft,
-        warnings: noBaseline ? [...draft.warnings, "no_baseline"] : draft.warnings,
+        warnings: noBaseline
+          ? [...draft.warnings, "no_baseline"]
+          : draft.warnings,
       })),
     })
     await writeAudit(sql, {
@@ -464,7 +481,9 @@ export async function listImportProposals(input: {
         }
       order by resource_type, section_label nulls first, item_label nulls first, created_at desc
     `
-    const [counts] = await sql<{ pending: number; profile: number; foodMenus: number }[]>`
+    const [counts] = await sql<
+      { pending: number; profile: number; foodMenus: number }[]
+    >`
       select
         count(*) filter (where status = 'pending')::int as pending,
         count(*) filter (where status = 'pending' and resource_type = 'profile')::int as profile,
@@ -479,35 +498,30 @@ export async function listImportProposals(input: {
   })
 }
 
-export async function pendingProposalCounts(input: { session: Session }): Promise<
-  Array<{ locationId: string; resourceType: ProposalResourceType; pending: number }>
+export async function pendingProposalCounts(input: {
+  session: Session
+}): Promise<
+  Array<{
+    locationId: string
+    resourceType: ProposalResourceType
+    pending: number
+  }>
 > {
-  const privileged =
-    input.session.role === "owner" || input.session.role === "admin"
   return withTenant(input.session.organisationId, async (sql) => {
-    const rows = await sql<{
-      locationId: string
-      resourceType: ProposalResourceType
-      pending: number
-    }[]>`
+    const rows = await sql<
+      {
+        locationId: string
+        resourceType: ProposalResourceType
+        pending: number
+      }[]
+    >`
       select
         p.location_id::text as "locationId",
         p.resource_type as "resourceType",
         count(*)::int as pending
       from presence_import_proposal p
       where p.status = 'pending'
-        and (
-          ${privileged}
-          or not exists (
-            select 1 from location_member lm0
-            where lm0.user_id = ${input.session.userId}
-          )
-          or exists (
-            select 1 from location_member lm
-            where lm.location_id = p.location_id
-              and lm.user_id = ${input.session.userId}
-          )
-        )
+        and ${visibilityPredicate(sql, input.session, sql`p.location_id`)}
       group by p.location_id, p.resource_type
     `
     return rows
@@ -561,7 +575,11 @@ export async function decideImportProposal(input: {
       where id = ${proposalId} and location_id = ${locationId}
     `
     if (!existing) {
-      throw new ApiError(404, "proposal_not_found", "This suggestion no longer exists.")
+      throw new ApiError(
+        404,
+        "proposal_not_found",
+        "This suggestion no longer exists."
+      )
     }
     if (existing.status === "superseded") {
       throw new ApiError(
@@ -570,7 +588,11 @@ export async function decideImportProposal(input: {
         "This suggestion was refreshed from Google. Review the latest version."
       )
     }
-    throw new ApiError(409, "proposal_not_pending", "This suggestion has already been decided.")
+    throw new ApiError(
+      409,
+      "proposal_not_pending",
+      "This suggestion has already been decided."
+    )
   })
 
   // Act + mark (transaction 2); compensate to `failed` (transaction 3) on error.
@@ -661,11 +683,14 @@ export async function decideImportProposal(input: {
     if (failureCode === "canonical_overwrite_confirmation_required") {
       // Not a failure — the user still has to acknowledge the overwrite.
       // Release the claim so the acknowledged retry finds the row pending.
-      await withTenant(session.organisationId, (sql) => sql`
+      await withTenant(
+        session.organisationId,
+        (sql) => sql`
         update presence_import_proposal
         set status = 'pending', decision = null, decided_by = null
         where id = ${proposalId} and status = 'processing'
-      `)
+      `
+      )
       throw error
     }
     await withTenant(session.organisationId, (sql) =>
@@ -692,10 +717,12 @@ async function applyProfileFieldDecision(
     pinned: { canonicalHash: string }
   }
 ): Promise<string> {
-  const [resource] = await sql<{
-    revision: string
-    payload: Record<string, string | null>
-  }[]>`
+  const [resource] = await sql<
+    {
+      revision: string
+      payload: Record<string, string | null>
+    }[]
+  >`
     select revision::text as revision, payload
     from presence_canonical_resource
     where organisation_id = ${input.session.organisationId}
@@ -704,7 +731,11 @@ async function applyProfileFieldDecision(
     limit 1
   `
   if (!resource) {
-    throw new ApiError(409, "canonical_resource_stale", "The profile has not been loaded yet.")
+    throw new ApiError(
+      409,
+      "canonical_resource_stale",
+      "The profile has not been loaded yet."
+    )
   }
   if (resource.revision !== input.expectedCanonicalRevision) {
     throw new ApiError(
@@ -713,7 +744,10 @@ async function applyProfileFieldDecision(
       "The profile changed after it was loaded. Refresh and try again."
     )
   }
-  const payload = { ...resource.payload, [input.patch.fieldKey]: input.patch.value }
+  const payload = {
+    ...resource.payload,
+    [input.patch.fieldKey]: input.patch.value,
+  }
   const updated = await updateCanonicalResource({
     sql,
     organisationId: input.session.organisationId,
@@ -778,10 +812,12 @@ async function applyMenuDecision(
     googleSectionLabel: string | null
   }
 ): Promise<string> {
-  const [resource] = await sql<{
-    revision: string
-    payload: Array<Record<string, unknown>>
-  }[]>`
+  const [resource] = await sql<
+    {
+      revision: string
+      payload: Array<Record<string, unknown>>
+    }[]
+  >`
     select revision::text as revision, payload
     from presence_canonical_resource
     where organisation_id = ${input.session.organisationId}
@@ -790,7 +826,11 @@ async function applyMenuDecision(
     limit 1
   `
   if (!resource) {
-    throw new ApiError(409, "canonical_resource_stale", "The menu has not been loaded yet.")
+    throw new ApiError(
+      409,
+      "canonical_resource_stale",
+      "The menu has not been loaded yet."
+    )
   }
   if (resource.revision !== input.expectedCanonicalRevision) {
     throw new ApiError(
@@ -842,7 +882,11 @@ async function applyMenuDecision(
     input.googleSectionLabel &&
     (input.patch.op === "merge_item" || input.patch.op === "insert_item")
   ) {
-    const located = locateMenuItem(nextMenus, input.googleSectionLabel, input.googleItemLabel)
+    const located = locateMenuItem(
+      nextMenus,
+      input.googleSectionLabel,
+      input.googleItemLabel
+    )
     if (located) {
       await sql`
         insert into food_menu_item_identity (

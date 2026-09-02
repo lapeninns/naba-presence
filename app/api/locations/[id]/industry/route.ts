@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { industryMutationSchema } from "@/lib/locations/forms/industry"
@@ -6,39 +5,30 @@ import {
   loadIndustryManagement,
   mutateIndustryManagement,
 } from "@/lib/server/industry-management"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    return NextResponse.json({
-      industry: await loadIndustryManagement(session, z.uuid().parse(id)),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+const paramsSchema = z.object({ id: z.uuid() })
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = industryMutationSchema.parse(await request.json())
+export const GET = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    industry: await loadIndustryManagement(session, params.id),
+  }),
+})
+
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: industryMutationSchema,
+  handler: ({ session, params, body, requestId }) => {
     if (
-      input.operation === "update_business_calls" &&
-      input.updateMask.some((field) => field !== "callsState")
+      body.operation === "update_business_calls" &&
+      body.updateMask.some((field) => field !== "callsState")
     ) {
       throw new ApiError(
         422,
@@ -46,17 +36,13 @@ export async function PATCH(
         "Only callsState can be updated for Business Calls."
       )
     }
-    return NextResponse.json(
-      await mutateIndustryManagement({
-        session,
-        locationId: z.uuid().parse(id),
-        operation: input.operation,
-        payload: input.payload as Record<string, unknown>,
-        updateMask: [...input.updateMask],
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return mutateIndustryManagement({
+      session,
+      locationId: params.id,
+      operation: body.operation,
+      payload: body.payload as Record<string, unknown>,
+      updateMask: [...body.updateMask],
+      requestId,
+    })
+  },
+})

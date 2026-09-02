@@ -2,11 +2,10 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
@@ -14,15 +13,16 @@ export const maxDuration = 60
 
 const inputSchema = z.object({ eventId: z.uuid() })
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
+export const POST = route({
+  roles: ["owner", "admin"],
+  handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
+    // The kill switch must win over validation, so the body is parsed here
+    // rather than through the wrapper's `body` option.
     const input = inputSchema.parse(await request.json())
-    const event = await withTenant(session.organisationId, async (sql) => {
+    const event = await tenant(async (sql) => {
       const [event] = await sql<
         {
           id: string
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       type: "notification",
       maxPages: 1,
     })
-    const result = await withTenant(session.organisationId, async (sql) => {
+    const result = await tenant(async (sql) => {
       await sql`
         update processed_webhook_event
         set
@@ -79,15 +79,13 @@ export async function POST(request: Request) {
             : "webhook.replay.completed",
         subjectType: "webhook_event",
         subjectId: event.id,
-        requestId: rid.id,
-        metadata: { sync, clientRequestId: rid.clientId },
+        requestId,
+        metadata: { sync, clientRequestId },
       })
       return { status, sync }
     })
     return NextResponse.json(result, {
       status: result.status === "failed" ? 502 : 200,
     })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

@@ -2,7 +2,7 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
-import { getDatabase } from "@/lib/server/db"
+import { withTenant } from "@/lib/server/db"
 
 export type GoogleConnectionRow = {
   id: string
@@ -73,14 +73,7 @@ export async function persistConnectionFailure(
 ) {
   // Invariant: callers must not hold an open transaction. This helper owns
   // the short tenant-scoped transaction that persists reconnect state.
-  await getDatabase().begin(async (sql) => {
-    await sql`
-      select set_config(
-        'app.organisation_id',
-        ${connection.organisation_id},
-        true
-      )
-    `
-    await recordConnectionFailure(sql, connection, errorCode)
-  })
+  await withTenant(connection.organisation_id, (sql) =>
+    recordConnectionFailure(sql, connection, errorCode)
+  )
 }

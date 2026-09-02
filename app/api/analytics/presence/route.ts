@@ -1,13 +1,11 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
-import { withTenant } from "@/lib/server/db"
-import { apiError } from "@/lib/server/http"
-import { requireSession } from "@/lib/server/session"
+import { visibilityPredicate } from "@/lib/server/permissions"
+import { route } from "@/lib/server/route"
 
 const querySchema = z.object({
   range: z.enum(["28d", "90d", "12m", "18m"]).default("28d"),
@@ -25,41 +23,27 @@ type MetricRow = {
 type LocationRow = { id: string; name: string }
 type CheckpointRow = { status: string; lastErrorCode: string | null }
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireSession()
-    const url = new URL(request.url)
-    const query = querySchema.parse({
-      range: url.searchParams.get("range") ?? undefined,
-      locationId: url.searchParams.get("locationId") ?? undefined,
-    })
+export const GET = route({
+  query: (searchParams) =>
+    querySchema.parse({
+      range: searchParams.get("range") ?? undefined,
+      locationId: searchParams.get("locationId") ?? undefined,
+    }),
+  handler: async ({ session, query, tenant }) => {
     const endDate = new Date()
     const startDate = new Date(endDate)
     startDate.setUTCDate(startDate.getUTCDate() - RANGE_DAYS[query.range] + 1)
     const start = startDate.toISOString().slice(0, 10)
     const end = endDate.toISOString().slice(0, 10)
-    const payload = await withTenant(session.organisationId, async (sql) => {
-      const visibility =
-        session.role === "owner" || session.role === "admin"
-          ? sql``
-          : sql`and (
-              not exists (
-                select 1 from location_member lm
-                where lm.user_id = ${session.userId}
-              )
-              or exists (
-                select 1 from location_member lm
-                where lm.user_id = ${session.userId}
-                  and lm.location_id = l.id
-              )
-            )`
+    const payload = await tenant(async (sql) => {
+      const visibility = visibilityPredicate(sql, session, sql`l.id`)
       const locations = await sql<LocationRow[]>`
         select l.id::text as id, l.name
         from location l
         join location_link ll on ll.location_id = l.id and ll.is_active = true
         where 1 = 1
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
-          ${visibility}
+          and ${visibility}
         order by l.name
       `
       const rows = await sql<MetricRow[]>`
@@ -74,7 +58,7 @@ export async function GET(request: Request) {
         join location l on l.id = ll.location_id
         where p.metric_date between ${start}::date and ${end}::date
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
-          ${visibility}
+          and ${visibility}
         group by p.metric, p.metric_date
         order by p.metric_date, p.metric
       `
@@ -89,7 +73,7 @@ export async function GET(request: Request) {
         join location l on l.id = ll.location_id
         where sc.sync_type = 'performance'
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
-          ${visibility}
+          and ${visibility}
       `
       return { locations, rows, checkpoints }
     })
@@ -122,7 +106,7 @@ export async function GET(request: Request) {
               ) || !payload.checkpoints.length
             ? "pending"
             : "empty"
-    return NextResponse.json({
+    return {
       range: query.range,
       from: start,
       to: end,
@@ -140,8 +124,6 @@ export async function GET(request: Request) {
       ),
       keywordsEnabled: true,
       ingestionEnabled: true,
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

@@ -3,10 +3,10 @@ import { z } from "zod"
 
 import { projectDefault, projectManagement } from "@/lib/locations/directory"
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
+import { requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
@@ -18,33 +18,36 @@ const linkSchema = z.object({
   confirmRelink: z.boolean().default(false),
 })
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireSession()
-    const managementView =
-      new URL(request.url).searchParams.get("view") === "management"
-    if (managementView) requireRole(session, ["owner", "admin"])
+export const GET = route({
+  query: (searchParams) => ({
+    managementView: searchParams.get("view") === "management",
+  }),
+  handler: async ({ session, query }) => {
+    // The role gate is conditional on `?view=management`, so it cannot be
+    // declared as `roles` on the route and stays in the handler.
+    if (query.managementView) requireRole(session, ["owner", "admin"])
     // Query and projections are shared with the dashboard layout's RSC
     // hydration (lib/server/location-directory.ts, lib/locations/directory.ts)
     // so the HTTP and RSC paths cannot emit different shapes for the same org.
     const rows = await listLocationDirectoryRows(session)
-    if (managementView) {
-      return NextResponse.json({ locations: projectManagement(rows) })
+    if (query.managementView) {
+      return { locations: projectManagement(rows) }
     }
-    return NextResponse.json({
-      locations: projectDefault(rows, session.role),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { locations: projectDefault(rows, session.role) }
+  },
+})
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = linkSchema.parse(await request.json())
-    const link = await withTenant(session.organisationId, async (sql) => {
+export const POST = route({
+  roles: ["owner", "admin"],
+  body: linkSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
+    const link = await tenant(async (sql) => {
       const [external] = await sql<
         {
           id: string
@@ -203,31 +206,35 @@ export async function POST(request: Request) {
         action: isRelink ? "location.relinked" : "location.linked",
         subjectType: "location_link",
         subjectId: String(row.id),
-        requestId: rid.id,
+        requestId,
         metadata: {
           locationId,
           externalLocationId: external.id,
           previousLocationId: external.currentLocationId,
           historicalReviewsMoved: isRelink,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return row
     })
     return NextResponse.json({ link }, { status: 201 })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})
 
-export async function DELETE(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const externalLocationId = z
-      .uuid()
-      .parse(new URL(request.url).searchParams.get("externalLocationId"))
-    await withTenant(session.organisationId, async (sql) => {
+export const DELETE = route({
+  roles: ["owner", "admin"],
+  // Parsed as a bare uuid (not an object schema) so a missing/invalid value
+  // keeps producing the `_root` field error the old handler emitted.
+  query: (searchParams) =>
+    z.uuid().parse(searchParams.get("externalLocationId")),
+  handler: async ({
+    session,
+    query: externalLocationId,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
+    await tenant(async (sql) => {
       const [link] = await sql<{ id: string; locationId: string }[]>`
         update location_link
         set is_active = false
@@ -263,17 +270,15 @@ export async function DELETE(request: Request) {
         action: "location.unlinked",
         subjectType: "location_link",
         subjectId: link.id,
-        requestId: rid.id,
+        requestId,
         metadata: {
           locationId: link.locationId,
           externalLocationId,
           routesRemoved: removedRoutes.length,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
     })
-    return NextResponse.json({ unlinked: true })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { unlinked: true }
+  },
+})

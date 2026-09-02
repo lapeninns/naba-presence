@@ -1,31 +1,27 @@
-import { NextResponse } from "next/server"
-
 import { resetPasswordSchema } from "@/lib/domain/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
-import { apiError, serverRequestId } from "@/lib/server/http"
 import {
   updatePasswordWithToken,
   verifyEmailToken,
 } from "@/lib/server/password-auth"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const input = resetPasswordSchema.parse(await request.json())
+export const POST = route({
+  auth: "public",
+  body: resetPasswordSchema,
+  handler: async ({ body, requestId, clientRequestId }) => {
     const verified = await verifyEmailToken({
-      tokenHash: input.tokenHash,
+      tokenHash: body.tokenHash,
       type: "recovery",
     })
-    await updatePasswordWithToken(verified.accessToken, input.password)
+    await updatePasswordWithToken(verified.accessToken, body.password)
     await completeEmailAuthentication({
       identity: verified.identity,
-      requestId: rid.id,
-      clientRequestId: rid.clientId,
+      requestId,
+      clientRequestId,
     })
-    return NextResponse.json({ updated: true, authenticated: true })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { updated: true, authenticated: true }
+  },
+})

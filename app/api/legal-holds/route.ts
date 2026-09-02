@@ -2,9 +2,8 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -14,11 +13,10 @@ const createSchema = z.object({
 })
 const releaseSchema = z.object({ reviewId: z.uuid() })
 
-export async function GET() {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const holds = await withTenant(
-      session.organisationId,
+export const GET = route({
+  roles: ["owner", "admin"],
+  handler: async ({ tenant }) => {
+    const holds = await tenant(
       (sql) => sql`
         select
           h.id::text as id,
@@ -32,18 +30,21 @@ export async function GET() {
         order by h.created_at desc
       `
     )
-    return NextResponse.json({ holds })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { holds }
+  },
+})
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner"])
-    const input = createSchema.parse(await request.json())
-    const hold = await withTenant(session.organisationId, async (sql) => {
+export const POST = route({
+  roles: ["owner"],
+  body: createSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
+    const hold = await tenant(async (sql) => {
       const [review] = await sql<{ id: string }[]>`
         select id::text as id from review where id = ${input.reviewId} limit 1
       `
@@ -82,26 +83,29 @@ export async function POST(request: Request) {
         action: "legal_hold.applied",
         subjectType: "review",
         subjectId: input.reviewId,
-        requestId: rid.id,
+        requestId,
         metadata: {
           reason: input.reason,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return row
     })
     return NextResponse.json({ hold }, { status: 201 })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})
 
-export async function DELETE(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner"])
-    const input = releaseSchema.parse(await request.json())
-    const released = await withTenant(session.organisationId, async (sql) => {
+export const DELETE = route({
+  roles: ["owner"],
+  body: releaseSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
+    const released = await tenant(async (sql) => {
       const [row] = await sql`
         update legal_hold
         set released_by = ${session.userId}, released_at = now()
@@ -122,13 +126,11 @@ export async function DELETE(request: Request) {
         action: "legal_hold.released",
         subjectType: "review",
         subjectId: input.reviewId,
-        requestId: rid.id,
-        metadata: { clientRequestId: rid.clientId },
+        requestId,
+        metadata: { clientRequestId },
       })
       return true
     })
-    return NextResponse.json({ released })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { released }
+  },
+})

@@ -1,16 +1,15 @@
-import { NextResponse } from "next/server"
+import type { TransactionSql } from "postgres"
 import { z } from "zod"
 
 import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import {
   connectionAccessToken,
   getGoogleNotificationSetting,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -30,7 +29,7 @@ const notificationSchema = z.object({
 })
 
 async function accountForNotifications(
-  sql: Parameters<Parameters<typeof withTenant>[1]>[0],
+  sql: TransactionSql,
   accountId: string
 ) {
   const [account] = await sql<
@@ -55,14 +54,17 @@ async function accountForNotifications(
   return account
 }
 
-export async function GET(request: Request) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const accountId = new URL(request.url).searchParams.get("account_id")
+export const GET = route({
+  roles: ["owner", "admin"],
+  query: (searchParams) => ({
+    accountId: searchParams.get("account_id"),
+  }),
+  handler: async ({ query, tenant }) => {
+    const { accountId } = query
     if (!accountId) {
       throw new ApiError(400, "account_required", "Google account is required.")
     }
-    const setting = await withTenant(session.organisationId, async (sql) => {
+    const setting = await tenant(async (sql) => {
       const account = await accountForNotifications(sql, accountId)
       const accessToken = await connectionAccessToken(
         sql,
@@ -74,19 +76,16 @@ export async function GET(request: Request) {
         { connectionKey: account.connection_id }
       )
     })
-    return NextResponse.json({ setting })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { setting }
+  },
+})
 
-export async function PATCH(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = notificationSchema.parse(await request.json())
-    const setting = await withTenant(session.organisationId, async (sql) => {
-      const account = await accountForNotifications(sql, input.accountId)
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  body: notificationSchema,
+  handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
+    const setting = await tenant(async (sql) => {
+      const account = await accountForNotifications(sql, body.accountId)
       const accessToken = await connectionAccessToken(
         sql,
         account.connection_id
@@ -94,38 +93,34 @@ export async function PATCH(request: Request) {
       const updated = await updateGoogleNotificationSetting(
         accessToken,
         account.google_account_name,
-        input.pubsubTopic,
-        input.pubsubTopic ? input.notificationTypes : [],
+        body.pubsubTopic,
+        body.pubsubTopic ? body.notificationTypes : [],
         { connectionKey: account.connection_id }
       )
       await sql`
         update google_connection
         set
-          pubsub_topic = ${input.pubsubTopic || null},
-          notifications_enabled = ${Boolean(input.pubsubTopic)},
-          notification_types = ${input.pubsubTopic ? input.notificationTypes : []}
+          pubsub_topic = ${body.pubsubTopic || null},
+          notifications_enabled = ${Boolean(body.pubsubTopic)},
+          notification_types = ${body.pubsubTopic ? body.notificationTypes : []}
         where id = ${account.connection_id}
       `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action: input.pubsubTopic
+        action: body.pubsubTopic
           ? "google.notifications.enabled"
           : "google.notifications.disabled",
         subjectType: "google_account",
         subjectId: account.id,
-        requestId: rid.id,
+        requestId,
         metadata: {
-          notificationTypes: input.pubsubTopic
-            ? input.notificationTypes
-            : [],
-          clientRequestId: rid.clientId,
+          notificationTypes: body.pubsubTopic ? body.notificationTypes : [],
+          clientRequestId,
         },
       })
       return updated
     })
-    return NextResponse.json({ setting })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { setting }
+  },
+})

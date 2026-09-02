@@ -1,17 +1,15 @@
-import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   linkedLocations,
   syncLinkedLocation,
   type SyncOutcome,
 } from "@/lib/server/reviews"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -79,57 +77,53 @@ async function backfillProgress(
   return { items, counts, total: items.length }
 }
 
-export async function GET(request: Request) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const externalLocationId = new URL(request.url).searchParams.get(
-      "external_location_id"
-    )
-    const ids = externalLocationId
-      ? z.array(z.uuid()).parse([externalLocationId])
-      : undefined
-    const progress = await withTenant(session.organisationId, (sql) =>
-      backfillProgress(sql, ids)
-    )
-    return NextResponse.json({ progress })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  roles: ["owner", "admin"],
+  query: (searchParams) => {
+    const externalLocationId = searchParams.get("external_location_id")
+    return {
+      ids: externalLocationId
+        ? z.array(z.uuid()).parse([externalLocationId])
+        : undefined,
+    }
+  },
+  handler: async ({ query, tenant }) => {
+    const progress = await tenant((sql) => backfillProgress(sql, query.ids))
+    return { progress }
+  },
+})
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
+export const POST = route({
+  roles: ["owner", "admin"],
+  handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
+    // The kill switch must win over validation, so the body is parsed here
+    // rather than through the wrapper's `body` option.
     const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = rid.id
-    const locations = await withTenant(
-      session.organisationId,
-      async (sql) => {
-        const locations = await linkedLocations(
-          sql,
-          input.externalLocationIds
-        )
-        await writeAudit(sql, {
-          organisationId: session.organisationId,
-          actorUserId: session.userId,
-          action: "sync.backfill.started",
-          subjectType: "organisation",
-          subjectId: session.organisationId,
-          requestId: `${correlationId}:started`,
-          metadata: {
-            externalLocationIds: locations.map(
-              (location) => location.externalLocationId
-            ),
-            clientRequestId: rid.clientId,
-          },
-        })
-        return locations
-      }
-    )
+    const correlationId = requestId
+    const locations = await tenant(async (sql) => {
+      const locations = await linkedLocations(
+        sql,
+        input.externalLocationIds
+      )
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "sync.backfill.started",
+        subjectType: "organisation",
+        subjectId: session.organisationId,
+        requestId: `${correlationId}:started`,
+        metadata: {
+          externalLocationIds: locations.map(
+            (location) => location.externalLocationId
+          ),
+          clientRequestId,
+        },
+      })
+      return locations
+    })
     const results: Array<
       { externalLocationIds: string[] } & SyncOutcome
     > = []
@@ -144,7 +138,7 @@ export async function POST(request: Request) {
         })),
       })
     }
-    const result = await withTenant(session.organisationId, async (sql) => {
+    return tenant(async (sql) => {
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
@@ -156,7 +150,7 @@ export async function POST(request: Request) {
         requestId: `${correlationId}:finished`,
         metadata: {
           locations: results,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return {
@@ -164,24 +158,19 @@ export async function POST(request: Request) {
         progress: await backfillProgress(sql),
       }
     })
-    return NextResponse.json(result)
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})
 
-export async function DELETE(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = cancellationSchema.parse(await request.json())
-    const correlationId = rid.id
-    const result = await withTenant(session.organisationId, async (sql) => {
+export const DELETE = route({
+  roles: ["owner", "admin"],
+  body: cancellationSchema,
+  handler: ({ session, body, requestId, clientRequestId, tenant }) =>
+    tenant(async (sql) => {
       const running = await sql<{ location_name: string }[]>`
         select e.title as location_name
         from sync_checkpoint sc
         join external_location e on e.id = sc.external_location_id
-        where sc.external_location_id in ${sql(input.externalLocationIds)}
+        where sc.external_location_id in ${sql(body.externalLocationIds)}
           and sc.sync_type = 'backfill'
           and sc.status = 'running'
       `
@@ -199,7 +188,7 @@ export async function DELETE(request: Request) {
           page_token = null,
           next_attempt_at = null,
           finished_at = now()
-        where external_location_id in ${sql(input.externalLocationIds)}
+        where external_location_id in ${sql(body.externalLocationIds)}
           and sync_type = 'backfill'
           and status in ('pending', 'failed')
         returning external_location_id::text as "externalLocationId"
@@ -210,24 +199,20 @@ export async function DELETE(request: Request) {
         action: "sync.backfill.cancelled",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: correlationId,
+        requestId,
         metadata: {
-          requestedExternalLocationIds: input.externalLocationIds,
+          requestedExternalLocationIds: body.externalLocationIds,
           cancelledExternalLocationIds: cancelled.map(
             (item) => item.externalLocationId
           ),
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return {
         cancelledExternalLocationIds: cancelled.map(
           (item) => item.externalLocationId
         ),
-        progress: await backfillProgress(sql, input.externalLocationIds),
+        progress: await backfillProgress(sql, body.externalLocationIds),
       }
-    })
-    return NextResponse.json(result)
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }),
+})

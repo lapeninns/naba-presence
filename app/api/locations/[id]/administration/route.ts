@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { administrationMutationSchema } from "@/lib/locations/forms/administration"
@@ -7,74 +6,49 @@ import {
   matchGoogleLocations,
   mutateLocationAdministration,
 } from "@/lib/server/location-administration"
-import { apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    return NextResponse.json({
-      administration: await loadLocationAdministration(
-        session,
-        z.uuid().parse(id)
-      ),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+const paramsSchema = z.object({ id: z.uuid() })
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = z
-      .object({
-        operation: z.literal("match_location"),
-        location: z.record(z.string(), z.unknown()),
-      })
-      .parse(await request.json())
-    return NextResponse.json({
-      matches: await matchGoogleLocations({
-        session,
-        locationId: z.uuid().parse(id),
-        location: input.location,
-      }),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+const matchSchema = z.object({
+  operation: z.literal("match_location"),
+  location: z.record(z.string(), z.unknown()),
+})
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = administrationMutationSchema.parse(await request.json())
-    return NextResponse.json(
-      await mutateLocationAdministration({
-        session,
-        locationId: z.uuid().parse(id),
-        operation: input.operation,
-        payload: input.payload,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    administration: await loadLocationAdministration(session, params.id),
+  }),
+})
+
+export const POST = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: matchSchema,
+  handler: async ({ session, params, body }) => ({
+    matches: await matchGoogleLocations({
+      session,
+      locationId: params.id,
+      location: body.location,
+    }),
+  }),
+})
+
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: administrationMutationSchema,
+  handler: ({ session, params, body, requestId }) =>
+    mutateLocationAdministration({
+      session,
+      locationId: params.id,
+      operation: body.operation,
+      payload: body.payload,
+      requestId,
+    }),
+})

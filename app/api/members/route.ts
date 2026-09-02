@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -17,11 +15,10 @@ const updateSchema = z.object({
 })
 const deleteSchema = z.object({ userId: z.uuid() })
 
-export async function GET() {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const members = await withTenant(
-      session.organisationId,
+export const GET = route({
+  roles: ["owner", "admin"],
+  handler: async ({ tenant }) => {
+    const members = await tenant(
       (sql) => sql`
         select
           u.id::text as "userId",
@@ -55,32 +52,33 @@ export async function GET() {
           lower(u.display_name)
       `
     )
-    return NextResponse.json({ members })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { members }
+  },
+})
 
-export async function POST() {
-  try {
-    requireRole(await requireSession(), ["owner", "admin"])
+export const POST = route({
+  roles: ["owner", "admin"],
+  handler: () => {
     throw new ApiError(
       410,
       "use_invitations",
       "Create an invitation instead of adding a user directly."
     )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})
 
-export async function PATCH(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = updateSchema.parse(await request.json())
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  body: updateSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
     assertRoleChangeAllowed(session.role, input.role)
-    const member = await withTenant(session.organisationId, async (sql) => {
+    const member = await tenant(async (sql) => {
       const [current] = await sql<
         { role: z.infer<typeof roleSchema>; canPublish: boolean }[]
       >`
@@ -126,26 +124,29 @@ export async function PATCH(request: Request) {
         action: "member.role_changed",
         subjectType: "member",
         subjectId: input.userId,
-        requestId: rid.id,
+        requestId,
         metadata: {
           before: current,
           after: { role: input.role, canPublish: input.canPublish },
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return row
     })
-    return NextResponse.json({ member })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { member }
+  },
+})
 
-export async function DELETE(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const input = deleteSchema.parse(await request.json())
+export const DELETE = route({
+  roles: ["owner", "admin"],
+  body: deleteSchema,
+  handler: async ({
+    session,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
     if (input.userId === session.userId) {
       throw new ApiError(
         409,
@@ -153,7 +154,7 @@ export async function DELETE(request: Request) {
         "Transfer access before removing your own membership."
       )
     }
-    await withTenant(session.organisationId, async (sql) => {
+    await tenant(async (sql) => {
       const [current] = await sql<{ role: z.infer<typeof roleSchema> }[]>`
         select role from member where user_id = ${input.userId} limit 1
       `
@@ -184,15 +185,13 @@ export async function DELETE(request: Request) {
         action: "member.removed",
         subjectType: "member",
         subjectId: input.userId,
-        requestId: rid.id,
+        requestId,
         metadata: {
           previousRole: current.role,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
     })
-    return NextResponse.json({ removed: true })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { removed: true }
+  },
+})

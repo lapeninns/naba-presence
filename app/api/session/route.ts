@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { apiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 import {
   clearSession,
   ensureDevelopmentSession,
@@ -10,23 +10,24 @@ import {
 
 export const runtime = "nodejs"
 
-export async function GET() {
-  try {
+// Public: this endpoint reports the current session (or null) and, outside
+// production, bootstraps the local development session.
+export const GET = route({
+  auth: "public",
+  handler: async () => {
     const session =
       process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
         ? await ensureDevelopmentSession()
         : await getSession()
-    return NextResponse.json({ session })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { session }
+  },
+})
 
-export async function DELETE() {
-  try {
+// Public: signing out must succeed whether or not a valid session exists.
+export const DELETE = route({
+  auth: "public",
+  handler: async () => {
     await clearSession()
     return new NextResponse(null, { status: 204 })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

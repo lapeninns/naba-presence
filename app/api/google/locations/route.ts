@@ -1,9 +1,6 @@
-import { NextResponse } from "next/server"
-
-import { withTenant } from "@/lib/server/db"
 import { connectionAccessToken, googleLocations } from "@/lib/server/google"
-import { ApiError, apiError } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -32,11 +29,14 @@ function addressOf(location: Record<string, unknown>) {
     .join(", ")
 }
 
-export async function GET(request: Request) {
-  try {
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const accountFilter = new URL(request.url).searchParams.get("account_name")
-    const locations = await withTenant(session.organisationId, async (sql) => {
+export const GET = route({
+  roles: ["owner", "admin"],
+  query: (searchParams) => ({
+    accountFilter: searchParams.get("account_name"),
+  }),
+  handler: async ({ session, query, tenant }) => {
+    const { accountFilter } = query
+    const locations = await tenant(async (sql) => {
       const accounts = accountFilter
         ? await sql<
             { google_account_name: string; google_connection_id: string }[]
@@ -176,8 +176,6 @@ export async function GET(request: Request) {
       }
       return discovered
     })
-    return NextResponse.json({ locations })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { locations }
+  },
+})

@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { reviewCapabilitiesForLocations } from "@/lib/server/capabilities"
-import { withTenant } from "@/lib/server/db"
-import { ApiError, apiError } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { buildInboxQuery } from "@/lib/server/reviews-query"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -105,11 +103,11 @@ function decodeCursor(value: string | null, sort: string | null) {
   }
 }
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireSession()
-    const params = new URL(request.url).searchParams
-    const query = querySchema.parse({
+export const GET = route({
+  // Bespoke decoding: comma-separated lists and a base64url cursor, so the
+  // raw searchParams are mapped by hand before the zod schema runs.
+  query: (params) =>
+    querySchema.parse({
       locationId: params.get("location_id") ?? undefined,
       ratings: commaNumbers(params.get("rating")),
       statuses: commaStrings(params.get("status")),
@@ -125,8 +123,9 @@ export async function GET(request: Request) {
         ? Number(params.get("page_size"))
         : undefined,
       cursor: decodeCursor(params.get("cursor"), params.get("sort")),
-    })
-    const rawRows = await withTenant(session.organisationId, async (sql) => {
+    }),
+  handler: async ({ session, query, tenant }) => {
+    const rawRows = await tenant(async (sql) => {
       const queried = (await buildInboxQuery(sql, {
         ...query,
         role: session.role,
@@ -151,7 +150,7 @@ export async function GET(request: Request) {
     const hasMore = rows.length > query.pageSize
     const items = hasMore ? rows.slice(0, query.pageSize) : rows
     const last = items.at(-1) as
-      { id: string; updateTime: string | Date; rating: number | null }
+      | { id: string; updateTime: string | Date; rating: number | null }
       | undefined
     const nextCursor =
       hasMore && last
@@ -166,8 +165,6 @@ export async function GET(request: Request) {
             })
           ).toString("base64url")
         : null
-    return NextResponse.json({ items, nextCursor })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { items, nextCursor }
+  },
+})

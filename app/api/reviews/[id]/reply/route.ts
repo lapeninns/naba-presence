@@ -1,20 +1,16 @@
-import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { executeReplyDelete } from "@/lib/server/publishing"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function DELETE(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
+export const DELETE = route({
+  params: z.object({ id: z.uuid() }),
+  handler: async ({ session, params, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
         503,
@@ -22,12 +18,11 @@ export async function DELETE(
         "Publishing is temporarily paused."
       )
     }
-    const { id } = await context.params
     const outcome = await executeReplyDelete({
       organisationId: session.organisationId,
       session,
-      reviewId: id,
-      serverRequestId: rid.id,
+      reviewId: params.id,
+      serverRequestId: requestId,
     })
     if (outcome.status === "ambiguous") {
       throw new ApiError(
@@ -36,11 +31,9 @@ export async function DELETE(
         "Google may have deleted the reply. Its state must be checked before retrying."
       )
     }
-    return NextResponse.json({
+    return {
       status: outcome.status,
       publishAttemptId: outcome.attemptId,
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

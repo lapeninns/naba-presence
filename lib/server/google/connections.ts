@@ -3,6 +3,7 @@ import "server-only"
 import type { Sql, TransactionSql } from "postgres"
 
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
+import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import {
@@ -108,7 +109,6 @@ async function connectionAccessTokenInTransaction(
 }
 
 async function refreshAccessTokenOutsideTransaction(
-  sql: Sql,
   connection: GoogleConnectionRow
 ) {
   if (!connection.refresh_token_ciphertext) {
@@ -149,14 +149,7 @@ async function refreshAccessTokenOutsideTransaction(
       "Google access has expired. Reconnect this account."
     )
   }
-  await sql.begin(async (transaction) => {
-    await transaction`
-      select set_config(
-        'app.organisation_id',
-        ${connection.organisation_id},
-        true
-      )
-    `
+  await withTenant(connection.organisation_id, async (transaction) => {
     await transaction`
       update google_connection
       set
@@ -187,22 +180,17 @@ export async function connectionAccessToken(
     | readonly [sql: Sql, organisationId: string, connectionId: string]
 ): Promise<string> {
   if (args.length === 3) {
-    const [sql, organisationId, connectionId] = args
-    const connection = await sql.begin(async (transaction) => {
-      await transaction`
-        select set_config(
-          'app.organisation_id',
-          ${organisationId},
-          true
-        )
-      `
-      return loadConnection(transaction, connectionId)
-    })
+    // The `Sql` argument is kept for signature compatibility; every caller
+    // passes `getDatabase()`, which is exactly what `withTenant` uses.
+    const [, organisationId, connectionId] = args
+    const connection = await withTenant(organisationId, (transaction) =>
+      loadConnection(transaction, connectionId)
+    )
     if (
       !connection.access_token_expires_at ||
       connection.access_token_expires_at.getTime() <= Date.now() + 60_000
     ) {
-      return refreshAccessTokenOutsideTransaction(sql, connection)
+      return refreshAccessTokenOutsideTransaction(connection)
     }
     return decryptSecret(connection.access_token_ciphertext)
   }

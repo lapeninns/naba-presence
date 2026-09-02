@@ -1,25 +1,21 @@
-import { NextResponse } from "next/server"
-
 import { loginSchema } from "@/lib/domain/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
-import { apiError, serverRequestId } from "@/lib/server/http"
 import { signInWithPassword } from "@/lib/server/password-auth"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const input = loginSchema.parse(await request.json())
-    const identity = await signInWithPassword(input.email, input.password)
+export const POST = route({
+  auth: "public",
+  body: loginSchema,
+  handler: async ({ body, requestId, clientRequestId }) => {
+    const identity = await signInWithPassword(body.email, body.password)
     await completeEmailAuthentication({
       identity,
-      inviteToken: input.inviteToken,
-      requestId: rid.id,
-      clientRequestId: rid.clientId,
+      inviteToken: body.inviteToken,
+      requestId,
+      clientRequestId,
     })
-    return NextResponse.json({ authenticated: true })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { authenticated: true }
+  },
+})

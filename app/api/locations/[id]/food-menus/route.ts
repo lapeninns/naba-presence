@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
@@ -6,10 +5,11 @@ import {
   publishFoodMenus,
   saveCanonicalFoodMenus,
 } from "@/lib/server/food-menus"
-import { apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+const paramsSchema = z.object({ id: z.uuid() })
 
 const saveSchema = z.object({
   expectedCanonicalRevision: z.string().regex(/^\d+$/),
@@ -24,65 +24,38 @@ const publishSchema = z.object({
   confirmFullReplacement: z.literal(true),
 })
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await params
-    return NextResponse.json({
-      foodMenus: await getFoodMenusState(session, z.uuid().parse(id)),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    foodMenus: await getFoodMenusState(session, params.id),
+  }),
+})
 
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = saveSchema.parse(await request.json())
-    return NextResponse.json(
-      await saveCanonicalFoodMenus({
-        session,
-        locationId: z.uuid().parse(id),
-        expectedCanonicalRevision: input.expectedCanonicalRevision,
-        menus: input.menus,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const PUT = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: saveSchema,
+  handler: ({ session, params, body, requestId }) =>
+    saveCanonicalFoodMenus({
+      session,
+      locationId: params.id,
+      expectedCanonicalRevision: body.expectedCanonicalRevision,
+      menus: body.menus,
+      requestId,
+    }),
+})
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id } = await params
-    const input = publishSchema.parse(await request.json())
-    return NextResponse.json(
-      await publishFoodMenus({
-        session,
-        locationId: z.uuid().parse(id),
-        expectedCanonicalRevision: input.expectedCanonicalRevision,
-        expectedCanonicalHash: input.expectedCanonicalHash,
-        expectedGoogleHash: input.expectedGoogleHash,
-        confirmFullReplacement: input.confirmFullReplacement,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const POST = route({
+  params: paramsSchema,
+  body: publishSchema,
+  handler: ({ session, params, body, requestId }) =>
+    publishFoodMenus({
+      session,
+      locationId: params.id,
+      expectedCanonicalRevision: body.expectedCanonicalRevision,
+      expectedCanonicalHash: body.expectedCanonicalHash,
+      expectedGoogleHash: body.expectedGoogleHash,
+      confirmFullReplacement: body.confirmFullReplacement,
+      requestId,
+    }),
+})

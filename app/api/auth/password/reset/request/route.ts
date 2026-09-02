@@ -2,21 +2,19 @@ import { NextResponse } from "next/server"
 
 import { resetRequestSchema } from "@/lib/domain/auth"
 import { getServerEnv } from "@/lib/server/env"
-import { apiError } from "@/lib/server/http"
 import { requestPasswordReset } from "@/lib/server/password-auth"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function POST(request: Request) {
-  try {
-    const input = resetRequestSchema.parse(await request.json())
+export const POST = route({
+  auth: "public",
+  body: resetRequestSchema,
+  handler: async ({ request, body }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const resetUrl = new URL("/auth/confirm", baseUrl)
     resetUrl.searchParams.set("flow", "recovery")
-    await requestPasswordReset(
-      input.email,
-      resetUrl.toString()
-    )
+    await requestPasswordReset(body.email, resetUrl.toString())
     return NextResponse.json(
       {
         accepted: true,
@@ -25,7 +23,5 @@ export async function POST(request: Request) {
       },
       { status: 202 }
     )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

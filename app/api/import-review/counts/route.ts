@@ -1,18 +1,10 @@
-import { NextResponse } from "next/server"
-
-import { apiError } from "@/lib/server/http"
 import { pendingProposalCounts } from "@/lib/server/import-review"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function GET() {
-  try {
-    const session = await requireSession()
-    return NextResponse.json({
-      counts: await pendingProposalCounts({ session }),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  handler: async ({ session }) => ({
+    counts: await pendingProposalCounts({ session }),
+  }),
+})

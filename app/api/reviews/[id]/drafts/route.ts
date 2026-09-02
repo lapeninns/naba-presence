@@ -5,15 +5,11 @@ import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
 import { generateReply } from "@/lib/server/ai"
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import {
-  buildEvidenceHash,
-  verifyStoredDraft,
-} from "@/lib/server/drafts"
+import { buildEvidenceHash, verifyStoredDraft } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -29,17 +25,18 @@ const inputSchema = z.object({
   body: z.string().trim().min(1).max(4096).optional(),
 })
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), [
-      "owner",
-      "admin",
-      "member",
-    ])
+export const POST = route({
+  roles: ["owner", "admin", "member"],
+  params: z.object({ id: z.uuid() }),
+  body: inputSchema,
+  handler: async ({
+    session,
+    params,
+    body: input,
+    requestId,
+    clientRequestId,
+    tenant,
+  }) => {
     if (!getServerEnv().DRAFTS_ENABLED) {
       throw new ApiError(
         503,
@@ -47,10 +44,9 @@ export async function POST(
         "Draft generation is temporarily paused."
       )
     }
-    const { id } = await context.params
-    const input = inputSchema.parse(await request.json().catch(() => ({})))
-    const correlationId = rid.id
-    const result = await withTenant(session.organisationId, async (sql) => {
+    const { id } = params
+    const correlationId = requestId
+    const result = await tenant(async (sql) => {
       const [review] = await sql<
         {
           review_text: string | null
@@ -191,7 +187,7 @@ export async function POST(
           source,
           language: generated.language,
           verificationVerdict: verification.verdict,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       await writeAudit(sql, {
@@ -205,7 +201,7 @@ export async function POST(
           draftId: draft.id,
           verdict: verification.verdict,
           reasons: verification.reasons,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return {
@@ -217,7 +213,5 @@ export async function POST(
       }
     })
     return NextResponse.json(result, { status: 201 })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

@@ -1,15 +1,14 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { secretEqual } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   linkedLocations,
   syncLinkedLocation,
   type SyncOutcome,
 } from "@/lib/server/reviews"
+import { isCronRequest, route } from "@/lib/server/route"
 import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -28,24 +27,33 @@ type SweepFailure = {
   errorCode: string
 }
 
-export async function POST(request: Request) {
-  try {
-    const session = await getSession()
-    const cronToken = request.headers
-      .get("authorization")
-      ?.replace(/^Bearer /, "")
-    if (!session && !secretEqual(cronToken, getServerEnv().CRON_SECRET)) {
-      throw new ApiError(
-        401,
-        "authentication_required",
-        "Authentication required."
-      )
-    }
-    if (session) requireRole(session, ["owner", "admin"])
+// Session-or-cron hybrid: an owner/admin session sweeps its own organisation,
+// the cron token (no session) walks every organisation. Declared `public` so
+// the wrapper enforces neither mode; authentication, role gating, the kill
+// switch and body parsing run here in the original order (401, 403, 503, 400).
+async function authenticate(request: Request) {
+  const session = await getSession()
+  if (!session && !isCronRequest(request)) {
+    throw new ApiError(
+      401,
+      "authentication_required",
+      "Authentication required."
+    )
+  }
+  if (session) requireRole(session, ["owner", "admin"])
+  return session
+}
+
+export const POST = route({
+  auth: "public",
+  handler: async ({ request }) => {
+    const session = await authenticate(request)
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = inputSchema.parse(await request.json().catch(() => ({})))
+    // Cross-tenant enumeration: the cron walks every organisation that has a
+    // job route, so this one read deliberately runs outside withTenant.
     const organisationIds = session
       ? [session.organisationId]
       : (
@@ -118,13 +126,11 @@ export async function POST(request: Request) {
       !session && organisationIds.length === input.maxOrganisations
         ? (organisationIds.at(-1) ?? null)
         : null
-    return NextResponse.json({
+    return {
       processed: organisationIds.length,
       nextCursor,
       failures,
       ...(session ? { locations: organisations[0]?.locations ?? [] } : {}),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

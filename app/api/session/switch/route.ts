@@ -1,34 +1,39 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
-import { getDatabase } from "@/lib/server/db"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import {
-  requireSession,
-  setSessionCookie,
-  type Session,
-} from "@/lib/server/session"
+import { withTenant } from "@/lib/server/db"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
+import { setSessionCookie, type Session } from "@/lib/server/session"
 import { createSession } from "@/lib/server/session-store"
 
 export const runtime = "nodejs"
 
 const inputSchema = z.object({ organisationId: z.uuid() })
 
-export async function POST(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const current = await requireSession()
-    const input = inputSchema.parse(await request.json())
-    const switched = await getDatabase().begin(async (sql) => {
-      await sql`
-        select set_config(
-          'app.organisation_id',
-          ${current.organisationId},
-          true
-        )
-      `
+/**
+ * Switching organisations legitimately touches two tenants, so the route
+ * runs two tenant transactions instead of one hand-rolled `set_config` block:
+ *
+ *   1. inside the target organisation: verify the membership, create the new
+ *      session, load its projection and write the audit row;
+ *   2. inside the current organisation: delete the session being replaced
+ *      (`app_session` RLS only exposes rows of the active tenant).
+ *
+ * The order is deliberate: if step 2 fails the caller keeps a working session
+ * and the unreferenced new row simply expires, whereas the reverse order could
+ * sign the user out on a transient failure.
+ */
+export const POST = route({
+  body: inputSchema,
+  handler: async ({
+    session: current,
+    body,
+    requestId,
+    clientRequestId,
+  }) => {
+    const switched = await withTenant(body.organisationId, async (sql) => {
       const memberships = await sql<
         { organisationId: string; name: string; role: Session["role"] }[]
       >`
@@ -39,7 +44,7 @@ export async function POST(request: Request) {
         from list_user_organisations(${current.userId})
       `
       const membership = memberships.find(
-        (item) => item.organisationId === input.organisationId
+        (item) => item.organisationId === body.organisationId
       )
       if (!membership) {
         throw new ApiError(
@@ -48,16 +53,6 @@ export async function POST(request: Request) {
           "You are not a member of that organisation."
         )
       }
-      await sql`
-        delete from app_session where id = ${current.sessionId}
-      `
-      await sql`
-        select set_config(
-          'app.organisation_id',
-          ${membership.organisationId},
-          true
-        )
-      `
       const token = await createSession(
         sql,
         current.userId,
@@ -87,17 +82,20 @@ export async function POST(request: Request) {
         action: "session.organisation_switched",
         subjectType: "organisation",
         subjectId: membership.organisationId,
-        requestId: rid.id,
+        requestId,
         metadata: {
           previousOrganisationId: current.organisationId,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return { session, token }
     })
+    await withTenant(current.organisationId, async (sql) => {
+      await sql`
+        delete from app_session where id = ${current.sessionId}
+      `
+    })
     await setSessionCookie(switched.token)
-    return NextResponse.json({ session: switched.session })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { session: switched.session }
+  },
+})

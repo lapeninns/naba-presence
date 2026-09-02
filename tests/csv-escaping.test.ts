@@ -35,7 +35,8 @@ const row = (action: string) => ({
 async function exportedActionCell(action: string) {
   vi.mocked(withTenant).mockResolvedValueOnce([row(action)] as never)
   const response = await GET(
-    new Request("http://localhost/api/audit-log?format=csv")
+    new Request("http://localhost/api/audit-log?format=csv"),
+    { params: Promise.resolve({}) }
   )
   expect(response.status).toBe(200)
   return (await response.text()).split("\n")[1]?.split(",")[2]

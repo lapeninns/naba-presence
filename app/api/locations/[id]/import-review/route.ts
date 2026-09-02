@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { PROPOSAL_RESOURCE_TYPES } from "@/lib/domain/import-review"
 import { getServerEnv } from "@/lib/server/env"
-import { apiError } from "@/lib/server/http"
 import { listImportProposals } from "@/lib/server/import-review"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -14,29 +12,19 @@ const querySchema = z.object({
   status: z.enum(["pending", "decided"]).default("pending"),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await params
-    const url = new URL(request.url)
-    const query = querySchema.parse({
-      resourceType: url.searchParams.get("resourceType") ?? undefined,
-      status: url.searchParams.get("status") ?? undefined,
-    })
+export const GET = route({
+  params: z.object({ id: z.uuid() }),
+  query: querySchema,
+  handler: async ({ session, params, query }) => {
     const result = await listImportProposals({
       session,
-      locationId: z.uuid().parse(id),
+      locationId: params.id,
       resourceType: query.resourceType,
       includeDecided: query.status === "decided",
     })
-    return NextResponse.json({
+    return {
       ...result,
       importReviewEnabled: getServerEnv().IMPORT_REVIEW_ENABLED,
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    }
+  },
+})

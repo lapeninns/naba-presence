@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
@@ -12,11 +11,13 @@ import {
   updateBusinessAttributes,
   updateBusinessInformation,
 } from "@/lib/server/business-information"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+const paramsSchema = z.object({ id: z.uuid() })
 
 const locationUpdateSchema = z.object({
   operation: z.literal("update_location"),
@@ -34,73 +35,55 @@ const attributeUpdateSchema = z.object({
   attributes: z.array(googleAttributeSchema),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await params
-    const locationId = z.uuid().parse(id)
-    const search = new URL(request.url).searchParams
+const patchSchema = z.discriminatedUnion("operation", [
+  locationUpdateSchema,
+  attributeUpdateSchema,
+])
+
+export const GET = route({
+  params: paramsSchema,
+  handler: async ({ session, params, query: search }) => {
     const type = search.get("type")
     if (type === "categories" || type === "chains") {
       const query = search.get("query")?.trim() ?? ""
       if (!query) throw new ApiError(400, "search_query_required", "Enter a search term.")
-      return NextResponse.json({
+      return {
         result: await searchBusinessInformationMetadata({
           session,
-          locationId,
+          locationId: params.id,
           type,
           query,
           regionCode: search.get("regionCode") ?? "GB",
           languageCode: search.get("languageCode") ?? "en",
         }),
-      })
+      }
     }
-    return NextResponse.json({
-      businessInformation: await loadBusinessInformation(session, locationId),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return {
+      businessInformation: await loadBusinessInformation(session, params.id),
+    }
+  },
+})
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const locationId = z.uuid().parse(id)
-    const input = z
-      .discriminatedUnion("operation", [
-        locationUpdateSchema,
-        attributeUpdateSchema,
-      ])
-      .parse(await request.json())
-    const result =
-      input.operation === "update_location"
-        ? await updateBusinessInformation({
-            session,
-            locationId,
-            payload: input.payload,
-            updateMask: input.updateMask,
-            expectedGoogleHash: input.expectedGoogleHash,
-            requestId: rid.id,
-          })
-        : await updateBusinessAttributes({
-            session,
-            locationId,
-            attributes: input.attributes,
-            attributeMask: input.attributeMask,
-            expectedGoogleHash: input.expectedGoogleHash,
-            requestId: rid.id,
-          })
-    return NextResponse.json(result)
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const PATCH = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: patchSchema,
+  handler: ({ session, params, body, requestId }) =>
+    body.operation === "update_location"
+      ? updateBusinessInformation({
+          session,
+          locationId: params.id,
+          payload: body.payload,
+          updateMask: body.updateMask,
+          expectedGoogleHash: body.expectedGoogleHash,
+          requestId,
+        })
+      : updateBusinessAttributes({
+          session,
+          locationId: params.id,
+          attributes: body.attributes,
+          attributeMask: body.attributeMask,
+          expectedGoogleHash: body.expectedGoogleHash,
+          requestId,
+        }),
+})

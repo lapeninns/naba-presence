@@ -2,9 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
-import { apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
@@ -36,12 +34,10 @@ function csvCell(value: unknown) {
   return `"${guarded.replaceAll('"', '""')}"`
 }
 
-export async function GET(request: Request) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const params = new URL(request.url).searchParams
-    const query = querySchema.parse({
+export const GET = route({
+  roles: ["owner", "admin"],
+  query: (params) => ({
+    ...querySchema.parse({
       from: params.get("from") ?? undefined,
       to: params.get("to") ?? undefined,
       action: params.get("action") ?? undefined,
@@ -49,8 +45,11 @@ export async function GET(request: Request) {
         ? Number(params.get("page_size"))
         : undefined,
       cursor: decodeCursor(params.get("cursor")),
-    })
-    const rows = await withTenant(session.organisationId, async (sql) => {
+    }),
+    csv: params.get("format") === "csv",
+  }),
+  handler: async ({ session, query, requestId, clientRequestId, tenant }) => {
+    const rows = await tenant(async (sql) => {
       const records = await sql`
         select
           a.id::text as id,
@@ -85,14 +84,14 @@ export async function GET(request: Request) {
         action: "audit.exported",
         subjectType: "organisation",
         subjectId: session.organisationId,
-        requestId: rid.id,
+        requestId,
         metadata: {
           from: query.from ?? null,
           to: query.to ?? null,
           action: query.action ?? null,
-          format: params.get("format") === "csv" ? "csv" : "json",
+          format: query.csv ? "csv" : "json",
           records: Math.min(records.length, query.pageSize),
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return records
@@ -113,7 +112,7 @@ export async function GET(request: Request) {
             })
           ).toString("base64url")
         : null
-    if (params.get("format") === "csv") {
+    if (query.csv) {
       const header = [
         "id",
         "created_at",
@@ -153,7 +152,5 @@ export async function GET(request: Request) {
       { items, nextCursor },
       { headers: { "cache-control": "private, no-store" } }
     )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+  },
+})

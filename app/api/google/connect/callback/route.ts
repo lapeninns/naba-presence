@@ -1,6 +1,6 @@
 import { cookies } from "next/headers"
 import { after, NextResponse } from "next/server"
-import { z } from "zod"
+import { z, ZodError } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import {
@@ -11,9 +11,10 @@ import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
+import { route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -43,8 +44,19 @@ async function oauthParameters(request: Request) {
   }
 }
 
-async function completeOAuth(request: Request) {
-  const rid = serverRequestId(request)
+type OAuthInput = {
+  request: Request
+  requestId: string
+  clientRequestId: string | null
+}
+
+/**
+ * The route is `auth: "public"` on purpose: the signed state cookie is
+ * validated (and cleared) before the session is required, so a stale or
+ * tampered state answers 400 rather than 401 regardless of sign-in status.
+ * Owner/admin gating happens right after, exactly as before.
+ */
+async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput) {
   const params = await oauthParameters(request)
   if (params.error) {
     throw new ApiError(400, "google_oauth_denied", params.error)
@@ -160,11 +172,11 @@ async function completeOAuth(request: Request) {
         : "google.connection.connected",
       subjectType: "google_connection",
       subjectId: row.id,
-      requestId: `${rid.id}:connection`,
+      requestId: `${requestId}:connection`,
       metadata: {
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
-        clientRequestId: rid.clientId,
+        clientRequestId,
       },
     })
     return row
@@ -176,13 +188,13 @@ async function completeOAuth(request: Request) {
       userId: session.userId,
       connectionId: connection.id,
       accessToken: tokens.access_token,
-      requestId: rid.id,
+      requestId,
     })
   } catch (error) {
     const handledError =
       error instanceof Error ? error : new Error(String(error))
     log.warn("google.automatic_setup_fallback", {
-      requestId: rid.id,
+      requestId,
       organisationId: session.organisationId,
       userId: session.userId,
       error: handledError,
@@ -200,7 +212,7 @@ async function completeOAuth(request: Request) {
         })
         if (outcome.status === "failed") {
           log.warn("google.automatic_review_sync_failed", {
-            requestId: rid.id,
+            requestId,
             organisationId: session.organisationId,
             errorCode: outcome.errorCode,
           })
@@ -209,7 +221,7 @@ async function completeOAuth(request: Request) {
         const handledError =
           error instanceof Error ? error : new Error(String(error))
         log.error("google.automatic_review_sync_failed", {
-          requestId: rid.id,
+          requestId,
           organisationId: session.organisationId,
           error: handledError,
         })
@@ -219,17 +231,30 @@ async function completeOAuth(request: Request) {
   return { connection, setup }
 }
 
-export async function GET(request: Request) {
-  const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
-  try {
-    await completeOAuth(request)
-    return NextResponse.redirect(
-      new URL("/connections?google=connected", baseUrl)
-    )
-  } catch (error) {
-    const response = apiError(error)
-    if (response.status >= 400) {
-      const status = String(response.status)
+/**
+ * The status `apiError` would have answered with, without building the JSON
+ * response: the browser redirect only carries the number. Unknown errors are
+ * logged the same way the error mapper logs them.
+ */
+function redirectStatus(error: unknown, requestId: string): number {
+  if (error instanceof ApiError) return error.status
+  if (error instanceof ZodError) return 400
+  log.error("api.unhandled_error", { error, requestId })
+  return 500
+}
+
+// Browser redirect from Google: errors become a redirect, never a JSON body.
+export const GET = route({
+  auth: "public",
+  handler: async ({ request, requestId, clientRequestId }) => {
+    const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
+    try {
+      await completeOAuth({ request, requestId, clientRequestId })
+      return NextResponse.redirect(
+        new URL("/connections?google=connected", baseUrl)
+      )
+    } catch (error) {
+      const status = String(redirectStatus(error, requestId))
       const path =
         error instanceof ApiError && error.code === "authentication_required"
           ? "/sign-in"
@@ -238,14 +263,11 @@ export async function GET(request: Request) {
         new URL(`${path}?google=error&status=${status}`, baseUrl)
       )
     }
-    return response
-  }
-}
+  },
+})
 
-export async function POST(request: Request) {
-  try {
-    return NextResponse.json(await completeOAuth(request))
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const POST = route({
+  auth: "public",
+  handler: ({ request, requestId, clientRequestId }) =>
+    completeOAuth({ request, requestId, clientRequestId }),
+})

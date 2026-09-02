@@ -6,10 +6,11 @@ import { parsePubSubNotification } from "@/lib/domain/pubsub-payload"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError, apiError } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { verifyPubSubRequest } from "@/lib/server/pubsub"
 import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
+import { route } from "@/lib/server/route"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
@@ -37,8 +38,11 @@ function discarded(reason: string) {
   return NextResponse.json({ status: "discarded" })
 }
 
-export async function POST(request: Request) {
-  try {
+// Google Pub/Sub push endpoint: there is no session or cron token, the
+// caller is authenticated by its OIDC token in `verifyPubSubRequest`.
+export const POST = route({
+  auth: "public",
+  handler: async ({ request }) => {
     const env = getServerEnv()
     if (!env.WEBHOOKS_ENABLED || !env.SYNC_ENABLED) {
       throw new ApiError(
@@ -64,7 +68,9 @@ export async function POST(request: Request) {
     if (!locationName) {
       return discarded("unresolvable_location")
     }
-    const [route] = await getDatabase()<
+    // Documented cross-tenant routing read: webhook_route is the content-free
+    // table that maps a Google location name to its organisation.
+    const [webhookRoute] = await getDatabase()<
       {
         organisation_id: string
         external_location_id: string
@@ -77,14 +83,14 @@ export async function POST(request: Request) {
       where google_location_name = ${locationName}
       limit 1
     `
-    if (!route) {
-      return NextResponse.json({
+    if (!webhookRoute) {
+      return {
         status: "ignored",
         reason: "unknown_location",
-      })
+      }
     }
     const prepared = await withTenant(
-      route.organisation_id,
+      webhookRoute.organisation_id,
       async (sql) => {
         const [event] = await sql<
           { id: string; status: string; retryCount: number }[]
@@ -101,8 +107,8 @@ export async function POST(request: Request) {
             status
           )
           values (
-            ${route.organisation_id},
-            ${route.external_location_id},
+            ${webhookRoute.organisation_id},
+            ${webhookRoute.external_location_id},
             'google_pubsub',
             ${envelope.message.messageId},
             ${notification.type},
@@ -131,7 +137,7 @@ export async function POST(request: Request) {
           where id = ${event.id}
         `
         const [location] = await linkedLocations(sql, [
-          route.external_location_id,
+          webhookRoute.external_location_id,
         ])
         if (!location) {
           await sql`
@@ -151,19 +157,17 @@ export async function POST(request: Request) {
       }
     )
     if (prepared.terminal) {
-      return NextResponse.json(prepared.terminal)
+      return prepared.terminal
     }
     const sync = await syncLinkedLocation({
-      organisationId: route.organisation_id,
-      externalLocationId: route.external_location_id,
+      organisationId: webhookRoute.organisation_id,
+      externalLocationId: webhookRoute.external_location_id,
       type: "notification",
       maxPages: 1,
     })
-    const status = await withTenant(route.organisation_id, (sql) =>
+    const status = await withTenant(webhookRoute.organisation_id, (sql) =>
       settleWebhookEvent(sql, prepared.eventId, sync)
     )
-    return NextResponse.json({ status, sync })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { status, sync }
+  },
+})

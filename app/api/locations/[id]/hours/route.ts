@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
@@ -7,10 +6,11 @@ import {
   publishCanonicalHours,
   saveCanonicalHours,
 } from "@/lib/server/hours"
-import { apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+const paramsSchema = z.object({ id: z.uuid() })
 
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 const hoursSchema = z.object({
@@ -65,68 +65,39 @@ const publishSchema = z.object({
   confirmOverwriteGoogleChanges: z.boolean().default(false),
 })
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await params
-    return NextResponse.json({
-      hours: await getHoursState(session, z.uuid().parse(id)),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    hours: await getHoursState(session, params.id),
+  }),
+})
 
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = saveSchema.parse(await request.json())
-    return NextResponse.json(
-      await saveCanonicalHours({
-        session,
-        locationId: z.uuid().parse(id),
-        expectedCanonicalRevision: input.expectedCanonicalRevision,
-        hours: input.hours,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const PUT = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: saveSchema,
+  handler: ({ session, params, body, requestId }) =>
+    saveCanonicalHours({
+      session,
+      locationId: params.id,
+      expectedCanonicalRevision: body.expectedCanonicalRevision,
+      hours: body.hours,
+      requestId,
+    }),
+})
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id } = await params
-    const input = publishSchema.parse(await request.json())
-    return NextResponse.json(
-      await publishCanonicalHours({
-        session,
-        locationId: z.uuid().parse(id),
-        expectedCanonicalRevision: input.expectedCanonicalRevision,
-        expectedCanonicalHash: input.expectedCanonicalHash,
-        expectedGoogleHash: input.expectedGoogleHash,
-        approvedUpdateMask:
-          input.approvedUpdateMask as GoogleHoursUpdateMask[],
-        confirmOverwriteGoogleChanges:
-          input.confirmOverwriteGoogleChanges,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const POST = route({
+  params: paramsSchema,
+  body: publishSchema,
+  handler: ({ session, params, body, requestId }) =>
+    publishCanonicalHours({
+      session,
+      locationId: params.id,
+      expectedCanonicalRevision: body.expectedCanonicalRevision,
+      expectedCanonicalHash: body.expectedCanonicalHash,
+      expectedGoogleHash: body.expectedGoogleHash,
+      approvedUpdateMask: body.approvedUpdateMask as GoogleHoursUpdateMask[],
+      confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
+      requestId,
+    }),
+})

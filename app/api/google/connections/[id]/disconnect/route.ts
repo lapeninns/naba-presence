@@ -1,25 +1,21 @@
-import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import {
   connectionAccessToken,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { ApiError } from "@/lib/server/http"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await context.params
-    await withTenant(session.organisationId, async (sql) => {
+export const POST = route({
+  roles: ["owner", "admin"],
+  params: z.object({ id: z.string() }),
+  handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
+    const { id } = params
+    await tenant(async (sql) => {
       const [connection] = await sql<
         {
           id: string
@@ -121,17 +117,15 @@ export async function POST(
         action: "google.connection.disconnected",
         subjectType: "google_connection",
         subjectId: id,
-        requestId: rid.id,
+        requestId,
         metadata: {
           purgeDueWithinDays: 7,
           notificationCleanupErrors: cleanupErrors,
           routesRemoved: removedRoutes.length,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
     })
-    return NextResponse.json({ status: "disconnected" })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { status: "disconnected" }
+  },
+})

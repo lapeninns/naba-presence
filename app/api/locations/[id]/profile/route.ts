@@ -1,17 +1,18 @@
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { PROFILE_FIELD_KEYS } from "@/lib/domain/profile"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import {
   getProfileState,
   importProfileFromGoogle,
   publishProfileToGoogle,
   saveCanonicalProfile,
 } from "@/lib/server/profile"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+const paramsSchema = z.object({ id: z.uuid() })
 
 const saveSchema = z.object({
   expectedCanonicalRevision: z.string().regex(/^\d+$/),
@@ -37,57 +38,35 @@ const operationSchema = z.object({
   confirmOverwriteCanonicalChanges: z.boolean().default(false),
 })
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await params
-    return NextResponse.json({
-      profile: await getProfileState(session, z.uuid().parse(id)),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    profile: await getProfileState(session, params.id),
+  }),
+})
 
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const input = saveSchema.parse(await request.json())
-    return NextResponse.json(
-      await saveCanonicalProfile({
-        session,
-        locationId: z.uuid().parse(id),
-        expectedCanonicalRevision: input.expectedCanonicalRevision,
-        values: input.values,
-        requestId: rid.id,
-      })
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const PUT = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: saveSchema,
+  handler: ({ session, params, body, requestId }) =>
+    saveCanonicalProfile({
+      session,
+      locationId: params.id,
+      expectedCanonicalRevision: body.expectedCanonicalRevision,
+      values: body.values,
+      requestId,
+    }),
+})
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), ["owner", "admin"])
-    const { id } = await params
-    const locationId = z.uuid().parse(id)
-    const input = operationSchema.parse(await request.json())
+export const POST = route({
+  roles: ["owner", "admin"],
+  params: paramsSchema,
+  body: operationSchema,
+  handler: ({ session, params, body, requestId }) => {
     if (
-      input.direction === "to_google" &&
-      input.confirmation !== "publish_nabapresence_profile_to_google"
+      body.direction === "to_google" &&
+      body.confirmation !== "publish_nabapresence_profile_to_google"
     ) {
       throw new ApiError(
         400,
@@ -96,8 +75,8 @@ export async function POST(
       )
     }
     if (
-      input.direction === "from_google" &&
-      input.confirmation !== "import_google_profile_to_nabapresence"
+      body.direction === "from_google" &&
+      body.confirmation !== "import_google_profile_to_nabapresence"
     ) {
       throw new ApiError(
         400,
@@ -105,32 +84,26 @@ export async function POST(
         "The profile operation confirmation does not match its direction."
       )
     }
-    const result =
-      input.direction === "to_google"
-        ? await publishProfileToGoogle({
-            session,
-            locationId,
-            selectedFields: input.selectedFields,
-            expectedCanonicalRevision: input.expectedCanonicalRevision,
-            expectedCanonicalHash: input.expectedCanonicalHash,
-            expectedGoogleHash: input.expectedGoogleHash,
-            confirmOverwriteGoogleChanges:
-              input.confirmOverwriteGoogleChanges,
-            requestId: rid.id,
-          })
-        : await importProfileFromGoogle({
-            session,
-            locationId,
-            selectedFields: input.selectedFields,
-            expectedCanonicalRevision: input.expectedCanonicalRevision,
-            expectedCanonicalHash: input.expectedCanonicalHash,
-            expectedGoogleHash: input.expectedGoogleHash,
-            confirmOverwriteCanonicalChanges:
-              input.confirmOverwriteCanonicalChanges,
-            requestId: rid.id,
-          })
-    return NextResponse.json(result)
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return body.direction === "to_google"
+      ? publishProfileToGoogle({
+          session,
+          locationId: params.id,
+          selectedFields: body.selectedFields,
+          expectedCanonicalRevision: body.expectedCanonicalRevision,
+          expectedCanonicalHash: body.expectedCanonicalHash,
+          expectedGoogleHash: body.expectedGoogleHash,
+          confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
+          requestId,
+        })
+      : importProfileFromGoogle({
+          session,
+          locationId: params.id,
+          selectedFields: body.selectedFields,
+          expectedCanonicalRevision: body.expectedCanonicalRevision,
+          expectedCanonicalHash: body.expectedCanonicalHash,
+          expectedGoogleHash: body.expectedGoogleHash,
+          confirmOverwriteCanonicalChanges: body.confirmOverwriteCanonicalChanges,
+          requestId,
+        })
+  },
+})

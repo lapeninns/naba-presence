@@ -1,62 +1,46 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { apiError, serverRequestId } from "@/lib/server/http"
 import {
   createPlaceAction,
   loadPlaceActions,
   placeActionInputSchema,
 } from "@/lib/server/place-actions"
-import { requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
+
+const paramsSchema = z.object({ id: z.string() })
 
 const createSchema = placeActionInputSchema.extend({
   confirmation: z.literal("create_google_place_action"),
 })
 
-export async function GET(
-  _request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await requireSession()
-    const { id } = await context.params
-    return NextResponse.json({
-      placeActions: await loadPlaceActions(
-        session.organisationId,
-        session,
-        id
-      ),
-    })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+export const GET = route({
+  params: paramsSchema,
+  handler: async ({ session, params }) => ({
+    placeActions: await loadPlaceActions(
+      session.organisationId,
+      session,
+      params.id
+    ),
+  }),
+})
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = await requireSession()
-    const { id } = await context.params
-    const input = createSchema.parse(await request.json())
-    const payload = {
-      uri: input.uri,
-      placeActionType: input.placeActionType,
-      isPreferred: input.isPreferred,
-    }
-    return NextResponse.json(
+export const POST = route({
+  params: paramsSchema,
+  body: createSchema,
+  handler: async ({ session, params, body, requestId }) =>
+    NextResponse.json(
       await createPlaceAction({
         organisationId: session.organisationId,
         session,
-        locationId: id,
-        payload,
-        requestId: rid.id,
+        locationId: params.id,
+        payload: {
+          uri: body.uri,
+          placeActionType: body.placeActionType,
+          isPreferred: body.isPreferred,
+        },
+        requestId,
       }),
       { status: 201 }
-    )
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    ),
+})

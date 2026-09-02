@@ -1,28 +1,20 @@
-import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
-import { withTenant } from "@/lib/server/db"
 import { verifyStoredDraft } from "@/lib/server/drafts"
-import { ApiError, apiError, serverRequestId } from "@/lib/server/http"
+import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
-import { requireRole, requireSession } from "@/lib/server/session"
+import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const rid = serverRequestId(request)
-    const session = requireRole(await requireSession(), [
-      "owner",
-      "admin",
-      "member",
-    ])
-    const { id } = await context.params
-    const result = await withTenant(session.organisationId, async (sql) => {
+export const POST = route({
+  roles: ["owner", "admin", "member"],
+  params: z.object({ id: z.uuid() }),
+  handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
+    const { id } = params
+    const result = await tenant(async (sql) => {
       const [draft] = await sql<
         {
           id: string
@@ -63,17 +55,15 @@ export async function POST(
         action: "review.draft.verified",
         subjectType: "review",
         subjectId: draft.review_id,
-        requestId: rid.id,
+        requestId,
         metadata: {
           draftId: id,
           verdict: verification.verdict,
-          clientRequestId: rid.clientId,
+          clientRequestId,
         },
       })
       return verification
     })
-    return NextResponse.json({ verification: result })
-  } catch (error) {
-    return apiError(error)
-  }
-}
+    return { verification: result }
+  },
+})
