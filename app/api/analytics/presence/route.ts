@@ -7,6 +7,7 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
+import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
@@ -33,6 +34,7 @@ export const GET = route({
       locationId: searchParams.get("locationId") ?? undefined,
     }),
   handler: async ({ session, query, tenant }) => {
+    const env = getServerEnv()
     const endDate = new Date()
     const startDate = new Date(endDate)
     startDate.setUTCDate(startDate.getUTCDate() - RANGE_DAYS[query.range] + 1)
@@ -102,7 +104,9 @@ export const GET = route({
       ? "no_link"
       : payload.rows.length
         ? "ready"
-        : payload.checkpoints.some((checkpoint) => checkpoint.status === "failed")
+        : payload.checkpoints.some(
+              (checkpoint) => checkpoint.status === "failed"
+            )
           ? "unavailable"
           : payload.checkpoints.some((checkpoint) =>
                 ["pending", "running"].includes(checkpoint.status)
@@ -125,8 +129,8 @@ export const GET = route({
             .filter((value): value is string => Boolean(value))
         )
       ),
-      keywordsEnabled: true,
-      ingestionEnabled: true,
+      keywordsEnabled: gbpIngestionEnabled(env, "keywords"),
+      ingestionEnabled: gbpIngestionEnabled(env, "performance"),
     } satisfies PresenceResponse
   },
 })

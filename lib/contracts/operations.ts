@@ -26,7 +26,7 @@ export const auditLogQuerySchema = z.object({
 export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>
 
 /** POST `/api/webhooks/google/pubsub/replay` body. */
-export const webhookReplaySchema = z.object({ eventId: z.string() })
+export const webhookReplaySchema = z.object({ eventId: z.uuid() })
 export type WebhookReplayInput = z.infer<typeof webhookReplaySchema>
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,9 @@ export type WebhookFailure = z.infer<typeof webhookFailureSchema>
 export const webhookFailuresResponseSchema = z.object({
   items: z.array(webhookFailureSchema),
 })
-export type WebhookFailuresResponse = z.infer<typeof webhookFailuresResponseSchema>
+export type WebhookFailuresResponse = z.infer<
+  typeof webhookFailuresResponseSchema
+>
 
 /** POST `/api/webhooks/google/pubsub/replay` response. */
 export const webhookReplayResponseSchema = z

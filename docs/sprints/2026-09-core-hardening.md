@@ -245,6 +245,34 @@ were applied:
 Noted, not changed: the inbox default queue is now Needs reply (from the in-flight WIP
 commit, a product decision); profile field-validation errors also toast.
 
+### Sprint 5c — server review fixes
+
+The read-only server review (5.2) found no authorization escalation, tenant-scoping
+leak or constraint-violating attempt write. Its should-fix items were applied:
+
+- `grantsFor` compared location ids as JavaScript strings while Postgres renders uuid
+  keys lower-case, so a member with assignments was denied for an upper-case id the
+  old SQL equality accepted. The map is now case-insensitive (unit test added).
+- Requesting post approval (a local-only write) had moved behind the Google link check
+  and the posts kill switch; it now runs after access and publish-right checks only,
+  and Google is consulted solely on the publishing path, as on main.
+- A replayed post publish reported `published` regardless of the stored attempt; it
+  now re-reads the post and answers 409 `post_publish_in_progress` unless it is
+  published.
+- The post update/delete routes gated on the global `PUBLISH_ENABLED` only, and the
+  presence analytics response hard-coded `keywordsEnabled`/`ingestionEnabled`; both
+  now derive from the per-surface helpers.
+- `webhookReplaySchema` validates a UUID and is imported by its route.
+
+Decided, not reverted (documented behaviour changes): a readback failure after a
+successful write settles `ambiguous` for media, posts and food menus (was `failed`);
+a missing location answers 404 rather than 409 on the Google-backed modules; the
+per-surface kill switches compound with the global one; a paused deploy answers 400
+to malformed input before 503. Not fully reviewed: the location-level routes under
+`app/api/locations/[id]`, links, members and import review (role gates and the
+visibility helper were verified directly; 404/403 ordering and empty-body handling
+there were not re-read).
+
 ### E2E status (5.3)
 
 23 e2e failures pre-date the sprints: they fail identically on the baseline commit

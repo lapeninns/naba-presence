@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
-
+import { webhookReplaySchema } from "@/lib/contracts/operations"
 import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -11,8 +10,6 @@ import { settleWebhookEvent } from "@/lib/server/webhooks"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-const inputSchema = z.object({ eventId: z.uuid() })
-
 export const POST = route({
   roles: ["owner", "admin"],
   handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
@@ -21,7 +18,7 @@ export const POST = route({
     }
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
-    const input = inputSchema.parse(await request.json())
+    const input = webhookReplaySchema.parse(await request.json())
     const event = await tenant(async (sql) => {
       const [event] = await sql<
         {

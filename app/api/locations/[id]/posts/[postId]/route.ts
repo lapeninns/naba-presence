@@ -5,7 +5,7 @@ import {
   type PostDeleteOutcome,
   type PostUpdateResponse,
 } from "@/lib/contracts/location-posts"
-import { getServerEnv } from "@/lib/server/env"
+import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import {
   deleteLocalPost,
@@ -30,7 +30,7 @@ export const PATCH = route({
       requestId
     )
     if (post.status === "published") {
-      if (!getServerEnv().PUBLISH_ENABLED) {
+      if (!gbpWritesEnabled(getServerEnv(), "posts")) {
         throw new ApiError(503, "publishing_paused", "Publishing is paused.")
       }
       return (await requestOrPublishLocalPost({
@@ -48,7 +48,7 @@ export const PATCH = route({
 export const DELETE = route({
   params: paramsSchema,
   handler: async ({ session, params, requestId }) => {
-    if (!getServerEnv().PUBLISH_ENABLED) {
+    if (!gbpWritesEnabled(getServerEnv(), "posts")) {
       throw new ApiError(503, "publishing_paused", "Publishing is paused.")
     }
     return (await deleteLocalPost({

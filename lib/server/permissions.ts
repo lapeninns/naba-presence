@@ -130,16 +130,25 @@ export async function grantsFor(
       ) as grants
   `
   const hasAssignments = scope?.hasAssignments ?? false
-  const assignedPublish = new Map(Object.entries(scope?.grants ?? {}))
+  // Postgres renders uuid keys lower-case; the caller's ids arrive as typed
+  // (z.uuid() accepts upper-case hex), so compare case-insensitively — the
+  // SQL `uuid = uuid` this replaced never cared about casing.
+  const assignedPublish = new Map(
+    Object.entries(scope?.grants ?? {}).map(([id, publish]) => [
+      id.toLowerCase(),
+      publish,
+    ])
+  )
   const viewer = session.role === "viewer"
 
   for (const id of unique) {
-    const visible = hasAssignments ? assignedPublish.has(id) : true
+    const key = id.toLowerCase()
+    const visible = hasAssignments ? assignedPublish.has(key) : true
     const canEdit = visible && !viewer
     const canPublish = viewer
       ? false
       : hasAssignments
-        ? (assignedPublish.get(id) ?? false)
+        ? (assignedPublish.get(key) ?? false)
         : session.canPublish
     result.set(id, { visible, canEdit, canPublish })
   }

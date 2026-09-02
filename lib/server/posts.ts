@@ -28,7 +28,10 @@ import {
   patchGoogleLocalPost,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import { requireLocationAccess } from "@/lib/server/permissions"
+import {
+  canPublishLocation,
+  requireLocationAccess,
+} from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 // Request/response shapes live in the contract; the old names stay exported
@@ -168,7 +171,10 @@ async function reconcileLocalPosts(
  * `Date`, which `NextResponse.json` serialises to the ISO strings the
  * contract declares.
  */
-type PostListRow = Omit<PostRow, "scheduledTime" | "createdAt" | "updatedAt"> & {
+type PostListRow = Omit<
+  PostRow,
+  "scheduledTime" | "createdAt" | "updatedAt"
+> & {
   scheduledTime: Date | null
   createdAt: Date
   updatedAt: Date
@@ -501,23 +507,24 @@ export async function requestOrPublishLocalPost(input: {
   requestId: string
   approval?: boolean
 }) {
-  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
-  const { linked, post } = await withTenant(
+  // Requesting approval is a local-only write: it must not depend on the
+  // Google link being active or on the posts kill switch (both gate the
+  // provider write below, as on main).
+  const { canPublish, post } = await withTenant(
     input.organisationId,
     async (sql) => {
-      const linked = await loadLinkedLocation(
-        sql,
-        input.session,
-        input.locationId,
-        POSTS_NOT_LINKED
-      )
+      await requireLocationAccess(sql, input.session, input.locationId)
       return {
-        linked,
+        canPublish: await canPublishLocation(
+          sql,
+          input.session,
+          input.locationId
+        ),
         post: await loadPost(sql, input.locationId, input.postId),
       }
     }
   )
-  if (!linked.canPublish) {
+  if (!canPublish) {
     await withTenant(input.organisationId, async (sql) => {
       await sql`
         update gbp_local_post
@@ -527,6 +534,10 @@ export async function requestOrPublishLocalPost(input: {
     })
     return { status: "awaiting_approval" as const }
   }
+  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+  const linked = await withTenant(input.organisationId, (sql) =>
+    loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED)
+  )
   if (
     input.approval &&
     post.requireTwoPersonApproval &&
@@ -555,7 +566,7 @@ async function publishLocalPost(input: {
   const payload = providerPayload(post)
   const options = { connectionKey: linked.googleConnectionId }
   let googlePostName = post.googlePostName
-  await runGbpWrite<
+  const result = await runGbpWrite<
     Record<string, unknown>,
     Record<string, unknown>,
     LocalPostAttemptIntent
@@ -622,6 +633,31 @@ async function publishLocalPost(input: {
       verify: () => true,
     },
   })
+  if (result.idempotent) {
+    // A replay of this exact request: report the post's stored state instead
+    // of claiming a publish that may have failed or still be in flight.
+    const [stored] = await withTenant(
+      input.organisationId,
+      (sql) =>
+        sql<{ status: string; googlePostName: string | null }[]>`
+        select status, google_post_name as "googlePostName"
+        from gbp_local_post
+        where id = ${input.postId}
+      `
+    )
+    if (stored?.status !== "published") {
+      throw new ApiError(
+        409,
+        "post_publish_in_progress",
+        "This post's previous publish attempt did not complete. Check its status and try again."
+      )
+    }
+    return {
+      status: "published" as const,
+      postId: input.postId,
+      googlePostName: stored.googlePostName,
+    }
+  }
   return { status: "published" as const, postId: input.postId, googlePostName }
 }
 

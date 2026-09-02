@@ -314,6 +314,24 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
     }
   )
 
+  it("member with assignments: an upper-case id still matches its lower-case grant key", async () => {
+    // Postgres renders uuid keys lower-case; z.uuid() accepts upper-case hex.
+    // The SQL equality this replaced was case-insensitive, so the map is too.
+    const { sql } = fakeSql({
+      hasAssignments: true,
+      grants: { [LOCATION_A.toLowerCase()]: true },
+    })
+    const upper = LOCATION_A.toUpperCase()
+    const grants = await grantsFor(sql, makeSession({ canPublish: false }), [
+      upper,
+    ])
+    expect(grants.get(upper)).toEqual({
+      visible: true,
+      canEdit: true,
+      canPublish: true,
+    })
+  })
+
   it("viewer: visibility follows assignments, never edits or publishes", async () => {
     const { sql } = fakeSql({
       hasAssignments: true,
