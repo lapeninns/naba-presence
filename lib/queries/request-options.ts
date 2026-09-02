@@ -21,7 +21,12 @@ export function requestOptions(
   ctx: Pick<QueryFunctionContext, "client" | "queryKey" | "signal">
 ): RequestOptions {
   const state = ctx.client.getQueryState(ctx.queryKey)
+  // A query that already failed (its previous background refetch threw the
+  // 401) is retried as foreground, so "Try again" can redirect to /sign-in
+  // instead of failing the same way forever.
   const background =
-    state?.data !== undefined && state.fetchMeta?.fetchMore === undefined
+    state?.data !== undefined &&
+    state.status !== "error" &&
+    state.fetchMeta?.fetchMore === undefined
   return { signal: ctx.signal, background }
 }

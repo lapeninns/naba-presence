@@ -54,7 +54,11 @@ import { useSessionRole } from "@/lib/queries/use-session"
 // fetchNextPage per click; already-loaded pages page locally.
 const PAGE_SIZE = 7
 
-function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean }) {
+function InboxViewInner({
+  showLocationFilter,
+}: {
+  showLocationFilter: boolean
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const state = useMemo(
@@ -253,21 +257,54 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
   // render).
   const onAdjacentReviewRef = useRef(onAdjacentReview)
   const selectedRef = useRef(state.selected)
+  const reviewsRef = useRef(reviews)
+  const selectReviewRef = useRef((id: string, index: number) => {
+    setPage(pageForIndex(index, PAGE_SIZE))
+    updateState({ selected: id }, "push")
+  })
   useEffect(() => {
     onAdjacentReviewRef.current = onAdjacentReview
     selectedRef.current = state.selected
-  }, [onAdjacentReview, state.selected])
+    reviewsRef.current = reviews
+    selectReviewRef.current = (id: string, index: number) => {
+      setPage(pageForIndex(index, PAGE_SIZE))
+      updateState({ selected: id }, "push")
+    }
+  }, [onAdjacentReview, reviews, setPage, state.selected, updateState])
   useEffect(() => {
     let timer: number | undefined
     function onPublished(event: Event) {
       const reviewId = (event as CustomEvent<{ reviewId?: string }>).detail
         ?.reviewId
       if (!reviewId || reviewId !== selectedRef.current) return
+      // Decide the target NOW: the publish mutation invalidates the list, and
+      // in the Needs reply queue the refetch drops the just-published review
+      // out of it well inside the pulse, after which "next of the selected
+      // review" no longer resolves. Fall back to whatever row now sits at the
+      // same index (the list shifted up), then to the next API page.
+      const loaded = reviewsRef.current
+      const index = loaded.findIndex((review) => review.id === reviewId)
+      const target = adjacentReviewId(loaded, reviewId, "next")
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         timer = undefined
         // The operator moved on during the pulse — do not yank them again.
         if (selectedRef.current !== reviewId) return
+        const current = reviewsRef.current
+        const stillThere =
+          target && current.some((review) => review.id === target)
+        if (stillThere) {
+          selectReviewRef.current(
+            target,
+            current.findIndex((review) => review.id === target)
+          )
+          return
+        }
+        const shifted = index >= 0 ? current[index] : undefined
+        if (shifted && shifted.id !== reviewId) {
+          selectReviewRef.current(shifted.id, index)
+          return
+        }
         void onAdjacentReviewRef.current("next")
       }, PUBLISH_PULSE_MS)
     }
@@ -413,7 +450,9 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
           />
         </div>
         {renderList()}
-        {!reviewsQuery.isPending && !reviewsQuery.isError && reviews.length > 0 ? (
+        {!reviewsQuery.isPending &&
+        !reviewsQuery.isError &&
+        reviews.length > 0 ? (
           <nav
             aria-label="Review pages"
             className="flex items-center justify-between gap-2 border-t border-border/60 px-4 py-2.5"
@@ -457,7 +496,7 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
           <DetailErrorBoundary key={state.selected}>
             <div
               key={state.selected}
-              className="flex min-h-0 flex-1 flex-col duration-(--nr-duration-fast) animate-in fade-in-0"
+              className="flex min-h-0 flex-1 animate-in flex-col duration-(--nr-duration-fast) fade-in-0"
             >
               <ReviewDetail
                 reviewId={state.selected}
@@ -491,7 +530,9 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
                       variant="ghost"
                       size="icon-sm"
                       aria-label="Next review"
-                      disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
+                      disabled={
+                        !hasNextReview || reviewsQuery.isFetchingNextPage
+                      }
                       onClick={() => void onAdjacentReview("next")}
                     >
                       <ChevronRightIcon aria-hidden />
@@ -525,7 +566,11 @@ function InboxViewInner({ showLocationFilter }: { showLocationFilter: boolean })
 // user who was already reaching for it. Defaults to true so every existing
 // caller and test keeps a visible filter; a redundant control is a much better
 // failure mode than a silently missing one.
-function InboxView({ showLocationFilter = true }: { showLocationFilter?: boolean }) {
+function InboxView({
+  showLocationFilter = true,
+}: {
+  showLocationFilter?: boolean
+}) {
   return (
     <DirtyGuardProvider>
       <InboxViewInner showLocationFilter={showLocationFilter} />

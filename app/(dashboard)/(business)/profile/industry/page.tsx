@@ -21,10 +21,7 @@ export default async function IndustryPage() {
     redirect("/profile")
   }
   const { locationId } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "industry")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
       <PageHeader

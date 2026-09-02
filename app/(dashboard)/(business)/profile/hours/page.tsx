@@ -12,10 +12,7 @@ export const metadata = { title: "Opening hours · NabaPresence" }
 export default async function HoursPage() {
   const session = await getSession()
   const { locationId } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "hours")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
       <PageHeader

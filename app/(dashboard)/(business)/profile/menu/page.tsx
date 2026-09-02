@@ -12,16 +12,10 @@ export const metadata = { title: "Menu · NabaPresence" }
 export default async function MenuPage() {
   const session = await getSession()
   const { locationId } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "menu")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Menu"
-        description="Your food menu on Google."
-      />
+      <PageHeader title="Menu" description="Your food menu on Google." />
       {locationId ? (
         <HydrationBoundary state={state}>
           <MenuTab locationId={locationId} />

@@ -156,18 +156,22 @@ export function LocationTab<T>({
 }: LocationTabProps<T>) {
   const capsQuery = useLocationCapabilities(locationId)
 
+  // A failed capabilities query is an honest retry for every tab: without the
+  // role a gated tab cannot decide, and an ungated one would otherwise sit
+  // with every control disabled and no reason shown.
+  if (capsQuery.isError)
+    return (
+      <TabError
+        error={capsQuery.error}
+        onRetry={() => void capsQuery.refetch()}
+      />
+    )
+
   if (requires) {
-    // The gate needs a known role: pending → skeleton, failed → honest retry,
-    // unsatisfied → notice. In every one of those the resource hook below is
-    // not mounted, so the owner/admin-only GET is never issued.
+    // The gate needs a known role: pending → skeleton, unsatisfied → notice.
+    // In both the resource hook below is not mounted, so the owner/admin-only
+    // GET is never issued.
     if (capsQuery.isPending) return <TabLoading />
-    if (capsQuery.isError)
-      return (
-        <TabError
-          error={capsQuery.error}
-          onRetry={() => void capsQuery.refetch()}
-        />
-      )
     if (!gateSatisfied(capsQuery.data, requires))
       return <Empty title={gatedTitle ?? GATED_SECTION_TITLE} />
   }

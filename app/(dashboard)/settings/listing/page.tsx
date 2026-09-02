@@ -24,10 +24,7 @@ export default async function SettingsListingPage() {
     redirect("/settings")
   }
   const { locationId, locationName } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "administration")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
       <PageHeader

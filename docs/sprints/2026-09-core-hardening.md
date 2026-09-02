@@ -96,3 +96,170 @@ Ordering: 4.1, 4.4, 4.5 in parallel; then 4.2a–c, 4.3, 4.6 in parallel.
 | 5.1 Docs                          | `docs/architecture.md`, `docs/frontend-backend-feature-map.md`, `README` | route wrapper, contracts, write helper, kill switches described accurately                 |
 | 5.2 Independent review (2 agents) | read-only                                                                | server and frontend reviewers report no correctness regressions against baseline behaviour |
 | 5.3 Full gate + e2e               | orchestrator                                                             | `pnpm test:e2e` and `pnpm test:a11y` pass                                                  |
+
+---
+
+## Ledger
+
+Baseline `160131a` (wip inbox ergonomics, captured as-is). Every sprint below passed the
+gate (`pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration`)
+before its commit.
+
+### Sprint 0 — `c9a1ec5` baseline green
+
+Shipped: retention cron 500 fixed (stopped nulling the NOT NULL
+`profile_field_state.snapshot_expires_at`, regression test seeds an expired snapshot);
+action-bar test typecheck; drafts timeout test aligned with the omit-body-generates
+contract plus an `ai_not_configured` case; performance-analytics fixtures relative to
+now; inbox publish pulse visible before advancing with a stable event listener; this
+plan. Deviations: none.
+
+### Sprint 1 — `aa8515b` (1a) and `1a703cc` (1b)
+
+Shipped: `lib/server/permissions.ts` is the only home of the visibility rule
+(`visibilityPredicate`, `requireLocationAccess`, `canPublishLocation`, `grantsFor`);
+`lib/server/route.ts` owns request id, auth mode, role gate, parsing, `ctx.tenant` and
+error mapping with `x-request-id`; 70/71 route files migrated (the 71st re-exports);
+zero direct `apiError()`/`serverRequestId()` calls in `app/api`; every inline
+`location_member` SQL replaced (analytics overview x6, presence, keywords, reviews,
+counts, directory, import review); `session/switch` and the Google connection helpers
+on `withTenant`; `getDatabase()` only for commented cross-tenant enumeration; the
+`GBP_*` per-surface kill switches wired at each module's provider boundary and the two
+labelled stub flags deleted. Deviations: none.
+
+### Sprint 2 — `6e8c16a` (2.1) and `8d2c3e1`
+
+Shipped: `lib/server/gbp-write.ts` (`loadLinkedLocation`, `requireGbpWrite`,
+`requirePublishGrant`, `idempotencyKey`, `AttemptStore` + `attemptStore()` over the
+existing tables, `runGbpWrite` with the explicit ambiguous-vs-failed policy, 30
+pglite-backed tests); `jsonColumn()`/`jsonColumnOrNull()` in `db.ts`;
+`gbp-management.ts` kept its exports and delegates; hours, profile, media, place
+actions, food menus and posts run their provider writes through the helper with their
+private context/gate/intent/settle clones deleted; the linked-location query and the
+`google_location_not_linked` 409 exist once; `publishing.ts` (1,580 lines, four
+functions of 193-565 lines) decomposed into `lib/server/publishing/{types, intent,
+approval, provider, settle, attempt, publish, delete, retry, recover}.ts` with the
+barrel keeping every export and no function over 80 lines.
+
+Deviations from the plan:
+
+- The reply pipeline kept its own attempt store instead of delegating its shared
+  phases to `runGbpWrite`. `publish_attempt` schedules automatic retries
+  (`retryable`, `next_attempt_at`, `attempt_no`, 429 back-off), recovers in-flight and
+  ambiguous rows by readback and body comparison rather than 409, treats a permanent
+  failure as a 409 rather than a re-arm, and returns provider failures as outcomes;
+  forcing that through the helper would have meant smuggling the provider error
+  through `settle` and control-flow signals through `find`. Both file headers state
+  the boundary.
+- The `publish_attempt` idempotency recipe (organisation, review, reply-body hash) was
+  preserved rather than rewritten onto `idempotencyKey`; only the six migrated
+  modules adopted the shared recipe, where the pre-flight snapshot checks already
+  cover rows keyed under the old scheme.
+
+### Sprint 4a — `ab64b6a` frontend foundations (landed before Sprint 3)
+
+Shipped: `lib/errors/action-errors.ts` (one `describeActionError` with status
+fallbacks; the three per-area maps became deprecated re-exports);
+`components/ui/query-states.tsx` used by the inbox list, review detail and tab states;
+route-segment error boundaries for inbox, home, settings and business;
+`components/locations/location-tab.tsx`, `useResourceMutation`, `useResetOnRevision`;
+every invalidation through the key factory, 32 redundant `staleTime`s removed, abort
+signals forwarded from every `queryFn`, 401 redirects only on foreground requests.
+Deviation: the plan ordered Sprint 3 before Sprint 4; the foundations (4.1, 4.4, 4.5)
+did not depend on the contracts and were run first so the tab migrations in 4b could
+land on top of both.
+
+### Sprint 3 — `59fc391` one contract per endpoint
+
+Shipped: `lib/contracts/*` for every surface (reviews, hours, profile, media, posts,
+place actions, capabilities, import review, links/directory, activity, business
+information, industry, administration, food menus, settings, connections, google,
+notifications, members, invitations, legal holds, privacy, analytics, sync, session,
+operations, auth); routes import request schemas and `satisfies` responses; `lib/api`
+imports response schemas; the 13 twice-declared type names and the 7-site sort enum are
+gone; one reviews wire codec with the SQL sort map enforced by the compiler; gbp-write
+gained the `notFound` override, existence-before-access ordering, contextually typed
+intent callbacks and a hash-returning `verify`, so hours dropped its catch-and-rethrow.
+Deviations: none beyond the ordering above.
+
+### Sprint 4b — `d981791` locations follow the inbox pattern; server prefetch
+
+Shipped: every location tab is a `<LocationTab>` render prop (nine copy-pasted
+wrappers, drilled toast/invalidate props and per-tab caps types gone; 30+ inline
+`useMutation` calls are `useResourceMutation`); administration split into six section
+files with a provider; business information and photos split into focused components
+with the pure Google value adapters in `lib/locations/google-values.ts`; photos page and
+filters in the URL; shared `SaveBar`; `lib/domain/*-vocabulary.ts` split with the
+import-graph test proving every contract client-safe; `lib/server/prefetch.ts`
+hydrating inbox, home, every business/location tab page and settings; analytics
+overview SQL moved to `lib/server/analytics-overview.ts`.
+
+### Sprint 5a — `93b6a04` e2e regressions fixed; cleanup follow-ups
+
+Shipped: the three deprecated per-area `action-errors` shims deleted and every
+importer moved to `lib/errors/action-errors.ts`; `useIndustry`/`useAdministration`
+lost their `enabled` option (the shell gates them); `getSession` wrapped in
+`React.cache` (one lookup per server render); the location workspace scrolls its tab
+pane instead of squashing the header and nav; `TODO(gbp-write)` notes in media and
+place actions rewritten as design decisions. The docs pass (5.1: `docs/architecture.md`,
+`docs/frontend-backend-feature-map.md`, `README.md`, this ledger) follows in the working
+tree.
+
+Deviation: server prefetch narrowed to DB-backed readers. The 4b prefetch hydrated
+every tab and the inbox. End-to-end runs showed two problems: the Google-backed tabs
+(hours, profile, photos, booking, menu, business information, industry,
+administration) cost 3-5s per request inside the RSC render, which held first paint
+and was repeated by every `<Link prefetch>`; and the inbox page, which reads
+`searchParams` because its filters, queue and selection live in the URL, re-rendered on
+the server for every URL change (the auto-select on load included), after which Next
+moved focus to the re-rendered segment and wiped text an operator had typed into the
+location filter. `prefetch.ts` now hydrates only home counts and the 30-day overview,
+location capabilities and the settings role projection, and the inbox page carries no
+prefetch at all with a comment saying why. The photos pages no longer read
+`searchParams`.
+
+### Sprint 5b — independent review fixes
+
+The read-only frontend review (5.2) found two should-fix items and four notes; all
+were applied:
+
+- Inbox publish auto-advance decided its target after the pulse, by which time the
+  publish mutation's list invalidation had dropped the published review out of the
+  Needs reply queue (now the default), so it advanced nowhere or skipped a page. The
+  target is now chosen at publish time, with a fallback to the row that shifted into
+  the same index, then to the next API page.
+- The posts list reconciles against Google on every read (`lib/server/posts.ts`), so
+  prefetching it blocked first paint the same way the other tabs did. Location pages
+  now hydrate capabilities only; `locationTabPrefetch(locationId)` has no tab
+  argument.
+- A query whose previous background refetch failed is retried as foreground, so
+  "Try again" after a session expiry can redirect to sign-in instead of failing the
+  same way forever (`lib/queries/request-options.ts`).
+- Hours and menu forms remount on an external revision change again (`key`), so form
+  error, dialog and mutation state reset with the draft.
+- Inbox URL parsing narrows ratings to 1-5 and the three status lists to their
+  vocabularies at parse time, so chips never show a value the list ignores.
+- A failed capabilities query renders the retry state on every tab, not only gated
+  ones; business information no longer sits with every field disabled and no reason.
+
+Noted, not changed: the inbox default queue is now Needs reply (from the in-flight WIP
+commit, a product decision); profile field-validation errors also toast.
+
+### E2E status (5.3)
+
+23 e2e failures pre-date the sprints: they fail identically on the baseline commit
+`160131a`. Groups: `accessibility.spec` inbox/reply-editor expectations written against
+the in-flight WIP; `gbp-management-tabs.spec`; journeys viewer/dirty-draft; locations
+Menu heading order; photos double "Add photos" button; permission-walk duplicate gate
+note; inbox dark-mode contrast and the CSP-blocked thumbnail. Zero branch-only failures
+remain. One further failure appeared once in the final full run and not in the
+baseline: the light-theme "delete published reply confirmation" accessibility check
+reported a missing document title at the moment axe ran (the page's metadata title is
+unchanged); it did not reproduce in the targeted reruns and is recorded as a flake to
+re-check.
+
+### Known follow-ups
+
+- Settings: `useSettings` is not server-prefetched (only the role projection is).
+- Posts publish and delete write no audit event (draft create and update do).
+- The 23 pre-existing e2e failures above.

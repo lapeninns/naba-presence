@@ -175,49 +175,17 @@ describe("page composers", () => {
     ])
   })
 
-  it("locationTabPrefetch pairs capabilities with a database-backed tab resource", () => {
-    const keys = locationTabPrefetch(
-      LOCATION,
-      "posts"
-    )(session).map((entry) => entry.queryKey)
-    expect(keys).toEqual([
-      queryKeys.locationCapabilities(LOCATION),
-      queryKeys.locationPosts(LOCATION),
-    ])
-  })
-
-  it("locationTabPrefetch hydrates capabilities only for Google-backed tabs", () => {
-    // Live Google reads cost seconds inside the RSC render and would gate first
-    // paint (and every <Link prefetch> to the page) on Google; the client
-    // fetches that state as before.
-    for (const tab of [
-      "hours",
-      "profile",
-      "photos",
-      "booking",
-      "menu",
-      "businessInformation",
-      "industry",
-      "administration",
-    ] as const) {
-      const keys = locationTabPrefetch(
-        LOCATION,
-        tab
-      )(session).map((entry) => entry.queryKey)
-      expect(keys).toEqual([queryKeys.locationCapabilities(LOCATION)])
-    }
-  })
-
-  it("locationTabPrefetch still prefetches capabilities for a member on an owner/admin-only tab", () => {
-    const member: Session = { ...session, role: "member" }
-    const keys = locationTabPrefetch(
-      LOCATION,
-      "administration"
-    )(member).map((entry) => entry.queryKey)
+  it("locationTabPrefetch hydrates capabilities only", () => {
+    // Tab state is never prefetched: every tab's reader reaches Google (posts
+    // reconciles against it on list), which would gate first paint and every
+    // <Link prefetch> on Google for seconds.
+    const keys = locationTabPrefetch(LOCATION)(session).map(
+      (entry) => entry.queryKey
+    )
     expect(keys).toEqual([queryKeys.locationCapabilities(LOCATION)])
   })
 
   it("locationTabPrefetch is empty without a location", () => {
-    expect(locationTabPrefetch(null, "hours")(session)).toEqual([])
+    expect(locationTabPrefetch(null)(session)).toEqual([])
   })
 })

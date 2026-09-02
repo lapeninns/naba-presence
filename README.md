@@ -124,15 +124,44 @@ Remove this disposable Compose database with:
 docker compose down --volumes
 ```
 
+## Code map
+
+- `lib/server/route.ts` — the `route()` wrapper every `app/api/**/route.ts`
+  handler is built from: request id and `x-request-id`, session/cron/public
+  auth, organisation role gating, zod parsing, `ctx.tenant`, error mapping.
+- `lib/server/permissions.ts` — the only implementation of location
+  visibility and publish grants (`visibilityPredicate`, `requireLocationAccess`,
+  `canPublishLocation`, `grantsFor`).
+- `lib/server/gbp-write.ts` — the one Google write pipeline (`runGbpWrite`:
+  durable intent → validate → mutate outside the transaction → readback →
+  settle → audit) used by hours, profile, media, place actions, food menus,
+  posts and the `gbp-management.ts` façade. Per-surface kill switches live in
+  `lib/server/env.ts`.
+- `lib/server/publishing/` — the review reply pipeline, one module per phase
+  (`intent`, `approval`, `provider`, `settle`, `attempt`, `publish`,
+  `delete`, `retry`, `recover`); `lib/server/publishing.ts` is the barrel and
+  states why it keeps its own attempt store.
+- `lib/contracts/` — the single declaration of every request/response schema,
+  imported by both the route and `lib/api/*`. Client-safe by construction.
+- `lib/domain/*-vocabulary.ts` — Node-free constants, enums and normalisers
+  split out of the hashing domain modules so contracts and the browser can
+  import them; see `lib/domain/README.md`.
+- `lib/errors/action-errors.ts` — the one mapping from server error codes to
+  user copy; `components/ui/query-states.tsx` and
+  `components/locations/location-tab.tsx` are the shared pending/error/loaded
+  shells; `lib/queries/use-resource-mutation.ts` is the one mutation hook.
+- `lib/server/prefetch.ts` — server-side hydration of DB-backed first queries
+  for home, the location tabs and settings.
+
 ## Validation
 
+The gate every change must pass, in this order:
+
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm test:a11y
+pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration
 ```
+
+`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
 contract applies only `0001_initial.sql`. CI separately runs `pnpm db:migrate`

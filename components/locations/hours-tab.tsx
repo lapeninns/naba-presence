@@ -37,6 +37,9 @@ export function HoursTab({ locationId }: { locationId: string }) {
     >
       {({ data: hours, disabled, editReason, publishReason }) => (
         <HoursForm
+          // Remount on an external revision change so form-level error, dialog and
+          // mutation state reset with the draft, as the pre-shell tab did.
+          key={hours.canonicalResource.revision}
           locationId={locationId}
           hours={hours}
           disabled={disabled}

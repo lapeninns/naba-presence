@@ -16,10 +16,7 @@ export default async function PhotosPage() {
     getSession(),
     resolvePrimaryLocation(),
   ])
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "photos")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
       <PageHeader

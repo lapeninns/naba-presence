@@ -10,7 +10,7 @@ export default async function ProfilePage({
   params: Promise<{ id: string }>
 }) {
   const [{ id }, session] = await Promise.all([params, getSession()])
-  const state = await prefetch(session, locationTabPrefetch(id, "profile"))
+  const state = await prefetch(session, locationTabPrefetch(id))
   return (
     <HydrationBoundary state={state}>
       <ProfileTab locationId={id} />

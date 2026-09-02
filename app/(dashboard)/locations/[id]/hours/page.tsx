@@ -10,7 +10,7 @@ export default async function HoursPage({
   params: Promise<{ id: string }>
 }) {
   const [{ id }, session] = await Promise.all([params, getSession()])
-  const state = await prefetch(session, locationTabPrefetch(id, "hours"))
+  const state = await prefetch(session, locationTabPrefetch(id))
   return (
     <HydrationBoundary state={state}>
       <HoursTab locationId={id} />

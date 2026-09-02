@@ -13,10 +13,7 @@ export const metadata = { title: "Business profile · NabaPresence" }
 export default async function ProfilePage() {
   const session = await getSession()
   const { locationId } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "profile")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   const canManageListing =
     session?.role === "owner" || session?.role === "admin"
   return (

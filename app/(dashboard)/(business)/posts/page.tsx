@@ -12,10 +12,7 @@ export const metadata = { title: "Posts · NabaPresence" }
 export default async function PostsPage() {
   const session = await getSession()
   const { locationId } = await resolvePrimaryLocation()
-  const state = await prefetch(
-    session,
-    locationTabPrefetch(locationId, "posts")
-  )
+  const state = await prefetch(session, locationTabPrefetch(locationId))
   return (
     <div className="flex flex-col gap-6">
       <PageHeader

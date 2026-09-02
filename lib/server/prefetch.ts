@@ -21,13 +21,8 @@ import {
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
 import {
-  postsListResponseSchema,
-  type PostsListResponse,
-} from "@/lib/contracts/location-posts"
-import {
   REVIEW_WORKFLOW_STATES,
   reviewCountsSchema,
-  type ReviewCapabilities,
   type ReviewCounts,
   type ReviewWorkflowState,
 } from "@/lib/contracts/reviews"
@@ -41,11 +36,9 @@ import {
 import { withTenant } from "@/lib/server/db"
 import { log } from "@/lib/server/logger"
 import {
-  isManagerialRole,
   requireLocationAccess,
   visibilityPredicate,
 } from "@/lib/server/permissions"
-import { listLocalPosts } from "@/lib/server/posts"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -197,18 +190,6 @@ export function readSettingsCapabilities(
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
 }
 
-export async function readPosts(
-  session: Session,
-  locationId: string
-): Promise<PostsListResponse> {
-  const payload = await listLocalPosts(
-    session.organisationId,
-    session,
-    locationId
-  )
-  return throughWire(postsListResponseSchema, payload)
-}
-
 // ---------------------------------------------------------------------------
 // Page composers
 // ---------------------------------------------------------------------------
@@ -227,57 +208,18 @@ export function homePrefetch(): (session: Session) => PrefetchEntry[] {
   ]
 }
 
-export type LocationTabKey =
-  | "profile"
-  | "hours"
-  | "posts"
-  | "photos"
-  | "booking"
-  | "menu"
-  | "businessInformation"
-  | "industry"
-  | "administration"
-
-// Google Business Information "console" surfaces. Their GET routes are
-// owner/admin-only (industry, administration) or their capability is
-// `permission_denied` for everyone else (businessInformation), and the
-// LocationTab shell never mounts the resource hook for a gated viewer — so a
-// member's prefetch would be a wasted (or 403) round-trip.
-const MANAGERIAL_TABS: ReadonlySet<LocationTabKey> = new Set([
-  "businessInformation",
-  "industry",
-  "administration",
-])
-
-// Only tabs whose reader is served from our own database are prefetched in
-// the RSC render. The others (hours, profile, photos, booking, menu, business
-// information, industry, administration) read Google live, which costs 3-5s
-// per request inside the server render: first paint would wait on Google, and
-// every `<Link prefetch>` to those pages would trigger the same cost. Those
-// tabs hydrate capabilities only and fetch their state on the client as before.
-const DB_BACKED_TABS: ReadonlySet<LocationTabKey> = new Set(["posts"])
-
-const TAB_ENTRY: Partial<
-  Record<
-    LocationTabKey,
-    (session: Session, locationId: string) => PrefetchEntry
-  >
-> = {
-  posts: (session, id) => ({
-    queryKey: queryKeys.locationPosts(id),
-    load: () => readPosts(session, id),
-  }),
-}
-
 /**
- * One per-location tab: its capabilities (every tab reads them, and the
- * LocationTab shell waits on them before mounting the resource hook — the
- * waterfall this removes) plus that tab's state. `search` is the page's URL
+ * One per-location tab: its capabilities only. Every tab reads them and the
+ * LocationTab shell waits on them before mounting the resource hook, so this
+ * removes that waterfall. Tab state itself is NOT prefetched: hours, profile,
+ * photos, booking, menu, business information, industry and administration
+ * read Google live, and posts reconciles against Google on every list
+ * (lib/server/posts.ts), so any of them inside the RSC render would gate first
+ * paint (and every <Link prefetch> to the page) on Google for seconds. `search` is the page's URL
  * query, for tabs whose key depends on it (photos).
  */
 export function locationTabPrefetch(
-  locationId: string | null,
-  tab: LocationTabKey
+  locationId: string | null
 ): (session: Session) => PrefetchEntry[] {
   return (session) => {
     if (!locationId) return []
@@ -287,14 +229,6 @@ export function locationTabPrefetch(
         load: () => readLocationCapabilities(session, locationId),
       },
     ]
-    const entry = TAB_ENTRY[tab]
-    if (
-      entry &&
-      DB_BACKED_TABS.has(tab) &&
-      (!MANAGERIAL_TABS.has(tab) || isManagerialRole(session.role))
-    ) {
-      entries.push(entry(session, locationId))
-    }
     return entries
   }
 }

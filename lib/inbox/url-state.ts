@@ -12,11 +12,7 @@ import {
 } from "@/lib/contracts/reviews"
 
 export type Queue =
-  | "all"
-  | "needs_reply"
-  | "awaiting_approval"
-  | "escalated"
-  | "published"
+  "all" | "needs_reply" | "awaiting_approval" | "escalated" | "published"
 
 export const QUEUES: readonly Queue[] = [
   "all",
@@ -96,13 +92,18 @@ export function parseInboxState(params: URLSearchParams): InboxState {
     locationId: params.get("locationId") ?? undefined,
     ratings: csv(params.get("rating"))
       .map(Number)
-      .filter((n) => Number.isInteger(n)),
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5),
     search: params.get("search") ?? "",
     sort,
     replyState: isReviewReplyState(rawReply) ? rawReply : undefined,
-    verification: csv(params.get("verification")),
-    publishStatus: csv(params.get("publishStatus")),
-    syncStatus: csv(params.get("syncStatus")),
+    // Narrowed here so the chips never render a value the list ignores.
+    verification: csv(params.get("verification")).filter(
+      isReviewVerificationStatus
+    ),
+    publishStatus: csv(params.get("publishStatus")).filter(
+      isReviewPublishStatus
+    ),
+    syncStatus: csv(params.get("syncStatus")).filter(isReviewSyncStatus),
     dateFrom: params.get("dateFrom") ?? undefined,
     dateTo: params.get("dateTo") ?? undefined,
     selected: params.get("selected") ?? undefined,
@@ -135,15 +136,15 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
 export function hasActiveFilters(state: InboxState): boolean {
   return Boolean(
     state.locationId ||
-      state.ratings.length ||
-      state.search ||
-      state.replyState ||
-      state.verification.length ||
-      state.publishStatus.length ||
-      state.syncStatus.length ||
-      state.dateFrom ||
-      state.dateTo ||
-      (state.sort && state.sort !== DEFAULT_REVIEW_SORT)
+    state.ratings.length ||
+    state.search ||
+    state.replyState ||
+    state.verification.length ||
+    state.publishStatus.length ||
+    state.syncStatus.length ||
+    state.dateFrom ||
+    state.dateTo ||
+    (state.sort && state.sort !== DEFAULT_REVIEW_SORT)
   )
 }
 
@@ -159,7 +160,9 @@ export function toReviewsFilters(state: InboxState): ReviewsFilters {
     ratings: nonEmpty(state.ratings),
     statuses: queueToStatuses(state.queue),
     replyState: state.replyState,
-    verification: nonEmpty(state.verification.filter(isReviewVerificationStatus)),
+    verification: nonEmpty(
+      state.verification.filter(isReviewVerificationStatus)
+    ),
     publishStatus: nonEmpty(state.publishStatus.filter(isReviewPublishStatus)),
     syncStatus: nonEmpty(state.syncStatus.filter(isReviewSyncStatus)),
     dateFrom: state.dateFrom,

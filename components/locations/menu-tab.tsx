@@ -34,6 +34,9 @@ export function MenuTab({ locationId }: { locationId: string }) {
       {({ data: state, disabled, editReason, publishReason }) =>
         state.eligible ? (
           <MenuForm
+            // Remount on an external revision change so form-level error, dialog and
+            // mutation state reset with the draft, as the pre-shell tab did.
+            key={state.canonicalResource.revision}
             locationId={locationId}
             state={state}
             disabled={disabled}
