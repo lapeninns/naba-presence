@@ -47,7 +47,9 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
         select count(*)::integer
         from publish_attempt
         where status = 'started'
-          and started_at < now() - interval '10 minutes'
+          and coalesce(
+            lease_expires_at, started_at + interval '10 minutes'
+          ) <= now()
       ) as "staleStartedAttempts",
       (
         (
@@ -55,6 +57,13 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
           from processed_webhook_event
           where status = 'failed'
             and next_attempt_at <= now()
+        ) + (
+          select count(*)
+          from processed_webhook_event
+          where status = 'processing'
+            and coalesce(
+              lease_expires_at, received_at + interval '15 minutes'
+            ) <= now()
         ) + (
           select count(*)
           from sync_checkpoint
@@ -66,10 +75,12 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
           where (
             status in ('ambiguous', 'retryable')
             and coalesce(next_attempt_at, now()) <= now()
-            and provider_error_code is distinct from 'job_claimed'
+            and coalesce(lease_expires_at, '-infinity'::timestamptz) <= now()
           ) or (
             status = 'started'
-            and started_at < now() - interval '10 minutes'
+            and coalesce(
+              lease_expires_at, started_at + interval '10 minutes'
+            ) <= now()
           )
         )
       )::integer as "dueJobBacklog",

@@ -325,6 +325,107 @@ describeDatabase("durable background jobs", () => {
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
   })
 
+  it("reclaims a webhook stranded in processing by a crashed worker", async () => {
+    const subject = await fixture()
+    healthyReviews()
+    const eventId = await seedWebhook(subject, 1)
+    // A worker claimed this and died before settling it. Before leases the
+    // row was unreachable forever: every claim predicate matches 'failed'.
+    await admin`
+      update processed_webhook_event
+      set status = 'processing',
+          next_attempt_at = null,
+          lease_expires_at = now() - interval '1 minute'
+      where id = ${eventId}
+    `
+
+    const response = await runJobs()
+    expect(response.status, await response.clone().text()).toBe(200)
+    const [event] = await admin<
+      { status: string; lease_expires_at: Date | null }[]
+    >`
+      select status, lease_expires_at
+      from processed_webhook_event
+      where id = ${eventId}
+    `
+    expect(event.status).toBe("processed")
+    expect(event.lease_expires_at).toBeNull()
+  })
+
+  it("reclaims a checkpoint stranded in running by a crashed worker", async () => {
+    const subject = await fixture()
+    healthyReviews()
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id,
+        external_location_id,
+        sync_type,
+        status,
+        started_at,
+        next_attempt_at,
+        lease_expires_at
+      )
+      values (
+        ${subject.owner.organisationId},
+        ${subject.externalLocationId},
+        'backfill',
+        'running',
+        now() - interval '1 hour',
+        null,
+        now() - interval '1 minute'
+      )
+    `
+
+    const response = await runJobs()
+    expect(response.status, await response.clone().text()).toBe(200)
+    const [checkpoint] = await admin<{ status: string }[]>`
+      select status
+      from sync_checkpoint
+      where organisation_id = ${subject.owner.organisationId}
+        and external_location_id = ${subject.externalLocationId}
+        and sync_type = 'backfill'
+    `
+    expect(checkpoint.status).toBe("succeeded")
+  })
+
+  it("caps how much of one batch a single tenant can take", async () => {
+    const busy = await fixture()
+    const quiet = await fixture()
+    for (let index = 0; index < 6; index += 1) {
+      await seedWebhook(busy, 1)
+    }
+    await seedWebhook(quiet, 1)
+
+    // Claim directly: the per-organisation cap is invisible through the
+    // HTTP summary, which reports a whole tick rather than one batch.
+    const claimed = await admin<
+      { organisationId: string }[]
+    >`
+      select organisation_id::text as "organisationId"
+      from claim_due_jobs(10, 60, 2)
+    `
+    const byOrganisation = new Map<string, number>()
+    for (const row of claimed) {
+      byOrganisation.set(
+        row.organisationId,
+        (byOrganisation.get(row.organisationId) ?? 0) + 1
+      )
+    }
+    expect(byOrganisation.get(busy.owner.organisationId)).toBe(2)
+    // The quiet tenant is served in the same batch rather than queuing
+    // behind the busy tenant's backlog.
+    expect(byOrganisation.get(quiet.owner.organisationId)).toBe(1)
+
+    // This test claims rows without settling them, so drop its fixtures
+    // rather than leaving due (or leased) work for the next tick.
+    await admin`
+      delete from processed_webhook_event
+      where organisation_id in (
+        ${busy.owner.organisationId}, ${quiet.owner.organisationId}
+      )
+    `
+  })
+
   it("claims work exclusively with skip locked", async () => {
     const subject = await fixture()
     healthyReviews()

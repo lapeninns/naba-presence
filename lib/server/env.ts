@@ -2,16 +2,11 @@ import "server-only"
 
 import { z } from "zod"
 
-export function parseFeatureFlag(
-  value: unknown,
-  fallback: boolean
-): boolean {
+export function parseFeatureFlag(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback
   if (value === "true") return true
   if (value === "false") return false
-  throw new Error(
-    `Feature flag must be "true" or "false", got: ${value}`
-  )
+  throw new Error(`Feature flag must be "true" or "false", got: ${value}`)
 }
 
 export function parseDatabasePoolMax(value: unknown): number {
@@ -69,10 +64,7 @@ const timeoutWithDefault = (fallback: number) =>
 
 export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  DATABASE_POOL_MAX: z
-    .unknown()
-    .optional()
-    .transform(parseDatabasePoolMax),
+  DATABASE_POOL_MAX: z.unknown().optional().transform(parseDatabasePoolMax),
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),
@@ -98,6 +90,12 @@ export const serverEnvSchema = z.object({
   GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
   GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
   JOBS_INTERVAL_SECONDS: timeoutWithDefault(60),
+  // Job runner batching. Concurrency is additionally bounded by
+  // DATABASE_POOL_MAX (one tenant transaction per in-flight item) and, for
+  // provider-bound work, by GOOGLE_REQUESTS_PER_SECOND.
+  JOBS_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(25),
+  JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
+  JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
@@ -133,11 +131,7 @@ export function getServerEnv(): ServerEnv {
 // lib/server/capabilities.ts mirrors them so the UI can show its paused-write
 // notice without hiding the surface.
 export type GbpWriteSurface =
-  | "profileWrites"
-  | "posts"
-  | "media"
-  | "placeActions"
-  | "foodMenus"
+  "profileWrites" | "posts" | "media" | "placeActions" | "foodMenus"
 
 export type GbpIngestionSurface = "performance" | "keywords"
 

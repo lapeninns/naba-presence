@@ -7,10 +7,7 @@ import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
-import {
-  connectionAccessToken,
-  googleReviews,
-} from "@/lib/server/google"
+import { connectionAccessToken, googleReviews } from "@/lib/server/google"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 
@@ -342,9 +339,7 @@ export async function syncLinkedLocation(input: {
   const header = await withTenant<SyncHeader | null>(
     input.organisationId,
     async (sql) => {
-      const [linked] = await linkedLocations(sql, [
-        input.externalLocationId,
-      ])
+      const [linked] = await linkedLocations(sql, [input.externalLocationId])
       if (!linked) {
         return null
       }
@@ -361,7 +356,8 @@ export async function syncLinkedLocation(input: {
           sync_type,
           status,
           started_at,
-          attempt_count
+          attempt_count,
+          lease_expires_at
         )
         values (
           ${input.organisationId},
@@ -369,7 +365,8 @@ export async function syncLinkedLocation(input: {
           ${input.type},
           'running',
           now(),
-          1
+          1,
+          now() + interval '15 minutes'
         )
         on conflict (organisation_id, external_location_id, sync_type) do update
         set
@@ -378,12 +375,13 @@ export async function syncLinkedLocation(input: {
           finished_at = null,
           next_attempt_at = null,
           attempt_count = sync_checkpoint.attempt_count + 1,
-          last_error_code = null
+          last_error_code = null,
+          -- Paging runs outside this transaction; without a lease a crash
+          -- strands the row at 'running' (0029, reclaim_expired_jobs).
+          lease_expires_at = now() + interval '15 minutes'
         returning id::text as id, page_token, attempt_count
       `
-      const [watermark] = await sql<
-        { highWaterUpdateTime: Date | null }[]
-      >`
+      const [watermark] = await sql<{ highWaterUpdateTime: Date | null }[]>`
         select max(high_water_update_time) as "highWaterUpdateTime"
         from sync_checkpoint
         where external_location_id = ${input.externalLocationId}
@@ -425,7 +423,8 @@ export async function syncLinkedLocation(input: {
           status = 'failed',
           last_error_code = ${errorCode},
           next_attempt_at = ${retryAt},
-          finished_at = now()
+          finished_at = now(),
+          lease_expires_at = null
         where id = ${header.checkpointId}
       `
     })
@@ -472,9 +471,7 @@ export async function syncLinkedLocation(input: {
           let committed = 0
           const seen = new Set<string>()
           for (const review of page.reviews ?? []) {
-            const hash = sha256(
-              String(review.name ?? review.reviewId)
-            )
+            const hash = sha256(String(review.name ?? review.reviewId))
             if (seen.has(hash)) continue
             seen.add(hash)
             if (
@@ -493,9 +490,7 @@ export async function syncLinkedLocation(input: {
               update external_location
               set
                 google_average_rating = ${page.averageRating ?? null},
-                google_total_review_count = ${
-                  page.totalReviewCount ?? null
-                },
+                google_total_review_count = ${page.totalReviewCount ?? null},
                 provider_totals_refreshed_at = now()
               where id = ${input.externalLocationId}
             `
@@ -575,7 +570,8 @@ export async function syncLinkedLocation(input: {
               : null
           },
           finished_at = ${hasMore ? null : new Date()},
-          last_review_update_time = now()
+          last_review_update_time = now(),
+          lease_expires_at = null
         where id = ${header.checkpointId}
       `
     })
@@ -586,8 +582,6 @@ export async function syncLinkedLocation(input: {
       hasMore,
     }
   } catch (error) {
-    return settleFailure(
-      error instanceof ApiError ? error.code : "sync_failed"
-    )
+    return settleFailure(error instanceof ApiError ? error.code : "sync_failed")
   }
 }

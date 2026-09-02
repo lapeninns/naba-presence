@@ -127,13 +127,17 @@ export const POST = route({
         if (event.status === "processed") {
           return { terminal: { status: "duplicate" } } as const
         }
+        // The sync below runs outside this transaction, so take a lease: a
+        // crash in between would otherwise strand the row at 'processing'
+        // with nothing able to reclaim it (0029, reclaim_expired_jobs).
         await sql`
           update processed_webhook_event
           set
             status = 'processing',
             processed_at = null,
             next_attempt_at = null,
-            last_error_code = null
+            last_error_code = null,
+            lease_expires_at = now() + interval '15 minutes'
           where id = ${event.id}
         `
         const [location] = await linkedLocations(sql, [
