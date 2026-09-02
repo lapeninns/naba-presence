@@ -363,8 +363,10 @@ async function runPlaceActionWrite<TResponse, TReadback>(
     onAmbiguous: "fail",
     readback: input.readback,
     onSuccess: async (sql, ctx) => {
-      // TODO(gbp-write): attemptStore has no per-module success column; the
-      // link name is written here, inside the settle transaction.
+      // NOTE(gbp-write): attemptStore deliberately has no per-module success
+      // column (each module's settled row shape differs), so the link name is
+      // written here, inside the helper's settle transaction, where it is
+      // atomic with the attempt's succeeded status.
       await sql`
         update place_action_mutation
         set google_link_name = ${input.googleLinkName(ctx) ?? null}

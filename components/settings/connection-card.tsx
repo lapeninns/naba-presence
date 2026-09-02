@@ -9,7 +9,7 @@ import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import type { ConnectionSummary } from "@/lib/api/connections"
 
 const STATUS: Record<string, { label: string; variant: "success" | "secondary" | "warning" | "outline" }> = {

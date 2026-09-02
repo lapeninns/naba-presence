@@ -6,10 +6,9 @@ import { fetchIndustry } from "@/lib/api/location-industry"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
-export function useIndustry(id: string, options?: { enabled?: boolean }) {
+export function useIndustry(id: string) {
   return useQuery({
     queryKey: queryKeys.locationIndustry(id),
     queryFn: (ctx) => fetchIndustry(id, requestOptions(ctx)),
-    enabled: options?.enabled ?? true, // D4: pass canEditCanonical so a non-owner never fires the 403 GET
   })
 }

@@ -35,7 +35,7 @@ import {
   evaluatePublish,
   evaluateRequestApproval,
 } from "@/lib/inbox/actions"
-import { describeActionError } from "@/lib/inbox/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"

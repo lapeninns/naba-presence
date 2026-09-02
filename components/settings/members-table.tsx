@@ -14,7 +14,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useMembers } from "@/lib/queries/use-members"
 import { removeMember, updateMember, type Member, type MemberRole } from "@/lib/api/members"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { memberRowGate, roleOptionsFor } from "@/lib/settings/gating"
 import { roleLabel } from "@/lib/settings/forms/invitation"
 

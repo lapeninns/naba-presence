@@ -635,10 +635,11 @@ export async function uploadMedia(input: {
     payload: requestedPayload,
     failureCode: "media_upload_failed",
     auditAction: "media.uploaded",
-    // TODO(gbp-write): the helper has no upload/multipart phase; the byte
-    // upload runs inside `mutate` so a failed upload settles the attempt
-    // as failed (as before). A resumable-upload phase would let the helper
-    // record the dataRef between upload and create.
+    // NOTE(gbp-write): the helper has no upload/multipart phase by design —
+    // the byte upload runs inside `mutate` so a failed upload settles the
+    // attempt as failed (as before). Only a resumable-upload phase, which
+    // would record the dataRef between upload and create, would justify
+    // adding one; Google's media API does not offer resumable uploads here.
     call: async (token) => {
       const dataRef = await uploadGoogleMediaBytes(
         token,

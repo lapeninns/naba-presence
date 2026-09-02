@@ -34,9 +34,11 @@ export function OAuthReturn() {
 
   // Deviation from the brief's reference impl (a bare `setState` in the effect
   // body): react-hooks/set-state-in-effect flags a synchronous setState call
-  // inside an effect. Mirrors the ref-guard convention already used by
-  // components/locations/hours-tab.tsx (see task-5-report.md) — only handle a
-  // given `google`/`status` pair once, not on every incidental re-render.
+  // inside an effect. Same ref-guard shape as lib/locations/use-reset-on-revision.ts
+  // — only handle a given `google`/`status` pair once, not on every incidental
+  // re-render. `useResetOnRevision` itself does not fit here: this effect must
+  // fire on mount for a fresh `?google=` pair, and must NOT reset `error` when
+  // router.replace strips the query (identity changes, but the alert stays).
   const identity = `${google ?? ""}:${status ?? ""}`
   const identityRef = useRef<string | null>(null)
   const errorMessage = google === "error" ? describeOAuthStatus(status) : null
@@ -51,7 +53,7 @@ export function OAuthReturn() {
     // Single unconditional setState call, directly gated by the ref-guard
     // above (react-hooks/set-state-in-effect only recognises a setState call
     // as ref-guarded when it's the immediate, unconditional statement after
-    // the ref check — see the convention in components/locations/hours-tab.tsx —
+    // the ref check — the same shape as lib/locations/use-reset-on-revision.ts —
     // so the connected/error split is expressed as a value, not a nested `if`
     // wrapping the call).
     setError(google === "error" ? errorMessage : null)

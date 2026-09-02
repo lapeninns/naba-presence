@@ -9,9 +9,6 @@ import {
   NETWORK_ERROR_COPY,
   SERVICE_UNAVAILABLE_COPY,
 } from "@/lib/errors/action-errors"
-import { describeActionError as describeInboxError } from "@/lib/inbox/action-errors"
-import { describeActionError as describeLocationsError } from "@/lib/locations/action-errors"
-import { describeActionError as describeSettingsError } from "@/lib/settings/action-errors"
 
 const api = (status: number, code: string) => new ApiClientError(status, code, "raw server message")
 
@@ -176,20 +173,5 @@ describe("predicates", () => {
     expect(isNotLinkedError(api(409, "google_location_not_linked"))).toBe(true)
     expect(isNotLinkedError(api(409, "location_not_linked"))).toBe(true)
     expect(isNotLinkedError(api(409, "profile_snapshot_stale"))).toBe(false)
-  })
-})
-
-describe("deprecated per-surface shims", () => {
-  it("keep every existing import working with the surface's wording", () => {
-    expect(describeInboxError(api(403, "second_approver_required"))).toBe(
-      "A different authorised user must approve this reply."
-    )
-    expect(describeLocationsError(api(403, "second_approver_required"))).toBe(
-      "A different authorised user must approve this post."
-    )
-    expect(describeSettingsError(api(503, "sync_paused"))).toMatch(/paused/i)
-    // The shims inherit the merged fallbacks — the inbox no longer hides a 401.
-    expect(describeInboxError(api(401, "unheard_of"))).toMatch(/session has expired/i)
-    expect(describeInboxError(api(503, "unheard_of"))).toBe(SERVICE_UNAVAILABLE_COPY)
   })
 })

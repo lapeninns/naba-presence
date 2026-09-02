@@ -1,6 +1,7 @@
 import "server-only"
 
 import { cookies } from "next/headers"
+import { cache } from "react"
 
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
@@ -79,10 +80,14 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
   }) as Promise<Session | null>
 }
 
-export async function getSession(): Promise<Session | null> {
+// React.cache(): one lookup (and one last_seen_at write) per server request,
+// however many layouts, pages and prefetch helpers ask. Outside an RSC render
+// (route handlers) React's cache is a per-call no-op, so behaviour there is
+// unchanged.
+export const getSession = cache(async (): Promise<Session | null> => {
   const rawToken = (await cookies()).get(SESSION_COOKIE)?.value
   return rawToken ? lookupSession(rawToken) : null
-}
+})
 
 export async function requireSession(): Promise<Session> {
   const session = await getSession()

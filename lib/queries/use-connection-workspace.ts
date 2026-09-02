@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useToastManager } from "@/components/ui/toast"
 import { disconnectConnection, fetchConnections, startGoogleConnect } from "@/lib/api/connections"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 

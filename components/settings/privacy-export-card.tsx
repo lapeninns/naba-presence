@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { exportPrivacyData } from "@/lib/api/privacy"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 
 export function PrivacyExportCard() {
   const [subject, setSubject] = useState("")

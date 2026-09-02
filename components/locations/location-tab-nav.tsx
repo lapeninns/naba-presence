@@ -34,7 +34,10 @@ export function LocationTabNav({
     if (entry.locationId !== locationId) continue
     const segment = PROPOSAL_SEGMENTS[entry.resourceType]
     if (segment === undefined) continue
-    pendingBySegment.set(segment, (pendingBySegment.get(segment) ?? 0) + entry.pending)
+    pendingBySegment.set(
+      segment,
+      (pendingBySegment.get(segment) ?? 0) + entry.pending
+    )
   }
 
   useEffect(() => {
@@ -46,15 +49,19 @@ export function LocationTabNav({
   }, [activeSegment])
 
   return (
-    <nav aria-label="Location sections" className="overflow-x-auto">
+    <nav
+      aria-label="Location sections"
+      // shrink-0: the workspace <main> is height-constrained (overflow hidden),
+      // and an overflow-x-auto flex item has min-height 0, so without this the
+      // nav is the one thing that collapses when tab content is taller than
+      // the viewport.
+      className="shrink-0 overflow-x-auto"
+    >
       <ul className="flex min-w-max items-end gap-3 border-b border-border pb-px">
         {sections.map((section, sectionIndex) => (
           <li key={section.id} className="flex items-end gap-3">
             {sectionIndex > 0 ? (
-              <span
-                aria-hidden
-                className="mb-2 h-6 w-px shrink-0 bg-border"
-              />
+              <span aria-hidden className="mb-2 h-6 w-px shrink-0 bg-border" />
             ) : null}
             <div className="flex flex-col gap-0.5">
               <span className="px-3 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase">

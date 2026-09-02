@@ -16,7 +16,7 @@ import { useGoogleLocations } from "@/lib/queries/use-google-locations"
 import { useLocationImport } from "@/lib/queries/use-location-import"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
 
 type RowState = "idle" | "pending" | "imported" | { error: string }

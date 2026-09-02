@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { useToastManager } from "@/components/ui/toast"
 import { replayWebhookFailure } from "@/lib/api/operations-health"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import {

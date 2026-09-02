@@ -14,7 +14,7 @@ import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useNotificationSetting } from "@/lib/queries/use-notification-setting"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { describeNotificationType } from "@/lib/settings/gating"
 
 const PUBSUB_TOPIC_RE = /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][\w.-]{2,254}$/

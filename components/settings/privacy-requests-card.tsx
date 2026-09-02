@@ -16,7 +16,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { usePrivacyRequests } from "@/lib/queries/use-privacy-requests"
 import { createPrivacyRequest, updatePrivacyRequest, type PrivacyRequest } from "@/lib/api/privacy"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import {
   REQUEST_TYPE_OPTIONS,
   privacyRequestFormSchema,

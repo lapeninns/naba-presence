@@ -33,7 +33,7 @@ import {
 } from "@/components/inbox/dirty-context"
 import { VerificationPanel } from "@/components/inbox/verification-panel"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
-import { describeActionError } from "@/lib/inbox/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { replyWork } from "@/lib/inbox/review-situation"
 import {
   useGenerateOrSaveDraft,

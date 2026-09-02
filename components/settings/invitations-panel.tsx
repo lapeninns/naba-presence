@@ -16,7 +16,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useInvitations } from "@/lib/queries/use-invitations"
 import { createInvitation, revokeInvitation, type Invitation } from "@/lib/api/invitations"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { roleOptionsFor } from "@/lib/settings/gating"
 import { invitationFormSchema, roleLabel, type MemberRole } from "@/lib/settings/forms/invitation"
 

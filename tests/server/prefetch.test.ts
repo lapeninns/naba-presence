@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { settingsCapabilitiesSchema } from "@/lib/contracts/location-capabilities"
 import {
-  decodeReviewsCursor,
   reviewCountsSchema,
   reviewsPageSchema,
   type ReviewCapabilities,
@@ -10,16 +9,12 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
-  firstPage,
   homePrefetch,
-  inboxPrefetch,
   locationTabPrefetch,
   prefetch,
   readSettingsCapabilities,
   reviewCountsFromRows,
-  reviewsPageFromRows,
   throughWire,
-  toSearchParams,
 } from "@/lib/server/prefetch"
 import type { InboxQueryRow } from "@/lib/server/reviews-query"
 import type { Session } from "@/lib/server/session"
@@ -102,31 +97,6 @@ describe("throughWire", () => {
   })
 })
 
-describe("reviewsPageFromRows", () => {
-  it("parses with reviewsPageSchema and slices pageSize+1 rows into a page + cursor", () => {
-    const t1 = new Date("2026-09-01T10:00:00.000Z")
-    const t2 = new Date("2026-09-01T09:00:00.000Z")
-    const t3 = new Date("2026-09-01T08:00:00.000Z")
-    const page = reviewsPageFromRows(
-      [row(UUID, t1), row(LOCATION, t2, 4), row("extra", t3)],
-      2
-    )
-    expect(reviewsPageSchema.safeParse(page).success).toBe(true)
-    expect(page.items.map((item) => item.id)).toEqual([UUID, LOCATION])
-    expect(decodeReviewsCursor(page.nextCursor)).toEqual({
-      updateTime: "2026-09-01T09:00:00.000Z",
-      id: LOCATION,
-      rating: 4,
-    })
-  })
-
-  it("returns a null cursor when the page is not full", () => {
-    const page = reviewsPageFromRows([row(UUID, new Date())], 50)
-    expect(page.nextCursor).toBeNull()
-    expect(page.items).toHaveLength(1)
-  })
-})
-
 describe("reviewCountsFromRows", () => {
   it("zero-fills every workflow state and parses with reviewCountsSchema", () => {
     const counts = reviewCountsFromRows([
@@ -181,56 +151,23 @@ describe("prefetch", () => {
     // client-side QueryClient must find the data by the hook's key.
     const { hydrate } = await import("@tanstack/react-query")
     const state = await prefetch(session, [
-      { queryKey: queryKeys.reviewCounts("organisation"), load: async () => reviewCountsFromRows([]) },
+      {
+        queryKey: queryKeys.reviewCounts("organisation"),
+        load: async () => reviewCountsFromRows([]),
+      },
     ])
     const client = makeQueryClient()
     hydrate(client, state)
-    expect(client.getQueryData(queryKeys.reviewCounts("organisation"))).toEqual({
-      total: 0,
-      byStatus: expect.objectContaining({ new: 0 }),
-    })
+    expect(client.getQueryData(queryKeys.reviewCounts("organisation"))).toEqual(
+      {
+        total: 0,
+        byStatus: expect.objectContaining({ new: 0 }),
+      }
+    )
   })
 })
 
 describe("page composers", () => {
-  it("inboxPrefetch keys the first page by the URL's filters and counts by its location", () => {
-    const entries = inboxPrefetch(
-      toSearchParams({ queue: "published", locationId: LOCATION, rating: "5,4" })
-    )(session)
-    expect(entries.map((entry) => entry.queryKey)).toEqual([
-      queryKeys.reviews("organisation", {
-        locationId: LOCATION,
-        ratings: [5, 4],
-        statuses: ["published"],
-        replyState: undefined,
-        verification: undefined,
-        publishStatus: undefined,
-        syncStatus: undefined,
-        dateFrom: undefined,
-        dateTo: undefined,
-        search: undefined,
-        sort: "updated_desc",
-      }),
-      queryKeys.reviewCounts(LOCATION),
-    ])
-  })
-
-  it("inboxPrefetch defaults an empty URL to the needs_reply queue, organisation-wide", () => {
-    const entries = inboxPrefetch(toSearchParams({}))(session)
-    const [reviews, counts] = entries.map((entry) => entry.queryKey)
-    expect(reviews[2]).toMatchObject({
-      statuses: ["new", "drafted", "verified", "failed", "rejected"],
-    })
-    expect(counts).toEqual(queryKeys.reviewCounts("organisation"))
-  })
-
-  it("firstPage is the InfiniteData shape useInfiniteQuery hydrates from", () => {
-    expect(firstPage({ items: [], nextCursor: null })).toEqual({
-      pages: [{ items: [], nextCursor: null }],
-      pageParams: [null],
-    })
-  })
-
   it("homePrefetch targets the counts and analytics keys OverviewView reads", () => {
     expect(homePrefetch()(session).map((entry) => entry.queryKey)).toEqual([
       queryKeys.reviewCounts("organisation"),
@@ -238,53 +175,49 @@ describe("page composers", () => {
     ])
   })
 
-  it("locationTabPrefetch pairs capabilities with the tab resource", () => {
-    const keys = locationTabPrefetch(LOCATION, "photos")(session).map(
-      (entry) => entry.queryKey
-    )
+  it("locationTabPrefetch pairs capabilities with a database-backed tab resource", () => {
+    const keys = locationTabPrefetch(
+      LOCATION,
+      "posts"
+    )(session).map((entry) => entry.queryKey)
     expect(keys).toEqual([
       queryKeys.locationCapabilities(LOCATION),
-      queryKeys.locationMedia(LOCATION, {
-        page: 1,
-        category: null,
-        ownership: null,
-      }),
+      queryKeys.locationPosts(LOCATION),
     ])
   })
 
-  it("locationTabPrefetch keys photos by the URL's page and filters, as PhotosTab does", () => {
-    const keys = locationTabPrefetch(
-      LOCATION,
+  it("locationTabPrefetch hydrates capabilities only for Google-backed tabs", () => {
+    // Live Google reads cost seconds inside the RSC render and would gate first
+    // paint (and every <Link prefetch> to the page) on Google; the client
+    // fetches that state as before.
+    for (const tab of [
+      "hours",
+      "profile",
       "photos",
-      toSearchParams({ page: "2", ownership: "customer", category: "INTERIOR" })
-    )(session).map((entry) => entry.queryKey)
-    expect(keys[1]).toEqual(
-      queryKeys.locationMedia(LOCATION, {
-        page: 2,
-        category: "INTERIOR",
-        ownership: "customer",
-      })
-    )
+      "booking",
+      "menu",
+      "businessInformation",
+      "industry",
+      "administration",
+    ] as const) {
+      const keys = locationTabPrefetch(
+        LOCATION,
+        tab
+      )(session).map((entry) => entry.queryKey)
+      expect(keys).toEqual([queryKeys.locationCapabilities(LOCATION)])
+    }
   })
 
-  it("locationTabPrefetch skips owner/admin-only resources for a member", () => {
+  it("locationTabPrefetch still prefetches capabilities for a member on an owner/admin-only tab", () => {
     const member: Session = { ...session, role: "member" }
-    const keys = locationTabPrefetch(LOCATION, "administration")(member).map(
-      (entry) => entry.queryKey
-    )
+    const keys = locationTabPrefetch(
+      LOCATION,
+      "administration"
+    )(member).map((entry) => entry.queryKey)
     expect(keys).toEqual([queryKeys.locationCapabilities(LOCATION)])
-    expect(
-      locationTabPrefetch(LOCATION, "administration")(session)
-    ).toHaveLength(2)
   })
 
   it("locationTabPrefetch is empty without a location", () => {
     expect(locationTabPrefetch(null, "hours")(session)).toEqual([])
-  })
-
-  it("toSearchParams keeps the first value of a repeated key, as URLSearchParams.get does", () => {
-    const params = toSearchParams({ queue: ["all", "published"], x: undefined })
-    expect(params.get("queue")).toBe("all")
-    expect(params.has("x")).toBe(false)
   })
 })

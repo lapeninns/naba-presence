@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToastManager } from "@/components/ui/toast"
 import type { ImportProposal } from "@/lib/api/location-import-review"
-import { describeActionError } from "@/lib/locations/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import {
   useDecideImportProposal,
   useImportReview,

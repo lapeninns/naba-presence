@@ -12,7 +12,7 @@ import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import type { GoogleAccount } from "@/lib/api/google-accounts"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 
 export function AccountPickerCard() {
   const workspace = useConnectionWorkspace()

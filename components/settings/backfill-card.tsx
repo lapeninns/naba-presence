@@ -7,7 +7,7 @@ import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useBackfill } from "@/lib/queries/use-backfill"
-import { describeActionError, isPausedError } from "@/lib/settings/action-errors"
+import { describeActionError, isPausedError } from "@/lib/errors/action-errors"
 import type { BackfillItem } from "@/lib/api/backfill"
 
 const STATUS: Record<string, { label: string; variant: "secondary" | "info" | "success" | "warning" | "outline" }> = {

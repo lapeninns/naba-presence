@@ -14,7 +14,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLegalHolds } from "@/lib/queries/use-legal-holds"
 import { createLegalHold, releaseLegalHold, type LegalHold } from "@/lib/api/legal-holds"
-import { describeActionError } from "@/lib/settings/action-errors"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { legalHoldFormSchema } from "@/lib/settings/forms/legal-hold"
 
 export function LegalHoldsCard() {
