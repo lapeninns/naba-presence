@@ -4,6 +4,7 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { withAdvisoryLock } from "@/lib/server/leases"
+import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -184,6 +185,10 @@ async function retain({
               where r.external_location_id = l.id
             )
         `
+        // A one-time reaper, not an ongoing obligation: the Pub/Sub route no
+        // longer writes `payload` or `payload_expires_at`, so this only ages
+        // out rows written before that change. It can be deleted once the
+        // oldest of them has passed its 30-day expiry.
         const webhookPayloads = await sql`
           update processed_webhook_event
           set payload = null
@@ -325,15 +330,41 @@ async function retain({
             returning id
           `
         )
-        // Belt-and-braces: a crash between claim and mark strands a proposal
-        // in processing, and only this statement unlocks the identity. The
-        // predicate is 15 minutes but nothing runs it more often than the
-        // retention tick, so the real bound is one retention interval - up to
-        // 24 hours on the default RETENTION_INTERVAL_SECONDS.
-        const strandedProposals = await sql`
-          update presence_import_proposal
-          set status = 'failed', failure_code = 'proposal_apply_failed', decided_at = now()
-          where status = 'processing' and updated_at <= now() - interval '15 minutes'
+        // Rows an interrupted publish left claiming to be publishing. The
+        // reaper is here rather than in the module because every user-facing
+        // path already reclaims the location's rows before listing; this is
+        // for the tenant nobody opens.
+        const strandedPosts = await reapStrandedLocalPosts(sql)
+        // The same shape one level up, for the GBP write surfaces. runGbpWrite
+        // recovers an in-flight row by readback on the next request for the
+        // SAME key, so this only reaches rows nothing will ever revisit: the
+        // write landed, the snapshot moved, and the next publish derives a
+        // different key. Twenty-four hours is far past the two-minute
+        // in-flight grace, so the readback path still owns every fresh row;
+        // past it a settled 'ambiguous' row re-arms on its next same-key
+        // request rather than blocking it.
+        const strandedHours = await sql`
+          update hours_sync_attempt
+          set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status = 'publishing'
+            and started_at <= now() - interval '24 hours'
+          returning id
+        `
+        const strandedProfiles = await sql`
+          update profile_sync_attempt
+          set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status = 'publishing'
+            and started_at <= now() - interval '24 hours'
+          returning id
+        `
+        const strandedFoodMenus = await sql`
+          update food_menus_sync_attempt
+          set status = 'ambiguous', last_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status = 'publishing'
+            and started_at <= now() - interval '24 hours'
           returning id
         `
         const counts = {
@@ -359,7 +390,10 @@ async function retain({
           foodMenuAttempts,
           importProposals,
           appSessions,
-          strandedProposals: strandedProposals.count,
+          strandedPosts: strandedPosts.count,
+          strandedHours: strandedHours.count,
+          strandedProfiles: strandedProfiles.count,
+          strandedFoodMenus: strandedFoodMenus.count,
         }
         const heldLocationsSkipped = held?.count ?? 0
         if (

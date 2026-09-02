@@ -71,9 +71,13 @@ database is unavailable.
    pnpm start:scheduler
    ```
 
-   The scheduler runs reconciliation, retention, and a third jobs tick that
-   drains due webhook, checkpoint, and publish-recovery work through
-   `/api/jobs/run`.
+   The scheduler runs seven loops: review reconciliation, retention, the
+   provider-deletion sweep, presence-resource reconciliation, the performance
+   and keyword ingests, and a jobs tick that drains due webhook, checkpoint,
+   and publish-recovery work through `/api/jobs/run`. Intervals and per-page
+   time budgets are in `.env.example`. `RETENTION_ENABLED` is the only kill
+   switch the scheduler itself reads; every other flag is enforced by the route
+   it calls. `docs/runbook.md` covers what to stop and when.
 
 4. Open `http://localhost:3000`. Production users start at `/sign-in`, create
    an email/password account, and confirm ownership of the email address.

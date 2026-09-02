@@ -133,8 +133,15 @@ exact repeat of an already successful approval is idempotent.
 ## Per-surface kill switches
 
 `lib/server/env.ts` declares the global controls `DRAFTS_ENABLED`,
-`PUBLISH_ENABLED`, `SYNC_ENABLED` and `WEBHOOKS_ENABLED`, and one flag per
-Google surface. A provider mutation runs only when `PUBLISH_ENABLED` and the
+`PUBLISH_ENABLED`, `SYNC_ENABLED`, `WEBHOOKS_ENABLED`, `JOBS_ENABLED`,
+`SEMANTIC_VERIFY_ENABLED`, `RETENTION_ENABLED` and `RETENTION_DELETES_ENABLED`,
+and one flag per Google surface. The last four gate background and degraded
+paths rather than a provider surface: `JOBS_ENABLED` (with `PUBLISH_ENABLED` and
+`SYNC_ENABLED`) is passed into `claim_due_jobs` as the permitted job kinds, so a
+paused kind is never claimed rather than claimed and refused;
+`SEMANTIC_VERIFY_ENABLED` skips the semantic pass instead of failing it; and the
+two retention switches separate stopping the sweep from stopping only its
+irreversible half. A provider mutation runs only when `PUBLISH_ENABLED` and the
 surface flag are both on (`gbpWritesEnabled(env, surface)`); ingestion
 surfaces are read-only and answer to their own flag alone
 (`gbpIngestionEnabled`). Each module checks the flag at its provider boundary
@@ -192,11 +199,23 @@ cannot have written anything and is always `failed`. A
 the readback under `onAmbiguous: "readback"` (hours, food menus): a readback
 that matches proves the write applied, a mismatch settles `failed` with the
 module's mismatch code (502 by default), and only a readback that itself
-fails leaves the row `ambiguous`. `onExisting: "resume"` (hours, profile,
-food menus) returns a succeeded row as idempotent, answers an in-flight row
-with the module's 409 and re-arms a terminal failure; `"replay"` (media, place
-actions, posts, management) treats any existing row for the key as idempotent
-because those keys already include the request id.
+fails leaves the row `ambiguous`. `onExisting: "resume"` (hours, profile, food
+menus and the post publish) returns a succeeded row as idempotent and re-arms a
+terminal failure. It answers an in-flight row with the module's 409 only inside
+a two-minute grace window; past that the row is treated as abandoned by a
+request that died, and is recovered by reading Google back and settled
+`succeeded` or `ambiguous` before this request proceeds. Without that window an
+interrupted write left the row `publishing` for its whole retention and every
+later attempt on the same key 409'd forever.
+
+`"replay"` (media, place actions, the post delete, management) treats any
+existing row for the key as idempotent. Those keys embed `ctx.requestId`, which
+is minted per HTTP request, so the replay branch is unreachable across
+requests: a client retry issues a new request id, a new key, and a second
+Google write. Closing that needs an intent token minted by the client — one per
+Publish/Upload/Add-link press, resent unchanged on retry — carried on the
+request and keyed on instead of the request id. Until then these surfaces are
+idempotent within a request and at-least-once across one.
 
 ## Three-phase reply mutation and recovery
 
@@ -205,6 +224,19 @@ JSON Schema. A second stage applies deterministic personal-data, promotion,
 unsupported-commitment, unsafe-language, location, byte-length, and complaint
 checks, followed by semantic evidence verification. A `fail` verdict is a hard
 publish block. Human approval is enabled for every new organisation.
+
+The semantic pass runs outside any transaction, and its three outcomes are kept
+apart because two of them look alike and mean opposite things. Skipped
+(`SEMANTIC_VERIFY_ENABLED` off, or no API key) is a deliberate degraded mode:
+the deterministic checks stand alone and the draft is publishable. Unavailable —
+attempted, and the provider answered 429 or 5xx — saves the operator's text but
+settles the verdict `pending`, the fourth member of the verdict vocabulary,
+which `assertDraftPublishable` refuses with 409 `verification_required`. A
+`pass` there would assert a check that never ran. Approval is bound to a
+specific draft: `review_reply.pending_draft_id` records what was parked, the
+route resolves it server-side and never trusts the client's `draftId`, and an
+approver whose pane went stale is answered 409 `approval_draft_changed` rather
+than credited with approving text they never read.
 
 Publish idempotency is derived from organisation, review, and reply-body hash.
 `lib/server/publishing.ts` is the barrel for `lib/server/publishing/`, whose
@@ -232,6 +264,24 @@ rather than a re-arm; the intent transaction also writes `review_reply`,
 `review.workflow_status` and `publish_attempt_event`; and a provider failure
 is returned as an outcome the routes map to 409/429 rather than thrown. The
 boundary statement lives in both file headers and is kept in step.
+
+The vocabulary also carries `superseded` (0035), which is not a provider
+verdict but a retirement: the mutation a queued attempt was keyed to is no
+longer the one the reply wants — a delete parked on a 429 while the operator
+publishes new text, or a publish intent withdrawn by a local cancel. Settling
+those `failed` would keep the runner away from them (every claim predicate is
+an allowlist) but would also make `resolveExistingPublishAttempt` answer the
+same idempotency key with a permanent 409 `previous_publish_failed` for ever;
+`superseded` asserts nothing, so the row stays re-armable under its own key.
+`publish_attempt.publish_generation` pins the `review_reply` generation an
+attempt was created against, and `applyDeletedReply` bumps that counter, so a
+claim whose recorded generation no longer matches is provably about to replay a
+mutation for a reply that has since been replaced.
+
+`review.restricted_at` is a publish gate in its own right, enforced in
+`assertDraftPublishable` and again in the runner's `claimRetry` — not only on
+the drafts route — so a review Google restricts after a retry was queued is
+never published by the background path.
 
 ## Profile and location-content control plane
 
@@ -263,13 +313,22 @@ notification sync, sweep, and reconcile. Page tokens advance only after the
 page transaction commits; high-water timestamps drive bounded reconciliation,
 and deep sweeps eventually revisit older pages. Provider-deleted reviews are
 tombstoned locally and excluded from analytics rather than silently retained.
+Every claim predicate is an allowlist of statuses, which is what makes the
+terminal `dead` state (0030) sufficient on its own: a checkpoint retired after
+ten consecutive failures — or immediately, on an error no retry can fix — leaves
+every claim window and the backlog gauge without a single predicate changing.
+The metric checkpoints retire the same way through `dead_lettered_at`, and both
+are re-armed only by an explicit operator act (a fresh backfill; a relink).
 
 `lib/server/jobs.ts` drains retryable webhook events, checkpoints, and publish
 attempts across the content-free `organisation_job_route`, immediately
-re-entering `withTenant` for customer data. `scripts/scheduler.mjs` runs
-reconciliation, retention, and jobs ticks. `lib/server/leases.ts` protects each
-fleet-wide loop with PostgreSQL advisory locks so overlapping schedulers skip
-rather than duplicate work.
+re-entering `withTenant` for customer data. `scripts/scheduler.mjs` runs seven
+ticks — reconciliation, retention, the provider-deletion sweep,
+presence-resource reconciliation, the performance and keyword ingests, and jobs.
+`lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
+locks so overlapping schedulers skip rather than duplicate work, and stamps that
+loop's `ops_heartbeat` row on a completed run so the lock namespace and the
+liveness names cannot drift.
 
 `/api/sync/presence-resources` performs a separate bounded sweep for Hours,
 Profile, Posts, Media, Food Menus, and Place Actions. It selects the least

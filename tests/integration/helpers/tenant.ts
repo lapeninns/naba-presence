@@ -110,7 +110,13 @@ export async function seedReview(
   `
   await admin`
     insert into location (id, organisation_id, name)
-    values (${locationId}, ${input.organisationId}, 'Harness location')
+    values (
+      ${locationId},
+      ${input.organisationId},
+      -- Marker-suffixed: location has unique (organisation_id, name), so a
+      -- fixed name meant a second seedReview in one organisation collided.
+      ${`Harness location ${marker}`}
+    )
   `
   await admin`
     insert into external_location (

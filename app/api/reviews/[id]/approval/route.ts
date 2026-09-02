@@ -27,6 +27,10 @@ export const maxDuration = 60
  * 5. Approval uses the standard verified, current, idempotent publish pipeline
  *    and attributes the provider mutation to the approver.
  * 6. Rejection returns the reply to draft and records the decision and note.
+ * 7. The decision names ONE draft: the one that was parked
+ *    (review_reply.pending_draft_id), never "whichever is newest". An
+ *    approver whose pane has gone stale gets a 409, not credit for approving
+ *    text they never read.
  */
 export const POST = route({
   params: reviewIdParamsSchema,
@@ -57,7 +61,8 @@ export const POST = route({
           review_reply_id: string
           approval_requested_by: string | null
           require_two_person_approval: boolean
-          draft_id: string | null
+          pending_draft_id: string | null
+          latest_draft_id: string | null
         }[]
       >`
         select
@@ -67,8 +72,9 @@ export const POST = route({
           r.location_id::text as location_id,
           rr.id::text as review_reply_id,
           rr.approval_requested_by::text as approval_requested_by,
+          rr.pending_draft_id::text as pending_draft_id,
           o.require_two_person_approval,
-          latest_draft.id::text as draft_id
+          latest_draft.id::text as latest_draft_id
         from review r
         join review_reply rr on rr.review_id = r.id
         join organisation o on o.id = r.organisation_id
@@ -111,11 +117,25 @@ export const POST = route({
           "A different authorised user must approve this reply."
         )
       }
-      if (!record.draft_id) {
+      // The parked draft, not the newest one. `pending_draft_id` is null only
+      // for a reply parked before 0039 whose body no longer matches any
+      // verified draft; the lateral keeps those decidable. Whether the draft
+      // is still publishable is not re-litigated here - executePublish's own
+      // gates answer `verification_failed` / `verification_required` for it,
+      // and a rejection must stay possible either way.
+      const draftId = record.pending_draft_id ?? record.latest_draft_id
+      if (!draftId) {
         throw new ApiError(
           409,
           "verified_draft_required",
           "A verified draft is required for approval."
+        )
+      }
+      if (input.draftId && input.draftId !== draftId) {
+        throw new ApiError(
+          409,
+          "approval_draft_changed",
+          "This reply changed after you opened it. Read the current draft before deciding."
         )
       }
 
@@ -131,7 +151,7 @@ export const POST = route({
         values (
           ${session.organisationId},
           ${record.review_id},
-          ${record.draft_id},
+          ${draftId},
           ${session.userId},
           ${input.decision === "approve" ? "approved" : "rejected"},
           ${input.note ?? null}
@@ -148,13 +168,16 @@ export const POST = route({
         subjectId: record.review_id,
         requestId,
         metadata: {
-          draftId: record.draft_id,
+          draftId,
           note: input.note ?? null,
           clientRequestId,
         },
       })
 
       if (input.decision === "reject") {
+        // pending_draft_id follows publish_status out of 'awaiting_approval'
+        // via review_reply_pending_draft (0039), so the rejected draft cannot
+        // outlive its decision.
         await sql`
           update review_reply
           set
@@ -171,7 +194,7 @@ export const POST = route({
       }
       return {
         kind: "approved" as const,
-        draftId: record.draft_id,
+        draftId,
         expectedReviewUpdateTime: record.update_time.toISOString(),
       }
     })

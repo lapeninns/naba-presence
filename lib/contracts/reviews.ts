@@ -92,7 +92,19 @@ export const REVIEW_SYNC_STATUSES = [
 export type ReviewSyncStatus = (typeof REVIEW_SYNC_STATUSES)[number]
 export const reviewSyncStatusSchema = z.enum(REVIEW_SYNC_STATUSES)
 
-export const VERIFICATION_VERDICTS = ["pass", "warn", "fail"] as const
+/**
+ * `verification_result.verdict`. `pending` is the fourth member: a draft whose
+ * semantic pass was attempted and could not be reached is saved but NOT
+ * verified, and saying so is the only honest answer — a `pass` there would
+ * assert a check that never ran. It matches the `pending` that
+ * `draft.verification_status` has always had.
+ */
+export const VERIFICATION_VERDICTS = [
+  "pass",
+  "warn",
+  "fail",
+  "pending",
+] as const
 export type VerificationVerdict = (typeof VERIFICATION_VERDICTS)[number]
 
 function includes<const T extends readonly string[]>(
@@ -512,8 +524,16 @@ export const deleteReplyResultSchema = z.object({
 })
 export type DeleteReplyResult = z.infer<typeof deleteReplyResultSchema>
 
+// `draftId` is the draft the approver actually read. The server resolves the
+// parked draft itself (review_reply.pending_draft_id) and never trusts this
+// value to choose what to publish — it only compares, and answers 409
+// `approval_draft_changed` when the two disagree, so an approver whose pane
+// went stale is told rather than credited with approving text they never saw.
+// Optional so a client that cannot yet send it keeps working; the server-side
+// binding protects that case on its own.
 export const approvalInputSchema = z.object({
   decision: z.enum(["approve", "reject"]),
+  draftId: z.uuid().optional(),
   note: z.string().trim().max(2000).optional(),
 })
 export type ApprovalInput = z.infer<typeof approvalInputSchema>

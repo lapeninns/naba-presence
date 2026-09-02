@@ -43,7 +43,29 @@ const rejectionRowSchema = z.object({
   count: z.number(),
 })
 
-/** GET `/api/operations/health` response (session scope). */
+/**
+ * One scheduled tick's liveness. `lastCompletedAt` is the `ops_heartbeat` row
+ * the tick's advisory lease stamps when a run completes, and
+ * `staleAfterSeconds` is the multiple of that tick's documented interval past
+ * which the absence of a run is worth acting on. A tick that has never
+ * completed reports `null` and `stale: true`.
+ */
+export const schedulerTickSchema = z.object({
+  name: z.string(),
+  lastCompletedAt: z.string().nullable(),
+  staleAfterSeconds: z.number(),
+  stale: z.boolean(),
+})
+export type SchedulerTick = z.infer<typeof schedulerTickSchema>
+
+/**
+ * GET `/api/operations/health` response (session scope).
+ *
+ * Fields added after the first release carry a `.default(...)`: a browser
+ * holding an open panel can outlive a rollback, and a health panel that
+ * refuses to render because one counter is missing is worse than one that
+ * renders the counter as zero.
+ */
 export const operationsHealthSchema = z.object({
   generatedAt: z.string(),
   sync: z
@@ -71,10 +93,32 @@ export const operationsHealthSchema = z.object({
   oldestFailedEventAgeSeconds: z.number().nullable(),
   ambiguousPublishAttempts: z.number(),
   staleStartedAttempts: z.number(),
+  // Every due item, whichever tick owns it. Deliberately not narrowed to the
+  // job runner's share: a `performance` checkpoint the metrics cron will
+  // claim is real backlog, and hiding it would make the aggregate lie in the
+  // other direction. The five fields below say who owes each unit of it.
   dueJobBacklog: z.number(),
+  dueWebhookBacklog: z.number().default(0),
+  /** `backfill` / `sweep` — exactly what `claim_due_jobs` can claim. */
+  dueRunnerCheckpointBacklog: z.number().default(0),
+  /** `performance` / `keywords` — drained by their own crons, not the runner. */
+  dueMetricsCheckpointBacklog: z.number().default(0),
+  /** `reconcile` / `notification` — no claimer; 0030's terminal state drains these. */
+  dueUnclaimedCheckpointBacklog: z.number().default(0),
+  duePublishBacklog: z.number().default(0),
   checkpointFailures24h: z.number(),
   connectionErrors24h: z.number(),
+  /** Connections whose Google refresh token expires within three days. */
+  refreshTokensExpiringSoon: z.number().default(0),
+  /** Age of the newest completed `reconcile` checkpoint, worst tenant first. */
+  reconcileStalenessSeconds: z.number().nullable().default(null),
+  /** Locations a live legal hold keeps past their disconnect purge date. */
+  heldPurgeLocations: z.number().default(0),
+  /** How long the oldest still-unpurged disconnected connection is overdue. */
+  pendingPurgeAgeSeconds: z.number().nullable().default(null),
   schedulerHeartbeatAt: z.string().nullable(),
+  schedulerHeartbeatStale: z.boolean().default(false),
+  schedulerTicks: z.array(schedulerTickSchema).default([]),
 })
 export type OperationsHealth = z.infer<typeof operationsHealthSchema>
 

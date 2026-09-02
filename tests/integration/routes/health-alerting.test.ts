@@ -31,6 +31,30 @@ describeDatabase("operations health alerting", () => {
       connectionId: connection.connectionId,
       googleAccountName: connection.googleAccountName,
     })
+    // A second connection, disconnected past its purge date, with a live hold
+    // on its only review: the purge cannot proceed and the panel has to say so.
+    const heldConnection = await seedGoogleConnection(admin, { organisationId })
+    const heldReview = await seedLinkedReview(admin, {
+      organisationId,
+      connectionId: heldConnection.connectionId,
+      googleAccountName: heldConnection.googleAccountName,
+    })
+    await admin`
+      update google_connection
+      set status = 'disconnected',
+        disconnected_at = now() - interval '30 days',
+        purge_due_at = now() - interval '23 days'
+      where id = ${heldConnection.connectionId}
+    `
+    await admin`
+      insert into legal_hold (organisation_id, review_id, reason, approved_by)
+      values (
+        ${organisationId},
+        ${heldReview.reviewId},
+        'health fixture hold',
+        ${owner.userId}
+      )
+    `
     server = await startAppServer()
 
     const heartbeatResponse = await fetch(`${server.baseUrl}/api/jobs/run`, {
@@ -51,6 +75,7 @@ describeDatabase("operations health alerting", () => {
       set
         status = 'error',
         last_error_code = 'health_fixture',
+        refresh_token_expires_at = now() + interval '1 day',
         updated_at = now()
       where id = ${connection.connectionId}
     `
@@ -71,6 +96,55 @@ describeDatabase("operations health alerting", () => {
         'failed',
         now() - interval '1 minute',
         'health_fixture',
+        now()
+      )
+    `
+    // Three more due checkpoints, one per claimer. Only the backfill row above
+    // is claimable by claim_due_jobs; the metrics crons claim 'performance',
+    // and nothing at all claims 'notification'. They must be reported apart,
+    // not folded into the runner's own backlog.
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id,
+        external_location_id,
+        sync_type,
+        status,
+        next_attempt_at,
+        updated_at
+      )
+      values
+        (
+          ${organisationId},
+          ${linked.externalLocationId},
+          'performance',
+          'failed',
+          now() - interval '1 minute',
+          now()
+        ),
+        (
+          ${organisationId},
+          ${linked.externalLocationId},
+          'notification',
+          'failed',
+          now() - interval '1 minute',
+          now()
+        )
+    `
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id,
+        external_location_id,
+        sync_type,
+        status,
+        finished_at,
+        updated_at
+      )
+      values (
+        ${organisationId},
+        ${linked.externalLocationId},
+        'reconcile',
+        'succeeded',
+        now() - interval '2 hours',
         now()
       )
     `
@@ -185,12 +259,87 @@ describeDatabase("operations health alerting", () => {
       deadWebhookEvents: 1,
       ambiguousPublishAttempts: 1,
       staleStartedAttempts: 0,
-      dueJobBacklog: 3,
-      checkpointFailures24h: 1,
+      // The backfill, performance and notification checkpoints seeded above.
+      checkpointFailures24h: 3,
       connectionErrors24h: 1,
       schedulerHeartbeatAt: expect.any(String),
+      schedulerHeartbeatStale: false,
     })
     expect(health.oldestFailedEventAgeSeconds).toBeGreaterThanOrEqual(1_200)
+  })
+
+  it("attributes the due backlog to the claimer that owes it", async () => {
+    const response = await fetch(`${server.baseUrl}/api/operations/health`, {
+      headers: { cookie: ownerCookie },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const health = await response.json()
+    expect(health).toMatchObject({
+      // One due failed webhook.
+      dueWebhookBacklog: 1,
+      // The 'backfill' checkpoint, and only that one: this term has to mirror
+      // claim_due_jobs, which takes sync_type in ('backfill','sweep').
+      dueRunnerCheckpointBacklog: 1,
+      // The 'performance' checkpoint, which the metrics cron claims.
+      dueMetricsCheckpointBacklog: 1,
+      // The 'notification' checkpoint, which nothing claims.
+      dueUnclaimedCheckpointBacklog: 1,
+      // The ambiguous publish attempt.
+      duePublishBacklog: 1,
+      // Unnarrowed: the total is still every due item, and is exactly the sum
+      // of its parts.
+      dueJobBacklog: 5,
+    })
+    const [claimable] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from sync_checkpoint
+      where organisation_id = ${organisationId}
+        and status in ('pending', 'failed')
+        and next_attempt_at <= now()
+        and sync_type in ('backfill', 'sweep')
+    `
+    expect(health.dueRunnerCheckpointBacklog).toBe(claimable.count)
+  })
+
+  it("reports reconcile freshness, blocked purges and expiring grants", async () => {
+    const response = await fetch(`${server.baseUrl}/api/operations/health`, {
+      headers: { cookie: ownerCookie },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const health = await response.json()
+    expect(health.reconcileStalenessSeconds).toBeGreaterThanOrEqual(7_000)
+    expect(health.heldPurgeLocations).toBe(1)
+    expect(health.pendingPurgeAgeSeconds).toBeGreaterThanOrEqual(
+      22 * 24 * 3_600
+    )
+    expect(health.refreshTokensExpiringSoon).toBe(1)
+  })
+
+  it("reports per-tick liveness, not just the jobs tick", async () => {
+    const response = await fetch(`${server.baseUrl}/api/operations/health`, {
+      headers: { cookie: ownerCookie },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const health = await response.json()
+    expect(
+      health.schedulerTicks.map((tick: { name: string }) => tick.name)
+    ).toEqual([
+      "jobs",
+      "reconcile",
+      "retention",
+      "performance",
+      "keywords",
+      "presence-resources",
+    ])
+    // beforeAll ran one jobs tick, and its advisory lease stamped the row.
+    const jobs = health.schedulerTicks.find(
+      (tick: { name: string }) => tick.name === "jobs"
+    )
+    expect(jobs).toMatchObject({
+      lastCompletedAt: expect.any(String),
+      stale: false,
+      staleAfterSeconds: 300,
+    })
   })
 
   it("supports cron-authenticated platform scope without a browser session", async () => {

@@ -138,4 +138,43 @@ describe("PostsActionBar", () => {
     renderBar({ caps: { ...OWNER, resources: { posts: { state: "readOnly", reasonCode: "publishing_paused" } } } })
     expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled()
   })
+
+  // The approval half of the post lifecycle had no way in from the product: a
+  // non-publisher's Publish is exactly the call that routes to
+  // `awaiting_approval`, but the button was gated on the same
+  // `publish_not_allowed` the approval flow exists to route around, so it
+  // rendered disabled and nobody could ever reach the queue.
+  it("offers a non-publisher an enabled Request approval on a draft", async () => {
+    api.publishPost.mockResolvedValue({ status: "awaiting_approval" })
+    renderBar({ caps: MEMBER })
+
+    const button = screen.getByRole("button", { name: "Request approval" })
+    expect(button).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument()
+
+    await userEvent.click(button)
+    expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
+    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
+  })
+
+  it("keeps the pause switch over Request approval", () => {
+    renderBar({ caps: MEMBER, writesEnabled: false })
+    expect(screen.getByRole("button", { name: "Request approval" })).toBeDisabled()
+  })
+
+  // An ambiguous post's Google name is unknown, so a republish would be a blind
+  // `create` and Google would end up holding the same update twice. Reading
+  // Google back is the only safe next move, and it must be the only offer.
+  it("offers only Check Google on an ambiguous post, never Publish", async () => {
+    api.fetchPosts.mockResolvedValue([post({ status: "published", googlePostName: "locations/1/localPosts/9" })])
+    const client = renderBar({ post: post({ status: "ambiguous", lastErrorCode: "publish_lease_expired" }) })
+
+    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Request approval" })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "Check Google" }))
+
+    expect(api.fetchPosts).toHaveBeenCalledWith("loc-1")
+    await waitFor(() => expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true))
+  })
 })

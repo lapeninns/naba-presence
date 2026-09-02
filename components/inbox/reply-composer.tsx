@@ -32,6 +32,8 @@ import {
   useRegisterDirtyGuard,
 } from "@/components/inbox/dirty-context"
 import { VerificationPanel } from "@/components/inbox/verification-panel"
+import { isReviewWorkflowState } from "@/lib/contracts/reviews"
+import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { replyWork } from "@/lib/inbox/review-situation"
@@ -116,18 +118,36 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
   useRegisterDirtyGuard(isDirty, confirmDiscard)
 
-  // Seed the textbox once per review. A stashed draft from a forced sign-out
-  // wins over the server body. LLM is never called here — only on Generate.
+  // Seed the textbox once per review, then follow the server only while there
+  // is nothing of the operator's own to lose. A stashed draft from a forced
+  // sign-out wins over the server body. LLM is never called here — only on
+  // Generate.
   const seededReviewRef = useRef<string | null>(null)
+  const seededBodyRef = useRef("")
   useEffect(() => {
     if (!review) return
-    if (seededReviewRef.current === reviewId) return
-    seededReviewRef.current = reviewId
-    const stashed = restore()
-    setBody(stashed ?? seededBody)
-    setMutationVerification(null)
-    setEditingSettled(false)
-  }, [review, reviewId, restore, seededBody])
+    if (seededReviewRef.current !== reviewId) {
+      seededReviewRef.current = reviewId
+      const stashed = restore()
+      const next = stashed ?? seededBody
+      seededBodyRef.current = next
+      setBody(next)
+      setMutationVerification(null)
+      setEditingSettled(false)
+      return
+    }
+    // A newer draft for the review already on screen: someone else saved one,
+    // or an approval request re-parked a different reply. Leaving the old
+    // text in the box is how an approver reads one reply and approves
+    // another. Adopt it only when the box still holds what we last seeded.
+    if (
+      seededBody !== seededBodyRef.current &&
+      (body === seededBodyRef.current || body === seededBody)
+    ) {
+      seededBodyRef.current = seededBody
+      setBody(seededBody)
+    }
+  }, [body, review, reviewId, restore, seededBody])
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const verify = useVerifyDraft(reviewId)
@@ -195,6 +215,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   if (!review) return null
   const canEdit = review.capabilities.canEdit
+  // Saving or generating moves the review to `drafted`, and
+  // `enforce_review_workflow_transition` has no edge there from
+  // `publish_requested`; the route answers 409 `publish_in_progress` rather
+  // than letting the trigger raise. Say so before the click, not after — and
+  // say it in the words of the reason, not "no permission".
+  const canDraft =
+    !isReviewWorkflowState(review.workflowStatus) ||
+    isAllowedReviewTransition(review.workflowStatus, "drafted")
   const showSettledSummary =
     settled && canEdit && !isDirty && !editingSettled && body.trim() !== ""
   const bytes = byteLength(body)
@@ -202,11 +230,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const nearLimit = !overLimit && bytes >= BYTE_WARN_AT
   const canSave =
     canEdit &&
+    canDraft &&
     isDirty &&
     body.trim() !== "" &&
     !overLimit &&
     !generateOrSave.isPending
-  const canGenerate = canEdit && !generateOrSave.isPending
+  const canGenerate = canEdit && canDraft && !generateOrSave.isPending
   const displayedVerification =
     mutationVerification ?? review.latestVerification
   const reasons = displayedVerification?.reasons ?? []
@@ -302,6 +331,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         <p className="text-caption text-muted-foreground">
           You can read this reply, but you do not have permission to edit it.
         </p>
+      ) : !canDraft ? (
+        <p className="text-caption text-muted-foreground">
+          A publish for this reply is under way. You can edit it again once
+          Google answers.
+        </p>
       ) : null}
 
       <div className="overflow-hidden rounded-(--nr-radius-field) border border-border bg-background focus-within:ring-3 focus-within:ring-ring/30">
@@ -311,7 +345,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           lang={review.detectedLanguageCode ?? undefined}
           dir="auto"
           value={body}
-          readOnly={!canEdit}
+          readOnly={!canEdit || !canDraft}
           aria-invalid={overLimit || undefined}
           aria-describedby={`${fieldId}-count ${fieldId}-hint`}
           onChange={(event) => setBody(event.target.value)}
@@ -336,7 +370,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               setTone((value ?? "warm_professional") as Tone)
             }
             items={TONE_ITEMS}
-            disabled={!canEdit}
+            disabled={!canEdit || !canDraft}
           >
             <SelectTrigger
               aria-label="Reply tone"
@@ -380,7 +414,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               variant="ghost"
               size="sm"
               disabled={
-                !canEdit || verify.isPending || generateOrSave.isPending
+                !canEdit ||
+                !canDraft ||
+                verify.isPending ||
+                generateOrSave.isPending
               }
               onClick={() => void onReverify()}
             >
@@ -389,7 +426,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             </Button>
           ) : null}
 
-          {canEdit && isDirty ? (
+          {canEdit && canDraft && isDirty ? (
             <Button
               variant="ghost"
               size="sm"
@@ -426,7 +463,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                 : ""}
           </span>
 
-          {canEdit ? (
+          {canEdit && canDraft ? (
             <span
               id={`${fieldId}-hint`}
               className="hidden text-caption text-muted-foreground sm:inline"

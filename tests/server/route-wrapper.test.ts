@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import type { TransactionSql } from "postgres"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { type RawParams, route, type RouteHandler } from "@/lib/server/route"
@@ -258,6 +260,59 @@ describe("route() — auth: session", () => {
     const response = await call(GET, request())
     expect(await response.json()).toEqual({ sql: "sql", role: "admin" })
     expect(withTenant).toHaveBeenCalledWith(UUID, expect.any(Function))
+  })
+})
+
+describe("route() — support impersonation attribution", () => {
+  // An impersonation session carries the customer's own user id, so nothing a
+  // handler writes can distinguish it. The wrapper is the only place that sees
+  // both the session and every audit write.
+  function auditingRoute() {
+    const rows: Record<string, unknown>[] = []
+    const sql = ((_s: TemplateStringsArray, ...values: unknown[]) => {
+      rows.push(values.at(-1) as Record<string, unknown>)
+      return Promise.resolve([])
+    }) as unknown as TransactionSql
+    ;(sql as unknown as { json: (v: unknown) => unknown }).json = (v) => v
+    const GET = route({
+      handler: async ({ session, tenant }) =>
+        tenant(async () => {
+          await writeAudit(sql, {
+            organisationId: session.organisationId,
+            actorUserId: session.userId,
+            action: "legal_hold.released",
+            subjectType: "review",
+            subjectId: UUID,
+            metadata: { released: true },
+          })
+          return { actorUserId: session.userId }
+        }),
+    })
+    return { GET, rows }
+  }
+
+  it("marks every audit row an impersonated handler writes", async () => {
+    signedIn({
+      ...session,
+      supportActor: "support@nabapresence.test",
+      impersonationReason: "ticket 42",
+    })
+    const { GET, rows } = auditingRoute()
+    const response = await call(GET, request())
+    // Still the customer's own id in the column; the engineer is beside it.
+    expect(await response.json()).toEqual({ actorUserId: session.userId })
+    expect(rows[0]).toEqual({
+      released: true,
+      supportActor: "support@nabapresence.test",
+      impersonationReason: "ticket 42",
+    })
+  })
+
+  it("adds nothing for an ordinary session", async () => {
+    signedIn(session)
+    const { GET, rows } = auditingRoute()
+    await call(GET, request())
+    expect(rows[0]).toEqual({ released: true })
   })
 })
 

@@ -58,6 +58,39 @@ describe("deterministic reply verification", () => {
     expect(verificationVerdict(reasons)).toBe("fail")
   })
 
+  // `unique (organisation_id, name)` keeps sibling locations distinct but
+  // lets one name contain another, and the generation prompt invites the
+  // reply to name its own location. A raw substring test made every correct
+  // reply for the longer name fail verification, permanently.
+  it("does not flag a sibling whose name is part of this location's own", () => {
+    const reasons = verify(
+      "We are glad you enjoyed your stay at Lapen Inn Riverside.",
+      {
+        locationName: "Lapen Inn Riverside",
+        otherLocationNames: ["Lapen Inn", "Leeds City"],
+      }
+    )
+    expect(reasons.map((reason) => reason.code)).not.toContain("wrong_location")
+    expect(verificationVerdict(reasons)).toBe("pass")
+  })
+
+  it("still flags a different location whose name overlaps this one", () => {
+    const reasons = verify("The team at Lapen Inn Riverside thanks you.", {
+      locationName: "Lapen Inn",
+      otherLocationNames: ["Lapen Inn Riverside"],
+    })
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "wrong_location", severity: "fail" })
+    )
+  })
+
+  it("does not flag a location name buried inside a longer word", () => {
+    const reasons = verify("Our leedsville pastry team thanks you.", {
+      otherLocationNames: ["Leeds"],
+    })
+    expect(reasons.map((reason) => reason.code)).not.toContain("wrong_location")
+  })
+
   it("fails replies above Google's UTF-8 byte limit", () => {
     const reasons = verify("🙂".repeat(1025))
     expect(reasons).toContainEqual(

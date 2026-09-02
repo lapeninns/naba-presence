@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -175,5 +178,74 @@ describe("database pool sizing", () => {
     expect(() => parseDatabasePoolMax("0")).toThrow()
     expect(() => parseDatabasePoolMax("3.5")).toThrow()
     expect(() => parseDatabasePoolMax("101")).toThrow()
+  })
+})
+
+// The drift this guards is not hypothetical: JOBS_ENABLED,
+// SEMANTIC_VERIFY_ENABLED and both RETENTION_* switches shipped in the schema
+// and stayed out of .env.example, so the only record of a kill switch an
+// operator has to set was the runbook prose describing it.
+describe(".env.example", () => {
+  const example = readFileSync(
+    fileURLToPath(new URL("../.env.example", import.meta.url)),
+    "utf8"
+  )
+  const documented = new Set(
+    example
+      .split("\n")
+      .map((line) => line.match(/^([A-Z0-9_]+)=/)?.[1])
+      .filter((name): name is string => Boolean(name))
+  )
+
+  it("documents every key the server env schema reads", () => {
+    const missing = Object.keys(serverEnvSchema.shape).filter(
+      (key) => !documented.has(key)
+    )
+    expect(missing).toEqual([])
+  })
+
+  // The reverse direction catches a key deleted from the schema and left in
+  // the sample, which reads as a supported control and silently is not one.
+  // The scheduler's own variables are the deliberate exception: it is a plain
+  // node script that never parses serverEnvSchema.
+  it("documents nothing the schema and the scheduler both ignore", () => {
+    const schedulerOnly = new Set(
+      [
+        ...readFileSync(
+          fileURLToPath(new URL("../scripts/scheduler.mjs", import.meta.url)),
+          "utf8"
+        ).matchAll(/process\.env(?:\.([A-Z0-9_]+)|\[["'`]?([A-Z0-9_]+))/g),
+      ]
+        .map((match) => match[1] ?? match[2])
+        .concat([
+          // Read through interval(name, ...) rather than a literal
+          // process.env reference.
+          "RECONCILE_INTERVAL_SECONDS",
+          "RETENTION_INTERVAL_SECONDS",
+          "SWEEP_INTERVAL_SECONDS",
+          "JOBS_INTERVAL_SECONDS",
+          "PERFORMANCE_INTERVAL_SECONDS",
+          "KEYWORD_INTERVAL_SECONDS",
+          "PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS",
+          "RETENTION_ENABLED",
+        ])
+    )
+    // Per-page cron budgets are read straight from process.env in the route
+    // handlers rather than through the schema; see docs/runbook.md.
+    const routeBudgets = new Set([
+      "RECONCILE_BUDGET_MS",
+      "RETENTION_BUDGET_MS",
+      "PERFORMANCE_BUDGET_MS",
+      "KEYWORDS_BUDGET_MS",
+      "PRESENCE_RESOURCE_BUDGET_MS",
+      "NEXT_OTEL_VERBOSE",
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+    ])
+    const schemaKeys = new Set(Object.keys(serverEnvSchema.shape))
+    const orphans = [...documented].filter(
+      (key) =>
+        !schemaKeys.has(key) && !schedulerOnly.has(key) && !routeBudgets.has(key)
+    )
+    expect(orphans).toEqual([])
   })
 })

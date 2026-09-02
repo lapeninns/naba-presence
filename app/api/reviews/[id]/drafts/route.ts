@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import type { TransactionSql } from "postgres"
 
 import {
   draftInputSchema,
@@ -7,9 +8,17 @@ import {
 } from "@/lib/contracts/reviews"
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
+import {
+  isAllowedReviewTransition,
+  type ReviewWorkflowState,
+} from "@/lib/domain/workflow"
 import { generateReply } from "@/lib/server/ai"
 import { writeAudit } from "@/lib/server/audit"
-import { buildEvidenceHash, verifyStoredDraft } from "@/lib/server/drafts"
+import {
+  buildEvidenceHash,
+  runSemanticVerification,
+  verifyStoredDraft,
+} from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
@@ -17,6 +26,74 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+type ReviewRecord = {
+  review_text: string | null
+  rating: number | null
+  reviewer_name: string | null
+  language: string | null
+  language_confidence: number | null
+  default_language: string
+  location_id: string
+  location_name: string
+  update_time: Date
+  restricted_at: Date | null
+  workflow_status: ReviewWorkflowState
+}
+
+async function loadReview(
+  sql: TransactionSql,
+  reviewId: string
+): Promise<ReviewRecord> {
+  const [review] = await sql<ReviewRecord[]>`
+    select
+      r.review_text,
+      r.star_rating as rating,
+      r.reviewer_display_name as reviewer_name,
+      r.detected_language_code as language,
+      r.language_confidence::float as language_confidence,
+      o.default_language_code as default_language,
+      r.location_id::text as location_id,
+      l.name as location_name,
+      r.update_time,
+      r.restricted_at,
+      r.workflow_status
+    from review r
+    join location l on l.id = r.location_id
+    join organisation o on o.id = r.organisation_id
+    where r.id = ${reviewId}
+    limit 1
+  `
+  if (!review) {
+    throw new ApiError(404, "review_not_found", "Review not found.")
+  }
+  return review
+}
+
+/**
+ * Both writes below move the review to `drafted`, and
+ * `enforce_review_workflow_transition` permits that from every state except
+ * `publish_requested` — where a raised PL/pgSQL exception is not an ApiError
+ * and would leave the operator with an opaque 500. Answer the 409 the copy
+ * already exists for instead, and check it again in the settle transaction
+ * because a publish can start while the provider call is in flight.
+ */
+function assertDraftable(review: ReviewRecord) {
+  if (review.restricted_at) {
+    throw new ApiError(
+      409,
+      "review_restricted",
+      "This review is restricted from reply processing."
+    )
+  }
+  if (!isAllowedReviewTransition(review.workflow_status, "drafted")) {
+    throw new ApiError(
+      409,
+      "publish_in_progress",
+      "A publish for this reply is already under way."
+    )
+  }
+}
 
 export const POST = route({
   roles: ["owner", "admin", "member"],
@@ -39,80 +116,71 @@ export const POST = route({
     }
     const { id } = params
     const correlationId = requestId
+
+    // Phase one: the gates and the evidence the provider needs. It COMMITS
+    // before the OpenAI calls below - a provider that takes 30 seconds must
+    // never hold a pooled connection idle in a transaction, or one AI incident
+    // drains the pool for sign-in, the inbox and the job runner alike. This is
+    // the intent -> provider -> settle shape lib/server/publishing uses.
+    const review = await tenant(async (sql) => {
+      const record = await loadReview(sql, id)
+      await requireLocationAccess(sql, session, record.location_id)
+      assertDraftable(record)
+      return record
+    })
+
+    const language =
+      input.languageOverride ??
+      (review.language && (review.language_confidence ?? 0) >= 0.7
+        ? review.language
+        : review.default_language)
+    const isRatingOnly = !review.review_text?.trim()
+
+    // Phase two: no connection is held here.
+    const generated = input.body
+      ? { reply: input.body, language }
+      : isRatingOnly
+        ? ratingOnlyReply(review.rating, language, review.reviewer_name)
+        : await generateReply({
+            reviewText: review.review_text,
+            rating: review.rating,
+            reviewerName: review.reviewer_name,
+            locationName: review.location_name,
+            language,
+            tone: input.tone,
+            businessContext: input.businessContext,
+          })
+    const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
+    const semantic = await runSemanticVerification({
+      body: generated.reply,
+      reviewText: review.review_text,
+      reviewerName: review.reviewer_name,
+      locationName: review.location_name,
+      rating: review.rating,
+      expectedLanguage: language,
+    })
+
+    // Phase three: settle. The review is re-read because a sync can land
+    // while the provider is thinking, and the evidence hash has to describe
+    // the review this draft is stored against — not the one phase one saw, or
+    // the draft is stale the moment it is written. The deterministic checks
+    // re-run against that re-read for the same reason; only the semantic
+    // reasons above are from the earlier snapshot.
     const result = await tenant(async (sql) => {
-      const [review] = await sql<
-        {
-          review_text: string | null
-          rating: number | null
-          reviewer_name: string | null
-          language: string | null
-          language_confidence: number | null
-          default_language: string
-          location_id: string
-          location_name: string
-          update_time: Date
-          restricted_at: Date | null
-        }[]
-      >`
-        select
-          r.review_text,
-          r.star_rating as rating,
-          r.reviewer_display_name as reviewer_name,
-          r.detected_language_code as language,
-          r.language_confidence::float as language_confidence,
-          o.default_language_code as default_language,
-          r.location_id::text as location_id,
-          l.name as location_name,
-          r.update_time,
-          r.restricted_at
-        from review r
-        join location l on l.id = r.location_id
-        join organisation o on o.id = r.organisation_id
-        where r.id = ${id}
-        limit 1
-      `
-      if (!review) {
-        throw new ApiError(404, "review_not_found", "Review not found.")
-      }
-      await requireLocationAccess(sql, session, review.location_id)
-      if (review.restricted_at) {
-        throw new ApiError(
-          409,
-          "review_restricted",
-          "This review is restricted from reply processing."
-        )
-      }
-      const language =
-        input.languageOverride ??
-        (review.language && (review.language_confidence ?? 0) >= 0.7
-          ? review.language
-          : review.default_language)
+      const current = await loadReview(sql, id)
+      await requireLocationAccess(sql, session, current.location_id)
+      assertDraftable(current)
       const evidenceHash = buildEvidenceHash({
         reviewId: id,
-        updateTime: review.update_time.toISOString(),
-        reviewText: review.review_text,
-        rating: review.rating,
-        location: review.location_name,
+        updateTime: current.update_time.toISOString(),
+        reviewText: current.review_text,
+        rating: current.rating,
+        location: current.location_name,
         language,
         tone: input.tone,
         businessContext: input.businessContext,
         draftPolicyVersion: DRAFT_POLICY_VERSION,
       })
-      const isRatingOnly = !review.review_text?.trim()
-      const generated = input.body
-        ? { reply: input.body, language }
-        : isRatingOnly
-          ? ratingOnlyReply(review.rating, language, review.reviewer_name)
-          : await generateReply({
-              reviewText: review.review_text,
-              rating: review.rating,
-              reviewerName: review.reviewer_name,
-              locationName: review.location_name,
-              language,
-              tone: input.tone,
-              businessContext: input.businessContext,
-            })
-      const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
       const [draft] = await sql<{ id: string }[]>`
         insert into draft (
           organisation_id,
@@ -146,24 +214,31 @@ export const POST = route({
         )
         returning id::text as id
       `
+      // `drafted` first: from `new` there is no edge straight to `verified`.
       await sql`
         update review
         set workflow_status = 'drafted'
         where id = ${id}
       `
       const verification = await verifyStoredDraft(sql, {
-        id: draft.id,
+        draftId: draft.id,
         body: generated.reply,
-        review_text: review.review_text,
-        reviewer_name: review.reviewer_name,
-        location_name: review.location_name,
-        rating: review.rating,
-        detected_language_code: language,
+        reviewText: current.review_text,
+        reviewerName: current.reviewer_name,
+        locationName: current.location_name,
+        rating: current.rating,
+        expectedLanguage: language,
+        semantic,
       })
+      // `pending` stays at `drafted` alongside `fail`: a draft whose semantic
+      // pass could not run has not been verified, and `verified` is what the
+      // publish button reads.
       await sql`
         update review
         set workflow_status = ${
-          verification.verdict === "fail" ? "drafted" : "verified"
+          verification.verdict === "pass" || verification.verdict === "warn"
+            ? "verified"
+            : "drafted"
         }
         where id = ${id}
       `
@@ -194,6 +269,7 @@ export const POST = route({
           draftId: draft.id,
           verdict: verification.verdict,
           reasons: verification.reasons,
+          semanticPass: semantic.status,
           clientRequestId,
         },
       })

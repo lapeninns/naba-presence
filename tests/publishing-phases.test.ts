@@ -66,6 +66,29 @@ describe("classifyProviderFailure", () => {
     expect((failure.nextAttemptAt as Date).getTime()).toBeGreaterThan(before)
   })
 
+  // conflicts.md C5: a reply queued behind a revoked or expired Google grant
+  // must not be failed terminally -- reconnecting is a person closing a task,
+  // and a terminal settle is not undone by it. It parks on its own 15-minute
+  // window rather than the 500ms-30s provider back-off, which would only spin
+  // the queue against a door that is not going to open inside a tick.
+  it.each([
+    [401, "google_reconnect_required"],
+    [503, "google_token_unavailable"],
+    [404, "connection_not_found"],
+  ])("parks a connection-blocked %i %s instead of failing it", (status, code) => {
+    const before = Date.now()
+    const failure = classifyProviderFailure(new ApiError(status, code, "no"), 3)
+    expect(failure.status).toBe("retryable")
+    expect(failure.retryable).toBe(true)
+    expect(failure.terminal).toBe(false)
+    expect(failure.ambiguous).toBe(false)
+    expect(failure.errorCode).toBe(code)
+    const wait = (failure.nextAttemptAt as Date).getTime() - before
+    // Roughly 15 minutes, and unambiguously outside the provider back-off band.
+    expect(wait).toBeGreaterThan(14 * 60_000)
+    expect(wait).toBeLessThanOrEqual(15 * 60_000)
+  })
+
   it("treats any other provider rejection as terminal", () => {
     const failure = classifyProviderFailure(
       new ApiError(400, "google_invalid_argument", "bad reply"),
