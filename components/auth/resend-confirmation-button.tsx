@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button"
 import { resendConfirmation } from "@/lib/api/auth"
 import { authErrorMessage } from "@/lib/api/auth-errors"
 
-function ResendConfirmationButton({ email }: { email: string }) {
+function ResendConfirmationButton({
+  email,
+  inviteToken,
+}: {
+  email: string
+  inviteToken?: string
+}) {
   const [state, setState] = useState<"idle" | "sent" | "failed">("idle")
   const [failure, setFailure] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -29,7 +35,12 @@ function ResendConfirmationButton({ email }: { email: string }) {
         onClick={() =>
           startTransition(async () => {
             try {
-              await resendConfirmation(email)
+              // The invitation flow sends its token along so the resent link
+              // still points back at the invitation; ordinary sign-in has
+              // none to send.
+              await (inviteToken
+                ? resendConfirmation(email, inviteToken)
+                : resendConfirmation(email))
               setState("sent")
             } catch (error) {
               setFailure(authErrorMessage(error).title)

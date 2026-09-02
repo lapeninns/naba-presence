@@ -12,8 +12,13 @@ OpenAI model names in the deployment environment. Never log environment values
 or decrypted Google tokens.
 
 Before a canary, confirm `DRAFTS_ENABLED`, `PUBLISH_ENABLED`, `SYNC_ENABLED`,
-and `WEBHOOKS_ENABLED`. Roll back to read-only by disabling publishing and
-drafting first; pause sync/webhooks only when data ingestion itself is unsafe.
+`WEBHOOKS_ENABLED`, `JOBS_ENABLED`, `SEMANTIC_VERIFY_ENABLED`,
+`RETENTION_ENABLED`, and `RETENTION_DELETES_ENABLED`. Roll back to read-only by
+disabling publishing and drafting first; pause sync/webhooks only when data
+ingestion itself is unsafe. `OPENAI_TIMEOUT_MS` is capped at 55000; a larger
+value fails environment validation at startup, because the database kills a
+connection left idle in a transaction for 60 seconds and the caller would see an
+opaque 500 rather than a provider timeout.
 Database migrations are roll-forward-only. Before a migration rollout, capture
 a restorable database snapshot and retain the currently deployed application
 image. If the migration or post-migration verification fails, restore the
@@ -23,6 +28,32 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
+
+## Kill switches
+
+Every flag is read once per process — `getServerEnv` parses `process.env` on
+first use and memoises it — so flipping one takes an environment change **and** a
+restart of both the web and scheduler processes. None of them is a hot switch,
+and none takes effect on a running process. When background provider traffic has
+to stop faster than a redeploy, stop the `pnpm start:scheduler` process instead:
+that halts the jobs runner, reconciliation and retention in one step and loses no
+work, because each resumes from its own cursor or queue. Interactive routes keep
+serving while it is down.
+
+| Flag                        | Off means                                                                                                                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAFTS_ENABLED`            | The drafts route returns 503 `drafts_paused`.                                                                                                                                                                                                        |
+| `SEMANTIC_VERIFY_ENABLED`   | Verification runs its deterministic checks alone. Use this, not `DRAFTS_ENABLED`, during an OpenAI incident: a hand-written reply is still saved and still faces the human boundary.                                                                 |
+| `PUBLISH_ENABLED`           | No reply or post reaches Google, from the interactive routes or from the runner's publish work.                                                                                                                                                      |
+| `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
+| `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
+| `JOBS_ENABLED`              | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on.                                                                                                                                              |
+| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing.                                                                                                                                                                              |
+| `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete. Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
+
+Pause the narrowest switch that covers the failure. A paused flag is not a fix:
+record why it is off and land the correction, because backlogs accrue behind
+`JOBS_ENABLED` and `SYNC_ENABLED` for as long as they are down.
 
 ## Scheduled work
 
@@ -95,6 +126,15 @@ failed event through `POST /api/webhooks/google/pubsub/replay` or run tenant
 reconciliation. Use the failures listing route and dead-letter procedure above
 to ensure retries are bounded and auditable. Keep publishing available only if
 review freshness is trustworthy.
+
+### AI provider degradation
+
+Set `SEMANTIC_VERIFY_ENABLED=false` and restart. Generation stays unavailable
+while the provider is down, but a human-authored reply is verified by the
+deterministic checks alone and is saved. Do not reach for `DRAFTS_ENABLED=false`:
+it takes away the hand-written path as well. Never raise `OPENAI_TIMEOUT_MS`
+above 55000 to ride out latency — the schema rejects it, and the database would
+kill the connection first.
 
 ### Quota storm
 

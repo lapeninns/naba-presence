@@ -24,6 +24,15 @@ export type Session = {
   email: string
   role: "owner" | "admin" | "member" | "viewer"
   canPublish: boolean
+  /**
+   * Set only on a session minted by POST /api/support/impersonation.
+   * Everything such a session does is attributed to the customer's own user
+   * id, so anything that records who acted has to read these and say so.
+   * Optional so existing `Session` fixtures stay valid; `lookupSession`
+   * always selects both.
+   */
+  supportActor?: string | null
+  impersonationReason?: string | null
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -61,7 +70,9 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         u.display_name as "displayName",
         u.email,
         m.role,
-        m.can_publish as "canPublish"
+        m.can_publish as "canPublish",
+        s.support_actor as "supportActor",
+        s.impersonation_reason as "impersonationReason"
       from app_session s
       join app_user u on u.id = s.user_id
       join organisation o on o.id = s.organisation_id

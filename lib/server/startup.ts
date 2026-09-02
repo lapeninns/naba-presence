@@ -1,10 +1,7 @@
 import "server-only"
 
 import { getDatabase } from "@/lib/server/db"
-import {
-  getServerEnv,
-  type ServerEnv,
-} from "@/lib/server/env"
+import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 
 export type DbIdentity = {
@@ -27,14 +24,10 @@ export function collectSafetyViolations(
     )
   }
   if (identity.rolBypassRls) {
-    violations.push(
-      "The runtime role has BYPASSRLS; tenant isolation is off."
-    )
+    violations.push("The runtime role has BYPASSRLS; tenant isolation is off.")
   }
   if (identity.rowSecurity !== "on") {
-    violations.push(
-      `row_security is '${identity.rowSecurity}', expected 'on'.`
-    )
+    violations.push(`row_security is '${identity.rowSecurity}', expected 'on'.`)
   }
   const hasStrongWebhookToken =
     (env.GOOGLE_PUBSUB_VERIFICATION_TOKEN?.length ?? 0) >= 32
@@ -45,6 +38,17 @@ export function collectSafetyViolations(
   ) {
     violations.push(
       "WEBHOOKS_ENABLED requires GOOGLE_PUBSUB_AUDIENCE (OIDC push verification) in production."
+    )
+  }
+  // The audience alone is a guessable identifier, not a secret: without the
+  // service-account pin the push endpoint accepts any Google-minted ID token.
+  if (
+    env.WEBHOOKS_ENABLED &&
+    env.GOOGLE_PUBSUB_AUDIENCE &&
+    !env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL
+  ) {
+    violations.push(
+      "GOOGLE_PUBSUB_AUDIENCE requires GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL; the audience on its own authenticates nobody."
     )
   }
   if (
@@ -61,15 +65,11 @@ export function collectSafetyViolations(
     const isLocal =
       authUrl.hostname === "localhost" || authUrl.hostname === "127.0.0.1"
     if (authUrl.protocol !== "https:" && !isLocal) {
-      violations.push(
-        "SUPABASE_URL must use HTTPS outside local development."
-      )
+      violations.push("SUPABASE_URL must use HTTPS outside local development.")
     }
   }
   if (env.LOCAL_BOOTSTRAP_ENABLED) {
-    const hostname = env.NEXTAUTH_URL
-      ? new URL(env.NEXTAUTH_URL).hostname
-      : ""
+    const hostname = env.NEXTAUTH_URL ? new URL(env.NEXTAUTH_URL).hostname : ""
     if (hostname !== "localhost" && hostname !== "127.0.0.1") {
       violations.push(
         "LOCAL_BOOTSTRAP_ENABLED must not be set on a non-localhost deployment."

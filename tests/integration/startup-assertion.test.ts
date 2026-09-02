@@ -28,11 +28,22 @@ describeDatabase("startup safety assertion", () => {
     expect(message).toContain("GOOGLE_PUBSUB_AUDIENCE")
   })
 
-  it("boots with webhooks enabled once the audience is set", async () => {
+  it("refuses to boot with an audience but no service-account pin", async () => {
+    const message = await expectBootFailure({
+      WEBHOOKS_ENABLED: "true",
+      GOOGLE_PUBSUB_AUDIENCE:
+        "https://harness.invalid/api/webhooks/google/pubsub",
+    })
+    expect(message).toContain("GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL")
+  })
+
+  it("boots with webhooks enabled once the audience and pin are set", async () => {
     const server = await startAppServer({
       WEBHOOKS_ENABLED: "true",
       GOOGLE_PUBSUB_AUDIENCE:
         "https://harness.invalid/api/webhooks/google/pubsub",
+      GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL:
+        "pubsub-push@harness.iam.gserviceaccount.com",
     })
     await server.stop()
   })

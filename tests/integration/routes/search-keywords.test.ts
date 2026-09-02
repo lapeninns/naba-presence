@@ -7,6 +7,7 @@ import {
   createTestTenant,
   destroyTenants,
   seedGoogleConnection,
+  seedLinkedLocation,
   seedLinkedReview,
 } from "../helpers/tenant"
 
@@ -76,11 +77,13 @@ describeDatabase("Google search keyword analytics", () => {
       body: JSON.stringify({ externalLocationId: linked.externalLocationId }),
     })
     expect(firstSync.status, await firstSync.clone().text()).toBe(200)
-    expect((await firstSync.json()).organisations[0].outcomes[0]).toMatchObject({
-      status: "succeeded",
-      months: 18,
-      upserted: 36,
-    })
+    expect((await firstSync.json()).organisations[0].outcomes[0]).toMatchObject(
+      {
+        status: "succeeded",
+        months: 18,
+        upserted: 36,
+      }
+    )
     const providerCalls = google.calls.filter((call) =>
       call.path.includes("/searchkeywords/impressions/monthly")
     )
@@ -135,7 +138,9 @@ describeDatabase("Google search keyword analytics", () => {
       body: JSON.stringify({ externalLocationId: linked.externalLocationId }),
     })
     expect(restatement.status, await restatement.clone().text()).toBe(200)
-    expect((await restatement.json()).organisations[0].outcomes[0]).toMatchObject({
+    expect(
+      (await restatement.json()).organisations[0].outcomes[0]
+    ).toMatchObject({
       status: "succeeded",
       months: 2,
       upserted: 4,
@@ -147,6 +152,147 @@ describeDatabase("Google search keyword analytics", () => {
     expect((await updated.json()).keywords[0]).toMatchObject({
       keyword: "nepalese food",
       impressions: 50,
+    })
+  }, 30_000)
+
+  it("keeps stored months when Google returns an unrecognised body", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const location = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    let recognised = true
+    google.reset()
+    google.respond(
+      { method: "GET", pathIncludes: "/searchkeywords/impressions/monthly" },
+      () =>
+        recognised
+          ? {
+              status: 200,
+              json: {
+                searchKeywordsCounts: [
+                  {
+                    searchKeyword: "nepalese food",
+                    insightsValue: { value: "42" },
+                  },
+                ],
+              },
+            }
+          : // An HTTP 200 whose body we do not recognise: a provider blip, or
+            // a field rename in a future API revision.
+            { status: 200, json: { somethingElse: [] } }
+    )
+
+    const backfill = await fetch(`${server.baseUrl}/api/sync/keywords`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie),
+      body: JSON.stringify({ externalLocationId: location.externalLocationId }),
+    })
+    expect(backfill.status, await backfill.clone().text()).toBe(200)
+    const [stored] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from performance_search_keyword_monthly
+      where external_location_id = ${location.externalLocationId}
+    `
+    expect(stored.count).toBe(18)
+
+    recognised = false
+    await admin`
+      update sync_checkpoint
+      set next_attempt_at = now()
+      where organisation_id = ${owner.organisationId}
+        and external_location_id = ${location.externalLocationId}
+        and sync_type = 'keywords'
+    `
+    const blip = await fetch(`${server.baseUrl}/api/sync/keywords`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie),
+      body: JSON.stringify({ externalLocationId: location.externalLocationId }),
+    })
+    expect(blip.status, await blip.clone().text()).toBe(200)
+    expect((await blip.json()).organisations[0].outcomes[0]).toMatchObject({
+      status: "succeeded",
+      months: 0,
+      upserted: 0,
+    })
+
+    // The restatement deletes a month before it inserts, so an unrecognised
+    // body must leave the month alone rather than read as "no keywords".
+    const [survived] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from performance_search_keyword_monthly
+      where external_location_id = ${location.externalLocationId}
+    `
+    expect(survived.count).toBe(18)
+    const [checkpoint] = await admin<{ lastErrorCode: string | null }[]>`
+      select last_error_code as "lastErrorCode"
+      from sync_checkpoint
+      where organisation_id = ${owner.organisationId}
+        and external_location_id = ${location.externalLocationId}
+        and sync_type = 'keywords'
+    `
+    expect(checkpoint.lastErrorCode).toBe("keyword_months_unrecognised")
+  }, 30_000)
+
+  it("revives a cancelled keywords checkpoint when a location is relinked", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const location = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    google.reset()
+    google.respond(
+      { method: "GET", pathIncludes: "/searchkeywords/impressions/monthly" },
+      () => ({
+        status: 200,
+        json: {
+          searchKeywordsCounts: [
+            {
+              searchKeyword: "pub near me",
+              insightsValue: { threshold: "15" },
+            },
+          ],
+        },
+      })
+    )
+    // What unlinking leaves behind: nothing else in the codebase returns a
+    // cancelled keywords checkpoint to a claimable status.
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id,
+        external_location_id,
+        sync_type,
+        status,
+        next_attempt_at
+      )
+      values (
+        ${owner.organisationId},
+        ${location.externalLocationId},
+        'keywords',
+        'cancelled',
+        null
+      )
+    `
+
+    const response = await fetch(`${server.baseUrl}/api/sync/keywords`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie),
+      body: JSON.stringify({ externalLocationId: location.externalLocationId }),
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await response.json()).organisations[0].outcomes[0]).toMatchObject({
+      status: "succeeded",
+      months: 18,
     })
   }, 30_000)
 })

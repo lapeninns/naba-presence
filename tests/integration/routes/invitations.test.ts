@@ -4,10 +4,7 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
-import {
-  createTestTenant,
-  destroyTenants,
-} from "../helpers/tenant"
+import { createTestTenant, destroyTenants } from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -26,15 +23,19 @@ type InvitationRow = {
   acceptedAt: Date | null
 }
 
-type ProvisionMember = (
-  profile: { sub: string; email?: string; name?: string },
-  invitation: {
-    id: string
-    organisationId: string
-    role: string
-    canPublish: boolean
+// Acceptance runs through provisionAuthenticatedMember, the function
+// completeEmailAuthentication actually calls. The suite used to drive these
+// branches through provisionMember, a Google twin no route could reach and
+// which never had the invited-email check.
+function acceptorIdentity(email: string) {
+  return {
+    provider: "supabase",
+    subject: `invite-subject-${randomUUID()}`,
+    email,
+    displayName: "Invited member",
+    emailVerified: true,
   }
-) => Promise<{ organisationId: string; userId: string; token: string }>
+}
 
 describeDatabase("organisation invitations", () => {
   let admin: ReturnType<typeof postgres>
@@ -67,8 +68,7 @@ describeDatabase("organisation invitations", () => {
     } = {}
   ) {
     const email =
-      overrides.email ??
-      `harness-invite-${randomUUID()}@nabapresence.test`
+      overrides.email ?? `harness-invite-${randomUUID()}@nabapresence.test`
     const response = await fetch(`${server.baseUrl}/api/invitations`, {
       method: "POST",
       headers: {
@@ -148,9 +148,7 @@ describeDatabase("organisation invitations", () => {
     expect(response.status, JSON.stringify(body)).toBe(201)
     const token = new URL(body.inviteUrl).pathname.split("/").at(-1)
 
-    const lookup = await fetch(
-      `${server.baseUrl}/api/invitations/${token}`
-    )
+    const lookup = await fetch(`${server.baseUrl}/api/invitations/${token}`)
     expect(lookup.status, await lookup.clone().text()).toBe(200)
     expect(await lookup.json()).toEqual({
       organisationName: "Harness tenant",
@@ -168,17 +166,14 @@ describeDatabase("organisation invitations", () => {
     })
     expect(response.status, JSON.stringify(body)).toBe(201)
     const invitation = await invitationByEmail(email)
-    const provisioning = await import("@/lib/server/provisioning")
-    const provisionMember = (
-      provisioning as unknown as { provisionMember: ProvisionMember }
-    ).provisionMember
-    const profile = {
-      sub: `invite-subject-${randomUUID()}`,
-      email: `harness-acceptor-${randomUUID()}@nabapresence.test`,
-      name: "Invited member",
-    }
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
 
-    const accepted = await provisionMember(profile, invitation)
+    const accepted = await provisionAuthenticatedMember(
+      acceptorIdentity(email),
+      invitation,
+      randomUUID()
+    )
     expect(accepted.organisationId).toBe(owner.organisationId)
     const [membership] = await admin<
       {
@@ -206,14 +201,58 @@ describeDatabase("organisation invitations", () => {
     })
     expect(membership.acceptedAt).toBeInstanceOf(Date)
     await expect(
-      provisionMember(
-        {
-          sub: `second-subject-${randomUUID()}`,
-          email: `harness-second-${randomUUID()}@nabapresence.test`,
-        },
-        invitation
+      provisionAuthenticatedMember(
+        acceptorIdentity(email),
+        invitation,
+        randomUUID()
       )
     ).rejects.toMatchObject({ code: "invitation_already_used" })
+  })
+
+  it("refuses an invitation addressed to a different verified email", async () => {
+    const owner = await fixture()
+    const { response, body, email } = await createInvitation(owner)
+    expect(response.status, JSON.stringify(body)).toBe(201)
+    const invitation = await invitationByEmail(email)
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
+    const otherEmail = `harness-other-${randomUUID()}@nabapresence.test`
+
+    await expect(
+      provisionAuthenticatedMember(
+        acceptorIdentity(otherEmail),
+        invitation,
+        randomUUID()
+      )
+    ).rejects.toMatchObject({ code: "invitation_email_mismatch" })
+    const [joined] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from member m
+      join app_user u on u.id = m.user_id
+      where m.organisation_id = ${owner.organisationId}
+        and u.email = ${otherEmail}
+    `
+    expect(joined.count).toBe(0)
+  })
+
+  it("refuses to invite someone who is already in the organisation", async () => {
+    const owner = await fixture()
+    // The owner's own address: accepting used to upsert over the membership,
+    // so a re-invitation as 'viewer' left the organisation ownerless.
+    const { response, body } = await createInvitation(owner, {
+      email: owner.email,
+      role: "viewer",
+      canPublish: false,
+    })
+
+    expect(response.status, JSON.stringify(body)).toBe(409)
+    expect(body.error).toBe("already_a_member")
+    const [owners] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from member
+      where organisation_id = ${owner.organisationId} and role = 'owner'
+    `
+    expect(owners.count).toBe(1)
   })
 
   it("reports and rejects expired invitations", async () => {
@@ -228,25 +267,19 @@ describeDatabase("organisation invitations", () => {
       where id = ${invitation.id}
     `
 
-    const lookup = await fetch(
-      `${server.baseUrl}/api/invitations/${token}`
-    )
+    const lookup = await fetch(`${server.baseUrl}/api/invitations/${token}`)
     expect(lookup.status, await lookup.clone().text()).toBe(200)
     expect(await lookup.json()).toMatchObject({
       accepted: false,
       expired: true,
     })
-    const provisioning = await import("@/lib/server/provisioning")
-    const provisionMember = (
-      provisioning as unknown as { provisionMember: ProvisionMember }
-    ).provisionMember
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
     await expect(
-      provisionMember(
-        {
-          sub: `expired-subject-${randomUUID()}`,
-          email: `harness-expired-${randomUUID()}@nabapresence.test`,
-        },
-        invitation
+      provisionAuthenticatedMember(
+        acceptorIdentity(email),
+        invitation,
+        randomUUID()
       )
     ).rejects.toMatchObject({ code: "invitation_expired" })
   })

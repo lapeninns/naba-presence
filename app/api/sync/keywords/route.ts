@@ -1,13 +1,20 @@
 import { keywordsSyncSchema } from "@/lib/contracts/sync"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
-import { syncDueKeywords } from "@/lib/server/keywords"
+import { syncDueKeywords, type KeywordSyncOutcome } from "@/lib/server/keywords"
 import { withAdvisoryLock } from "@/lib/server/leases"
+import { log } from "@/lib/server/logger"
 import { isCronRequest, route } from "@/lib/server/route"
 import { getSession, requireRole } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+type OrganisationFailure = { organisationId: string; errorCode: string }
+type OrganisationResult = {
+  organisationId: string
+  outcomes: KeywordSyncOutcome[]
+}
 
 // Session-or-cron hybrid: an owner/admin session syncs its own organisation,
 // the cron token (no session) walks every organisation. Declared `public` so
@@ -16,17 +23,28 @@ export const maxDuration = 60
 async function authenticate(request: Request) {
   const session = await getSession()
   if (!session && !isCronRequest(request)) {
-    throw new ApiError(401, "authentication_required", "Authentication required.")
+    throw new ApiError(
+      401,
+      "authentication_required",
+      "Authentication required."
+    )
   }
   if (session) requireRole(session, ["owner", "admin"])
   return session
 }
 
+function budgetMs() {
+  const configured = Number(process.env.KEYWORDS_BUDGET_MS ?? 45_000)
+  return Number.isFinite(configured) && configured >= 0 ? configured : 45_000
+}
+
 export const POST = route({
   auth: "public",
-  handler: async ({ request }) => {
+  handler: async ({ request, requestId }) => {
     const session = await authenticate(request)
-    const input = keywordsSyncSchema.parse(await request.json().catch(() => ({})))
+    const input = keywordsSyncSchema.parse(
+      await request.json().catch(() => ({}))
+    )
     // Cross-tenant enumeration: the cron walks every organisation that has a
     // job route, so this one read deliberately runs outside withTenant.
     const organisationIds = session
@@ -40,26 +58,88 @@ export const POST = route({
             limit ${input.maxOrganisations}
           `
         ).map((row) => row.id)
+    const deadline = Date.now() + budgetMs()
     const result = await withAdvisoryLock("naba:keywords", async () => {
-      const organisations = []
+      const organisations: OrganisationResult[] = []
+      const failures: OrganisationFailure[] = []
+      let processed = 0
+      let budgetExhausted = false
+      let lastProcessedOrganisationId: string | null = null
       for (const organisationId of organisationIds) {
-        organisations.push({
-          organisationId,
-          outcomes: await syncDueKeywords(organisationId, {
-            externalLocationId: input.externalLocationId,
-            maxLocations: input.maxLocations,
-          }),
-        })
+        // The scheduler's 55s client abort closes the socket but does not
+        // stop this handler, so the budget is what bounds the response, keeps
+        // the fleet lock from being held for the whole walk, and gets a
+        // cursor back to the caller — without one, a fleet larger than
+        // maxOrganisations never gets past its first page.
+        if (processed > 0 && Date.now() >= deadline) {
+          budgetExhausted = true
+          break
+        }
+        try {
+          organisations.push({
+            organisationId,
+            outcomes: await syncDueKeywords(organisationId, {
+              requestId,
+              externalLocationId: input.externalLocationId,
+              maxLocations: input.maxLocations,
+            }),
+          })
+        } catch (error) {
+          // A session syncs one organisation and owns the error: the kill
+          // switch's 503 and everything else must reach the caller. The cron
+          // walk isolates instead, so one organisation cannot discard the
+          // organisations after it.
+          if (session) throw error
+          const errorCode =
+            error instanceof ApiError ? error.code : "internal_error"
+          failures.push({ organisationId, errorCode })
+          log.error("keywords.organisation_failed", {
+            requestId,
+            organisationId,
+            error,
+          })
+        }
+        processed += 1
+        lastProcessedOrganisationId = organisationId
       }
-      return organisations
+      return {
+        organisations,
+        failures,
+        budgetExhausted,
+        lastProcessedOrganisationId,
+        skippedOrganisations: organisationIds.length - processed,
+      }
     })
-    const skipped = !Array.isArray(result)
+    if ("skipped" in result) {
+      // The cron branch reports the skip; a manual refresh must not, or the
+      // button clears itself and the user reads unchanged numbers as fresh.
+      if (session) {
+        throw new ApiError(
+          409,
+          "sync_in_progress",
+          "A Google refresh is already running. Please try again in a moment."
+        )
+      }
+      return {
+        organisations: [],
+        skipped: true,
+        failures: [],
+        truncated: false,
+        skippedOrganisations: organisationIds.length,
+        nextCursor: null,
+      }
+    }
     return {
-      organisations: skipped ? [] : result,
-      skipped,
+      organisations: result.organisations,
+      skipped: false,
+      failures: result.failures,
+      truncated: result.budgetExhausted,
+      skippedOrganisations: result.skippedOrganisations,
       nextCursor:
-        !session && organisationIds.length === input.maxOrganisations
-          ? organisationIds.at(-1)
+        !session &&
+        (result.budgetExhausted ||
+          organisationIds.length === input.maxOrganisations)
+          ? result.lastProcessedOrganisationId
           : null,
     }
   },

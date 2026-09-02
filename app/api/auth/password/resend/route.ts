@@ -17,6 +17,9 @@ export const POST = route({
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const confirmationUrl = new URL("/auth/confirm", baseUrl)
     confirmationUrl.searchParams.set("flow", "signup")
+    if (body.inviteToken) {
+      confirmationUrl.searchParams.set("inviteToken", body.inviteToken)
+    }
     await resendConfirmationEmail(body.email, confirmationUrl.toString())
     return NextResponse.json(
       { accepted: true } satisfies ResendConfirmationResponse,

@@ -21,6 +21,20 @@ export type GoogleSearchKeywordPoint = {
   threshold: number | null
 }
 
+/**
+ * A month's keyword read, with the two signals the caller needs to tell
+ * "Google says this month has no keywords" apart from "we did not recognise
+ * the body". Restating a month deletes it before inserting, so an
+ * unrecognised 200 must not look like an empty month.
+ */
+export type GoogleSearchKeywordPage = {
+  points: GoogleSearchKeywordPoint[]
+  /** True once any page carried a `searchKeywordsCounts` array. */
+  sawCountsArray: boolean
+  /** Entries the value/threshold shape check rejected. */
+  dropped: number
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
@@ -104,12 +118,23 @@ export function normalizeGooglePerformanceResponse(
 export function normalizeGoogleSearchKeywordResponse(
   response: Record<string, unknown>
 ): GoogleSearchKeywordPoint[] {
-  const counts = Array.isArray(response["searchKeywordsCounts"])
-    ? response["searchKeywordsCounts"]
+  return normalizeGoogleSearchKeywordPage(response).points
+}
+
+export function normalizeGoogleSearchKeywordPage(
+  response: Record<string, unknown>
+): GoogleSearchKeywordPage {
+  const sawCountsArray = Array.isArray(response["searchKeywordsCounts"])
+  const counts = sawCountsArray
+    ? (response["searchKeywordsCounts"] as unknown[])
     : []
   const points: GoogleSearchKeywordPoint[] = []
+  let dropped = 0
   for (const entry of counts) {
-    if (!isRecord(entry)) continue
+    if (!isRecord(entry)) {
+      dropped += 1
+      continue
+    }
     const searchKeyword = entry["searchKeyword"]
     const keyword =
       typeof searchKeyword === "string"
@@ -126,22 +151,27 @@ export function normalizeGoogleSearchKeywordResponse(
       value !== null && Number.isSafeInteger(value) && value >= 0
     const validThreshold =
       threshold !== null && Number.isSafeInteger(threshold) && threshold >= 0
-    if (!keyword || validValue === validThreshold) continue
+    if (!keyword || validValue === validThreshold) {
+      dropped += 1
+      continue
+    }
     points.push({
       keyword,
       impressions: validValue ? value : null,
       threshold: validThreshold ? threshold : null,
     })
   }
-  return points
+  return { points, sawCountsArray, dropped }
 }
 
 export async function googleSearchKeywordImpressions(
   accessToken: string,
   input: { readonly locationName: string; readonly month: string },
   options: { readonly connectionKey?: string; readonly maxPages?: number } = {}
-): Promise<GoogleSearchKeywordPoint[]> {
+): Promise<GoogleSearchKeywordPage> {
   const points: GoogleSearchKeywordPoint[] = []
+  let sawCountsArray = false
+  let dropped = 0
   let pageToken: string | undefined
   const maxPages = Math.min(100, Math.max(1, options.maxPages ?? 100))
   for (let page = 0; page < maxPages; page += 1) {
@@ -155,13 +185,16 @@ export async function googleSearchKeywordImpressions(
       request.init,
       { connectionKey: options.connectionKey }
     )
-    points.push(...normalizeGoogleSearchKeywordResponse(response))
+    const normalized = normalizeGoogleSearchKeywordPage(response)
+    points.push(...normalized.points)
+    sawCountsArray = sawCountsArray || normalized.sawCountsArray
+    dropped += normalized.dropped
     const nextPageToken = response["nextPageToken"]
     pageToken =
       typeof nextPageToken === "string" && nextPageToken
         ? nextPageToken
         : undefined
-    if (!pageToken) return points
+    if (!pageToken) return { points, sawCountsArray, dropped }
   }
   throw new ApiError(
     502,

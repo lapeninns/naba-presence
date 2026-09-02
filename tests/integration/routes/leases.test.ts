@@ -154,8 +154,10 @@ describeDatabase("scheduler advisory leases", () => {
     expect(
       bodies.filter((body) => "skipped" in body).length
     ).toBe(1)
+    // The skip envelope now carries `processed: 0` so a lock miss cannot read
+    // as a finished walk, so `"processed" in body` no longer discriminates.
     const completed = bodies.filter(
-      (body): body is { processed: number } => "processed" in body
+      (body): body is { processed: number } => !("skipped" in body)
     )
     expect(completed).toHaveLength(1)
     expect(completed[0]?.processed).toBeGreaterThanOrEqual(1)

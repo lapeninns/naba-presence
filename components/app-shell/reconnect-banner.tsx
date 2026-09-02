@@ -35,7 +35,14 @@ export function ReconnectBanner() {
     list.find((c) => c.reconnectRequired) ??
     list.find((c) => c.status !== "active") ??
     null
-  const reconnectRequired = list.some((c) => c.reconnectRequired)
+  // A connection that was replaced rather than repaired (re-consent with a
+  // different Google account creates a new row) keeps its own open reconnect
+  // task. Google IS connected, so that belongs on the connections page, not
+  // in a destructive full-width alert on every page of the app.
+  const connected = list.some(
+    (c) => c.status === "active" && !c.reconnectRequired
+  )
+  const reconnectRequired = !connected && list.some((c) => c.reconnectRequired)
   const show =
     status === "disconnected" || status === "error" || reconnectRequired
   if (!show) return null

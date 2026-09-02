@@ -104,24 +104,47 @@ describeDatabase("Pub/Sub acknowledgment matrix", () => {
     }
   }
 
-  function post(body: unknown) {
+  function post(body: unknown, token: string | null = verificationToken) {
     return fetch(`${server.baseUrl}/api/webhooks/google/pubsub`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-goog-pubsub-token": verificationToken,
+        ...(token === null ? {} : { "x-goog-pubsub-token": token }),
       },
       body: JSON.stringify(body),
     })
   }
 
+  function countEvents(messageId: string) {
+    return admin<{ count: number }[]>`
+      select count(*)::int as count
+      from processed_webhook_event
+      where external_event_id = ${messageId}
+    `.then(([row]) => row.count)
+  }
+
   function healthyGoogle() {
     stub.reset()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({ status: 200, json: { reviews: [] } })
-    )
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+    }))
   }
+
+  it("rejects an unauthenticated delivery without recording anything", async () => {
+    const messageId = randomUUID()
+    const anonymous = await post(envelope(linkedPayload(), messageId), null)
+    expect(anonymous.status).toBe(401)
+    expect(await anonymous.json()).toMatchObject({
+      error: "invalid_pubsub_token",
+    })
+    const wrongToken = await post(
+      envelope(linkedPayload(), messageId),
+      "not-the-configured-push-token-abcd!!"
+    )
+    expect(wrongToken.status).toBe(401)
+    expect(await countEvents(messageId)).toBe(0)
+  })
 
   it("acknowledges non-JSON message data as discarded", async () => {
     const response = await post({
@@ -142,9 +165,9 @@ describeDatabase("Pub/Sub acknowledgment matrix", () => {
     const response = await post(envelope({}))
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ status: "discarded" })
-    expect(
-      `${server.stdout}\n${server.stderr}`
-    ).toContain("nabapresence.webhook.discarded")
+    expect(`${server.stdout}\n${server.stderr}`).toContain(
+      "nabapresence.webhook.discarded"
+    )
   })
 
   it("acknowledges an unknown location as ignored", async () => {
@@ -155,7 +178,9 @@ describeDatabase("Pub/Sub acknowledgment matrix", () => {
       })
     )
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ status: "ignored" })
+    // Identical to the routed-but-unlinked body: a per-location difference
+    // would let an unauthenticated caller enumerate managed locations.
+    expect(await response.json()).toEqual({ status: "ignored" })
   })
 
   it("marks a linked successful notification processed", async () => {
@@ -174,13 +199,10 @@ describeDatabase("Pub/Sub acknowledgment matrix", () => {
 
   it("durably schedules a linked provider failure", async () => {
     stub.reset()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({
-        status: 500,
-        json: { error: { status: "INTERNAL" } },
-      })
-    )
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 500,
+      json: { error: { status: "INTERNAL" } },
+    }))
     const messageId = randomUUID()
     const response = await post(envelope(linkedPayload(), messageId))
     expect(response.status, await response.clone().text()).toBe(200)
@@ -212,6 +234,38 @@ describeDatabase("Pub/Sub acknowledgment matrix", () => {
     expect(duplicate.status).toBe(200)
     expect(await duplicate.json()).toEqual({ status: "duplicate" })
   })
+
+  it("acknowledges a redelivery arriving mid-sync without syncing twice", async () => {
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+      delayMs: 1_500,
+    }))
+    const messageId = randomUUID()
+    const inFlight = post(envelope(linkedPayload(), messageId))
+    // Long enough for the claim transaction to commit and the Google call to
+    // start; Pub/Sub redelivers on its own ack deadline, not on ours.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const redelivery = await post(envelope(linkedPayload(), messageId))
+    expect(redelivery.status, await redelivery.clone().text()).toBe(200)
+    expect(await redelivery.json()).toEqual({ status: "in_progress" })
+
+    const first = await inFlight
+    expect(first.status, await first.clone().text()).toBe(200)
+    expect(await first.json()).toMatchObject({ status: "processed" })
+    expect(
+      stub.calls.filter(
+        (call) => call.method === "GET" && call.path.includes("/reviews")
+      )
+    ).toHaveLength(1)
+    const [event] = await admin<{ status: string }[]>`
+      select status
+      from processed_webhook_event
+      where external_event_id = ${messageId}
+    `
+    expect(event.status).toBe("processed")
+  }, 20_000)
 
   it("lists only tenant-scoped failed webhook events for owners", async () => {
     const ownEventId = randomUUID()

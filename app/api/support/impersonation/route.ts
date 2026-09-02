@@ -7,7 +7,11 @@ import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
-import { createSession, setSessionCookie } from "@/lib/server/session"
+import {
+  clearSession,
+  createSession,
+  setSessionCookie,
+} from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
@@ -95,5 +99,38 @@ export const POST = route({
     })
     await setSessionCookie(token)
     return { impersonating: true, expiresWithinMinutes: 60 }
+  },
+})
+
+// Ending an impersonation was previously only possible by waiting out the
+// one-hour expiry, which left the free-text reason and the elevated session
+// alive for the whole window. The caller is whoever holds the impersonated
+// cookie, so this needs no support credential - it can only end the session
+// presenting it.
+export const DELETE = route({
+  handler: async ({ session, requestId, clientRequestId, tenant }) => {
+    if (!session.supportActor) {
+      throw new ApiError(
+        409,
+        "not_impersonating",
+        "This session is not a support impersonation session."
+      )
+    }
+    await tenant(async (sql) => {
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        action: "support.impersonation.ended",
+        subjectType: "user",
+        subjectId: session.userId,
+        requestId,
+        metadata: {
+          supportActor: session.supportActor,
+          reason: session.impersonationReason,
+          clientRequestId,
+        },
+      })
+    })
+    await clearSession()
+    return { impersonating: false }
   },
 })

@@ -8,6 +8,13 @@ import {
   serverEnvSchema,
 } from "@/lib/server/env"
 
+const baseEnv = {
+  DATABASE_URL: "postgresql://localhost/nabapresence",
+  NEXTAUTH_SECRET: "n".repeat(32),
+  TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+  CRON_SECRET: "c".repeat(16),
+}
+
 const allOn = {
   PUBLISH_ENABLED: true,
   GBP_PROFILE_WRITES_ENABLED: true,
@@ -29,12 +36,7 @@ describe("feature flags", () => {
   })
 
   it("defaults product GBP capability flags on", () => {
-    const env = serverEnvSchema.parse({
-      DATABASE_URL: "postgresql://localhost/nabapresence",
-      NEXTAUTH_SECRET: "n".repeat(32),
-      TOKEN_ENCRYPTION_KEY: "t".repeat(32),
-      CRON_SECRET: "c".repeat(16),
-    })
+    const env = serverEnvSchema.parse({ ...baseEnv })
 
     expect(env.GBP_PERFORMANCE_ENABLED).toBe(true)
     expect(env.GBP_KEYWORDS_ENABLED).toBe(true)
@@ -46,17 +48,62 @@ describe("feature flags", () => {
     expect(env.IMPORT_REVIEW_ENABLED).toBe(true)
   })
 
+  it("defaults the background and retention kill switches on", () => {
+    const env = serverEnvSchema.parse({ ...baseEnv })
+
+    expect(env.JOBS_ENABLED).toBe(true)
+    expect(env.SEMANTIC_VERIFY_ENABLED).toBe(true)
+    expect(env.RETENTION_ENABLED).toBe(true)
+    expect(env.RETENTION_DELETES_ENABLED).toBe(true)
+  })
+
+  it('turns each background and retention kill switch off on "false"', () => {
+    const env = serverEnvSchema.parse({
+      ...baseEnv,
+      JOBS_ENABLED: "false",
+      SEMANTIC_VERIFY_ENABLED: "false",
+      RETENTION_ENABLED: "false",
+      RETENTION_DELETES_ENABLED: "false",
+    })
+
+    expect(env.JOBS_ENABLED).toBe(false)
+    expect(env.SEMANTIC_VERIFY_ENABLED).toBe(false)
+    expect(env.RETENTION_ENABLED).toBe(false)
+    expect(env.RETENTION_DELETES_ENABLED).toBe(false)
+  })
+
+  it("stops deletes without stopping the rest of retention", () => {
+    const env = serverEnvSchema.parse({
+      ...baseEnv,
+      RETENTION_DELETES_ENABLED: "false",
+    })
+
+    expect(env.RETENTION_ENABLED).toBe(true)
+    expect(env.RETENTION_DELETES_ENABLED).toBe(false)
+  })
+
   it("no longer declares the deleted lodging and Actions Center stubs", () => {
-    expect(Object.keys(serverEnvSchema.shape)).not.toContain("GBP_LODGING_ENABLED")
-    expect(Object.keys(serverEnvSchema.shape)).not.toContain("ACTIONS_CENTER_ENABLED")
+    expect(Object.keys(serverEnvSchema.shape)).not.toContain(
+      "GBP_LODGING_ENABLED"
+    )
+    expect(Object.keys(serverEnvSchema.shape)).not.toContain(
+      "ACTIONS_CENTER_ENABLED"
+    )
   })
 })
 
 describe("per-surface GBP kill switches", () => {
   it("allows writes only when the global publish control and the surface flag are both on", () => {
     expect(gbpWritesEnabled(allOn, "profileWrites")).toBe(true)
-    expect(gbpWritesEnabled({ ...allOn, PUBLISH_ENABLED: false }, "profileWrites")).toBe(false)
-    expect(gbpWritesEnabled({ ...allOn, GBP_PROFILE_WRITES_ENABLED: false }, "profileWrites")).toBe(false)
+    expect(
+      gbpWritesEnabled({ ...allOn, PUBLISH_ENABLED: false }, "profileWrites")
+    ).toBe(false)
+    expect(
+      gbpWritesEnabled(
+        { ...allOn, GBP_PROFILE_WRITES_ENABLED: false },
+        "profileWrites"
+      )
+    ).toBe(false)
   })
 
   it("maps each write surface to its own flag without touching the others", () => {
@@ -77,11 +124,46 @@ describe("per-surface GBP kill switches", () => {
   })
 
   it("gates ingestion on the surface flag alone, independent of PUBLISH_ENABLED", () => {
-    expect(gbpIngestionEnabled({ ...allOn, PUBLISH_ENABLED: false }, "performance")).toBe(true)
-    expect(gbpIngestionEnabled({ ...allOn, PUBLISH_ENABLED: false }, "keywords")).toBe(true)
-    expect(gbpIngestionEnabled({ ...allOn, GBP_PERFORMANCE_ENABLED: false }, "performance")).toBe(false)
-    expect(gbpIngestionEnabled({ ...allOn, GBP_PERFORMANCE_ENABLED: false }, "keywords")).toBe(true)
-    expect(gbpIngestionEnabled({ ...allOn, GBP_KEYWORDS_ENABLED: false }, "keywords")).toBe(false)
+    expect(
+      gbpIngestionEnabled({ ...allOn, PUBLISH_ENABLED: false }, "performance")
+    ).toBe(true)
+    expect(
+      gbpIngestionEnabled({ ...allOn, PUBLISH_ENABLED: false }, "keywords")
+    ).toBe(true)
+    expect(
+      gbpIngestionEnabled(
+        { ...allOn, GBP_PERFORMANCE_ENABLED: false },
+        "performance"
+      )
+    ).toBe(false)
+    expect(
+      gbpIngestionEnabled(
+        { ...allOn, GBP_PERFORMANCE_ENABLED: false },
+        "keywords"
+      )
+    ).toBe(true)
+    expect(
+      gbpIngestionEnabled({ ...allOn, GBP_KEYWORDS_ENABLED: false }, "keywords")
+    ).toBe(false)
+  })
+})
+
+describe("provider timeouts", () => {
+  it("defaults the OpenAI timeout to thirty seconds", () => {
+    expect(serverEnvSchema.parse({ ...baseEnv }).OPENAI_TIMEOUT_MS).toBe(30_000)
+    expect(
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "45000" })
+        .OPENAI_TIMEOUT_MS
+    ).toBe(45_000)
+  })
+
+  it("rejects an OpenAI timeout that could outlast the transaction holding it", () => {
+    expect(() =>
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "60000" })
+    ).toThrow()
+    expect(() =>
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "0" })
+    ).toThrow()
   })
 })
 

@@ -79,7 +79,16 @@ export const serverEnvSchema = z.object({
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
-  OPENAI_TIMEOUT_MS: timeoutWithDefault(30_000),
+  // Capped below the connection's idle_in_transaction_session_timeout (60s,
+  // lib/server/db.ts) so a slow provider can never outlast a transaction the
+  // request still holds; Postgres would kill the backend mid-statement and the
+  // caller would see an opaque 500 instead of a provider timeout.
+  OPENAI_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(55_000)
+    .default(30_000),
   GOOGLE_CLIENT_ID: optionalText,
   GOOGLE_CLIENT_SECRET: optionalText,
   GOOGLE_PLACES_API_KEY: optionalText,
@@ -100,6 +109,20 @@ export const serverEnvSchema = z.object({
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
+  // Pauses the background runner wholesale. PUBLISH_ENABLED and SYNC_ENABLED
+  // gate the interactive routes only, so without this the runner keeps draining
+  // its backlog to Google after an operator believes writes are stopped.
+  JOBS_ENABLED: featureFlag(true),
+  // Degraded mode for the human boundary: off, verification runs its
+  // deterministic checks alone so a hand-written reply is still saved while the
+  // AI provider is down.
+  SEMANTIC_VERIFY_ENABLED: featureFlag(true),
+  // Two switches because the halves have different costs. RETENTION_ENABLED
+  // stops the sweep entirely; RETENTION_DELETES_ENABLED stops only the
+  // irreversible deletes, so redaction of expired provider content keeps
+  // meeting its obligation during an incident.
+  RETENTION_ENABLED: featureFlag(true),
+  RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
   GBP_PERFORMANCE_ENABLED: featureFlag(true),
@@ -114,6 +137,8 @@ export const serverEnvSchema = z.object({
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
 
+// Parsed once per process, so every flag above is a restart-scoped control, not
+// a hot kill switch. docs/runbook.md states this for on-call.
 let cachedEnv: ServerEnv | undefined
 
 export function getServerEnv(): ServerEnv {

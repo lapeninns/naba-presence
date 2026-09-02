@@ -131,12 +131,7 @@ describeDatabase("per-location backfill checkpoints", () => {
         status: 200,
         json: {
           reviews: [
-            reviewPayload(
-              fixture,
-              location,
-              "B1",
-              "2026-08-04T10:00:00.000Z"
-            ),
+            reviewPayload(fixture, location, "B1", "2026-08-04T10:00:00.000Z"),
           ],
         },
       }
@@ -146,12 +141,7 @@ describeDatabase("per-location backfill checkpoints", () => {
         status: 200,
         json: {
           reviews: [
-            reviewPayload(
-              fixture,
-              location,
-              "A3",
-              "2026-08-03T10:00:00.000Z"
-            ),
+            reviewPayload(fixture, location, "A3", "2026-08-03T10:00:00.000Z"),
           ],
         },
       }
@@ -161,12 +151,7 @@ describeDatabase("per-location backfill checkpoints", () => {
         status: 200,
         json: {
           reviews: [
-            reviewPayload(
-              fixture,
-              location,
-              "A2",
-              "2026-08-02T10:00:00.000Z"
-            ),
+            reviewPayload(fixture, location, "A2", "2026-08-02T10:00:00.000Z"),
           ],
           nextPageToken: "A3",
         },
@@ -176,12 +161,7 @@ describeDatabase("per-location backfill checkpoints", () => {
       status: 200,
       json: {
         reviews: [
-          reviewPayload(
-            fixture,
-            location,
-            "A1",
-            "2026-08-01T10:00:00.000Z"
-          ),
+          reviewPayload(fixture, location, "A1", "2026-08-01T10:00:00.000Z"),
         ],
         nextPageToken: "A2",
       },
@@ -212,6 +192,8 @@ describeDatabase("per-location backfill checkpoints", () => {
         external_location_id: string
         status: string
         page_token: string | null
+        last_error_code: string | null
+        next_attempt_at: Date | null
         high_water_update_time: Date | null
       }[]
     >`
@@ -219,6 +201,8 @@ describeDatabase("per-location backfill checkpoints", () => {
         external_location_id::text,
         status,
         page_token,
+        last_error_code,
+        next_attempt_at,
         high_water_update_time
       from sync_checkpoint
       where organisation_id = ${fixture.owner.organisationId}
@@ -227,11 +211,19 @@ describeDatabase("per-location backfill checkpoints", () => {
     `
   }
 
+  function locationCheckpoint(
+    rows: Awaited<ReturnType<typeof checkpoints>>,
+    location: LocationFixture
+  ) {
+    return rows.find(
+      (row) => row.external_location_id === location.externalLocationId
+    )
+  }
+
   it("keeps continuation tokens and watermarks location-scoped", async () => {
     const fixture = await createFixture()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      (call) => healthyPages(fixture, call)
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) =>
+      healthyPages(fixture, call)
     )
 
     const first = await runBackfill(fixture, [
@@ -243,8 +235,7 @@ describeDatabase("per-location backfill checkpoints", () => {
     expect(
       firstCheckpoints.find(
         (item) =>
-          item.external_location_id ===
-          fixture.locationA.externalLocationId
+          item.external_location_id === fixture.locationA.externalLocationId
       )
     ).toMatchObject({
       status: "pending",
@@ -253,8 +244,7 @@ describeDatabase("per-location backfill checkpoints", () => {
     expect(
       firstCheckpoints.find(
         (item) =>
-          item.external_location_id ===
-          fixture.locationB.externalLocationId
+          item.external_location_id === fixture.locationB.externalLocationId
       )
     ).toMatchObject({
       status: "succeeded",
@@ -272,10 +262,7 @@ describeDatabase("per-location backfill checkpoints", () => {
       [fixture.locationA.externalLocationId],
       2
     )
-    expect(
-      continuation.status,
-      await continuation.clone().text()
-    ).toBe(200)
+    expect(continuation.status, await continuation.clone().text()).toBe(200)
     const nextCalls = stub.calls.slice(callCount)
     expect(nextCalls[0]?.path).toContain("pageToken=A3")
     expect(nextCalls).toHaveLength(1)
@@ -283,22 +270,16 @@ describeDatabase("per-location backfill checkpoints", () => {
 
   it("retains one location's continuation after another page fails", async () => {
     const fixture = await createFixture()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      (call) => {
-        const location = locationForCall(fixture, call)
-        if (
-          location === fixture.locationA &&
-          pageToken(call) === "A2"
-        ) {
-          return {
-            status: 500,
-            json: { error: { status: "INTERNAL" } },
-          }
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) => {
+      const location = locationForCall(fixture, call)
+      if (location === fixture.locationA && pageToken(call) === "A2") {
+        return {
+          status: 500,
+          json: { error: { status: "INTERNAL" } },
         }
-        return healthyPages(fixture, call)
       }
-    )
+      return healthyPages(fixture, call)
+    })
 
     const response = await runBackfill(fixture, [
       fixture.locationA.externalLocationId,
@@ -309,8 +290,7 @@ describeDatabase("per-location backfill checkpoints", () => {
     expect(
       state.find(
         (item) =>
-          item.external_location_id ===
-          fixture.locationA.externalLocationId
+          item.external_location_id === fixture.locationA.externalLocationId
       )
     ).toMatchObject({
       status: "failed",
@@ -319,12 +299,90 @@ describeDatabase("per-location backfill checkpoints", () => {
     expect(
       state.find(
         (item) =>
-          item.external_location_id ===
-          fixture.locationB.externalLocationId
+          item.external_location_id === fixture.locationB.externalLocationId
       )
     ).toMatchObject({
       status: "succeeded",
       page_token: null,
     })
+  }, 20_000)
+
+  it("discards a page token Google rejects outright", async () => {
+    const fixture = await createFixture()
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) => {
+      const location = locationForCall(fixture, call)
+      if (location === fixture.locationA && pageToken(call) === "A2") {
+        return {
+          status: 400,
+          json: { error: { status: "INVALID_ARGUMENT" } },
+        }
+      }
+      return healthyPages(fixture, call)
+    })
+
+    const first = await runBackfill(
+      fixture,
+      [fixture.locationA.externalLocationId],
+      2
+    )
+    expect(first.status, await first.clone().text()).toBe(200)
+    // Keeping A2 would re-send the same dead cursor every 15-30 minutes for
+    // ever. Re-walking from page one is safe: the upsert is idempotent.
+    expect(
+      locationCheckpoint(await checkpoints(fixture), fixture.locationA)
+    ).toMatchObject({
+      status: "failed",
+      last_error_code: "INVALID_ARGUMENT",
+      page_token: null,
+    })
+
+    const callCount = stub.calls.length
+    const retry = await runBackfill(
+      fixture,
+      [fixture.locationA.externalLocationId],
+      2
+    )
+    expect(retry.status, await retry.clone().text()).toBe(200)
+    expect(stub.calls.slice(callCount)[0]?.path).not.toContain("pageToken")
+  }, 20_000)
+
+  it("dead-letters a location Google has never verified", async () => {
+    const fixture = await createFixture()
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) =>
+      healthyPages(fixture, call)
+    )
+    await admin`
+      update external_location
+      set verified = false
+      where id = ${fixture.locationA.externalLocationId}
+    `
+
+    const response = await runBackfill(fixture, [
+      fixture.locationA.externalLocationId,
+    ])
+    expect(response.status, await response.clone().text()).toBe(200)
+    // 'failed' with a due next_attempt_at is a claim state, so a fault only a
+    // human at Google can clear has to leave the claim window entirely.
+    const state = locationCheckpoint(
+      await checkpoints(fixture),
+      fixture.locationA
+    )
+    expect(state).toMatchObject({
+      status: "dead",
+      last_error_code: "location_not_verified",
+    })
+    expect(state?.next_attempt_at).toBeNull()
+
+    const [audit] = await admin<
+      { request_id: string | null; metadata: { errorCode: string } }[]
+    >`
+      select request_id, metadata
+      from audit_log
+      where organisation_id = ${fixture.owner.organisationId}
+        and action = 'sync.checkpoint.dead'
+        and subject_id = ${fixture.locationA.externalLocationId}
+    `
+    expect(audit.request_id).toBe(response.headers.get("x-request-id"))
+    expect(audit.metadata.errorCode).toBe("location_not_verified")
   }, 20_000)
 })

@@ -156,7 +156,7 @@ export async function upsertGoogleReview(
     select set_config('app.provider_reconciliation', 'true', true)
   `
 
-  const [review] = await sql<{ id: string }[]>`
+  const [review] = await sql<{ id: string; erasedAt: Date | null }[]>`
     insert into review (
       organisation_id,
       location_id,
@@ -208,14 +208,32 @@ export async function upsertGoogleReview(
     )
     on conflict (organisation_id, google_review_name_hash) do update
     set
-      reviewer_display_name = excluded.reviewer_display_name,
+      -- Google keeps serving a review long after its subject has been erased,
+      -- so an unguarded re-ingestion silently reverses a fulfilled erasure.
+      -- The guard keys on the explicit marker, never on "the stored content
+      -- is null": the retention cron nulls the same columns, and freezing
+      -- those rows would stop a live review being refreshed ever again.
+      reviewer_display_name = case
+        when review.erased_at is null then excluded.reviewer_display_name
+        else review.reviewer_display_name
+      end,
       reviewer_is_anonymous = excluded.reviewer_is_anonymous,
-      reviewer_profile_photo_url = excluded.reviewer_profile_photo_url,
+      reviewer_profile_photo_url = case
+        when review.erased_at is null
+          then excluded.reviewer_profile_photo_url
+        else review.reviewer_profile_photo_url
+      end,
       star_rating = excluded.star_rating,
-      review_text = excluded.review_text,
+      review_text = case
+        when review.erased_at is null then excluded.review_text
+        else review.review_text
+      end,
       detected_language_code = excluded.detected_language_code,
       language_confidence = excluded.language_confidence,
-      has_media = excluded.has_media,
+      has_media = case
+        when review.erased_at is null then excluded.has_media
+        else review.has_media
+      end,
       update_time = excluded.update_time,
       content_hash = excluded.content_hash,
       workflow_status = case
@@ -225,35 +243,42 @@ export async function upsertGoogleReview(
           then 'new'
         else review.workflow_status
       end,
-      raw_payload = excluded.raw_payload,
+      raw_payload = case
+        when review.erased_at is null then excluded.raw_payload
+        else review.raw_payload
+      end,
       raw_content_expires_at = excluded.raw_content_expires_at,
       provider_deleted_at = null
-    returning id::text as id
+    returning id::text as id, erased_at as "erasedAt"
   `
 
-  await sql`delete from review_media_item where review_id = ${review.id}`
-  for (const item of mediaItems) {
-    const mediaFormat = String(item.mediaFormat ?? "")
-    await sql`
-      insert into review_media_item (
-        organisation_id,
-        review_id,
-        thumbnail_url,
-        thumbnail_label,
-        video_url
-      )
-      values (
-        ${organisationId},
-        ${review.id},
-        ${item.thumbnailUrl ? String(item.thumbnailUrl) : null},
-        ${item.thumbnailLabel ? String(item.thumbnailLabel) : null},
-        ${
-          mediaFormat === "VIDEO" && item.googleUrl
-            ? String(item.googleUrl)
-            : null
-        }
-      )
-    `
+  // Skipped wholesale rather than guarded column by column: the delete plus
+  // re-insert below would re-create every photo the erasure removed.
+  if (!review.erasedAt) {
+    await sql`delete from review_media_item where review_id = ${review.id}`
+    for (const item of mediaItems) {
+      const mediaFormat = String(item.mediaFormat ?? "")
+      await sql`
+        insert into review_media_item (
+          organisation_id,
+          review_id,
+          thumbnail_url,
+          thumbnail_label,
+          video_url
+        )
+        values (
+          ${organisationId},
+          ${review.id},
+          ${item.thumbnailUrl ? String(item.thumbnailUrl) : null},
+          ${item.thumbnailLabel ? String(item.thumbnailLabel) : null},
+          ${
+            mediaFormat === "VIDEO" && item.googleUrl
+              ? String(item.googleUrl)
+              : null
+          }
+        )
+      `
+    }
   }
 
   if (moderation.comment !== null) {
@@ -325,9 +350,40 @@ type SyncHeader = {
   linked: LinkedLocation
   checkpointId: string
   attemptCount: number
+  consecutiveFailureCount: number
   pageToken: string | null
+  sweepStartedAt: Date | null
   highWaterUpdateTime: Date | null
   errorCode: string | null
+}
+
+/**
+ * How many consecutive failures a checkpoint may accumulate before it is
+ * dead-lettered. 'failed' with a due `next_attempt_at` is a claim state
+ * (0029 `claim_due_jobs`), so without a terminal state an error no retry can
+ * fix is re-driven every 15-30 minutes for ever.
+ */
+const MAX_CONSECUTIVE_FAILURES = 10
+
+/** Errors an operator has to clear at Google; retrying cannot resolve them. */
+function isPermanentSyncFailure(errorCode: string, status?: number) {
+  return (
+    errorCode === "location_not_verified" || status === 404 || status === 410
+  )
+}
+
+/**
+ * A cursor Google rejects outright is dead, and re-walking from page one is
+ * safe because the upsert is idempotent. 401/403 are grant faults and 408/429
+ * are transient, so both keep the pagination progress already made.
+ */
+function discardsPageToken(status?: number) {
+  return (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    ![401, 403, 408, 429].includes(status)
+  )
 }
 
 export async function syncLinkedLocation(input: {
@@ -335,6 +391,10 @@ export async function syncLinkedLocation(input: {
   externalLocationId: string
   type: SyncType
   maxPages: number
+  /** Correlates the audit rows this sync writes with the caller's request. */
+  requestId?: string
+  /** Epoch ms after which paging stops between pages (the caller's budget). */
+  deadline?: number
 }): Promise<SyncOutcome> {
   const header = await withTenant<SyncHeader | null>(
     input.organisationId,
@@ -348,6 +408,7 @@ export async function syncLinkedLocation(input: {
           id: string
           page_token: string | null
           attempt_count: number
+          consecutive_failure_count: number
         }[]
       >`
         insert into sync_checkpoint (
@@ -379,8 +440,29 @@ export async function syncLinkedLocation(input: {
           -- Paging runs outside this transaction; without a lease a crash
           -- strands the row at 'running' (0029, reclaim_expired_jobs).
           lease_expires_at = now() + interval '15 minutes'
-        returning id::text as id, page_token, attempt_count
+        returning
+          id::text as id,
+          page_token,
+          attempt_count,
+          consecutive_failure_count
       `
+      // A sweep resumes across claims, so the window it tombstones against
+      // lives on the checkpoint rather than in this process: a fresh run (no
+      // cursor) opens a new window, a resumed one keeps the window it started.
+      let sweepStartedAt: Date | null = null
+      if (input.type === "sweep") {
+        const [sweep] = await sql<{ sweepStartedAt: Date }[]>`
+          update sync_checkpoint
+          set sweep_started_at = ${
+            checkpoint.page_token === null
+              ? sql`now()`
+              : sql`coalesce(sweep_started_at, now())`
+          }
+          where id = ${checkpoint.id}
+          returning sweep_started_at as "sweepStartedAt"
+        `
+        sweepStartedAt = sweep.sweepStartedAt
+      }
       const [watermark] = await sql<{ highWaterUpdateTime: Date | null }[]>`
         select max(high_water_update_time) as "highWaterUpdateTime"
         from sync_checkpoint
@@ -390,7 +472,9 @@ export async function syncLinkedLocation(input: {
         linked,
         checkpointId: checkpoint.id,
         attemptCount: checkpoint.attempt_count,
+        consecutiveFailureCount: checkpoint.consecutive_failure_count,
         pageToken: checkpoint.page_token,
+        sweepStartedAt,
         highWaterUpdateTime: watermark.highWaterUpdateTime,
         errorCode: linked.verified ? null : "location_not_verified",
       }
@@ -407,26 +491,70 @@ export async function syncLinkedLocation(input: {
     }
   }
 
+  // Both checkpointed enumerations resume from their persisted cursor. A sweep
+  // that restarts at page one can never finish a location with more reviews
+  // than one claim's page budget covers.
   let pageToken =
-    input.type === "backfill" ? (header.pageToken ?? undefined) : undefined
+    input.type === "backfill" || input.type === "sweep"
+      ? (header.pageToken ?? undefined)
+      : undefined
   let pages = 0
   let upserted = 0
-  const sweepStartedAt = new Date()
-  const sweepSeenReviewNames = new Set<string>()
 
-  const settleFailure = async (errorCode: string): Promise<SyncOutcome> => {
-    const retryAt = syncRetryAt(header.checkpointId, header.attemptCount)
+  const settleFailure = async (
+    errorCode: string,
+    settlement: { status?: number; parked?: boolean } = {}
+  ): Promise<SyncOutcome> => {
+    // Neither of these is a failure the cap should count. A sweep that ran
+    // out of page budget made progress, and a grant awaiting reconnection is
+    // blocked on a person rather than on a budget: burning the cap on either
+    // dead-letters work that was only ever waiting.
+    const reconnectBlocked = errorCode === "google_reconnect_required"
+    const failureCount =
+      settlement.parked || reconnectBlocked
+        ? header.consecutiveFailureCount
+        : header.consecutiveFailureCount + 1
+    const dead =
+      !settlement.parked &&
+      (isPermanentSyncFailure(errorCode, settlement.status) ||
+        (!reconnectBlocked && failureCount >= MAX_CONSECUTIVE_FAILURES))
+    const discardToken = dead || discardsPageToken(settlement.status)
+    const retryAt =
+      dead || settlement.parked
+        ? null
+        : syncRetryAt(header.checkpointId, header.attemptCount)
     await withTenant(input.organisationId, async (sql) => {
-      await sql`
+      const settled = await sql<{ id: string }[]>`
         update sync_checkpoint
         set
-          status = 'failed',
+          status = ${dead ? "dead" : "failed"},
           last_error_code = ${errorCode},
           next_attempt_at = ${retryAt},
+          consecutive_failure_count = ${failureCount},
+          page_token = case
+            when ${discardToken}::boolean then null else page_token
+          end,
           finished_at = now(),
           lease_expires_at = null
         where id = ${header.checkpointId}
+          and status <> 'cancelled'
+        returning id::text as id
       `
+      if (dead && settled.length) {
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          action: "sync.checkpoint.dead",
+          subjectType: "external_location",
+          subjectId: input.externalLocationId,
+          requestId: input.requestId ?? null,
+          metadata: {
+            syncType: input.type,
+            errorCode,
+            consecutiveFailures: failureCount,
+            locationId: header.linked.locationId,
+          },
+        })
+      }
     })
     return {
       status: "failed",
@@ -458,11 +586,15 @@ export async function syncLinkedLocation(input: {
       const nextPageToken = page.nextPageToken
       const pageHighWater = maxReviewUpdateTime(page.reviews ?? [])
       const pageOldestUpdateTime = minReviewUpdateTime(page.reviews ?? [])
+      const pageReviewNameHashes: string[] = []
       if (input.type === "sweep") {
+        const pageSeen = new Set<string>()
         for (const review of page.reviews ?? []) {
-          if (typeof review.name === "string" && review.name) {
-            sweepSeenReviewNames.add(sha256(review.name))
-          }
+          if (typeof review.name !== "string" || !review.name) continue
+          const hash = sha256(review.name)
+          if (pageSeen.has(hash)) continue
+          pageSeen.add(hash)
+          pageReviewNameHashes.push(hash)
         }
       }
       const pageUpserted = await withTenant(
@@ -484,6 +616,16 @@ export async function syncLinkedLocation(input: {
             ) {
               committed += 1
             }
+          }
+          if (pageReviewNameHashes.length) {
+            // The seen-set has to outlive the request: a sweep resumed on a
+            // later claim cannot tombstone against an in-memory set.
+            await sql`
+              update review
+              set last_seen_at = now()
+              where external_location_id = ${input.externalLocationId}
+                and google_review_name_hash in ${sql(pageReviewNameHashes)}
+            `
           }
           if (pages === 0) {
             await sql`
@@ -524,27 +666,32 @@ export async function syncLinkedLocation(input: {
         pageOldestUpdateTime.getTime() <
           header.highWaterUpdateTime.getTime() - 24 * 60 * 60 * 1000
       pageToken = crossedReconcileFloor ? undefined : nextPageToken
-    } while (pageToken && pages < input.maxPages)
+    } while (
+      pageToken &&
+      pages < input.maxPages &&
+      (input.deadline === undefined || Date.now() < input.deadline)
+    )
 
     const hasMore = Boolean(pageToken)
     if (input.type === "sweep" && hasMore) {
-      return settleFailure("sweep_incomplete")
+      // Terminal on purpose: the runner claims by status plus a due
+      // next_attempt_at, and re-driving a five-page claim against a location
+      // that needs more pages never finishes. The cursor and the tombstone
+      // window survive, so the next sweep resumes where this one stopped.
+      return settleFailure("sweep_incomplete", { parked: true })
     }
     await withTenant(input.organisationId, async (sql) => {
-      if (input.type === "sweep") {
-        const seenHashes = [...sweepSeenReviewNames]
+      if (input.type === "sweep" && header.sweepStartedAt) {
         const tombstoned = await sql<{ id: string }[]>`
           update review
           set provider_deleted_at = now()
           where external_location_id = ${input.externalLocationId}
             and provider_deleted_at is null
-            and update_time < ${sweepStartedAt}
-            ${
-              seenHashes.length
-                ? sql`and google_review_name_hash
-                    not in ${sql(seenHashes)}`
-                : sql``
-            }
+            and update_time < ${header.sweepStartedAt}
+            and (
+              last_seen_at is null
+              or last_seen_at < ${header.sweepStartedAt}
+            )
           returning id::text as id
         `
         await writeAudit(sql, {
@@ -552,27 +699,34 @@ export async function syncLinkedLocation(input: {
           action: "review.provider_deleted",
           subjectType: "external_location",
           subjectId: input.externalLocationId,
-          requestId: crypto.randomUUID(),
+          requestId: input.requestId ?? null,
           metadata: {
             tombstoned: tombstoned.length,
             locationId: header.linked.locationId,
           },
         })
       }
+      // Nothing ever claims a reconcile checkpoint (claim_due_jobs takes only
+      // 'backfill' and 'sweep') and the next tick restarts at page one anyway,
+      // so parking one at 'pending' with a due next_attempt_at would only
+      // inflate the operator's backlog. hasMore reaches the caller instead.
+      const resumable = hasMore && input.type !== "reconcile"
       await sql`
         update sync_checkpoint
         set
-          status = ${hasMore ? "pending" : "succeeded"},
-          page_token = ${pageToken ?? null},
+          status = ${resumable ? "pending" : "succeeded"},
+          page_token = ${resumable ? (pageToken ?? null) : null},
           next_attempt_at = ${
-            hasMore
+            resumable
               ? syncRetryAt(header.checkpointId, header.attemptCount)
               : null
           },
-          finished_at = ${hasMore ? null : new Date()},
+          consecutive_failure_count = 0,
+          finished_at = ${resumable ? null : new Date()},
           last_review_update_time = now(),
           lease_expires_at = null
         where id = ${header.checkpointId}
+          and status <> 'cancelled'
       `
     })
     return {
@@ -582,6 +736,9 @@ export async function syncLinkedLocation(input: {
       hasMore,
     }
   } catch (error) {
-    return settleFailure(error instanceof ApiError ? error.code : "sync_failed")
+    return settleFailure(
+      error instanceof ApiError ? error.code : "sync_failed",
+      { status: error instanceof ApiError ? error.status : undefined }
+    )
   }
 }

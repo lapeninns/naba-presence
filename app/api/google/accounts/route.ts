@@ -1,10 +1,35 @@
 import { accountSelectionSchema } from "@/lib/contracts/google"
 import { writeAudit } from "@/lib/server/audit"
+import { getDatabase } from "@/lib/server/db"
 import { connectionAccessToken, googleAccounts } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+async function discoverAccounts(accessToken: string, connectionId: string) {
+  const discovered: Array<Record<string, unknown>> = []
+  const seenPageTokens = new Set<string>()
+  let pageToken: string | undefined
+  do {
+    const response = await googleAccounts(accessToken, pageToken, {
+      connectionKey: connectionId,
+    })
+    discovered.push(...(response.accounts ?? []))
+    pageToken = response.nextPageToken
+    if (pageToken) {
+      if (seenPageTokens.has(pageToken)) {
+        throw new ApiError(
+          502,
+          "google_pagination_cycle",
+          "Google returned a repeated account page token."
+        )
+      }
+      seenPageTokens.add(pageToken)
+    }
+  } while (pageToken)
+  return discovered
+}
 
 export const GET = route({
   roles: ["owner", "admin"],
@@ -12,8 +37,8 @@ export const GET = route({
     connectionId: searchParams.get("connection_id"),
   }),
   handler: async ({ session, query, tenant }) => {
-    const accounts = await tenant(async (sql) => {
-      const [connection] = query.connectionId
+    const connection = await tenant(async (sql) => {
+      const [found] = query.connectionId
         ? await sql<{ id: string }[]>`
             select id::text as id
             from google_connection
@@ -27,34 +52,25 @@ export const GET = route({
             order by created_at desc
             limit 1
           `
-      if (!connection) {
+      if (!found) {
         throw new ApiError(
           404,
           "connection_not_found",
           "Connect Google before discovering accounts."
         )
       }
-      const accessToken = await connectionAccessToken(sql, connection.id)
-      const discovered: Array<Record<string, unknown>> = []
-      const seenPageTokens = new Set<string>()
-      let pageToken: string | undefined
-      do {
-        const response = await googleAccounts(accessToken, pageToken, {
-          connectionKey: connection.id,
-        })
-        discovered.push(...(response.accounts ?? []))
-        pageToken = response.nextPageToken
-        if (pageToken) {
-          if (seenPageTokens.has(pageToken)) {
-            throw new ApiError(
-              502,
-              "google_pagination_cycle",
-              "Google returned a repeated account page token."
-            )
-          }
-          seenPageTokens.add(pageToken)
-        }
-      } while (pageToken)
+      return found
+    })
+    // Both the token (which may itself refresh) and the discovery pages run
+    // above `tenant`: a refresh failure has to commit its revoked status and
+    // reconnect task, and this handler's rollback would erase them.
+    const accessToken = await connectionAccessToken(
+      getDatabase(),
+      session.organisationId,
+      connection.id
+    )
+    const discovered = await discoverAccounts(accessToken, connection.id)
+    const accounts = await tenant(async (sql) => {
       for (const account of discovered) {
         const name = String(account.name ?? "")
         if (!name) continue

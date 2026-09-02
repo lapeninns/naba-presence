@@ -90,6 +90,26 @@ export const POST = route({
     let invitation: InvitationCreatedResponse["invitation"]
     try {
       invitation = await tenant(async (sql) => {
+        // Invitations are for people who are not in the organisation yet.
+        // Accepting one used to upsert over an existing membership, so
+        // re-inviting the sole owner as a viewer stripped the last owner
+        // from inside the sign-in transaction, where neither the
+        // owner_role_required nor the last_owner guard could reach it.
+        // Role changes belong to PATCH /api/members, which carries both.
+        const [existing] = await sql<{ userId: string }[]>`
+          select m.user_id::text as "userId"
+          from member m
+          join app_user u on u.id = m.user_id
+          where lower(u.email) = ${input.email}
+          limit 1
+        `
+        if (existing) {
+          throw new ApiError(
+            409,
+            "already_a_member",
+            "That person is already in this organisation. Change their role from the team list instead."
+          )
+        }
         const [row] = await sql<
           Array<{
             id: string
@@ -158,8 +178,7 @@ export const POST = route({
       }
       throw error
     }
-    const baseUrl =
-      getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
+    const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     return NextResponse.json(
       {
         invitation,

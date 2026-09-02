@@ -2,6 +2,7 @@ import { sweepSchema } from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -38,7 +39,7 @@ async function authenticate(request: Request) {
 
 export const POST = route({
   auth: "public",
-  handler: async ({ request }) => {
+  handler: async ({ request, requestId }) => {
     const session = await authenticate(request)
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
@@ -73,17 +74,22 @@ export const POST = route({
         locations = await withTenant(organisationId, (sql) =>
           linkedLocations(sql, input.externalLocationIds)
         )
-      } catch {
+      } catch (error) {
         failures.push({
           organisationId,
           externalLocationId: null,
           errorCode: "location_discovery_failed",
         })
+        // The only trace of this one: nothing else records why discovery
+        // failed, and the route wrapper never sees an exception the handler
+        // swallows.
+        log.error("sweep.location_discovery_failed", {
+          organisationId,
+          error,
+        })
         continue
       }
-      const results: Array<
-        { externalLocationId: string } & SyncOutcome
-      > = []
+      const results: Array<{ externalLocationId: string } & SyncOutcome> = []
       for (const location of locations) {
         try {
           const outcome = await syncLinkedLocation({
@@ -91,6 +97,7 @@ export const POST = route({
             externalLocationId: location.externalLocationId,
             type: "sweep",
             maxPages: input.maxPagesPerLocation,
+            requestId,
           })
           results.push({
             externalLocationId: location.externalLocationId,
@@ -103,11 +110,16 @@ export const POST = route({
               errorCode: outcome.errorCode ?? "sweep_failed",
             })
           }
-        } catch {
+        } catch (error) {
           failures.push({
             organisationId,
             externalLocationId: location.externalLocationId,
             errorCode: "sweep_failed",
+          })
+          log.error("sweep.location_failed", {
+            organisationId,
+            externalLocationId: location.externalLocationId,
+            error,
           })
         }
       }

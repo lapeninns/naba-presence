@@ -209,11 +209,15 @@ POST {NEXTAUTH_URL}/api/webhooks/google/pubsub
 ```
 
 Configure the push subscription with an OIDC service account, set
-`GOOGLE_PUBSUB_AUDIENCE` to the exact push audience and optionally pin
-`GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL`. A constant-time verification token can
-be required in addition. Google API access, OAuth verification, end-client
-authorisation, and the storage-policy interpretation must be approved before
-general availability.
+`GOOGLE_PUBSUB_AUDIENCE` to the exact push audience and pin
+`GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL` to that service account. Both are
+required together: the audience is a caller-chosen claim in a Google-issued
+ID token, not a secret, so without the pin the endpoint accepts any token
+Google will mint for anybody. Setting the audience without the pin fails the
+startup safety check and makes the endpoint answer 503. A constant-time
+verification token can be required in addition. Google API access, OAuth
+verification, end-client authorisation, and the storage-policy interpretation
+must be approved before general availability.
 
 ## Operational references
 

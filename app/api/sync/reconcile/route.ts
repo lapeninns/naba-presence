@@ -1,3 +1,5 @@
+import type { z } from "zod"
+
 import { reconcileSchema } from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
@@ -11,7 +13,7 @@ import {
   type SyncOutcome,
 } from "@/lib/server/reviews"
 import { isCronRequest, route } from "@/lib/server/route"
-import { getSession, requireRole } from "@/lib/server/session"
+import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -23,7 +25,8 @@ type ReconcileFailure = {
 }
 
 type ReconcileInput = {
-  request: Request
+  session: Session | null
+  input: z.infer<typeof reconcileSchema>
   requestId: string
   clientRequestId: string | null
 }
@@ -31,8 +34,9 @@ type ReconcileInput = {
 // Session-or-cron hybrid: an owner/admin session reconciles its own
 // organisation, the cron token (no session) walks every organisation.
 // Declared `public` so the wrapper enforces neither mode; authentication,
-// role gating, the kill switch and body parsing run inside the advisory lock
-// in the original order (401, 403, 503, 400).
+// role gating, the kill switch and body parsing run in the handler in the
+// original order (401, 403, 503, 400), all of it before the advisory lock so
+// an unauthenticated request never contends for the fleet lock.
 async function authenticate(request: Request) {
   const session = await getSession()
   if (!session && !isCronRequest(request)) {
@@ -47,19 +51,13 @@ async function authenticate(request: Request) {
 }
 
 async function reconcile({
-  request,
+  session,
+  input,
   requestId,
   clientRequestId,
 }: ReconcileInput) {
-  const session = await authenticate(request)
-  if (!getServerEnv().SYNC_ENABLED) {
-    throw new ApiError(503, "sync_paused", "Review sync is paused.")
-  }
-  const input = reconcileSchema.parse(await request.json().catch(() => ({})))
   const correlationId = requestId
-  const configuredBudget = Number(
-    process.env.RECONCILE_BUDGET_MS ?? 45_000
-  )
+  const configuredBudget = Number(process.env.RECONCILE_BUDGET_MS ?? 45_000)
   const deadline =
     Date.now() +
     (Number.isFinite(configuredBudget) && configuredBudget >= 0
@@ -86,7 +84,13 @@ async function reconcile({
   const organisations = []
   let processed = 0
   let budgetExhausted = false
-  let lastProcessedOrganisationId: string | null = null
+  // Seeded from the incoming cursor, not null: breaking inside the FIRST
+  // organisation of a tick must leave the cursor where it was, or the next
+  // tick restarts at the head of the tenant order and starves every
+  // organisation after it -- the exact starvation the inner deadline exists
+  // to prevent.
+  let lastProcessedOrganisationId: string | null =
+    input.organisationCursor ?? null
   for (const organisationId of organisationIds) {
     if (processed > 0 && Date.now() >= deadline) {
       budgetExhausted = true
@@ -131,16 +135,25 @@ async function reconcile({
       lastProcessedOrganisationId = organisationId
       continue
     }
-    const results: Array<
-      { externalLocationId: string } & SyncOutcome
-    > = []
+    const results: Array<{ externalLocationId: string } & SyncOutcome> = []
+    let locationBudgetExhausted = false
     for (const location of linked) {
+      // The walk has to yield between locations, not only between tenants:
+      // one organisation's locations can outlast the caller's abort on their
+      // own, and every tenant ordered after it is then never reached. The
+      // first location of the tick still runs, so a tick always progresses.
+      if ((processed > 0 || results.length > 0) && Date.now() >= deadline) {
+        locationBudgetExhausted = true
+        break
+      }
       try {
         const sync = await syncLinkedLocation({
           organisationId,
           externalLocationId: location.externalLocationId,
           type: "reconcile",
           maxPages: 20,
+          requestId,
+          deadline,
         })
         results.push({
           externalLocationId: location.externalLocationId,
@@ -173,9 +186,7 @@ async function reconcile({
         await writeAudit(sql, {
           organisationId,
           actorUserId: session?.userId ?? null,
-          action: results.some(
-            (location) => location.status === "failed"
-          )
+          action: results.some((location) => location.status === "failed")
             ? "sync.reconcile.failed"
             : "sync.reconcile.completed",
           subjectType: "organisation",
@@ -200,12 +211,18 @@ async function reconcile({
     }
     organisations.push({ organisationId, locations: results })
     processed += 1
+    if (locationBudgetExhausted) {
+      // The cursor deliberately does not advance past a half-walked
+      // organisation: the next tick re-enters it and finishes its remaining
+      // locations rather than skipping them until something else fails.
+      budgetExhausted = true
+      break
+    }
     lastProcessedOrganisationId = organisationId
   }
   const nextCursor =
     !session &&
-    (budgetExhausted ||
-      organisationIds.length === input.maxOrganisations)
+    (budgetExhausted || organisationIds.length === input.maxOrganisations)
       ? lastProcessedOrganisationId
       : null
   return {
@@ -218,8 +235,27 @@ async function reconcile({
 
 export const POST = route({
   auth: "public",
-  handler: ({ request, requestId, clientRequestId }) =>
-    withAdvisoryLock("naba:reconcile", () =>
-      reconcile({ request, requestId, clientRequestId })
-    ),
+  handler: async ({ request, requestId, clientRequestId }) => {
+    const session = await authenticate(request)
+    if (!getServerEnv().SYNC_ENABLED) {
+      throw new ApiError(503, "sync_paused", "Review sync is paused.")
+    }
+    const input = reconcileSchema.parse(await request.json().catch(() => ({})))
+    const result = await withAdvisoryLock("naba:reconcile", () =>
+      reconcile({ session, input, requestId, clientRequestId })
+    )
+    // A lock miss must not read as a finished walk. The caller advances off
+    // `nextCursor`, so a bare `{ skipped: true }` is indistinguishable from
+    // "every organisation is done" and the tick is logged as a success.
+    if ("skipped" in result) {
+      return {
+        processed: 0,
+        nextCursor: null,
+        failures: [] as ReconcileFailure[],
+        skipped: true,
+        ...(session ? { locations: [] } : {}),
+      }
+    }
+    return result
+  },
 })

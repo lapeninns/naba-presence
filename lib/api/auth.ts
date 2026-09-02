@@ -34,17 +34,22 @@ export async function requestPasswordReset(email: string): Promise<void> {
   })
 }
 
-export async function completePasswordReset(input: ResetPasswordInput): Promise<void> {
+export async function completePasswordReset(
+  input: ResetPasswordInput
+): Promise<void> {
   await apiFetch("/api/auth/password/reset/complete", {
     method: "POST",
     body: input,
   })
 }
 
-export async function resendConfirmation(email: string): Promise<void> {
+export async function resendConfirmation(
+  email: string,
+  inviteToken?: string
+): Promise<void> {
   await apiFetch("/api/auth/password/resend", {
     method: "POST",
-    body: { email } satisfies ResendConfirmationInput,
+    body: { email, inviteToken } satisfies ResendConfirmationInput,
   })
 }
 
@@ -52,7 +57,10 @@ export async function signOut(): Promise<void> {
   await apiFetch("/api/session", { method: "DELETE" })
 }
 
-export async function lookupInvitation(token: string, options?: RequestOptions) {
+export async function lookupInvitation(
+  token: string,
+  options?: RequestOptions
+) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
     schema: invitationLookupSchema,
     ...options,
