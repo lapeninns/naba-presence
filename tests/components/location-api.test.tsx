@@ -17,7 +17,7 @@ afterEach(() => {
 describe("locations directory + capabilities clients", () => {
   it("fetchManagementLocations requests the management view and maps rows", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      jsonResponse({ locations: [{ locationId: "loc-1", name: "Riverside", address: { locality: "Bath" }, timezone: "Europe/London", linkId: "ll-1", externalLocationId: "e-1", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true }] })
+      jsonResponse({ locations: [{ locationId: "loc-1", name: "Riverside", address: { locality: "Bath" }, timezone: "Europe/London", linkId: "ll-1", externalLocationId: "e-1", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true, clientId: null, clientName: null }] })
     )
     vi.stubGlobal("fetch", fetchMock)
     const result = await fetchManagementLocations()

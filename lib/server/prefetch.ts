@@ -36,10 +36,7 @@ import {
 import { withTenant } from "@/lib/server/db"
 import { log } from "@/lib/server/logger"
 import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
-import {
-  requireLocationAccess,
-  visibilityPredicate,
-} from "@/lib/server/permissions"
+import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 /**

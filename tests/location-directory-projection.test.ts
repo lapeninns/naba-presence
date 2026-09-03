@@ -19,7 +19,7 @@ const ROWS: DirectoryRow[] = [
     externalLocationId: null,
     googleLocationName: null,
     googleTitle: null,
-    verified: null,
+    verified: null, clientId: null, clientName: null
   },
   {
     locationId: "loc-1",
@@ -30,16 +30,31 @@ const ROWS: DirectoryRow[] = [
     externalLocationId: "ext-1",
     googleLocationName: "locations/1",
     googleTitle: "Zebra Bistro",
-    verified: true,
+    verified: true, clientId: null, clientName: null
   },
 ]
 
 describe("directory projections", () => {
   it("gives member and viewer `linked` but withholds owner/admin-only fields", () => {
     const entries = projectDefault(ROWS, "member")
+    // `clientId`/`clientName` are NOT withheld: which client a location
+    // belongs to is not privileged, the inbox rail groups by it for every
+    // role, and a member who can see the location can see whose it is.
     expect(entries).toEqual([
-      { id: "loc-2", name: "Aardvark Cafe", linked: false },
-      { id: "loc-1", name: "Zebra Bistro", linked: true },
+      {
+        id: "loc-2",
+        name: "Aardvark Cafe",
+        linked: false,
+        clientId: null,
+        clientName: null,
+      },
+      {
+        id: "loc-1",
+        name: "Zebra Bistro",
+        linked: true,
+        clientId: null,
+        clientName: null,
+      },
     ])
     for (const entry of entries) {
       expect(entry).not.toHaveProperty("googleLocationName")

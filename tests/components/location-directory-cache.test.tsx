@@ -28,12 +28,12 @@ describe("location directory cache", () => {
             externalLocationId: "ext-1",
             googleLocationName: "locations/1",
             googleTitle: "Riverside",
-            verified: true,
+            verified: true, clientId: null, clientName: null,
           },
         ],
       })
       vi.spyOn(locationsApi, "fetchLocations").mockResolvedValue({
-        locations: [{ id: "loc-1", name: "Riverside", linked: true }],
+        locations: [{ id: "loc-1", name: "Riverside", linked: true, clientId: null, clientName: null }],
       })
 
       const client = new QueryClient({

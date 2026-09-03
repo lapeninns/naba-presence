@@ -28,8 +28,11 @@ export async function listLocationDirectoryRows(
         e.id::text as "externalLocationId",
         e.google_location_name as "googleLocationName",
         e.title as "googleTitle",
-        e.verified
+        e.verified,
+        l.client_id::text as "clientId",
+        c.name as "clientName"
       from location l
+      left join client c on c.id = l.client_id
       left join location_link ll
         on ll.location_id = l.id
        and ll.is_active = true

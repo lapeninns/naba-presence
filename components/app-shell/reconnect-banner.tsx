@@ -5,11 +5,9 @@ import Link from "next/link"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
-import { useQuery } from "@tanstack/react-query"
+import { useClients } from "@/lib/queries/use-clients"
 
-import { fetchConnections } from "@/lib/api/connections"
-import { queryKeys } from "@/lib/queries/keys"
-import { useConnectionHealth } from "@/lib/queries/use-connection-health"
+import { useClientScope } from "./client-context"
 
 function formatWhen(iso: string | null | undefined): string | null {
   if (!iso) return null
@@ -19,69 +17,53 @@ function formatWhen(iso: string | null | undefined): string | null {
 }
 
 /**
- * Persistent shell banner for Google disconnect / reconnect-required states.
- * Complements StatusChip and Home's DisconnectedBanner with a dashboard-wide CTA.
+ * A reconnect prompt for the client the page is about.
+ *
+ * Client-scoped rather than shell-wide. The old banner sat on every page of
+ * the app whenever ANY connection was unhealthy, which for an agency means a
+ * permanent red bar naming no one: it neither said which client was affected
+ * nor gave an action that helped the client actually in front of you.
+ *
+ * On org-wide pages this renders nothing. Home's attention list carries those
+ * clients instead, where each row can name its own client and its own fix.
  */
 export function ReconnectBanner() {
-  const { status } = useConnectionHealth()
-  const connections = useQuery({
-    queryKey: queryKeys.connections,
-    queryFn: fetchConnections,
-    staleTime: 60_000,
-  })
+  const clientId = useClientScope()
+  const clients = useClients()
 
-  const list = connections.data?.connections ?? []
-  const problem =
-    list.find((c) => c.reconnectRequired) ??
-    list.find((c) => c.status !== "active") ??
+  if (!clientId) return null
+  const client = clients.data?.items.find((entry) => entry.id === clientId)
+  if (!client) return null
+  if (client.health !== "disconnected" && client.health !== "not_connected") {
+    return null
+  }
+  // A client with nothing linked yet is mid-setup, not broken. The fix is to
+  // finish the wizard, and a destructive alert would misdescribe it.
+  if (client.health === "not_connected" && client.linkedCount === 0) return null
+
+  const broken =
+    client.connections.find((connection) => connection.reconnectRequired) ??
+    client.connections.find((connection) => connection.status !== "active") ??
     null
-  // A connection that was replaced rather than repaired (re-consent with a
-  // different Google account creates a new row) keeps its own open reconnect
-  // task. Google IS connected, so that belongs on the connections page, not
-  // in a destructive full-width alert on every page of the app.
-  const connected = list.some(
-    (c) => c.status === "active" && !c.reconnectRequired
-  )
-  const reconnectRequired = !connected && list.some((c) => c.reconnectRequired)
-  const show =
-    status === "disconnected" || status === "error" || reconnectRequired
-  if (!show) return null
-
-  const lastRefresh = formatWhen(problem?.lastRefreshAt)
-  const lastError = problem?.lastErrorCode
-    ? problem.lastErrorCode.replace(/_/g, " ")
-    : null
-
-  const title = reconnectRequired
-    ? "Google needs reconnecting"
-    : status === "error"
-      ? "Google connection status unavailable"
-      : "Google is not connected"
-
-  const description = reconnectRequired
-    ? [
-        "Your Google connection requires attention. Reconnect to resume syncing reviews, photos, and location updates.",
-        lastError ? `Last error: ${lastError}.` : null,
-        lastRefresh ? `Last successful refresh: ${lastRefresh}.` : null,
-      ]
-        .filter(Boolean)
-        .join(" ")
-    : status === "error"
-      ? "We could not confirm the Google connection. Check Settings and try again."
-      : "No active Google connection exists, so live Google data cannot stay up to date. Reviews, photos, and location edits will not sync until you reconnect."
+  const lastRefresh = formatWhen(broken?.lastRefreshAt)
 
   return (
     <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
       <TriangleAlertIcon aria-hidden />
-      <AlertTitle>{title}</AlertTitle>
+      <AlertTitle>{client.name}: Google needs reconnecting</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>{description}</span>
+        <span>
+          {broken?.googleEmail
+            ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
+            : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
+          {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
+        </span>
         <Link
-          href="/settings/connections"
+          href={`/clients/${client.id}`}
           prefetch={false}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          Manage connection
+          Reconnect
         </Link>
       </AlertDescription>
     </Alert>

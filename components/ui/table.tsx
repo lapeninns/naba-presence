@@ -18,8 +18,27 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   )
 }
 
-function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
-  return <thead data-slot="table-header" className={cn("[&_th]:border-b [&_th]:border-border", className)} {...props} />
+/**
+ * `sticky` keeps the column labels visible while a long table scrolls, which
+ * a directory of forty clients needs. It is opt-in because a sticky header
+ * inside a page that scrolls as a whole would detach and float.
+ */
+function TableHeader({
+  className,
+  sticky = false,
+  ...props
+}: React.ComponentProps<"thead"> & { sticky?: boolean }) {
+  return (
+    <thead
+      data-slot="table-header"
+      className={cn(
+        "[&_th]:border-b [&_th]:border-border",
+        sticky && "sticky top-0 z-10 [&_th]:bg-[var(--np-table-header-bg)]",
+        className
+      )}
+      {...props}
+    />
+  )
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
@@ -30,7 +49,13 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   return (
     <tr
       data-slot="table-row"
-      className={cn("border-b border-border/60 transition-colors last:border-0 hover:bg-muted/40", className)}
+      className={cn(
+        "border-b border-line-subtle transition-colors duration-(--np-duration-fast) last:border-0 hover:bg-[var(--np-hover-bg)]",
+        // Selection is a background, not a border: a selected row that also
+        // changes height would make a checkbox column jitter as rows toggle.
+        "data-[selected=true]:bg-accent-tint",
+        className
+      )}
       {...props}
     />
   )
@@ -41,14 +66,23 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       scope="col"
       data-slot="table-head"
-      className={cn("h-10 px-3 text-left align-middle text-caption font-medium text-muted-foreground", className)}
+      className={cn(
+        "h-(--np-row-h) px-(--np-cell-px) text-left align-middle text-caption font-medium text-ink-muted",
+        className
+      )}
       {...props}
     />
   )
 }
 
 function TableCell({ className, ...props }: React.ComponentProps<"td">) {
-  return <td data-slot="table-cell" className={cn("px-3 py-2.5 align-middle", className)} {...props} />
+  return (
+    <td
+      data-slot="table-cell"
+      className={cn("px-(--np-cell-px) py-(--np-row-py) align-middle", className)}
+      {...props}
+    />
+  )
 }
 
 export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell }

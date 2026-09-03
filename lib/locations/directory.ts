@@ -28,6 +28,8 @@ export function projectManagement(
     googleLocationName: row.googleLocationName,
     googleTitle: row.googleTitle,
     verified: row.verified,
+    clientId: row.clientId,
+    clientName: row.clientName,
   }))
 }
 
@@ -43,6 +45,8 @@ export function projectDefault(
     id: row.locationId,
     name: row.name,
     linked: row.linkId !== null,
+    clientId: row.clientId,
+    clientName: row.clientName,
     ...(management ? { googleLocationName: row.googleLocationName } : {}),
   }))
 }
@@ -59,6 +63,9 @@ export type DirectoryEntry = {
   verified?: boolean
   timezone?: string
   externalLocationId?: string | null
+  /** Null while a location is imported but not yet filed under a client. */
+  clientId?: string | null
+  clientName?: string | null
 }
 
 export function toDirectoryEntriesFromManagement(
@@ -72,6 +79,8 @@ export function toDirectoryEntriesFromManagement(
     verified: Boolean(l.verified),
     timezone: l.timezone,
     externalLocationId: l.externalLocationId,
+    clientId: l.clientId,
+    clientName: l.clientName,
   }))
 }
 
@@ -81,5 +90,11 @@ export function toDirectoryEntriesFromDefault(
   // No address/verified/timezone/externalLocationId: the default payload
   // withholds them from member and viewer, and inventing defaults here would
   // make a withheld field indistinguishable from a false one.
-  return locations.map((l) => ({ id: l.id, name: l.name, linked: l.linked }))
+  return locations.map((l) => ({
+    id: l.id,
+    name: l.name,
+    linked: l.linked,
+    clientId: l.clientId ?? null,
+    clientName: l.clientName ?? null,
+  }))
 }

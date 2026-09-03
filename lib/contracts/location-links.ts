@@ -31,6 +31,8 @@ export const directoryRowSchema = z.object({
   googleLocationName: z.string().nullable(),
   googleTitle: z.string().nullable(),
   verified: z.boolean().nullable(),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
 })
 export type DirectoryRow = z.infer<typeof directoryRowSchema>
 
@@ -58,6 +60,11 @@ export const locationEntrySchema = z.object({
   id: z.string(),
   name: z.string(),
   linked: z.boolean(),
+  // Which client a location belongs to is not privileged information: a
+  // member who can see the location can see whose it is, and the inbox rail
+  // groups by it for every role.
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
 })
 export type LocationEntry = z.infer<typeof locationEntrySchema>
 

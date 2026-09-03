@@ -27,7 +27,7 @@ afterEach(() => {
 describe("LocationWorkspace", () => {
   it("renders the location name as the h1 and the tab body", async () => {
     vi.spyOn(locationsApi, "fetchManagementLocations").mockResolvedValue({
-      locations: [{ locationId: "loc-1", name: "Riverside", address: null, timezone: "Europe/London", linkId: "ll", externalLocationId: "e", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true }],
+      locations: [{ locationId: "loc-1", name: "Riverside", address: null, timezone: "Europe/London", linkId: "ll", externalLocationId: "e", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true, clientId: null, clientName: null }],
     })
     renderWorkspace("owner")
     expect(await screen.findByRole("heading", { level: 1, name: "Riverside" })).toBeInTheDocument()

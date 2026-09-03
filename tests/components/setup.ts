@@ -21,3 +21,20 @@ globalThis.File = NodeFile as unknown as typeof File
 // one `it()` leak into the next `it()` in the same file. Register cleanup
 // explicitly so every component test starts from an empty document body.
 afterEach(cleanup)
+
+// jsdom implements no ResizeObserver, and cmdk (the command palette) observes
+// its own list to keep the selected item scrolled into view. Without this the
+// palette throws on mount and takes the whole tree with it, so every test
+// that renders the shell would fail for a reason unrelated to what it asserts.
+if (!("ResizeObserver" in globalThis)) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver
+}
+
+// Same reason: jsdom lays nothing out, so it implements no scrollIntoView.
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {}
+}

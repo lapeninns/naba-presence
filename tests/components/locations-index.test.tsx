@@ -20,7 +20,7 @@ describe("LocationsIndex", () => {
   it("renders management columns for an owner", async () => {
     vi.spyOn(locationsApi, "fetchManagementLocations").mockResolvedValue({
       locations: [
-        { locationId: "loc-1", name: "Riverside", address: { locality: "Bath" }, timezone: "Europe/London", linkId: "ll-1", externalLocationId: "e-1", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true },
+        { locationId: "loc-1", name: "Riverside", address: { locality: "Bath" }, timezone: "Europe/London", linkId: "ll-1", externalLocationId: "e-1", googleLocationName: "locations/1", googleTitle: "Riverside", verified: true, clientId: null, clientName: null },
       ],
     })
     renderIndex("owner")
@@ -35,7 +35,7 @@ describe("LocationsIndex", () => {
 
   it("renders a plain single-column list for a member and no management columns", async () => {
     vi.spyOn(locationsApi, "fetchLocations").mockResolvedValue({
-      locations: [{ id: "loc-9", name: "Old Town", linked: true }],
+      locations: [{ id: "loc-9", name: "Old Town", linked: true, clientId: null, clientName: null }],
     })
     renderIndex("member")
     expect(await screen.findByRole("link", { name: "Old Town" })).toHaveAttribute("href", "/locations/loc-9")

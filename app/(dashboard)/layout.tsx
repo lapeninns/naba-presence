@@ -12,7 +12,9 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { QueryProvider } from "@/lib/queries/provider"
 import { makeQueryClient } from "@/lib/queries/query-client"
+import { listClientSummaries } from "@/lib/server/clients"
 import { listConnections } from "@/lib/server/connections"
+import { withTenant } from "@/lib/server/db"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
 
@@ -27,9 +29,6 @@ export default async function DashboardLayout({
   if (!session && !allowAnonymous) redirect("/sign-in")
 
   const queryClient = makeQueryClient()
-  // Derived from the same rows we hydrate below rather than a second query —
-  // it only decides whether the nav shows a Locations item.
-  let locationCount = 0
   if (session) {
     queryClient.setQueryData(queryKeys.connections, {
       connections: await listConnections(session),
@@ -46,8 +45,17 @@ export default async function DashboardLayout({
       session: sessionSchema.parse(session),
     })
 
+    // The sidebar pins recent clients and the topbar chip reports their
+    // health, so the client list is shell furniture: hydrating it here is
+    // what keeps the first paint from showing an empty nav that fills in.
+    queryClient.setQueryData(
+      queryKeys.clients,
+      await withTenant(session.organisationId, (sql) =>
+        listClientSummaries(sql, session)
+      )
+    )
+
     const rows = await listLocationDirectoryRows(session)
-    locationCount = rows.length
     const management = session.role === "owner" || session.role === "admin"
     queryClient.setQueryData(
       management ? queryKeys.locationsManagement : queryKeys.locations,
@@ -60,9 +68,7 @@ export default async function DashboardLayout({
   return (
     <QueryProvider>
       <HydrationBoundary state={dehydrate(queryClient)}>
-        <AppShell session={session} multiLocation={locationCount > 1}>
-          {children}
-        </AppShell>
+        <AppShell session={session}>{children}</AppShell>
       </HydrationBoundary>
     </QueryProvider>
   )
