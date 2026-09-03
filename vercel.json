@@ -1,0 +1,33 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/jobs/run",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/sync/reconcile?maxOrganisations=100",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/sync/presence-resources?maxOrganisations=10&maxLocations=5",
+      "schedule": "7,22,37,52 * * * *"
+    },
+    {
+      "path": "/api/sync/performance?maxOrganisations=100&maxLocations=25",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/sync/sweep?maxOrganisations=1&maxPagesPerLocation=5",
+      "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/sync/keywords?maxOrganisations=100&maxLocations=10",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/retention?batch_size=100",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

@@ -489,17 +489,45 @@ async function retain({
   }
 }
 
-export const POST = route({
-  auth: "cron",
-  query: (searchParams) => ({
+type RetentionQuery = { cursor: string | null; batchSize: number }
+
+function retentionQuery(searchParams: URLSearchParams): RetentionQuery {
+  return {
     cursor: searchParams.get("cursor"),
     batchSize: Math.min(
       100,
       Math.max(1, Number(searchParams.get("batch_size") ?? 25) || 25)
     ),
-  }),
+  }
+}
+
+function runRetentionTick({
+  requestId,
+  clientRequestId,
+  query,
+}: {
+  requestId: string
+  clientRequestId: string | null
+  query: RetentionQuery
+}) {
+  return withAdvisoryLock("naba:retention", () =>
+    retain({ requestId, clientRequestId, ...query })
+  )
+}
+
+export const POST = route({
+  auth: "cron",
+  query: retentionQuery,
   handler: ({ requestId, clientRequestId, query }) =>
-    withAdvisoryLock("naba:retention", () =>
-      retain({ requestId, clientRequestId, ...query })
-    ),
+    runRetentionTick({ requestId, clientRequestId, query }),
+})
+
+// Vercel Cron entry point: identical to POST — this route already took its
+// paging (`cursor`, `batch_size`) from the query string with an empty body,
+// so the daily cron fires it unchanged.
+export const GET = route({
+  auth: "cron",
+  query: retentionQuery,
+  handler: ({ requestId, clientRequestId, query }) =>
+    runRetentionTick({ requestId, clientRequestId, query }),
 })

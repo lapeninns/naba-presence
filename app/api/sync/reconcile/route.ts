@@ -13,6 +13,7 @@ import {
   type SyncOutcome,
 } from "@/lib/server/reviews"
 import { isCronRequest, route } from "@/lib/server/route"
+import { cronPageInput } from "@/lib/server/cron-query"
 import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -233,6 +234,38 @@ async function reconcile({
   }
 }
 
+type ReconcilePageInput = {
+  session: Session | null
+  input: z.infer<typeof reconcileSchema>
+  requestId: string
+  clientRequestId: string | null
+}
+
+// One page of the tenant walk. A lock miss must not read as a finished walk:
+// the caller advances off `nextCursor`, so a bare `{ skipped: true }` is
+// indistinguishable from "every organisation is done" and the tick would be
+// logged as a success.
+async function runReconcilePage({
+  session,
+  input,
+  requestId,
+  clientRequestId,
+}: ReconcilePageInput) {
+  const result = await withAdvisoryLock("naba:reconcile", () =>
+    reconcile({ session, input, requestId, clientRequestId })
+  )
+  if ("skipped" in result) {
+    return {
+      processed: 0,
+      nextCursor: null,
+      failures: [] as ReconcileFailure[],
+      skipped: true,
+      ...(session ? { locations: [] } : {}),
+    }
+  }
+  return result
+}
+
 export const POST = route({
   auth: "public",
   handler: async ({ request, requestId, clientRequestId }) => {
@@ -241,21 +274,26 @@ export const POST = route({
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
     const input = reconcileSchema.parse(await request.json().catch(() => ({})))
-    const result = await withAdvisoryLock("naba:reconcile", () =>
-      reconcile({ session, input, requestId, clientRequestId })
-    )
-    // A lock miss must not read as a finished walk. The caller advances off
-    // `nextCursor`, so a bare `{ skipped: true }` is indistinguishable from
-    // "every organisation is done" and the tick is logged as a success.
-    if ("skipped" in result) {
-      return {
-        processed: 0,
-        nextCursor: null,
-        failures: [] as ReconcileFailure[],
-        skipped: true,
-        ...(session ? { locations: [] } : {}),
-      }
+    return runReconcilePage({ session, input, requestId, clientRequestId })
+  },
+})
+
+// Vercel Cron entry point: the same single page the scheduler POSTed every
+// 15 minutes, with the schema fields as query params
+// (`?maxOrganisations=100`). Cron-only — an owner/admin session reconciling
+// its own organisation keeps using POST. The kill switch is checked before
+// parsing, preserving the POST order of 401, 503, then 400.
+export const GET = route({
+  auth: "cron",
+  handler: async ({ query, requestId, clientRequestId }) => {
+    if (!getServerEnv().SYNC_ENABLED) {
+      throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
-    return result
+    return runReconcilePage({
+      session: null,
+      input: reconcileSchema.parse(cronPageInput(query)),
+      requestId,
+      clientRequestId,
+    })
   },
 })
