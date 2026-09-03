@@ -23,6 +23,25 @@ type ProviderRow = {
   localAverageRating: number | null
 }
 
+/**
+ * Narrows a review-scoped query to one client. Reviews already join their
+ * location for visibility, so the scope is one more predicate rather than a
+ * second query path — the agency view and the single-client view are the same
+ * code with a different filter.
+ */
+function clientScope(
+  sql: TransactionSql,
+  clientId: string | undefined,
+  locationColumn = "r.location_id"
+) {
+  if (!clientId) return sql``
+  return sql`and exists (
+    select 1 from location scope_l
+    where scope_l.id = ${sql.unsafe(locationColumn)}
+      and scope_l.client_id = ${clientId}
+  )`
+}
+
 async function loadTimezone(sql: TransactionSql, organisationId: string) {
   const [organisation] = await sql<{ timezone: string }[]>`
     select default_timezone as timezone
@@ -35,7 +54,8 @@ async function loadTimezone(sql: TransactionSql, organisationId: string) {
 async function loadSummary(
   sql: TransactionSql,
   session: Session,
-  { from, to }: ReportWindow
+  { from, to }: ReportWindow,
+  clientId?: string
 ) {
   const [summary] = await sql`
     select
@@ -99,6 +119,7 @@ async function loadSummary(
       and r.create_time >= ${from}
       and r.create_time <= ${to}
       and ${visibilityPredicate(sql, session, sql`r.location_id`)}
+      ${clientScope(sql, clientId)}
   `
   return summary
 }
@@ -108,7 +129,8 @@ async function loadSeries(
   session: Session,
   { from, to }: ReportWindow,
   granularity: AnalyticsGranularity,
-  timezone: string
+  timezone: string,
+  clientId?: string
 ) {
   const bucketInterval =
     granularity === "month"
@@ -150,6 +172,7 @@ async function loadSeries(
         and r.create_time >= ${from}
         and r.create_time <= ${to}
         and ${visibilityPredicate(sql, session, sql`r.location_id`)}
+      ${clientScope(sql, clientId)}
       group by 1
     )
     select
@@ -167,7 +190,8 @@ async function loadSeries(
 async function loadLocations(
   sql: TransactionSql,
   session: Session,
-  { from, to }: ReportWindow
+  { from, to }: ReportWindow,
+  clientId?: string
 ) {
   return sql`
     select
@@ -231,12 +255,17 @@ async function loadLocations(
       and r.create_time >= ${from}
       and r.create_time <= ${to}
       and ${visibilityPredicate(sql, session, sql`r.location_id`)}
+      ${clientScope(sql, clientId)}
     group by l.id, l.name
     order by "averageRating" desc
   `
 }
 
-async function loadProviderTotals(sql: TransactionSql, session: Session) {
+async function loadProviderTotals(
+  sql: TransactionSql,
+  session: Session,
+  clientId?: string
+) {
   const [providerRow] = await sql<ProviderRow[]>`
     select
       round(
@@ -251,12 +280,14 @@ async function loadProviderTotals(sql: TransactionSql, session: Session) {
         from review r
         where r.provider_deleted_at is null
           and ${visibilityPredicate(sql, session, sql`r.location_id`)}
+      ${clientScope(sql, clientId)}
       ) as "localReviewCount",
       (
         select avg(r.star_rating)::float
         from review r
         where r.provider_deleted_at is null
           and ${visibilityPredicate(sql, session, sql`r.location_id`)}
+      ${clientScope(sql, clientId)}
       ) as "localAverageRating"
     from external_location e
     join location_link ll
@@ -264,6 +295,7 @@ async function loadProviderTotals(sql: TransactionSql, session: Session) {
      and ll.is_active = true
     where e.provider_totals_refreshed_at is not null
       and ${visibilityPredicate(sql, session, sql`ll.location_id`)}
+      ${clientScope(sql, clientId, "ll.location_id")}
   `
   const countDivergence =
     providerRow.totalReviewCount !== null &&
@@ -290,6 +322,8 @@ export type AnalyticsOverviewWindow = {
   from?: string
   to?: string
   granularity: AnalyticsGranularity
+  /** Narrows the whole overview to one client; omitted means the agency. */
+  clientId?: string
 }
 
 /** Resolves the default 30-day window the same way the route always has. */
@@ -311,16 +345,17 @@ export async function loadAnalyticsOverview(
     to: query.to ?? defaults.to,
   }
   const timezone = await loadTimezone(sql, session.organisationId)
-  const summary = await loadSummary(sql, session, window)
+  const summary = await loadSummary(sql, session, window, query.clientId)
   const series = await loadSeries(
     sql,
     session,
     window,
     query.granularity,
-    timezone
+    timezone,
+    query.clientId
   )
-  const locations = await loadLocations(sql, session, window)
-  const providerTotals = await loadProviderTotals(sql, session)
+  const locations = await loadLocations(sql, session, window, query.clientId)
+  const providerTotals = await loadProviderTotals(sql, session, query.clientId)
   return {
     from: window.from,
     to: window.to,

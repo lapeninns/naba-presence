@@ -12,6 +12,7 @@ export const GET = route({
       from: searchParams.get("from") ?? undefined,
       to: searchParams.get("to") ?? undefined,
       granularity: searchParams.get("granularity") ?? undefined,
+      clientId: searchParams.get("client_id") ?? undefined,
     }),
   handler: ({ session, query, tenant }) =>
     tenant((sql) => loadAnalyticsOverview(sql, session, query)),

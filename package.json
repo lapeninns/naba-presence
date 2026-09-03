@@ -23,6 +23,7 @@
     "test:integration": "node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration",
     "test:watch": "vitest",
     "lint": "eslint",
+    "check:contrast": "node scripts/check-contrast.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit"
   },

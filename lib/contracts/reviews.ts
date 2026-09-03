@@ -44,6 +44,35 @@ export function isRatingSort(sort: string | null | undefined): boolean {
   return sort === "rating_desc" || sort === "rating_asc"
 }
 
+/**
+ * Inbox queues. A queue is not a list of workflow states — "awaiting my
+ * approval" also depends on who requested the approval and who may publish —
+ * so membership is decided server-side by lib/server/review-queues.ts and the
+ * browser only ever names the queue.
+ */
+export const REVIEW_QUEUES = [
+  "needs_reply",
+  "awaiting_my_approval",
+  "awaiting_others",
+  "publishing",
+  "failed",
+  "done",
+  "all",
+] as const
+export type ReviewQueue = (typeof REVIEW_QUEUES)[number]
+export const reviewQueueSchema = z.enum(REVIEW_QUEUES)
+export const DEFAULT_REVIEW_QUEUE = "needs_reply" satisfies ReviewQueue
+
+export const REVIEW_QUEUE_LABELS: Record<ReviewQueue, string> = {
+  needs_reply: "Needs reply",
+  awaiting_my_approval: "Awaiting my approval",
+  awaiting_others: "Awaiting others",
+  publishing: "Publishing",
+  failed: "Failed",
+  done: "Done",
+  all: "All reviews",
+}
+
 export { REVIEW_WORKFLOW_STATES, type ReviewWorkflowState }
 export const reviewWorkflowStateSchema = z.enum(REVIEW_WORKFLOW_STATES)
 
@@ -169,7 +198,17 @@ export type ReviewsCursor = z.infer<typeof reviewsCursorSchema>
  * wire; exactly one value filters, anything else means "no reply filter".
  */
 export const reviewsQuerySchema = z.object({
+  /**
+   * Kept alongside `locationIds` because Home's attention list and every
+   * bookmark in the wild link with a single `location_id`. `decodeReviewsQuery`
+   * folds it into `locationIds`, so the server only ever reads the array.
+   */
   locationId: z.uuid().optional(),
+  locationIds: z.array(z.uuid()).max(200).optional(),
+  clientId: z.uuid().optional(),
+  queue: reviewQueueSchema.optional(),
+  /** "me" and "unassigned" are resolved server-side against the session. */
+  assignee: z.union([z.literal("me"), z.literal("unassigned"), z.uuid()]).optional(),
   ratings: z.array(z.number().int().min(1).max(5)).optional(),
   statuses: z.array(reviewWorkflowStateSchema).optional(),
   replyState: z
@@ -198,6 +237,10 @@ export type ReviewsFilters = Partial<
   Pick<
     ReviewsQuery,
     | "locationId"
+    | "locationIds"
+    | "clientId"
+    | "queue"
+    | "assignee"
     | "ratings"
     | "statuses"
     | "replyState"
@@ -215,6 +258,9 @@ export type ReviewsFilters = Partial<
 // drift; tests/integration/routes and tests/e2e depend on these names.
 const WIRE = {
   locationId: "location_id",
+  clientId: "client_id",
+  queue: "queue",
+  assignee: "assignee",
   ratings: "rating",
   statuses: "status",
   replyState: "reply_state",
@@ -288,7 +334,15 @@ export function encodeReviewsQuery(
       params.set(key, String(value))
     }
   }
-  set(WIRE.locationId, filters.locationId)
+  // One param carries both shapes: a single id stays `location_id=<uuid>`,
+  // several become a comma list, so old links keep working unchanged.
+  set(
+    WIRE.locationId,
+    csv(filters.locationIds) ?? filters.locationId ?? null
+  )
+  set(WIRE.clientId, filters.clientId)
+  set(WIRE.queue, filters.queue)
+  set(WIRE.assignee, filters.assignee)
   set(WIRE.ratings, csv(filters.ratings))
   set(WIRE.statuses, csv(filters.statuses))
   set(WIRE.replyState, filters.replyState)
@@ -338,8 +392,12 @@ export function decodeReviewsQuery(params: URLSearchParams): ReviewsQuery {
     throw new InvalidReviewsCursorError()
   }
   const pageSize = params.get(WIRE.pageSize)
+  const locationIds = commaStrings(params.get(WIRE.locationId))
   return reviewsQuerySchema.parse({
-    locationId: params.get(WIRE.locationId) ?? undefined,
+    locationIds: locationIds?.length ? locationIds : undefined,
+    clientId: params.get(WIRE.clientId) ?? undefined,
+    queue: params.get(WIRE.queue) ?? undefined,
+    assignee: params.get(WIRE.assignee) ?? undefined,
     ratings: commaNumbers(params.get(WIRE.ratings)),
     statuses: commaStrings(params.get(WIRE.statuses)),
     replyState: commaStrings(params.get(WIRE.replyState)),
@@ -459,13 +517,69 @@ export type ReviewDetail = z.infer<typeof reviewDetailSchema>
 
 export const reviewCountsQuerySchema = z.object({
   locationId: z.uuid().optional(),
+  clientId: z.uuid().optional(),
+  /** `client` adds the per-client `groups` array to the response. */
+  groupBy: z.literal("client").optional(),
 })
 
 export const reviewCountsSchema = z.object({
   total: z.number(),
   byStatus: z.record(z.string(), z.number()),
+  /**
+   * What the inbox rail actually renders. Computed from the SAME predicates
+   * the list query uses (lib/server/review-queues.ts), so a badge can never
+   * promise rows the queue does not contain.
+   */
+  byQueue: z.record(reviewQueueSchema, z.number()),
+  /** Per-client breakdown, present only when the caller asks to group. */
+  groups: z
+    .array(
+      z.object({
+        clientId: z.string().nullable(),
+        clientName: z.string(),
+        byQueue: z.record(reviewQueueSchema, z.number()),
+      })
+    )
+    .optional(),
 })
 export type ReviewCounts = z.infer<typeof reviewCountsSchema>
+
+// ---------------------------------------------------------------------------
+// Bulk triage
+// ---------------------------------------------------------------------------
+
+export const BULK_REVIEW_ACTIONS = ["approve", "assign", "mark_reviewed"] as const
+export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
+
+export const bulkReviewActionSchema = z
+  .object({
+    action: z.enum(BULK_REVIEW_ACTIONS),
+    reviewIds: z.array(z.uuid()).min(1).max(100),
+    /** Required for `assign`; null clears the assignee. */
+    assigneeId: z.uuid().nullable().optional(),
+  })
+  .refine(
+    (value) => value.action !== "assign" || value.assigneeId !== undefined,
+    { message: "Choose who to assign these to", path: ["assigneeId"] }
+  )
+export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
+
+/**
+ * Per-row outcomes, never a single verdict. A bulk approve over twenty
+ * reviews where three are no longer pending must apply the other seventeen
+ * and say which three it skipped — failing the batch would punish the
+ * operator for someone else's concurrent edit.
+ */
+export const bulkReviewResultSchema = z.object({
+  results: z.array(
+    z.object({
+      reviewId: z.string(),
+      status: z.enum(["ok", "skipped", "failed"]),
+      code: z.string().optional(),
+    })
+  ),
+})
+export type BulkReviewResult = z.infer<typeof bulkReviewResultSchema>
 
 // ---------------------------------------------------------------------------
 // Drafts, verify, publish, reply delete, approval

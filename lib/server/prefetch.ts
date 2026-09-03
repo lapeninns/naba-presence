@@ -35,6 +35,7 @@ import {
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
 import { log } from "@/lib/server/logger"
+import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
 import {
   requireLocationAccess,
   visibilityPredicate,
@@ -122,39 +123,22 @@ export async function prefetch(
 // Readers — one per GET route the dashboard hooks call on mount
 // ---------------------------------------------------------------------------
 
-/** Count aggregation shared with GET /api/reviews/counts. Pure; tested. */
-export function reviewCountsFromRows(
-  rows: { workflowStatus: ReviewWorkflowState; count: number }[]
-): ReviewCounts {
-  const byStatus = Object.fromEntries(
-    REVIEW_WORKFLOW_STATES.map((status) => [status, 0])
-  ) as Record<ReviewWorkflowState, number>
-  for (const row of rows) byStatus[row.workflowStatus] = row.count
-  return throughWire(reviewCountsSchema, {
-    total: rows.reduce((total, row) => total + row.count, 0),
-    byStatus,
-  } satisfies ReviewCounts)
-}
-
-/** What `useReviewCounts(locationId)` fetches. */
+/**
+ * What `useReviewCounts(locationId)` fetches.
+ *
+ * Delegates to `lib/server/review-counts.ts`, the one implementation the
+ * route also calls: the counts hydrated into the cache on first paint and the
+ * counts a later refetch returns must be produced the same way, or the rail
+ * flickers between two different truths.
+ */
 export async function readReviewCounts(
   session: Session,
   locationId?: string
 ): Promise<ReviewCounts> {
-  const rows = await withTenant(session.organisationId, async (sql) => {
-    if (locationId) await requireLocationAccess(sql, session, locationId)
-    return sql<{ workflowStatus: ReviewWorkflowState; count: number }[]>`
-      select
-        r.workflow_status as "workflowStatus",
-        count(*)::integer as count
-      from review r
-      where r.provider_deleted_at is null
-        ${locationId ? sql`and r.location_id = ${locationId}` : sql``}
-        and ${visibilityPredicate(sql, session, sql`r.location_id`)}
-      group by r.workflow_status
-    `
-  })
-  return reviewCountsFromRows(rows)
+  const counts = await withTenant(session.organisationId, (sql) =>
+    loadReviewCounts(sql, session, locationId ? { locationId } : {})
+  )
+  return throughWire(reviewCountsSchema, counts)
 }
 
 /** What `useAnalyticsOverview()` (no params, last 30 days) fetches. */

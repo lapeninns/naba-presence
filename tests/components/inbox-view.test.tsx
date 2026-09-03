@@ -7,6 +7,7 @@ import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail as ReviewDetailData, ReviewRow } from "@/lib/api/reviews"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -130,8 +131,16 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
   vi.spyOn(countsHook, "useReviewCounts").mockReturnValue({
-    data: { total: 1, byStatus: {} },
-  } as unknown as UseQueryResult<{ total: number; byStatus: Record<string, number> }>)
+    data: { total: 1, byStatus: {}, byQueue: {
+        needs_reply: 0,
+        awaiting_my_approval: 0,
+        awaiting_others: 0,
+        publishing: 0,
+        failed: 0,
+        done: 0,
+        all: 0,
+      } },
+  } as unknown as UseQueryResult<ReviewCounts>)
 
   vi.spyOn(connHealthHook, "useConnectionHealth").mockReturnValue({
     status: "connected",

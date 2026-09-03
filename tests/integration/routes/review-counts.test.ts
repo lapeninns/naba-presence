@@ -151,7 +151,7 @@ describeDatabase("review queue counts", () => {
       headers: { cookie: ownerCookie },
     })
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       total: 3,
       byStatus: {
         ...emptyCounts,
@@ -159,6 +159,37 @@ describeDatabase("review queue counts", () => {
         drafted: 1,
         published: 1,
       },
+      // The queue counts come from the same predicates the list query
+      // filters by, so a rail badge cannot promise rows the queue lacks:
+      // `new` and `drafted` are both still awaiting a reply, `published` is
+      // settled.
+      byQueue: {
+        needs_reply: 2,
+        awaiting_my_approval: 0,
+        awaiting_others: 0,
+        publishing: 0,
+        failed: 0,
+        done: 1,
+        all: 3,
+      },
+    })
+  })
+
+  it("groups counts by client when asked", async () => {
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/counts?group_by=client`,
+      { headers: { cookie: ownerCookie } }
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      groups: { clientId: string | null; clientName: string }[]
+    }
+    // These fixtures predate the client entity, so every location is still
+    // unassigned — which the rail shows as its own group rather than hiding.
+    expect(body.groups).toHaveLength(1)
+    expect(body.groups[0]).toMatchObject({
+      clientId: null,
+      clientName: "Unassigned locations",
     })
   })
 
@@ -167,9 +198,10 @@ describeDatabase("review queue counts", () => {
       headers: { cookie: memberCookie },
     })
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       total: 0,
       byStatus: emptyCounts,
+      byQueue: { needs_reply: 0, done: 0, all: 0 },
     })
   })
 

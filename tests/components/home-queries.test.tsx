@@ -27,7 +27,11 @@ afterEach(() => {
 
 describe("useReviewCounts", () => {
   it("fetches the counts endpoint and caches under the reserved key", async () => {
-    const body = { total: 7, byStatus: { new: 3, escalated: 1, failed: 1, published: 2 } }
+    const body = {
+      total: 7,
+      byStatus: { new: 3, escalated: 1, failed: 1, published: 2 },
+      byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 },
+    }
     const fetchMock = vi.fn(async () => jsonResponse(body))
     vi.stubGlobal("fetch", fetchMock)
     const client = new QueryClient({

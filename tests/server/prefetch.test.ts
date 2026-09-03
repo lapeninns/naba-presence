@@ -13,7 +13,6 @@ import {
   locationTabPrefetch,
   prefetch,
   readSettingsCapabilities,
-  reviewCountsFromRows,
   throughWire,
 } from "@/lib/server/prefetch"
 import type { InboxQueryRow } from "@/lib/server/reviews-query"
@@ -97,15 +96,28 @@ describe("throughWire", () => {
   })
 })
 
-describe("reviewCountsFromRows", () => {
-  it("zero-fills every workflow state and parses with reviewCountsSchema", () => {
-    const counts = reviewCountsFromRows([
-      { workflowStatus: "new", count: 3 },
-      { workflowStatus: "published", count: 2 },
-    ])
-    expect(reviewCountsSchema.safeParse(counts).success).toBe(true)
+// The count aggregation moved to lib/server/review-counts.ts so the route and
+// the prefetch share one implementation; it needs a transaction now, so it is
+// covered by tests/integration/routes/review-counts rather than here. What
+// stays pinned here is that a hydrated counts payload parses with the schema
+// the hook reads.
+describe("review counts hydration", () => {
+  it("parses a counts payload with reviewCountsSchema", () => {
+    const counts = throughWire(reviewCountsSchema, {
+      total: 5,
+      byStatus: { new: 3, published: 2 },
+      byQueue: {
+        needs_reply: 3,
+        awaiting_my_approval: 0,
+        awaiting_others: 0,
+        publishing: 0,
+        failed: 0,
+        done: 2,
+        all: 5,
+      },
+    })
     expect(counts.total).toBe(5)
-    expect(counts.byStatus.new).toBe(3)
+    expect(counts.byQueue.needs_reply).toBe(3)
   })
 })
 
@@ -152,17 +164,30 @@ describe("prefetch", () => {
     const state = await prefetch(session, [
       {
         queryKey: queryKeys.reviewCounts("organisation"),
-        load: async () => reviewCountsFromRows([]),
+        load: async () =>
+          throughWire(reviewCountsSchema, {
+            total: 0,
+            byStatus: {},
+            byQueue: {
+              needs_reply: 0,
+              awaiting_my_approval: 0,
+              awaiting_others: 0,
+              publishing: 0,
+              failed: 0,
+              done: 0,
+              all: 0,
+            },
+          }),
       },
     ])
     const client = makeQueryClient()
     hydrate(client, state)
-    expect(client.getQueryData(queryKeys.reviewCounts("organisation"))).toEqual(
-      {
-        total: 0,
-        byStatus: expect.objectContaining({ new: 0 }),
-      }
-    )
+    expect(
+      client.getQueryData(queryKeys.reviewCounts("organisation"))
+    ).toMatchObject({
+      total: 0,
+      byQueue: expect.objectContaining({ needs_reply: 0 }),
+    })
   })
 })
 

@@ -10,12 +10,26 @@ import type {
 } from "@/lib/contracts/reviews"
 import { sha256 } from "@/lib/server/crypto"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import { queuePredicate } from "@/lib/server/review-queues"
 import type { Session } from "@/lib/server/session"
 
 /** The decoded wire query (lib/contracts/reviews.ts) plus the caller. */
 export type InboxFilters = ReviewsQuery & {
   role: Session["role"]
   userId: string
+  canPublish: boolean
+  /** Organisation setting; decides whether a requester may approve their own. */
+  requireTwoPersonApproval: boolean
+}
+
+/**
+ * The location filter as one array. `location_id` on the wire may carry a
+ * single id (every existing deep link) or a comma list (the multi-select), so
+ * both shapes collapse here and the SQL below only ever sees a list.
+ */
+export function locationIdsFor(filters: Pick<ReviewsQuery, "locationId" | "locationIds">) {
+  const ids = [...(filters.locationIds ?? []), ...(filters.locationId ? [filters.locationId] : [])]
+  return ids.length > 0 ? [...new Set(ids)] : undefined
 }
 
 /**
@@ -151,9 +165,33 @@ export function buildInboxQuery(
       nullif(current_setting('app.organisation_id', true), '')::uuid
       and r.provider_deleted_at is null
       ${
-        filters.locationId
-          ? sql`and r.location_id = ${filters.locationId}`
+        locationIdsFor(filters)
+          ? sql`and r.location_id in ${sql(locationIdsFor(filters)!)}`
           : sql``
+      }
+      ${
+        filters.clientId
+          ? sql`and l.client_id = ${filters.clientId}`
+          : sql``
+      }
+      ${
+        filters.queue
+          ? sql`and ${queuePredicate(
+              sql,
+              { userId: filters.userId, role: filters.role, canPublish: filters.canPublish },
+              filters.queue,
+              { requireTwoPersonApproval: filters.requireTwoPersonApproval }
+            )}`
+          : sql``
+      }
+      ${
+        filters.assignee === "unassigned"
+          ? sql`and r.assigned_to is null`
+          : filters.assignee === "me"
+            ? sql`and r.assigned_to = ${filters.userId}`
+            : filters.assignee
+              ? sql`and r.assigned_to = ${filters.assignee}`
+              : sql``
       }
       ${
         filters.ratings?.length

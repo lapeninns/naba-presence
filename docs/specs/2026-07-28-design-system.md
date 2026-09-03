@@ -1,3 +1,7 @@
+> **Superseded** on 2026-09-03 by `docs/specs/2026-09-03-visual-identity.md`.
+> The Google-palette identity it specifies was replaced when the product moved
+> to the agency persona. Kept for the reasoning behind its contrast fixes.
+
 # NabaPresence design system
 
 **Date:** 2026-07-28

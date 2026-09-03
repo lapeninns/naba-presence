@@ -33,10 +33,20 @@ export const GET = route({
   },
   handler: async ({ session, query, tenant }) => {
     const rows = await tenant(async (sql) => {
+      // The two-person setting decides whether the requester of an approval
+      // may also grant it, which is what separates "awaiting my approval"
+      // from "awaiting others". Read once per request, not per row.
+      const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
+        select require_two_person_approval as "requireTwoPersonApproval"
+        from organisation
+        where id = ${session.organisationId}
+      `
       const queried = await buildInboxQuery(sql, {
         ...query,
         role: session.role,
         userId: session.userId,
+        canPublish: session.canPublish,
+        requireTwoPersonApproval: settings?.requireTwoPersonApproval ?? false,
       })
       const capabilities = await reviewCapabilitiesForLocations(
         sql,

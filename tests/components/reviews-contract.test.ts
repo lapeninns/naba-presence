@@ -89,8 +89,14 @@ describe("reviews contract: wire codec", () => {
       page_size: "20",
       cursor,
     })
+    // Decode always yields the ARRAY form: `location_id` on the wire may be
+    // one id (every existing deep link) or a comma list (the multi-select),
+    // and the server should only ever see one shape.
     expect(decodeReviewsQuery(params)).toEqual({
-      locationId: "0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f",
+      locationIds: ["0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f"],
+      clientId: undefined,
+      queue: undefined,
+      assignee: undefined,
       ratings: [4, 5],
       statuses: ["new", "drafted"],
       replyState: "unreplied",
@@ -104,6 +110,40 @@ describe("reviews contract: wire codec", () => {
       pageSize: 20,
       cursor: CURSOR,
     })
+  })
+
+  it("carries the agency filters: client, queue, assignee and many locations", () => {
+    const params = encodeReviewsQuery({
+      clientId: "1a2b3c4d-5e6f-4a3b-8c2d-9e8f7a6b5c4d",
+      queue: "awaiting_my_approval",
+      assignee: "me",
+      locationIds: [
+        "0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f",
+        "2b3c4d5e-6f7a-4b3c-8d2e-1f2a3b4c5d6e",
+      ],
+    })
+    expect(Object.fromEntries(params)).toEqual({
+      client_id: "1a2b3c4d-5e6f-4a3b-8c2d-9e8f7a6b5c4d",
+      queue: "awaiting_my_approval",
+      assignee: "me",
+      location_id:
+        "0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f,2b3c4d5e-6f7a-4b3c-8d2e-1f2a3b4c5d6e",
+    })
+    const decoded = decodeReviewsQuery(params)
+    expect(decoded.clientId).toBe("1a2b3c4d-5e6f-4a3b-8c2d-9e8f7a6b5c4d")
+    expect(decoded.queue).toBe("awaiting_my_approval")
+    expect(decoded.assignee).toBe("me")
+    expect(decoded.locationIds).toHaveLength(2)
+  })
+
+  it("keeps single-location deep links working", () => {
+    // components/home/attention-list.tsx links with one `location_id`, and so
+    // does every bookmark a user has saved.
+    const decoded = decodeReviewsQuery(
+      new URLSearchParams("location_id=0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f&rating=1,2")
+    )
+    expect(decoded.locationIds).toEqual(["0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f"])
+    expect(decoded.ratings).toEqual([1, 2])
   })
 
   it("omits empty filters and applies the server defaults on decode", () => {

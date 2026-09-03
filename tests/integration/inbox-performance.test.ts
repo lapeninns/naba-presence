@@ -149,6 +149,8 @@ describeDatabase("100k-review inbox performance", () => {
     sort: "updated_desc" as const,
     pageSize: 50,
     role: "owner" as const,
+      canPublish: true,
+      requireTwoPersonApproval: false,
     userId: crypto.randomUUID(),
   }
 

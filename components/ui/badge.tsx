@@ -12,7 +12,7 @@ const badgeVariants = cva(
         // Darken rather than the stock `bg-primary/80` lightening, which drops
         // white-on-primary to 3.27:1 when the badge is a link. See button.tsx.
         default:
-          "bg-primary text-primary-foreground [a]:hover:bg-[color-mix(in_oklch,var(--primary),var(--foreground)_12%)]",
+          "bg-primary text-primary-foreground [a]:hover:bg-[var(--np-accent-hover)]",
         secondary:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:

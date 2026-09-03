@@ -104,7 +104,15 @@ describe("OverviewView", () => {
     fakeCounts({
       isPending: false,
       isError: false,
-      data: { total: 21, byStatus: fullByStatus },
+      data: { total: 21, byStatus: fullByStatus, byQueue: {
+        needs_reply: 0,
+        awaiting_my_approval: 0,
+        awaiting_others: 0,
+        publishing: 0,
+        failed: 0,
+        done: 0,
+        all: 0,
+      } },
     })
     fakeAnalytics({
       isPending: false,
@@ -183,6 +191,15 @@ describe("OverviewView", () => {
           published: 0,
           rejected: 0,
           failed: 0,
+        },
+        byQueue: {
+          needs_reply: 0,
+          awaiting_my_approval: 0,
+          awaiting_others: 0,
+          publishing: 0,
+          failed: 0,
+          done: 0,
+          all: 0,
         },
       },
     })

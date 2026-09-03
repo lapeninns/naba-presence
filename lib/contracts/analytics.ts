@@ -34,6 +34,8 @@ export type PresenceStatus = z.infer<typeof presenceStateSchema>
 
 /** GET `/api/analytics/overview` query. */
 export const analyticsOverviewQuerySchema = z.object({
+  /** Scope the whole overview to one client; omitted means the whole agency. */
+  clientId: z.uuid().optional(),
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   granularity: z.enum(ANALYTICS_GRANULARITIES).default("day"),
@@ -42,6 +44,7 @@ export type AnalyticsOverviewQuery = z.input<typeof analyticsOverviewQuerySchema
 
 /** GET `/api/analytics/presence` query. */
 export const presenceQuerySchema = z.object({
+  clientId: z.uuid().optional(),
   range: z.enum(PRESENCE_RANGES).default("28d"),
   locationId: z.uuid().optional(),
 })
@@ -49,6 +52,7 @@ export type PresenceQuery = z.input<typeof presenceQuerySchema>
 
 /** GET `/api/analytics/presence/keywords` query. */
 export const keywordsQuerySchema = z.object({
+  clientId: z.uuid().optional(),
   range: z.enum(KEYWORD_RANGES).default("6m"),
   locationId: z.uuid().optional(),
 })

@@ -22,6 +22,11 @@ import type { Session } from "@/lib/server/session"
 //                     assigned row's can_publish when the user has
 //                     assignments, else the organisation-level
 //                     session.canPublish fallback.
+//   client         -> visible when at least one of its locations is. This
+//                     COMPOSES the rule above rather than adding a second
+//                     one; there is deliberately no client_member table,
+//                     because two membership tables can disagree and this
+//                     module exists so that cannot happen.
 //
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
@@ -180,6 +185,49 @@ export async function requireLocationAccess(
       notFound.code ?? "review_not_found",
       notFound.message ?? "The requested review was not found."
     )
+  }
+}
+
+/**
+ * SQL fragment that is true when the session may see the client whose id is
+ * `clientColumn` (e.g. sql`c.id`). Owner/admin: `true`.
+ *
+ * Built on `visibilityPredicate`, so a change to location visibility carries
+ * into client visibility automatically. A client with NO locations is visible
+ * to owners and admins only — which is right: an empty client is a setup
+ * artefact, and a member with no locations in it has nothing to do there.
+ */
+export function clientVisibilityPredicate(
+  sql: TransactionSql,
+  session: VisibilityScope,
+  clientColumn: Fragment
+): Fragment {
+  if (isManagerialRole(session.role)) return sql`true`
+  return sql`exists (
+    select 1 from location visibility_cl
+    where visibility_cl.client_id = ${clientColumn}
+      and ${visibilityPredicate(sql, session, sql`visibility_cl.id`)}
+  )`
+}
+
+/**
+ * Throws 404 when the client does not exist or is hidden from the session.
+ *
+ * Same 404 for both, deliberately: a member who probes client ids must not be
+ * able to tell "no such client" from "not yours".
+ */
+export async function requireClientAccess(
+  sql: TransactionSql,
+  session: VisibilityScope,
+  clientId: string
+) {
+  const [row] = await sql<{ visible: boolean }[]>`
+    select ${clientVisibilityPredicate(sql, session, sql`c.id`)} as visible
+    from client c
+    where c.id = ${clientId}
+  `
+  if (!row?.visible) {
+    throw new ApiError(404, "client_not_found", "The requested client was not found.")
   }
 }
 

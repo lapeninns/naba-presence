@@ -1,5 +1,11 @@
 export const queryKeys = {
   session: ["session"] as const,
+  // Prefix of every per-client key, so creating, renaming or reassigning a
+  // client invalidates the index and each hub in one call.
+  clientsAll: ["clients"] as const,
+  clients: ["clients", "list"] as const,
+  client: (id: string) => ["clients", id] as const,
+  clientSetup: (id: string) => ["clients", id, "setup"] as const,
   connections: ["connections"] as const,
   settings: ["settings"] as const,
   // Rooted at "location-directory", NOT "locations": React Query invalidation

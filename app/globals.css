@@ -5,48 +5,84 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------------
-   NabaPresence design system
-   shadcn/ui (base-rhea, Base UI primitives) + the Google Business Profile palette.
+   NabaPresence design system — calm editorial, light-first.
 
-   Component shapes, radius and density are stock base-rhea. Only colour and
-   type are ours. Every value below is a Google Material/GBP hex converted to
-   oklch, and every text pair is measured against WCAG AA (4.5:1 for text,
-   3:1 for focus indicators). Where Google's own hex failed as *text*, the
-   darker Material step is used instead and the reason is noted inline.
-   See docs/specs/2026-07-28-design-system.md.
+   Four layers, top to bottom:
+     1. RAMPS      raw colour steps. The only layer a designer edits.
+     2. SEMANTIC   the `--np-*` roles every component reads.
+     3. COMPONENT  the few values that vary by density or control kind.
+     4. ALIASES    the shadcn token contract and the legacy `--nr-*` names,
+                   so hundreds of existing `bg-background` / `rounded-(--nr-…)`
+                   usages keep working while screens migrate.
+
+   Nothing in layers 2–4 may introduce a literal colour: a role's value is a
+   ramp step or another role. Contrast is not asserted in a comment here — it
+   is measured from THIS file by `pnpm check:contrast`, by
+   `tests/design-tokens-contrast.test.ts`, and by the /design-system page.
+   See docs/specs/2026-09-visual-identity.md.
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  /* These stay `var()` references so layout.tsx's geist/font imports remain
-       the single owner of the family names — change the font there and this
-       file needs no edit. */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  /* Newsreader carries page titles and display numbers; Geist carries UI. */
+  --font-display: var(--font-newsreader);
+  --font-heading: var(--font-display);
 
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
+  /* Type roles — the only sanctioned font sizes in feature code. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.25rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-title: 1rem;
+  --text-title--line-height: 1.5rem;
+  --text-section: 1.125rem;
+  --text-section--line-height: 1.625rem;
+  --text-page-title: 1.625rem;
+  --text-page-title--line-height: 2rem;
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
 
-  /* NabaPresence additions — not part of the stock shadcn token contract. */
-  --color-rating: var(--rating);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
+  /* Semantic colour utilities: bg-canvas, text-ink-muted, border-line… */
+  --color-canvas: var(--np-surface-canvas);
+  --color-surface: var(--np-surface);
+  --color-surface-raised: var(--np-surface-raised);
+  --color-surface-sunken: var(--np-surface-sunken);
+  --color-surface-overlay: var(--np-surface-overlay);
+  --color-ink: var(--np-ink);
+  --color-ink-muted: var(--np-ink-muted);
+  --color-ink-faint: var(--np-ink-faint);
+  --color-ink-inverse: var(--np-ink-inverse);
+  --color-line-subtle: var(--np-line-subtle);
+  --color-line: var(--np-line);
+  --color-line-strong: var(--np-line-strong);
+  --color-accent-solid: var(--np-accent);
+  --color-accent-tint: var(--np-accent-tint);
+  --color-accent-ink: var(--np-accent-ink);
+  --color-ink-on-accent: var(--np-ink-on-accent);
+  --color-success-ink: var(--np-success-ink);
+  --color-success-tint: var(--np-success-tint);
+  --color-warning-ink: var(--np-warning-ink);
+  --color-warning-tint: var(--np-warning-tint);
+  --color-danger-ink: var(--np-danger-ink);
+  --color-danger-tint: var(--np-danger-tint);
+  --color-info-ink: var(--np-info-ink);
+  --color-info-tint: var(--np-info-tint);
 
+  --radius-sm: var(--np-radius-tag);
+  --radius-md: var(--np-radius-control);
+  --radius-lg: var(--np-radius-card);
+  --radius-xl: var(--np-radius-panel);
+  --radius-2xl: var(--np-radius-modal);
+  --radius-3xl: var(--np-radius-modal);
+  --radius-4xl: var(--np-radius-modal);
+
+  --shadow-np-raised: var(--np-shadow-raised);
+  --shadow-np-pop: var(--np-shadow-pop);
+  --shadow-np-modal: var(--np-shadow-modal);
+  /* Legacy shadow utilities, retained until the codemod. */
   --shadow-nr-card: var(--nr-shadow-card);
   --shadow-nr-panel: var(--nr-shadow-panel);
   --shadow-nr-float: var(--nr-shadow-float);
@@ -55,243 +91,367 @@
   --shadow-nr-modal: var(--nr-shadow-modal);
   --shadow-nr-primary: var(--nr-shadow-primary);
 
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
+  /* shadcn contract — resolved through the alias layer below. */
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-
-  /* Named type roles — the only sanctioned font sizes in feature code. */
-  --text-caption: 0.6875rem;
-  --text-caption--line-height: 1rem;
-  --text-ui: 0.8125rem;
-  --text-ui--line-height: 1.25rem;
-  --text-body: 0.84375rem;
-  --text-body--line-height: 1.3125rem;
-  --text-title: 0.9375rem;
-  --text-title--line-height: 1.375rem;
-  --text-page-title: 1.375rem;
-  --text-page-title--line-height: 1.75rem;
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-rating: var(--rating);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--np-chart-6);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 :root {
-  /* Surfaces — Google Grey: #FFFFFF / #F8F9FA / #F1F3F4 */
-  --background: oklch(1 0 0); /* #FFFFFF */
-  --foreground: oklch(0.248 0.006 271.2); /* #202124 — 16.10:1 on bg */
-  --card: oklch(1 0 0); /* #FFFFFF */
-  --card-foreground: oklch(0.248 0.006 271.2); /* #202124 */
-  --popover: oklch(1 0 0); /* #FFFFFF */
-  --popover-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  /* ---- 1. RAMPS ------------------------------------------------------- */
+  /* One warm neutral hue for every grey, so surfaces read as paper. */
+  --np-ramp-neutral-0: oklch(1 0 0);
+  --np-ramp-neutral-25: oklch(0.985 0.004 75);
+  --np-ramp-neutral-50: oklch(0.972 0.005 75);
+  --np-ramp-neutral-100: oklch(0.955 0.005 75);
+  --np-ramp-neutral-200: oklch(0.918 0.006 75);
+  --np-ramp-neutral-300: oklch(0.86 0.007 75);
+  --np-ramp-neutral-400: oklch(0.645 0.011 70);
+  --np-ramp-neutral-500: oklch(0.6 0.011 65);
+  --np-ramp-neutral-600: oklch(0.49 0.013 62);
+  --np-ramp-neutral-800: oklch(0.32 0.012 60);
+  --np-ramp-neutral-900: oklch(0.26 0.011 60);
+  --np-ramp-neutral-950: oklch(0.205 0.008 70);
 
-  /* Google Blue 600. White text = 4.51:1, clears AA. */
-  --primary: oklch(0.574 0.195 257.9); /* #1A73E8 */
-  --primary-foreground: oklch(1 0 0); /* #FFFFFF */
+  /* Accent: one hue, low chroma, dark enough to carry white text. */
+  --np-ramp-accent-100: oklch(0.949 0.022 200);
+  --np-ramp-accent-300: oklch(0.78 0.072 200);
+  --np-ramp-accent-500: oklch(0.46 0.072 200);
+  --np-ramp-accent-600: oklch(0.41 0.064 200);
+  --np-ramp-accent-700: oklch(0.36 0.056 200);
+  --np-ramp-accent-900: oklch(0.24 0.034 200);
 
-  --secondary: oklch(0.963 0.003 228.8); /* #F1F3F4 */
-  --secondary-foreground: oklch(0.248 0.006 271.2); /* #202124 */
-  --muted: oklch(0.963 0.003 228.8); /* #F1F3F4 — Google grey-100.
-    Deliberately the surface-CONTAINER tone, not grey-50 (#F8F9FA). --muted is a
-    fill (Skeleton is bg-muted and nothing else, ghost buttons hover to it); at
-    grey-50 it sat at 1.05:1 against the white background and skeletons were
-    effectively invisible. Grey-100 gives 1.11:1, just above shadcn's own
-    baseline. muted-foreground still passes on it at 5.44:1. */
-  --muted-foreground: oklch(0.498 0.009 253.9); /* #5F6368 — 6.05:1 on bg */
+  --np-ramp-success-100: oklch(0.951 0.03 150);
+  --np-ramp-success-500: oklch(0.5 0.104 150);
+  --np-ramp-success-700: oklch(0.42 0.09 150);
+  --np-ramp-warning-100: oklch(0.955 0.035 80);
+  --np-ramp-warning-300: oklch(0.86 0.11 80);
+  --np-ramp-warning-500: oklch(0.52 0.1 72);
+  --np-ramp-danger-100: oklch(0.951 0.024 27);
+  --np-ramp-danger-500: oklch(0.505 0.166 27);
+  --np-ramp-danger-700: oklch(0.43 0.15 27);
+  --np-ramp-info-100: oklch(0.949 0.024 250);
+  --np-ramp-info-500: oklch(0.48 0.113 250);
 
-  /* Highlight/selected state — Google's pale blue tint. base-rhea applies
-       these on :focus, so accent-foreground has to read on the tint: Blue 600
-       is only 3.93:1 there, so it steps down to Blue 800 for 5.57:1. */
-  --accent: oklch(0.953 0.021 261.8); /* #E8F0FE */
-  --accent-foreground: oklch(
-    0.495 0.199 260.6
-  ); /* #0B57D0 — 5.57:1 on accent */
+  /* ---- 2. SEMANTIC ROLES ---------------------------------------------- */
+  --np-surface-canvas: var(--np-ramp-neutral-25);
+  --np-surface: var(--np-ramp-neutral-0);
+  --np-surface-raised: var(--np-ramp-neutral-0);
+  --np-surface-sunken: var(--np-ramp-neutral-100);
+  --np-surface-overlay: var(--np-ramp-neutral-0);
 
-  /* base-rhea renders destructive as TEXT on a /10 tint, never as a solid
-       fill, so this token must pass AA as text. Google Red #EA4335 fails
-       (3.92:1) and Material #D93025 fails on its own tint (4.10:1).
-       #B3261E passes both: 6.54:1 on white, 5.54:1 on the tint. */
-  --destructive: oklch(0.501 0.178 28.7); /* #B3261E */
+  --np-ink: var(--np-ramp-neutral-900);
+  --np-ink-muted: var(--np-ramp-neutral-600);
+  --np-ink-faint: var(--np-ramp-neutral-500);
+  --np-ink-inverse: var(--np-ramp-neutral-0);
 
-  --border: oklch(0.894 0.006 264.5); /* #DADCE0 — decorative divider */
-  --input: oklch(
-    0.936 0.005 258.3
-  ); /* #E8EAED — a FILL in base-rhea (bg-input/50) */
-  --ring: oklch(0.574 0.195 257.9); /* #1A73E8 — 4.51:1 focus indicator */
+  --np-line-subtle: var(--np-ramp-neutral-100);
+  --np-line: var(--np-ramp-neutral-200);
+  --np-line-strong: var(--np-ramp-neutral-400);
+  --np-line-focus: var(--np-ramp-accent-500);
 
-  /* Review-domain tokens. --rating is the GBP star fill: decorative, so
-       exempt from text contrast. --success is Green 900, not Google Green
-       #34A853, which fails as text at 4.21:1. */
-  --rating: oklch(0.83 0.17 84); /* #FBBC04 */
-  --success: oklch(0.467 0.125 148.2); /* #146C2E — 6.53:1 on bg */
-  --success-foreground: oklch(1 0 0); /* #FFFFFF */
-  --warning: oklch(0.796 0.167 76); /* #F9AB00 — fill only */
-  --warning-foreground: oklch(0.248 0.006 271.2); /* #202124 */
-  --info: oklch(0.57 0.12 230);
-  --info-foreground: oklch(1 0 0);
+  --np-accent: var(--np-ramp-accent-500);
+  --np-accent-hover: var(--np-ramp-accent-600);
+  --np-accent-active: var(--np-ramp-accent-700);
+  --np-accent-tint: var(--np-ramp-accent-100);
+  --np-accent-ink: var(--np-ramp-accent-600);
+  --np-ink-on-accent: var(--np-ramp-neutral-0);
 
-  --radius: 0.625rem;
+  --np-success-ink: var(--np-ramp-success-700);
+  --np-success-tint: var(--np-ramp-success-100);
+  --np-success-solid: var(--np-ramp-success-500);
+  --np-success-on-solid: var(--np-ramp-neutral-0);
+  --np-success-line: oklch(0.635 0.095 150);
+  --np-warning-ink: var(--np-ramp-warning-500);
+  --np-warning-tint: var(--np-ramp-warning-100);
+  --np-warning-solid: var(--np-ramp-warning-300);
+  --np-warning-on-solid: oklch(0.28 0.055 70);
+  --np-warning-line: oklch(0.645 0.115 80);
+  --np-danger-ink: var(--np-ramp-danger-700);
+  --np-danger-tint: var(--np-ramp-danger-100);
+  --np-danger-solid: var(--np-ramp-danger-500);
+  --np-danger-on-solid: var(--np-ramp-neutral-0);
+  --np-danger-line: oklch(0.65 0.135 27);
+  --np-info-ink: var(--np-ramp-info-500);
+  --np-info-tint: var(--np-ramp-info-100);
+  --np-info-solid: var(--np-ramp-info-500);
+  --np-info-on-solid: var(--np-ramp-neutral-0);
+  --np-info-line: oklch(0.64 0.105 250);
 
-  /* Spacing uses Tailwind's default scale by decision — see
-     docs/superpowers/specs/2026-07-31-frontend-rebuild-design.md §7. */
-  --nr-sidebar-width: 232px;
-  --nr-sidebar-margin: 14px;
-  --nr-page-pad-x: 24px;
-  --nr-page-pad-y: 20px;
-  --nr-page-max-width: 1180px;
-  --nr-gap-card: 12px;
-  --nr-gap-section: 16px;
-  --nr-card-pad: 14px;
-  --nr-panel-pad: 20px;
-  --nr-radius-tag: 6px;
-  --nr-radius-chip: 8px;
-  --nr-radius-control: 12px;
-  --nr-radius-field: 14px;
-  --nr-radius-card: 18px;
-  --nr-radius-panel: 20px;
-  --nr-radius-shell: 22px;
-  --nr-radius-modal: 24px;
-  --nr-radius-pill: 999px;
-  --nr-shadow-card: 0 6px 20px rgb(0 0 0 / 0.05);
-  --nr-shadow-panel: 0 8px 28px rgb(0 0 0 / 0.06);
-  --nr-shadow-float: 0 12px 32px rgb(0 0 0 / 0.07);
-  --nr-shadow-hover: 0 12px 28px rgb(0 0 0 / 0.09);
-  --nr-shadow-pop: 0 16px 48px rgb(0 0 0 / 0.14);
-  --nr-shadow-modal: 0 24px 80px rgb(0 0 0 / 0.22);
-  --nr-shadow-primary: 0 4px 14px color-mix(in srgb, var(--primary) 35%, transparent);
-  --nr-glass-filter: blur(12px) saturate(1.35);
-  --nr-surface-glass: color-mix(in srgb, var(--card) 62%, transparent);
-  --nr-surface-glass-strong: color-mix(in srgb, var(--card) 70%, transparent);
-  --nr-surface-card-translucent: color-mix(in srgb, var(--card) 66%, transparent);
-  --nr-surface-glass-border: color-mix(in srgb, var(--border) 55%, transparent);
-  --nr-duration-fast: 150ms;
-  --nr-duration-standard: 200ms;
-  --nr-duration-deliberate: 250ms;
-  --nr-duration-overlay: 320ms;
-  --nr-ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --nr-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --nr-lift-hover: -2px;
+  --np-selection-bg: var(--np-accent-tint);
+  --np-hover-bg: var(--np-ramp-neutral-50);
+  --np-focus-ring: var(--np-ramp-accent-500);
 
-  /* Charts: the four Google brand colours plus Google teal. Decorative
-       fills, exempt from text contrast — label series, don't rely on hue. */
-  --chart-1: oklch(0.63 0.18 260); /* #4285F4 blue */
-  --chart-2: oklch(0.626 0.206 29.1); /* #EA4335 red */
-  --chart-3: oklch(0.83 0.17 84); /* #FBBC04 yellow */
-  --chart-4: oklch(0.648 0.16 148.5); /* #34A853 green */
-  --chart-5: oklch(0.709 0.121 210.3); /* #12B5CB teal */
+  /* Charts: six hues, each measured against the canvas at 3:1. */
+  --np-chart-1: oklch(0.5 0.079 200);
+  --np-chart-2: oklch(0.53 0.135 40);
+  --np-chart-3: oklch(0.5 0.088 145);
+  --np-chart-4: oklch(0.5 0.13 300);
+  --np-chart-5: oklch(0.52 0.11 258);
+  --np-chart-6: oklch(0.52 0.075 100);
+  --np-chart-grid: var(--np-line-subtle);
+  --np-chart-axis: var(--np-ink-muted);
+  --np-rating: oklch(0.655 0.13 78);
 
-  --sidebar: oklch(0.982 0.002 247.8); /* #F8F9FA */
-  --sidebar-foreground: oklch(0.248 0.006 271.2); /* #202124 */
-  --sidebar-primary: oklch(0.574 0.195 257.9); /* #1A73E8 */
-  --sidebar-primary-foreground: oklch(1 0 0); /* #FFFFFF */
-  --sidebar-accent: oklch(0.953 0.021 261.8); /* #E8F0FE */
-  --sidebar-accent-foreground: oklch(0.495 0.199 260.6); /* #0B57D0 */
-  --sidebar-border: oklch(0.894 0.006 264.5); /* #DADCE0 */
-  --sidebar-ring: oklch(0.574 0.195 257.9); /* #1A73E8 */
+  /* Shape. Editorial means modest: the old 12–24px ladder is retired. */
+  --np-radius-tag: 4px;
+  --np-radius-control: 8px;
+  --np-radius-field: 8px;
+  --np-radius-card: 12px;
+  --np-radius-panel: 12px;
+  --np-radius-modal: 16px;
+  --np-radius-pill: 999px;
+
+  /* Elevation is border-led: cards get a line, never a shadow. */
+  --np-shadow-raised: 0 1px 2px rgb(41 37 32 / 0.06);
+  --np-shadow-pop: 0 8px 24px rgb(41 37 32 / 0.12);
+  --np-shadow-modal: 0 24px 64px rgb(41 37 32 / 0.18);
+
+  --np-duration-fast: 120ms;
+  --np-duration-standard: 180ms;
+  --np-duration-deliberate: 240ms;
+  --np-duration-overlay: 260ms;
+  --np-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --np-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --np-sidebar-width: 236px;
+  --np-page-pad-x: 32px;
+  --np-page-pad-y: 28px;
+  --np-page-max-width: 1240px;
+  --np-gap-card: 12px;
+  --np-gap-section: 20px;
+  --np-card-pad: 18px;
+  --np-panel-pad: 22px;
+
+  /* ---- 3. COMPONENT TOKENS -------------------------------------------- */
+  /* Density: `comfortable` is the default; DataTable and the inbox list opt
+     into `compact` by setting data-density on their own subtree. Only
+     spacing moves — the type role never shrinks, so nothing drops below
+     12px, and no control falls under the 24px target-size floor. */
+  --np-row-py: 10px;
+  --np-row-h: 44px;
+  --np-cell-px: 14px;
+  --np-control-h: 34px;
+  --np-list-gap: 2px;
+
+  --np-field-h: 36px;
+  --np-field-bg: var(--np-surface);
+  --np-table-header-bg: var(--np-surface-sunken);
+  --np-pill-h: 22px;
+
+  /* ---- 4. ALIASES ------------------------------------------------------ */
+  /* shadcn's `--accent` is a HIGHLIGHT SURFACE, not the brand colour: it maps
+     to the selection tint. The brand accent reaches Tailwind as --color-primary. */
+  --background: var(--np-surface-canvas);
+  --foreground: var(--np-ink);
+  --card: var(--np-surface);
+  --card-foreground: var(--np-ink);
+  --popover: var(--np-surface-overlay);
+  --popover-foreground: var(--np-ink);
+  --primary: var(--np-accent);
+  --primary-foreground: var(--np-ink-on-accent);
+  --secondary: var(--np-surface-sunken);
+  --secondary-foreground: var(--np-ink);
+  --muted: var(--np-surface-sunken);
+  --muted-foreground: var(--np-ink-muted);
+  --accent: var(--np-selection-bg);
+  --accent-foreground: var(--np-accent-ink);
+  --destructive: var(--np-danger-ink);
+  --border: var(--np-line);
+  --input: var(--np-line-strong);
+  --ring: var(--np-focus-ring);
+  --radius: var(--np-radius-card);
+
+  --rating: var(--np-rating);
+  --success: var(--np-success-ink);
+  --success-foreground: var(--np-success-on-solid);
+  --warning: var(--np-warning-ink);
+  --warning-foreground: var(--np-warning-on-solid);
+  --info: var(--np-info-ink);
+  --info-foreground: var(--np-info-on-solid);
+
+  --chart-1: var(--np-chart-1);
+  --chart-2: var(--np-chart-2);
+  --chart-3: var(--np-chart-3);
+  --chart-4: var(--np-chart-4);
+  --chart-5: var(--np-chart-5);
+
+  --sidebar: var(--np-surface);
+  --sidebar-foreground: var(--np-ink);
+  --sidebar-primary: var(--np-accent);
+  --sidebar-primary-foreground: var(--np-ink-on-accent);
+  --sidebar-accent: var(--np-accent-tint);
+  --sidebar-accent-foreground: var(--np-accent-ink);
+  --sidebar-border: var(--np-line);
+  --sidebar-ring: var(--np-focus-ring);
+
+  /* Legacy `--nr-*` names. Every one resolves to a `--np-*` role so migrated
+     and unmigrated components render identically; the codemod in B6 deletes
+     this block. */
+  --nr-sidebar-width: var(--np-sidebar-width);
+  --nr-sidebar-margin: 0px;
+  --nr-page-pad-x: var(--np-page-pad-x);
+  --nr-page-pad-y: var(--np-page-pad-y);
+  --nr-page-max-width: var(--np-page-max-width);
+  --nr-gap-card: var(--np-gap-card);
+  --nr-gap-section: var(--np-gap-section);
+  --nr-card-pad: var(--np-card-pad);
+  --nr-panel-pad: var(--np-panel-pad);
+  --nr-radius-tag: var(--np-radius-tag);
+  --nr-radius-chip: var(--np-radius-control);
+  --nr-radius-control: var(--np-radius-control);
+  --nr-radius-field: var(--np-radius-field);
+  --nr-radius-card: var(--np-radius-card);
+  --nr-radius-panel: var(--np-radius-panel);
+  --nr-radius-shell: var(--np-radius-panel);
+  --nr-radius-modal: var(--np-radius-modal);
+  --nr-radius-pill: var(--np-radius-pill);
+  --nr-shadow-card: none;
+  --nr-shadow-panel: none;
+  --nr-shadow-float: var(--np-shadow-raised);
+  --nr-shadow-hover: var(--np-shadow-raised);
+  --nr-shadow-pop: var(--np-shadow-pop);
+  --nr-shadow-modal: var(--np-shadow-modal);
+  --nr-shadow-primary: none;
+  --nr-duration-fast: var(--np-duration-fast);
+  --nr-duration-standard: var(--np-duration-standard);
+  --nr-duration-deliberate: var(--np-duration-deliberate);
+  --nr-duration-overlay: var(--np-duration-overlay);
+  --nr-ease-standard: var(--np-ease-standard);
+  --nr-ease-out: var(--np-ease-out);
+  --nr-lift-hover: -1px;
 }
 
 .dark {
-  /* Google's dark surfaces: #1F1F1F base, #28292C raised, #2D2E31 sunken. */
-  --background: oklch(0.239 0 0); /* #1F1F1F */
-  --foreground: oklch(0.936 0.005 258.3); /* #E8EAED — 13.68:1 on bg */
-  --card: oklch(0.281 0.006 271.2); /* #28292C */
-  --card-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
-  --popover: oklch(0.281 0.006 271.2); /* #28292C */
-  --popover-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
+  /* Same warm hue, ladder inverted, a touch more chroma so it is not dead. */
+  --np-surface-canvas: var(--np-ramp-neutral-950);
+  --np-surface: oklch(0.245 0.008 70);
+  --np-surface-raised: oklch(0.278 0.009 70);
+  --np-surface-sunken: oklch(0.182 0.007 70);
+  --np-surface-overlay: oklch(0.262 0.009 70);
 
-  /* Material's dark inversion: a light primary carrying dark text, since
-       Blue 600 is too dark to sit on #1F1F1F. 7.50:1. */
-  --primary: oklch(0.825 0.08 260.3); /* #A8C7FA */
-  --primary-foreground: oklch(0.321 0.121 260.2); /* #062E6F */
+  --np-ink: oklch(0.945 0.006 75);
+  --np-ink-muted: oklch(0.752 0.009 75);
+  --np-ink-faint: oklch(0.62 0.01 75);
+  --np-ink-inverse: oklch(0.205 0.008 70);
 
-  --secondary: oklch(0.301 0.006 271.2); /* #2D2E31 */
-  --secondary-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
-  --muted: oklch(0.301 0.006 271.2); /* #2D2E31 */
-  --muted-foreground: oklch(0.703 0.011 248); /* #9AA0A6 — 6.24:1 on bg */
+  --np-line-subtle: oklch(0.28 0.008 70);
+  --np-line: oklch(0.34 0.009 70);
+  --np-line-strong: oklch(0.56 0.012 70);
+  --np-line-focus: oklch(0.8 0.09 200);
 
-  /* Tonal blue container. accent-foreground stays NEUTRAL here on purpose:
-       base-rhea's popovers force `.dark` and set
-       `**:data-[variant=destructive]:text-accent-foreground!`, so a blue value
-       would turn destructive menu items blue. Neutral gives 9.82:1. */
-  --accent: oklch(0.34 0.078 260.5); /* #1F3760 */
-  --accent-foreground: oklch(
-    0.936 0.005 258.3
-  ); /* #E8EAED — 9.82:1 on accent */
+  --np-accent: oklch(0.8 0.09 200);
+  --np-accent-hover: oklch(0.85 0.085 200);
+  --np-accent-active: oklch(0.88 0.075 200);
+  --np-accent-tint: oklch(0.31 0.05 200);
+  --np-accent-ink: oklch(0.82 0.09 200);
+  --np-ink-on-accent: oklch(0.22 0.032 200);
 
-  --destructive: oklch(0.834 0.068 22); /* #F2B8B5 — 9.65:1 on bg, as text */
+  --np-success-ink: oklch(0.81 0.13 150);
+  --np-success-tint: oklch(0.29 0.055 150);
+  --np-success-solid: oklch(0.78 0.14 150);
+  --np-success-on-solid: oklch(0.2 0.04 150);
+  --np-success-line: oklch(0.555 0.1 150);
+  --np-warning-ink: oklch(0.84 0.125 80);
+  --np-warning-tint: oklch(0.3 0.05 75);
+  --np-warning-solid: oklch(0.84 0.13 80);
+  --np-warning-on-solid: oklch(0.24 0.05 70);
+  --np-warning-line: oklch(0.565 0.115 78);
+  --np-danger-ink: oklch(0.79 0.115 27);
+  --np-danger-tint: oklch(0.3 0.065 27);
+  --np-danger-solid: oklch(0.72 0.15 27);
+  --np-danger-on-solid: oklch(0.2 0.045 27);
+  --np-danger-line: oklch(0.575 0.14 27);
+  --np-info-ink: oklch(0.81 0.09 250);
+  --np-info-tint: oklch(0.3 0.055 250);
+  --np-info-solid: oklch(0.78 0.1 250);
+  --np-info-on-solid: oklch(0.2 0.04 250);
+  --np-info-line: oklch(0.56 0.11 250);
 
-  /* Info: lightened for dark surfaces, dark text on fills (like --primary).
-     Verify ≥4.5:1 on #1F1F1F via the /design-system contrast table. */
-  --info: oklch(0.78 0.1 230);
-  --info-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --np-selection-bg: var(--np-accent-tint);
+  --np-hover-bg: oklch(0.29 0.009 70);
+  --np-focus-ring: oklch(0.8 0.09 200);
 
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
+  --np-chart-1: oklch(0.76 0.09 200);
+  --np-chart-2: oklch(0.75 0.125 40);
+  --np-chart-3: oklch(0.79 0.11 145);
+  --np-chart-4: oklch(0.76 0.11 300);
+  --np-chart-5: oklch(0.75 0.1 258);
+  --np-chart-6: oklch(0.81 0.1 100);
+  --np-chart-grid: var(--np-line-subtle);
+  --np-chart-axis: var(--np-ink-muted);
+  --np-rating: oklch(0.82 0.15 82);
 
-  --rating: oklch(0.83 0.17 84); /* #FBBC04 — 9.65:1 on bg */
-  --success: oklch(0.792 0.143 151.6); /* #6DD58C */
-  --success-foreground: oklch(0.248 0.006 271.2); /* #202124 */
-  --warning: oklch(0.796 0.167 76); /* #F9AB00 */
-  --warning-foreground: oklch(0.248 0.006 271.2); /* #202124 */
+  --np-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4);
+  --np-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
+  --np-shadow-modal: 0 24px 64px rgb(0 0 0 / 0.6);
 
-  /* Brand colours held constant across themes; all land L 0.63–0.83, which
-       reads on #1F1F1F. */
-  --chart-1: oklch(0.63 0.18 260); /* #4285F4 */
-  --chart-2: oklch(0.626 0.206 29.1); /* #EA4335 */
-  --chart-3: oklch(0.83 0.17 84); /* #FBBC04 */
-  --chart-4: oklch(0.648 0.16 148.5); /* #34A853 */
-  --chart-5: oklch(0.709 0.121 210.3); /* #12B5CB */
-
-  --sidebar: oklch(0.248 0.006 271.2); /* #202124 */
-  --sidebar-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
-  --sidebar-primary: oklch(0.825 0.08 260.3); /* #A8C7FA */
-  --sidebar-primary-foreground: oklch(0.321 0.121 260.2); /* #062E6F */
-  --sidebar-accent: oklch(0.34 0.078 260.5); /* #1F3760 */
-  --sidebar-accent-foreground: oklch(0.936 0.005 258.3); /* #E8EAED */
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.825 0.08 260.3); /* #A8C7FA */
-
-  --nr-shadow-card: 0 6px 20px rgb(0 0 0 / 0.2);
-  --nr-shadow-panel: 0 8px 28px rgb(0 0 0 / 0.24);
-  --nr-shadow-float: 0 12px 32px rgb(0 0 0 / 0.28);
-  --nr-shadow-hover: 0 12px 28px rgb(0 0 0 / 0.32);
-  --nr-shadow-pop: 0 16px 48px rgb(0 0 0 / 0.38);
-  --nr-shadow-modal: 0 24px 80px rgb(0 0 0 / 0.5);
+  --np-field-bg: oklch(0.222 0.008 70);
+  --np-table-header-bg: var(--np-surface-sunken);
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root {
-    --nr-surface-glass: color-mix(in srgb, var(--card) 94%, transparent);
-    --nr-surface-glass-strong: var(--card);
-    --nr-surface-card-translucent: color-mix(in srgb, var(--card) 96%, transparent);
-  }
+/* Compact density: spacing only. Applied by DataTable and the inbox list, and
+   by the shell when the viewer sets the preference. */
+[data-density="compact"] {
+  --np-row-py: 6px;
+  --np-row-h: 34px;
+  --np-cell-px: 10px;
+  --np-control-h: 28px;
+  --np-list-gap: 0px;
+  --np-field-h: 32px;
+}
+
+[data-density="comfortable"] {
+  --np-row-py: 10px;
+  --np-row-h: 44px;
+  --np-cell-px: 14px;
+  --np-control-h: 34px;
+  --np-list-gap: 2px;
+  --np-field-h: 36px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --nr-duration-fast: 1ms;
-    --nr-duration-standard: 1ms;
-    --nr-duration-deliberate: 1ms;
-    --nr-duration-overlay: 1ms;
+    --np-duration-fast: 1ms;
+    --np-duration-standard: 1ms;
+    --np-duration-deliberate: 1ms;
+    --np-duration-overlay: 1ms;
     --nr-lift-hover: 0px;
   }
 }
@@ -302,9 +462,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    background-image:
-      radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 32rem),
-      radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--rating) 5%, transparent), transparent 30rem);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   html {
     @apply font-sans;
