@@ -58,7 +58,11 @@ services:
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
       NEXTAUTH_URL: http://localhost:${NABAPRESENCE_WEB_PORT:-3000}
       NEXTAUTH_SECRET: local-compose-session-secret-at-least-32-characters
-      TOKEN_ENCRYPTION_KEY: local-compose-encryption-key-at-least-32-characters
+      # Read from the shell or the project .env (compose interpolates it) so a
+      # database restored from the Supabase snapshot stays decryptable here.
+      # The tokens in that snapshot were sealed with the .env key; a fixed
+      # compose-only key made every refresh fail with `refresh_failed`.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-local-compose-encryption-key-at-least-32-characters}
       CRON_SECRET: local-compose-cron-secret
       SUPPORT_IMPERSONATION_SECRET: local-compose-support-secret-at-least-32-characters
       DRAFTS_ENABLED: "true"

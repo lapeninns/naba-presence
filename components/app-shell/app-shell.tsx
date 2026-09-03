@@ -1,8 +1,9 @@
 "use client"
 
-import { LogOut, Menu, Store } from "lucide-react"
+import { LogOut, Menu } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { BrandMark } from "@/components/app-shell/brand-mark"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -186,17 +187,7 @@ function AppShell({
 
       <aside className="hidden shrink-0 md:m-(--nr-sidebar-margin) md:flex md:w-(--nr-sidebar-width) md:flex-col md:overflow-hidden md:rounded-(--nr-radius-shell) md:border md:border-sidebar-border md:bg-sidebar md:text-sidebar-foreground md:shadow-(--nr-shadow-float)">
         <div className="flex shrink-0 items-center gap-2.5 border-b border-sidebar-border/70 px-4 py-4">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-(--nr-radius-control) bg-primary text-primary-foreground">
-            <Store className="size-4" aria-hidden />
-          </span>
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate text-title font-semibold tracking-tight">
-              NabaPresence
-            </span>
-            <span className="truncate text-caption font-medium text-sidebar-foreground/70">
-              {organisationName}
-            </span>
-          </div>
+          <BrandMark size="sm" subtitle={organisationName} />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
@@ -211,9 +202,7 @@ function AppShell({
             {initialsFor(displayName)}
           </span>
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-ui font-medium">
-              {displayName}
-            </span>
+            <span className="truncate text-ui font-medium">{displayName}</span>
             {session ? (
               <span className="truncate text-caption text-sidebar-foreground/70 capitalize">
                 {session.role}
@@ -248,7 +237,7 @@ function AppShell({
             </SheetTrigger>
             <SheetContent
               side="left"
-              className="data-[side=left]:w-64 bg-sidebar text-sidebar-foreground"
+              className="bg-sidebar text-sidebar-foreground data-[side=left]:w-64"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Navigation</SheetTitle>

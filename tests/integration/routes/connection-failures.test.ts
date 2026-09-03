@@ -299,6 +299,69 @@ describeDatabase("google connection failure handling", () => {
     expect(connection).toMatchObject({ status: "active", lastErrorCode: null })
   })
 
+  it("closes a stale reconnect task once a refresh succeeds", async () => {
+    // A task opened on a non-credential answer leaves the row `expired`, which
+    // stays loadable. The refresh then proves the grant is fine, so the task
+    // must not outlive it: before this it did, and the shell banner stayed up
+    // until the tenant re-consented for no reason.
+    const { owner, connectionId, googleAccountName } =
+      await seedRefreshableTenant("expired")
+    await admin`
+      insert into connection_task (
+        organisation_id,
+        google_connection_id,
+        task_type,
+        status,
+        reason_code
+      )
+      values (
+        ${owner.organisationId},
+        ${connectionId},
+        'reconnect',
+        'open',
+        'internal_failure'
+      )
+    `
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      json: {
+        access_token: "recovered-access-token",
+        expires_in: 3600,
+        scope: "business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond(
+      { method: "GET", pathIncludes: `${googleAccountName}/locations` },
+      () => ({ status: 200, json: { locations: [] } })
+    )
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/locations?account_name=${encodeURIComponent(googleAccountName)}`,
+      { headers: { cookie: owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    const tasks = await reconnectTasks(connectionId)
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      status: "completed",
+      reasonCode: "internal_failure",
+    })
+    expect(tasks[0]?.resolvedAt).toBeInstanceOf(Date)
+    const [audit] = await admin<{ metadata: Record<string, unknown> }[]>`
+      select metadata
+      from audit_log
+      where subject_id = ${connectionId}
+        and action = 'google.connection.refresh_restored'
+    `
+    expect(audit?.metadata).toMatchObject({
+      closedReconnectTasks: 1,
+      reasonCodes: ["internal_failure"],
+    })
+  })
+
   it("closes the reconnect task when the same Google account re-consents", async () => {
     const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
     await openReconnectTask(owner.organisationId, connectionId)

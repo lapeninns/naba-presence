@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { PasswordField } from "@/components/auth/password-field"
@@ -16,8 +22,9 @@ import {
   type AuthMessage,
 } from "@/lib/api/auth-errors"
 import { loginSchema, registerSchema } from "@/lib/domain/auth"
+import { cn } from "@/lib/utils"
 
-type Mode = "sign-in" | "create-account"
+type SignInMode = "sign-in" | "create-account"
 
 const SIGN_IN_FIELD_ORDER = ["email", "password"] as const
 const CREATE_FIELD_ORDER = [
@@ -36,7 +43,9 @@ function focusField(name: string) {
 }
 
 function zodFieldErrors(
-  error: { flatten: () => { fieldErrors: Record<string, string[] | undefined> } },
+  error: {
+    flatten: () => { fieldErrors: Record<string, string[] | undefined> }
+  },
   order: readonly string[]
 ): Record<string, string> {
   const flat = error.flatten().fieldErrors
@@ -50,18 +59,25 @@ function zodFieldErrors(
 
 function SignInForm({
   initialMode,
+  mode: controlledMode,
+  onModeChange,
   inviteToken,
   invitedEmail,
   nextPath,
   statusMessage,
 }: {
-  initialMode?: Mode
+  initialMode?: SignInMode
+  mode?: SignInMode
+  onModeChange?: (mode: SignInMode) => void
   inviteToken?: string
   invitedEmail?: string
   nextPath?: string | null
   statusMessage?: AuthMessage
 }) {
-  const [mode, setMode] = useState<Mode>(initialMode ?? "sign-in")
+  const [uncontrolledMode, setUncontrolledMode] = useState<SignInMode>(
+    initialMode ?? "sign-in"
+  )
+  const mode = controlledMode ?? uncontrolledMode
   const [displayName, setDisplayName] = useState("")
   const [email, setEmail] = useState(invitedEmail ?? "")
   const [password, setPassword] = useState("")
@@ -84,10 +100,11 @@ function SignInForm({
     }
   }, [message, fieldErrors])
 
-  function switchMode(next: Mode) {
-    setMode(next)
+  function switchMode(next: SignInMode) {
+    if (controlledMode === undefined) setUncontrolledMode(next)
     setFieldErrors({})
     setMessage(null)
+    onModeChange?.(next)
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -178,7 +195,7 @@ function SignInForm({
           variant="outline"
           onClick={() => {
             setStage("form")
-            setMode("sign-in")
+            switchMode("sign-in")
           }}
         >
           Back to sign in
@@ -188,11 +205,21 @@ function SignInForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-      <div role="group" aria-label="Account action" className="flex gap-2">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+      <div
+        role="group"
+        aria-label="Account action"
+        className="flex gap-1 rounded-(--nr-radius-control) bg-muted p-1"
+      >
         <Button
           type="button"
-          variant={mode === "sign-in" ? "default" : "outline"}
+          variant="ghost"
+          className={cn(
+            "flex-1",
+            mode === "sign-in"
+              ? "bg-background text-foreground shadow-(--nr-shadow-card) hover:bg-background"
+              : "text-muted-foreground"
+          )}
           aria-pressed={mode === "sign-in"}
           aria-label="Switch to sign in"
           onClick={() => switchMode("sign-in")}
@@ -201,7 +228,13 @@ function SignInForm({
         </Button>
         <Button
           type="button"
-          variant={mode === "create-account" ? "default" : "outline"}
+          variant="ghost"
+          className={cn(
+            "flex-1",
+            mode === "create-account"
+              ? "bg-background text-foreground shadow-(--nr-shadow-card) hover:bg-background"
+              : "text-muted-foreground"
+          )}
           aria-pressed={mode === "create-account"}
           aria-label="Switch to create account"
           onClick={() => switchMode("create-account")}
@@ -292,7 +325,7 @@ function SignInForm({
         // confirm whether the address is registered. Showing it
         // unconditionally keeps the resend path (spec §8) without adding an
         // enumeration channel.
-        <div className="flex flex-col items-start gap-1 border-t pt-4">
+        <div className="flex flex-col items-start gap-1.5 border-t border-border/70 pt-5">
           <p className="text-caption text-muted-foreground">
             Didn&apos;t receive a confirmation email?
           </p>
@@ -303,4 +336,4 @@ function SignInForm({
   )
 }
 
-export { SignInForm }
+export { SignInForm, type SignInMode }

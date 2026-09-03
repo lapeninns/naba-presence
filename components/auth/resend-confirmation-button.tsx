@@ -26,7 +26,7 @@ function ResendConfirmationButton({
   }
 
   return (
-    <span className="flex flex-col items-start gap-1">
+    <span className="flex flex-col items-start gap-1.5">
       <Button
         type="button"
         variant="outline"

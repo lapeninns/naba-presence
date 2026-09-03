@@ -44,7 +44,7 @@ function InvitationView({
   if (query.isPending) {
     return (
       <AuthCard title="Checking your invitation">
-        <div aria-busy="true" className="flex flex-col gap-3">
+        <div aria-busy="true" className="flex flex-col gap-4">
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
@@ -110,7 +110,11 @@ function InvitationView({
 
   return (
     <AuthCard title={`Join ${data.organisationName}`}>
-      <InvitationActions viewer={viewer} invitedEmail={data.email} token={token} />
+      <InvitationActions
+        viewer={viewer}
+        invitedEmail={data.email}
+        token={token}
+      />
     </AuthCard>
   )
 }

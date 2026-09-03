@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 
-import { AuthCard } from "@/components/auth/auth-card"
-import { SignInForm } from "@/components/auth/sign-in-form"
+import { SignInPanel } from "@/components/auth/sign-in-panel"
 import { confirmStatusMessage } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
@@ -23,23 +22,15 @@ export default async function SignInPage({
   const session = await getSession()
   if (session) redirect(nextPath ?? "/home")
   return (
-    <AuthCard
-      title="Sign in to NabaPresence"
-      description="Google Business Profile is connected separately by an organisation owner, so there is no Google sign-in here."
-      footer={
-        <a className="underline underline-offset-4" href="/forgot-password">
-          Forgot your password?
-        </a>
+    <SignInPanel
+      initialMode={
+        params.mode === "create-account" ? "create-account" : "sign-in"
       }
-    >
-      <SignInForm
-        initialMode={params.mode === "create-account" ? "create-account" : "sign-in"}
-        inviteToken={params.invite}
-        nextPath={nextPath}
-        statusMessage={
-          params.status ? confirmStatusMessage(params.status) : undefined
-        }
-      />
-    </AuthCard>
+      inviteToken={params.invite}
+      nextPath={nextPath}
+      statusMessage={
+        params.status ? confirmStatusMessage(params.status) : undefined
+      }
+    />
   )
 }

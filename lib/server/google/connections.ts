@@ -3,6 +3,7 @@ import "server-only"
 import type { Sql, TransactionSql } from "postgres"
 
 import { isRetryableGoogleStatus, retryDelayMs } from "@/lib/domain/retry"
+import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -168,6 +169,34 @@ async function refreshAccessToken(
         last_error_code = null
       where id = ${connection.id}
     `
+    // Google just honoured the stored refresh token, so an open reconnect
+    // task for this row is stale: the credential it says a person must
+    // replace is the one that worked. Before this, only a full OAuth
+    // re-consent ever closed the task, and a task opened on a transient
+    // answer (`status = 'expired'` stays loadable on purpose) kept "Google
+    // needs reconnecting" on every page for as long as the tenant let it -
+    // even while every refresh underneath it was succeeding.
+    const closed = await transaction<{ reasonCode: string | null }[]>`
+      update connection_task
+      set status = 'completed', resolved_at = now()
+      where google_connection_id = ${connection.id}
+        and task_type = 'reconnect'
+        and status = 'open'
+      returning reason_code as "reasonCode"
+    `
+    if (closed.length > 0) {
+      await writeAudit(transaction, {
+        organisationId: connection.organisation_id,
+        actorUserId: null,
+        action: "google.connection.refresh_restored",
+        subjectType: "google_connection",
+        subjectId: connection.id,
+        metadata: {
+          closedReconnectTasks: closed.length,
+          reasonCodes: closed.map((task) => task.reasonCode),
+        },
+      })
+    }
   })
   return token.accessToken
 }

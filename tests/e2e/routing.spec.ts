@@ -2,7 +2,11 @@ import { expect, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
 
-async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
+async function applyCookie(
+  page: Page,
+  baseURL: string | undefined,
+  cookie: string
+) {
   const [name, value] = cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
@@ -12,7 +16,11 @@ async function applyCookie(page: Page, baseURL: string | undefined, cookie: stri
 const dashboardRoutes = [
   { path: "/home", label: "Overview", heading: /^Overview$/ },
   { path: "/inbox", label: "Reviews", heading: /^Reviews$/ },
-  { path: "/profile", label: "Business profile", heading: /^Business profile$/ },
+  {
+    path: "/profile",
+    label: "Business profile",
+    heading: /^Business profile$/,
+  },
   { path: "/photos", label: "Photos", heading: /^Photos$/ },
   { path: "/posts", label: "Posts", heading: /^Posts$/ },
   { path: "/performance", label: "Performance", heading: /^Performance$/ },
@@ -53,6 +61,10 @@ test("root redirects to home", async ({ page }) => {
 
 test("legacy routes redirect to their replacements", async ({ page }) => {
   for (const [from, to] of [
+    // Keep the anonymous auth alias first. Visiting any dashboard alias below
+    // provisions the local test session, after which /sign-in correctly sends
+    // the already-authenticated browser to /home.
+    ["/login", "/sign-in"],
     ["/overview", "/home"],
     ["/analytics", "/performance"],
     ["/connections", "/settings/connections"],
@@ -60,6 +72,19 @@ test("legacy routes redirect to their replacements", async ({ page }) => {
     await page.goto(from)
     await expect(page).toHaveURL(to)
   }
+})
+
+test("login forwards the authentication query string", async ({ page }) => {
+  await page.goto(
+    "/login?next=%2Finbox&mode=create-account&invite=invite-token&status=invitation_expired"
+  )
+
+  const url = new URL(page.url())
+  expect(url.pathname).toBe("/sign-in")
+  expect(url.searchParams.get("next")).toBe("/inbox")
+  expect(url.searchParams.get("mode")).toBe("create-account")
+  expect(url.searchParams.get("invite")).toBe("invite-token")
+  expect(url.searchParams.get("status")).toBe("invitation_expired")
 })
 
 test("reviews redirects to inbox and forwards the query string", async ({

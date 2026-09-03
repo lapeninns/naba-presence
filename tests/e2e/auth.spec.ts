@@ -10,7 +10,11 @@ const STRUCTURE_RULES = [
 ]
 
 const AUTH_PAGES = [
-  { path: "/sign-in", heading: "Sign in to NabaPresence" },
+  { path: "/sign-in", heading: "Sign in to run your reviews" },
+  {
+    path: "/sign-in?mode=create-account",
+    heading: "Create your NabaPresence account",
+  },
   { path: "/forgot-password", heading: "Reset your password" },
   { path: "/reset-password", heading: "Choose a new password" },
 ]
@@ -32,7 +36,10 @@ test.describe("auth surfaces", () => {
     await page.goto("/sign-in")
     await page.getByLabel("Email address").fill("someone@example.test")
     await page.getByLabel("Password").fill("correct-horse-9")
-    await expect(page.getByLabel("Password")).toHaveAttribute("type", "password")
+    await expect(page.getByLabel("Password")).toHaveAttribute(
+      "type",
+      "password"
+    )
     await page.getByRole("button", { name: "Show password" }).click()
     await expect(page.getByLabel("Password")).toHaveAttribute("type", "text")
   })
@@ -94,16 +101,20 @@ test.describe("auth surfaces", () => {
     })
     await page.goto("/invite/some-token")
     await expect(page.getByText("That invitation has expired.")).toBeVisible()
-    await expect(page.getByRole("link", { name: "Go to sign in" })).toBeVisible()
+    await expect(
+      page.getByRole("link", { name: "Go to sign in" })
+    ).toBeVisible()
   })
 
   for (const theme of ["light", "dark"] as const) {
     test(`axe clean across auth pages (${theme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
-      for (const target of [...AUTH_PAGES.map((p) => p.path), "/sign-in?mode=create-account"]) {
+      for (const target of AUTH_PAGES.map((p) => p.path)) {
         await page.goto(target)
         await page.waitForLoadState("networkidle")
-        const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+        const wcag = await new AxeBuilder({ page })
+          .withTags(WCAG_TAGS)
+          .analyze()
         expect(wcag.violations, `${target} ${theme} wcag`).toEqual([])
         const best = await new AxeBuilder({ page })
           .withTags(["best-practice"])

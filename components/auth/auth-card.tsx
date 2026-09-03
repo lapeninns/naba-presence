@@ -1,36 +1,40 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-} from "@/components/ui/card"
-
 function AuthCard({
+  eyebrow,
   title,
   description,
   children,
   footer,
 }: {
+  eyebrow?: React.ReactNode
   title: string
   description?: React.ReactNode
   children: React.ReactNode
   footer?: React.ReactNode
 }) {
   return (
-    <main id="main" tabIndex={-1} className="w-full max-w-md">
-      <Card>
-        <CardHeader className="gap-1.5">
+    <main
+      id="main"
+      tabIndex={-1}
+      className="flex w-full max-w-md flex-col gap-6"
+    >
+      <div className="flex flex-col gap-2">
+        {eyebrow ? (
+          <p className="text-caption font-semibold text-primary">{eyebrow}</p>
+        ) : null}
+        <div className="flex flex-col gap-1.5">
           <h1 className="text-page-title font-semibold tracking-tight text-balance">
             {title}
           </h1>
           {description ? (
-            <CardDescription>{description}</CardDescription>
+            <p className="text-body text-muted-foreground">{description}</p>
           ) : null}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">{children}</CardContent>
-      </Card>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-5">{children}</div>
+
       {footer ? (
-        <div className="mt-4 text-center text-ui text-muted-foreground">
+        <div className="text-center text-ui text-muted-foreground">
           {footer}
         </div>
       ) : null}

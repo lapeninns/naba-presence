@@ -3,13 +3,19 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SignInForm } from "@/components/auth/sign-in-form"
+import { SignInPanel } from "@/components/auth/sign-in-panel"
 import { ApiClientError } from "@/lib/api/client"
 import * as authApi from "@/lib/api/auth"
 
 const assign = vi.fn()
 
 beforeEach(() => {
-  vi.stubGlobal("location", { ...window.location, pathname: "/sign-in", search: "", assign })
+  vi.stubGlobal("location", {
+    ...window.location,
+    pathname: "/sign-in",
+    search: "",
+    assign,
+  })
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -75,7 +81,11 @@ describe("sign-in mode", () => {
   it("shows a generic sign-in error and never reveals whether the email is registered", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "signIn").mockRejectedValue(
-      new ApiClientError(401, "invalid_credentials", "The email or password is incorrect.")
+      new ApiClientError(
+        401,
+        "invalid_credentials",
+        "The email or password is incorrect."
+      )
     )
     render(<SignInForm />)
     await user.type(screen.getByLabelText("Email address"), "real@x.test")
@@ -100,7 +110,10 @@ describe("sign-in mode", () => {
     const user = userEvent.setup()
     let release: () => void = () => {}
     vi.spyOn(authApi, "signIn").mockImplementation(
-      () => new Promise<void>((resolve) => { release = () => resolve() })
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve()
+        })
     )
     render(<SignInForm />)
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
@@ -116,7 +129,10 @@ describe("sign-in mode", () => {
   it("renders a status message passed from the confirmation redirect", () => {
     render(
       <SignInForm
-        statusMessage={{ title: "That invitation has expired.", description: "Ask for a new one." }}
+        statusMessage={{
+          title: "That invitation has expired.",
+          description: "Ask for a new one.",
+        }}
       />
     )
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -165,12 +181,15 @@ describe("create-account mode", () => {
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
-    await user.type(screen.getByLabelText("Confirm password"), "correct-horse-8")
+    await user.type(
+      screen.getByLabelText("Confirm password"),
+      "correct-horse-8"
+    )
     await user.click(screen.getByRole("button", { name: "Create account" }))
     expect(registerSpy).not.toHaveBeenCalled()
-    expect(screen.getByLabelText("Confirm password")).toHaveAccessibleDescription(
-      "Both passwords must match."
-    )
+    expect(
+      screen.getByLabelText("Confirm password")
+    ).toHaveAccessibleDescription("Both passwords must match.")
   })
 
   it("shows the check-your-email state when confirmation is required", async () => {
@@ -183,7 +202,10 @@ describe("create-account mode", () => {
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
-    await user.type(screen.getByLabelText("Confirm password"), "correct-horse-9")
+    await user.type(
+      screen.getByLabelText("Confirm password"),
+      "correct-horse-9"
+    )
     await user.click(screen.getByRole("button", { name: "Create account" }))
     expect(
       await screen.findByRole("heading", { name: "Check your email" })
@@ -209,6 +231,41 @@ describe("create-account mode", () => {
 })
 
 describe("mode toggle", () => {
+  it("notifies a controlled owner when the mode changes", async () => {
+    const user = userEvent.setup()
+    const onModeChange = vi.fn()
+    render(<SignInForm mode="sign-in" onModeChange={onModeChange} />)
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to create account" })
+    )
+
+    expect(onModeChange).toHaveBeenCalledWith("create-account")
+  })
+
+  it("updates the page heading when the account action changes", async () => {
+    const user = userEvent.setup()
+    render(<SignInPanel />)
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Sign in to run your reviews",
+      })
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to create account" })
+    )
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Create your NabaPresence account",
+      })
+    ).toBeInTheDocument()
+  })
+
   it("clears the field error and keeps typed values when switching to create-account", async () => {
     const user = userEvent.setup()
     render(<SignInForm />)

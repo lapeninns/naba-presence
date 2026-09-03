@@ -21,7 +21,7 @@ function checkPasswordRules(value: string): PasswordRule[] {
 
 function PasswordRequirements({ value }: { value: string }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col gap-1.5 pt-1">
       {checkPasswordRules(value).map((rule) => (
         <li
           key={rule.id}

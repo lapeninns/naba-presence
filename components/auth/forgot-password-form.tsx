@@ -1,7 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { Button } from "@/components/ui/button"
@@ -71,7 +77,7 @@ function ForgotPasswordForm() {
 
   if (sentTo) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <p role="status" className="text-body">
           If an account exists for {sentTo}, a reset link is on its way.
         </p>
@@ -83,7 +89,7 @@ function ForgotPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {message ? (
         <div ref={alertRef} tabIndex={-1}>
           <AuthErrorAlert message={message} email={email} />

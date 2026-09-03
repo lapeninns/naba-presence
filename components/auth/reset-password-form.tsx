@@ -1,7 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { PasswordField } from "@/components/auth/password-field"
@@ -23,7 +29,10 @@ const FIELD_ORDER = ["password", "confirmPassword"] as const
 // out instead of leaving a doomed form on screen. Every other error
 // (rate limiting, transient server trouble, ...) leaves the token's
 // validity an open question, so the form stays.
-const DEAD_TOKEN_CODES = new Set(["invalid_email_link", "password_reset_failed"])
+const DEAD_TOKEN_CODES = new Set([
+  "invalid_email_link",
+  "password_reset_failed",
+])
 
 // Same name-based focus lookup as sign-in-form.tsx / forgot-password-form.tsx.
 function focusField(name: string) {
@@ -90,7 +99,10 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         // double-submit gap this flow exists to close (see sign-in-form.tsx).
         await new Promise<void>(() => {})
       } catch (error) {
-        if (error instanceof ApiClientError && DEAD_TOKEN_CODES.has(error.code)) {
+        if (
+          error instanceof ApiClientError &&
+          DEAD_TOKEN_CODES.has(error.code)
+        ) {
           setMessage(authErrorMessage(error))
           setDeadToken(true)
           return
@@ -106,10 +118,10 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   if (!isUsableToken(tokenHash)) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <p className="text-body text-muted-foreground">
-          This password reset link is missing or incomplete. Request a new
-          one to continue.
+          This password reset link is missing or incomplete. Request a new one
+          to continue.
         </p>
         <Link href="/forgot-password" className="underline underline-offset-4">
           Request another link
@@ -127,7 +139,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {message ? (
         <div ref={alertRef} tabIndex={-1}>
           <AuthErrorAlert message={message} />

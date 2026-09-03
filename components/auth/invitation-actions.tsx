@@ -34,7 +34,7 @@ function InvitationActions({
   const sameEmail = viewer.email === invitedEmail
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <p className="text-body text-muted-foreground">
         {sameEmail
           ? `You are signed in as ${viewer.email}. Sign out and continue to accept this invitation.`
