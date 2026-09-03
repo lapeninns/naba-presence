@@ -48,6 +48,8 @@ import "server-only"
  * claiming safe.
  */
 
+import type { TransactionSql } from "postgres"
+
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
@@ -372,6 +374,77 @@ async function rescheduleAttempt(job: ClaimedJob, error: unknown) {
 }
 
 /**
+ * The terminal settle for an attempt whose connection the tenant disconnected.
+ *
+ * Every other blocked state parks, because a person is expected to end it.
+ * Disconnecting is not an outage being waited out -- it is the instruction to
+ * stop -- and the route that carries it out already settles exactly this way,
+ * in the same transaction, for every attempt it can see ('ambiguous' and
+ * 'retryable'). It leaves 'started' alone because that write may have landed;
+ * those arrive HERE as 'ambiguous' once `reclaim_expired_jobs` takes the lease
+ * back. Settling them identically is what stops an attempt's fate depending on
+ * which side of the disconnect its lease happened to expire on.
+ *
+ * This settle DOES fail the reply, where recovery_exhausted and
+ * reconnect_abandoned deliberately do not, and for the reason those two give:
+ * an 'ambiguous' write may have landed, so 'unknown' is the honest state only
+ * while somebody can still go and look. Nobody can here -- the links are
+ * inactive, the routes are gone and the location is queued for the seven-day
+ * purge -- so the review would sit at 'publish_requested' until that purge
+ * deleted it, with nothing on the record to say the reply never landed, and
+ * for ever behind a legal hold the purge never reaches. The audit row is what
+ * a tenant who reconnects the same Google account has to work from.
+ */
+async function settleDisconnectedRecovery(
+  sql: TransactionSql,
+  job: ClaimedJob,
+  requestId: string,
+  attempt: { reviewId: string; reviewReplyId: string }
+): Promise<void> {
+  await sql`
+    update publish_attempt
+    set
+      status = 'failed',
+      provider_error_code = 'connection_disconnected',
+      next_attempt_at = null,
+      lease_expires_at = null,
+      finished_at = now()
+    where id = ${job.jobId}
+      and status = 'ambiguous'
+  `
+  await writePublishAttemptEvent(sql, {
+    organisationId: job.organisationId,
+    publishAttemptId: job.jobId,
+    eventType: "completed",
+    payload: { result: "connection_disconnected" },
+  })
+  // Both guards are the disconnect route's, for its reasons: a reply already
+  // 'published' is live at Google and would start lying, and
+  // enforce_review_workflow_transition only allows 'failed' out of
+  // 'publish_requested', raising rather than skipping on anything else.
+  await sql`
+    update review_reply
+    set publish_status = 'failed'
+    where id = ${attempt.reviewReplyId}
+      and publish_status = 'accepted'
+  `
+  await sql`
+    update review
+    set workflow_status = 'failed'
+    where id = ${attempt.reviewId}
+      and workflow_status = 'publish_requested'
+  `
+  await writeAudit(sql, {
+    organisationId: job.organisationId,
+    action: "review.reply.connection_disconnected",
+    subjectType: "review",
+    subjectId: attempt.reviewId,
+    requestId,
+    metadata: { publishAttemptId: job.jobId },
+  })
+}
+
+/**
  * A recovery readback that failed, settled against `recovery_attempts` (0034)
  * rather than `attempt_no`: nothing on this path increments `attempt_no`, so
  * every back-off derived from it was the same 250-500 ms and the attempt
@@ -383,6 +456,9 @@ async function rescheduleAttempt(job: ClaimedJob, error: unknown) {
  * can. Work blocked on a person reconnecting must not spend a budget nobody
  * could have made it spend more slowly, or a queued reply is dead-lettered
  * for the length of an outage the tenant alone can end.
+ *
+ * A DISCONNECTED connection is the one blocked state that is not an outage,
+ * so it is settled rather than parked -- see `settleDisconnectedRecovery`.
  */
 async function settleRecoveryFailure(
   job: ClaimedJob,
@@ -394,6 +470,8 @@ async function settleRecoveryFailure(
       {
         recoveryAttempts: number
         reviewId: string
+        reviewReplyId: string
+        disconnected: boolean
         blocked: boolean
         abandoned: boolean
       }[]
@@ -401,7 +479,9 @@ async function settleRecoveryFailure(
       select
         pa.recovery_attempts as "recoveryAttempts",
         rr.review_id::text as "reviewId",
+        rr.id::text as "reviewReplyId",
         pa.started_at < now() - ${RECOVERY_PARK_LIMIT}::interval as abandoned,
+        (gc.id is null or gc.status = 'disconnected') as disconnected,
         (
           gc.id is null
           or gc.status not in ('active', 'expired')
@@ -423,6 +503,14 @@ async function settleRecoveryFailure(
       limit 1
     `
     if (!attempt) return "stale"
+
+    // Checked before `blocked`, which a disconnected connection also
+    // satisfies -- as does a connection row that is gone entirely, and that
+    // is no more readable than a disconnected one.
+    if (attempt.disconnected) {
+      await settleDisconnectedRecovery(sql, job, requestId, attempt)
+      return "disconnected"
+    }
 
     if (attempt.blocked && !attempt.abandoned) {
       await sql`
@@ -524,7 +612,10 @@ async function settleRecoveryFailure(
     })
     return "exhausted"
   })
-  const terminal = outcome === "exhausted" || outcome === "abandoned"
+  const terminal =
+    outcome === "exhausted" ||
+    outcome === "abandoned" ||
+    outcome === "disconnected"
   log[terminal ? "error" : "warn"]("jobs.recovery_failed", {
     organisationId: job.organisationId,
     attemptId: job.jobId,

@@ -152,6 +152,16 @@ function ReviewList({
           )
           const hasIcons =
             review.hasMedia || review.replyStatus === "published"
+          // --muted-foreground is calibrated against the page/card surface
+          // (6.24:1 in dark); on the selected row's --accent tint it drops to
+          // 4.48:1, just under AA. The selected row therefore softens the
+          // row's OWN foreground instead — 5.7:1 on the tint in dark, 5.6:1
+          // in light — which keeps the secondary/primary hierarchy without
+          // failing contrast. (The `·` separators stay muted: they are
+          // aria-hidden decoration, not text a reader has to make out.)
+          const secondaryText = selected
+            ? "text-foreground/70"
+            : "text-muted-foreground"
 
           return (
             <li key={review.id}>
@@ -207,7 +217,12 @@ function ReviewList({
                     >
                       ·
                     </span>
-                    <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
+                    <span
+                      className={cn(
+                        "shrink-0 text-caption tabular-nums",
+                        secondaryText
+                      )}
+                    >
                       {formatDate(review.updateTime, timezone)}
                     </span>
                     <span
@@ -216,7 +231,12 @@ function ReviewList({
                     >
                       ·
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-caption",
+                        secondaryText
+                      )}
+                    >
                       {review.location.name}
                     </span>
                     {hasIcons ? (
@@ -242,13 +262,18 @@ function ReviewList({
                   <span
                     lang={parsed?.bodyLang ?? undefined}
                     dir="auto"
-                    className="line-clamp-2 text-caption text-muted-foreground"
+                    className={cn("line-clamp-2 text-caption", secondaryText)}
                   >
                     {parsed?.body ?? "No review text"}
                   </span>
 
                   {parsed?.original ? (
-                    <span className="flex items-center gap-x-2 text-caption text-muted-foreground">
+                    <span
+                      className={cn(
+                        "flex items-center gap-x-2 text-caption",
+                        secondaryText
+                      )}
+                    >
                       <GlobeIcon aria-hidden className="size-3.5 shrink-0" />
                       Translated
                     </span>

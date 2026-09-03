@@ -32,6 +32,7 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
   let disconnectLocationId: string
   let strandedAttempt: SeededAttempt
   let inFlightAttempt: SeededAttempt
+  let liveReplyAttempt: SeededAttempt
   let reclaimLocationA: string
   let reclaimLocationB: string
   let reclaimGoogleLocationName: string
@@ -66,9 +67,10 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       googleAccountName: disconnectConnection.googleAccountName,
     })
     disconnectLocationId = disconnectLocation.externalLocationId
-    // Two queued publishes on the connection about to disappear: an
-    // `ambiguous` one nothing can ever read back again, and a `started` one
-    // whose write may already have landed at Google.
+    // Three attempts on the connection about to disappear: an `ambiguous` one
+    // nothing can ever read back again, a `started` one whose write may
+    // already have landed at Google, and an `ambiguous` one against a reply
+    // that is already live at Google.
     strandedAttempt = await seedPublishAttempt(
       disconnectConnection.connectionId,
       disconnectConnection.googleAccountName,
@@ -78,6 +80,12 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       disconnectConnection.connectionId,
       disconnectConnection.googleAccountName,
       "started"
+    )
+    liveReplyAttempt = await seedPublishAttempt(
+      disconnectConnection.connectionId,
+      disconnectConnection.googleAccountName,
+      "ambiguous",
+      "published"
     )
 
     const relinkConnection = await seedGoogleConnection(admin, {
@@ -203,14 +211,17 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
   })
 
   /**
-   * A review on `connectionId` with an approved reply parked at
-   * `attemptStatus`. The workflow is walked one legal step at a time because
-   * enforce_review_workflow_transition rejects new -> publish_requested.
+   * A review on `connectionId` with a reply parked at `attemptStatus`. The
+   * workflow is walked one legal step at a time because
+   * enforce_review_workflow_transition rejects new -> publish_requested; a
+   * `published` reply is walked one step further, because that is the state a
+   * reply already live at Google sits in while a delete of it goes ambiguous.
    */
   async function seedPublishAttempt(
     connectionId: string,
     googleAccountName: string,
-    attemptStatus: "ambiguous" | "started"
+    attemptStatus: "ambiguous" | "started",
+    replyStatus: "accepted" | "published" = "accepted"
   ): Promise<SeededAttempt> {
     const seeded = await seedLinkedReview(admin, {
       organisationId: owner.organisationId,
@@ -232,10 +243,12 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
         ${owner.organisationId},
         ${seeded.reviewId},
         'Queued reply awaiting Google',
-        'accepted'
+        ${replyStatus}
       )
     `
-    for (const status of ["drafted", "verified", "publish_requested"]) {
+    const workflow = ["drafted", "verified", "publish_requested"]
+    if (replyStatus === "published") workflow.push("published")
+    for (const status of workflow) {
       await admin`
         update review set workflow_status = ${status} where id = ${seeded.reviewId}
       `
@@ -411,7 +424,7 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
     expect(connection.purgeDueAt).not.toBeNull()
   })
 
-  it("disconnect settles the attempts it strands and leaves in-flight ones alone", async () => {
+  it("disconnect settles the attempts it strands and leaves the rest alone", async () => {
     const [stranded] = await admin<
       {
         status: string
@@ -458,6 +471,31 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       where id = ${inFlightAttempt.attemptId}
     `
     expect(inFlight.status).toBe("started")
+
+    // The attempt is unresolvable either way, so it is settled -- but the
+    // reply it belongs to is live at Google, and failing it would make the
+    // local row disagree with what a reader of the review actually sees.
+    const [live] = await admin<
+      {
+        status: string
+        publishStatus: string
+        workflowStatus: string
+      }[]
+    >`
+      select
+        pa.status,
+        rr.publish_status as "publishStatus",
+        r.workflow_status as "workflowStatus"
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      join review r on r.id = rr.review_id
+      where pa.id = ${liveReplyAttempt.attemptId}
+    `
+    expect(live).toEqual({
+      status: "failed",
+      publishStatus: "published",
+      workflowStatus: "published",
+    })
   })
 
   it("relinks an internal location that a previous unlink left behind", async () => {

@@ -15,11 +15,18 @@ describe("EmptyState", () => {
     expect(screen.getByText("No reviews match these filters")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
 
+    // The shell's ReconnectBanner renders on the same condition and owns the
+    // "Google is not connected" headline and the Manage connection link, so
+    // this state must NOT repeat either: it says only why the list is empty.
     rerender(<EmptyState kind="disconnected" />)
-    expect(screen.getByText("Google is not connected")).toBeInTheDocument()
+    expect(screen.getByText("No reviews to show")).toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: "Manage connection" })
-    ).toHaveAttribute("href", "/settings/connections")
+      screen.getByText("Reconnect Google to sync and reply to your reviews.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Google is not connected")).toBeNull()
+    expect(
+      screen.queryByRole("link", { name: "Manage connection" })
+    ).toBeNull()
   })
 
   it("clears filters on request", async () => {

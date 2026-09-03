@@ -151,9 +151,26 @@ test.describe("inbox", () => {
         .getByText(state.directReview.text, { exact: true })
     ).toBeVisible()
 
-    const img = page.getByRole("img", { name: state.directReview.media.thumbnailLabel })
+    // The grid thumbnail is deliberately DECORATIVE (`alt=""`): its wrapping
+    // button carries the accessible name ("Open <label>"), so naming the image
+    // as well would announce the same photo twice (review-detail.tsx's
+    // ReviewMedia). Only the lightbox copy takes `alt={label}`, and that one
+    // needs a click first — so reach the rendered <img> through the button
+    // that names it rather than by an img role that the accessibility tree
+    // (correctly) does not expose.
+    const img = page
+      .getByRole("button", {
+        name: `Open ${state.directReview.media.thumbnailLabel}`,
+      })
+      .locator("img")
     await expect(img).toBeVisible()
-    expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+    // naturalWidth > 0 is the actual CSP proof: the browser fetched and decoded
+    // a googleusercontent.com image, which img-src had to allow. Polled rather
+    // than read once — the thumbnail is `loading="lazy"`, so a visible <img>
+    // is not yet a decoded one, and a blocked image simply never gets there.
+    await expect
+      .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth))
+      .toBeGreaterThan(0)
     expect(cspViolations).toEqual([])
   })
 })

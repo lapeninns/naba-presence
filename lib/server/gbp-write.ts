@@ -228,11 +228,11 @@ import "server-only"
  * Phase (a) commits the intent in its own transaction and every later phase
  * runs outside it, so a request that dies in between (function timeout,
  * instance recycled mid-deploy, a settle transaction that fails to commit)
- * leaves the row in flight with nothing to move it: no GBP attempt table has
- * a lease, `reclaim_expired_jobs` does not touch them, and the retention cron
- * only deletes them once `expires_at` passes -- 365 days for hours and
- * profile, 180 for food menus. An unchanged snapshot re-derives the same key,
- * so without recovery the same publish would 409 for the rest of that year.
+ * leaves the row in flight with nothing in this module to move it: no GBP
+ * attempt table has a lease, and `reclaim_expired_jobs` (0029) reaps only the
+ * job runner's own three tables. An unchanged snapshot re-derives the same
+ * key, so without recovery the same publish would 409 until `expires_at`
+ * deleted the row -- 365 days for hours and profile, 180 for food menus.
  *
  * So a "resume" surface 409s an in-flight row only inside IN_FLIGHT_GRACE_MS.
  * Past it the row is treated as interrupted and settled from what the
@@ -252,6 +252,16 @@ import "server-only"
  * payload hash), so `verify` is comparing the provider against exactly the
  * intent the stranded row carries. A surface with no `readback` keeps the
  * 409 -- there is nothing to compare against.
+ *
+ * That recovery needs a request to arrive, so it only ever reaches a row
+ * somebody comes back to with the SAME key -- and the common repair (edit the
+ * canonical resource, publish again) mints a different one. The retention cron
+ * reaps what is left (app/api/cron/retention/route.ts): a row still in flight
+ * a day later is settled `ambiguous` with `attempt_interrupted`, which is a
+ * settled status, so the next request for its key re-arms it rather than
+ * 409ing on it. The halves are not interchangeable -- a reaper holds no
+ * provider credentials and cannot read anything back, and this path never
+ * runs at all for a tenant nobody opens.
  *
  * =====================================================================
  * What deliberately does NOT use runGbpWrite: the reply pipeline

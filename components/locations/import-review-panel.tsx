@@ -190,7 +190,9 @@ export function ImportReviewPanel({
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-base">Suggestions from Google</CardTitle>
+          <CardTitle as="h2" className="text-base">
+            Suggestions from Google
+          </CardTitle>
           {pending.length > 0 ? (
             <Badge variant="warning">{pending.length}</Badge>
           ) : null}
@@ -318,7 +320,20 @@ export function ImportReviewPanel({
             )
           })
         )}
-        <GateNote reason={editDisabledReason} />
+        {/* Deliberately not an echo of `editDisabledReason`. That prop
+            carries the sentence the host tab already shows beside its own
+            Save button, and repeating it verbatim put the identical note
+            twice on one screen -- read out twice by a screen reader, for two
+            different sets of controls. This one names what these buttons do.
+            (`editDisabledReason` is non-null only for the canEditCanonical
+            gate, so owners/admins is the accurate reason -- lib/locations/gating.ts.) */}
+        <GateNote
+          reason={
+            editDisabledReason
+              ? "Only owners and admins can accept or ignore suggestions."
+              : null
+          }
+        />
       </CardContent>
 
       <OverwriteConfirmDialog

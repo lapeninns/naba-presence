@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -435,6 +437,374 @@ describeDatabase("import review queue", () => {
     })
     expect(counts.status).toBe(200)
     expect((await counts.json()).counts).toEqual([])
+  }, 60_000)
+
+  /** An owner with one linked location, ready for menu and profile drift. */
+  async function seedLocation() {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    return {
+      owner,
+      linked,
+      root: `${server.baseUrl}/api/locations/${linked.locationId}`,
+    }
+  }
+
+  function proposalRow(id: string) {
+    return admin<
+      {
+        status: string
+        decision: string | null
+        failureCode: string | null
+        decidedAt: Date | null
+      }[]
+    >`
+      select status, decision, failure_code as "failureCode",
+        decided_at as "decidedAt"
+      from presence_import_proposal where id = ${id}
+    `
+  }
+
+  /**
+   * Walks the presence-resources sweep until `done` reports the tenant under
+   * test has been visited. The sweep pages over every organisation in the
+   * database, and this tenant can be anywhere in that order.
+   */
+  async function sweepUntil(done: () => Promise<boolean>) {
+    let cursor: string | null = null
+    for (let page = 0; page < 20; page += 1) {
+      const sweep = await fetch(
+        `${server.baseUrl}/api/sync/presence-resources`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer route-harness-cron-secret",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            maxOrganisations: 25,
+            ...(cursor ? { organisationCursor: cursor } : {}),
+          }),
+        }
+      )
+      expect(sweep.status, await sweep.clone().text()).toBe(200)
+      const body = (await sweep.json()) as { nextCursor: string | null }
+      if (await done()) return
+      if (!body.nextCursor) return
+      cursor = body.nextCursor
+    }
+  }
+
+  it("fails only the proposals stranded past the reaper's window", async () => {
+    const { owner, linked } = await seedLocation()
+    const stranded = randomUUID()
+    const inFlight = randomUUID()
+    // Two claimed decisions on one location: one abandoned twenty minutes ago
+    // by a crash between the claim and the settle, one claimed a moment ago by
+    // a request that is still running. Until a stranded row leaves
+    // `processing` the live-key index blocks every fresh proposal for its
+    // identity, so the field is frozen for the user.
+    // updated_at is set on the insert, not backdated afterwards: the table
+    // carries a before-update trigger that would stamp now() over it.
+    for (const seed of [
+      {
+        id: stranded,
+        key: "name",
+        updatedAt: new Date(Date.now() - 20 * 60_000),
+      },
+      { id: inFlight, key: "description", updatedAt: new Date() },
+    ]) {
+      await admin`
+        insert into presence_import_proposal (
+          id, organisation_id, location_id, external_location_id,
+          resource_type, identity_key, kind, field_key, suggested_patch,
+          status, decision, pinned_canonical_revision, pinned_canonical_hash,
+          pinned_google_hash, batch_id, raised_via, updated_at
+        ) values (
+          ${seed.id}, ${owner.organisationId}, ${linked.locationId},
+          ${linked.externalLocationId}, 'profile', ${seed.key},
+          'field_changed', ${seed.key},
+          ${admin.json({ op: "set_field", fieldKey: seed.key, value: "Google" })},
+          'processing', 'apply', '1', 'pinned-canonical', 'pinned-google',
+          ${randomUUID()}, 'manual', ${seed.updatedAt}
+        )
+      `
+    }
+
+    await sweepUntil(async () => {
+      const [row] = await proposalRow(stranded)
+      return row.status !== "processing"
+    })
+
+    const [settled] = await proposalRow(stranded)
+    expect(settled).toMatchObject({
+      status: "failed",
+      failureCode: "proposal_apply_failed",
+    })
+    expect(settled.decidedAt).not.toBeNull()
+    // The other half of the predicate: a decision seconds old is in flight,
+    // not stranded. Reaping it would settle a proposal out from under the
+    // request that claimed it and resurrect a decision already being applied.
+    const [live] = await proposalRow(inFlight)
+    expect(live.status).toBe("processing")
+  }, 60_000)
+
+  it("releases the claim when an overwrite needs confirming", async () => {
+    const { owner, linked, root } = await seedLocation()
+    let providerLocation: Record<string, unknown> = {
+      name: linked.googleLocationName,
+      title: "Harbour Cafe",
+      profile: { description: "Seafront cafe" },
+      phoneNumbers: { primaryPhone: "+44 1223 111111" },
+      websiteUri: "https://harbour.example",
+      categories: { primaryCategory: { displayName: "Cafe" } },
+      metadata: { canHaveFoodMenus: false },
+    }
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+
+    await getJson(`${root}/profile`, owner.cookie, "profile")
+    providerLocation = { ...providerLocation, title: "The Harbour Cafe" }
+    const refreshed = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-conflict",
+      { resourceType: "profile" }
+    )
+    expect(refreshed.outcomes.profile.raised).toBe(1)
+    const [proposal] = await getJson(
+      `${root}/import-review?resourceType=profile`,
+      owner.cookie,
+      "proposals"
+    )
+
+    // The user renames the location locally while the suggestion is open, so
+    // Apply is no longer an import into an untouched field - it destroys a
+    // local edit the proposal never saw.
+    const before = await getJson(`${root}/profile`, owner.cookie, "profile")
+    await putJson(`${root}/profile`, owner.cookie, "rename-locally", {
+      expectedCanonicalRevision: before.canonicalResource.revision,
+      values: { name: "Harbour Cafe & Bar" },
+    })
+    const edited = await getJson(`${root}/profile`, owner.cookie, "profile")
+
+    const unconfirmed = await fetch(
+      `${root}/import-review/${proposal.id}/decision`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "decide-unconfirmed"),
+        body: JSON.stringify({
+          action: "apply",
+          confirmation: "import_google_profile_to_nabapresence",
+          expectedCanonicalRevision: edited.canonicalResource.revision,
+        }),
+      }
+    )
+    expect(unconfirmed.status).toBe(409)
+    expect((await unconfirmed.json()).error).toBe(
+      "canonical_overwrite_confirmation_required"
+    )
+    // Nothing was written, so the claim is released rather than burned: the
+    // acknowledged retry has to find the row pending, because `failed` is
+    // terminal and the claim only accepts `pending`.
+    const [released] = await proposalRow(proposal.id)
+    expect(released).toMatchObject({
+      status: "pending",
+      decision: null,
+      failureCode: null,
+    })
+    const stillEdited = await getJson(
+      `${root}/profile`,
+      owner.cookie,
+      "profile"
+    )
+    expect(
+      stillEdited.fields.find((field: { key: string }) => field.key === "name")
+        .canonicalValue
+    ).toBe("Harbour Cafe & Bar")
+
+    const confirmed = await postJson(
+      `${root}/import-review/${proposal.id}/decision`,
+      owner.cookie,
+      "decide-confirmed",
+      {
+        action: "apply",
+        confirmation: "import_google_profile_to_nabapresence",
+        expectedCanonicalRevision: edited.canonicalResource.revision,
+        confirmOverwriteCanonicalChanges: true,
+      }
+    )
+    expect(confirmed.proposal.status).toBe("applied")
+    const applied = await getJson(`${root}/profile`, owner.cookie, "profile")
+    expect(
+      applied.fields.find((field: { key: string }) => field.key === "name")
+        .canonicalValue
+    ).toBe("The Harbour Cafe")
+  }, 60_000)
+
+  it("keeps or removes a local item Google no longer has", async () => {
+    const { owner, linked, root } = await seedLocation()
+    const providerLocation: Record<string, unknown> = {
+      name: linked.googleLocationName,
+      title: "The Anchor",
+      profile: { description: "Riverside pub" },
+      phoneNumbers: { primaryPhone: "+44 1223 222222" },
+      websiteUri: "https://anchor.example",
+      categories: { primaryCategory: { displayName: "Pub" } },
+      metadata: { canHaveFoodMenus: true },
+    }
+    let providerMenus: Array<Record<string, unknown>> = []
+    // Scoped to this location: an unscoped `/foodMenus` matcher would also
+    // answer for the other tenants this suite seeds.
+    const menusPath = `${linked.googleLocationName.replace("locations/", "")}/foodMenus`
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+    google.respond({ method: "GET", pathIncludes: menusPath }, () => ({
+      status: 200,
+      json: { menus: providerMenus },
+    }))
+    google.respond({ method: "PATCH", pathIncludes: menusPath }, (call) => {
+      providerMenus = (call.body as { menus: Array<Record<string, unknown>> })
+        .menus
+      return { status: 200, json: { menus: providerMenus } }
+    })
+
+    const item = (label: string, units: string) => ({
+      labels: [{ displayName: label, languageCode: "en-GB" }],
+      attributes: { price: { currencyCode: "GBP", units, nanos: 0 } },
+    })
+    const initial = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
+    await putJson(`${root}/food-menus`, owner.cookie, "save-anchor-menus", {
+      expectedCanonicalRevision: initial.canonicalResource.revision,
+      menus: [
+        {
+          labels: [{ displayName: "Main", languageCode: "en-GB" }],
+          sections: [
+            {
+              labels: [{ displayName: "Mains", languageCode: "en-GB" }],
+              items: [
+                item("Steak pie", "16"),
+                item("Fish & chips", "14"),
+                item("Ploughman's", "11"),
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const reviewed = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
+    const publish = await fetch(`${root}/food-menus`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "publish-anchor-menus"),
+      body: JSON.stringify({
+        confirmation: "publish_nabapresence_food_menus_to_google",
+        expectedCanonicalRevision: reviewed.canonicalResource.revision,
+        expectedCanonicalHash: reviewed.canonicalHash,
+        expectedGoogleHash: reviewed.googleHash,
+        confirmFullReplacement: true,
+      }),
+    })
+    expect(publish.status, await publish.clone().text()).toBe(200)
+
+    // Someone deletes two of the three items in the Google console. The
+    // section survives, so each one is an item the local menu still has and
+    // Google does not.
+    providerMenus = structuredClone(providerMenus)
+    const section = (
+      providerMenus[0].sections as Array<Record<string, unknown>>
+    )[0]
+    section.items = (section.items as Array<Record<string, unknown>>).slice(
+      0,
+      1
+    )
+
+    const refreshed = await postJson(
+      `${root}/import-review/refresh`,
+      owner.cookie,
+      "refresh-missing",
+      { resourceType: "food_menus" }
+    )
+    expect(refreshed.outcomes.foodMenus.raised).toBe(2)
+    const proposals = await getJson(
+      `${root}/import-review?resourceType=food_menus`,
+      owner.cookie,
+      "proposals"
+    )
+    expect(
+      proposals.every(
+        (row: { kind: string }) => row.kind === "item_missing_from_google"
+      )
+    ).toBe(true)
+    const keep = proposals.find(
+      (row: { itemLabel: string }) => row.itemLabel === "Fish & chips"
+    )
+    const remove = proposals.find(
+      (row: { itemLabel: string }) => row.itemLabel === "Ploughman's"
+    )
+
+    // Keep is a statement about Google, not about the menu: it settles the
+    // suggestion and leaves canonical data alone.
+    const menusBefore = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
+    const kept = await postJson(
+      `${root}/import-review/${keep.id}/decision`,
+      owner.cookie,
+      "decide-keep-local",
+      {
+        action: "keep_local",
+        confirmation: "import_google_food_menus_to_nabapresence",
+        expectedCanonicalRevision: menusBefore.canonicalResource.revision,
+      }
+    )
+    expect(kept.proposal.status).toBe("ignored")
+    expect(kept.canonicalRevision).toBeNull()
+
+    const removed = await postJson(
+      `${root}/import-review/${remove.id}/decision`,
+      owner.cookie,
+      "decide-delete-local",
+      {
+        action: "delete_local",
+        confirmation: "import_google_food_menus_to_nabapresence",
+        expectedCanonicalRevision: menusBefore.canonicalResource.revision,
+      }
+    )
+    expect(removed.proposal.status).toBe("applied")
+
+    const menusAfter = await getJson(
+      `${root}/food-menus`,
+      owner.cookie,
+      "foodMenus"
+    )
+    const labels = (
+      (
+        menusAfter.canonicalMenus[0].sections as Array<Record<string, unknown>>
+      )[0].items as Array<{ labels: Array<{ displayName: string }> }>
+    ).map((entry) => entry.labels[0].displayName)
+    expect(labels).toEqual(["Steak pie", "Fish & chips"])
   }, 60_000)
 })
 

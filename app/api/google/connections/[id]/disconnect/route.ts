@@ -241,7 +241,13 @@ async function settleStrandedAttempts(
       and pa.status in ('ambiguous', 'retryable')
   `
   if (!stranded.length) return 0
-  await sql`
+  // The runner holds no lock between reading an attempt and settling it, so
+  // one it claimed before this transaction started can commit a readback
+  // between the select above and this update -- which then reads the new row
+  // version and would overwrite a 'succeeded' attempt with 'failed'. The
+  // status filter makes the update settle only what is still unresolvable,
+  // and everything below follows what it actually settled.
+  const settled = await sql<{ id: string }[]>`
     update publish_attempt
     set
       status = 'failed',
@@ -250,8 +256,15 @@ async function settleStrandedAttempts(
       lease_expires_at = null,
       finished_at = now()
     where id in ${sql(stranded.map((attempt) => attempt.id))}
+      and status in ('ambiguous', 'retryable')
+    returning id::text as id
   `
-  for (const attempt of stranded) {
+  if (!settled.length) return 0
+  const settledIds = new Set(settled.map((row) => row.id))
+  const settledAttempts = stranded.filter((attempt) =>
+    settledIds.has(attempt.id)
+  )
+  for (const attempt of settledAttempts) {
     await writePublishAttemptEvent(sql, {
       organisationId: input.organisationId,
       publishAttemptId: attempt.id,
@@ -264,7 +277,7 @@ async function settleStrandedAttempts(
   // reply is still live at Google and the local row would start lying.
   const pendingReplies = [
     ...new Set(
-      stranded
+      settledAttempts
         .filter((attempt) => attempt.replyStatus === "accepted")
         .map((attempt) => attempt.replyId)
     ),
@@ -274,13 +287,14 @@ async function settleStrandedAttempts(
       update review_reply
       set publish_status = 'failed'
       where id in ${sql(pendingReplies)}
+        and publish_status = 'accepted'
     `
   }
   // enforce_review_workflow_transition only allows 'failed' out of
   // 'publish_requested', so any review in another state stays where it is.
   const stuckReviews = [
     ...new Set(
-      stranded
+      settledAttempts
         .filter((attempt) => attempt.workflowStatus === "publish_requested")
         .map((attempt) => attempt.reviewId)
     ),
@@ -293,5 +307,5 @@ async function settleStrandedAttempts(
         and workflow_status = 'publish_requested'
     `
   }
-  return stranded.length
+  return settledAttempts.length
 }

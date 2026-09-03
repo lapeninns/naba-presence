@@ -631,6 +631,75 @@ describeDatabase("durable background jobs", () => {
     expect(parked.gapMs).toBeGreaterThan(60_000)
   }, 30_000)
 
+  it("settles a recovery whose connection the tenant disconnected", async () => {
+    const subject = await fixture()
+    const attemptId = await seedPublishAttempt(
+      subject,
+      "ambiguous",
+      "A reply queued while the grant still existed."
+    )
+    stub.reset()
+    // The one blocked state that is not an outage the tenant is waiting out:
+    // they asked for it. Parking would hold the review at 'publish_requested'
+    // until the seven-day purge deleted the location under it, with nothing on
+    // the record to say the reply never landed.
+    await admin`
+      update google_connection
+      set
+        status = 'disconnected',
+        access_token_ciphertext = null,
+        refresh_token_ciphertext = null,
+        disconnected_at = now()
+      where id = ${subject.connectionId}
+    `
+
+    await runTick()
+    const settled = await attemptState(attemptId)
+    expect(settled).toMatchObject({
+      status: "failed",
+      providerErrorCode: "connection_disconnected",
+      recoveryAttempts: 0,
+    })
+    expect(settled.nextAttemptAt).toBeNull()
+    // The inbox resolves too, which is the whole point of settling rather
+    // than parking: the review stops claiming a publish is still queued, and
+    // the audit row is what the tenant is left to work from.
+    const [resolved] = await admin<
+      {
+        publishStatus: string
+        workflowStatus: string
+        audits: number
+        events: number
+      }[]
+    >`
+      select
+        rr.publish_status as "publishStatus",
+        r.workflow_status as "workflowStatus",
+        (
+          select count(*)
+          from audit_log
+          where organisation_id = ${subject.owner.organisationId}
+            and action = 'review.reply.connection_disconnected'
+            and subject_id = ${subject.reviewId}
+        )::int as audits,
+        (
+          select count(*)
+          from publish_attempt_event
+          where publish_attempt_id = ${attemptId}
+            and event_type = 'completed'
+        )::int as events
+      from review_reply rr
+      join review r on r.id = rr.review_id
+      where rr.review_id = ${subject.reviewId}
+    `
+    expect(resolved).toEqual({
+      publishStatus: "failed",
+      workflowStatus: "failed",
+      audits: 1,
+      events: 1,
+    })
+  }, 30_000)
+
   it("claims only the kinds the kill switches leave enabled", async () => {
     const subject = await fixture()
     const attemptId = await seedPublishAttempt(

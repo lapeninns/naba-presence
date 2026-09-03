@@ -157,15 +157,24 @@ attempt stops taking a claim slot even if a settle is lost to a crash.
 
 A recovery blocked on a revoked, expired or reconnect-pending Google grant is
 parked instead: it waits 15 minutes and looks again, and spends none of the
-eight-attempt budget, because only a person can end that outage. It is bounded
-in time rather than attempts — an attempt still blocked 14 days after it
-started is settled `failed` with `provider_error_code = 'reconnect_abandoned'`
-and audited as `review.reply.reconnect_abandoned`.
+eight-attempt budget, because only a person can end that outage. Reconnecting
+the same Google account revives the connection in place, so the park is
+correct rather than merely lenient. It is bounded in time rather than attempts
+— an attempt still blocked 14 days after it started is settled `failed` with
+`provider_error_code = 'reconnect_abandoned'` and audited as
+`review.reply.reconnect_abandoned`.
 
-Neither terminal settle touches the reply: `ambiguous` means the write may have
-landed at Google, so failing the reply would assert a state nobody observed.
-The audit row is the operator's handle. Search for these two actions, read the
-live reply on Google, and settle the review by hand.
+A grant the tenant *disconnected* is not parked at all: nobody is coming back
+to it, so the attempt is settled `failed` immediately with
+`provider_error_code = 'connection_disconnected'` and audited as
+`review.reply.connection_disconnected`.
+
+None of the three terminal settles touches the reply: `ambiguous` means the
+write may have landed at Google, so failing the reply would assert a state
+nobody observed. The audit row is the operator's handle. Search for
+`review.reply.recovery_exhausted`, `review.reply.reconnect_abandoned` and
+`review.reply.connection_disconnected`, read the live reply on Google, and
+settle the review by hand.
 
 If automatic work is blocked, an engineer may invoke the exported
 `recoverAttempt({ organisationId, attemptId })` escape hatch from

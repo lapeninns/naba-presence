@@ -343,11 +343,17 @@ async function retain({
         // in-flight grace, so the readback path still owns every fresh row;
         // past it a settled 'ambiguous' row re-arms on its next same-key
         // request rather than blocking it.
+        //
+        // All THREE in-flight statuses, not just 'publishing': hours and
+        // profile issue a validateOnly call to Google during 'validating',
+        // outside any transaction, so an interrupted request strands there
+        // just as readily. ('validated' never occurs on food menus -- its
+        // CHECK omits the value -- so the predicate simply does not match.)
         const strandedHours = await sql`
           update hours_sync_attempt
           set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
             finished_at = now()
-          where status = 'publishing'
+          where status in ('validating', 'validated', 'publishing')
             and started_at <= now() - interval '24 hours'
           returning id
         `
@@ -355,7 +361,7 @@ async function retain({
           update profile_sync_attempt
           set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
             finished_at = now()
-          where status = 'publishing'
+          where status in ('validating', 'validated', 'publishing')
             and started_at <= now() - interval '24 hours'
           returning id
         `
@@ -363,7 +369,7 @@ async function retain({
           update food_menus_sync_attempt
           set status = 'ambiguous', last_error_code = 'attempt_interrupted',
             finished_at = now()
-          where status = 'publishing'
+          where status in ('validating', 'validated', 'publishing')
             and started_at <= now() - interval '24 hours'
           returning id
         `

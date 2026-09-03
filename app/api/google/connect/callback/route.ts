@@ -10,7 +10,11 @@ import {
 import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
+import {
+  exchangeGoogleCode,
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  googleUserInfo,
+} from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
@@ -52,9 +56,10 @@ type OAuthInput = {
 
 /**
  * The route is `auth: "public"` on purpose: the signed state cookie is
- * validated (and cleared) before the session is required, so a stale or
- * tampered state answers 400 rather than 401 regardless of sign-in status.
- * Owner/admin gating happens right after, exactly as before.
+ * validated before the session is required, so a stale or tampered state
+ * answers 400 rather than 401 regardless of sign-in status. Owner/admin gating
+ * happens right after, and the cookie is cleared only once the state has been
+ * matched to that session — see the `cookieStore.delete` comment below.
  */
 async function completeOAuth({
   request,
@@ -70,7 +75,6 @@ async function completeOAuth({
   }
   const cookieStore = await cookies()
   const stateCookie = cookieStore.get("naba_google_oauth")?.value
-  cookieStore.delete("naba_google_oauth")
   if (!stateCookie) {
     throw new ApiError(400, "invalid_oauth_state", "OAuth state has expired.")
   }
@@ -96,6 +100,19 @@ async function completeOAuth({
       "The active session changed."
     )
   }
+
+  // Spend the nonce and the PKCE verifier here, on the path `connect/start`
+  // set them on. A bare `delete("naba_google_oauth")` emits `Path=/`, and a
+  // cookie is keyed by name+domain+path, so it never evicted the one stored at
+  // GOOGLE_OAUTH_CALLBACK_PATH: the spent state survived its full 10-minute
+  // maxAge and a Back or a reload replayed the authorization code at Google.
+  // Clearing it only after `requireSession` is deliberate - a session that
+  // lapsed mid-consent throws above with the code still unspent, so signing in
+  // and returning to this URL still completes the connection.
+  cookieStore.delete({
+    name: "naba_google_oauth",
+    path: GOOGLE_OAUTH_CALLBACK_PATH,
+  })
 
   const tokens = await exchangeGoogleCode(params.code, state.verifier)
   const profile = await googleUserInfo(tokens.access_token)
