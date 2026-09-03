@@ -64,20 +64,25 @@ database is unavailable.
    pnpm dev
    ```
 
-   Production deployments run the web process and one scheduler process:
+    Production on Vercel runs the web process only. The seven background loops
+    — review reconciliation, retention, the provider-deletion sweep,
+    presence-resource reconciliation, the performance and keyword ingests, and
+    a jobs tick that drains due webhook, checkpoint, and publish-recovery work
+    through `/api/jobs/run` — run as Vercel Cron entries (`vercel.json`)
+    firing the cron-authenticated GET handlers on those routes. `CRON_SECRET`
+    must be set on the Vercel project or every tick answers 401. Any other
+    host runs the web process and one scheduler process:
 
-   ```bash
-   pnpm start
-   pnpm start:scheduler
-   ```
+    ```bash
+    pnpm start
+    pnpm start:scheduler
+    ```
 
-   The scheduler runs seven loops: review reconciliation, retention, the
-   provider-deletion sweep, presence-resource reconciliation, the performance
-   and keyword ingests, and a jobs tick that drains due webhook, checkpoint,
-   and publish-recovery work through `/api/jobs/run`. Intervals and per-page
-   time budgets are in `.env.example`. `RETENTION_ENABLED` is the only kill
-   switch the scheduler itself reads; every other flag is enforced by the route
-   it calls. `docs/runbook.md` covers what to stop and when.
+   The loops run on the same cadences under either driver. Intervals and
+   per-page time budgets are in `.env.example` (the scheduler process) and
+   `vercel.json` (production cron). `RETENTION_ENABLED` is the only kill
+   switch the scheduler process itself reads; every other flag is enforced by
+   the route it calls. `docs/runbook.md` covers what to stop and when.
 
 4. Open `http://localhost:3000`. Production users start at `/sign-in`, create
    an email/password account, and confirm ownership of the email address.

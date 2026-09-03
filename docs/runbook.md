@@ -33,15 +33,16 @@ Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
 
 Every flag is read once per process — `getServerEnv` parses `process.env` on
 first use and memoises it — so flipping one takes an environment change **and** a
-restart of both the web and scheduler processes. None of them is a hot switch,
-and none takes effect on a running process. When background provider traffic has
-to stop faster than a redeploy, stop the `pnpm start:scheduler` process instead:
-that halts all seven of its loops — the jobs runner, reconciliation, retention,
+redeploy. None of them is a hot switch, and none takes effect on a running
+process. When background provider traffic has
+to stop faster than a redeploy, disable the project's Cron Jobs in the Vercel
+dashboard (or the single cron for the offending tick) instead:
+that halts all seven ticks — the jobs runner, reconciliation, retention,
 presence-resource reconciliation, the provider-deletion sweep and the
 performance/keyword ingests — in one step, and loses no work. Each queue keeps
-its due rows, and each tenant walk restarts at the head of a stable
-organisation order, so a stopped walk repeats work rather than skipping it: the
-walk position lives in the scheduler's memory and does not survive the process.
+its due rows, and every tick starts at the head of a stable
+organisation order, so a stopped walk repeats work rather than skipping it:
+nothing about the walk position survives between ticks.
 Interactive routes keep serving while it is down, and `schedulerHeartbeatAt`
 plus every entry in `schedulerTicks` goes stale and pages: silence those alerts
 deliberately.
@@ -69,22 +70,37 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 
 ## Scheduled work
 
-- Run one `pnpm start:scheduler` process alongside the web process. It walks
-  the content-free tenant routing cursor every 15 minutes for reconciliation
-  and for presence-resource reconciliation, every 6 hours for performance
-  ingestion, every 24 hours for keyword ingestion, retention and the
-  provider-deletion sweep, and calls `/api/jobs/run` every 60 seconds to drain
-  due webhook, checkpoint, and publish-attempt work. Every interval is
-  overridable with the matching `*_INTERVAL_SECONDS`, each with a floor.
-  `RETENTION_ENABLED` is the only kill switch the scheduler itself reads;
-  every other flag is enforced by the route it calls. Overlapping runs are
-  skipped twice over: the scheduler will not start a loop whose previous run
-  is still going (`<tick>.skipped` with `reason: "previous_run_active"`), and
-  each route holds its own advisory lock (`reason: "lease_held"`). Set
-  `SCHEDULER_BASE_URL` to the internal web-service URL and use the same
-  `CRON_SECRET` as the web process.
+- Production background work runs as seven Vercel Cron entries in
+  `vercel.json` (times UTC): `/api/jobs/run` every minute, `/api/sync/reconcile`
+  and `/api/sync/presence-resources` every 15 minutes (staggered by 7 minutes),
+  `/api/sync/performance` every 6 hours, and `/api/sync/sweep`,
+  `/api/sync/keywords`, `/api/cron/retention` once daily, staggered across
+  01:30–03:00. Each cron fires an HTTP GET at the route's cron-authenticated
+  `GET` shim, which runs the same single page the scheduler used to POST,
+  with the page sizes carried in the cron path. `CRON_SECRET` must be set on
+  the Vercel project: Vercel sends it as the `Authorization` bearer
+  automatically, and without it every tick answers 401 `invalid_cron_token`.
+  `tests/server/vercel-cron.test.ts` pins the table — cadences, page sizes,
+  and the GET handler each path lands on — so a quiet edit cannot drop a tick.
+- Each fire is stateless and runs one page from the head of the tenant order
+  (or from the `organisationCursor` it is given); nothing follows `nextCursor`
+  between fires. One page covers 100 organisations for reconciliation,
+  performance and keywords, 100 for retention (`batch_size=100`), 10 for
+  presence resources, and 1 organisation at 5 pages per location for the sweep.
+  While the fleet fits in one page that is a complete walk; past that, add
+  cursor-following (or another host running `scripts/scheduler.mjs`, which
+  still walks cursors across pages for local development and non-Vercel
+  deployments via `SCHEDULER_BASE_URL` and the same `CRON_SECRET`) rather than
+  enlarging pages past the per-page budgets below.
+- Vercel does not retry a failed cron fire and may occasionally deliver a fire
+  twice or drop one. The ticks are safe under all three: every route holds its
+  own advisory lock, so an overlapping or duplicate fire answers `skipped`
+  (`reason: "lease_held"`) instead of doing the work twice, and a missed fire
+  only delays work — each queue keeps its due rows and the next fire starts at
+  the head. A steady stream of `lease_held` skips means a tick is overlapping
+  itself: lengthen that cron's interval, do not remove the lock.
 - Pausing `GBP_PERFORMANCE_ENABLED` or `GBP_KEYWORDS_ENABLED` does not stop
-  the scheduler calling that ingestion route. Each organisation in the walk
+  the cron calling that ingestion route. Each organisation in the page
   fails with 503 `sync_paused` and logs `performance.organisation_failed` /
   `keywords.organisation_failed`, so expect one error line per tenant per tick
   for as long as the pause lasts. Nothing is claimed, re-armed or lost by it;
@@ -103,12 +119,14 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
   scheduler's 55s request abort: a page cut off by the abort still commits on
   the server, but no cursor reaches the scheduler, so it resumes from the last
   cursor it holds and repeats that page.
-- The walk position lives in the scheduler process, not the database. It
-  survives a failed tick — the next tick resumes from the cursor of the last
-  page that came back — but not a restart, which begins a fresh walk at the
-  head. Three consecutive ticks that die on the same cursor send the walk back
-  to the head and log `<tick>.cursor_reset`, so one permanently failing page
-  cannot starve the organisations ordered before it.
+- Under Vercel Cron there is no walk position between fires: every fire starts
+  at the head and a `nextCursor` in the response is only a handle for a manual
+  follow-up request, not something the next fire resumes. A page that fails
+  every time therefore delays — but cannot starve — the organisations ordered
+  after it, because the next fire re-enters at the head rather than resuming
+  onto the poisoned page. (`scripts/scheduler.mjs` keeps the old in-memory
+  walks with `<tick>.cursor_reset` when it is the driver; the routes behave
+  identically under either caller.)
 - Alert on failed sync checkpoints, connections in `expired`/`error`, publish
   attempts in `ambiguous`, and unprocessed webhook events older than five
   minutes.
@@ -120,8 +138,9 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 
 ### Jobs runner
 
-The scheduler normally invokes `POST /api/jobs/run` with
-`Authorization: Bearer ${CRON_SECRET}`. During an incident, first inspect the
+The every-minute Vercel Cron normally invokes `GET /api/jobs/run` with the
+cron bearer (Vercel sends `Authorization: Bearer ${CRON_SECRET}` automatically).
+During an incident, first inspect the
 platform health payload and tenant-scoped
 `GET /api/webhooks/google/pubsub/failures`. A jobs run is idempotent and can be
 triggered manually with the cron credential after the underlying dependency is

@@ -17,6 +17,7 @@ import { loadMedia } from "@/lib/server/media"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
 import { readProfileStateBundle } from "@/lib/server/profile"
+import { cronPageInput } from "@/lib/server/cron-query"
 import { route } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
@@ -293,22 +294,40 @@ async function reconcileOrganisations(
   }
 }
 
+async function runPresenceResourcesPage(
+  input: PresenceResourcesSyncInput,
+  requestId: string
+) {
+  const result = await withAdvisoryLock("naba:presence-resources", () =>
+    reconcileOrganisations(input, requestId)
+  )
+  return "skipped" in result
+    ? {
+        skipped: true,
+        outcomes: [],
+        reapedProposals: 0,
+        truncated: false,
+        skippedOrganisations: 0,
+        nextCursor: null,
+      }
+    : { skipped: false, ...result }
+}
+
 export const POST = route({
   auth: "cron",
   body: presenceResourcesSyncSchema,
-  handler: async ({ body, requestId }) => {
-    const result = await withAdvisoryLock("naba:presence-resources", () =>
-      reconcileOrganisations(body, requestId)
-    )
-    return "skipped" in result
-      ? {
-          skipped: true,
-          outcomes: [],
-          reapedProposals: 0,
-          truncated: false,
-          skippedOrganisations: 0,
-          nextCursor: null,
-        }
-      : { skipped: false, ...result }
-  },
+  handler: async ({ body, requestId }) =>
+    runPresenceResourcesPage(body, requestId),
+})
+
+// Vercel Cron entry point: the same single page the scheduler POSTed every
+// 15 minutes, with the schema fields as query params
+// (`?maxOrganisations=10&maxLocations=5`). Cron-only like POST — a session
+// caller keeps using POST.
+export const GET = route({
+  auth: "cron",
+  query: (searchParams) =>
+    presenceResourcesSyncSchema.parse(cronPageInput(searchParams)),
+  handler: async ({ query, requestId }) =>
+    runPresenceResourcesPage(query, requestId),
 })
