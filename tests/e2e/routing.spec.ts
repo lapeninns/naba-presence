@@ -11,19 +11,15 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
-// Labels are the single-business names; paths are unchanged for /home and
-// /inbox on purpose (see components/app-shell/nav.tsx).
+// The six agency destinations. The flat business routes (/profile, /photos,
+// /posts) are gone: they acted on a silently chosen "primary location", which
+// means nothing once an organisation looks after several businesses.
 const dashboardRoutes = [
-  { path: "/home", label: "Overview", heading: /^Overview$/ },
-  { path: "/inbox", label: "Reviews", heading: /^Reviews$/ },
-  {
-    path: "/profile",
-    label: "Business profile",
-    heading: /^Business profile$/,
-  },
-  { path: "/photos", label: "Photos", heading: /^Photos$/ },
-  { path: "/posts", label: "Posts", heading: /^Posts$/ },
-  { path: "/performance", label: "Performance", heading: /^Performance$/ },
+  { path: "/home", label: "Home", heading: /^Overview$/ },
+  { path: "/inbox", label: "Inbox", heading: /^Reviews$/ },
+  { path: "/clients", label: "Clients", heading: /^Clients$/ },
+  { path: "/reports", label: "Reports", heading: /^Reports$/ },
+  { path: "/team", label: "Team", heading: /^Team$/ },
   { path: "/settings", label: "Settings", heading: /^Reply policy$/ },
 ]
 
@@ -38,10 +34,9 @@ test("dashboard pages have direct URLs", async ({ page }) => {
     await expect(
       page.getByRole("heading", { name: route.heading, level: 1 })
     ).toBeVisible()
-    // Scoped to the Primary nav rather than searching the whole page: as flat
-    // business routes land, labels like "Photos" and "Posts" will also exist
-    // in the location workspace's own tab nav, and an unscoped lookup would
-    // start matching two links.
+    // Scoped to the Primary nav rather than the whole page: labels like
+    // "Photos" also exist in the location workspace's own tab nav, and an
+    // unscoped lookup would match two links.
     await expect(
       page
         .getByRole("navigation", { name: "Primary" })
@@ -66,7 +61,9 @@ test("legacy routes redirect to their replacements", async ({ page }) => {
     // the already-authenticated browser to /home.
     ["/login", "/sign-in"],
     ["/overview", "/home"],
-    ["/analytics", "/performance"],
+    ["/analytics", "/reports"],
+    ["/performance", "/reports"],
+    ["/settings/team", "/team"],
     ["/connections", "/settings/connections"],
   ]) {
     await page.goto(from)
@@ -105,15 +102,15 @@ test("reviews redirects to inbox and forwards the query string", async ({
 })
 
 test("sidebar links update browser history", async ({ page }) => {
-  // Starts on /performance rather than /inbox: the inbox's desktop
-  // auto-selection client-rewrites its own URL to `?selected=<id>` shortly
-  // after landing, which races a sidebar click and swallows the navigation.
-  // The route this test starts from is incidental to what it asserts.
-  await page.goto("/performance")
+  // Starts on /reports rather than /inbox: the inbox's desktop auto-selection
+  // client-rewrites its own URL to `?selected=<id>` shortly after landing,
+  // which races a sidebar click and swallows the navigation. The route this
+  // test starts from is incidental to what it asserts.
+  await page.goto("/reports")
 
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
 
-  await primaryNav.getByRole("link", { name: "Overview", exact: true }).click()
+  await primaryNav.getByRole("link", { name: "Home", exact: true }).click()
   await expect(page).toHaveURL("/home")
 
   await primaryNav.getByRole("link", { name: "Settings", exact: true }).click()
@@ -142,41 +139,69 @@ test("nested location routes stay reachable and unclaimed by the primary nav", a
     page.getByRole("navigation", { name: "Location sections" })
   ).toBeVisible()
 
-  // No FLAT business item claims this page. "Locations" may legitimately be
-  // active here (this tenant has several, so the item is shown), but lighting
-  // up "Photos" would assert the primary business's photos are on screen when
-  // the URL names a different location.
+  // Clients owns this page: a location is reached through its client, and the
+  // breadcrumb says so, so leaving the sidebar with nothing selected would
+  // strand the user.
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
-  for (const flat of ["Photos", "Posts", "Business profile"]) {
-    await expect(
-      primaryNav.getByRole("link", { name: flat, exact: true })
-    ).not.toHaveAttribute("aria-current", "page")
+  await expect(
+    primaryNav.getByRole("link", { name: "Clients", exact: true })
+  ).toHaveAttribute("aria-current", "page")
+
+  // And the trail names the whole path back out.
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible()
+})
+
+test("retired flat routes forward to a real location or to Clients", async ({
+  baseURL,
+  page,
+}) => {
+  // Bookmarks to the single-business IA still exist. Rather than 404, they
+  // resolve: to the one visible location when there is exactly one, and to
+  // Clients when the answer is genuinely ambiguous.
+  const state = await readJourneyState()
+  await applyCookie(page, baseURL, state.cookie)
+
+  for (const path of [
+    "/profile",
+    "/profile/hours",
+    "/profile/menu",
+    "/profile/booking",
+    "/photos",
+    "/posts",
+  ]) {
+    await page.goto(path)
+    const landed = new URL(page.url()).pathname
+    expect(landed).not.toBe(path)
+    expect(landed === "/clients" || landed.startsWith("/locations/")).toBe(true)
   }
 })
 
-test("business profile sub-sections are reachable and deep-linkable", async ({
+test("a client hub names its locations and trails back to Clients", async ({
   baseURL,
   page,
 }) => {
   const state = await readJourneyState()
   await applyCookie(page, baseURL, state.cookie)
 
-  for (const [path, heading] of [
-    ["/profile", "Business profile"],
-    ["/profile/hours", "Opening hours"],
-    ["/profile/menu", "Menu"],
-    ["/profile/booking", "Booking links"],
-    ["/profile/details", "Business details"],
-  ] as const) {
-    await page.goto(path)
-    expect(new URL(page.url()).pathname).toBe(path)
-    await expect(
-      page.getByRole("heading", { name: heading, level: 1 })
-    ).toBeVisible()
-    await expect(
-      page.getByRole("navigation", { name: "Business profile sections" })
-    ).toBeVisible()
-    // The flat routes never expose a location id.
-    expect(page.url()).not.toContain(state.primaryLocationId)
-  }
+  await page.goto("/clients")
+  await expect(page.getByRole("heading", { name: "Clients", level: 1 })).toBeVisible()
+  await page
+    .getByRole("table", { name: /Clients, with their Google health/ })
+    .getByRole("link", { name: state.clientName })
+    .click()
+
+  await expect(page).toHaveURL(`/clients/${state.clientId}`)
+  await expect(
+    page.getByRole("heading", { name: state.clientName, level: 1 })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Locations", level: 2 })
+  ).toBeVisible()
+
+  // The trail is what makes the depth navigable: from a location three levels
+  // in, the client and the client list are both one click away.
+  await page.goto(`/locations/${state.primaryLocationId}/hours`)
+  const trail = page.getByRole("navigation", { name: "Breadcrumb" })
+  await expect(trail.getByRole("link", { name: "Clients" })).toBeVisible()
+  await expect(trail.getByRole("link", { name: state.clientName })).toBeVisible()
 })

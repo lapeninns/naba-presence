@@ -82,7 +82,7 @@ function Nav({
           <div key={group.id} role="group" aria-labelledby={labelId}>
             <span
               id={labelId}
-              className="block px-2.5 pb-1 text-caption font-medium tracking-wide text-ink-faint uppercase"
+              className="block px-2.5 pb-1 text-caption font-medium tracking-wide text-ink-muted uppercase"
             >
               {group.label}
             </span>

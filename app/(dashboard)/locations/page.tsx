@@ -8,7 +8,11 @@ export default async function LocationsPage() {
   const session = await getSession()
   return (
     <PageFrame width="wide">
-      <PageHeader title="Locations" description="Every location in this organisation and the state of its Google link." />
+      <PageHeader
+        title="All locations"
+        eyebrow="Clients"
+        description="Every location you manage, grouped by the client it belongs to."
+      />
       <LocationsIndex role={session?.role ?? null} />
     </PageFrame>
   )

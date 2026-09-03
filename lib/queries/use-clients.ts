@@ -19,6 +19,10 @@ export function useClients() {
   return useQuery({
     queryKey: queryKeys.clients,
     queryFn: ({ signal }) => fetchClients(signal),
+    // The shell reads this for its health chip, so it has to notice a client's
+    // connection breaking without the operator reloading. A minute is short
+    // enough to matter and long enough not to be chatter.
+    refetchInterval: 60_000,
   })
 }
 

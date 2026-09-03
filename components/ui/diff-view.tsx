@@ -77,10 +77,10 @@ function DiffView({
                 </span>
               </TableCell>
               <TableCell className="align-top text-ink-muted">
-                {row.before || <span className="text-ink-faint">Not set</span>}
+                {row.before || <span className="text-ink-muted">Not set</span>}
               </TableCell>
               <TableCell className="align-top">
-                {row.after || <span className="text-ink-faint">Cleared</span>}
+                {row.after || <span className="text-ink-muted">Cleared</span>}
               </TableCell>
             </TableRow>
           ))}

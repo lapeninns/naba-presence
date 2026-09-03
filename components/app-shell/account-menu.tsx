@@ -4,7 +4,6 @@ import { ChevronsUpDown, LogOut } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,7 +136,7 @@ function AccountMenu({ session }: { session: ShellSession | null }) {
         {others.length > 0 ? (
           <>
             <div className="my-1 h-px bg-line-subtle" />
-            <p className="px-3 py-1 text-caption font-medium text-ink-faint">
+            <p className="px-3 py-1 text-caption font-medium text-ink-muted">
               Switch organisation
             </p>
             {others.map((organisation) => (

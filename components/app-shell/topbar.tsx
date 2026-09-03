@@ -4,9 +4,8 @@ import { Menu } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { Breadcrumbs } from "@/components/ui/breadcrumb"
 
-import { useBreadcrumbs } from "./breadcrumbs-context"
+import { ShellBreadcrumbs } from "./breadcrumbs-context"
 import {
   CommandPalette,
   CommandPaletteButton,
@@ -23,8 +22,22 @@ import { ThemeToggle } from "./theme-toggle"
  * agency IA had no wayfinding at all — a user three levels into a location's
  * hours tab could not see which client they were in.
  */
-function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
-  const crumbs = useBreadcrumbs()
+/**
+ * `sessionReady` gates every data-reading child.
+ *
+ * On the first anonymous visit the shell provisions the session cookie before
+ * anything else runs. A query that fires ahead of it gets a 401, and the API
+ * client treats that as "sign in again" and hard-navigates away — so an
+ * ungated chip in the topbar would bounce the user off the page they asked
+ * for.
+ */
+function Topbar({
+  onOpenNav,
+  sessionReady,
+}: {
+  onOpenNav: () => void
+  sessionReady: boolean
+}) {
   const palette = useCommandPalette()
 
   return (
@@ -39,15 +52,23 @@ function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
         <Menu aria-hidden />
       </Button>
 
-      <Breadcrumbs crumbs={crumbs} className="hidden min-w-0 flex-1 sm:block" />
+      {sessionReady ? (
+        <ShellBreadcrumbs className="hidden min-w-0 flex-1 sm:block" />
+      ) : (
+        <div className="hidden flex-1 sm:block" />
+      )}
 
       <div className="ml-auto flex items-center gap-2">
-        <CommandPaletteButton onClick={() => palette.setOpen(true)} />
-        <ContextHealthChip />
+        {sessionReady ? (
+          <CommandPaletteButton onClick={() => palette.setOpen(true)} />
+        ) : null}
+        {sessionReady ? <ContextHealthChip /> : null}
         <ThemeToggle />
       </div>
 
-      <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
+      {sessionReady ? (
+        <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
+      ) : null}
     </header>
   )
 }

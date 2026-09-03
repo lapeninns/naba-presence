@@ -30,3 +30,33 @@ export function formatDateTime(iso: string, timeZone: string): string {
   }).format(date)
   return `${datePart(date, timeZone)}, ${time}`
 }
+
+/**
+ * "4 min ago", "2 days ago", "Just now".
+ *
+ * Sync freshness is the one place a relative time is the right answer: an
+ * operator checking whether a client is up to date cares about the gap, not
+ * the clock time, and a timestamp would make them do the subtraction. `now` is
+ * injected so tests are deterministic.
+ */
+export function formatRelativeTime(iso: string, now: Date = new Date()): string {
+  const then = new Date(iso)
+  if (!Number.isFinite(then.getTime())) return "Unknown"
+  const seconds = Math.round((now.getTime() - then.getTime()) / 1000)
+  if (seconds < 0) return "Just now"
+  if (seconds < 60) return "Just now"
+
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["minute", 60],
+    ["hour", 3600],
+    ["day", 86400],
+    ["month", 2592000],
+    ["year", 31536000],
+  ]
+  let chosen: [Intl.RelativeTimeFormatUnit, number] = units[0]
+  for (const unit of units) {
+    if (seconds >= unit[1]) chosen = unit
+  }
+  const formatter = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" })
+  return formatter.format(-Math.floor(seconds / chosen[1]), chosen[0])
+}

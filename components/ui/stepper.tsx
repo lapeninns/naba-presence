@@ -70,7 +70,7 @@ function Stepper({
                   step.state === "current" &&
                     "border-2 border-[var(--np-accent)] bg-accent-tint text-accent-ink",
                   step.state === "todo" &&
-                    "border border-[var(--np-line-strong)] text-ink-faint"
+                    "border border-[var(--np-line-strong)] text-ink-muted"
                 )}
               >
                 {step.state === "done" ? <Check className="size-3" /> : index + 1}
@@ -89,7 +89,7 @@ function Stepper({
               <p
                 className={cn(
                   "truncate text-caption font-medium",
-                  step.state === "todo" ? "text-ink-faint" : "text-ink"
+                  step.state === "todo" ? "text-ink-muted" : "text-ink"
                 )}
               >
                 {step.label}

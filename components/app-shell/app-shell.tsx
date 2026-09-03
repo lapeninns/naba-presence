@@ -13,7 +13,6 @@ import {
 import { useClients } from "@/lib/queries/use-clients"
 
 import { AccountMenu } from "./account-menu"
-import { BreadcrumbsProvider } from "./breadcrumbs-context"
 import { Nav } from "./nav"
 import { ReconnectBanner } from "./reconnect-banner"
 import { Topbar } from "./topbar"
@@ -104,8 +103,7 @@ function AppShell({
   return (
     // `h-svh`, not `min-h-svh`: the shell is viewport-locked so expanding
     // content scrolls inside its own pane instead of stretching the sidebar.
-    <BreadcrumbsProvider>
-      <div className="h-svh md:flex">
+    <div className="h-svh md:flex">
         <a
           href="#main"
           className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-3 focus-visible:left-3 focus-visible:z-50 focus-visible:rounded-(--np-radius-control) focus-visible:bg-primary focus-visible:px-3 focus-visible:py-2 focus-visible:text-ui focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:outline-none"
@@ -128,7 +126,7 @@ function AppShell({
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <Topbar onOpenNav={() => setMobileNavOpen(true)} />
+          <Topbar onOpenNav={() => setMobileNavOpen(true)} sessionReady={sessionReady} />
 
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetContent
@@ -165,8 +163,7 @@ function AppShell({
             {sessionReady ? children : null}
           </div>
         </div>
-      </div>
-    </BreadcrumbsProvider>
+    </div>
   )
 }
 

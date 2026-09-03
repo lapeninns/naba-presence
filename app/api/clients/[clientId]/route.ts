@@ -28,12 +28,14 @@ export const GET = route({
           l.address_json as address,
           l.timezone,
           l.client_id::text as "clientId",
+          c.name as "clientName",
           ll.id::text as "linkId",
           e.id::text as "externalLocationId",
           e.google_location_name as "googleLocationName",
           e.title as "googleTitle",
           e.verified
         from location l
+        left join client c on c.id = l.client_id
         left join location_link ll on ll.location_id = l.id and ll.is_active
         left join external_location e on e.id = ll.external_location_id
         where l.client_id = ${params.clientId}

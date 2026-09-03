@@ -27,8 +27,22 @@ function ContextHealthChip() {
     ? clients.data?.items.find((client) => client.id === clientId)
     : undefined
 
-  const tone = scoped ? healthTone(scoped.health) : org.tone
-  const label = scoped ? healthLabel(scoped.health) : org.label
+  // A refetch that fails AFTER an earlier success means the numbers on screen
+  // are last known, not current. Saying so is different from saying Google is
+  // down: the connection may be fine and it is our own server we cannot
+  // reach, and an operator acting on stale counts would double-reply.
+  const stale = clients.isError && clients.data !== undefined
+
+  const tone = stale
+    ? "attention"
+    : scoped
+      ? healthTone(scoped.health)
+      : org.tone
+  const label = stale
+    ? "Data may be stale"
+    : scoped
+      ? healthLabel(scoped.health)
+      : org.label
   const isPending = clients.isPending
 
   return (

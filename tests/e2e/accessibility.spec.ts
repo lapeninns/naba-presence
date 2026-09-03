@@ -72,6 +72,16 @@ async function mockReviewWorkspace(
   // `/api/reviews/counts`, so the "stale" toggle lives on the connections
   // route.
   let connectionsShouldFail = false
+  let clientsShouldFail = false
+  // Registered FIRST so it is the LAST resort: Playwright matches route
+  // handlers in reverse registration order. Anything the specific mocks below
+  // do not claim gets named here, instead of reaching the real server,
+  // answering 401 and surfacing as a mystery redirect to /sign-in halfway
+  // through an assertion.
+  await page.route(/\/api\//, async (route) => {
+    console.log("UNSTUBBED " + new URL(route.request().url()).pathname)
+    await route.fulfill({ status: 500, json: { error: "unstubbed_route" } })
+  })
   await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       json: {
@@ -111,6 +121,15 @@ async function mockReviewWorkspace(
           published: options.disconnected ? 0 : 1,
           rejected: 0,
           failed: 0,
+        },
+        byQueue: {
+          needs_reply: 0,
+          awaiting_my_approval: 0,
+          awaiting_others: 0,
+          publishing: 0,
+          failed: 0,
+          done: options.disconnected ? 0 : 1,
+          all: options.disconnected ? 0 : 1,
         },
       },
     })
@@ -238,14 +257,64 @@ async function mockReviewWorkspace(
   await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       json: {
-        locations: [{ id: "location-state-a11y", name: "Camden" }],
+        locations: [
+          {
+            id: "location-state-a11y",
+            name: "Camden",
+            linked: true,
+            clientId: "client-state-a11y",
+            clientName: "Camden Group",
+          },
+        ],
       },
     })
   })
   await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
     await route.fulfill({ json: { items: [] } })
   })
+  // The shell reads the client list for its sidebar, breadcrumbs and health
+  // chip. Unstubbed it answers 401, and lib/api/client.ts hard-navigates the
+  // whole page to /sign-in mid-assertion.
+  await page.route(/\/api\/clients(?:\?.*)?$/, async (route) => {
+    if (clientsShouldFail) {
+      // 503, not 401: a 401 would be treated as "sign in again" and navigate
+      // away, which is a different state from "we could not reach the server".
+      await route.fulfill({
+        status: 503,
+        json: { error: "service_unavailable", message: "Try again shortly." },
+      })
+      return
+    }
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "client-state-a11y",
+            name: "Camden Group",
+            slug: "camden-group",
+            colour: null,
+            logoUrl: null,
+            notes: null,
+            archivedAt: null,
+            createdAt: "2026-07-01T09:00:00.000Z",
+            locationCount: 1,
+            linkedCount: 1,
+            verifiedCount: 1,
+            health: options.disconnected ? "disconnected" : "healthy",
+            connections: [],
+            openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+            backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 },
+            lastSyncAt: "2026-07-31T09:00:00.000Z",
+          },
+        ],
+        unassignedLocationCount: 0,
+      },
+    })
+  })
   return {
+    failClients() {
+      clientsShouldFail = true
+    },
     failConnections() {
       connectionsShouldFail = true
     },
@@ -414,7 +483,7 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} home`)
       })
 
-      test("performance", async ({ baseURL, page }) => {
+      test("reports", async ({ baseURL, page }) => {
         // Real journey tenant/cookie: the "By location" table
         // (components/performance/reply-locations-table.tsx) renders response
         // rate as a plain table cell, not a named progressbar, and a real
@@ -422,9 +491,9 @@ for (const theme of themes) {
         // for real instead of 401-ing and hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/performance")
+        await page.goto("/reports")
         await expect(
-          page.getByRole("heading", { name: "Performance", level: 1 })
+          page.getByRole("heading", { name: "Reports", level: 1 })
         ).toBeVisible()
         await expect(
           page.getByRole("columnheader", { name: "Response rate" })
@@ -433,7 +502,7 @@ for (const theme of themes) {
           .getByRole("row")
           .filter({ hasText: state.directReview.locationName })
         await expect(locationRow).toBeVisible()
-        await expectAccessible(page, `${viewport.name} ${theme} performance`)
+        await expectAccessible(page, `${viewport.name} ${theme} reports`)
       })
 
       test("locations index", async ({ baseURL, page }) => {
@@ -461,27 +530,24 @@ for (const theme of themes) {
         )
       })
 
-      test("flat business routes", async ({ baseURL, page }) => {
-        // The single-business surface: every one of these resolves its
-        // location server-side, so none carries an id in the URL. Journey
-        // cookie because they render real tab components against real data.
+      test("clients index and hub", async ({ baseURL, page }) => {
+        // The agency surfaces that replaced the flat single-business routes.
+        // Journey cookie because they render real data: a client with real
+        // locations, health and open work.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        for (const [path, heading] of [
-          ["/profile", "Business profile"],
-          ["/profile/hours", "Opening hours"],
-          ["/photos", "Photos"],
-          ["/posts", "Posts"],
-        ] as const) {
-          await page.goto(path)
-          await expect(
-            page.getByRole("heading", { name: heading, level: 1 })
-          ).toBeVisible()
-          await expectAccessible(
-            page,
-            `${viewport.name} ${theme} ${path}`
-          )
-        }
+
+        await page.goto("/clients")
+        await expect(
+          page.getByRole("heading", { name: "Clients", level: 1 })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} clients index`)
+
+        await page.goto(`/clients/${state.clientId}`)
+        await expect(
+          page.getByRole("heading", { name: state.clientName, level: 1 })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} client hub`)
       })
 
       test("location profile workspace", async ({ baseURL, page }) => {
@@ -510,6 +576,36 @@ for (const theme of themes) {
       })
 
       test("inbox, review detail, and reply editor", async ({ page }) => {
+        // The shell reads the client list for its sidebar, breadcrumbs and
+        // health chip. Unstubbed it answers 401, and lib/api/client.ts treats
+        // that as "sign in again" and navigates the whole page away.
+        await page.route(/\/api\/clients(?:\?.*)?$/, async (route) => {
+          await route.fulfill({
+            json: {
+              items: [
+                {
+                  id: "client-reviews-a11y",
+                  name: "Camden Group",
+                  slug: "camden-group",
+                  colour: null,
+                  logoUrl: null,
+                  notes: null,
+                  archivedAt: null,
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                  locationCount: 1,
+                  linkedCount: 1,
+                  verifiedCount: 1,
+                  health: "healthy",
+                  connections: [],
+                  openWork: { needsReply: 1, awaitingApproval: 0, failed: 0 },
+                  backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 },
+                  lastSyncAt: "2026-07-31T09:00:00.000Z",
+                },
+              ],
+              unassignedLocationCount: 0,
+            },
+          })
+        })
         await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
           await route.fulfill({
             json: {
@@ -549,7 +645,16 @@ for (const theme of themes) {
                 published: 1,
                 rejected: 0,
                 failed: 0,
-                    },
+              },
+              byQueue: {
+                needs_reply: 0,
+                awaiting_my_approval: 0,
+                awaiting_others: 0,
+                publishing: 0,
+                failed: 0,
+                done: 1,
+                all: 1,
+              },
             },
           })
         })
@@ -578,7 +683,15 @@ for (const theme of themes) {
         await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
           await route.fulfill({
             json: {
-              locations: [{ id: "location-a11y", name: "Camden" }],
+              locations: [
+                {
+                  id: "location-a11y",
+                  name: "Camden",
+                  linked: true,
+                  clientId: "client-reviews-a11y",
+                  clientName: "Camden Group",
+                },
+              ],
             },
           })
         })
@@ -791,30 +904,28 @@ for (const theme of themes) {
         }
       })
 
-      test("stale review data banner", async ({ page }) => {
-        // `useConnectionHealth` (lib/queries/use-connection-health.ts) shows
-        // "Live data" as plain text, not a button, and derives "stale" from a
-        // FAILED refetch of `/api/google/connections` after an earlier
-        // success — the label is "Live data may be stale", and there's no
-        // separate "Retry" affordance for it (the chip has no action at all).
+      test("stale data chip", async ({ page }) => {
+        // The health chip says "Data may be stale" when a refetch fails AFTER
+        // an earlier success. That is a different claim from "Google is
+        // disconnected": the connection may be fine and it is our own server
+        // we cannot reach, and an operator acting on stale counts would
+        // double-reply.
         //
-        // Forcing that refetch needs a virtual clock: the connections query
-        // has no `staleTime` override (the app's 30s default —
-        // lib/queries/query-client.ts), so `refetchOnWindowFocus` is a no-op
-        // on fresh data regardless of which event fires it, and the
-        // `refetchInterval: 60_000` (lib/queries/use-connection-health.ts)
-        // is scheduled via a real timer nothing here can wait out. Installing
-        // the clock BEFORE navigating virtualises both from the page's very
-        // first tick, so fast-forwarding past 60s reliably fires that
-        // interval's next real (mocked) fetch attempt.
+        // Forcing that refetch needs a virtual clock: the query has no
+        // `staleTime` override (the app's 30s default), so
+        // `refetchOnWindowFocus` is a no-op on fresh data. Installing the
+        // clock BEFORE navigating virtualises the page's timers from its very
+        // first tick, so fast-forwarding reliably fires the next attempt.
         await page.clock.install()
         const controls = await mockReviewWorkspace(page)
         await page.goto("/inbox")
-        await expect(page.getByText("Live data", { exact: true })).toBeVisible()
-        controls.failConnections()
+        await expect(
+          page.getByText("All clients connected", { exact: true })
+        ).toBeVisible()
+        controls.failClients()
         await page.clock.fastForward("00:01:05")
         await expect(
-          page.getByText("Live data may be stale", { exact: true })
+          page.getByText("Data may be stale", { exact: true })
         ).toBeVisible()
         await expectAccessible(
           page,
@@ -1059,15 +1170,15 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} connections`)
       })
 
-      test("settings policy, team, and compliance", async ({
+      test("settings policy, compliance, and the team page", async ({
         baseURL,
         page,
       }) => {
         // Real journey tenant/cookie: /settings' PolicyForm fetches
         // `/api/settings/capabilities` for real (never mocked below), and
-        // /settings/team + /settings/compliance both `redirect("/settings")`
-        // server-side for anything other than an owner/admin session — neither
-        // is satisfiable by the client-side `/api/session` mock alone.
+        // /team and /settings/compliance both gate on an owner/admin session
+        // server-side, which the client-side `/api/session` mock alone cannot
+        // satisfy.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
@@ -1160,9 +1271,9 @@ for (const theme of themes) {
           `${viewport.name} ${theme} reply policy settings`
         )
 
-        await page.goto("/settings/team")
+        await page.goto("/team")
         await expect(
-          page.getByRole("heading", { name: "Team access", level: 1 })
+          page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
         await expect(
           page.getByRole("combobox", { name: "Role for Alex Morgan" })
@@ -1172,7 +1283,7 @@ for (const theme of themes) {
             name: "Copy invite link for invitee@example.com",
           })
         ).toBeVisible()
-        await expectAccessible(page, `${viewport.name} ${theme} team settings`)
+        await expectAccessible(page, `${viewport.name} ${theme} team`)
 
         await page.goto("/settings/compliance")
         await expect(

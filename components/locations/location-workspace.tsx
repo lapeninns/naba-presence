@@ -2,10 +2,11 @@
 
 import { notFound, usePathname } from "next/navigation"
 
+import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
 import { LocationActivityPanel } from "@/components/locations/activity-panel"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
-import { Badge } from "@/components/ui/badge"
+import { StatusPill } from "@/components/ui/status-pill"
 import {
   Combobox,
   ComboboxContent,
@@ -71,58 +72,59 @@ export function LocationWorkspace({
     ? pathname.slice(base.length)
     : ""
   const address = current ? formatAddress(current.address) : null
+  // Siblings only. Switching between two clients' venues from one dropdown
+  // invites publishing to the wrong business; to change client you go through
+  // the client, which is also where the breadcrumb points.
+  const siblings = (directory.data ?? []).filter(
+    (entry) => entry.clientId === current?.clientId
+  )
   // Mirrors the server's canEditCanonical gate (role in {owner, admin}) so
   // the Industry/Administration tabs never link to a route that 403s.
   const canManageConsoles = role === "owner" || role === "admin"
 
   return (
-    <PageFrame width="workspace">
+    <ClientScopeProvider clientId={current?.clientId ?? null}>
+      <PageFrame width="workspace">
       <PageHeader
         title={current?.name ?? "Location"}
-        description={
-          <span className="flex flex-col gap-1.5">
-            {address ? (
-              <span className="text-ui text-muted-foreground">{address}</span>
+        eyebrow={current?.clientName ?? undefined}
+        meta={
+          <span className="flex flex-wrap items-center gap-1.5">
+            {current?.linked ? (
+              <StatusPill tone={current.verified ? "healthy" : "pending"}>
+                {current.verified ? "Linked · Verified" : "Linked · Pending verification"}
+              </StatusPill>
+            ) : (
+              <StatusPill tone="neutral">Not linked</StatusPill>
+            )}
+            {siblings.length > 1 ? (
+              <Combobox
+                items={siblings}
+                itemToStringLabel={(entry: DirectoryEntry) => entry.name}
+                value={current ?? null}
+                onValueChange={(next: DirectoryEntry | null) => {
+                  if (next)
+                    window.location.assign(`/locations/${next.id}${activeSuffix}`)
+                }}
+              >
+                <ComboboxInput
+                  placeholder="Switch location"
+                  aria-label="Switch to another location in this client"
+                  className="h-8 max-w-56"
+                />
+                <ComboboxContent>
+                  {siblings.map((entry) => (
+                    <ComboboxItem key={entry.id} value={entry}>
+                      {entry.name}
+                    </ComboboxItem>
+                  ))}
+                </ComboboxContent>
+              </Combobox>
             ) : null}
-            <span className="flex flex-wrap gap-1.5">
-              {current?.linked === false ? (
-                <Badge variant="outline">Not linked</Badge>
-              ) : null}
-              {current?.linked ? (
-                <Badge variant="secondary">Linked</Badge>
-              ) : null}
-              {current?.verified ? (
-                <Badge variant="success">Verified</Badge>
-              ) : null}
-            </span>
           </span>
         }
+        description={address ?? undefined}
       />
-
-      {directory.data && directory.data.length > 1 ? (
-        <Combobox
-          items={directory.data}
-          itemToStringLabel={(entry: DirectoryEntry) => entry.name}
-          value={current ?? null}
-          onValueChange={(next: DirectoryEntry | null) => {
-            if (next)
-              window.location.assign(`/locations/${next.id}${activeSuffix}`)
-          }}
-        >
-          <ComboboxInput
-            placeholder="Switch location"
-            aria-label="Switch location"
-            className="max-w-sm"
-          />
-          <ComboboxContent>
-            {directory.data.map((entry) => (
-              <ComboboxItem key={entry.id} value={entry}>
-                {entry.name}
-              </ComboboxItem>
-            ))}
-          </ComboboxContent>
-        </Combobox>
-      ) : null}
 
       <LocationTabNav
         locationId={locationId}
@@ -135,6 +137,8 @@ export function LocationWorkspace({
         {children}
         <LocationActivityPanel locationId={locationId} />
       </div>
-    </PageFrame>
+      </PageFrame>
+    </ClientScopeProvider>
   )
 }
+

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+import { AccessDenied } from "@/components/app-shell/access-denied"
 
 import { LegalHoldsCard } from "@/components/settings/legal-holds-card"
 import { PrivacyExportCard } from "@/components/settings/privacy-export-card"
@@ -12,7 +12,7 @@ export default async function SettingsCompliancePage() {
   const session = await getSession()
   // Owner + admin may view/create privacy requests; only owners manage (D5).
   if (!session || (session.role !== "owner" && session.role !== "admin")) {
-    redirect("/settings")
+    return <AccessDenied area="Compliance and privacy" />
   }
   const canManage = session.role === "owner"
   return (

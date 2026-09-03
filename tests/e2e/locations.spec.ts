@@ -23,7 +23,7 @@ const TABS = [
   // only render — under the owner cookie this whole loop already uses.
   { segment: "business-information", label: "Business info" },
   { segment: "industry", label: "Industry" },
-  { segment: "administration", label: "Administration" },
+  { segment: "administration", label: "Access" },
 ] as const
 
 async function applyCookie(
@@ -50,7 +50,7 @@ test.describe("locations", () => {
       page.getByRole("columnheader", { name: "Location" })
     ).toBeVisible()
     await expect(
-      page.getByRole("columnheader", { name: "Status" })
+      page.getByRole("columnheader", { name: "Google" })
     ).toBeVisible()
 
     await page.goto(`/locations/${state.primaryLocationId}`)
@@ -153,7 +153,7 @@ test.describe("locations", () => {
     }
   })
 
-  test("console role walk: Industry/Administration hidden for member/viewer; Business info stays read-only for everyone", async ({
+  test("console role walk: Industry/Access hidden for member/viewer; Business info stays read-only for everyone", async ({
     baseURL,
     browser,
   }) => {
@@ -196,12 +196,12 @@ test.describe("locations", () => {
       if (canManage) {
         await expect(nav.getByRole("link", { name: "Industry" })).toBeVisible()
         await expect(
-          nav.getByRole("link", { name: "Administration" })
+          nav.getByRole("link", { name: "Access" })
         ).toBeVisible()
       } else {
         await expect(nav.getByRole("link", { name: "Industry" })).toHaveCount(0)
         await expect(
-          nav.getByRole("link", { name: "Administration" })
+          nav.getByRole("link", { name: "Access" })
         ).toHaveCount(0)
 
         // Industry/Administration gate their own GET on canEditCanonical

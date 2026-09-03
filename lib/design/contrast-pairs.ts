@@ -78,6 +78,11 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-ink-muted", bg: "--np-surface-sunken", kind: "text", note: "table column headers" },
   { fg: "--np-ink-muted", bg: "--np-hover-bg", kind: "text", note: "secondary text on a hovered row" },
   { fg: "--np-ink-inverse", bg: "--np-ink", kind: "text", note: "text on an inverted surface" },
+  // DECORATIVE ONLY: separators and inert icons. Gated at the non-text
+  // threshold precisely because it is not allowed to carry words — anything
+  // readable uses --np-ink-muted, which is measured at 4.5:1 above.
+  { fg: "--np-ink-faint", bg: "--np-surface-canvas", kind: "graphic", note: "separators and inert icons" },
+  { fg: "--np-ink-faint", bg: "--np-surface", kind: "graphic", note: "inert icons inside a card" },
 
   // Accent.
   { fg: "--np-ink-on-accent", bg: "--np-accent", kind: "text", note: "primary button label" },

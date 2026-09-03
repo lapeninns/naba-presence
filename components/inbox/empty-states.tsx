@@ -2,20 +2,22 @@
 
 import { InboxIcon, SearchXIcon, UnplugIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import Link from "next/link"
+
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 
 const KIND_CONTENT = {
-  // InboxView picks this kind from the same `health.status === "disconnected"`
-  // that puts the shell's ReconnectBanner on screen
-  // (components/app-shell/reconnect-banner.tsx), so the two ALWAYS render
-  // together. The banner owns the "Google is not connected" headline and the
-  // Manage connection CTA; repeating both here told the operator the same
-  // thing twice and offered the same link twice on one screen. This state
-  // says only what it alone knows: why the list is empty.
+  // This state carries the whole message, headline and action included.
+  // It used to defer both to the shell's ReconnectBanner on the grounds that
+  // the two always rendered together — but that banner is now client-scoped
+  // (it names the affected client and offers that client's reconnect), and
+  // the inbox is organisation-wide, so on this screen there is nothing else
+  // to defer to. An empty list saying only "No reviews to show" would leave
+  // an operator with no reason and no way out.
   disconnected: {
     icon: UnplugIcon,
-    title: "No reviews to show",
+    title: "Google is not connected",
     description: "Reconnect Google to sync and reply to your reviews.",
   },
   filtered: {
@@ -48,6 +50,13 @@ function EmptyState({
           <Button variant="outline" size="sm" onClick={onClear}>
             Clear filters
           </Button>
+        ) : kind === "disconnected" ? (
+          <Link
+            href="/settings/connections"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Manage connection
+          </Link>
         ) : undefined
       }
     >

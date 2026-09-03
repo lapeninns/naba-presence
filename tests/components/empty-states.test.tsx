@@ -1,6 +1,15 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: ComponentProps<"a">) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}))
 
 import { EmptyState } from "@/components/inbox/empty-states"
 
@@ -15,18 +24,18 @@ describe("EmptyState", () => {
     expect(screen.getByText("No reviews match these filters")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
 
-    // The shell's ReconnectBanner renders on the same condition and owns the
-    // "Google is not connected" headline and the Manage connection link, so
-    // this state must NOT repeat either: it says only why the list is empty.
+    // This state carries the whole message now. It used to defer the headline
+    // and the link to the shell's ReconnectBanner, but that banner is
+    // client-scoped and the inbox is organisation-wide, so on this screen
+    // there is nothing else to defer to.
     rerender(<EmptyState kind="disconnected" />)
-    expect(screen.getByText("No reviews to show")).toBeInTheDocument()
+    expect(screen.getByText("Google is not connected")).toBeInTheDocument()
     expect(
       screen.getByText("Reconnect Google to sync and reply to your reviews.")
     ).toBeInTheDocument()
-    expect(screen.queryByText("Google is not connected")).toBeNull()
     expect(
-      screen.queryByRole("link", { name: "Manage connection" })
-    ).toBeNull()
+      screen.getByRole("link", { name: "Manage connection" })
+    ).toHaveAttribute("href", "/settings/connections")
   })
 
   it("clears filters on request", async () => {

@@ -6,13 +6,15 @@ import { usePathname } from "next/navigation"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { cn } from "@/lib/utils"
 
+// Team is now a primary destination, not a settings tab: for an agency, who
+// can act on which client is daily work. Listing is gone entirely — it
+// administered a location from a page nowhere near it, and that now lives in
+// the location's own Access section.
 const AREAS = [
   { href: "/settings", label: "Policy", capability: "always" as const },
-  { href: "/settings/team", label: "Team", capability: "canManageTeam" as const },
   { href: "/settings/compliance", label: "Compliance", capability: "canViewCompliance" as const },
   { href: "/settings/connections", label: "Connections", capability: "canManageConnections" as const },
   { href: "/settings/ops", label: "Operations", capability: "canManageConnections" as const },
-  { href: "/settings/listing", label: "Listing", capability: "canEditSettings" as const },
 ]
 
 export function SettingsNav({ role }: { role: string | null }) {

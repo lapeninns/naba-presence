@@ -14,10 +14,12 @@ vi.mock("@/lib/queries/use-import-review", () => ({
 }))
 
 describe("LocationTabNav", () => {
-  it("renders grouped sections with all ten tabs for an owner/admin and marks the active one", () => {
+  it("groups every tab under a job section and marks the active one", () => {
     render(<LocationTabNav locationId="loc-1" canManageConsoles />)
-    for (const label of ["Overview", "Content", "Customers", "Access", "Insights"]) {
-      expect(screen.getByText(label)).toBeInTheDocument()
+    // No "Overview" section: it held a single Profile tab, so the heading
+    // only ever repeated the tab beneath it.
+    for (const label of ["Profile", "Content", "Customers", "Access", "Insights"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
     }
     for (const label of [
       "Profile",
@@ -29,11 +31,11 @@ describe("LocationTabNav", () => {
       "Performance",
       "Business info",
       "Industry",
-      "Administration",
+      "Access",
     ]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
-    const active = screen.getByRole("link", { name: "Administration" })
+    const active = screen.getByRole("link", { name: "Access" })
     expect(active).toHaveAttribute("href", "/locations/loc-1/administration")
     expect(active).toHaveAttribute("aria-current", "page")
     expect(screen.queryByRole("link", { name: "Reviews" })).not.toBeInTheDocument()
@@ -42,9 +44,11 @@ describe("LocationTabNav", () => {
   it("hides the owner/admin-only consoles for a member (no reachable 403)", () => {
     render(<LocationTabNav locationId="loc-1" canManageConsoles={false} />)
     expect(screen.getByRole("link", { name: "Business info" })).toBeInTheDocument()
-    for (const gone of ["Industry", "Administration"]) {
+    for (const gone of ["Industry", "Access"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
+    // The whole Access section disappears rather than rendering an empty
+    // heading, because every tab in it is console-gated.
     expect(screen.queryByText("Access")).not.toBeInTheDocument()
   })
 })

@@ -74,7 +74,7 @@ export type ClientsResponse = z.infer<typeof clientsResponseSchema>
 
 export const clientResponseSchema = z.object({
   client: clientSummarySchema,
-  locations: z.array(directoryRowSchema.extend({ clientId: z.string().nullable() })),
+  locations: z.array(directoryRowSchema),
 })
 export type ClientResponse = z.infer<typeof clientResponseSchema>
 

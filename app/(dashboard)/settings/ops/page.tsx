@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+import { AccessDenied } from "@/components/app-shell/access-denied"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { OpsHealthPanel } from "@/components/settings/ops-health-panel"
@@ -9,7 +9,7 @@ export const metadata = { title: "Operations · NabaPresence" }
 export default async function SettingsOpsPage() {
   const session = await getSession()
   if (!session || (session.role !== "owner" && session.role !== "admin")) {
-    redirect("/settings")
+    return <AccessDenied area="Operations health" />
   }
   return (
     <div className="flex flex-col gap-6">

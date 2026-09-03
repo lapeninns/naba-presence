@@ -5,9 +5,11 @@ import { readJourneyState } from "./helpers/stub-bridge"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = ["landmark-no-duplicate-main", "landmark-main-is-top-level", "heading-order", "page-has-heading-one"]
+// Team left Settings for its own destination, and Listing is gone: it
+// administered a location from a page nowhere near it, and that now lives in
+// the location's own Access section.
 const AREAS = [
   { path: "/settings", heading: "Reply policy" },
-  { path: "/settings/team", heading: "Team access" },
   { path: "/settings/compliance", heading: "Data and compliance" },
   { path: "/settings/connections", heading: "Google Business Profile" },
 ] as const
@@ -61,7 +63,7 @@ test.describe("settings", () => {
     }
   }
 
-  test("permission walk: a member sees only Policy; privileged routes redirect", async ({ baseURL, browser }) => {
+  test("permission walk: a member sees only Policy, and is TOLD when a route is closed", async ({ baseURL, browser }) => {
     const state = await readJourneyState()
     for (const cookie of [state.memberUnassignedCookie, state.viewerCookie]) {
       const context = await browser.newContext()
@@ -75,10 +77,17 @@ test.describe("settings", () => {
       }
       // The read-only Policy form shows the gate reason, not an editable control.
       await expect(page.getByText("Only owners and admins can change these settings.")).toBeVisible()
-      // A direct visit to a privileged route redirects to Policy.
-      for (const privileged of ["/settings/team", "/settings/listing"]) {
+
+      // Following a colleague's link to a privileged route explains the
+      // refusal instead of silently landing somewhere else, which is
+      // indistinguishable from a bug.
+      for (const privileged of ["/settings/connections", "/settings/compliance"]) {
         await page.goto(privileged)
-        await expect(page).toHaveURL(/\/settings$/)
+        expect(new URL(page.url()).pathname).toBe(privileged)
+        await expect(
+          page.getByRole("heading", { name: /You don.t have access to this page/, level: 1 })
+        ).toBeVisible()
+        await expect(page.getByRole("link", { name: "Back to Home" })).toBeVisible()
       }
       await context.close()
     }
@@ -89,8 +98,11 @@ test.describe("settings", () => {
     await applyCookie(page, baseURL, state.adminCookie)
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
-    await expect(nav.getByRole("link", { name: "Team" })).toBeVisible()
     await expect(nav.getByRole("link", { name: "Compliance" })).toBeVisible()
+    // Team is a primary destination now, not a settings tab.
+    await expect(
+      page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Team" })
+    ).toBeVisible()
     // The page renders for admins (no redirect) with the privacy-request create form…
     await page.goto("/settings/compliance")
     await expect(page).toHaveURL(/\/settings\/compliance$/)

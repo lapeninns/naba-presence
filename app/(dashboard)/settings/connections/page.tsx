@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+import { AccessDenied } from "@/components/app-shell/access-denied"
 
 import { ConnectionsWorkspace } from "@/components/settings/connections-workspace"
 import { PageHeader } from "@/components/app-shell/page-frame"
@@ -9,7 +9,7 @@ export const metadata = { title: "Google Business Profile · NabaPresence" }
 export default async function SettingsConnectionsPage() {
   const session = await getSession()
   if (!session || (session.role !== "owner" && session.role !== "admin")) {
-    redirect("/settings")
+    return <AccessDenied area="Google connections" />
   }
   return (
     <div className="flex flex-col gap-6">

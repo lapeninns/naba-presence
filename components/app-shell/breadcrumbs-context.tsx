@@ -1,53 +1,34 @@
 "use client"
 
-import * as React from "react"
+import { usePathname } from "next/navigation"
 
-import type { Crumb } from "@/components/ui/breadcrumb"
-
-type BreadcrumbsValue = {
-  crumbs: Crumb[]
-  setCrumbs: (crumbs: Crumb[]) => void
-}
-
-const BreadcrumbsContext = React.createContext<BreadcrumbsValue | null>(null)
+import { Breadcrumbs } from "@/components/ui/breadcrumb"
+import { breadcrumbTrail } from "@/lib/ui/breadcrumb-trail"
+import { useClients } from "@/lib/queries/use-clients"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+import { useSessionRole } from "@/lib/queries/use-session"
 
 /**
- * The topbar renders breadcrumbs; the pages know what they are.
+ * The topbar's trail, derived from the path and the lists the shell already
+ * holds.
  *
- * A context rather than a prop chain because the trail is assembled from
- * several layers — the client layout knows the client, the location workspace
- * knows the location, the tab knows the section — and threading a prop through
- * each of them would make every intermediate layout a client component.
+ * Deliberately NOT pushed up from each page: pages sit behind their own client
+ * boundaries, so a context written deep in the tree and read here arrives a
+ * render late at best, and not at all across some boundaries. Reading the URL
+ * is the one source that is always right and always available.
  */
-function BreadcrumbsProvider({ children }: { children: React.ReactNode }) {
-  const [crumbs, setCrumbs] = React.useState<Crumb[]>([])
-  const value = React.useMemo(() => ({ crumbs, setCrumbs }), [crumbs])
-  return (
-    <BreadcrumbsContext.Provider value={value}>
-      {children}
-    </BreadcrumbsContext.Provider>
-  )
+function ShellBreadcrumbs({ className }: { className?: string }) {
+  const pathname = usePathname()
+  const clients = useClients()
+  const locations = useLocationDirectory(useSessionRole())
+
+  const crumbs = breadcrumbTrail({
+    pathname: pathname ?? "",
+    clients: clients.data?.items ?? [],
+    locations: locations.data ?? [],
+  })
+
+  return <Breadcrumbs crumbs={crumbs} className={className} />
 }
 
-function useBreadcrumbs() {
-  return React.useContext(BreadcrumbsContext)?.crumbs ?? []
-}
-
-/**
- * Declares this page's trail. Clears on unmount so a page that sets no trail
- * never inherits the previous page's.
- */
-function useSetBreadcrumbs(crumbs: Crumb[]) {
-  const context = React.useContext(BreadcrumbsContext)
-  const setCrumbs = context?.setCrumbs
-  // Serialised so an inline array literal does not re-fire the effect on
-  // every render.
-  const serialised = JSON.stringify(crumbs)
-  React.useEffect(() => {
-    if (!setCrumbs) return
-    setCrumbs(JSON.parse(serialised) as Crumb[])
-    return () => setCrumbs([])
-  }, [serialised, setCrumbs])
-}
-
-export { BreadcrumbsProvider, useBreadcrumbs, useSetBreadcrumbs }
+export { ShellBreadcrumbs }

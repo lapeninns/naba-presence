@@ -16,10 +16,15 @@ test.describe("rebuild foundation", () => {
     await expect(page.locator("#main")).toBeFocused()
   })
 
-  test("status chip reaches a live state", async ({ page }) => {
+  test("the health chip reports the agency, not one connection", async ({ page }) => {
+    // The old chip collapsed every connection in the organisation to
+    // connected/disconnected, which hid one client's broken login behind
+    // another client's working one. It now reports a count.
     await page.goto("/home")
     await expect(
-      page.getByText(/Live data|Google disconnected/)
+      page.getByText(
+        /All clients connected|clients? needs? attention|Importing reviews|No clients yet|Not connected yet/
+      )
     ).toBeVisible({ timeout: 10_000 })
   })
 
@@ -29,7 +34,10 @@ test.describe("rebuild foundation", () => {
     await page.getByRole("button", { name: "Open navigation" }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await expect(
-      page.getByRole("dialog").getByRole("link", { name: "Reviews" })
+      page.getByRole("dialog").getByRole("link", { name: "Inbox" })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("dialog").getByRole("link", { name: "Clients" })
     ).toBeVisible()
   })
 

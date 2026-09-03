@@ -22,10 +22,15 @@ async function mockShell(page: Page) {
   // both with the management row alone -- as this fixture did -- fails
   // locationsResponseSchema in lib/api/client.ts, and LocationWorkspace then
   // sits on its "does this location exist?" skeleton and never renders a tab.
-  const managementLocation = { locationId: "location-management", name: "Camden Hotel", timezone: "Europe/London", address: { addressLines: ["10 Camden High Street"], locality: "London", postalCode: "NW1 0JH", regionCode: "GB" }, linkId: "link-management", externalLocationId: "external-management", googleLocationName: "locations/camden", googleTitle: "Camden Hotel", verified: true }
-  await page.route(/\/api\/location-links(?:\?.*)?$/, (route) => route.fulfill({ json: { locations: [new URL(route.request().url()).searchParams.get("view") === "management" ? managementLocation : { id: "location-management", name: "Camden Hotel", linked: true }] } }))
+  const managementLocation = { locationId: "location-management", name: "Camden Hotel", timezone: "Europe/London", address: { addressLines: ["10 Camden High Street"], locality: "London", postalCode: "NW1 0JH", regionCode: "GB" }, linkId: "link-management", externalLocationId: "external-management", googleLocationName: "locations/camden", googleTitle: "Camden Hotel", verified: true, clientId: "client-management", clientName: "Camden Group" }
+  await page.route(/\/api\/location-links(?:\?.*)?$/, (route) => route.fulfill({ json: { locations: [new URL(route.request().url()).searchParams.get("view") === "management" ? managementLocation : { id: "location-management", name: "Camden Hotel", linked: true, clientId: "client-management", clientName: "Camden Group" }] } }))
   await page.route(/\/api\/google\/connections(?:\?.*)?$/, (route) => route.fulfill({ json: { connections: [{ id: "connection-management", googleEmail: "owner@example.com", status: "active", notificationsEnabled: true, lastRefreshAt: "2026-07-31T09:00:00Z", lastErrorCode: null, reconnectRequired: false, createdAt: "2026-07-01T09:00:00Z" }] } }))
-  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, (route) => route.fulfill({ json: { total: 0, byStatus: {} } }))
+  await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, (route) => route.fulfill({ json: { total: 0, byStatus: {}, byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } } }))
+  // The shell reads the client list for its sidebar, its breadcrumbs and its
+  // health chip. Leaving it unstubbed is fatal for the same reason the
+  // activity route below is: the real route answers 401 and lib/api/client.ts
+  // hard-navigates the page to /sign-in mid-assertion.
+  await page.route(/\/api\/clients(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [{ id: "client-management", name: "Camden Group", slug: "camden-group", colour: null, logoUrl: null, notes: null, archivedAt: null, createdAt: "2026-07-01T09:00:00Z", locationCount: 1, linkedCount: 1, verifiedCount: 1, health: "healthy", connections: [], openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 }, backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 }, lastSyncAt: "2026-07-31T09:00:00Z" }], unassignedLocationCount: 0 } }))
   await page.route(/\/api\/organisations(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [] } }))
   // All three consoles gate their editors on this capability (owner/admin
   // only); Business info also reads it for the field-level disabled state.

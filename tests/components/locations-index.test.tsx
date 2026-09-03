@@ -26,11 +26,13 @@ describe("LocationsIndex", () => {
     renderIndex("owner")
     expect(await screen.findByRole("columnheader", { name: "Location" })).toBeInTheDocument()
     expect(screen.getByRole("columnheader", { name: "Address" })).toBeInTheDocument()
-    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Google" })).toBeInTheDocument()
     const link = await screen.findByRole("link", { name: "Riverside" })
     expect(link).toHaveAttribute("href", "/locations/loc-1")
     expect(screen.getByText("Bath")).toBeInTheDocument()
-    expect(screen.getByText("Linked")).toBeInTheDocument()
+    expect(screen.getByText("Verified")).toBeInTheDocument()
+    // A location no one has filed yet is grouped and explained, not hidden.
+    expect(screen.getByText("Unassigned locations")).toBeInTheDocument()
   })
 
   it("renders a plain single-column list for a member and no management columns", async () => {
@@ -39,7 +41,7 @@ describe("LocationsIndex", () => {
     })
     renderIndex("member")
     expect(await screen.findByRole("link", { name: "Old Town" })).toHaveAttribute("href", "/locations/loc-9")
-    expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Google" })).not.toBeInTheDocument()
   })
 
   it("points an owner at the connect flow when there are no locations", async () => {

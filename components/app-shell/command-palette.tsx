@@ -89,7 +89,7 @@ function CommandPalette({
               >
                 <StatusPill tone={healthTone(client.health)} variant="dot" />
                 <span className="flex-1 truncate">{client.name}</span>
-                <span className="text-caption text-ink-faint">
+                <span className="text-caption text-ink-muted">
                   {client.locationCount === 1
                     ? "1 location"
                     : `${client.locationCount} locations`}
@@ -110,7 +110,7 @@ function CommandPalette({
                 <MapPin className="size-4 text-ink-faint" aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
                 {location.clientId ? (
-                  <span className="truncate text-caption text-ink-faint">
+                  <span className="truncate text-caption text-ink-muted">
                     {clientNameById.get(location.clientId)}
                   </span>
                 ) : null}
@@ -196,7 +196,7 @@ function CommandPaletteButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-(--np-radius-control) border border-line bg-surface px-2.5 text-ui text-ink-faint transition-colors duration-(--np-duration-fast) hover:text-ink-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+        "flex h-8 items-center gap-2 rounded-(--np-radius-control) border border-line bg-surface px-2.5 text-ui text-ink-muted transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
         className
       )}
     >

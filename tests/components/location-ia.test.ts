@@ -31,18 +31,33 @@ describe("lodging form helpers", () => {
 })
 
 describe("location IA", () => {
-  it("exposes six job sections and hides console tabs for members", () => {
-    expect(visibleLocationSections(true)).toHaveLength(6)
+  it("opens on Profile rather than a section holding one Profile tab", () => {
+    // The old "Overview" section contained a single tab labelled Profile, so
+    // the first thing a user saw was a section heading duplicating the tab
+    // under it. The profile IS a location's overview.
+    const sections = visibleLocationSections(true)
+    expect(sections.map((s) => s.id)).toEqual([
+      "profile",
+      "content",
+      "customers",
+      "access",
+      "insights",
+    ])
+    expect(sections[0].tabs[0]).toMatchObject({ segment: "", label: "Profile" })
+  })
+
+  it("hides the console tabs from members, section and all", () => {
     const member = visibleLocationSections(false)
+    // Access holds only console-gated tabs, so the whole section disappears
+    // rather than rendering an empty heading.
     expect(member.map((s) => s.id)).toEqual([
-      "overview",
       "profile",
       "content",
       "customers",
       "insights",
     ])
-    expect(member.flatMap((s) => s.tabs.map((t) => t.label))).not.toContain(
-      "Industry"
-    )
+    const labels = member.flatMap((s) => s.tabs.map((t) => t.label))
+    expect(labels).not.toContain("Industry")
+    expect(labels).not.toContain("Access")
   })
 })

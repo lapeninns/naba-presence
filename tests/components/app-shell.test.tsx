@@ -49,7 +49,7 @@ const client = {
 }
 
 function stubApi(overrides: { clients?: unknown[] } = {}) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     const body = url.includes("/api/clients")
       ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }

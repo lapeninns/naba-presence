@@ -58,6 +58,9 @@ export type JourneyState = {
     text: string
   }
   primaryLocationId: string
+  /** The client every seeded location is filed under. */
+  clientId: string
+  clientName: string
   adminCookie: string
   memberAssignedCookie: string
   memberUnassignedCookie: string
@@ -658,6 +661,20 @@ export default async function startJourneyBridge(config: FullConfig) {
       })
     )
 
+    // Every seeded location belongs to one client, so the agency surfaces
+    // (the client index, the hub, the inbox's per-client grouping) have real
+    // data rather than the empty state a fresh tenant would otherwise show.
+    const clientName = "Journey Hospitality"
+    const [seededClient] = await admin<{ id: string }[]>`
+      insert into client (organisation_id, name, slug)
+      values (${organisationId}, ${clientName}, 'journey-hospitality')
+      returning id::text as id
+    `
+    await admin`
+      update location set client_id = ${seededClient!.id}
+      where organisation_id = ${organisationId}
+    `
+
     const state: JourneyState = {
       cookie: tenant.cookie,
       organisationId,
@@ -689,6 +706,8 @@ export default async function startJourneyBridge(config: FullConfig) {
         text: "Sprint 5 approver journey review",
       },
       primaryLocationId: directReview.locationId,
+      clientId: seededClient!.id,
+      clientName,
       adminCookie: adminUser.cookie,
       memberAssignedCookie: memberAssigned.cookie,
       memberUnassignedCookie: memberUnassigned.cookie,
