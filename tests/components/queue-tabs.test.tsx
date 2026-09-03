@@ -13,7 +13,6 @@ const byStatus = {
   published: 5,
   rejected: 1,
   failed: 0,
-  escalated: 4,
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -30,7 +29,6 @@ describe("QueueTabs", () => {
     expect(screen.getByRole("tab", { name: /Awaiting approval,\s+3/ })).toHaveTextContent(
       "Approval"
     )
-    expect(screen.getByRole("tab", { name: /Escalated,\s+4/ })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Published,\s+5/ })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /All reviews,\s+16/ })).toHaveAttribute(
       "aria-selected",
@@ -53,19 +51,20 @@ describe("QueueTabs", () => {
     expect(
       screen.queryByRole("tab", { name: /Awaiting approval/ })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole("tab", { name: /Escalated/ })).not.toBeInTheDocument()
   })
 
   it("keeps an empty selected queue visible", () => {
     render(
       <QueueTabs
-        queue="escalated"
+        queue="awaiting_approval"
         total={5}
         byStatus={{ published: 5 }}
         onQueueChange={() => {}}
       />
     )
-    expect(screen.getByRole("tab", { name: /Escalated,\s+0/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole("tab", { name: /Awaiting approval,\s+0/ })
+    ).toBeInTheDocument()
   })
 
   it("calls onQueueChange when a tab is chosen", async () => {

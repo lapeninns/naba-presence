@@ -111,7 +111,6 @@ async function mockReviewWorkspace(
           published: options.disconnected ? 0 : 1,
           rejected: 0,
           failed: 0,
-          escalated: 0,
         },
       },
     })
@@ -550,8 +549,7 @@ for (const theme of themes) {
                 published: 1,
                 rejected: 0,
                 failed: 0,
-                escalated: 0,
-              },
+                    },
             },
           })
         })

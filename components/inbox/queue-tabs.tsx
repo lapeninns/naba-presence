@@ -11,7 +11,6 @@ const QUEUE_LABELS: Record<Queue, { short: string; full: string }> = {
   all: { short: "All", full: "All reviews" },
   needs_reply: { short: "Needs reply", full: "Needs reply" },
   awaiting_approval: { short: "Approval", full: "Awaiting approval" },
-  escalated: { short: "Escalated", full: "Escalated" },
   published: { short: "Published", full: "Published" },
 }
 

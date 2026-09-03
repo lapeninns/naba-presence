@@ -24,7 +24,6 @@ const emptyCounts = {
   published: 0,
   rejected: 0,
   failed: 0,
-  escalated: 0,
 }
 
 describeDatabase("review queue counts", () => {

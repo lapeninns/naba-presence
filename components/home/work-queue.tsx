@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import {
-  TriangleAlertIcon,
   CheckCircle2Icon,
   ClipboardCheckIcon,
   MessageSquareReplyIcon,
@@ -23,7 +22,6 @@ const HEADING_ID = "your-work-heading"
 const ICONS: Record<string, typeof MessageSquareReplyIcon> = {
   needs_reply: MessageSquareReplyIcon,
   awaiting_approval: ClipboardCheckIcon,
-  escalated: TriangleAlertIcon,
   unresolved_low: StarIcon,
 }
 

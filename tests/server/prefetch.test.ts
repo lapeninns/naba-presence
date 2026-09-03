@@ -106,7 +106,6 @@ describe("reviewCountsFromRows", () => {
     expect(reviewCountsSchema.safeParse(counts).success).toBe(true)
     expect(counts.total).toBe(5)
     expect(counts.byStatus.new).toBe(3)
-    expect(counts.byStatus.escalated).toBe(0)
   })
 })
 

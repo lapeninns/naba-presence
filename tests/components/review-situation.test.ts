@@ -166,7 +166,6 @@ describe("describeSituation", () => {
     ["failed", "Publishing failed"],
     ["rejected", "Reply rejected"],
     ["publish_requested", "Publishing"],
-    ["escalated", "Escalated"],
   ])("reports the %s workflow state ahead of anything else", (status, headline) => {
     expect(
       situation({ workflowStatus: status, hasDraft: true, hasLiveReply: true })

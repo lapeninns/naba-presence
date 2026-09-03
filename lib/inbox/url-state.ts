@@ -12,13 +12,12 @@ import {
 } from "@/lib/contracts/reviews"
 
 export type Queue =
-  "all" | "needs_reply" | "awaiting_approval" | "escalated" | "published"
+  "all" | "needs_reply" | "awaiting_approval" | "published"
 
 export const QUEUES: readonly Queue[] = [
   "all",
   "needs_reply",
   "awaiting_approval",
-  "escalated",
   "published",
 ]
 
@@ -34,7 +33,7 @@ export const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
 
 // Reproduces the legacy queue->statuses mapping. "needs_reply" is the states
 // that still require a human toward a reply (excluding the states that own
-// their own tab: awaiting_approval, escalated, published). `publish_requested`
+// their own tab: awaiting_approval, published). `publish_requested`
 // is a transient pipeline state (a publish is in flight) and belongs to no
 // actionable tab — it appears only under the All queue, by design. This is a
 // defensible baseline the owner may refine; the per-tab count in queue-tabs
@@ -46,7 +45,6 @@ export const QUEUE_STATUS_MAP: Record<
   all: null,
   needs_reply: ["new", "drafted", "verified", "failed", "rejected"],
   awaiting_approval: ["awaiting_approval"],
-  escalated: ["escalated"],
   published: ["published"],
 }
 

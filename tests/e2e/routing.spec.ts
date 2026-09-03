@@ -73,10 +73,10 @@ test("reviews redirects to inbox and forwards the query string", async ({
   // races that rewrite (flakes ~1/3 in isolation) — assert the landed
   // pathname and that the forwarded query param survived instead, which
   // holds true whether or not the auto-select rewrite has fired yet.
-  await page.goto("/reviews?queue=escalated")
+  await page.goto("/reviews?queue=awaiting_approval")
   const url = new URL(page.url())
   expect(url.pathname).toBe("/inbox")
-  expect(url.searchParams.get("queue")).toBe("escalated")
+  expect(url.searchParams.get("queue")).toBe("awaiting_approval")
 })
 
 test("sidebar links update browser history", async ({ page }) => {

@@ -77,7 +77,6 @@ const fullByStatus = {
   published: 5,
   rejected: 0,
   failed: 2,
-  escalated: 4,
 }
 
 afterEach(() => {
@@ -124,10 +123,6 @@ describe("OverviewView", () => {
     expect(
       screen.getByRole("link", { name: /Awaiting approval/ })
     ).toHaveAttribute("href", "/inbox?queue=awaiting_approval")
-    expect(screen.getByRole("link", { name: /Escalated/ })).toHaveAttribute(
-      "href",
-      "/inbox?queue=escalated"
-    )
     expect(
       screen.getByRole("link", { name: /Unresolved low ratings/ })
     ).toHaveAttribute("href", "/inbox?rating=1,2&replyState=unreplied")
@@ -188,7 +183,6 @@ describe("OverviewView", () => {
           published: 0,
           rejected: 0,
           failed: 0,
-          escalated: 0,
         },
       },
     })

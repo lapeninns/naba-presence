@@ -373,6 +373,34 @@ async function retain({
             and started_at <= now() - interval '24 hours'
           returning id
         `
+        // The remaining three surfaces map every in-flight phase onto
+        // 'started' (their CHECK admits no finer vocabulary), and only place
+        // actions carries started_at -- the other two are aged off created_at,
+        // which is written in the same statement that opens the attempt.
+        const strandedMedia = await sql`
+          update gbp_media_mutation
+          set status = 'ambiguous', last_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status = 'started'
+            and created_at <= now() - interval '24 hours'
+          returning id
+        `
+        const strandedPlaceActions = await sql`
+          update place_action_mutation
+          set status = 'ambiguous', last_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status = 'started'
+            and started_at <= now() - interval '24 hours'
+          returning id
+        `
+        const strandedManagement = await sql`
+          update gbp_management_mutation
+          set status = 'ambiguous', last_error_code = 'attempt_interrupted',
+            finished_at = now()
+          where status in ('started', 'validated')
+            and created_at <= now() - interval '24 hours'
+          returning id
+        `
         const counts = {
           auditLogs,
           media,
@@ -400,6 +428,9 @@ async function retain({
           strandedHours: strandedHours.count,
           strandedProfiles: strandedProfiles.count,
           strandedFoodMenus: strandedFoodMenus.count,
+          strandedMedia: strandedMedia.count,
+          strandedPlaceActions: strandedPlaceActions.count,
+          strandedManagement: strandedManagement.count,
         }
         const heldLocationsSkipped = held?.count ?? 0
         if (
