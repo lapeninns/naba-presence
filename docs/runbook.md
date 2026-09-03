@@ -314,11 +314,44 @@ The separate production-style stack remains available through
 `docker compose up --build`; its plain PostgreSQL database is available only on
 `127.0.0.1:54329`.
 
-The separately configured hosted PostgreSQL URLs were previously rejected by
-their provider as an unknown tenant/user. They are not required for local
-Docker validation. Replace them with active project credentials before a hosted
-deployment, then run `pnpm db:migrate`. Migration and status scripts never print
-credentials.
+## Production database (deferred — read before provisioning)
+
+The Vercel production `DATABASE_URL` / `DIRECT_DATABASE_URL` (set 205 days
+ago) point at a host that no longer resolves (`ENOTFOUND`, confirmed
+NXDOMAIN). There is no production database to migrate: every DB-backed
+production request fails, and the "28 applied migrations" premise is void.
+The only live dataset is the local Supabase database, snapshotted to
+`../NabaPresence-backups/local-snapshot-20260903.dump` (custom format, schema
+plus data, verified with `pg_restore -l`). When production provisioning is
+back on the table, follow this order — it was rehearsed end to end against
+the compose PostgreSQL 17 stack in September 2026:
+
+1. Provision a DEDICATED PostgreSQL 17 database (the local Supabase database
+   is shared with sibling projects — see step 3). Before pointing anything at
+   it, resolve the hostname and open one test connection; the last production
+   database died silently as NXDOMAIN and nothing paged.
+2. `DIRECT_DATABASE_URL='<new admin url>' pnpm db:migrate` until
+   `schema_migration` holds 42 rows, then re-run to confirm idempotence (42
+   "already applied"). Fresh apply is CI-verified on every push.
+3. Restore data only, for canonical tables only. The local database carries
+   artifacts no committed migration defines — ghost migration row `0021`,
+   tables `audit_logs` (205 rows), `auth_hook_deliveries`, and ~50
+   sibling-project tables (`merchants`, `loyalty_*`, `offer_*`, …) — plus
+   2122 `app_user` rows against 3 organisations, so triage which users belong
+   to NabaPresence before promoting. Recipe: `pg_restore -l`, keep only
+   `TABLE DATA public <table>` for tables present in the migrated target
+   (never `schema_migration`), restore with `--no-owner --disable-triggers
+   -1` (the dump's table order is not FK-safe: `app_session` precedes
+   `app_user`). Then compare row counts against the source before proceeding.
+4. Set `DATABASE_URL` (runtime role, never a superuser) and
+   `DIRECT_DATABASE_URL` via `vercel env`, plus confirm `CRON_SECRET` is set
+   or every cron tick 401s. Never `vercel env pull` into `.env.local`.
+5. `vercel --prod`, then smoke: cron-bearer `GET /api/operations/health`
+   (backlog unlached, `ops_heartbeat` fresh), one firing of each of the seven
+   crons in `vercel.json`, and watch for `lease_expired` (one reclaim burst
+   is expected, a stream is not). Deploying also retires the stale
+   five-minute `/api/cron/worker` pings: that endpoint exists only in the old
+   build and 500s on every fire.
 
 ## Privacy and disassociation
 
