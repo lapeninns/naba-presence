@@ -31,8 +31,15 @@ export type ResetRequestInput = z.input<typeof resetRequestSchema>
 /** POST `/api/auth/password/reset/complete` body. */
 export type ResetPasswordInput = z.input<typeof resetPasswordSchema>
 
-/** POST `/api/auth/password/resend` body. */
-export const resendConfirmationSchema = z.object({ email: emailSchema })
+/**
+ * POST `/api/auth/password/resend` body. `inviteToken` mirrors the register
+ * body: the resent confirmation link has to carry the invitation, or
+ * `/auth/confirm` provisions the invited user as owner of a new organisation.
+ */
+export const resendConfirmationSchema = z.object({
+  email: emailSchema,
+  inviteToken: z.string().min(1).optional(),
+})
 export type ResendConfirmationInput = z.input<typeof resendConfirmationSchema>
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToastManager } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { ImportProposal } from "@/lib/api/location-import-review"
+import { AMBIGUOUS_LABELS_WARNING } from "@/lib/domain/food-menu-import"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
   useDecideImportProposal,
@@ -43,12 +45,19 @@ function valueSummary(value: unknown): string {
     const node = value as Record<string, unknown>
     const parts: string[] = []
     if (typeof node.itemLabel === "string") parts.push(node.itemLabel)
-    if (typeof node.description === "string" && node.description) parts.push(node.description)
+    if (typeof node.description === "string" && node.description)
+      parts.push(node.description)
     if (node.price && typeof node.price === "object") {
       const price = node.price as Record<string, unknown>
-      const units = typeof price.units === "string" ? price.units : String(price.units ?? "")
+      const units =
+        typeof price.units === "string"
+          ? price.units
+          : String(price.units ?? "")
       const nanos = typeof price.nanos === "number" ? price.nanos : 0
-      if (units) parts.push(`${units}${nanos ? `.${String(Math.round(nanos / 1e7)).padStart(2, "0")}` : ""}`)
+      if (units)
+        parts.push(
+          `${units}${nanos ? `.${String(Math.round(nanos / 1e7)).padStart(2, "0")}` : ""}`
+        )
     }
     if (parts.length) return parts.join(" · ")
     return JSON.stringify(node)
@@ -56,11 +65,31 @@ function valueSummary(value: unknown): string {
   return String(value)
 }
 
+function isAmbiguous(proposal: ImportProposal): boolean {
+  return proposal.warnings.includes(AMBIGUOUS_LABELS_WARNING)
+}
+
+/**
+ * The names the match ladder could not tell apart, off the row's own summary.
+ * Written by buildFoodMenuProposals, so an unexpected shape degrades to the
+ * section title rather than to a crash.
+ */
+function ambiguousLabels(proposal: ImportProposal): string[] {
+  const value = proposal.googleValue
+  if (!value || typeof value !== "object") return []
+  const labels = (value as { itemLabels?: unknown }).itemLabels
+  return Array.isArray(labels)
+    ? labels.filter((label): label is string => typeof label === "string")
+    : []
+}
+
 function proposalTitle(proposal: ImportProposal): string {
   if (proposal.resourceType === "profile") {
     return FIELD_LABELS[proposal.fieldKey ?? ""] ?? proposal.fieldKey ?? "Field"
   }
-  if (proposal.kind === "structure_changed") return "Whole menu"
+  if (proposal.kind === "structure_changed") {
+    return proposal.sectionLabel ?? "Whole menu"
+  }
   if (proposal.itemLabel) {
     return proposal.sectionLabel
       ? `${proposal.sectionLabel} · ${proposal.itemLabel}`
@@ -113,11 +142,28 @@ export function ImportReviewPanel({
         onSuccess: () => {
           setConfirming(null)
           toasts.add({
-            title: action === "apply" ? "Suggestion applied" : action === "delete_local" ? "Removed here" : "Suggestion dismissed",
+            title:
+              action === "apply"
+                ? "Suggestion applied"
+                : action === "delete_local"
+                  ? "Removed here"
+                  : "Suggestion dismissed",
             type: "success",
           })
         },
         onError: (error) => {
+          // The server compares the proposal's own pinned value against the
+          // live one, so it can find a divergence the raise-time warning never
+          // recorded. Offer the acknowledgement rather than a toast the user
+          // cannot act on — the claim is already released back to pending.
+          if (
+            error instanceof ApiClientError &&
+            error.code === "canonical_overwrite_confirmation_required" &&
+            (action === "apply" || action === "delete_local")
+          ) {
+            setConfirming({ proposal, action })
+            return
+          }
           setConfirming(null)
           toasts.add({ title: describeActionError(error), type: "error" })
         },
@@ -144,8 +190,12 @@ export function ImportReviewPanel({
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-base">Suggestions from Google</CardTitle>
-          {pending.length > 0 ? <Badge variant="warning">{pending.length}</Badge> : null}
+          <CardTitle as="h2" className="text-base">
+            Suggestions from Google
+          </CardTitle>
+          {pending.length > 0 ? (
+            <Badge variant="warning">{pending.length}</Badge>
+          ) : null}
         </div>
         <Button
           variant="outline"
@@ -159,7 +209,8 @@ export function ImportReviewPanel({
       <CardContent className="flex flex-col gap-3">
         {pending.length === 0 ? (
           <p className="text-caption text-muted-foreground">
-            No pending suggestions. Changes made on Google appear here for review.
+            No pending suggestions. Changes made on Google appear here for
+            review.
           </p>
         ) : (
           pending.map((proposal) => {
@@ -174,26 +225,54 @@ export function ImportReviewPanel({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{proposalTitle(proposal)}</span>
                   <Badge variant={missing ? "info" : "warning"}>
-                    {KIND_LABELS[proposal.kind]}
+                    {isAmbiguous(proposal)
+                      ? "Can't match automatically"
+                      : KIND_LABELS[proposal.kind]}
                   </Badge>
                   {proposal.warnings.includes("canonical_also_changed") ? (
                     <Badge variant="warning">Also edited here</Badge>
                   ) : null}
                 </div>
-                <div className="grid gap-1 text-caption text-muted-foreground sm:grid-cols-2">
-                  <div>
-                    <span className="font-medium text-foreground">Here: </span>
-                    {valueSummary(proposal.canonicalValue)}
+                {isAmbiguous(proposal) ? (
+                  // The two-column Here/Google summary would be meaningless:
+                  // the row stands for several items that cannot be told apart.
+                  <p className="text-caption text-muted-foreground">
+                    {ambiguousLabels(proposal).length
+                      ? `${ambiguousLabels(proposal)
+                          .map((label) => `“${label}”`)
+                          .join(
+                            ", "
+                          )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or apply Google's menu as a whole.`
+                      : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or apply Google's menu as a whole."}
+                  </p>
+                ) : (
+                  <div className="grid gap-1 text-caption text-muted-foreground sm:grid-cols-2">
+                    <div>
+                      <span className="font-medium text-foreground">
+                        Here:{" "}
+                      </span>
+                      {valueSummary(proposal.canonicalValue)}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground">
+                        Google:{" "}
+                      </span>
+                      {valueSummary(proposal.googleValue)}
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-medium text-foreground">Google: </span>
-                    {valueSummary(proposal.googleValue)}
-                  </div>
-                </div>
+                )}
                 {proposal.warnings
-                  .filter((warning) => warning !== "canonical_also_changed" && warning !== "no_baseline")
+                  .filter(
+                    (warning) =>
+                      warning !== "canonical_also_changed" &&
+                      warning !== "no_baseline" &&
+                      warning !== AMBIGUOUS_LABELS_WARNING
+                  )
                   .map((warning) => (
-                    <p key={warning} className="text-caption text-muted-foreground">
+                    <p
+                      key={warning}
+                      className="text-caption text-muted-foreground"
+                    >
                       {warning}
                     </p>
                   ))}
@@ -241,7 +320,20 @@ export function ImportReviewPanel({
             )
           })
         )}
-        <GateNote reason={editDisabledReason} />
+        {/* Deliberately not an echo of `editDisabledReason`. That prop
+            carries the sentence the host tab already shows beside its own
+            Save button, and repeating it verbatim put the identical note
+            twice on one screen -- read out twice by a screen reader, for two
+            different sets of controls. This one names what these buttons do.
+            (`editDisabledReason` is non-null only for the canEditCanonical
+            gate, so owners/admins is the accurate reason -- lib/locations/gating.ts.) */}
+        <GateNote
+          reason={
+            editDisabledReason
+              ? "Only owners and admins can accept or ignore suggestions."
+              : null
+          }
+        />
       </CardContent>
 
       <OverwriteConfirmDialog
@@ -261,7 +353,9 @@ export function ImportReviewPanel({
               ? "This removes the item here to match Google. You can add it back later."
               : "This was also edited here since the last sync. Applying keeps Google's version."
         }
-        confirmLabel={confirming?.action === "delete_local" ? "Remove" : "Apply"}
+        confirmLabel={
+          confirming?.action === "delete_local" ? "Remove" : "Apply"
+        }
         requireAcknowledgement
         acknowledgementLabel="I understand this changes my local data."
         pending={decide.isPending}

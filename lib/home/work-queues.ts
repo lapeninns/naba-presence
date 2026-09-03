@@ -53,14 +53,6 @@ export function buildWorkItems(input: {
       window: "live",
     },
     {
-      id: "escalated",
-      label: "Escalated",
-      description: "Reviews flagged for escalation",
-      count: countForQueue(input.byStatus, "escalated", input.total),
-      href: "/inbox?queue=escalated",
-      window: "live",
-    },
-    {
       id: "unresolved_low",
       label: "Unresolved low ratings",
       description: "1–2 star reviews with no published reply",

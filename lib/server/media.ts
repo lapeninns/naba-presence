@@ -436,7 +436,16 @@ async function requireFreshGoogleMedia(
  * One gbp_media_mutation write through the shared pipeline.
  *
  * - onExisting "replay": the key includes the request id, so any existing row
- *   (whatever its status) is returned as idempotent -- media's behaviour today.
+ *   (whatever its status) is returned as idempotent -- media's behaviour
+ *   today. `requestId` is a fresh UUID per HTTP request (lib/server/http.ts),
+ *   so no two requests ever share a key and the replay branch cannot fire
+ *   across them: a client that retries after a lost response uploads and
+ *   creates the item a second time. Closing that needs a key over (org,
+ *   location, operation, target, content) plus a token the CLIENT mints per
+ *   user intent and resends unchanged. Content alone is not enough -- it
+ *   would swallow a deliberate second upload of the same photo, and under
+ *   "replay" a settled failure for that key could never be retried. The
+ *   client sends no such token yet, so the key stays request-scoped.
  * - onAmbiguous "fail": an ambiguous provider call settles `ambiguous` and
  *   rethrows; there is no list-based recovery for media (unchanged). The
  *   caller retries with a fresh request id after refreshing the cache.

@@ -41,6 +41,13 @@ const proofSections = [
 ]
 
 async function expectAccessible(page: Page, surface: string) {
+  // Settle the document before axe reads it. Every route declares a title in
+  // its `metadata` export, but axe injected mid-hydration can observe the
+  // document before Next has applied it and report `document-title` against a
+  // page that is correctly titled a moment later. This asserts the title is
+  // really there rather than waiting blindly, so a genuinely untitled surface
+  // still fails -- it just fails deterministically.
+  await expect(page).toHaveTitle(/.+/)
   const results = await new AxeBuilder({ page })
     .withTags(accessibilityTags)
     .analyze()
@@ -104,7 +111,6 @@ async function mockReviewWorkspace(
           published: options.disconnected ? 0 : 1,
           rejected: 0,
           failed: 0,
-          escalated: 0,
         },
       },
     })
@@ -543,8 +549,7 @@ for (const theme of themes) {
                 published: 1,
                 rejected: 0,
                 failed: 0,
-                escalated: 0,
-              },
+                    },
             },
           })
         })
@@ -715,7 +720,23 @@ for (const theme of themes) {
           selectedReview.getByText("Thank you for your thoughtful review, Jordan.")
         ).toBeVisible()
         await expect(selectedReview.getByText("In sync with Google")).toBeVisible()
-        await expect(selectedReview.getByText("Live on Google")).toBeHidden()
+        // A published reply IS reported here, as the situation strip's
+        // sentence (`describeSituation` in lib/inbox/review-situation.ts), so
+        // the words "live on Google" belong on this screen.
+        await expect(
+          selectedReview.getByText("Your reply is live on Google.", {
+            exact: true,
+          })
+        ).toBeVisible()
+        // What must stay absent is LiveReplyDisclosure's "Live on Google"
+        // chip: that section shows Google's copy only when it disagrees with
+        // what the composer holds, and this fixture's draft and reply are the
+        // same words. `exact` is load-bearing — an unanchored getByText is a
+        // case-insensitive SUBSTRING match, so it also hits the strip sentence
+        // above and reports a correctly absent section as present.
+        await expect(
+          selectedReview.getByText("Live on Google", { exact: true })
+        ).toBeHidden()
         await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
         await expect(
           selectedReview.getByRole("textbox", { name: "Your reply" })

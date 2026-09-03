@@ -30,7 +30,17 @@ export function requiresApproval(
   )
 }
 
-/** Park the reply as `awaiting_approval` and record who asked. */
+/**
+ * Park the reply as `awaiting_approval` and record who asked.
+ *
+ * `pending_draft_id` is written here, by the only caller that parks a reply,
+ * because this is the one place that KNOWS which draft the requester read.
+ * The 0039 trigger can only derive it by matching draft text, which cannot
+ * rebind on a re-park: the second park would leave the column pointing at the
+ * first draft while `current_body` moved on, and the approver would then
+ * publish a draft they never saw -- the exact failure the column exists to
+ * prevent.
+ */
 export async function requestApproval(
   sql: TransactionSql,
   input: PublishInput,
@@ -47,20 +57,23 @@ export async function requestApproval(
       review_id,
       current_body,
       publish_status,
-      approval_requested_by
+      approval_requested_by,
+      pending_draft_id
     )
     values (
       ${input.organisationId},
       ${input.reviewId},
       ${body},
       'awaiting_approval',
-      ${input.session.userId}
+      ${input.session.userId},
+      ${input.draftId}
     )
     on conflict (organisation_id, review_id) do update
     set
       current_body = excluded.current_body,
       publish_status = 'awaiting_approval',
-      approval_requested_by = excluded.approval_requested_by
+      approval_requested_by = excluded.approval_requested_by,
+      pending_draft_id = excluded.pending_draft_id
     returning id::text as id
   `
   await writeAudit(sql, {

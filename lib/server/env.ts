@@ -2,16 +2,11 @@ import "server-only"
 
 import { z } from "zod"
 
-export function parseFeatureFlag(
-  value: unknown,
-  fallback: boolean
-): boolean {
+export function parseFeatureFlag(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback
   if (value === "true") return true
   if (value === "false") return false
-  throw new Error(
-    `Feature flag must be "true" or "false", got: ${value}`
-  )
+  throw new Error(`Feature flag must be "true" or "false", got: ${value}`)
 }
 
 export function parseDatabasePoolMax(value: unknown): number {
@@ -69,10 +64,7 @@ const timeoutWithDefault = (fallback: number) =>
 
 export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  DATABASE_POOL_MAX: z
-    .unknown()
-    .optional()
-    .transform(parseDatabasePoolMax),
+  DATABASE_POOL_MAX: z.unknown().optional().transform(parseDatabasePoolMax),
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),
@@ -87,7 +79,16 @@ export const serverEnvSchema = z.object({
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
   OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
-  OPENAI_TIMEOUT_MS: timeoutWithDefault(30_000),
+  // Capped below the connection's idle_in_transaction_session_timeout (60s,
+  // lib/server/db.ts) so a slow provider can never outlast a transaction the
+  // request still holds; Postgres would kill the backend mid-statement and the
+  // caller would see an opaque 500 instead of a provider timeout.
+  OPENAI_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(55_000)
+    .default(30_000),
   GOOGLE_CLIENT_ID: optionalText,
   GOOGLE_CLIENT_SECRET: optionalText,
   GOOGLE_PLACES_API_KEY: optionalText,
@@ -98,10 +99,30 @@ export const serverEnvSchema = z.object({
   GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
   GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
   JOBS_INTERVAL_SECONDS: timeoutWithDefault(60),
+  // Job runner batching. Concurrency is additionally bounded by
+  // DATABASE_POOL_MAX (one tenant transaction per in-flight item) and, for
+  // provider-bound work, by GOOGLE_REQUESTS_PER_SECOND.
+  JOBS_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(25),
+  JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
+  JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
+  // Pauses the background runner wholesale. PUBLISH_ENABLED and SYNC_ENABLED
+  // gate the interactive routes only, so without this the runner keeps draining
+  // its backlog to Google after an operator believes writes are stopped.
+  JOBS_ENABLED: featureFlag(true),
+  // Degraded mode for the human boundary: off, verification runs its
+  // deterministic checks alone so a hand-written reply is still saved while the
+  // AI provider is down.
+  SEMANTIC_VERIFY_ENABLED: featureFlag(true),
+  // Two switches because the halves have different costs. RETENTION_ENABLED
+  // stops the sweep entirely; RETENTION_DELETES_ENABLED stops only the
+  // irreversible deletes, so redaction of expired provider content keeps
+  // meeting its obligation during an incident.
+  RETENTION_ENABLED: featureFlag(true),
+  RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
   GBP_PERFORMANCE_ENABLED: featureFlag(true),
@@ -116,6 +137,8 @@ export const serverEnvSchema = z.object({
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
 
+// Parsed once per process, so every flag above is a restart-scoped control, not
+// a hot kill switch. docs/runbook.md states this for on-call.
 let cachedEnv: ServerEnv | undefined
 
 export function getServerEnv(): ServerEnv {
@@ -133,11 +156,7 @@ export function getServerEnv(): ServerEnv {
 // lib/server/capabilities.ts mirrors them so the UI can show its paused-write
 // notice without hiding the surface.
 export type GbpWriteSurface =
-  | "profileWrites"
-  | "posts"
-  | "media"
-  | "placeActions"
-  | "foodMenus"
+  "profileWrites" | "posts" | "media" | "placeActions" | "foodMenus"
 
 export type GbpIngestionSurface = "performance" | "keywords"
 

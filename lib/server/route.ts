@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 import type { ZodType } from "zod"
 
+import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -55,7 +56,13 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      (build one when you need a non-200 status, a redirect or a non-JSON
  *      body); any other value becomes `NextResponse.json(value)`;
  *   7. error mapping — everything thrown (ApiError, ZodError, unknown) goes
- *      through `apiError(error, requestId)` unchanged.
+ *      through `apiError(error, requestId)` unchanged;
+ *   8. support attribution — when the session was minted by
+ *      `POST /api/support/impersonation` the handler runs inside
+ *      `withAuditActor`, so every `writeAudit` it reaches records the support
+ *      engineer and the stated reason. The session carries the customer's own
+ *      user id, so without this the whole hour of impersonated actions is
+ *      audited as the customer.
  *
  * Not owned by the wrapper: `export const runtime = "nodejs"` and
  * `export const maxDuration` stay per-file static exports (Next requires them
@@ -266,7 +273,17 @@ export function route<
             }
           : { ...base, session: null }
       ) as unknown as RouteContext<A, P, Q, B>
-      const result = await config.handler(ctx)
+      // Only impersonated sessions pay for the async context; every other
+      // request calls the handler exactly as before.
+      const result = await (session?.supportActor
+        ? withAuditActor(
+            {
+              supportActor: session.supportActor,
+              impersonationReason: session.impersonationReason,
+            },
+            () => config.handler(ctx)
+          )
+        : config.handler(ctx))
       return withRequestIdHeader(toResponse(result), rid.id)
     } catch (error) {
       return apiError(error, rid.id)

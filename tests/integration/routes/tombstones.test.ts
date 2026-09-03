@@ -53,9 +53,8 @@ describeDatabase("provider-deleted review tombstones", () => {
       where id = ${externalLocationId}
     `
     googleLocationName = location.google_location_name
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      (call) => page(call)
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) =>
+      page(call)
     )
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
@@ -198,9 +197,7 @@ describeDatabase("provider-deleted review tombstones", () => {
       where id = ${removedReview.id}
     `
     expect(restored.provider_deleted_at).toBeNull()
-    const restoredDetail = await appGet(
-      `/api/reviews/${removedReview.id}`
-    )
+    const restoredDetail = await appGet(`/api/reviews/${removedReview.id}`)
     expect(restoredDetail.status).toBe(200)
 
     for (let index = 80; index < 90; index += 1) present.delete(index)
@@ -236,4 +233,191 @@ describeDatabase("provider-deleted review tombstones", () => {
       last_error_code: "sweep_incomplete",
     })
   })
+})
+
+describeDatabase("sweeps larger than one page budget", () => {
+  let admin: ReturnType<typeof postgres>
+  let stub: GoogleStub
+  let server: Awaited<ReturnType<typeof startAppServer>>
+  let owner: Awaited<ReturnType<typeof createTestTenant>>
+  let externalLocationId: string
+  let googleAccountName: string
+  let googleLocationName: string
+  // Six pages at the provider's pageSize of 50 - more than the five the job
+  // runner allows a single claim.
+  const present = new Set(Array.from({ length: 300 }, (_, index) => index))
+
+  beforeAll(async () => {
+    admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    stub = await startGoogleStub()
+    owner = await createTestTenant(admin)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    googleAccountName = connection.googleAccountName
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName,
+    })
+    externalLocationId = linked.externalLocationId
+    await admin`
+      delete from review
+      where external_location_id = ${externalLocationId}
+    `
+    const [location] = await admin<{ google_location_name: string }[]>`
+      select google_location_name
+      from external_location
+      where id = ${externalLocationId}
+    `
+    googleLocationName = location.google_location_name
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, (call) => {
+      const offset = Number(
+        new URL(call.path, stub.baseUrl).searchParams.get("pageToken") ?? "0"
+      )
+      const reviews = [...present].sort((a, b) => a - b)
+      const slice = reviews.slice(offset, offset + 50)
+      const id = (index: number) => `big-${String(index).padStart(3, "0")}`
+      return {
+        status: 200,
+        json: {
+          reviews: slice.map((index) => ({
+            name: `${googleAccountName}/${googleLocationName}/reviews/${id(index)}`,
+            reviewId: id(index),
+            reviewer: { displayName: "Sweep reviewer" },
+            starRating: "FIVE",
+            comment: `Sweep body ${id(index)}`,
+            createTime: "2026-06-01T10:00:00.000Z",
+            updateTime: new Date(
+              Date.parse("2026-07-01T12:00:00.000Z") - index * 60_000
+            ).toISOString(),
+          })),
+          ...(offset + 50 < reviews.length
+            ? { nextPageToken: String(offset + 50) }
+            : {}),
+        },
+      }
+    })
+    server = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      GOOGLE_TIMEOUT_MS: "3000",
+    })
+  })
+
+  afterAll(async () => {
+    await server.stop()
+    await stub.stop()
+    await destroyTenants(admin, [owner.organisationId])
+    await admin.end()
+  })
+
+  function sweep(maxPagesPerLocation: number) {
+    return fetch(`${server.baseUrl}/api/sync/sweep`, {
+      method: "POST",
+      headers: {
+        cookie: owner.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        externalLocationIds: [externalLocationId],
+        maxPagesPerLocation,
+      }),
+    })
+  }
+
+  function checkpoint() {
+    return admin<
+      {
+        status: string
+        last_error_code: string | null
+        page_token: string | null
+        next_attempt_at: Date | null
+      }[]
+    >`
+      select status, last_error_code, page_token, next_attempt_at
+      from sync_checkpoint
+      where organisation_id = ${owner.organisationId}
+        and external_location_id = ${externalLocationId}
+        and sync_type = 'sweep'
+    `
+  }
+
+  it("parks out of the claim window and resumes from its page token", async () => {
+    const first = await sweep(1)
+    expect(first.status, await first.clone().text()).toBe(200)
+    const [parked] = await checkpoint()
+    // Terminal for the job runner: 'failed' with a due next_attempt_at is a
+    // claim state, so re-driving a page budget the location cannot fit under
+    // would loop for ever. The cursor survives so the next sweep resumes.
+    expect(parked).toMatchObject({
+      status: "failed",
+      last_error_code: "sweep_incomplete",
+      page_token: "50",
+    })
+    expect(parked.next_attempt_at).toBeNull()
+
+    stub.calls.length = 0
+    const resumed = await sweep(1)
+    expect(resumed.status, await resumed.clone().text()).toBe(200)
+    expect(stub.calls[0]?.path).toContain("pageToken=50")
+    const [advanced] = await checkpoint()
+    expect(advanced.page_token).toBe("100")
+
+    // Four more single-page sweeps finish the enumeration. Against a sweep
+    // that restarts at page one this never terminates, however many run.
+    let completed = false
+    for (let attempt = 0; attempt < 6 && !completed; attempt += 1) {
+      const next = await sweep(1)
+      expect(next.status, await next.clone().text()).toBe(200)
+      const [state] = await checkpoint()
+      completed = state.status === "succeeded"
+    }
+    expect(completed).toBe(true)
+    const [finished] = await checkpoint()
+    expect(finished.page_token).toBeNull()
+
+    // Every review was seen across the resumed run, so nothing is tombstoned.
+    const [tombstones] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from review
+      where organisation_id = ${owner.organisationId}
+        and provider_deleted_at is not null
+    `
+    expect(tombstones.count).toBe(0)
+    const [ingested] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from review
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(ingested.count).toBe(300)
+  }, 60_000)
+
+  it("tombstones what a resumed sweep never saw", async () => {
+    for (let index = 290; index < 300; index += 1) present.delete(index)
+    const first = await sweep(3)
+    expect(first.status, await first.clone().text()).toBe(200)
+    const [parked] = await checkpoint()
+    expect(parked.status).toBe("failed")
+    const [midway] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from review
+      where organisation_id = ${owner.organisationId}
+        and provider_deleted_at is not null
+    `
+    // A partial enumeration must never delete: the missing reviews are only
+    // known to be missing once the last page lands.
+    expect(midway.count).toBe(0)
+
+    const rest = await sweep(3)
+    expect(rest.status, await rest.clone().text()).toBe(200)
+    const [done] = await checkpoint()
+    expect(done.status).toBe("succeeded")
+    const [tombstones] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from review
+      where organisation_id = ${owner.organisationId}
+        and provider_deleted_at is not null
+    `
+    expect(tombstones.count).toBe(10)
+  }, 60_000)
 })

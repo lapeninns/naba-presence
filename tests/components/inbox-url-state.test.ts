@@ -104,14 +104,15 @@ describe("inbox url state", () => {
   it("expands the queue into backend statuses and drops it from filters", () => {
     expect(queueToStatuses("all")).toBeUndefined()
     expect(queueToStatuses("awaiting_approval")).toEqual(["awaiting_approval"])
-    expect(queueToStatuses("escalated")).toEqual(["escalated"])
     expect(queueToStatuses("published")).toEqual(["published"])
     expect(queueToStatuses("needs_reply")).toContain("new")
 
     const filters = toReviewsFilters(
-      parseInboxState(new URLSearchParams("queue=escalated&locationId=loc-1"))
+      parseInboxState(
+        new URLSearchParams("queue=awaiting_approval&locationId=loc-1")
+      )
     )
-    expect(filters.statuses).toEqual(["escalated"])
+    expect(filters.statuses).toEqual(["awaiting_approval"])
     expect(filters.locationId).toBe("loc-1")
   })
 

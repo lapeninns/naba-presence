@@ -14,6 +14,17 @@ import { z } from "zod"
 // Vocabulary
 // ---------------------------------------------------------------------------
 
+/**
+ * `sync_checkpoint.status` for a backfill, plus the synthetic `not_started`
+ * the progress projection uses for a location with no checkpoint row yet.
+ *
+ * `dead` is terminal: `MAX_CONSECUTIVE_FAILURES` in `lib/server/reviews.ts`
+ * retires a checkpoint no retry can fix, and every claim predicate is an
+ * allowlist, so the row leaves the retry window for good (0030). It belongs
+ * in the vocabulary because the progress counts are keyed by it — omitting it
+ * dropped `dead` out of the counts and let a retired location read as merely
+ * stalled.
+ */
 export const BACKFILL_STATUSES = [
   "not_started",
   "pending",
@@ -21,6 +32,7 @@ export const BACKFILL_STATUSES = [
   "succeeded",
   "failed",
   "cancelled",
+  "dead",
 ] as const
 export type BackfillStatus = (typeof BACKFILL_STATUSES)[number]
 

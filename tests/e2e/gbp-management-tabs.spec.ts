@@ -12,13 +12,37 @@ import { expect, test, type Page } from "@playwright/test"
 // editors instead of the deleted raw-JSON console.
 async function mockShell(page: Page) {
   await page.route(/\/api\/session(?:\?.*)?$/, (route) => route.fulfill({ json: { session: { sessionId: "session-management", userId: "user-management", organisationId: "org-management", organisationName: "Naba Presence", displayName: "Alex Morgan", email: "alex@example.com", role: "owner", canPublish: true } } }))
-  await page.route(/\/api\/location-links(?:\?.*)?$/, (route) => route.fulfill({ json: { locations: [{ locationId: "location-management", name: "Camden Hotel", timezone: "Europe/London", address: { addressLines: ["10 Camden High Street"], locality: "London", postalCode: "NW1 0JH", regionCode: "GB" }, linkId: "link-management", externalLocationId: "external-management", googleLocationName: "locations/camden", googleTitle: "Camden Hotel", verified: true }] } }))
+  // ONE endpoint, TWO payload shapes, and both are fetched on these pages.
+  // LocationWorkspace renders with the SERVER session's role, which is null
+  // here (no session cookie is minted -- see the activity note below), so it
+  // asks for the default view: `{ id, name, linked }` per locationEntrySchema.
+  // The Administration console reads the role from the /api/session stub above
+  // ("owner") and asks for `?view=management`, whose entry is the raw
+  // directory row (directoryRowSchema, `locationId` + link columns). Answering
+  // both with the management row alone -- as this fixture did -- fails
+  // locationsResponseSchema in lib/api/client.ts, and LocationWorkspace then
+  // sits on its "does this location exist?" skeleton and never renders a tab.
+  const managementLocation = { locationId: "location-management", name: "Camden Hotel", timezone: "Europe/London", address: { addressLines: ["10 Camden High Street"], locality: "London", postalCode: "NW1 0JH", regionCode: "GB" }, linkId: "link-management", externalLocationId: "external-management", googleLocationName: "locations/camden", googleTitle: "Camden Hotel", verified: true }
+  await page.route(/\/api\/location-links(?:\?.*)?$/, (route) => route.fulfill({ json: { locations: [new URL(route.request().url()).searchParams.get("view") === "management" ? managementLocation : { id: "location-management", name: "Camden Hotel", linked: true }] } }))
   await page.route(/\/api\/google\/connections(?:\?.*)?$/, (route) => route.fulfill({ json: { connections: [{ id: "connection-management", googleEmail: "owner@example.com", status: "active", notificationsEnabled: true, lastRefreshAt: "2026-07-31T09:00:00Z", lastErrorCode: null, reconnectRequired: false, createdAt: "2026-07-01T09:00:00Z" }] } }))
   await page.route(/\/api\/reviews\/counts(?:\?.*)?$/, (route) => route.fulfill({ json: { total: 0, byStatus: {} } }))
   await page.route(/\/api\/organisations(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [] } }))
   // All three consoles gate their editors on this capability (owner/admin
   // only); Business info also reads it for the field-level disabled state.
   await page.route(/\/api\/locations\/location-management\/capabilities(?:\?.*)?$/, (route) => route.fulfill({ json: { capabilities: { canEditCanonical: true, canPublish: true } } }))
+  // Two more workspace-level GETs that fire on every location tab: the tab
+  // nav's pending-proposal badges (components/locations/location-tab-nav.tsx)
+  // and the Recent activity panel below.
+  await page.route(/\/api\/import-review\/counts(?:\?.*)?$/, (route) => route.fulfill({ json: { counts: [] } }))
+  // The workspace's Recent activity panel is part of EVERY location tab
+  // (components/locations/location-workspace.tsx renders it under the tab
+  // content), so its GET fires on all three pages below. Leaving it unstubbed
+  // is fatal rather than cosmetic: stubbing /api/session above means the shell
+  // bootstrap never mints the local-bootstrap cookie
+  // (components/app-shell/app-shell.tsx), so the real route answers 401
+  // `authentication_required` and lib/api/client.ts hard-navigates the whole
+  // page to /sign-in mid-assertion.
+  await page.route(/\/api\/locations\/location-management\/activity(?:\?.*)?$/, (route) => route.fulfill({ json: { activity: { items: [], total: 0, page: 1, pageSize: 10 } } }))
 }
 
 test("Business Information editor renders live Google data with humanised fields", async ({ page }) => {

@@ -2,8 +2,10 @@ import { PGlite } from "@electric-sql/pglite"
 import type { TransactionSql } from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { googleCreateRequestId } from "@/lib/server/gbp-management"
 import {
   attemptStore,
+  classifyFailure,
   GBP_ATTEMPT_STATUSES,
   idempotencyKey,
   loadLinkedLocation,
@@ -378,6 +380,124 @@ describe("gbp-write", () => {
     expect(calls).toEqual([])
   })
 
+  // --- interrupted attempts ---------------------------------------------------
+  // A request that dies between `start` and `settle` leaves the row in flight
+  // and nothing else moves it, so past the grace window the pipeline settles
+  // it from what the provider actually holds instead of 409ing the same
+  // snapshot until the row's retention TTL expires.
+
+  const strand = async (minutesAgo: number, status = "publishing") => {
+    const [row] = (
+      await db.query<Row>(
+        `insert into write_attempt (
+           organisation_id, location_id, status, idempotency_key,
+           intended_payload, started_at
+         ) values ($1, $2, $3, $4, '{}', now() - ($5::text || ' minutes')::interval)
+         returning *`,
+        [ORG, LOCATION, status, base().key, String(minutesAgo)]
+      )
+    ).rows
+    return row
+  }
+
+  it("an interrupted attempt whose write landed settles succeeded without re-writing", async () => {
+    const stranded = await strand(10)
+    const result = await run({
+      onSuccess: async (_sql, ctx) => {
+        calls.push(`onSuccess:${ctx.readbackHash}`)
+      },
+    })
+    expect(calls).toEqual(["read", "onSuccess:expected"])
+    expect(result).toEqual({
+      idempotent: true,
+      attemptId: stranded.id,
+      status: "succeeded",
+      rawStatus: "succeeded",
+    })
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_response_hash).toBe("expected")
+    expect(all[0].finished_at).not.toBeNull()
+    expect(await audits()).toHaveLength(1)
+  })
+
+  it("an interrupted attempt whose write never landed is re-armed and published", async () => {
+    const stranded = await strand(10)
+    let reads = 0
+    const result = await run({
+      readback: {
+        read: async () => {
+          reads += 1
+          calls.push("read")
+          return { hash: reads === 1 ? "other" : "expected" }
+        },
+        verify: ({ readback }) => readback.hash === "expected",
+        hash: (readback) => readback.hash,
+      },
+    })
+    expect(calls).toEqual(["read", "validate", "mutate", "read"])
+    expect(result.idempotent).toBe(false)
+    expect(result.attemptId).toBe(stranded.id)
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_error_code).toBeNull()
+  })
+
+  it("an interrupted attempt the provider cannot be read for stays ambiguous", async () => {
+    await strand(10)
+    await expect(
+      run({
+        readback: {
+          read: async () => {
+            throw new ApiError(503, "google_unavailable", "down")
+          },
+          verify: () => true,
+        },
+      })
+    ).rejects.toMatchObject({ code: "google_unavailable" })
+    expect(calls).toEqual([])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+    expect(row.provider_error_code).toBe("google_unavailable")
+  })
+
+  it("an attempt still inside the grace window keeps the module's 409", async () => {
+    await strand(1)
+    await expect(run()).rejects.toMatchObject({
+      status: 409,
+      code: "hours_publish_in_progress",
+    })
+    expect(calls).toEqual([])
+  })
+
+  it("a table with no startedAt column cannot date the row, so it keeps the 409", async () => {
+    await strand(10)
+    await expect(
+      run({ store: attemptStore({ table: "write_attempt" }) })
+    ).rejects.toMatchObject({ code: "hours_publish_in_progress" })
+    expect(calls).toEqual([])
+  })
+
+  it("a key claimed between find and start is the module's 409, not a unique violation", async () => {
+    await strand(0)
+    let finds = 0
+    // The first find misses the row exactly as the losing request's would,
+    // because the winner had not committed yet when it looked.
+    const racy: AttemptStore = {
+      ...hoursStyle,
+      find: async (sql, input) =>
+        (finds += 1) === 1 ? null : hoursStyle.find(sql, input),
+    }
+    await expect(run({ store: racy })).rejects.toMatchObject({
+      status: 409,
+      code: "hours_publish_in_progress",
+    })
+    expect(await rows("write_attempt")).toHaveLength(1)
+    expect(calls).toEqual([])
+  })
+
   it("validateOnly failure settles failed (never ambiguous) and skips the provider call", async () => {
     await expect(
       run({
@@ -736,6 +856,43 @@ describe("idempotencyKey", () => {
   })
 })
 
+describe("googleCreateRequestId", () => {
+  it("derives Google's create dedupe id from the content, not the request", () => {
+    const location = { title: "Cafe", storeCode: "1" }
+    const first = googleCreateRequestId({
+      organisationId: ORG,
+      accountName: "accounts/1",
+      payload: location,
+    })
+    // A retry after a lost response builds the same id, so Google's own
+    // dedupe still recognises it and no second listing is created.
+    expect(
+      googleCreateRequestId({
+        organisationId: ORG,
+        accountName: "accounts/1",
+        payload: { storeCode: "1", title: "Cafe" },
+      })
+    ).toBe(first)
+    expect(
+      googleCreateRequestId({
+        organisationId: ORG,
+        accountName: "accounts/1",
+        payload: { title: "Other" },
+      })
+    ).not.toBe(first)
+    expect(
+      googleCreateRequestId({
+        organisationId: ORG,
+        accountName: "accounts/2",
+        payload: location,
+      })
+    ).not.toBe(first)
+    expect(first).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+  })
+})
+
 describe("requireGbpWrite / requirePublishGrant", () => {
   const flags = {
     PUBLISH_ENABLED: true,
@@ -797,6 +954,34 @@ describe("requireGbpWrite / requirePublishGrant", () => {
         status: 403,
         code: "publish_permission_required",
       })
+    )
+  })
+})
+
+describe("classifyFailure", () => {
+  // The policy business-information.ts now shares rather than re-deriving:
+  // its post-write readback used to classify a plain timeout as a definite
+  // `failed` on a PATCH Google had already applied.
+  const timeout = new ApiError(504, "google_timeout", "timed out")
+
+  it("never blames a validateOnly failure for a write", () => {
+    expect(
+      classifyFailure("validate", new GoogleMutationAmbiguousError())
+    ).toBe("failed")
+  })
+
+  it("treats any failure of the post-write read as ambiguous", () => {
+    expect(classifyFailure("readback_read", timeout)).toBe("ambiguous")
+    expect(classifyFailure("readback_read", new Error("socket"))).toBe(
+      "ambiguous"
+    )
+  })
+
+  it("settles a completed read that disagrees, and a plain write error, as failed", () => {
+    expect(classifyFailure("readback_verify", timeout)).toBe("failed")
+    expect(classifyFailure("mutate", timeout)).toBe("failed")
+    expect(classifyFailure("mutate", new GoogleMutationAmbiguousError())).toBe(
+      "ambiguous"
     )
   })
 })

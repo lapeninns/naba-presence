@@ -21,6 +21,7 @@ import {
 import {
   auditGbpMutation,
   cacheGbpSnapshot,
+  googleCreateRequestId,
   resolveGbpLocationContext,
   settleGbpMutation,
   startGbpMutation,
@@ -29,10 +30,23 @@ import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 const COMPLETE_LOCATION_MASK = [
-  "name", "title", "phoneNumbers", "profile", "storefrontAddress",
-  "websiteUri", "categories", "metadata", "serviceArea", "storeCode",
-  "openInfo", "relationshipData", "serviceItems", "labels", "regularHours",
-  "specialHours", "moreHours",
+  "name",
+  "title",
+  "phoneNumbers",
+  "profile",
+  "storefrontAddress",
+  "websiteUri",
+  "categories",
+  "metadata",
+  "serviceArea",
+  "storeCode",
+  "openInfo",
+  "relationshipData",
+  "serviceItems",
+  "labels",
+  "regularHours",
+  "specialHours",
+  "moreHours",
 ]
 
 async function context(session: Session, locationId: string) {
@@ -64,21 +78,81 @@ export async function loadLocationAdministration(
 ): Promise<AdministrationState> {
   const linked = await context(session, locationId)
   const token = await connectionAccessToken(
-    getDatabase(), session.organisationId, linked.connectionId
+    getDatabase(),
+    session.organisationId,
+    linked.connectionId
   )
   const options = { connectionKey: linked.connectionId }
-  const [voice, verifications, verificationOptions, updated, locationAdmins, accountAdmins, invitations] =
-    await Promise.all([
-      safe(() => googleVerificationApi(token, { path: `${linked.googleLocationName}/VoiceOfMerchantState` }, options)),
-      safe(() => googleVerificationApi(token, { path: `${linked.googleLocationName}/verifications?pageSize=100` }, options)),
-      safe(() => googleVerificationApi(token, { path: `${linked.googleLocationName}:fetchVerificationOptions`, method: "POST", payload: { languageCode: "en" } }, options)),
-      safe(() => getGoogleUpdatedLocation(token, linked.googleLocationName, COMPLETE_LOCATION_MASK, options)),
-      safe(() => googleAccountManagementApi(token, { path: `${linked.googleLocationName}/admins` }, options)),
-      safe(() => googleAccountManagementApi(token, { path: `${linked.accountName}/admins` }, options)),
-      safe(() => googleAccountManagementApi(token, { path: `${linked.accountName}/invitations` }, options)),
-    ])
+  const [
+    voice,
+    verifications,
+    verificationOptions,
+    updated,
+    locationAdmins,
+    accountAdmins,
+    invitations,
+  ] = await Promise.all([
+    safe(() =>
+      googleVerificationApi(
+        token,
+        { path: `${linked.googleLocationName}/VoiceOfMerchantState` },
+        options
+      )
+    ),
+    safe(() =>
+      googleVerificationApi(
+        token,
+        { path: `${linked.googleLocationName}/verifications?pageSize=100` },
+        options
+      )
+    ),
+    safe(() =>
+      googleVerificationApi(
+        token,
+        {
+          path: `${linked.googleLocationName}:fetchVerificationOptions`,
+          method: "POST",
+          payload: { languageCode: "en" },
+        },
+        options
+      )
+    ),
+    safe(() =>
+      getGoogleUpdatedLocation(
+        token,
+        linked.googleLocationName,
+        COMPLETE_LOCATION_MASK,
+        options
+      )
+    ),
+    safe(() =>
+      googleAccountManagementApi(
+        token,
+        { path: `${linked.googleLocationName}/admins` },
+        options
+      )
+    ),
+    safe(() =>
+      googleAccountManagementApi(
+        token,
+        { path: `${linked.accountName}/admins` },
+        options
+      )
+    ),
+    safe(() =>
+      googleAccountManagementApi(
+        token,
+        { path: `${linked.accountName}/invitations` },
+        options
+      )
+    ),
+  ])
   for (const [resourceType, resourceName, result] of [
-    ["verification", `${linked.googleLocationName}/VoiceOfMerchantState`, voice],
+    [
+      "verification",
+      `${linked.googleLocationName}/VoiceOfMerchantState`,
+      voice,
+    ],
     ["google_update", `${linked.googleLocationName}:getGoogleUpdated`, updated],
     ["location_admin", `${linked.googleLocationName}/admins`, locationAdmins],
     ["account_admin", `${linked.accountName}/admins`, accountAdmins],
@@ -120,14 +194,29 @@ export async function mutateLocationAdministration(input: {
   requestId: string
 }): Promise<AdministrationMutationResult> {
   const linked = await context(input.session, input.locationId)
-  if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this Google location.")
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
-  const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
-  const target = typeof input.payload.name === "string" ? input.payload.name : linked.googleLocationName
+  if (!linked.canPublish)
+    throw new ApiError(
+      403,
+      "publish_not_allowed",
+      "You cannot manage this Google location."
+    )
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites"))
+    throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  const token = await connectionAccessToken(
+    getDatabase(),
+    input.session.organisationId,
+    linked.connectionId
+  )
+  const target =
+    typeof input.payload.name === "string"
+      ? input.payload.name
+      : linked.googleLocationName
   const resourceType = input.operation.includes("verification")
     ? "verification"
     : input.operation.includes("admin")
-      ? (input.payload.scope === "account" ? "account_admin" : "location_admin")
+      ? input.payload.scope === "account"
+        ? "account_admin"
+        : "location_admin"
       : input.operation.includes("invitation")
         ? "invitation"
         : "location_lifecycle"
@@ -146,38 +235,177 @@ export async function mutateLocationAdministration(input: {
   try {
     let response: unknown
     if (input.operation === "start_verification") {
-      response = await googleVerificationApi(token, { path: `${linked.googleLocationName}:verify`, method: "POST", payload: input.payload }, { connectionKey: linked.connectionId, mutation: true })
+      response = await googleVerificationApi(
+        token,
+        {
+          path: `${linked.googleLocationName}:verify`,
+          method: "POST",
+          payload: input.payload,
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "complete_verification") {
-      response = await googleVerificationApi(token, { path: `${String(input.payload.name)}:complete`, method: "POST", payload: { pin: input.payload.pin } }, { connectionKey: linked.connectionId, mutation: true })
+      response = await googleVerificationApi(
+        token,
+        {
+          path: `${String(input.payload.name)}:complete`,
+          method: "POST",
+          payload: { pin: input.payload.pin },
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "create_admin") {
-      const parent = input.payload.scope === "account" ? linked.accountName : linked.googleLocationName
-      response = await googleAccountManagementApi(token, { path: `${parent}/admins`, method: "POST", payload: { admin: input.payload.admin, role: input.payload.role, ...(input.payload.account ? { account: input.payload.account } : {}) } }, { connectionKey: linked.connectionId, mutation: true })
+      const parent =
+        input.payload.scope === "account"
+          ? linked.accountName
+          : linked.googleLocationName
+      response = await googleAccountManagementApi(
+        token,
+        {
+          path: `${parent}/admins`,
+          method: "POST",
+          payload: {
+            admin: input.payload.admin,
+            role: input.payload.role,
+            ...(input.payload.account
+              ? { account: input.payload.account }
+              : {}),
+          },
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "update_admin") {
-      response = await googleAccountManagementApi(token, { path: String(input.payload.name), method: "PATCH", updateMask: ["role"], payload: { name: input.payload.name, role: input.payload.role } }, { connectionKey: linked.connectionId, mutation: true })
+      response = await googleAccountManagementApi(
+        token,
+        {
+          path: String(input.payload.name),
+          method: "PATCH",
+          updateMask: ["role"],
+          payload: { name: input.payload.name, role: input.payload.role },
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "delete_admin") {
-      response = await googleAccountManagementApi(token, { path: String(input.payload.name), method: "DELETE" }, { connectionKey: linked.connectionId, mutation: true })
-    } else if (input.operation === "accept_invitation" || input.operation === "decline_invitation") {
-      response = await googleAccountManagementApi(token, { path: `${String(input.payload.name)}:${input.operation === "accept_invitation" ? "accept" : "decline"}`, method: "POST", payload: {} }, { connectionKey: linked.connectionId, mutation: true })
+      response = await googleAccountManagementApi(
+        token,
+        { path: String(input.payload.name), method: "DELETE" },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
+    } else if (
+      input.operation === "accept_invitation" ||
+      input.operation === "decline_invitation"
+    ) {
+      response = await googleAccountManagementApi(
+        token,
+        {
+          path: `${String(input.payload.name)}:${input.operation === "accept_invitation" ? "accept" : "decline"}`,
+          method: "POST",
+          payload: {},
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "transfer_location") {
-      response = await googleAccountManagementApi(token, { path: `${linked.googleLocationName}:transfer`, method: "POST", payload: { destinationAccount: input.payload.destinationAccount } }, { connectionKey: linked.connectionId, mutation: true })
+      response = await googleAccountManagementApi(
+        token,
+        {
+          path: `${linked.googleLocationName}:transfer`,
+          method: "POST",
+          payload: { destinationAccount: input.payload.destinationAccount },
+        },
+        { connectionKey: linked.connectionId, mutation: true }
+      )
     } else if (input.operation === "create_location") {
-      await createGoogleLocation(token, { accountName: linked.accountName, requestId: input.requestId, validateOnly: true, payload: input.payload.location as Record<string, unknown> }, { connectionKey: linked.connectionId })
-      await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "validated" })
-      response = await createGoogleLocation(token, { accountName: linked.accountName, requestId: input.requestId, validateOnly: false, payload: input.payload.location as Record<string, unknown> }, { connectionKey: linked.connectionId })
+      const location = input.payload.location as Record<string, unknown>
+      // Google dedupes locations.create by this parameter, so it identifies
+      // the location being created rather than this HTTP request: a retry
+      // after a lost response carries a fresh ctx.requestId and would
+      // otherwise create a second real listing.
+      const createRequestId = googleCreateRequestId({
+        organisationId: input.session.organisationId,
+        accountName: linked.accountName,
+        payload: location,
+      })
+      await createGoogleLocation(
+        token,
+        {
+          accountName: linked.accountName,
+          requestId: createRequestId,
+          validateOnly: true,
+          payload: location,
+        },
+        { connectionKey: linked.connectionId }
+      )
+      await settleGbpMutation({
+        organisationId: input.session.organisationId,
+        mutationId: attempt.id,
+        status: "validated",
+      })
+      response = await createGoogleLocation(
+        token,
+        {
+          accountName: linked.accountName,
+          requestId: createRequestId,
+          validateOnly: false,
+          payload: location,
+        },
+        { connectionKey: linked.connectionId }
+      )
     } else if (input.operation === "delete_location") {
-      response = await deleteGoogleLocation(token, linked.googleLocationName, { connectionKey: linked.connectionId })
+      response = await deleteGoogleLocation(token, linked.googleLocationName, {
+        connectionKey: linked.connectionId,
+      })
     } else {
       const updateMask = input.payload.updateMask as string[]
       const payload = input.payload.location as Record<string, unknown>
-      await patchGoogleLocation(token, { locationName: linked.googleLocationName, updateMask, validateOnly: true, payload }, { connectionKey: linked.connectionId })
-      await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "validated" })
-      response = await patchGoogleLocation(token, { locationName: linked.googleLocationName, updateMask, validateOnly: false, payload }, { connectionKey: linked.connectionId })
+      await patchGoogleLocation(
+        token,
+        {
+          locationName: linked.googleLocationName,
+          updateMask,
+          validateOnly: true,
+          payload,
+        },
+        { connectionKey: linked.connectionId }
+      )
+      await settleGbpMutation({
+        organisationId: input.session.organisationId,
+        mutationId: attempt.id,
+        status: "validated",
+      })
+      response = await patchGoogleLocation(
+        token,
+        {
+          locationName: linked.googleLocationName,
+          updateMask,
+          validateOnly: false,
+          payload,
+        },
+        { connectionKey: linked.connectionId }
+      )
     }
-    await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "succeeded", response })
-    await auditGbpMutation({ organisationId: input.session.organisationId, session: input.session, action: `google.${input.operation}`, subjectType: "location", subjectId: input.locationId, requestId: input.requestId })
+    await settleGbpMutation({
+      organisationId: input.session.organisationId,
+      mutationId: attempt.id,
+      status: "succeeded",
+      response,
+    })
+    await auditGbpMutation({
+      organisationId: input.session.organisationId,
+      session: input.session,
+      action: `google.${input.operation}`,
+      subjectType: "location",
+      subjectId: input.locationId,
+      requestId: input.requestId,
+    })
     return { id: attempt.id, status: "succeeded", response, idempotent: false }
   } catch (error) {
-    await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: error instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed", errorCode: mutationErrorCode(error, `${input.operation}_failed`) })
+    await settleGbpMutation({
+      organisationId: input.session.organisationId,
+      mutationId: attempt.id,
+      status:
+        error instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed",
+      errorCode: mutationErrorCode(error, `${input.operation}_failed`),
+    })
     throw error
   }
 }
@@ -188,6 +416,14 @@ export async function matchGoogleLocations(input: {
   location: Record<string, unknown>
 }) {
   const linked = await context(input.session, input.locationId)
-  const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
-  return searchGoogleLocations(token, { location: input.location, pageSize: 10 }, { connectionKey: linked.connectionId })
+  const token = await connectionAccessToken(
+    getDatabase(),
+    input.session.organisationId,
+    linked.connectionId
+  )
+  return searchGoogleLocations(
+    token,
+    { location: input.location, pageSize: 10 },
+    { connectionKey: linked.connectionId }
+  )
 }

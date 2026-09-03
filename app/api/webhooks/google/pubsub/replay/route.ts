@@ -3,12 +3,10 @@ import { webhookReplaySchema } from "@/lib/contracts/operations"
 import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { linkedLocations, syncLinkedLocation } from "@/lib/server/reviews"
+import { linkedLocations } from "@/lib/server/reviews"
 import { route } from "@/lib/server/route"
-import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
 
 export const POST = route({
   roles: ["owner", "admin"],
@@ -19,70 +17,58 @@ export const POST = route({
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
     const input = webhookReplaySchema.parse(await request.json())
-    const event = await tenant(async (sql) => {
+    const result = await tenant(async (sql) => {
+      // Claim and schedule rather than sync inline. `claim_due_jobs` is the
+      // only actor that runs a webhook sync, so a replay that synced here
+      // would race a tick over the same row and each would overwrite the
+      // other's settlement. `retry_count` resets because a dead-lettered row
+      // sits at the ceiling, and the runner would otherwise re-dead-letter it
+      // without ever retrying.
       const [event] = await sql<
-        {
-          id: string
-          externalLocationId: string | null
-          retryCount: number
-        }[]
+        { id: string; externalLocationId: string | null }[]
       >`
-        select
-          p.id::text as id,
-          p.external_location_id::text as "externalLocationId",
-          p.retry_count as "retryCount"
-        from processed_webhook_event p
-        where p.id = ${input.eventId}
-          and p.status = 'failed'
-        limit 1
+        update processed_webhook_event
+        set
+          status = 'failed',
+          retry_count = 0,
+          processed_at = null,
+          last_error_code = null,
+          lease_expires_at = null,
+          next_attempt_at = now()
+        where id = ${input.eventId}
+          and status in ('failed', 'dead')
+        returning
+          id::text as id,
+          external_location_id::text as "externalLocationId"
       `
-      if (!event?.externalLocationId) {
+      if (!event) {
         throw new ApiError(
           404,
           "replay_event_not_found",
-          "A replayable failed event was not found."
+          "That event cannot be replayed. Only failed and dead-lettered events can be replayed, and one that is already running has to finish first."
         )
       }
-      const [location] = await linkedLocations(sql, [event.externalLocationId])
+      const [location] = event.externalLocationId
+        ? await linkedLocations(sql, [event.externalLocationId])
+        : []
       if (!location) {
         throw new ApiError(
           409,
           "location_not_linked",
-          "The event location is no longer linked."
+          "The event location is no longer linked. Reconnect the location, then replay the event."
         )
       }
-      return event
-    })
-    const sync = await syncLinkedLocation({
-      organisationId: session.organisationId,
-      externalLocationId: event.externalLocationId!,
-      type: "notification",
-      maxPages: 1,
-    })
-    const result = await tenant(async (sql) => {
-      await sql`
-        update processed_webhook_event
-        set
-          retry_count = retry_count + 1
-        where id = ${event.id}
-      `
-      const status = await settleWebhookEvent(sql, event.id, sync)
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action:
-          status === "failed"
-            ? "webhook.replay.failed"
-            : "webhook.replay.completed",
+        action: "webhook.replay.requested",
         subjectType: "webhook_event",
         subjectId: event.id,
         requestId,
-        metadata: { sync, clientRequestId },
+        metadata: { clientRequestId },
       })
-      return { status, sync }
+      return { status: "scheduled", eventId: event.id }
     })
-    return NextResponse.json(result, {
-      status: result.status === "failed" ? 502 : 200,
-    })
+    return NextResponse.json(result, { status: 202 })
   },
 })

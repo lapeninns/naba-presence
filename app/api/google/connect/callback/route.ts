@@ -10,7 +10,11 @@ import {
 import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { exchangeGoogleCode, googleUserInfo } from "@/lib/server/google"
+import {
+  exchangeGoogleCode,
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  googleUserInfo,
+} from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
@@ -52,11 +56,16 @@ type OAuthInput = {
 
 /**
  * The route is `auth: "public"` on purpose: the signed state cookie is
- * validated (and cleared) before the session is required, so a stale or
- * tampered state answers 400 rather than 401 regardless of sign-in status.
- * Owner/admin gating happens right after, exactly as before.
+ * validated before the session is required, so a stale or tampered state
+ * answers 400 rather than 401 regardless of sign-in status. Owner/admin gating
+ * happens right after, and the cookie is cleared only once the state has been
+ * matched to that session — see the `cookieStore.delete` comment below.
  */
-async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput) {
+async function completeOAuth({
+  request,
+  requestId,
+  clientRequestId,
+}: OAuthInput) {
   const params = await oauthParameters(request)
   if (params.error) {
     throw new ApiError(400, "google_oauth_denied", params.error)
@@ -66,7 +75,6 @@ async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput
   }
   const cookieStore = await cookies()
   const stateCookie = cookieStore.get("naba_google_oauth")?.value
-  cookieStore.delete("naba_google_oauth")
   if (!stateCookie) {
     throw new ApiError(400, "invalid_oauth_state", "OAuth state has expired.")
   }
@@ -92,6 +100,19 @@ async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput
       "The active session changed."
     )
   }
+
+  // Spend the nonce and the PKCE verifier here, on the path `connect/start`
+  // set them on. A bare `delete("naba_google_oauth")` emits `Path=/`, and a
+  // cookie is keyed by name+domain+path, so it never evicted the one stored at
+  // GOOGLE_OAUTH_CALLBACK_PATH: the spent state survived its full 10-minute
+  // maxAge and a Back or a reload replayed the authorization code at Google.
+  // Clearing it only after `requireSession` is deliberate - a session that
+  // lapsed mid-consent throws above with the code still unspent, so signing in
+  // and returning to this URL still completes the connection.
+  cookieStore.delete({
+    name: "naba_google_oauth",
+    path: GOOGLE_OAUTH_CALLBACK_PATH,
+  })
 
   const tokens = await exchangeGoogleCode(params.code, state.verifier)
   const profile = await googleUserInfo(tokens.access_token)
@@ -164,6 +185,19 @@ async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput
         and task_type = 'reconnect'
         and status = 'open'
     `
+    // Re-consenting with a different Google account is a different subject,
+    // so it lands on a new connection and the old row's reconnect task stays
+    // open forever. Mark those superseded rather than resolving them - the
+    // old connection's locations really are still unlinked work - and let the
+    // shell banner scope itself to the live connection instead.
+    const superseded = await sql`
+      update connection_task
+      set reason_code = 'superseded_by_reconnect'
+      where google_connection_id <> ${row.id}
+        and task_type = 'reconnect'
+        and status = 'open'
+      returning id
+    `
     await writeAudit(sql, {
       organisationId: session.organisationId,
       actorUserId: session.userId,
@@ -176,6 +210,7 @@ async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput
       metadata: {
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
+        supersededReconnectTasks: superseded.length,
         clientRequestId,
       },
     })
@@ -233,14 +268,30 @@ async function completeOAuth({ request, requestId, clientRequestId }: OAuthInput
 
 /**
  * The status `apiError` would have answered with, without building the JSON
- * response: the browser redirect only carries the number. Unknown errors are
- * logged the same way the error mapper logs them.
+ * response: the browser redirect only carries the number. Every non-success
+ * outcome is logged with its code — an expired state cookie, a lapsed
+ * session, a denied consent and a rotated client secret all redirect to the
+ * same `status=` number, and nothing else on this path writes a log line.
  */
 function redirectStatus(error: unknown, requestId: string): number {
-  if (error instanceof ApiError) return error.status
-  if (error instanceof ZodError) return 400
-  log.error("api.unhandled_error", { error, requestId })
-  return 500
+  const status =
+    error instanceof ApiError
+      ? error.status
+      : error instanceof ZodError
+        ? 400
+        : 500
+  if (status === 500) log.error("api.unhandled_error", { error, requestId })
+  log.warn("google.connect_failed", {
+    requestId,
+    status,
+    code:
+      error instanceof ApiError
+        ? error.code
+        : error instanceof ZodError
+          ? "invalid_request"
+          : "unknown",
+  })
+  return status
 }
 
 // Browser redirect from Google: errors become a redirect, never a JSON body.
@@ -259,8 +310,13 @@ export const GET = route({
         error instanceof ApiError && error.code === "authentication_required"
           ? "/sign-in"
           : "/connections"
+      // `rid` is the correlation id a user can quote in a support ticket; the
+      // redirect is the only thing they can see.
       return NextResponse.redirect(
-        new URL(`${path}?google=error&status=${status}`, baseUrl)
+        new URL(
+          `${path}?google=error&status=${status}&rid=${requestId}`,
+          baseUrl
+        )
       )
     }
   },

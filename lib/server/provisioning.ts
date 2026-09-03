@@ -105,6 +105,32 @@ export async function provisionAuthenticatedOwner(
       const user = await provisionAuthenticatedUser(sql, identity)
       await sql`select set_config('app.user_id', ${user.id}, true)`
       let organisationId = user.defaultOrganisationId
+      if (organisationId) {
+        // default_organisation_id is not cleared when a membership is
+        // removed, and a session minted into an organisation the user has
+        // left is rejected by lookupSession's member join on the very next
+        // request - an unbreakable login loop. list_user_organisations is
+        // SECURITY DEFINER: it reads memberships across tenants, which is the
+        // only way to tell a stale pointer from a live one before any
+        // organisation context has been chosen.
+        const memberships = await sql<{ organisationId: string }[]>`
+          select organisation_id::text as "organisationId"
+          from list_user_organisations(${user.id})
+        `
+        const stale = !memberships.some(
+          (membership) => membership.organisationId === organisationId
+        )
+        if (stale) {
+          organisationId = memberships[0]?.organisationId ?? null
+          if (organisationId) {
+            await sql`
+              update app_user
+              set default_organisation_id = ${organisationId}
+              where id = ${user.id}
+            `
+          }
+        }
+      }
       if (!organisationId) {
         organisationId = crypto.randomUUID()
         await sql`
@@ -114,11 +140,16 @@ export async function provisionAuthenticatedOwner(
             true
           )
         `
+        // The slug is keyed on the new organisation id, not on the identity.
+        // The stale-pointer repair above reaches this branch for a user whose
+        // ORIGINAL organisation already holds the identity-derived slug, so
+        // organisation_slug_key would turn the login loop into a permanent
+        // 500 instead of fixing it.
         await sql`
           insert into organisation (id, slug, name)
           values (
             ${organisationId},
-            ${`${slugBase || "organisation"}-${sha256(identity.subject).slice(0, 8)}`},
+            ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
             ${`${identity.displayName}'s organisation`}
           )
         `
@@ -159,7 +190,8 @@ export async function provisionAuthenticatedMember(
     organisationId: string
     role: string
     canPublish: boolean
-  }
+  },
+  requestId: string
 ): Promise<{
   organisationId: string
   userId: string
@@ -198,11 +230,7 @@ export async function provisionAuthenticatedMember(
         for update
       `
       if (!pending) {
-        throw new ApiError(
-          404,
-          "invitation_not_found",
-          "Invitation not found."
-        )
+        throw new ApiError(404, "invitation_not_found", "Invitation not found.")
       }
       if (pending.acceptedAt) {
         throw new ApiError(
@@ -240,6 +268,12 @@ export async function provisionAuthenticatedMember(
       }
       const user = await provisionAuthenticatedUser(sql, identity)
       await sql`select set_config('app.user_id', ${user.id}, true)`
+      // do nothing, never do update: acceptance may create a membership but
+      // must never rewrite one. The owner_role_required and last_owner guards
+      // live in PATCH /api/members, and an upsert here bypassed both from
+      // inside authentication, where raising 409 would fail the sign-in
+      // itself. Re-inviting the sole owner as a viewer used to leave the
+      // organisation permanently ownerless.
       await sql`
         insert into member (
           organisation_id,
@@ -253,10 +287,7 @@ export async function provisionAuthenticatedMember(
           ${pending.role},
           ${pending.canPublish}
         )
-        on conflict (organisation_id, user_id) do update
-        set
-          role = excluded.role,
-          can_publish = excluded.can_publish
+        on conflict (organisation_id, user_id) do nothing
       `
       if (!user.defaultOrganisationId) {
         await sql`
@@ -276,7 +307,7 @@ export async function provisionAuthenticatedMember(
         action: "member.invitation_accepted",
         subjectType: "invitation",
         subjectId: pending.id,
-        requestId: crypto.randomUUID(),
+        requestId,
         metadata: {
           invitedEmail: pending.email,
           authenticatedEmail: identity.email,
@@ -285,11 +316,7 @@ export async function provisionAuthenticatedMember(
           canPublish: pending.canPublish,
         },
       })
-      const token = await createSession(
-        sql,
-        user.id,
-        invitation.organisationId
-      )
+      const token = await createSession(sql, user.id, invitation.organisationId)
       return {
         organisationId: invitation.organisationId,
         userId: user.id,
@@ -300,20 +327,30 @@ export async function provisionAuthenticatedMember(
     .catch(mapAuthenticatedIdentityError)
 }
 
+/**
+ * Google sign-in twin of `provisionAuthenticatedOwner`, kept only because
+ * `tests/integration/provisioning.test.ts` and
+ * `tests/integration/routes/identity-hardening.test.ts` still drive the
+ * identity-conflict paths through it. No route reaches it:
+ * `app/api/auth/callback/google/route.ts` re-exports the Google *connection*
+ * callback, not a sign-in. Its member counterpart has been deleted; do not
+ * add a second acceptance path here.
+ */
 export async function provisionOwner(profile: GoogleProfile) {
-  return getDatabase().begin(async (sql) => {
-    const slugBase = (profile.email?.split("@")[0] ?? profile.sub)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 40)
-    const [user] = await sql<
-      {
-        id: string
-        default_organisation_id: string | null
-        email_change_held: boolean
-      }[]
-    >`
+  return getDatabase()
+    .begin(async (sql) => {
+      const slugBase = (profile.email?.split("@")[0] ?? profile.sub)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "")
+        .slice(0, 40)
+      const [user] = await sql<
+        {
+          id: string
+          default_organisation_id: string | null
+          email_change_held: boolean
+        }[]
+      >`
       select
         id::text as id,
         default_organisation_id::text as default_organisation_id,
@@ -325,20 +362,20 @@ export async function provisionOwner(profile: GoogleProfile) {
         ${profile.email_verified === true}
       )
     `
-    await sql`select set_config('app.user_id', ${user.id}, true)`
-    let organisationId = user.default_organisation_id
-    if (!organisationId) {
-      // Establish the tenant context BEFORE the RLS-sensitive insert so the
-      // organisation_isolation USING clause makes the row visible.
-      organisationId = crypto.randomUUID()
-      await sql`
+      await sql`select set_config('app.user_id', ${user.id}, true)`
+      let organisationId = user.default_organisation_id
+      if (!organisationId) {
+        // Establish the tenant context BEFORE the RLS-sensitive insert so the
+        // organisation_isolation USING clause makes the row visible.
+        organisationId = crypto.randomUUID()
+        await sql`
         select set_config(
           'app.organisation_id',
           ${organisationId},
           true
         )
       `
-      await sql`
+        await sql`
         insert into organisation (id, slug, name)
         values (
           ${organisationId},
@@ -346,7 +383,7 @@ export async function provisionOwner(profile: GoogleProfile) {
           ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
         )
       `
-      await sql`
+        await sql`
         insert into member (
           organisation_id,
           user_id,
@@ -355,178 +392,32 @@ export async function provisionOwner(profile: GoogleProfile) {
         )
         values (${organisationId}, ${user.id}, 'owner', true)
       `
-      await sql`
+        await sql`
         update app_user
         set default_organisation_id = ${organisationId}
         where id = ${user.id}
       `
-    } else {
-      await sql`
+      } else {
+        await sql`
         select set_config('app.organisation_id', ${organisationId}, true)
       `
-    }
-    if (user.email_change_held) {
-      await writeAudit(sql, {
-        organisationId,
-        actorUserId: user.id,
-        action: "identity.email_change_held",
-        subjectType: "app_user",
-        subjectId: user.id,
-        requestId: crypto.randomUUID(),
-        metadata: {
-          requestedEmail: profile.email ?? null,
-          googleSubject: profile.sub,
-        },
-      })
-    }
-    const token = await createSession(sql, user.id, organisationId)
-    return { organisationId, userId: user.id, token }
-  }).catch(mapIdentityProvisioningError)
-}
-
-export async function provisionMember(
-  profile: GoogleProfile,
-  invitation: {
-    id: string
-    organisationId: string
-    role: string
-    canPublish: boolean
-  }
-): Promise<{ organisationId: string; userId: string; token: string }> {
-  return getDatabase().begin(async (sql) => {
-    await sql`
-      select set_config(
-        'app.organisation_id',
-        ${invitation.organisationId},
-        true
-      )
-    `
-    const [pending] = await sql<
-      {
-        id: string
-        email: string
-        role: string
-        canPublish: boolean
-        expiresAt: Date
-        acceptedAt: Date | null
-      }[]
-    >`
-      select
-        id::text as id,
-        email,
-        role,
-        can_publish as "canPublish",
-        expires_at as "expiresAt",
-        accepted_at as "acceptedAt"
-      from invitation
-      where id = ${invitation.id}
-        and organisation_id = ${invitation.organisationId}
-      for update
-    `
-    if (!pending) {
-      throw new ApiError(
-        404,
-        "invitation_not_found",
-        "Invitation not found."
-      )
-    }
-    if (pending.acceptedAt) {
-      throw new ApiError(
-        409,
-        "invitation_already_used",
-        "This invitation has already been accepted."
-      )
-    }
-    if (pending.expiresAt.getTime() <= Date.now()) {
-      throw new ApiError(
-        410,
-        "invitation_expired",
-        "This invitation has expired."
-      )
-    }
-    if (
-      pending.role !== invitation.role ||
-      pending.canPublish !== invitation.canPublish
-    ) {
-      throw new ApiError(
-        409,
-        "invitation_changed",
-        "The invitation details changed."
-      )
-    }
-    const [user] = await sql<
-      {
-        id: string
-        defaultOrganisationId: string | null
-        emailChangeHeld: boolean
-      }[]
-    >`
-      select
-        id::text as id,
-        default_organisation_id::text as "defaultOrganisationId",
-        email_change_held as "emailChangeHeld"
-      from provision_google_user(
-        ${profile.email ?? `${profile.sub}@google.invalid`},
-        ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub},
-        ${profile.email_verified === true}
-      )
-    `
-    await sql`select set_config('app.user_id', ${user.id}, true)`
-    await sql`
-      insert into member (
-        organisation_id,
-        user_id,
-        role,
-        can_publish
-      )
-      values (
-        ${invitation.organisationId},
-        ${user.id},
-        ${pending.role},
-        ${pending.canPublish}
-      )
-      on conflict (organisation_id, user_id) do update
-      set
-        role = excluded.role,
-        can_publish = excluded.can_publish
-    `
-    if (!user.defaultOrganisationId) {
-      await sql`
-        update app_user
-        set default_organisation_id = ${invitation.organisationId}
-        where id = ${user.id}
-      `
-    }
-    await sql`
-      update invitation
-      set accepted_at = now(), accepted_by = ${user.id}
-      where id = ${pending.id}
-    `
-    await writeAudit(sql, {
-      organisationId: invitation.organisationId,
-      actorUserId: user.id,
-      action: "member.invitation_accepted",
-      subjectType: "invitation",
-      subjectId: pending.id,
-      requestId: crypto.randomUUID(),
-      metadata: {
-        invitedEmail: pending.email,
-        googleEmail: profile.email ?? null,
-        emailChangeHeld: user.emailChangeHeld,
-        role: pending.role,
-        canPublish: pending.canPublish,
-      },
+      }
+      if (user.email_change_held) {
+        await writeAudit(sql, {
+          organisationId,
+          actorUserId: user.id,
+          action: "identity.email_change_held",
+          subjectType: "app_user",
+          subjectId: user.id,
+          requestId: crypto.randomUUID(),
+          metadata: {
+            requestedEmail: profile.email ?? null,
+            googleSubject: profile.sub,
+          },
+        })
+      }
+      const token = await createSession(sql, user.id, organisationId)
+      return { organisationId, userId: user.id, token }
     })
-    const token = await createSession(
-      sql,
-      user.id,
-      invitation.organisationId
-    )
-    return {
-      organisationId: invitation.organisationId,
-      userId: user.id,
-      token,
-    }
-  }).catch(mapIdentityProvisioningError)
+    .catch(mapIdentityProvisioningError)
 }

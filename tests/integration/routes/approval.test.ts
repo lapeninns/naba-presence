@@ -140,7 +140,11 @@ describeDatabase("reply approval", () => {
   function decide(
     fixture: Awaited<ReturnType<typeof createFixture>>,
     cookie: string,
-    input: { decision: "approve" | "reject"; note?: string }
+    input: {
+      decision: "approve" | "reject"
+      draftId?: string
+      note?: string
+    }
   ) {
     return fetch(
       `${server.baseUrl}/api/reviews/${fixture.review.reviewId}/approval`,
@@ -187,6 +191,90 @@ describeDatabase("reply approval", () => {
       decision: "approved",
       published_by: fixture.owner.userId,
     })
+  })
+
+  // The approver reads one draft. Resolving "the newest verified draft"
+  // server-side published a different one whenever the request named an older
+  // draft than the review's newest — with an approval_decision row and an
+  // audit event both asserting the approver had read it.
+  it("decides the parked draft, not the newest verified one", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    const newer = await saveHumanDraft(
+      server.baseUrl,
+      fixture.owner.cookie,
+      fixture.review.reviewId,
+      "A newer draft nobody submitted for approval."
+    )
+
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    const [parked] = await admin<{ pending_draft_id: string | null }[]>`
+      select pending_draft_id::text as pending_draft_id
+      from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(parked.pending_draft_id).toBe(fixture.draft.draftId)
+
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status).toBe(200)
+    const [decision] = await admin<{ draft_id: string }[]>`
+      select draft_id::text as draft_id
+      from approval_decision
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(decision.draft_id).toBe(fixture.draft.draftId)
+    expect(decision.draft_id).not.toBe(newer.draftId)
+    const put = stub.calls.find((call) => call.method === "PUT")
+    expect((put?.body as { comment: string }).comment).toBe(
+      "Thank you for sharing your experience."
+    )
+  })
+
+  it("refuses a decision that names a draft other than the parked one", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    const newer = await saveHumanDraft(
+      server.baseUrl,
+      fixture.owner.cookie,
+      fixture.review.reviewId,
+      "A newer draft the approver never saw."
+    )
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+
+    const stale = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+      draftId: newer.draftId,
+    })
+    expect(stale.status).toBe(409)
+    expect((await stale.json()).error).toBe("approval_draft_changed")
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const decisions = await admin`
+      select 1 from approval_decision where review_id = ${fixture.review.reviewId}
+    `
+    expect(decisions).toHaveLength(0)
+  })
+
+  // The harness runs without an OPENAI_API_KEY, which is a supported install:
+  // the semantic pass does not run, and the stored row must not claim it did.
+  it("records only the checks that ran", async () => {
+    const fixture = await createFixture()
+    const [verification] = await admin<
+      { checks_version: string; verdict: string }[]
+    >`
+      select checks_version, verdict
+      from verification_result
+      where draft_id = ${fixture.draft.draftId}
+    `
+    expect(verification.checks_version).toBe("deterministic-v1")
+    expect(verification.verdict).toBe("pass")
   })
 
   it("rejects an approval request back to draft with its note", async () => {

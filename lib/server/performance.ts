@@ -26,6 +26,13 @@ const performanceSyncCount = performanceMeter.createCounter(
 
 const DAY_MS = 86_400_000
 const RESTATEMENT_DAYS = 10
+const METRIC_MONTHS = 18
+/**
+ * Consecutive failures before a checkpoint is retired, mirroring the webhook
+ * ceiling in 0029 (`retry_count >= 5`). `attempt_count` is reset on success,
+ * so this counts consecutive failures rather than lifetime attempts.
+ */
+const MAX_CONSECUTIVE_FAILURES = 5
 
 export type PerformanceSyncOutcome = {
   externalLocationId: string
@@ -48,41 +55,52 @@ function dateOnly(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
+/**
+ * The oldest day worth asking for: Google serves 18 months of daily metrics,
+ * and that is also the longest range the presence report offers.
+ */
+function metricFloor(end: Date): Date {
+  const targetMonth = new Date(
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - METRIC_MONTHS, 1)
+  )
+  const lastDay = new Date(
+    Date.UTC(targetMonth.getUTCFullYear(), targetMonth.getUTCMonth() + 1, 0)
+  ).getUTCDate()
+  return new Date(
+    Date.UTC(
+      targetMonth.getUTCFullYear(),
+      targetMonth.getUTCMonth(),
+      Math.min(end.getUTCDate(), lastDay)
+    )
+  )
+}
+
 export function performanceDateWindow(
   now: Date,
   lastMetricDate: string | null
 ) {
-  const end = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate()
-  ))
-  if (!lastMetricDate) {
-    const targetMonth = new Date(
-      Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 18, 1)
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  )
+  const floor = metricFloor(end)
+  const restatementStart = new Date(
+    end.getTime() - (RESTATEMENT_DAYS - 1) * DAY_MS
+  )
+  // The watermark's value decides how far back to reach, not merely whether
+  // it is set: a location paused or failing for longer than the restatement
+  // window must re-request every day it missed, because nothing else ever
+  // revisits a day and the read path renders a hole as lower traffic rather
+  // than as missing data.
+  const resumeFrom = lastMetricDate
+    ? new Date(`${lastMetricDate}T00:00:00Z`)
+    : floor
+  const start = new Date(
+    Math.max(
+      floor.getTime(),
+      Math.min(restatementStart.getTime(), resumeFrom.getTime())
     )
-    const lastDay = new Date(
-      Date.UTC(
-        targetMonth.getUTCFullYear(),
-        targetMonth.getUTCMonth() + 1,
-        0
-      )
-    ).getUTCDate()
-    const start = new Date(
-      Date.UTC(
-        targetMonth.getUTCFullYear(),
-        targetMonth.getUTCMonth(),
-        Math.min(end.getUTCDate(), lastDay)
-      )
-    )
-    return { startDate: dateOnly(start), endDate: dateOnly(end) }
-  }
-  return {
-    startDate: dateOnly(
-      new Date(end.getTime() - (RESTATEMENT_DAYS - 1) * DAY_MS)
-    ),
-    endDate: dateOnly(end),
-  }
+  )
+  return { startDate: dateOnly(start), endDate: dateOnly(end) }
 }
 
 export async function ensurePerformanceCheckpoints(organisationId: string) {
@@ -107,7 +125,19 @@ export async function ensurePerformanceCheckpoints(organisationId: string) {
       where ll.is_active = true
         and gc.status = 'active'
       on conflict (organisation_id, external_location_id, sync_type)
-      do nothing
+      do update set
+        status = 'pending',
+        next_attempt_at = now(),
+        attempt_count = 0,
+        dead_lettered_at = null,
+        last_error_code = null,
+        finished_at = null
+      -- Relinking a location is the operator's explicit "try again": without
+      -- this, a checkpoint that was cancelled by an unlink or retired by the
+      -- dead-letter ceiling has no path back to claimable, and the location's
+      -- metrics stop forever.
+      where sync_checkpoint.status = 'cancelled'
+         or sync_checkpoint.dead_lettered_at is not null
       returning id
     `
     return rows.length
@@ -128,6 +158,7 @@ async function claimDuePerformanceLocation(
          and ll.is_active = true
         where sc.sync_type = 'performance'
           and sc.status in ('pending', 'failed', 'succeeded')
+          and sc.dead_lettered_at is null
           and coalesce(sc.next_attempt_at, now()) <= now()
           ${externalLocationId ? sql`and sc.external_location_id = ${externalLocationId}` : sql``}
         order by sc.next_attempt_at nulls first, sc.id
@@ -160,7 +191,8 @@ async function claimDuePerformanceLocation(
 async function persistPerformancePoints(
   organisationId: string,
   location: PerformanceLocation,
-  points: GooglePerformancePoint[]
+  points: GooglePerformancePoint[],
+  requestId: string
 ) {
   return withTenant(organisationId, async (sql) => {
     for (const point of points) {
@@ -197,6 +229,8 @@ async function persistPerformancePoints(
       set
         status = 'succeeded',
         last_metric_date = greatest(last_metric_date, ${freshThrough}::date),
+        attempt_count = 0,
+        dead_lettered_at = null,
         next_attempt_at = now() + interval '6 hours',
         finished_at = now(),
         last_error_code = null
@@ -207,7 +241,7 @@ async function persistPerformancePoints(
       action: "performance.synced",
       subjectType: "external_location",
       subjectId: location.externalLocationId,
-      requestId: crypto.randomUUID(),
+      requestId: `${requestId}:${location.externalLocationId}`,
       metadata: { upserted: points.length, freshThrough },
     })
     return freshThrough
@@ -224,12 +258,19 @@ function performanceErrorCode(error: unknown) {
 async function failPerformanceSync(
   organisationId: string,
   location: PerformanceLocation,
-  error: unknown
+  error: unknown,
+  requestId: string
 ) {
   const errorCode = performanceErrorCode(error)
-  const delay = Math.max(
+  const deadLettered = location.attemptCount >= MAX_CONSECUTIVE_FAILURES
+  // retryDelayMs caps at its own `capMs`, so the range has to be passed in:
+  // wrapping the default-capped call in Math.max(1h, Math.min(24h, …)) always
+  // returned exactly one hour and made attemptCount inert.
+  const delay = retryDelayMs(
+    location.attemptCount,
+    Math.random,
     3_600_000,
-    Math.min(86_400_000, retryDelayMs(location.attemptCount))
+    86_400_000
   )
   await withTenant(organisationId, async (sql) => {
     await sql`
@@ -237,15 +278,33 @@ async function failPerformanceSync(
       set
         status = 'failed',
         last_error_code = ${errorCode},
-        next_attempt_at = ${new Date(Date.now() + delay)},
+        next_attempt_at = ${deadLettered ? null : new Date(Date.now() + delay)},
+        dead_lettered_at = ${deadLettered ? new Date() : null},
         finished_at = now()
       where id = ${location.checkpointId}
     `
+    // In the same transaction as the status write, so a checkpoint can never
+    // be 'failed' without the row that outlives log retention.
+    await writeAudit(sql, {
+      organisationId,
+      action: "performance.sync_failed",
+      subjectType: "external_location",
+      subjectId: location.externalLocationId,
+      requestId: `${requestId}:${location.externalLocationId}`,
+      metadata: {
+        errorCode,
+        attemptCount: location.attemptCount,
+        deadLettered,
+      },
+    })
   })
   log.error("performance.sync_failed", {
+    requestId,
     organisationId,
     externalLocationId: location.externalLocationId,
     errorCode,
+    attemptCount: location.attemptCount,
+    deadLettered,
     error,
   })
   return errorCode
@@ -253,7 +312,11 @@ async function failPerformanceSync(
 
 export async function syncDuePerformance(
   organisationId: string,
-  options: { externalLocationId?: string; maxLocations?: number } = {}
+  options: {
+    requestId: string
+    externalLocationId?: string
+    maxLocations?: number
+  }
 ): Promise<PerformanceSyncOutcome[]> {
   // Ingestion boundary: GBP_PERFORMANCE_ENABLED pauses provider reads and
   // checkpoint creation; stored metrics stay readable.
@@ -294,7 +357,8 @@ export async function syncDuePerformance(
           const freshThrough = await persistPerformancePoints(
             organisationId,
             location,
-            points
+            points,
+            options.requestId
           )
           performanceSyncCount.add(1, { outcome: "succeeded" })
           return {
@@ -304,11 +368,23 @@ export async function syncDuePerformance(
             freshThrough,
           }
         } catch (error) {
+          // failPerformanceSync opens its own transaction, so a database
+          // error here would otherwise escape this catch and reject the whole
+          // tick. The lease reaper recovers the 'running' row 15 minutes on.
           const errorCode = await failPerformanceSync(
             organisationId,
             location,
-            error
-          )
+            error,
+            options.requestId
+          ).catch((settleError) => {
+            log.error("performance.settle_failed", {
+              requestId: options.requestId,
+              organisationId,
+              externalLocationId: location.externalLocationId,
+              error: settleError,
+            })
+            return "settle_failed"
+          })
           performanceSyncCount.add(1, { outcome: "failed", errorCode })
           return {
             externalLocationId: location.externalLocationId,

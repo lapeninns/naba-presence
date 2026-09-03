@@ -1,15 +1,21 @@
 "use client"
 
-import Link from "next/link"
 import { InboxIcon, SearchXIcon, UnplugIcon } from "lucide-react"
 
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 
 const KIND_CONTENT = {
+  // InboxView picks this kind from the same `health.status === "disconnected"`
+  // that puts the shell's ReconnectBanner on screen
+  // (components/app-shell/reconnect-banner.tsx), so the two ALWAYS render
+  // together. The banner owns the "Google is not connected" headline and the
+  // Manage connection CTA; repeating both here told the operator the same
+  // thing twice and offered the same link twice on one screen. This state
+  // says only what it alone knows: why the list is empty.
   disconnected: {
     icon: UnplugIcon,
-    title: "Google is not connected",
+    title: "No reviews to show",
     description: "Reconnect Google to sync and reply to your reviews.",
   },
   filtered: {
@@ -42,16 +48,6 @@ function EmptyState({
           <Button variant="outline" size="sm" onClick={onClear}>
             Clear filters
           </Button>
-        ) : kind === "disconnected" ? (
-          // prefetch={false}: mirrors DisconnectedBanner — avoid viewport
-          // prefetch of connections while e2e waits on networkidle.
-          <Link
-            href="/settings/connections"
-            prefetch={false}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Manage connection
-          </Link>
         ) : undefined
       }
     >

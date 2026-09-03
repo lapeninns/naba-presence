@@ -124,7 +124,11 @@ function identityFromUser(userValue: unknown): PasswordIdentity {
 // user-facing code/status/message is normalised. (Sign-up / reset / resend keep
 // their own documented 429 handling.)
 function genericLoginFailure(): ApiError {
-  return new ApiError(401, "invalid_credentials", "The email or password is incorrect.")
+  return new ApiError(
+    401,
+    "invalid_credentials",
+    "The email or password is incorrect."
+  )
 }
 
 function mapLoginFailure(error: unknown): never {
@@ -135,7 +139,7 @@ function mapLoginFailure(error: unknown): never {
       error.code === "email_not_verified" ||
       error.status === 400 ||
       error.status === 401 ||
-      error.status === 429            // 429 timing channel folded into the generic failure
+      error.status === 429 // 429 timing channel folded into the generic failure
     ) {
       throw genericLoginFailure()
     }
@@ -344,24 +348,49 @@ export async function resendConfirmationEmail(
   }
 }
 
+function passwordRejected(): ApiError {
+  return new ApiError(
+    400,
+    "password_reset_failed",
+    "The reset session is invalid or expired."
+  )
+}
+
 export async function updatePasswordWithToken(
   accessToken: string,
   password: string
 ): Promise<void> {
-  try {
-    await providerRequest("/user", {
+  const put = () =>
+    providerRequest("/user", {
       method: "PUT",
       accessToken,
       body: JSON.stringify({ password }),
     })
+  try {
+    await put()
   } catch (error) {
-    if (error instanceof AuthProviderError) {
+    if (!(error instanceof AuthProviderError)) throw error
+    // A 4xx is a decision: the recovery token was spent or the password was
+    // refused, and nothing changed. A timeout (504) or a provider fault
+    // (503/5xx) is ambiguous -- the password may already be live. Reporting
+    // both as "your link is invalid" sent people back to a link they could
+    // not reuse, with a password they did not know had changed.
+    if (error.status < 500) throw passwordRejected()
+    try {
+      // Setting a password is an absolute write, so replaying it costs
+      // nothing and usually turns the ambiguity into a definite answer.
+      await put()
+    } catch (retryError) {
+      if (!(retryError instanceof AuthProviderError)) throw retryError
+      // The provider refusing a repeat of the same password is proof the
+      // first attempt landed.
+      if (retryError.code === "same_password") return
+      if (retryError.status < 500) throw passwordRejected()
       throw new ApiError(
-        400,
-        "password_reset_failed",
-        "The reset session is invalid or expired."
+        503,
+        "password_reset_outcome_unknown",
+        "We could not confirm whether your new password was saved. Try signing in with the new password before requesting another reset link."
       )
     }
-    throw error
   }
 }

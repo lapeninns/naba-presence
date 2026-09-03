@@ -57,8 +57,15 @@ async function backfillProgress(
     }
     order by lower(e.title)
   `
+  // Union rather than the fixed vocabulary: a terminal 'dead' checkpoint
+  // would otherwise vanish from the counts and read as merely stalled.
   const counts = Object.fromEntries(
-    BACKFILL_STATUSES.map((status) => [
+    [
+      ...new Set<string>([
+        ...BACKFILL_STATUSES,
+        ...items.map((item) => item.status),
+      ]),
+    ].map((status) => [
       status,
       items.filter((item) => item.status === status).length,
     ])
@@ -90,13 +97,12 @@ export const POST = route({
     }
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
-    const input = backfillStartSchema.parse(await request.json().catch(() => ({})))
+    const input = backfillStartSchema.parse(
+      await request.json().catch(() => ({}))
+    )
     const correlationId = requestId
     const locations = await tenant(async (sql) => {
-      const locations = await linkedLocations(
-        sql,
-        input.externalLocationIds
-      )
+      const locations = await linkedLocations(sql, input.externalLocationIds)
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
@@ -113,9 +119,7 @@ export const POST = route({
       })
       return locations
     })
-    const results: Array<
-      { externalLocationIds: string[] } & SyncOutcome
-    > = []
+    const results: Array<{ externalLocationIds: string[] } & SyncOutcome> = []
     for (const location of locations) {
       results.push({
         externalLocationIds: [location.externalLocationId],
@@ -124,6 +128,7 @@ export const POST = route({
           externalLocationId: location.externalLocationId,
           type: "backfill",
           maxPages: input.maxPagesPerLocation,
+          requestId,
         })),
       })
     }

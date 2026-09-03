@@ -44,11 +44,19 @@ export async function completeEmailAuthentication(input: {
   inviteToken?: string
   requestId: string
   clientRequestId?: string | null
+  /**
+   * Set by the reset flow. Audits the credential change under its own action
+   * (a reset-driven takeover is otherwise byte-identical to a daily login)
+   * and evicts every other session the user holds, so a cookie stolen before
+   * the reset does not outlive it.
+   */
+  passwordReset?: boolean
 }) {
   const provisioned = input.inviteToken
     ? await provisionAuthenticatedMember(
         input.identity,
-        await resolveInvitation(input.inviteToken)
+        await resolveInvitation(input.inviteToken),
+        input.requestId
       )
     : await provisionAuthenticatedOwner(input.identity)
 
@@ -66,6 +74,30 @@ export async function completeEmailAuthentication(input: {
         clientRequestId: input.clientRequestId ?? null,
       },
     })
+    if (input.passwordReset) {
+      // revoke_user_sessions is SECURITY DEFINER: a user's sessions span
+      // every organisation they belong to, and app_session's RLS is scoped to
+      // one. The session minted a moment ago is excluded by its token hash,
+      // so the person completing the reset stays signed in.
+      const [revoked] = await sql<{ revokedSessions: number }[]>`
+        select revoke_user_sessions(
+          ${provisioned.userId},
+          ${sha256(provisioned.token)}
+        ) as "revokedSessions"
+      `
+      await writeAudit(sql, {
+        organisationId: provisioned.organisationId,
+        actorUserId: provisioned.userId,
+        action: "user.password_reset",
+        subjectType: "user",
+        subjectId: provisioned.userId,
+        requestId: input.requestId,
+        metadata: {
+          revokedSessions: revoked?.revokedSessions ?? 0,
+          clientRequestId: input.clientRequestId ?? null,
+        },
+      })
+    }
   })
   await setSessionCookie(provisioned.token)
   return {

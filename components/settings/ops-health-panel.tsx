@@ -15,11 +15,25 @@ import {
   useWebhookFailures,
 } from "@/lib/queries/use-operations-health"
 
+/**
+ * Three reconcile intervals at the documented 900s default — the same
+ * threshold `/api/operations/health` applies to the reconcile tick, applied
+ * here to how fresh the reconciled data itself is.
+ */
+const RECONCILE_STALE_AFTER_SECONDS = 2_700
+
 function formatWhen(value: string | null | undefined): string {
   if (!value) return "—"
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return "—"
   return date.toLocaleString("en-GB")
+}
+
+function formatAge(seconds: number | null): string {
+  if (seconds === null) return "—"
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)} h ago`
+  return `${Math.round(seconds / 86_400)} d ago`
 }
 
 function Metric({
@@ -83,6 +97,17 @@ export function OpsHealthPanel() {
   const data = health.data
   const syncFailed = Number(data.sync.failed ?? 0)
   const webhookFailures = data.failedWebhookEvents + data.deadWebhookEvents
+  // What the job runner itself owes. The payload's dueJobBacklog also counts
+  // the metrics crons' checkpoints, which are somebody else's queue: folding
+  // them in here is what made this tile warn during entirely normal
+  // operation, so they get their own neutral tile below.
+  const runnerBacklog =
+    data.dueWebhookBacklog +
+    data.dueRunnerCheckpointBacklog +
+    data.duePublishBacklog
+  const metricsBacklog =
+    data.dueMetricsCheckpointBacklog + data.dueUnclaimedCheckpointBacklog
+  const staleTicks = data.schedulerTicks.filter((tick) => tick.stale)
 
   return (
     <div className="flex flex-col gap-8">
@@ -106,14 +131,57 @@ export function OpsHealthPanel() {
           />
           <Metric
             label="Due job backlog"
-            value={formatNumber(data.dueJobBacklog)}
-            tone={data.dueJobBacklog > 0 ? "warn" : "ok"}
+            value={formatNumber(runnerBacklog)}
+            tone={runnerBacklog > 0 ? "warn" : "ok"}
+          />
+          <Metric
+            label="Metrics sync backlog"
+            value={formatNumber(metricsBacklog)}
           />
           <Metric
             label="Scheduler heartbeat"
             value={formatWhen(data.schedulerHeartbeatAt)}
+            tone={data.schedulerHeartbeatStale ? "warn" : "ok"}
+          />
+          <Metric
+            label="Reconcile freshness"
+            value={formatAge(data.reconcileStalenessSeconds)}
+            tone={
+              data.reconcileStalenessSeconds !== null &&
+              data.reconcileStalenessSeconds > RECONCILE_STALE_AFTER_SECONDS
+                ? "warn"
+                : "ok"
+            }
           />
         </ul>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-title font-semibold">Scheduled ticks</h2>
+        {data.schedulerTicks.length === 0 ? (
+          <p className="text-ui text-muted-foreground">
+            No scheduler activity recorded yet.
+          </p>
+        ) : (
+          <>
+            {staleTicks.length > 0 ? (
+              <p className="text-ui text-destructive">
+                {staleTicks.length === 1
+                  ? "One tick has not completed recently."
+                  : `${formatNumber(staleTicks.length)} ticks have not completed recently.`}
+              </p>
+            ) : null}
+            <ul className="flex flex-wrap gap-2">
+              {data.schedulerTicks.map((tick) => (
+                <li key={tick.name}>
+                  <Badge variant={tick.stale ? "destructive" : "outline"}>
+                    {tick.name}: {formatWhen(tick.lastCompletedAt)}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </section>
 
       <section className="flex flex-col gap-3">
@@ -147,6 +215,11 @@ export function OpsHealthPanel() {
             label="Provider total divergence (30d)"
             value={formatNumber(data.providerTotalDivergence30d)}
             tone={data.providerTotalDivergence30d > 0 ? "warn" : "ok"}
+          />
+          <Metric
+            label="Grants expiring (3d)"
+            value={formatNumber(data.refreshTokensExpiringSoon)}
+            tone={data.refreshTokensExpiringSoon > 0 ? "warn" : "ok"}
           />
         </ul>
         <div className="flex flex-wrap gap-2">

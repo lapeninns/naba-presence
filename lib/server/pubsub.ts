@@ -33,6 +33,17 @@ export async function verifyPubSubRequest(request: Request, env: ServerEnv) {
     }
   }
   if (env.GOOGLE_PUBSUB_AUDIENCE) {
+    // The audience is a caller-chosen claim in a Google-issued ID token, not
+    // a secret: anyone with a GCP project can mint one for it. Only the
+    // service-account pin makes this an identity check, so a deployment that
+    // configures the audience without the pin is refused rather than served.
+    if (!env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL) {
+      throw new ApiError(
+        503,
+        "pubsub_not_configured",
+        "Pub/Sub push verification is incomplete: set GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL to the push subscription's service account."
+      )
+    }
     const authorization = request.headers.get("authorization")
     const bearer = authorization?.match(/^Bearer ([^\s]+)$/)?.[1]
     if (!bearer) {
@@ -47,9 +58,8 @@ export async function verifyPubSubRequest(request: Request, env: ServerEnv) {
       issuer: ["https://accounts.google.com", "accounts.google.com"],
     })
     if (
-      env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL &&
-      (payload.email !== env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL ||
-        payload.email_verified !== true)
+      payload.email !== env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL ||
+      payload.email_verified !== true
     ) {
       throw new ApiError(
         401,

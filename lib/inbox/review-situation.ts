@@ -84,13 +84,6 @@ export function describeSituation(input: SituationInput): ReviewSituation {
           ? "Approve this reply to publish it, or reject it to send it back."
           : "A manager needs to approve this before it goes live."
       )
-    case "escalated":
-      return situation(
-        "caution",
-        "Escalated",
-        "Escalated",
-        "This review was flagged for a person to handle. Read it before replying."
-      )
   }
 
   // A verdict only describes the draft in hand. Once a reply is live and no

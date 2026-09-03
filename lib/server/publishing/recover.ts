@@ -25,12 +25,21 @@ import {
   replyTarget,
   type GoogleReviewResource,
 } from "./provider"
-import { applyDeletedReply, setReviewWorkflow } from "./settle"
-import type { PublishAttemptOperation, RecoveryResult } from "./types"
+import {
+  applyDeletedReply,
+  applyFailedReply,
+  applyPublishedReply,
+  setReviewWorkflow,
+} from "./settle"
+import type {
+  PublishAttemptOperation,
+  PublishAttemptStatus,
+  RecoveryResult,
+} from "./types"
 
 type AttemptRecoveryContext = {
   id: string
-  status: string
+  status: PublishAttemptStatus
   operation: PublishAttemptOperation
   intended_body: string | null
   started_at: Date
@@ -87,30 +96,38 @@ export function decideRecovery(
   return providerReply === null ? "not_applied" : "diverged"
 }
 
+/**
+ * The readback is also a moderation verdict: Google can hold exactly the
+ * intended comment and still have REJECTED it. Settling through
+ * `applyPublishedReply` keeps that verdict, so a recovered publish lands in
+ * the same state the direct path would have written rather than reporting a
+ * rejected reply as live.
+ */
 async function settleRecoveredSuccess(
   sql: TransactionSql,
   organisationId: string,
-  context: AttemptRecoveryContext
+  context: AttemptRecoveryContext,
+  review: GoogleReviewResource
 ) {
-  await markAttemptSucceeded(sql, context.id)
+  if (!(await markAttemptSucceeded(sql, context.id, context.status))) return
   if (context.operation === "delete") {
     await applyDeletedReply(sql, context.review_reply_id)
+    await setReviewWorkflow(
+      sql,
+      context.review_id,
+      deleteWorkflowTarget("remote")
+    )
   } else {
-    await sql`
-      update review_reply
-      set
-        publish_status = 'published',
-        first_published_at = coalesce(first_published_at, now())
-      where id = ${context.review_reply_id}
-    `
+    const reply = googleReplyFromReview(review)
+    const { publishStatus } = await applyPublishedReply(
+      sql,
+      context.review_reply_id,
+      // A readback carries the verdict at review level; the reply
+      // sub-resource only sometimes repeats it.
+      { ...(reply ?? {}), state: review.reviewReplyState ?? reply?.state }
+    )
+    await setReviewWorkflow(sql, context.review_id, publishStatus)
   }
-  await setReviewWorkflow(
-    sql,
-    context.review_id,
-    context.operation === "delete"
-      ? deleteWorkflowTarget("remote")
-      : "published"
-  )
   await writePublishAttemptEvent(sql, {
     organisationId,
     publishAttemptId: context.id,
@@ -124,14 +141,17 @@ async function settleRecoveredNotApplied(
   organisationId: string,
   context: AttemptRecoveryContext
 ) {
-  await sql`
+  const settled = await sql`
     update publish_attempt
     set
       status = 'retryable',
       next_attempt_at = now(),
       finished_at = now()
     where id = ${context.id}
+      and status = ${context.status}
+    returning id
   `
+  if (settled.length === 0) return
   await writePublishAttemptEvent(sql, {
     organisationId,
     publishAttemptId: context.id,
@@ -145,7 +165,7 @@ async function settleRecoveredDiverged(
   organisationId: string,
   context: AttemptRecoveryContext
 ) {
-  await sql`
+  const settled = await sql`
     update publish_attempt
     set
       status = 'failed',
@@ -153,7 +173,19 @@ async function settleRecoveredDiverged(
       next_attempt_at = null,
       finished_at = now()
     where id = ${context.id}
+      and status = ${context.status}
+    returning id
   `
+  if (settled.length === 0) return
+  // The attempt is permanently failed, so the reply and the review have to
+  // settle with it in the same commit. Left at 'accepted' /
+  // 'publish_requested' the review is trapped: publish answers 409
+  // previous_publish_failed and nothing else can move it out of
+  // publish_requested.
+  await applyFailedReply(sql, {
+    reviewReplyId: context.review_reply_id,
+    reviewId: context.review_id,
+  })
   await writePublishAttemptEvent(sql, {
     organisationId,
     publishAttemptId: context.id,
@@ -177,7 +209,7 @@ async function settleRecovery(
   organisationId: string,
   context: AttemptRecoveryContext,
   result: RecoveryResult,
-  providerReplyPresent: boolean
+  review: GoogleReviewResource
 ) {
   await writePublishAttemptEvent(sql, {
     organisationId,
@@ -186,11 +218,11 @@ async function settleRecovery(
     payload: {
       result,
       operation: context.operation,
-      providerReplyPresent,
+      providerReplyPresent: googleReplyFromReview(review) !== null,
     },
   })
   if (result === "succeeded") {
-    await settleRecoveredSuccess(sql, organisationId, context)
+    await settleRecoveredSuccess(sql, organisationId, context, review)
   } else if (result === "not_applied") {
     await settleRecoveredNotApplied(sql, organisationId, context)
   } else {
@@ -221,18 +253,32 @@ export async function recoverAttempt(input: {
     })
   )
   const result = decideRecovery(context, review)
-  const providerReplyPresent = googleReplyFromReview(review) !== null
 
   await withTenant(input.organisationId, (sql) =>
-    settleRecovery(
-      sql,
-      input.organisationId,
-      context,
-      result,
-      providerReplyPresent
-    )
+    settleRecovery(sql, input.organisationId, context, result, review)
   )
   return result
+}
+
+/**
+ * The runner writes `lease_expires_at` when it claims an attempt for
+ * recovery, so a live lease means a readback is already outstanding against
+ * this row. An interactive request that raced it would settle on a state the
+ * claim is about to overwrite, so it reports the attempt as still ambiguous
+ * and leaves the claim to finish.
+ */
+async function heldByRunner(input: {
+  organisationId: string
+  attemptId: string
+}): Promise<boolean> {
+  return withTenant(input.organisationId, async (sql) => {
+    const [attempt] = await sql<{ leased: boolean }[]>`
+      select coalesce(lease_expires_at > now(), false) as leased
+      from publish_attempt
+      where id = ${input.attemptId}
+    `
+    return attempt?.leased ?? false
+  })
 }
 
 export type RequestRecovery =
@@ -249,6 +295,7 @@ export async function recoverForRequest(input: {
   organisationId: string
   attemptId: string
 }): Promise<RequestRecovery> {
+  if (await heldByRunner(input)) return { kind: "ambiguous" }
   let result: RecoveryResult
   try {
     result = await recoverAttempt(input)

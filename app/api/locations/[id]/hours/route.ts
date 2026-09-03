@@ -15,6 +15,9 @@ import {
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+// The publish POST does a live Google read, a validateOnly PATCH, the real
+// PATCH and a read-back; the platform default would cut it off mid-write.
+export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 

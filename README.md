@@ -71,9 +71,13 @@ database is unavailable.
    pnpm start:scheduler
    ```
 
-   The scheduler runs reconciliation, retention, and a third jobs tick that
-   drains due webhook, checkpoint, and publish-recovery work through
-   `/api/jobs/run`.
+   The scheduler runs seven loops: review reconciliation, retention, the
+   provider-deletion sweep, presence-resource reconciliation, the performance
+   and keyword ingests, and a jobs tick that drains due webhook, checkpoint,
+   and publish-recovery work through `/api/jobs/run`. Intervals and per-page
+   time budgets are in `.env.example`. `RETENTION_ENABLED` is the only kill
+   switch the scheduler itself reads; every other flag is enforced by the route
+   it calls. `docs/runbook.md` covers what to stop and when.
 
 4. Open `http://localhost:3000`. Production users start at `/sign-in`, create
    an email/password account, and confirm ownership of the email address.
@@ -209,11 +213,15 @@ POST {NEXTAUTH_URL}/api/webhooks/google/pubsub
 ```
 
 Configure the push subscription with an OIDC service account, set
-`GOOGLE_PUBSUB_AUDIENCE` to the exact push audience and optionally pin
-`GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL`. A constant-time verification token can
-be required in addition. Google API access, OAuth verification, end-client
-authorisation, and the storage-policy interpretation must be approved before
-general availability.
+`GOOGLE_PUBSUB_AUDIENCE` to the exact push audience and pin
+`GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL` to that service account. Both are
+required together: the audience is a caller-chosen claim in a Google-issued
+ID token, not a secret, so without the pin the endpoint accepts any token
+Google will mint for anybody. Setting the audience without the pin fails the
+startup safety check and makes the endpoint answer 503. A constant-time
+verification token can be required in addition. Google API access, OAuth
+verification, end-client authorisation, and the storage-policy interpretation
+must be approved before general availability.
 
 ## Operational references
 

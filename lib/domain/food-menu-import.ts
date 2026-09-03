@@ -80,14 +80,16 @@ export type MenuProposalDraft = {
 
 function asNodes(value: unknown): MenuNode[] {
   return Array.isArray(value)
-    ? value.filter(
-        (entry): entry is MenuNode =>
-          Boolean(entry && typeof entry === "object" && !Array.isArray(entry))
+    ? value.filter((entry): entry is MenuNode =>
+        Boolean(entry && typeof entry === "object" && !Array.isArray(entry))
       )
     : []
 }
 
-function nodeLabel(node: MenuNode): { displayName: string; description: string } {
+function nodeLabel(node: MenuNode): {
+  displayName: string
+  description: string
+} {
   const labels = asNodes(node.labels)
   const first = labels[0] ?? {}
   return {
@@ -98,16 +100,22 @@ function nodeLabel(node: MenuNode): { displayName: string; description: string }
 
 function nodePrice(node: MenuNode): MenuPrice | null {
   const attributes =
-    node.attributes && typeof node.attributes === "object" && !Array.isArray(node.attributes)
+    node.attributes &&
+    typeof node.attributes === "object" &&
+    !Array.isArray(node.attributes)
       ? (node.attributes as MenuNode)
       : {}
   const price =
-    attributes.price && typeof attributes.price === "object" && !Array.isArray(attributes.price)
+    attributes.price &&
+    typeof attributes.price === "object" &&
+    !Array.isArray(attributes.price)
       ? (attributes.price as MenuNode)
       : null
-  if (!price || (price.units === undefined && price.nanos === undefined)) return null
+  if (!price || (price.units === undefined && price.nanos === undefined))
+    return null
   return {
-    currencyCode: typeof price.currencyCode === "string" ? price.currencyCode : null,
+    currencyCode:
+      typeof price.currencyCode === "string" ? price.currencyCode : null,
     units: String(price.units ?? "0"),
     nanos: typeof price.nanos === "number" ? price.nanos : 0,
   }
@@ -185,7 +193,10 @@ export function identityKeyFor(input: {
   if (input.kind === "structure_changed") return "structure"
   const section = normalizeLabel(input.sectionLabel ?? "")
   const item = normalizeLabel(input.itemLabel ?? "")
-  if (input.kind === "section_added_on_google" || input.kind === "section_missing_from_google") {
+  if (
+    input.kind === "section_added_on_google" ||
+    input.kind === "section_missing_from_google"
+  ) {
     return `section:${section}`
   }
   return `item:${section}:${item}`
@@ -193,7 +204,8 @@ export function identityKeyFor(input: {
 
 function labelsMatch(item: FlatMenuItem, identity: MenuItemIdentity): boolean {
   return (
-    normalizeLabel(item.sectionLabel) === normalizeLabel(identity.sectionLabel) &&
+    normalizeLabel(item.sectionLabel) ===
+      normalizeLabel(identity.sectionLabel) &&
     normalizeLabel(item.itemLabel) === normalizeLabel(identity.itemLabel)
   )
 }
@@ -214,24 +226,45 @@ export function matchMenuItems(input: {
   const matches: MenuMatch[] = []
   const usedLocal = new Set<string>()
   const usedGoogle = new Set<string>()
-  const localByPath = new Map(input.canonicalItems.map((item) => [item.path, item]))
-  const googleByPath = new Map(input.googleItems.map((item) => [item.path, item]))
+  const localByPath = new Map(
+    input.canonicalItems.map((item) => [item.path, item])
+  )
+  const googleByPath = new Map(
+    input.googleItems.map((item) => [item.path, item])
+  )
 
   // Tier 1: previous identities, re-verified before trust.
   for (const identity of input.identities) {
     const google = googleByPath.get(identity.googlePath)
     const local = localByPath.get(identity.localPath)
-    if (!google || !local || usedGoogle.has(google.path) || usedLocal.has(local.path)) continue
-    if (!labelsMatch(google, identity) || !labelsMatch(local, identity)) continue
+    if (
+      !google ||
+      !local ||
+      usedGoogle.has(google.path) ||
+      usedLocal.has(local.path)
+    )
+      continue
+    if (!labelsMatch(google, identity) || !labelsMatch(local, identity))
+      continue
     usedGoogle.add(google.path)
     usedLocal.add(local.path)
-    matches.push({ status: "previous_identity", confidence: 1, local, google, warnings: [] })
+    matches.push({
+      status: "previous_identity",
+      confidence: 1,
+      local,
+      google,
+      warnings: [],
+    })
   }
 
   const key = (item: FlatMenuItem) =>
     `${normalizeLabel(item.sectionLabel)}:${normalizeLabel(item.itemLabel)}`
-  const remainingLocal = input.canonicalItems.filter((item) => !usedLocal.has(item.path))
-  const remainingGoogle = input.googleItems.filter((item) => !usedGoogle.has(item.path))
+  const remainingLocal = input.canonicalItems.filter(
+    (item) => !usedLocal.has(item.path)
+  )
+  const remainingGoogle = input.googleItems.filter(
+    (item) => !usedGoogle.has(item.path)
+  )
   const localByKey = new Map<string, FlatMenuItem[]>()
   for (const item of remainingLocal) {
     const bucket = localByKey.get(key(item))
@@ -245,7 +278,9 @@ export function matchMenuItems(input: {
     )
     if (candidates.length === 0) continue
     // Tier 2: disambiguate by price.
-    const priced = candidates.filter((item) => pricesClose(item.price, google.price))
+    const priced = candidates.filter((item) =>
+      pricesClose(item.price, google.price)
+    )
     if (priced.length === 1) {
       usedGoogle.add(google.path)
       usedLocal.add(priced[0].path)
@@ -274,19 +309,33 @@ export function matchMenuItems(input: {
 
   for (const google of input.googleItems) {
     if (!usedGoogle.has(google.path)) {
-      matches.push({ status: "unmatched", confidence: 0, local: null, google, warnings: [] })
+      matches.push({
+        status: "unmatched",
+        confidence: 0,
+        local: null,
+        google,
+        warnings: [],
+      })
     }
   }
   for (const local of input.canonicalItems) {
     if (!usedLocal.has(local.path)) {
-      matches.push({ status: "unmatched", confidence: 0, local, google: null, warnings: [] })
+      matches.push({
+        status: "unmatched",
+        confidence: 0,
+        local,
+        google: null,
+        warnings: [],
+      })
     }
   }
   return matches
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+  return (
+    JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+  )
 }
 
 function canonicalize(value: unknown): unknown {
@@ -317,7 +366,10 @@ function isEmptyGoogleValue(value: unknown): boolean {
  * `fields` is a flat record of dotted item paths -> replacement values, merged
  * by applyFoodMenuPatch.
  */
-export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuItemDiff | null {
+export function diffMenuItem(
+  local: FlatMenuItem,
+  google: FlatMenuItem
+): MenuItemDiff | null {
   const fields: MenuNode = {}
   const changedFields: string[] = []
   const warnings: string[] = []
@@ -332,20 +384,28 @@ export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuIte
   }
   if (google.description !== local.description) {
     if (isEmptyGoogleValue(google.description)) {
-      warnings.push("Google removed this item's description; the local description is kept.")
+      warnings.push(
+        "Google removed this item's description; the local description is kept."
+      )
     } else {
       fields["labels.description"] = google.description
       changedFields.push("description")
     }
   }
-  if (!pricesClose(local.price, google.price) || !jsonEqual(local.price, google.price)) {
+  if (
+    !pricesClose(local.price, google.price) ||
+    !jsonEqual(local.price, google.price)
+  ) {
     if (google.price === null) {
       if (local.price !== null) {
-        warnings.push("Google removed this item's price; the local price is kept.")
+        warnings.push(
+          "Google removed this item's price; the local price is kept."
+        )
       }
     } else if (!jsonEqual(local.price, google.price)) {
       fields["attributes.price"] = {
-        currencyCode: google.price.currencyCode ?? local.price?.currencyCode ?? "GBP",
+        currencyCode:
+          google.price.currencyCode ?? local.price?.currencyCode ?? "GBP",
         units: google.price.units,
         nanos: google.price.nanos,
       }
@@ -365,7 +425,9 @@ export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuIte
     if (attributeKey === "price") continue
     if (jsonEqual(localAttributes[attributeKey], googleValue)) continue
     if (isEmptyGoogleValue(googleValue)) {
-      warnings.push(`Google cleared "${attributeKey}"; the local value is kept.`)
+      warnings.push(
+        `Google cleared "${attributeKey}"; the local value is kept.`
+      )
       continue
     }
     fields[`attributes.${attributeKey}`] = googleValue
@@ -373,8 +435,13 @@ export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuIte
   }
   for (const attributeKey of Object.keys(localAttributes)) {
     if (attributeKey === "price") continue
-    if (!(attributeKey in googleAttributes) && !isEmptyGoogleValue(localAttributes[attributeKey])) {
-      warnings.push(`Google no longer reports "${attributeKey}"; the local value is kept.`)
+    if (
+      !(attributeKey in googleAttributes) &&
+      !isEmptyGoogleValue(localAttributes[attributeKey])
+    ) {
+      warnings.push(
+        `Google no longer reports "${attributeKey}"; the local value is kept.`
+      )
     }
   }
 
@@ -382,7 +449,9 @@ export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuIte
   const googleOptions = asNodes(google.node.options)
   if (!jsonEqual(localOptions, googleOptions)) {
     if (googleOptions.length === 0 && localOptions.length > 0) {
-      warnings.push("Google removed this item's options; the local options are kept.")
+      warnings.push(
+        "Google removed this item's options; the local options are kept."
+      )
     } else if (googleOptions.length > 0) {
       fields.options = googleOptions
       changedFields.push("options")
@@ -393,8 +462,12 @@ export function diffMenuItem(local: FlatMenuItem, google: FlatMenuItem): MenuIte
   return { fields, changedFields, warnings }
 }
 
-/** Displayed summary values for a proposal row (kept small on purpose). */
-function itemSummary(item: FlatMenuItem | null): unknown {
+/**
+ * Displayed summary values for a proposal row (kept small on purpose). Also
+ * the shape the decision path re-derives at apply time to tell whether the
+ * local item still holds the content the proposal pinned.
+ */
+export function menuItemSummary(item: FlatMenuItem | null): unknown {
   if (!item) return null
   return {
     sectionLabel: item.sectionLabel,
@@ -402,6 +475,93 @@ function itemSummary(item: FlatMenuItem | null): unknown {
     description: item.description || null,
     price: item.price,
   }
+}
+
+/**
+ * Warning marking a row that stands in for drafts the match ladder refused to
+ * guess between. Read by the review panel, which renders it as an explanation
+ * rather than as a per-item suggestion.
+ */
+export const AMBIGUOUS_LABELS_WARNING = "ambiguous_duplicate_labels"
+
+/**
+ * One live proposal per identity key is a database invariant (the partial
+ * unique index in 0028) and the raise insert is `on conflict do nothing`, so
+ * two drafts sharing a key do not fail — the losers vanish silently and the
+ * survivor is re-offered on every sweep. Duplicate item labels inside a
+ * section are how that happens: the ladder refuses to guess between them, so
+ * both sides fall through to `unmatched` and every one of them keys on
+ * `item:<section>:<item>`. Applying the survivor appends yet another copy,
+ * which makes the next sweep more ambiguous still.
+ *
+ * Collapse each colliding group into a single row scoped to its section —
+ * one row per section, because every ambiguous item in it shares the only
+ * remedy that is safe when items cannot be told apart: take Google's menu
+ * wholesale, behind the acknowledgement the panel already demands for
+ * `structure_changed`.
+ */
+function collapseAmbiguousDrafts(
+  drafts: MenuProposalDraft[],
+  googleMenus: MenuNode[]
+): MenuProposalDraft[] {
+  const byKey = new Map<string, MenuProposalDraft[]>()
+  for (const draft of drafts) {
+    const bucket = byKey.get(draft.identityKey)
+    if (bucket) bucket.push(draft)
+    else byKey.set(draft.identityKey, [draft])
+  }
+  if ([...byKey.values()].every((group) => group.length === 1)) return drafts
+
+  // Group the collisions by section first, so two ambiguous keys in one
+  // section produce one row rather than two rows that describe the same
+  // problem and offer the same whole-payload remedy.
+  const ambiguous = new Map<
+    string,
+    { sectionLabel: string; itemLabels: string[] }
+  >()
+  for (const group of byKey.values()) {
+    if (group.length === 1) continue
+    const sectionLabel = group[0].sectionLabel ?? ""
+    const entry = ambiguous.get(normalizeLabel(sectionLabel)) ?? {
+      sectionLabel,
+      itemLabels: [],
+    }
+    for (const draft of group) {
+      if (draft.itemLabel && !entry.itemLabels.includes(draft.itemLabel)) {
+        entry.itemLabels.push(draft.itemLabel)
+      }
+    }
+    ambiguous.set(normalizeLabel(sectionLabel), entry)
+  }
+
+  const collapsed: MenuProposalDraft[] = []
+  for (const group of byKey.values()) {
+    if (group.length === 1) collapsed.push(group[0])
+  }
+  for (const [sectionKey, entry] of ambiguous) {
+    collapsed.push({
+      kind: "structure_changed",
+      // Deliberately not identityKeyFor: that maps every structure_changed row
+      // onto the constant "structure", which would collide across sections.
+      identityKey: `ambiguous:${sectionKey}`,
+      googlePath: null,
+      sectionLabel: entry.sectionLabel || null,
+      itemLabel: null,
+      matchStatus: null,
+      matchConfidence: null,
+      canonicalValue: {
+        sectionLabel: entry.sectionLabel,
+        itemLabels: entry.itemLabels,
+      },
+      googleValue: {
+        sectionLabel: entry.sectionLabel,
+        itemLabels: entry.itemLabels,
+      },
+      suggestedPatch: { op: "replace_all", menus: googleMenus },
+      warnings: [AMBIGUOUS_LABELS_WARNING],
+    })
+  }
+  return collapsed
 }
 
 export function buildFoodMenuProposals(input: {
@@ -435,7 +595,11 @@ export function buildFoodMenuProposals(input: {
   const proposals: MenuProposalDraft[] = []
   const canonicalItems = flattenMenuItems(input.canonicalMenus)
   const googleItems = flattenMenuItems(input.googleMenus)
-  const matches = matchMenuItems({ canonicalItems, googleItems, identities: input.identities })
+  const matches = matchMenuItems({
+    canonicalItems,
+    googleItems,
+    identities: input.identities,
+  })
 
   const canonicalSections = flattenMenuSections(input.canonicalMenus)
   const googleSections = flattenMenuSections(input.googleMenus)
@@ -463,7 +627,10 @@ export function buildFoodMenuProposals(input: {
       matchStatus: null,
       matchConfidence: null,
       canonicalValue: null,
-      googleValue: { sectionLabel: section.sectionLabel, items: section.itemCount },
+      googleValue: {
+        sectionLabel: section.sectionLabel,
+        items: section.itemCount,
+      },
       suggestedPatch: {
         op: "insert_section",
         sectionLabel: section.sectionLabel,
@@ -486,7 +653,10 @@ export function buildFoodMenuProposals(input: {
       itemLabel: null,
       matchStatus: null,
       matchConfidence: null,
-      canonicalValue: { sectionLabel: section.sectionLabel, items: section.itemCount },
+      canonicalValue: {
+        sectionLabel: section.sectionLabel,
+        items: section.itemCount,
+      },
       googleValue: null,
       suggestedPatch: {
         op: "remove_section",
@@ -513,8 +683,8 @@ export function buildFoodMenuProposals(input: {
         itemLabel: match.google.itemLabel,
         matchStatus: match.status,
         matchConfidence: match.confidence,
-        canonicalValue: itemSummary(match.local),
-        googleValue: itemSummary(match.google),
+        canonicalValue: menuItemSummary(match.local),
+        googleValue: menuItemSummary(match.google),
         suggestedPatch: {
           op: "merge_item",
           localPath: match.local.path,
@@ -541,13 +711,14 @@ export function buildFoodMenuProposals(input: {
         matchStatus: "unmatched",
         matchConfidence: 0,
         canonicalValue: null,
-        googleValue: itemSummary(match.google),
+        googleValue: menuItemSummary(match.google),
         suggestedPatch: {
           op: "insert_item",
           sectionLabel: match.google.sectionLabel,
           node: match.google.node,
         },
-        warnings: match.google.price === null ? ["This Google item has no price."] : [],
+        warnings:
+          match.google.price === null ? ["This Google item has no price."] : [],
       })
       continue
     }
@@ -564,7 +735,7 @@ export function buildFoodMenuProposals(input: {
         itemLabel: match.local.itemLabel,
         matchStatus: "unmatched",
         matchConfidence: 0,
-        canonicalValue: itemSummary(match.local),
+        canonicalValue: menuItemSummary(match.local),
         googleValue: null,
         suggestedPatch: {
           op: "remove_item",
@@ -576,7 +747,7 @@ export function buildFoodMenuProposals(input: {
       })
     }
   }
-  return proposals
+  return collapseAmbiguousDrafts(proposals, input.googleMenus)
 }
 
 export class MenuPatchTargetMissingError extends Error {
@@ -590,8 +761,14 @@ function findSection(
   const target = normalizeLabel(sectionLabel)
   for (let menuIndex = 0; menuIndex < menus.length; menuIndex += 1) {
     const sections = asNodes(menus[menuIndex].sections)
-    for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
-      if (normalizeLabel(nodeLabel(sections[sectionIndex]).displayName) === target) {
+    for (
+      let sectionIndex = 0;
+      sectionIndex < sections.length;
+      sectionIndex += 1
+    ) {
+      if (
+        normalizeLabel(nodeLabel(sections[sectionIndex]).displayName) === target
+      ) {
         return { menuIndex, sectionIndex }
       }
     }
@@ -622,7 +799,10 @@ function findItem(
 function mergeFieldsIntoItem(item: MenuNode, fields: MenuNode): MenuNode {
   let next: MenuNode = { ...item }
   for (const [fieldKey, value] of Object.entries(fields)) {
-    if (fieldKey === "labels.displayName" || fieldKey === "labels.description") {
+    if (
+      fieldKey === "labels.displayName" ||
+      fieldKey === "labels.description"
+    ) {
       const labels = asNodes(next.labels)
       const first: MenuNode = { ...(labels[0] ?? {}) }
       if (fieldKey === "labels.displayName") first.displayName = value
@@ -631,7 +811,9 @@ function mergeFieldsIntoItem(item: MenuNode, fields: MenuNode): MenuNode {
     } else if (fieldKey.startsWith("attributes.")) {
       const attributeKey = fieldKey.slice("attributes.".length)
       const attributes =
-        next.attributes && typeof next.attributes === "object" && !Array.isArray(next.attributes)
+        next.attributes &&
+        typeof next.attributes === "object" &&
+        !Array.isArray(next.attributes)
           ? { ...(next.attributes as MenuNode) }
           : {}
       attributes[attributeKey] = value
@@ -676,13 +858,18 @@ function replaceItem(
  * re-resolved by labels at apply time — the stored localPath is a hint from
  * raise time and the menu may have been edited since.
  */
-export function applyFoodMenuPatch(menus: MenuNode[], patch: MenuPatch): MenuNode[] {
+export function applyFoodMenuPatch(
+  menus: MenuNode[],
+  patch: MenuPatch
+): MenuNode[] {
   if (patch.op === "replace_all") {
     return patch.menus
   }
   if (patch.op === "insert_section") {
     if (findSection(menus, patch.sectionLabel)) {
-      throw new MenuPatchTargetMissingError("The section already exists locally.")
+      throw new MenuPatchTargetMissingError(
+        "The section already exists locally."
+      )
     }
     if (menus.length === 0) return [{ sections: [patch.node] }]
     return menus.map((menu, menuIndex) =>
@@ -694,7 +881,9 @@ export function applyFoodMenuPatch(menus: MenuNode[], patch: MenuPatch): MenuNod
   if (patch.op === "remove_section") {
     const location = findSection(menus, patch.sectionLabel)
     if (!location) {
-      throw new MenuPatchTargetMissingError("The section no longer exists locally.")
+      throw new MenuPatchTargetMissingError(
+        "The section no longer exists locally."
+      )
     }
     return menus.map((menu, menuIndex) =>
       menuIndex === location.menuIndex
@@ -708,6 +897,22 @@ export function applyFoodMenuPatch(menus: MenuNode[], patch: MenuPatch): MenuNod
     )
   }
   if (patch.op === "insert_item") {
+    // Backstop for duplicate labels: appending a second item the match ladder
+    // will not be able to tell from the first makes the next sweep ambiguous
+    // and re-offers this same suggestion, so every Apply adds another copy.
+    // Refuse the way insert_section already refuses an existing section.
+    const incoming = nodeLabel(patch.node).displayName
+    const incomingPrice = nodePrice(patch.node)
+    const duplicate = flattenMenuItems(menus).some(
+      (item) =>
+        normalizeLabel(item.sectionLabel) ===
+          normalizeLabel(patch.sectionLabel) &&
+        normalizeLabel(item.itemLabel) === normalizeLabel(incoming) &&
+        pricesClose(item.price, incomingPrice)
+    )
+    if (duplicate) {
+      throw new MenuPatchTargetMissingError("The item already exists locally.")
+    }
     const location = findSection(menus, patch.sectionLabel)
     if (location) {
       return menus.map((menu, menuIndex) => {
@@ -738,16 +943,22 @@ export function applyFoodMenuPatch(menus: MenuNode[], patch: MenuPatch): MenuNod
   if (patch.op === "remove_item") {
     const location = findItem(menus, patch.sectionLabel, patch.itemLabel)
     if (!location) {
-      throw new MenuPatchTargetMissingError("The menu item no longer exists locally.")
+      throw new MenuPatchTargetMissingError(
+        "The menu item no longer exists locally."
+      )
     }
     return replaceItem(menus, location, () => null)
   }
   // merge_item
   const location = findItem(menus, patch.sectionLabel, patch.itemLabel)
   if (!location) {
-    throw new MenuPatchTargetMissingError("The menu item no longer exists locally.")
+    throw new MenuPatchTargetMissingError(
+      "The menu item no longer exists locally."
+    )
   }
-  return replaceItem(menus, location, (item) => mergeFieldsIntoItem(item, patch.fields))
+  return replaceItem(menus, location, (item) =>
+    mergeFieldsIntoItem(item, patch.fields)
+  )
 }
 
 /**
@@ -773,7 +984,9 @@ export function locateMenuItem(
  * and Google payloads are identical at that moment, so local and Google paths
  * coincide.
  */
-export function identitiesFromAlignedMenus(menus: MenuNode[]): MenuItemIdentity[] {
+export function identitiesFromAlignedMenus(
+  menus: MenuNode[]
+): MenuItemIdentity[] {
   return flattenMenuItems(menus).map((item) => ({
     googlePath: item.path,
     localPath: item.path,

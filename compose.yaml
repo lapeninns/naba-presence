@@ -121,11 +121,15 @@ services:
       SCHEDULER_BASE_URL: http://web:3000
       RECONCILE_INTERVAL_SECONDS: "900"
       RETENTION_INTERVAL_SECONDS: "86400"
-      GBP_PERFORMANCE_ENABLED: "true"
-      GBP_KEYWORDS_ENABLED: "true"
     depends_on:
       web:
         condition: service_healthy
+    # Parity with `web` above: the scheduler is an unsupervised singleton, and
+    # without this an OOM kill or a bad-config crash stops all seven ticks
+    # until someone notices. Liveness itself is the per-tick ops_heartbeat rows
+    # the health route reports, not the container, so the healthcheck stays
+    # disabled: the process listens on no port to probe.
+    restart: unless-stopped
     healthcheck:
       disable: true
 

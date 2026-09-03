@@ -44,7 +44,7 @@ describe("collectSafetyViolations", () => {
     expect(violations.join(" ")).toContain("GOOGLE_PUBSUB_AUDIENCE")
   })
 
-  it("accepts webhooks with an audience configured", () => {
+  it("accepts webhooks with an audience and a pinned service account", () => {
     expect(
       collectSafetyViolations(
         {
@@ -52,10 +52,27 @@ describe("collectSafetyViolations", () => {
           WEBHOOKS_ENABLED: true,
           GOOGLE_PUBSUB_AUDIENCE:
             "https://reviews.example.com/api/webhooks/google/pubsub",
+          GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL:
+            "pubsub-push@naba.iam.gserviceaccount.com",
         },
         safeIdentity
       )
     ).toEqual([])
+  })
+
+  it("rejects an audience without the service-account pin", () => {
+    const violations = collectSafetyViolations(
+      {
+        ...baseEnv,
+        WEBHOOKS_ENABLED: true,
+        GOOGLE_PUBSUB_AUDIENCE:
+          "https://reviews.example.com/api/webhooks/google/pubsub",
+      },
+      safeIdentity
+    )
+    expect(violations.join(" ")).toContain(
+      "GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL"
+    )
   })
 
   it("accepts webhooks with a strong verification token", () => {

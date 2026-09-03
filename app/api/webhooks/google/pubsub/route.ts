@@ -84,10 +84,12 @@ export const POST = route({
       limit 1
     `
     if (!webhookRoute) {
-      return {
-        status: "ignored",
-        reason: "unknown_location",
-      }
+      // Answered before any authorisation context exists, so the body must be
+      // indistinguishable from the routed-but-unlinked reply below: a
+      // per-location difference here would let a caller enumerate which
+      // Google locations the platform manages. The reason goes to the log.
+      log.warn("nabapresence.webhook.unrouted", { locationName })
+      return { status: "ignored" }
     }
     const prepared = await withTenant(
       webhookRoute.organisation_id,
@@ -102,8 +104,6 @@ export const POST = route({
             external_event_id,
             event_type,
             payload_hash,
-            payload,
-            payload_expires_at,
             status
           )
           values (
@@ -113,8 +113,6 @@ export const POST = route({
             ${envelope.message.messageId},
             ${notification.type},
             ${sha256(decoded)},
-            ${sql.json(JSON.parse(JSON.stringify(payload)))},
-            now() + interval '30 days',
             'received'
           )
           on conflict (provider, external_event_id) do update
@@ -124,34 +122,53 @@ export const POST = route({
             status,
             retry_count as "retryCount"
         `
-        if (event.status === "processed") {
+        if (
+          event.status === "processed" ||
+          event.status === "ignored" ||
+          event.status === "dead"
+        ) {
           return { terminal: { status: "duplicate" } } as const
         }
-        await sql`
+        // The sync below runs outside this transaction, so take a lease: a
+        // crash in between would otherwise strand the row at 'processing'
+        // with nothing able to reclaim it (0029, reclaim_expired_jobs).
+        //
+        // Delivery is only at-least-once, so this must be a real claim: a
+        // redelivery arriving while the first sync is still running would
+        // otherwise start a second one against the same location, and both
+        // would then settle the same row.
+        const [claimed] = await sql<{ id: string }[]>`
           update processed_webhook_event
           set
             status = 'processing',
             processed_at = null,
             next_attempt_at = null,
-            last_error_code = null
+            last_error_code = null,
+            lease_expires_at = now() + interval '15 minutes'
           where id = ${event.id}
+            and (
+              status <> 'processing'
+              or coalesce(lease_expires_at, '-infinity'::timestamptz) <= now()
+            )
+          returning id::text as id
         `
+        if (!claimed) {
+          return { terminal: { status: "in_progress" } } as const
+        }
         const [location] = await linkedLocations(sql, [
           webhookRoute.external_location_id,
         ])
         if (!location) {
           await sql`
             update processed_webhook_event
-            set status = 'ignored', processed_at = now()
+            set
+              status = 'ignored',
+              processed_at = now(),
+              lease_expires_at = null
             where provider = 'google_pubsub'
               and external_event_id = ${envelope.message.messageId}
           `
-          return {
-            terminal: {
-              status: "ignored",
-              reason: "unlinked_location",
-            },
-          } as const
+          return { terminal: { status: "ignored" } } as const
         }
         return { terminal: null, eventId: event.id } as const
       }

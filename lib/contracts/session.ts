@@ -30,6 +30,15 @@ export const sessionSchema = z.object({
   email: z.string(),
   role: memberRoleSchema,
   canPublish: z.boolean(),
+  /**
+   * Set only inside a support impersonation session (POST
+   * /api/support/impersonation). Every other field describes the customer
+   * whose identity the session carries, so without these the client cannot
+   * tell an impersonated session from the customer's own and cannot render a
+   * banner saying so. Optional because only that one route ever sets them.
+   */
+  supportActor: z.string().nullable().optional(),
+  impersonationReason: z.string().nullable().optional(),
 })
 export type SessionUser = z.infer<typeof sessionSchema>
 

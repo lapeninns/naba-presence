@@ -18,9 +18,14 @@ import type { TransactionSql } from "postgres"
 
 import { retryDelayMs } from "@/lib/domain/retry"
 import { isAmbiguousProviderError } from "@/lib/server/gbp-write"
+import { isConnectionBlockedError } from "@/lib/server/google/connection-failures"
 import { ApiError } from "@/lib/server/http"
 
-import type { PublishAttemptEventType, PublishAttemptOperation } from "./types"
+import type {
+  PublishAttemptEventType,
+  PublishAttemptOperation,
+  PublishAttemptStatus,
+} from "./types"
 
 export async function writePublishAttemptEvent(
   sql: TransactionSql,
@@ -119,7 +124,12 @@ export async function rearmAttempt(
   return attempt
 }
 
-/** Insert the durable `started` intent (attempt 1) for a reply mutation. */
+/**
+ * Insert the durable `started` intent (attempt 1) for a reply mutation.
+ * Returns null when a concurrent request already inserted this key: the
+ * caller re-reads that row and resolves against it, rather than letting the
+ * `(organisation_id, idempotency_key)` unique violation surface as a 500.
+ */
 export async function insertAttempt(
   sql: TransactionSql,
   input: {
@@ -130,8 +140,9 @@ export async function insertAttempt(
     requestBodyHash: string
     operation: PublishAttemptOperation
     intendedBody: string | null
+    publishGeneration: number
   }
-): Promise<StartedAttempt> {
+): Promise<StartedAttempt | null> {
   const [attempt] = await sql<StartedAttempt[]>`
     insert into publish_attempt (
       organisation_id,
@@ -142,7 +153,8 @@ export async function insertAttempt(
       status,
       attempt_no,
       operation,
-      intended_body
+      intended_body,
+      publish_generation
     )
     values (
       ${input.organisationId},
@@ -153,19 +165,28 @@ export async function insertAttempt(
       'started',
       1,
       ${input.operation},
-      ${input.intendedBody}
+      ${input.intendedBody},
+      ${input.publishGeneration}
     )
+    on conflict (organisation_id, idempotency_key) do nothing
     returning id::text as id, attempt_no
   `
-  return attempt
+  return attempt ?? null
 }
 
-/** Settle the attempt row as `succeeded` after a confirmed provider write. */
+/**
+ * Settle the attempt row as `succeeded` after a confirmed provider write.
+ * The guard is the status the caller decided against, and the return value
+ * says whether this caller made the transition: a settle that lost a race
+ * with a concurrent recovery is a no-op instead of a clobber, and its caller
+ * must skip the rest of the settlement the winner has already written.
+ */
 export async function markAttemptSucceeded(
   sql: TransactionSql,
-  attemptId: string
-) {
-  await sql`
+  attemptId: string,
+  expectedStatus: PublishAttemptStatus = "started"
+): Promise<boolean> {
+  const settled = await sql`
     update publish_attempt
     set
       status = 'succeeded',
@@ -174,11 +195,84 @@ export async function markAttemptSucceeded(
       next_attempt_at = null,
       finished_at = now()
     where id = ${attemptId}
+      and status = ${expectedStatus}
+    returning id
   `
+  return settled.length > 0
+}
+
+/**
+ * Retire attempts the reply has moved past. Not a provider verdict: nothing
+ * was sent, the row keeps its idempotency key and stays re-armable, and it
+ * leaves every claim predicate (all allowlists over `retryable` / `ambiguous`
+ * / `started`) so the runner can no longer replay it.
+ */
+export async function supersedeAttempts(
+  sql: TransactionSql,
+  input: { organisationId: string; attemptIds: string[]; reason: string }
+) {
+  if (input.attemptIds.length === 0) return
+  // Only a still-queued row is ours to retire: one the runner has already
+  // claimed is mid-provider-call, and superseding it would leave a write it
+  // is about to confirm with nothing to settle against.
+  const retired = await sql<{ id: string }[]>`
+    update publish_attempt
+    set
+      status = 'superseded',
+      provider_error_code = ${input.reason},
+      next_attempt_at = null,
+      lease_expires_at = null,
+      finished_at = now()
+    where id = any(${input.attemptIds}::uuid[])
+      and status = 'retryable'
+    returning id::text as id
+  `
+  for (const attempt of retired) {
+    await writePublishAttemptEvent(sql, {
+      organisationId: input.organisationId,
+      publishAttemptId: attempt.id,
+      eventType: "completed",
+      payload: { result: "superseded", reason: input.reason },
+    })
+  }
+}
+
+/**
+ * Supersede every queued sibling of the intent now taking over this reply
+ * (`keepAttemptId` is the attempt taking over, if any). A `retryable` row is
+ * armed work the runner will replay verbatim, so a newer intent for the same
+ * reply has to retire it here rather than refuse to start: refusing would
+ * block publishing for as long as the sibling is parked, which for a
+ * connection-blocked reply is as long as a human takes to reconnect.
+ */
+export async function supersedeQueuedSiblings(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    reviewReplyId: string
+    keepAttemptId?: string
+    reason: string
+  }
+) {
+  const siblings = await sql<{ id: string }[]>`
+    select id::text as id
+    from publish_attempt
+    where review_reply_id = ${input.reviewReplyId}
+      and status = 'retryable'
+      and id is distinct from ${input.keepAttemptId ?? null}::uuid
+  `
+  await supersedeAttempts(sql, {
+    organisationId: input.organisationId,
+    attemptIds: siblings.map((sibling) => sibling.id),
+    reason: input.reason,
+  })
 }
 
 export type ProviderFailure = {
-  /** Attempt-row status: `ambiguous` (unknown), `retryable` (429), or `failed`. */
+  /**
+   * Attempt-row status: `ambiguous` (unknown), `retryable` (a 429, or a
+   * connection that could not issue a token), or `failed`.
+   */
   status: "ambiguous" | "retryable" | "failed"
   ambiguous: boolean
   retryable: boolean
@@ -191,16 +285,34 @@ export type ProviderFailure = {
 }
 
 /**
+ * How long a connection-blocked attempt parks. Reconnecting is a human
+ * closing a task and a token endpoint recovering is Google's own outage
+ * window, so the 500 ms - 30 s provider back-off would only spin the queue
+ * against a door that is not going to open inside a tick.
+ */
+const CONNECTION_BLOCKED_RETRY_MS = 15 * 60 * 1000
+
+/**
  * Ambiguous failures (Google did not confirm) stay distinct from
  * deterministic rejection and are never blindly repeated; only a 429 is
  * scheduled for an automatic retry with exponential back-off.
+ *
+ * A connection-blocked failure is a third case: the connection layer could
+ * not issue a token, so the request never left the building. Treating that
+ * as a provider rejection would mark every queued reply permanently `failed`
+ * (and its review with it) over a revoked refresh token or a two-second blip
+ * on the token endpoint, with nothing to re-arm them once the operator
+ * reconnects. It parks on a long back-off instead, and stays non-terminal so
+ * the local reply keeps the state it had.
  */
 export function classifyProviderFailure(
   error: unknown,
   attemptNo: number
 ): ProviderFailure {
   const ambiguous = isAmbiguousProviderError(error)
-  const retryable = error instanceof ApiError && error.status === 429
+  const connectionBlocked = !ambiguous && isConnectionBlockedError(error)
+  const retryable =
+    connectionBlocked || (error instanceof ApiError && error.status === 429)
   const status = ambiguous ? "ambiguous" : retryable ? "retryable" : "failed"
   return {
     status,
@@ -208,7 +320,12 @@ export function classifyProviderFailure(
     retryable,
     terminal: !ambiguous && !retryable,
     nextAttemptAt: retryable
-      ? new Date(Date.now() + retryDelayMs(attemptNo))
+      ? new Date(
+          Date.now() +
+            (connectionBlocked
+              ? CONNECTION_BLOCKED_RETRY_MS
+              : retryDelayMs(attemptNo))
+        )
       : null,
     httpStatus: error instanceof ApiError ? error.status : null,
     errorCode: error instanceof ApiError ? error.code : "network_error",

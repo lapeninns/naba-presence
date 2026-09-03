@@ -8,6 +8,15 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
+/**
+ * How many matched reviews one export returns. The cap is not the problem --
+ * reporting a capped export as though it were the whole set is, so the body
+ * and the audit row carry `totalMatched` and `truncated` beside it. An Art.
+ * 15 response handed over with the oldest matches silently missing is a wrong
+ * answer given with no signal that it is wrong.
+ */
+const EXPORT_LIMIT = 1000
+
 export const POST = route({
   roles: ["owner"],
   body: privacyExportBodySchema,
@@ -21,6 +30,7 @@ export const POST = route({
     const exported = await tenant(async (sql) => {
       const encryptedReviews = await sql`
         select
+          count(*) over () as "totalMatched",
           r.id::text as id,
           r.google_review_id_ciphertext as "googleReviewIdCiphertext",
           r.reviewer_display_name as "reviewerDisplayName",
@@ -62,13 +72,21 @@ export const POST = route({
           or lower(coalesce(r.reviewer_display_name, ''))
             = lower(${query.subject})
         order by r.update_time desc
-        limit 1000
+        limit ${EXPORT_LIMIT}
       `
+      // The window count is evaluated over the whole match set before LIMIT,
+      // so it is the true total and needs no second round trip.
+      const totalMatched = Number(
+        (encryptedReviews[0] as { totalMatched?: string | number } | undefined)
+          ?.totalMatched ?? 0
+      )
       const reviews = encryptedReviews.map((row) => {
         const record = row as Record<string, unknown> & {
           googleReviewIdCiphertext: Buffer
         }
         const { googleReviewIdCiphertext, ...review } = record
+        // The window count is a property of the query, not of a review.
+        delete review.totalMatched
         return {
           ...review,
           googleReviewId: decryptSecret(googleReviewIdCiphertext),
@@ -90,6 +108,8 @@ export const POST = route({
         requestId,
         metadata: {
           records: reviews.length,
+          totalMatched,
+          truncated: totalMatched > reviews.length,
           clientRequestId,
         },
       })
@@ -98,6 +118,9 @@ export const POST = route({
         organisationId: session.organisationId,
         subjectReference: query.subject,
         note: "Null text or media indicates content already removed by the retention policy.",
+        totalMatched,
+        returned: reviews.length,
+        truncated: totalMatched > reviews.length,
         reviews,
       }
     })

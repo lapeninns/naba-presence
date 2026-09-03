@@ -24,7 +24,11 @@ export const POST = route({
       identity: verified.identity,
       requestId,
       clientRequestId,
+      passwordReset: true,
     })
-    return { updated: true, authenticated: true } satisfies ResetCompleteResponse
+    return {
+      updated: true,
+      authenticated: true,
+    } satisfies ResetCompleteResponse
   },
 })

@@ -15,7 +15,6 @@ import {
   connectionAccessToken,
   getGoogleLocation,
   getGoogleLocationAttributes,
-  GoogleMutationAmbiguousError,
   listGoogleAttributeMetadata,
   listGoogleCategories,
   patchGoogleLocation,
@@ -30,6 +29,7 @@ import {
   stableGoogleHash,
   startGbpMutation,
 } from "@/lib/server/gbp-management"
+import { classifyFailure, type GbpWritePhase } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
@@ -132,7 +132,8 @@ export async function loadBusinessInformation(
     attributes,
     // The Google client types metadata rows as passthrough records; the wire
     // contract pins the `parent` id every row carries (the client parses it).
-    attributeMetadata: (metadata.attributeMetadata ?? []) as AttributeMetadata[],
+    attributeMetadata: (metadata.attributeMetadata ??
+      []) as AttributeMetadata[],
     locationHash,
     attributesHash,
     canPublish: linked.canPublish,
@@ -150,10 +151,18 @@ export async function updateBusinessInformation(input: {
 }): Promise<BusinessInformationMutationResult> {
   const linked = await loadedContext(input.session, input.locationId)
   if (!linked.canPublish) {
-    throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
+    throw new ApiError(
+      403,
+      "publish_not_allowed",
+      "You cannot publish for this location."
+    )
   }
   if (!writesEnabled()) {
-    throw new ApiError(503, "business_information_paused", "Google Business Information writes are paused.")
+    throw new ApiError(
+      503,
+      "business_information_paused",
+      "Google Business Information writes are paused."
+    )
   }
   assertBusinessInformationMask(input.payload, input.updateMask)
   const token = await connectionAccessToken(
@@ -168,7 +177,11 @@ export async function updateBusinessInformation(input: {
     { connectionKey: linked.connectionId }
   )
   if (stableGoogleHash(current) !== input.expectedGoogleHash) {
-    throw new ApiError(409, "business_information_stale", "Google changed this location. Refresh before publishing.")
+    throw new ApiError(
+      409,
+      "business_information_stale",
+      "Google changed this location. Refresh before publishing."
+    )
   }
   const attempt = await startGbpMutation({
     organisationId: input.session.organisationId,
@@ -184,6 +197,12 @@ export async function updateBusinessInformation(input: {
     payload: input.payload,
   })
   if (attempt.idempotent) return attempt
+  // These two functions still run their own phase machine rather than
+  // runGbpWrite, so they track the phase themselves and hand it to the
+  // pipeline's classifier: a post-write read that fails leaves the state
+  // unknown (`ambiguous`), never a definite `failed` on a write Google
+  // actually applied.
+  let phase: GbpWritePhase = "validate"
   try {
     await patchGoogleLocation(
       token,
@@ -200,6 +219,7 @@ export async function updateBusinessInformation(input: {
       mutationId: attempt.id,
       status: "validated",
     })
+    phase = "mutate"
     await patchGoogleLocation(
       token,
       {
@@ -210,15 +230,28 @@ export async function updateBusinessInformation(input: {
       },
       { connectionKey: linked.connectionId }
     )
+    phase = "readback_read"
     const readback = await getGoogleLocation(
       token,
       linked.googleLocationName,
       [...READ_MASK],
       { connectionKey: linked.connectionId }
     )
+    // The read completed, so the provider state is known again: from here a
+    // disagreement is a definite failure, not an ambiguity.
+    phase = "readback_verify"
     for (const field of input.updateMask) {
-      if (!containsExpected(readback[field], input.payload[field as keyof typeof input.payload])) {
-        throw new ApiError(502, "business_information_readback_mismatch", `Google did not confirm the approved ${field} value.`)
+      if (
+        !containsExpected(
+          readback[field],
+          input.payload[field as keyof typeof input.payload]
+        )
+      ) {
+        throw new ApiError(
+          502,
+          "business_information_readback_mismatch",
+          `Google did not confirm the approved ${field} value.`
+        )
       }
     }
     await cacheGbpSnapshot({
@@ -246,12 +279,34 @@ export async function updateBusinessInformation(input: {
     })
     return { id: attempt.id, status: "succeeded", idempotent: false }
   } catch (error) {
+    const status = classifyFailure(phase, error)
+    const code = errorCode(error, "business_information_update_failed")
     await settleGbpMutation({
       organisationId: input.session.organisationId,
       mutationId: attempt.id,
-      status: error instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed",
-      errorCode: errorCode(error, "business_information_update_failed"),
+      status,
+      errorCode: code,
     })
+    // An ambiguous outcome otherwise leaves no audit evidence at all: the
+    // success audit never runs, so an operator reconciling the mutation table
+    // against Google cannot tell a write that may have landed from one that
+    // never left.
+    if (status === "ambiguous") {
+      await auditGbpMutation({
+        organisationId: input.session.organisationId,
+        session: input.session,
+        action: "business_information.update.unconfirmed",
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: {
+          updateMask: input.updateMask,
+          mutationId: attempt.id,
+          phase,
+          errorCode: code,
+        },
+      })
+    }
     throw error
   }
 }
@@ -265,11 +320,34 @@ export async function updateBusinessAttributes(input: {
   requestId: string
 }): Promise<BusinessInformationMutationResult> {
   const linked = await loadedContext(input.session, input.locationId)
-  if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
-  if (!writesEnabled()) throw new ApiError(503, "business_information_paused", "Google Business Information writes are paused.")
-  const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
-  const current = await getGoogleLocationAttributes(token, linked.googleLocationName, { connectionKey: linked.connectionId })
-  if (stableGoogleHash(current) !== input.expectedGoogleHash) throw new ApiError(409, "attributes_stale", "Google attributes changed. Refresh before publishing.")
+  if (!linked.canPublish)
+    throw new ApiError(
+      403,
+      "publish_not_allowed",
+      "You cannot publish for this location."
+    )
+  if (!writesEnabled())
+    throw new ApiError(
+      503,
+      "business_information_paused",
+      "Google Business Information writes are paused."
+    )
+  const token = await connectionAccessToken(
+    getDatabase(),
+    input.session.organisationId,
+    linked.connectionId
+  )
+  const current = await getGoogleLocationAttributes(
+    token,
+    linked.googleLocationName,
+    { connectionKey: linked.connectionId }
+  )
+  if (stableGoogleHash(current) !== input.expectedGoogleHash)
+    throw new ApiError(
+      409,
+      "attributes_stale",
+      "Google attributes changed. Refresh before publishing."
+    )
   const attempt = await startGbpMutation({
     organisationId: input.session.organisationId,
     session: input.session,
@@ -284,15 +362,76 @@ export async function updateBusinessAttributes(input: {
     payload: input.attributes,
   })
   if (attempt.idempotent) return attempt
+  // Attributes have no validateOnly call, so the write is the first phase.
+  let phase: GbpWritePhase = "mutate"
   try {
-    await patchGoogleLocationAttributes(token, { locationName: linked.googleLocationName, attributeMask: input.attributeMask, attributes: input.attributes }, { connectionKey: linked.connectionId })
-    const readback = await getGoogleLocationAttributes(token, linked.googleLocationName, { connectionKey: linked.connectionId })
-    await cacheGbpSnapshot({ organisationId: input.session.organisationId, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType: "attributes", resourceName: `${linked.googleLocationName}/attributes`, payload: readback })
-    await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "succeeded", response: readback })
-    await auditGbpMutation({ organisationId: input.session.organisationId, session: input.session, action: "business_attributes.updated", subjectType: "location", subjectId: input.locationId, requestId: input.requestId, metadata: { attributeMask: input.attributeMask } })
+    await patchGoogleLocationAttributes(
+      token,
+      {
+        locationName: linked.googleLocationName,
+        attributeMask: input.attributeMask,
+        attributes: input.attributes,
+      },
+      { connectionKey: linked.connectionId }
+    )
+    phase = "readback_read"
+    const readback = await getGoogleLocationAttributes(
+      token,
+      linked.googleLocationName,
+      { connectionKey: linked.connectionId }
+    )
+    // The read completed, so the provider state is known again; attributes
+    // have no field-by-field comparison to make of it.
+    phase = "readback_verify"
+    await cacheGbpSnapshot({
+      organisationId: input.session.organisationId,
+      locationId: input.locationId,
+      googleAccountId: linked.googleAccountId,
+      resourceType: "attributes",
+      resourceName: `${linked.googleLocationName}/attributes`,
+      payload: readback,
+    })
+    await settleGbpMutation({
+      organisationId: input.session.organisationId,
+      mutationId: attempt.id,
+      status: "succeeded",
+      response: readback,
+    })
+    await auditGbpMutation({
+      organisationId: input.session.organisationId,
+      session: input.session,
+      action: "business_attributes.updated",
+      subjectType: "location",
+      subjectId: input.locationId,
+      requestId: input.requestId,
+      metadata: { attributeMask: input.attributeMask },
+    })
     return { id: attempt.id, status: "succeeded", idempotent: false }
   } catch (error) {
-    await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: error instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed", errorCode: errorCode(error, "attributes_update_failed") })
+    const status = classifyFailure(phase, error)
+    const code = errorCode(error, "attributes_update_failed")
+    await settleGbpMutation({
+      organisationId: input.session.organisationId,
+      mutationId: attempt.id,
+      status,
+      errorCode: code,
+    })
+    if (status === "ambiguous") {
+      await auditGbpMutation({
+        organisationId: input.session.organisationId,
+        session: input.session,
+        action: "business_attributes.update.unconfirmed",
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: {
+          attributeMask: input.attributeMask,
+          mutationId: attempt.id,
+          phase,
+          errorCode: code,
+        },
+      })
+    }
     throw error
   }
 }
@@ -306,8 +445,22 @@ export async function searchBusinessInformationMetadata(input: {
   languageCode: string
 }) {
   const linked = await loadedContext(input.session, input.locationId)
-  const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
+  const token = await connectionAccessToken(
+    getDatabase(),
+    input.session.organisationId,
+    linked.connectionId
+  )
   return input.type === "categories"
-    ? listGoogleCategories(token, { regionCode: input.regionCode, languageCode: input.languageCode, query: input.query }, { connectionKey: linked.connectionId })
-    : searchGoogleChains(token, input.query, { connectionKey: linked.connectionId })
+    ? listGoogleCategories(
+        token,
+        {
+          regionCode: input.regionCode,
+          languageCode: input.languageCode,
+          query: input.query,
+        },
+        { connectionKey: linked.connectionId }
+      )
+    : searchGoogleChains(token, input.query, {
+        connectionKey: linked.connectionId,
+      })
 }

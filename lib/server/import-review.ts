@@ -9,6 +9,7 @@ import {
   buildFoodMenuProposals,
   identitiesFromAlignedMenus,
   locateMenuItem,
+  menuItemSummary,
   MenuPatchTargetMissingError,
   type MenuItemIdentity,
   type MenuProposalDraft,
@@ -133,10 +134,33 @@ function assertImportReviewEnabled() {
   }
 }
 
+/**
+ * Compares a stored jsonb column against a freshly built draft value. jsonb
+ * does not preserve object key order, so a plain JSON.stringify of the
+ * round-tripped column would differ from the draft for identical content.
+ */
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(sortKeys(left)) === JSON.stringify(sortKeys(right))
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, sortKeys(entry)])
+    )
+  }
+  return value ?? null
+}
+
 async function supersedePending(
   sql: TransactionSql,
   locationId: string,
-  resourceType: ProposalResourceType
+  resourceType: ProposalResourceType,
+  keepIdentityKeys: string[] = []
 ): Promise<number> {
   const rows = await sql<{ id: string }[]>`
     update presence_import_proposal
@@ -144,6 +168,11 @@ async function supersedePending(
     where location_id = ${locationId}
       and resource_type = ${resourceType}
       and status = 'pending'
+      ${
+        keepIdentityKeys.length
+          ? sql`and identity_key not in ${sql(keepIdentityKeys)}`
+          : sql``
+      }
     returning id
   `
   return rows.length
@@ -164,6 +193,82 @@ type ProposalInsert = {
   warnings: string[]
 }
 
+type GatingProposal = {
+  identityKey: string
+  status: ProposalStatus
+  googleValue: unknown
+  canonicalValue: unknown
+}
+
+/**
+ * The one earlier proposal per identity that can gate a re-raise: the live row
+ * (`pending`/`processing` — at most one, by the partial unique index in 0028)
+ * when there is one, otherwise the newest row the user deliberately ignored.
+ *
+ * `applied` and `failed` rows are deliberately excluded. An applied row leaves
+ * the surface in sync so no draft is produced anyway, and a failed row is how
+ * a user recovers from a bad decision — the next refresh must be able to
+ * re-raise it.
+ */
+async function loadGatingProposals(
+  sql: TransactionSql,
+  locationId: string,
+  resourceType: ProposalResourceType
+): Promise<Map<string, GatingProposal>> {
+  const rows = await sql<GatingProposal[]>`
+    select distinct on (identity_key)
+      identity_key as "identityKey", status,
+      google_value as "googleValue", canonical_value as "canonicalValue"
+    from presence_import_proposal
+    where location_id = ${locationId}
+      and resource_type = ${resourceType}
+      and status in ('pending', 'processing', 'ignored')
+    order by identity_key, (status in ('pending', 'processing')) desc, created_at desc
+  `
+  return new Map(rows.map((row) => [row.identityKey, row]))
+}
+
+type GatedDrafts = { fresh: ProposalInsert[]; keepIdentityKeys: string[] }
+
+/**
+ * Decides, per identity, whether this observation is actually new.
+ *
+ * Google-side drift is re-observed on every 15-minute sweep, and superseding
+ * plus re-inserting unconditionally resurrects a suggestion the user ignored,
+ * invalidates an open review's Apply with a 409 `proposal_superseded`, and
+ * writes two rows per identity per tick until the 90-day expiry reaps them.
+ *
+ * The pins on the row are whole-resource hashes, so they move whenever any
+ * field or item moves; the comparison here is per identity instead. An ignore
+ * is a statement about Google's value, so only that side gates it. A live row
+ * also compares the canonical side, so a local edit still supersedes the row
+ * and re-raises it with a fresh "Here:" value and the conflict warning.
+ */
+function gateDrafts(
+  drafts: ProposalInsert[],
+  gating: Map<string, GatingProposal>
+): GatedDrafts {
+  const fresh: ProposalInsert[] = []
+  const keepIdentityKeys: string[] = []
+  for (const draft of drafts) {
+    const previous = gating.get(draft.identityKey)
+    // An in-flight decision owns the identity until it settles: the live-key
+    // index would swallow the insert anyway, and counting that as a dropped
+    // draft would make a normal Apply look like lost work. The next raise
+    // after it settles re-evaluates the identity.
+    if (previous?.status === "processing") continue
+    if (previous && sameJsonValue(previous.googleValue, draft.googleValue)) {
+      if (previous.status === "ignored") continue
+      if (sameJsonValue(previous.canonicalValue, draft.canonicalValue)) {
+        keepIdentityKeys.push(draft.identityKey)
+        continue
+      }
+    }
+    fresh.push(draft)
+  }
+  return { fresh, keepIdentityKeys }
+}
+
 async function insertProposals(input: {
   sql: TransactionSql
   organisationId: string
@@ -179,7 +284,7 @@ async function insertProposals(input: {
     googleHash: string
   }
   drafts: ProposalInsert[]
-}): Promise<number> {
+}): Promise<{ inserted: number; attempted: number }> {
   let inserted = 0
   for (const draft of input.drafts) {
     const rows = await input.sql<{ id: string }[]>`
@@ -210,7 +315,10 @@ async function insertProposals(input: {
     `
     inserted += rows.length
   }
-  return inserted
+  // `attempted` is what makes a draft lost to the live-key conflict
+  // distinguishable from a draft that was never generated: the raise audit
+  // reports the shortfall rather than silently under-reporting `raised`.
+  return { inserted, attempted: input.drafts.length }
 }
 
 async function loadMenuIdentities(
@@ -343,8 +451,22 @@ export async function raiseFoodMenuProposals(input: {
       googleMenus: live.state.googleMenus,
       identities,
     })
-    const superseded = await supersedePending(sql, locationId, "food_menus")
-    const raised = await insertProposals({
+    const gated = gateDrafts(
+      drafts.map((draft) => ({
+        ...draft,
+        warnings: noBaseline
+          ? [...draft.warnings, "no_baseline"]
+          : draft.warnings,
+      })),
+      await loadGatingProposals(sql, locationId, "food_menus")
+    )
+    const superseded = await supersedePending(
+      sql,
+      locationId,
+      "food_menus",
+      gated.keepIdentityKeys
+    )
+    const { inserted, attempted } = await insertProposals({
       sql,
       organisationId: session.organisationId,
       locationId,
@@ -358,23 +480,60 @@ export async function raiseFoodMenuProposals(input: {
         canonicalHash: live.state.canonicalHash,
         googleHash: live.state.googleHash,
       },
-      drafts: drafts.map((draft) => ({
-        ...draft,
-        warnings: noBaseline
-          ? [...draft.warnings, "no_baseline"]
-          : draft.warnings,
-      })),
+      drafts: gated.fresh,
     })
-    await writeAudit(sql, {
-      organisationId: session.organisationId,
-      actorUserId: session.userId,
+    await writeRaiseAudit(sql, {
+      session,
+      locationId,
       action: "food_menus.proposals.refreshed",
-      subjectType: "location",
-      subjectId: locationId,
       requestId: input.requestId,
-      metadata: { trigger: input.via, batchId, raised, superseded },
+      trigger: input.via,
+      batchId,
+      raised: inserted,
+      superseded,
+      dropped: attempted - inserted,
     })
-    return { raised, superseded, skipped: null }
+    return { raised: inserted, superseded, skipped: null }
+  })
+}
+
+/**
+ * The refresh audit row. Written only when something moved: with the per
+ * identity gate a steady-state sweep raises and supersedes nothing, and a row
+ * per drifted location every fifteen minutes would drown the trail it belongs
+ * to. `dropped` counts drafts the live-key conflict swallowed — normally zero,
+ * and non-zero only when two drafts collide on one identity.
+ */
+async function writeRaiseAudit(
+  sql: TransactionSql,
+  input: {
+    session: Session
+    locationId: string
+    action: string
+    requestId: string
+    trigger: RaiseTrigger
+    batchId: string
+    raised: number
+    superseded: number
+    dropped: number
+  }
+) {
+  if (input.raised === 0 && input.superseded === 0 && input.dropped === 0)
+    return
+  await writeAudit(sql, {
+    organisationId: input.session.organisationId,
+    actorUserId: input.session.userId,
+    action: input.action,
+    subjectType: "location",
+    subjectId: input.locationId,
+    requestId: input.requestId,
+    metadata: {
+      trigger: input.trigger,
+      batchId: input.batchId,
+      raised: input.raised,
+      superseded: input.superseded,
+      ...(input.dropped > 0 ? { dropped: input.dropped } : {}),
+    },
   })
 }
 
@@ -396,8 +555,17 @@ export async function raiseProfileProposals(input: {
   })
   const batchId = randomUUID()
   return withTenant(session.organisationId, async (sql) => {
-    const superseded = await supersedePending(sql, locationId, "profile")
-    const raised = await insertProposals({
+    const gated = gateDrafts(
+      drafts,
+      await loadGatingProposals(sql, locationId, "profile")
+    )
+    const superseded = await supersedePending(
+      sql,
+      locationId,
+      "profile",
+      gated.keepIdentityKeys
+    )
+    const { inserted, attempted } = await insertProposals({
       sql,
       organisationId: session.organisationId,
       locationId,
@@ -411,21 +579,51 @@ export async function raiseProfileProposals(input: {
         canonicalHash: bundle.state.canonicalHash,
         googleHash: bundle.state.googleHash,
       },
-      drafts,
+      drafts: gated.fresh,
     })
-    if (raised > 0 || superseded > 0) {
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "profile.proposals.refreshed",
-        subjectType: "location",
-        subjectId: locationId,
-        requestId: input.requestId,
-        metadata: { trigger: input.via, batchId, raised, superseded },
-      })
-    }
-    return { raised, superseded, skipped: null }
+    await writeRaiseAudit(sql, {
+      session,
+      locationId,
+      action: "profile.proposals.refreshed",
+      requestId: input.requestId,
+      trigger: input.via,
+      batchId,
+      raised: inserted,
+      superseded,
+      dropped: attempted - inserted,
+    })
+    return { raised: inserted, superseded, skipped: null }
   })
+}
+
+/**
+ * Fails proposals stranded in `processing` by a crash between the claim
+ * (transaction 1) and the settle (transaction 2). Until such a row leaves
+ * `processing` the partial unique index blocks any fresh proposal for its
+ * identity and the decision path refuses it as `proposal_not_pending`, so the
+ * field is frozen for the user.
+ *
+ * Hosted on the presence-resources sweep because that is the only tick whose
+ * cadence matches the fifteen minutes the predicate was written for; the
+ * retention cron ran the same statement at most once a day. Runs regardless of
+ * IMPORT_REVIEW_ENABLED: it is a repair, and pausing the surface must not
+ * leave identities locked.
+ */
+export async function reapStrandedProposals(
+  organisationId: string
+): Promise<number> {
+  const rows = await withTenant(
+    organisationId,
+    (sql) => sql<{ id: string }[]>`
+      update presence_import_proposal
+      set status = 'failed', failure_code = 'proposal_apply_failed',
+        decided_at = now()
+      where status = 'processing'
+        and updated_at <= now() - interval '15 minutes'
+      returning id
+    `
+  )
+  return rows.length
 }
 
 export async function listImportProposals(input: {
@@ -505,6 +703,18 @@ async function markProposal(
     where id = ${proposalId} and status = 'processing'
   `
 }
+
+/**
+ * Decision failures that release the claim instead of burning the proposal.
+ * `canonical_resource_stale` is a pure optimistic-lock miss — the transaction
+ * rolled back and nothing was written — and the acknowledgement 409 is not a
+ * failure at all. `failed` stays reserved for outcomes a retry cannot fix
+ * (proposal_patch_invalid, proposal_action_unsupported, proposal_target_missing).
+ */
+const RELEASABLE_DECISION_FAILURES = new Set([
+  "canonical_overwrite_confirmation_required",
+  "canonical_resource_stale",
+])
 
 /**
  * Claim -> plan -> act+mark -> (on failure) compensate. Deliberately THREE
@@ -598,7 +808,12 @@ export async function decideImportProposal(input: {
           proposalId,
           expectedCanonicalRevision: input.expectedCanonicalRevision,
           patch: plan.patch,
-          pinned: { canonicalHash: claimed.pinned_canonical_hash },
+          confirmOverwriteCanonicalChanges:
+            input.confirmOverwriteCanonicalChanges,
+          pinned: {
+            canonicalHash: claimed.pinned_canonical_hash,
+            canonicalValue: claimed.canonical_value,
+          },
         })
         await markProposal(sql, proposalId, "applied", null)
       } else {
@@ -608,6 +823,9 @@ export async function decideImportProposal(input: {
           proposalId,
           expectedCanonicalRevision: input.expectedCanonicalRevision,
           patch: plan.patch,
+          confirmOverwriteCanonicalChanges:
+            input.confirmOverwriteCanonicalChanges,
+          pinnedCanonicalValue: claimed.canonical_value,
           googlePath: claimed.google_path,
           googleItemLabel: claimed.item_label,
           googleSectionLabel: claimed.section_label,
@@ -645,9 +863,10 @@ export async function decideImportProposal(input: {
           : error instanceof ApiError
             ? error.code
             : "proposal_apply_failed"
-    if (failureCode === "canonical_overwrite_confirmation_required") {
-      // Not a failure — the user still has to acknowledge the overwrite.
-      // Release the claim so the acknowledged retry finds the row pending.
+    if (RELEASABLE_DECISION_FAILURES.has(failureCode)) {
+      // Not failures: nothing was written, and the retry can succeed. Release
+      // the claim so the acknowledged (or re-loaded) retry finds the row
+      // pending — `failed` is terminal, and the claim only accepts `pending`.
       await withTenant(
         session.organisationId,
         (sql) => sql`
@@ -679,7 +898,8 @@ async function applyProfileFieldDecision(
     proposalId: string
     expectedCanonicalRevision: string
     patch: { fieldKey: string; value: string | null }
-    pinned: { canonicalHash: string }
+    confirmOverwriteCanonicalChanges: boolean
+    pinned: { canonicalHash: string; canonicalValue: unknown }
   }
 ): Promise<string> {
   const [resource] = await sql<
@@ -707,6 +927,26 @@ async function applyProfileFieldDecision(
       409,
       "canonical_resource_stale",
       "The profile changed after it was loaded. Refresh and try again."
+    )
+  }
+  // expectedCanonicalRevision is the client's freshness check and nothing
+  // more: the panel sends whatever the profile tab last loaded, so it matches
+  // the live row even when the user edited this very field after the proposal
+  // was raised. The proposal's own view of the local value is what decides
+  // whether Apply is an overwrite — same acknowledgement the stored
+  // canonical_also_changed warning demands, so a silent destroy becomes a
+  // confirm.
+  if (
+    !input.confirmOverwriteCanonicalChanges &&
+    !sameJsonValue(
+      input.pinned.canonicalValue,
+      resource.payload[input.patch.fieldKey] ?? null
+    )
+  ) {
+    throw new ApiError(
+      409,
+      "canonical_overwrite_confirmation_required",
+      "NabaPresence changed independently. Confirm the overwrite."
     )
   }
   const payload = {
@@ -772,6 +1012,8 @@ async function applyMenuDecision(
     proposalId: string
     expectedCanonicalRevision: string
     patch: Parameters<typeof applyFoodMenuPatch>[1]
+    confirmOverwriteCanonicalChanges: boolean
+    pinnedCanonicalValue: unknown
     googlePath: string | null
     googleItemLabel: string | null
     googleSectionLabel: string | null
@@ -805,6 +1047,31 @@ async function applyMenuDecision(
     )
   }
   const currentMenus = Array.isArray(resource.payload) ? resource.payload : []
+  // Per-item counterpart of the profile guard: the revision the panel sent is
+  // the live one even when the user edited this item after the proposal was
+  // raised. merge_item and remove_item are the two ops with a local
+  // counterpart the proposal pinned; insert_item has none, and the section ops
+  // are whole-section moves the label lookup already validates.
+  if (
+    !input.confirmOverwriteCanonicalChanges &&
+    (input.patch.op === "merge_item" || input.patch.op === "remove_item")
+  ) {
+    const current = locateMenuItem(
+      currentMenus,
+      input.patch.sectionLabel,
+      input.patch.itemLabel
+    )
+    if (
+      current &&
+      !sameJsonValue(input.pinnedCanonicalValue, menuItemSummary(current))
+    ) {
+      throw new ApiError(
+        409,
+        "canonical_overwrite_confirmation_required",
+        "NabaPresence changed independently. Confirm the overwrite."
+      )
+    }
+  }
   const nextMenus = applyFoodMenuPatch(currentMenus, input.patch)
   const updated = await updateCanonicalResource({
     sql,

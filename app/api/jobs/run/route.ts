@@ -7,6 +7,10 @@ export const maxDuration = 60
 
 export const POST = route({
   auth: "cron",
-  handler: () =>
-    withAdvisoryLock("naba:jobs", () => runDueJobs({ budgetMs: 45_000 })),
+  // The tick's request id correlates every audit row it writes - the
+  // dead-lettered webhooks and the exhausted recoveries - with this run.
+  handler: ({ requestId }) =>
+    withAdvisoryLock("naba:jobs", () =>
+      runDueJobs({ budgetMs: 45_000, requestId })
+    ),
 })

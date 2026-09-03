@@ -11,6 +11,25 @@ export type VerificationReason = {
   message: string
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/**
+ * Does the reply name this location, as a name rather than as a fragment of
+ * one? `unique (organisation_id, name)` keeps sibling names distinct but lets
+ * one contain another ("Lapen Inn" and "Lapen Inn Riverside"), and the
+ * generation prompt invites the reply to name its own location — so a raw
+ * `includes` reads every correct mention of the longer name as a mention of
+ * the shorter one.
+ */
+function mentionsLocation(body: string, name: string): boolean {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`,
+    "iu"
+  ).test(body)
+}
+
 export function deterministicVerification(input: {
   body: string
   reviewText: string | null
@@ -21,7 +40,6 @@ export function deterministicVerification(input: {
 }): VerificationReason[] {
   const reasons: VerificationReason[] = []
   const body = input.body.trim()
-  const lower = body.toLowerCase()
   const reviewLower = input.reviewText?.toLowerCase() ?? ""
   const add = (code: string, severity: "warn" | "fail", message: string) =>
     reasons.push({ code, severity, message })
@@ -87,12 +105,21 @@ export function deterministicVerification(input: {
       "The reply asks the reviewer to change, remove, or raise their rating."
     )
   }
-  const wrongLocation = input.otherLocationNames.find(
-    (name) =>
-      name !== input.locationName &&
+  // A sibling whose name is contained in this location's own name is matched
+  // by every reply that correctly names the location it belongs to, so it can
+  // never be evidence of the wrong one. Drop those first, then require a real
+  // name boundary: this check promotes the whole verdict to `fail` and blocks
+  // publishing, so it must not fire on a reply that is right.
+  const ownName = input.locationName.toLowerCase()
+  const wrongLocation = input.otherLocationNames.find((name) => {
+    const candidate = name.toLowerCase()
+    return (
+      candidate !== ownName &&
       name.length > 3 &&
-      lower.includes(name.toLowerCase())
-  )
+      !ownName.includes(candidate) &&
+      mentionsLocation(body, name)
+    )
+  })
   if (wrongLocation) {
     add(
       "wrong_location",

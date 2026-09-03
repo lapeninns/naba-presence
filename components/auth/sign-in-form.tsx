@@ -172,7 +172,7 @@ function SignInForm({
         <p className="text-body text-muted-foreground">
           We sent a confirmation link to {email}. Open it, then sign in.
         </p>
-        <ResendConfirmationButton email={email} />
+        <ResendConfirmationButton email={email} inviteToken={inviteToken} />
         <Button
           type="button"
           variant="outline"
@@ -296,7 +296,7 @@ function SignInForm({
           <p className="text-caption text-muted-foreground">
             Didn&apos;t receive a confirmation email?
           </p>
-          <ResendConfirmationButton email={email} />
+          <ResendConfirmationButton email={email} inviteToken={inviteToken} />
         </div>
       ) : null}
     </form>

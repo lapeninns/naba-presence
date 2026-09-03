@@ -114,10 +114,28 @@ test.describe("inbox critical journeys", () => {
     const state = await readJourneyState()
     await useCookie(page, baseURL, state.viewerCookie)
     await page.goto("/inbox")
-    await openReview(page, state.directReview.text)
+    // The approval review, not the direct one: the publish journey above
+    // leaves `directReview` live on Google, which drops it out of the default
+    // Needs reply queue AND relabels the action bar's primary control "Update
+    // reply" (components/inbox/action-bar.tsx). `approvalReview` is never
+    // replied to, so the viewer meets the control in its "Publish reply"
+    // state whichever order these tests run in.
+    await openReview(page, state.approvalReview.text)
     const publish = page.getByRole("button", { name: "Publish reply" })
     await expect(publish).toBeDisabled()
-    await expect(page.getByRole("textbox", { name: "Your reply" })).toBeDisabled()
+    // The composer is READ-ONLY, not disabled: a viewer is meant to be able to
+    // read and copy the reply (reply-composer.tsx sets `readOnly`, keeping the
+    // text selectable) and is told why in words. `not.toBeEditable()` is what
+    // actually holds a viewer out of the box — `toBeDisabled()` is false for a
+    // readonly control, so it was asserting nothing about this composer.
+    await expect(
+      page.getByRole("textbox", { name: "Your reply" })
+    ).not.toBeEditable()
+    await expect(
+      page.getByText(
+        "You can read this reply, but you do not have permission to edit it."
+      )
+    ).toBeVisible()
   })
 
   test("dirty draft: switching reviews confirms before discarding edits", async ({
@@ -127,12 +145,28 @@ test.describe("inbox critical journeys", () => {
     const state = await readJourneyState()
     await useCookie(page, baseURL, state.cookie)
     await page.goto("/inbox?queue=all")
-    await openReview(page, state.directReview.text)
+    // Dirty the review that is never replied to: the publish journey above
+    // leaves `directReview` in sync with Google, and a settled reply renders
+    // as a read-only summary behind an "Edit reply" button
+    // (components/inbox/reply-composer.tsx) — no textbox to dirty.
+    await openReview(page, state.approvalReview.text)
     await page.getByRole("textbox", { name: "Your reply" }).fill("Unsaved edit in progress")
 
-    // Cancelling the confirm keeps us on the same review with the text intact.
-    page.once("dialog", (dialog) => dialog.dismiss())
-    await page.getByRole("button").filter({ hasText: state.approvalReview.text }).first().click()
+    // Switching away asks first. The inbox lives inside DirtyGuardProvider, so
+    // the question is the in-app AlertDialog, never window.confirm.
+    await page.getByRole("button").filter({ hasText: state.directReview.text }).first().click()
+    const discard = page.getByRole("alertdialog", {
+      name: "Discard unsaved reply?",
+    })
+    await expect(discard).toBeVisible()
+
+    // Keeping the edits stays on the same review with the text intact.
+    await discard.getByRole("button", { name: "Keep editing" }).click()
+    await expect(
+      page
+        .getByRole("region", { name: "Selected review" })
+        .getByText(state.approvalReview.text, { exact: true })
+    ).toBeVisible()
     await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Unsaved edit in progress"
     )

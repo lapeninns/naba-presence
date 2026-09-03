@@ -16,6 +16,8 @@ const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 const verificationToken = "harness-pubsub-token-32-characters!!"
 
+type SeededAttempt = { reviewId: string; replyId: string; attemptId: string }
+
 describeDatabase("unlink and disconnect routing cleanup", () => {
   let admin: ReturnType<typeof postgres>
   let runtime: ReturnType<typeof postgres>
@@ -28,9 +30,14 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
   let unlinkGoogleLocationName: string
   let disconnectConnectionId: string
   let disconnectLocationId: string
+  let strandedAttempt: SeededAttempt
+  let inFlightAttempt: SeededAttempt
+  let liveReplyAttempt: SeededAttempt
   let reclaimLocationA: string
   let reclaimLocationB: string
   let reclaimGoogleLocationName: string
+  let relinkExternalA: string
+  let relinkExternalB: string
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
@@ -60,6 +67,39 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       googleAccountName: disconnectConnection.googleAccountName,
     })
     disconnectLocationId = disconnectLocation.externalLocationId
+    // Three attempts on the connection about to disappear: an `ambiguous` one
+    // nothing can ever read back again, a `started` one whose write may
+    // already have landed at Google, and an `ambiguous` one against a reply
+    // that is already live at Google.
+    strandedAttempt = await seedPublishAttempt(
+      disconnectConnection.connectionId,
+      disconnectConnection.googleAccountName,
+      "ambiguous"
+    )
+    inFlightAttempt = await seedPublishAttempt(
+      disconnectConnection.connectionId,
+      disconnectConnection.googleAccountName,
+      "started"
+    )
+    liveReplyAttempt = await seedPublishAttempt(
+      disconnectConnection.connectionId,
+      disconnectConnection.googleAccountName,
+      "ambiguous",
+      "published"
+    )
+
+    const relinkConnection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    ;[relinkExternalA, relinkExternalB] = await Promise.all(
+      ["a", "b"].map((suffix) =>
+        seedExternalLocation(
+          relinkConnection.connectionId,
+          relinkConnection.googleAccountName,
+          suffix
+        )
+      )
+    )
 
     const reclaimConnectionA = await seedGoogleConnection(admin, {
       organisationId: owner.organisationId,
@@ -70,9 +110,7 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       googleAccountName: reclaimConnectionA.googleAccountName,
     })
     reclaimLocationA = reclaimA.externalLocationId
-    const [reclaimExternalA] = await admin<
-      { google_location_name: string }[]
-    >`
+    const [reclaimExternalA] = await admin<{ google_location_name: string }[]>`
       select google_location_name
       from external_location
       where id = ${reclaimLocationA}
@@ -172,6 +210,112 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
     await Promise.all([admin.end(), runtime.end()])
   })
 
+  /**
+   * A review on `connectionId` with a reply parked at `attemptStatus`. The
+   * workflow is walked one legal step at a time because
+   * enforce_review_workflow_transition rejects new -> publish_requested; a
+   * `published` reply is walked one step further, because that is the state a
+   * reply already live at Google sits in while a delete of it goes ambiguous.
+   */
+  async function seedPublishAttempt(
+    connectionId: string,
+    googleAccountName: string,
+    attemptStatus: "ambiguous" | "started",
+    replyStatus: "accepted" | "published" = "accepted"
+  ): Promise<SeededAttempt> {
+    const seeded = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId,
+      googleAccountName,
+    })
+    const replyId = randomUUID()
+    const attemptId = randomUUID()
+    await admin`
+      insert into review_reply (
+        id,
+        organisation_id,
+        review_id,
+        current_body,
+        publish_status
+      )
+      values (
+        ${replyId},
+        ${owner.organisationId},
+        ${seeded.reviewId},
+        'Queued reply awaiting Google',
+        ${replyStatus}
+      )
+    `
+    const workflow = ["drafted", "verified", "publish_requested"]
+    if (replyStatus === "published") workflow.push("published")
+    for (const status of workflow) {
+      await admin`
+        update review set workflow_status = ${status} where id = ${seeded.reviewId}
+      `
+    }
+    await admin`
+      insert into publish_attempt (
+        id,
+        organisation_id,
+        review_reply_id,
+        idempotency_key,
+        request_body_hash,
+        status,
+        attempt_no,
+        next_attempt_at
+      )
+      values (
+        ${attemptId},
+        ${owner.organisationId},
+        ${replyId},
+        ${`disconnect-key-${attemptId}`},
+        ${`disconnect-hash-${attemptId}`},
+        ${attemptStatus},
+        1,
+        now()
+      )
+    `
+    return { reviewId: seeded.reviewId, replyId, attemptId }
+  }
+
+  /** An unlinked Google location; both share a title on purpose. */
+  async function seedExternalLocation(
+    connectionId: string,
+    googleAccountName: string,
+    suffix: string
+  ): Promise<string> {
+    const id = randomUUID()
+    await admin`
+      insert into external_location (
+        id,
+        organisation_id,
+        google_connection_id,
+        google_account_name,
+        google_location_name,
+        title,
+        verified
+      )
+      values (
+        ${id},
+        ${owner.organisationId},
+        ${connectionId},
+        ${googleAccountName},
+        ${`locations/relink-${suffix}-${id}`},
+        'Relink duplicate inn',
+        true
+      )
+    `
+    return id
+  }
+
+  function link(externalLocationId: string) {
+    return fetch(`${server.baseUrl}/api/location-links`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ externalLocationId }),
+    })
+  }
+
   function unlink(externalLocationId: string, cookie = owner.cookie) {
     return fetch(
       `${server.baseUrl}/api/location-links?externalLocationId=${externalLocationId}`,
@@ -256,6 +400,117 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       where external_location_id = ${disconnectLocationId}
     `
     expect(link.is_active).toBe(false)
+    // Revocation is phase one and commits before any Google call, so a
+    // provider outage can never leave live tokens on a "disconnected" row.
+    const [connection] = await admin<
+      {
+        status: string
+        accessToken: Buffer | null
+        refreshToken: Buffer | null
+        purgeDueAt: Date | null
+      }[]
+    >`
+      select
+        status,
+        access_token_ciphertext as "accessToken",
+        refresh_token_ciphertext as "refreshToken",
+        purge_due_at as "purgeDueAt"
+      from google_connection
+      where id = ${disconnectConnectionId}
+    `
+    expect(connection.status).toBe("disconnected")
+    expect(connection.accessToken).toBeNull()
+    expect(connection.refreshToken).toBeNull()
+    expect(connection.purgeDueAt).not.toBeNull()
+  })
+
+  it("disconnect settles the attempts it strands and leaves the rest alone", async () => {
+    const [stranded] = await admin<
+      {
+        status: string
+        errorCode: string | null
+        nextAttemptAt: Date | null
+      }[]
+    >`
+      select
+        status,
+        provider_error_code as "errorCode",
+        next_attempt_at as "nextAttemptAt"
+      from publish_attempt
+      where id = ${strandedAttempt.attemptId}
+    `
+    expect(stranded).toMatchObject({
+      status: "failed",
+      errorCode: "connection_disconnected",
+    })
+    expect(stranded.nextAttemptAt).toBeNull()
+    const [event] = await admin<{ eventType: string }[]>`
+      select event_type as "eventType"
+      from publish_attempt_event
+      where publish_attempt_id = ${strandedAttempt.attemptId}
+    `
+    expect(event.eventType).toBe("completed")
+    const [reply] = await admin<{ publishStatus: string }[]>`
+      select publish_status as "publishStatus"
+      from review_reply
+      where id = ${strandedAttempt.replyId}
+    `
+    expect(reply.publishStatus).toBe("failed")
+    const [review] = await admin<{ workflowStatus: string }[]>`
+      select workflow_status as "workflowStatus"
+      from review
+      where id = ${strandedAttempt.reviewId}
+    `
+    expect(review.workflowStatus).toBe("failed")
+
+    // A `started` attempt may already have written to Google; only
+    // reclaim_expired_jobs may move it, and never to a terminal state here.
+    const [inFlight] = await admin<{ status: string }[]>`
+      select status
+      from publish_attempt
+      where id = ${inFlightAttempt.attemptId}
+    `
+    expect(inFlight.status).toBe("started")
+
+    // The attempt is unresolvable either way, so it is settled -- but the
+    // reply it belongs to is live at Google, and failing it would make the
+    // local row disagree with what a reader of the review actually sees.
+    const [live] = await admin<
+      {
+        status: string
+        publishStatus: string
+        workflowStatus: string
+      }[]
+    >`
+      select
+        pa.status,
+        rr.publish_status as "publishStatus",
+        r.workflow_status as "workflowStatus"
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      join review r on r.id = rr.review_id
+      where pa.id = ${liveReplyAttempt.attemptId}
+    `
+    expect(live).toEqual({
+      status: "failed",
+      publishStatus: "published",
+      workflowStatus: "published",
+    })
+  })
+
+  it("relinks an internal location that a previous unlink left behind", async () => {
+    const first = await link(relinkExternalA)
+    expect(first.status, await first.clone().text()).toBe(201)
+    const created = (await first.json()) as { link: { locationId: string } }
+
+    expect((await unlink(relinkExternalA)).status).toBe(200)
+
+    // B has the same title, so it resolves to the same internal location -
+    // whose one-to-one slot the deactivated A link still occupies.
+    const second = await link(relinkExternalB)
+    expect(second.status, await second.clone().text()).toBe(201)
+    const relinked = (await second.json()) as { link: { locationId: string } }
+    expect(relinked.link.locationId).toBe(created.link.locationId)
   })
 
   it("re-discovery after another tenant's unlink can claim the freed route", async () => {

@@ -98,7 +98,16 @@ async function openAiStructured<T>(
         "The AI provider timed out."
       )
     }
-    throw error
+    // Everything else out of `fetch` is a transport failure (DNS, TLS, reset)
+    // during a provider outage. Left raw it is neither an ApiError nor a
+    // ZodError, so mapError returns an opaque 500 and the caller cannot tell a
+    // reachable-but-unhappy provider from an unreachable one - which is
+    // exactly the distinction lib/server/drafts.ts settles a draft on.
+    throw new ApiError(
+      502,
+      "ai_provider_error",
+      "The AI provider could not be reached."
+    )
   }
   const payload = (await response.json()) as Record<string, unknown>
   if (!response.ok) {
@@ -195,12 +204,35 @@ export function buildSemanticVerificationPrompt(
   ].join("\n")
 }
 
+/** Did the semantic pass execute, and what did it say? */
+export type SemanticVerificationResult = {
+  ran: boolean
+  reasons: VerificationReason[]
+}
+
+/**
+ * The semantic half of verification.
+ *
+ * `ran: false` means the pass was deliberately not attempted: the
+ * `SEMANTIC_VERIFY_ENABLED` kill switch is off (the degraded mode
+ * docs/runbook.md prescribes for an OpenAI incident) or this install has no
+ * `OPENAI_API_KEY` (`optionalText` - a keyless deployment is supported, and
+ * the integration harness is one). The caller must not then record a
+ * checks_version claiming this layer ran.
+ *
+ * A provider that was called and failed is NOT reported here: it throws, and
+ * `runSemanticVerification` in lib/server/drafts.ts decides what that means
+ * for the draft.
+ */
 export async function semanticVerification(
   input: SemanticInput
-): Promise<VerificationReason[]> {
-  if (!getServerEnv().OPENAI_API_KEY) return []
+): Promise<SemanticVerificationResult> {
+  const env = getServerEnv()
+  if (!env.SEMANTIC_VERIFY_ENABLED || !env.OPENAI_API_KEY) {
+    return { ran: false, reasons: [] }
+  }
   const result = await openAiStructured(
-    getServerEnv().OPENAI_MODEL_VERIFY,
+    env.OPENAI_MODEL_VERIFY,
     "review_reply_verification",
     {
       type: "object",
@@ -219,29 +251,32 @@ export async function semanticVerification(
     buildSemanticVerificationPrompt(input),
     semanticVerificationSchema
   )
-  return [
-    ...result.unsupportedClaims.map((claim) => ({
-      code: "unsupported_claim",
-      severity: "fail" as const,
-      message: claim,
-    })),
-    ...(result.unsafeEscalation
-      ? [
-          {
-            code: "unsafe_escalation",
-            severity: "fail" as const,
-            message: "The reply contains an unsafe escalation.",
-          },
-        ]
-      : []),
-    ...(result.toneMismatch
-      ? [
-          {
-            code: "tone_mismatch",
-            severity: "warn" as const,
-            message: "The reply tone may not fit the review.",
-          },
-        ]
-      : []),
-  ]
+  return {
+    ran: true,
+    reasons: [
+      ...result.unsupportedClaims.map((claim) => ({
+        code: "unsupported_claim",
+        severity: "fail" as const,
+        message: claim,
+      })),
+      ...(result.unsafeEscalation
+        ? [
+            {
+              code: "unsafe_escalation",
+              severity: "fail" as const,
+              message: "The reply contains an unsafe escalation.",
+            },
+          ]
+        : []),
+      ...(result.toneMismatch
+        ? [
+            {
+              code: "tone_mismatch",
+              severity: "warn" as const,
+              message: "The reply tone may not fit the review.",
+            },
+          ]
+        : []),
+    ],
+  }
 }

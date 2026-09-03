@@ -3,6 +3,7 @@ import type { TransactionSql } from "postgres"
 
 import type { OperationsHealth } from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { SCHEDULER_TICK_NAMES } from "@/lib/server/leases"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -16,12 +17,44 @@ type AlertingFields = Pick<
   | "ambiguousPublishAttempts"
   | "staleStartedAttempts"
   | "dueJobBacklog"
+  | "dueWebhookBacklog"
+  | "dueRunnerCheckpointBacklog"
+  | "dueMetricsCheckpointBacklog"
+  | "dueUnclaimedCheckpointBacklog"
+  | "duePublishBacklog"
   | "checkpointFailures24h"
   | "connectionErrors24h"
+  | "refreshTokensExpiringSoon"
+  | "reconcileStalenessSeconds"
+  | "heldPurgeLocations"
+  | "pendingPurgeAgeSeconds"
 >
 
+/**
+ * Everything the aggregate reads, minus the aggregate. `dueJobBacklog` is the
+ * sum of its five sources rather than a sixth subquery, so the total and the
+ * breakdown can never disagree.
+ */
+type AlertingRow = Omit<AlertingFields, "dueJobBacklog">
+
+/**
+ * Per-tenant counters, summed across the fleet by `platformHealth`.
+ *
+ * The backlog is broken out by whoever owes the work rather than narrowed to
+ * the job runner's share. Narrowing it to `claim_due_jobs`' own
+ * `sync_type in ('backfill','sweep')` would hide genuinely due `performance`
+ * and `keywords` checkpoints, which their own crons do claim; leaving it
+ * unattributed made a `performance` checkpoint indistinguishable from a
+ * wedged runner. Each checkpoint bucket now also carries the reaper arm the
+ * webhook and publish terms always had, so an expired lease
+ * `reclaim_expired_jobs` is about to collect counts as the backlog it is.
+ *
+ * `dueUnclaimedCheckpointBacklog` is the one bucket nothing claims;
+ * `reconcile` settles straight to succeeded and a stranded `notification` row
+ * dead-letters (0030), so it drains to zero rather than latching.
+ */
 async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
-  const [fields] = await sql<AlertingFields[]>`
+  const [row] = await sql<AlertingRow[]>`
     select
       (
         select count(*)::integer
@@ -47,32 +80,84 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
         select count(*)::integer
         from publish_attempt
         where status = 'started'
-          and started_at < now() - interval '10 minutes'
+          and coalesce(
+            lease_expires_at, started_at + interval '10 minutes'
+          ) <= now()
       ) as "staleStartedAttempts",
       (
-        (
-          select count(*)
-          from processed_webhook_event
-          where status = 'failed'
-            and next_attempt_at <= now()
-        ) + (
-          select count(*)
-          from sync_checkpoint
-          where status in ('pending', 'failed')
-            and next_attempt_at <= now()
-        ) + (
-          select count(*)
-          from publish_attempt
-          where (
-            status in ('ambiguous', 'retryable')
-            and coalesce(next_attempt_at, now()) <= now()
-            and provider_error_code is distinct from 'job_claimed'
-          ) or (
-            status = 'started'
-            and started_at < now() - interval '10 minutes'
+        select count(*)::integer
+        from processed_webhook_event
+        where (status = 'failed' and next_attempt_at <= now())
+          or (
+            status = 'processing'
+            and coalesce(
+              lease_expires_at, received_at + interval '15 minutes'
+            ) <= now()
           )
+      ) as "dueWebhookBacklog",
+      (
+        select count(*)::integer
+        from sync_checkpoint
+        where sync_type in ('backfill', 'sweep')
+          and (
+            (status in ('pending', 'failed') and next_attempt_at <= now())
+            or (
+              status = 'running'
+              and coalesce(
+                lease_expires_at, started_at + interval '15 minutes'
+              ) <= now()
+            )
+          )
+      ) as "dueRunnerCheckpointBacklog",
+      (
+        select count(*)::integer
+        from sync_checkpoint
+        where sync_type in ('performance', 'keywords')
+          and dead_lettered_at is null
+          and (
+            (status in ('pending', 'failed') and next_attempt_at <= now())
+            or (
+              status = 'running'
+              and coalesce(
+                lease_expires_at, started_at + interval '15 minutes'
+              ) <= now()
+            )
+          )
+      ) as "dueMetricsCheckpointBacklog",
+      (
+        select count(*)::integer
+        from sync_checkpoint
+        where sync_type in ('reconcile', 'notification')
+          and (
+            (status in ('pending', 'failed') and next_attempt_at <= now())
+            or (
+              status = 'running'
+              and coalesce(
+                lease_expires_at, started_at + interval '15 minutes'
+              ) <= now()
+            )
+          )
+      ) as "dueUnclaimedCheckpointBacklog",
+      (
+        select count(*)::integer
+        from publish_attempt
+        -- The recovery ceiling is the same 8 the recover arm of
+        -- claim_due_jobs enforces (0034) and MAX_RECOVERY_ATTEMPTS in
+        -- lib/server/jobs.ts settles on. An attempt whose terminal settle was
+        -- lost at exactly that count is unclaimable, so counting it would
+        -- pin the gauge above zero for good.
+        where (
+          status in ('ambiguous', 'retryable')
+          and coalesce(next_attempt_at, now()) <= now()
+          and coalesce(lease_expires_at, '-infinity'::timestamptz) <= now()
+          and (status <> 'ambiguous' or recovery_attempts < 8)
+        ) or (
+          status = 'started'
+          and coalesce(
+            lease_expires_at, started_at + interval '10 minutes'
+          ) <= now()
         )
-      )::integer as "dueJobBacklog",
+      ) as "duePublishBacklog",
       (
         select count(*)::integer
         from sync_checkpoint
@@ -84,25 +169,130 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
         from google_connection
         where last_error_code is not null
           and updated_at >= now() - interval '24 hours'
-      ) as "connectionErrors24h"
+      ) as "connectionErrors24h",
+      (
+        select count(*)::integer
+        from google_connection
+        -- Google issues seven-day refresh tokens while the OAuth client is in
+        -- Testing publishing status, so the cliff arrives with no other
+        -- signal: every refresh starts failing at once. Terminal connections
+        -- are excluded because reconnecting them is already the ask.
+        where status not in ('disconnected', 'revoked')
+          and refresh_token_expires_at is not null
+          and refresh_token_expires_at <= now() + interval '3 days'
+      ) as "refreshTokensExpiringSoon",
+      (
+        select extract(epoch from (now() - max(finished_at)))::integer
+        from sync_checkpoint
+        where sync_type = 'reconcile'
+          and finished_at is not null
+      ) as "reconcileStalenessSeconds",
+      (
+        select count(*)::integer
+        from external_location l
+        where l.google_connection_id in (
+          select id from google_connection
+          where status = 'disconnected'
+            and purge_due_at <= now()
+        )
+          and exists (
+            select 1 from review r
+            join legal_hold h
+              on h.review_id = r.id and h.released_at is null
+            where r.external_location_id = l.id
+          )
+      ) as "heldPurgeLocations",
+      (
+        select extract(epoch from (now() - min(c.purge_due_at)))::integer
+        from google_connection c
+        where c.status = 'disconnected'
+          and c.purge_due_at <= now()
+          and exists (
+            select 1 from external_location l
+            where l.google_connection_id = c.id
+          )
+      ) as "pendingPurgeAgeSeconds"
   `
-  return fields
+  return {
+    ...row,
+    dueJobBacklog:
+      row.dueWebhookBacklog +
+      row.dueRunnerCheckpointBacklog +
+      row.dueMetricsCheckpointBacklog +
+      row.dueUnclaimedCheckpointBacklog +
+      row.duePublishBacklog,
+  }
 }
 
-async function schedulerHeartbeatAt() {
+/**
+ * How long each tick may go without completing before its absence is worth
+ * acting on: a small multiple of the interval `scripts/scheduler.mjs`
+ * documents for it, so one missed run is noise and a stopped tick is not.
+ * Change these together with the scheduler's defaults.
+ */
+const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
+  // 60s tick; matches the five-minute "scheduler silent" rule in
+  // docs/observability.md.
+  jobs: 300,
+  // 900s ticks, three intervals.
+  reconcile: 2_700,
+  "presence-resources": 2_700,
+  // 21600s tick, three intervals.
+  performance: 64_800,
+  // 86400s ticks, two intervals.
+  retention: 172_800,
+  keywords: 172_800,
+}
+
+const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs
+
+type SchedulerLiveness = Pick<
+  OperationsHealth,
+  "schedulerHeartbeatAt" | "schedulerHeartbeatStale" | "schedulerTicks"
+>
+
+/**
+ * Liveness for the scheduler process and for each tick it drives.
+ *
+ * `schedulerHeartbeatAt` is still the row the jobs tick writes even while
+ * paused, so it keeps meaning "the scheduler reached the web process". Each
+ * per-tick row is stamped by that tick's advisory lease on a completed run
+ * (lib/server/leases.ts), so a tick that has been failing, skipping on a
+ * wedged lock, or never registered at all reports as stale instead of hiding
+ * behind the jobs tick's heartbeat.
+ */
+async function schedulerLiveness(): Promise<SchedulerLiveness> {
   // Platform-level read: ops_heartbeat is not tenant-scoped, so it is read
   // outside withTenant.
-  const [heartbeat] = await getDatabase()<
-    { schedulerHeartbeatAt: Date | null }[]
-  >`
-    select beat_at as "schedulerHeartbeatAt"
+  const rows = await getDatabase()<{ name: string; beatAt: Date }[]>`
+    select name, beat_at as "beatAt"
     from ops_heartbeat
-    where name = 'scheduler'
   `
-  // Normalised here so the tenant projection below can be checked against
-  // the wire contract; `NextResponse.json` would have emitted the same ISO
-  // string from the `Date`.
-  return heartbeat?.schedulerHeartbeatAt?.toISOString() ?? null
+  const beats = new Map(rows.map((row) => [row.name, row.beatAt]))
+  const ageSeconds = (beatAt: Date | undefined) =>
+    beatAt ? (Date.now() - beatAt.getTime()) / 1000 : null
+  const scheduler = beats.get("scheduler")
+  const schedulerAge = ageSeconds(scheduler)
+  return {
+    // Normalised here so the tenant projection below can be checked against
+    // the wire contract; `NextResponse.json` would have emitted the same ISO
+    // string from the `Date`.
+    schedulerHeartbeatAt: scheduler?.toISOString() ?? null,
+    schedulerHeartbeatStale:
+      schedulerAge === null || schedulerAge > SCHEDULER_STALE_AFTER_SECONDS,
+    schedulerTicks: SCHEDULER_TICK_NAMES.map((name) => {
+      const beatAt = beats.get(name)
+      const age = ageSeconds(beatAt)
+      const staleAfterSeconds =
+        TICK_STALE_AFTER_SECONDS[name] ?? SCHEDULER_STALE_AFTER_SECONDS
+      return {
+        name,
+        lastCompletedAt: beatAt?.toISOString() ?? null,
+        staleAfterSeconds,
+        stale: age === null || age > staleAfterSeconds,
+      }
+    }),
+  }
 }
 
 async function platformHealth() {
@@ -121,23 +311,50 @@ async function platformHealth() {
     ambiguousPublishAttempts: 0,
     staleStartedAttempts: 0,
     dueJobBacklog: 0,
+    dueWebhookBacklog: 0,
+    dueRunnerCheckpointBacklog: 0,
+    dueMetricsCheckpointBacklog: 0,
+    dueUnclaimedCheckpointBacklog: 0,
+    duePublishBacklog: 0,
     checkpointFailures24h: 0,
     connectionErrors24h: 0,
+    refreshTokensExpiringSoon: 0,
+    reconcileStalenessSeconds: null,
+    heldPurgeLocations: 0,
+    pendingPurgeAgeSeconds: null,
   }
+  // Counters add across the fleet; the three age/staleness fields are
+  // "the worst tenant", so they take the maximum and stay null until some
+  // tenant reports one.
+  const SUMMED = [
+    "failedWebhookEvents",
+    "deadWebhookEvents",
+    "ambiguousPublishAttempts",
+    "staleStartedAttempts",
+    "dueJobBacklog",
+    "dueWebhookBacklog",
+    "dueRunnerCheckpointBacklog",
+    "dueMetricsCheckpointBacklog",
+    "dueUnclaimedCheckpointBacklog",
+    "duePublishBacklog",
+    "checkpointFailures24h",
+    "connectionErrors24h",
+    "refreshTokensExpiringSoon",
+    "heldPurgeLocations",
+  ] as const
+  const MAXIMISED = [
+    "oldestFailedEventAgeSeconds",
+    "reconcileStalenessSeconds",
+    "pendingPurgeAgeSeconds",
+  ] as const
   for (const organisation of organisations) {
     const fields = await withTenant(organisation.id, tenantAlerting)
-    totals.failedWebhookEvents += fields.failedWebhookEvents
-    totals.deadWebhookEvents += fields.deadWebhookEvents
-    totals.ambiguousPublishAttempts += fields.ambiguousPublishAttempts
-    totals.staleStartedAttempts += fields.staleStartedAttempts
-    totals.dueJobBacklog += fields.dueJobBacklog
-    totals.checkpointFailures24h += fields.checkpointFailures24h
-    totals.connectionErrors24h += fields.connectionErrors24h
-    if (fields.oldestFailedEventAgeSeconds !== null) {
-      totals.oldestFailedEventAgeSeconds = Math.max(
-        totals.oldestFailedEventAgeSeconds ?? 0,
-        fields.oldestFailedEventAgeSeconds
-      )
+    for (const key of SUMMED) totals[key] += fields[key]
+    for (const key of MAXIMISED) {
+      const value = fields[key]
+      if (value !== null) {
+        totals[key] = Math.max(totals[key] ?? 0, value)
+      }
     }
   }
   return {
@@ -145,7 +362,7 @@ async function platformHealth() {
     generatedAt: new Date().toISOString(),
     organisationCount: organisations.length,
     ...totals,
-    schedulerHeartbeatAt: await schedulerHeartbeatAt(),
+    ...(await schedulerLiveness()),
   }
 }
 
@@ -166,7 +383,7 @@ export const GET = route({
     }
 
     const session = requireRole(await requireSession(), ["owner", "admin"])
-    const heartbeat = await schedulerHeartbeatAt()
+    const liveness = await schedulerLiveness()
     const health = await withTenant(session.organisationId, async (sql) => {
       const [sync] = await sql`
         select
@@ -259,7 +476,7 @@ export const GET = route({
         replyRejections30d: rejections,
         providerTotalDivergence30d: providerDivergence.count,
         ...alerting,
-        schedulerHeartbeatAt: heartbeat,
+        ...liveness,
       } satisfies OperationsHealth
     })
     return NextResponse.json(health, {

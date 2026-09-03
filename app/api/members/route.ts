@@ -1,3 +1,5 @@
+import type { TransactionSql } from "postgres"
+
 import {
   memberRemoveSchema,
   memberUpdateSchema,
@@ -10,6 +12,30 @@ import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+/**
+ * Throws 409 `last_owner` unless the organisation still has an owner other
+ * than the one this transaction is about to demote or remove.
+ *
+ * `for update` over the whole owner set, not a bare count: two admins acting
+ * on two different owners at once both read "2 owners" and both committed,
+ * leaving the organisation with none — and only an existing owner can grant
+ * `owner` back, so there is no recovery. Locking the set makes the second
+ * transaction wait, re-read after the first commits, and see one owner left.
+ * `member_last_owner_guard` (0031) backstops any writer that skips this.
+ */
+async function assertAnotherOwnerRemains(sql: TransactionSql) {
+  const owners = await sql`
+    select 1 from member where role = 'owner' for update
+  `
+  if (owners.count <= 1) {
+    throw new ApiError(
+      409,
+      "last_owner",
+      "The organisation must retain at least one owner."
+    )
+  }
+}
 
 export const GET = route({
   roles: ["owner", "admin"],
@@ -75,9 +101,7 @@ export const PATCH = route({
   }) => {
     assertRoleChangeAllowed(session.role, input.role)
     const member = await tenant(async (sql) => {
-      const [current] = await sql<
-        { role: MemberRole; canPublish: boolean }[]
-      >`
+      const [current] = await sql<{ role: MemberRole; canPublish: boolean }[]>`
         select role, can_publish as "canPublish"
         from member
         where user_id = ${input.userId}
@@ -93,16 +117,8 @@ export const PATCH = route({
           "Only an owner can change an owner."
         )
       }
-      if (
-        current.role === "owner" &&
-        input.role !== "owner" &&
-        (await sql`select 1 from member where role = 'owner'`).count <= 1
-      ) {
-        throw new ApiError(
-          409,
-          "last_owner",
-          "The organisation must retain at least one owner."
-        )
+      if (current.role === "owner" && input.role !== "owner") {
+        await assertAnotherOwnerRemains(sql)
       }
       const [row] = await sql`
         update member
@@ -164,16 +180,12 @@ export const DELETE = route({
           "Only an owner can remove an owner."
         )
       }
-      if (
-        current.role === "owner" &&
-        (await sql`select 1 from member where role = 'owner'`).count <= 1
-      ) {
-        throw new ApiError(
-          409,
-          "last_owner",
-          "The organisation must retain at least one owner."
-        )
+      if (current.role === "owner") {
+        await assertAnotherOwnerRemains(sql)
       }
+      // The member_prune_location_grants trigger (0031) removes this user's
+      // location_member rows with the membership; without it a later
+      // re-invitation inherits the old per-location publish grants.
       await sql`delete from member where user_id = ${input.userId}`
       await writeAudit(sql, {
         organisationId: session.organisationId,

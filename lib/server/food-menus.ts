@@ -43,11 +43,17 @@ type Menus = FoodMenu[]
  * validating/publishing/succeeded/failed/ambiguous; there is no validateOnly
  * phase for Food Menus, so `validated` is never written. A settled failure is
  * retried with a fresh row keyed `${key}:${requestId}` (the module's
- * historical behaviour).
+ * historical behaviour). `started_at` (0036) is what lets an interrupted
+ * publish be recovered by readback instead of blocking the same menu for the
+ * 180 days its row is retained.
  */
 const foodMenusAttempts = attemptStore({
   table: "food_menus_sync_attempt",
-  columns: { errorCode: "last_error_code", response: "provider_response" },
+  columns: {
+    errorCode: "last_error_code",
+    response: "provider_response",
+    startedAt: "started_at",
+  },
   retry: "insert",
 })
 
@@ -291,7 +297,9 @@ function foodMenusReadback(
   }
 }
 
-export async function publishFoodMenus(input: PublishFoodMenusInput): Promise<PublishFoodMenusResult> {
+export async function publishFoodMenus(
+  input: PublishFoodMenusInput
+): Promise<PublishFoodMenusResult> {
   requireGbpWrite(getServerEnv(), "foodMenus", {
     code: "food_menus_paused",
     message: "Food Menu publishing is paused.",

@@ -184,9 +184,7 @@ describeDatabase("email and password authentication", () => {
       { redirect: "manual" }
     )
     expect([303, 307]).toContain(confirmation.status)
-    expect(confirmation.headers.get("location")).toBe(
-      `${server.baseUrl}/home`
-    )
+    expect(confirmation.headers.get("location")).toBe(`${server.baseUrl}/home`)
     const cookie = sessionCookie(confirmation)
     const sessionResponse = await fetch(`${server.baseUrl}/api/session`, {
       headers: { cookie },
@@ -278,9 +276,7 @@ describeDatabase("email and password authentication", () => {
     const invitation = (await invitationResponse.json()) as {
       inviteUrl: string
     }
-    const inviteToken = new URL(invitation.inviteUrl).pathname
-      .split("/")
-      .at(-1)
+    const inviteToken = new URL(invitation.inviteUrl).pathname.split("/").at(-1)
     expect(inviteToken).toBeTruthy()
 
     const login = await fetch(`${server.baseUrl}/api/auth/password/login`, {
@@ -327,5 +323,252 @@ describeDatabase("email and password authentication", () => {
     `
     expect(accepted.acceptedAt).toBeInstanceOf(Date)
     expect(accepted.memberCount).toBe(1)
+
+    // Replaying an accepted token must not re-run acceptance.
+    const replay = await fetch(`${server.baseUrl}/api/auth/password/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email,
+        password: "Invited member!42",
+        inviteToken,
+      }),
+    })
+    expect(replay.status).toBe(409)
+    expect(await replay.json()).toMatchObject({
+      error: "invitation_already_used",
+    })
+  })
+
+  it("refuses an invite token presented by a different verified identity", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const invitedEmail = `auth-route-${randomUUID()}@nabapresence.test`
+    const otherEmail = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(invitedEmail, otherEmail)
+    auth.addUser({
+      id: randomUUID(),
+      email: otherEmail,
+      password: "Somebody else!42",
+      displayName: "Token finder",
+    })
+    const invitationResponse = await fetch(
+      `${server.baseUrl}/api/invitations`,
+      {
+        method: "POST",
+        headers: {
+          cookie: owner.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          email: invitedEmail,
+          role: "admin",
+          canPublish: true,
+        }),
+      }
+    )
+    expect(invitationResponse.status).toBe(201)
+    const { inviteUrl } = (await invitationResponse.json()) as {
+      inviteUrl: string
+    }
+    const inviteToken = new URL(inviteUrl).pathname.split("/").at(-1)
+
+    // A leaked invite link is the whole threat model here: the only thing
+    // standing between it and organisation membership is the email check.
+    const login = await fetch(`${server.baseUrl}/api/auth/password/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: otherEmail,
+        password: "Somebody else!42",
+        inviteToken,
+      }),
+    })
+    expect(login.status).toBe(403)
+    expect(await login.json()).toMatchObject({
+      error: "invitation_email_mismatch",
+    })
+
+    const [outcome] = await admin<
+      { memberCount: number; acceptedAt: Date | null }[]
+    >`
+      select
+        (
+          select count(*)::int
+          from member m
+          join app_user u on u.id = m.user_id
+          where m.organisation_id = ${owner.organisationId}
+            and u.email = ${otherEmail}
+        ) as "memberCount",
+        (
+          select i.accepted_at
+          from invitation i
+          where i.organisation_id = ${owner.organisationId}
+            and i.email = ${invitedEmail}
+        ) as "acceptedAt"
+    `
+    expect(outcome.memberCount).toBe(0)
+    expect(outcome.acceptedAt).toBeNull()
+  })
+
+  it("recovers a login whose default organisation no longer has a membership", async () => {
+    const inviting = await createTestTenant(admin)
+    const other = await createTestTenant(admin)
+    organisations.push(inviting.organisationId, other.organisationId)
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    auth.addUser({
+      id: randomUUID(),
+      email,
+      password: "Removed member!42",
+      displayName: "Removed member",
+    })
+    const invitationResponse = await fetch(
+      `${server.baseUrl}/api/invitations`,
+      {
+        method: "POST",
+        headers: {
+          cookie: inviting.cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email, role: "member", canPublish: false }),
+      }
+    )
+    expect(invitationResponse.status).toBe(201)
+    const { inviteUrl } = (await invitationResponse.json()) as {
+      inviteUrl: string
+    }
+    const inviteToken = new URL(inviteUrl).pathname.split("/").at(-1)
+    const firstLogin = await fetch(
+      `${server.baseUrl}/api/auth/password/login`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password: "Removed member!42",
+          inviteToken,
+        }),
+      }
+    )
+    expect(firstLogin.status).toBe(200)
+    const [joined] = await admin<{ userId: string }[]>`
+      select id::text as "userId" from app_user where email = ${email}
+    `
+    // A second membership: the point of the fix is that the user is sent to
+    // an organisation they still belong to, not that they get a fresh one.
+    await admin`
+      insert into member (organisation_id, user_id, role, can_publish)
+      values (${other.organisationId}, ${joined.userId}, 'member', false)
+    `
+
+    const removal = await fetch(`${server.baseUrl}/api/members`, {
+      method: "DELETE",
+      headers: {
+        cookie: inviting.cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ userId: joined.userId }),
+    })
+    expect(removal.status, await removal.clone().text()).toBe(200)
+
+    // Before the fix the login returned 200 and every request made with the
+    // cookie it set was 401, forever - the session pointed at the
+    // organisation the member row had just been deleted from.
+    const secondLogin = await fetch(
+      `${server.baseUrl}/api/auth/password/login`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password: "Removed member!42" }),
+      }
+    )
+    expect(secondLogin.status).toBe(200)
+    const sessionResponse = await fetch(`${server.baseUrl}/api/session`, {
+      headers: { cookie: sessionCookie(secondLogin) },
+    })
+    const session = (await sessionResponse.json()) as {
+      session: { organisationId: string; userId: string } | null
+    }
+    expect(session.session).toMatchObject({
+      organisationId: other.organisationId,
+      userId: joined.userId,
+    })
+    const [repaired] = await admin<{ defaultOrganisationId: string | null }[]>`
+      select default_organisation_id::text as "defaultOrganisationId"
+      from app_user
+      where id = ${joined.userId}
+    `
+    expect(repaired.defaultOrganisationId).toBe(other.organisationId)
+  })
+
+  it("revokes the user's other sessions when a password reset completes", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    auth.addUser({
+      id: randomUUID(),
+      email,
+      password: "Old password!42",
+      displayName: "Reset owner",
+    })
+    const login = async (password: string) => {
+      const response = await fetch(
+        `${server.baseUrl}/api/auth/password/login`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        }
+      )
+      expect(response.status).toBe(200)
+      return sessionCookie(response)
+    }
+    // Two devices, one of which stands in for the stolen cookie the reset is
+    // supposed to evict.
+    const stolenCookie = await login("Old password!42")
+    await login("Old password!42")
+    const firstSession = await fetch(`${server.baseUrl}/api/session`, {
+      headers: { cookie: stolenCookie },
+    })
+    const before = (await firstSession.json()) as {
+      session: { organisationId: string } | null
+    }
+    expect(before.session).not.toBeNull()
+    organisations.push(before.session!.organisationId)
+
+    await fetch(`${server.baseUrl}/api/auth/password/reset/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+    const tokenHash = auth.recoveryToken(email)
+    const reset = await fetch(
+      `${server.baseUrl}/api/auth/password/reset/complete`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tokenHash, password: "New password!84" }),
+      }
+    )
+    expect(reset.status, await reset.clone().text()).toBe(200)
+    const freshCookie = sessionCookie(reset)
+
+    const stolen = await fetch(`${server.baseUrl}/api/session`, {
+      headers: { cookie: stolenCookie },
+    })
+    expect(await stolen.json()).toEqual({ session: null })
+    const fresh = await fetch(`${server.baseUrl}/api/session`, {
+      headers: { cookie: freshCookie },
+    })
+    expect(
+      ((await fresh.json()) as { session: unknown }).session
+    ).not.toBeNull()
+    const [remaining] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from app_session s
+      join app_user u on u.id = s.user_id
+      where u.email = ${email}
+    `
+    expect(remaining.count).toBe(1)
   })
 })

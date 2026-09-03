@@ -1,7 +1,7 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { ImagesIcon, PlusIcon } from "lucide-react"
+import { ImagesIcon } from "lucide-react"
 import { useState } from "react"
 
 import { AddPhotoDialog } from "@/components/locations/photos/add-photo-dialog"
@@ -91,11 +91,9 @@ export function PhotosLibrary({
         {media.total === 0 ? (
           <PhotosEmpty
             filtersActive={filtersActive}
-            disabled={disabled}
             onClearFilters={() =>
               onStateChange({ ownership: "all", category: "all", page: 1 })
             }
-            onAdd={() => setAddOpen(true)}
           />
         ) : (
           <PhotosGrid
@@ -125,16 +123,16 @@ export function PhotosLibrary({
   )
 }
 
+// No "Add photos" action here on purpose: the toolbar directly above this
+// panel always renders one, wired to the same handler. Offering it twice on
+// one screen gave the same action two accessible names in the same view, and
+// left the operator guessing whether the two buttons did different things.
 function PhotosEmpty({
   filtersActive,
-  disabled,
   onClearFilters,
-  onAdd,
 }: {
   filtersActive: boolean
-  disabled: boolean
   onClearFilters: () => void
-  onAdd: () => void
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
@@ -155,12 +153,7 @@ function PhotosEmpty({
         <Button variant="outline" size="sm" onClick={onClearFilters}>
           Clear filters
         </Button>
-      ) : (
-        <Button size="sm" disabled={disabled} onClick={onAdd}>
-          <PlusIcon aria-hidden data-icon="inline-start" />
-          Add photos
-        </Button>
-      )}
+      ) : null}
     </div>
   )
 }

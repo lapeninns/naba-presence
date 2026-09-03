@@ -25,6 +25,7 @@ import {
   findAttemptByKey,
   insertAttempt,
   rearmAttempt,
+  supersedeQueuedSiblings,
   writePublishAttemptEvent,
   type ExistingAttempt,
 } from "./attempt"
@@ -37,6 +38,7 @@ export type PublishRecord = {
   review_id: string
   google_review_name_ciphertext: Buffer
   update_time: Date
+  restricted_at: Date | null
   review_text: string | null
   rating: number | null
   location_name: string
@@ -80,6 +82,7 @@ export async function loadPublishRecord(
       r.id::text as review_id,
       r.google_review_name_ciphertext,
       r.update_time,
+      r.restricted_at,
       r.review_text,
       r.star_rating::integer as rating,
       l.name as location_name,
@@ -127,13 +130,26 @@ export async function loadPublishRecord(
 }
 
 /**
- * Publish gates: verified location, a verified and current draft, and
- * evidence that still hashes to what verification saw.
+ * Publish gates: an unrestricted review, a verified location, a verified and
+ * current draft, and evidence that still hashes to what verification saw.
+ *
+ * Restriction is checked here rather than only on the drafts route because a
+ * draft verified BEFORE the restriction request was fulfilled still passes
+ * every other gate - nothing a restriction touches feeds the evidence hash -
+ * so publishing it would post a public reply to a data subject whose
+ * restriction the audit trail already records as completed.
  */
 export function assertDraftPublishable(
   record: PublishRecord,
   expectedReviewUpdateTime: string
 ) {
+  if (record.restricted_at) {
+    throw new ApiError(
+      409,
+      "review_restricted",
+      "This review is restricted from reply processing."
+    )
+  }
   if (!record.verified) {
     throw new ApiError(
       409,
@@ -258,6 +274,9 @@ export async function resolveExistingPublishAttempt(
  * Persist the `started` mutation intent: the accepted local reply, the
  * attempt row (new or re-armed), its `started` event, the
  * `publish_requested` workflow transition and the audit event.
+ *
+ * Returns null when a concurrent request won the idempotency key, so the
+ * caller can resolve against the row that request wrote.
  */
 export async function startPublishIntent(
   sql: TransactionSql,
@@ -268,7 +287,7 @@ export async function startPublishIntent(
     bodyHash: string
     existing: ExistingAttempt | null
   }
-): Promise<PublishIntent> {
+): Promise<PublishIntent | null> {
   const [reply] = await sql<{ id: string }[]>`
     insert into review_reply (
       organisation_id,
@@ -304,7 +323,15 @@ export async function startPublishIntent(
         requestBodyHash: key.bodyHash,
         operation: "publish",
         intendedBody: record.body,
+        publishGeneration: record.publish_generation,
       })
+  if (!attempt) return null
+  await supersedeQueuedSiblings(sql, {
+    organisationId: input.organisationId,
+    reviewReplyId: reply.id,
+    keepAttemptId: attempt.id,
+    reason: "superseded_by_publish",
+  })
   await writePublishAttemptEvent(sql, {
     organisationId: input.organisationId,
     publishAttemptId: attempt.id,
@@ -387,6 +414,23 @@ export async function preparePublish(
       bodyHash,
       existing,
     })
-    return { kind: "proceed", ...intent }
+    if (intent) return { kind: "proceed", ...intent }
+
+    // A concurrent request (a double click, or two approvers deciding at
+    // once) committed this key first. Its row is now visible, so resolve
+    // against it: an in-flight winner answers `publish_in_progress`.
+    const winner = await findAttemptByKey(sql, {
+      organisationId: input.organisationId,
+      idempotencyKey,
+    })
+    if (!winner) {
+      throw new ApiError(409, "publish_in_progress", "A publish is in flight.")
+    }
+    return (
+      (await resolveExistingPublishAttempt(sql, winner)) ?? {
+        kind: "needs_recovery",
+        attemptId: winner.id,
+      }
+    )
   })
 }

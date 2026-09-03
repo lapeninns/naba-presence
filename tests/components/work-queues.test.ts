@@ -16,7 +16,6 @@ const byStatus = {
   published: 10,
   rejected: 1,
   failed: 2,
-  escalated: 5,
 }
 
 describe("countForQueue", () => {
@@ -29,9 +28,8 @@ describe("countForQueue", () => {
     expect(countForQueue(byStatus, "needs_reply")).toBe(2 + 1 + 3 + 2 + 1)
   })
 
-  it("sums awaiting_approval and escalated from a single status each", () => {
+  it("sums awaiting_approval from a single status", () => {
     expect(countForQueue(byStatus, "awaiting_approval")).toBe(4)
-    expect(countForQueue(byStatus, "escalated")).toBe(5)
   })
 
   it("uses total for the all queue", () => {
@@ -68,14 +66,6 @@ describe("buildWorkItems", () => {
         window: "live",
       },
       {
-        id: "escalated",
-        label: "Escalated",
-        description: "Reviews flagged for escalation",
-        count: 5,
-        href: "/inbox?queue=escalated",
-        window: "live",
-      },
-      {
         id: "unresolved_low",
         label: "Unresolved low ratings",
         description: "1–2 star reviews with no published reply",
@@ -84,6 +74,6 @@ describe("buildWorkItems", () => {
         window: "last_30_days",
       },
     ])
-    expect(totalOpenWork(items)).toBe(9 + 4 + 5 + 7)
+    expect(totalOpenWork(items)).toBe(9 + 4 + 7)
   })
 })
