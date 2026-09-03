@@ -14,7 +14,10 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The full gate through e2e runs ~18 minutes, so a 20-minute budget left
+    # no headroom for runner variance: the first green pull request took
+    # 17m36s and the identical tree was then cancelled mid-e2e on main.
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:17-alpine
