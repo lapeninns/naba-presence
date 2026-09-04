@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/sheet"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
+import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { applySavedView, savedView } from "@/lib/inbox/saved-views"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -85,6 +86,12 @@ function InboxViewInner({
   const reviewsQuery = useReviews(filters)
   const countsQuery = useReviewCounts({ groupBy: "client" })
   const clientsQuery = useClients()
+  // Narrowed to the client in view when the inbox is filtered to one, so the
+  // empty state describes the client the operator is looking at rather than
+  // the whole agency.
+  const scopedClients = (clientsQuery.data?.items ?? []).filter(
+    (client) => !state.clientId || client.id === state.clientId
+  )
   const selection = useSelection()
   const [railOpen, setRailOpen] = useState(false)
   const health = useConnectionHealth()
@@ -395,16 +402,27 @@ function InboxViewInner({
 
   function renderLoadedList() {
     if (reviews.length === 0) {
-      const total = countsQuery.data?.total ?? 0
-      const kind =
-        health.status === "disconnected"
-          ? "disconnected"
-          : hasActiveFilters(state) || total > 0
-            ? "filtered"
-            : "no-data"
+      // The clients this view already has in cache carry the import facts, so
+      // the empty state can name which of the reasons it is instead of
+      // guessing the reassuring one.
+      const facts = {
+        hasActiveFilters: hasActiveFilters(state),
+        totalOutsideFilters: countsQuery.data?.total ?? 0,
+        connection:
+          health.status === "disconnected"
+            ? ("disconnected" as const)
+            : health.status === "connected"
+              ? ("connected" as const)
+              : ("unknown" as const),
+        clients: scopedClients,
+      }
       return (
         <div className="p-6">
-          <EmptyState kind={kind} onClear={onClearFilters} />
+          <EmptyState
+            reason={emptyReason(facts)}
+            counts={emptyCounts(facts)}
+            onClear={onClearFilters}
+          />
         </div>
       )
     }
