@@ -10,6 +10,7 @@ import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import { connectionAccessToken, googleReviews } from "@/lib/server/google"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 
 const RATINGS: Record<string, number> = {
   ONE: 1,
@@ -627,13 +628,28 @@ export async function syncLinkedLocation(input: {
                 and google_review_name_hash in ${sql(pageReviewNameHashes)}
             `
           }
-          if (pages === 0) {
+          // Provider totals describe the complete enumeration and are only
+          // authoritative on its first page. A resumed request starts with
+          // `pages === 0` too, so using that condition alone allowed a later
+          // page with omitted totals to erase the first page's evidence.
+          if (pages === 0 && header.pageToken === null) {
             await sql`
               update external_location
               set
-                google_average_rating = ${page.averageRating ?? null},
-                google_total_review_count = ${page.totalReviewCount ?? null},
-                provider_totals_refreshed_at = now()
+                google_average_rating = coalesce(
+                  ${page.averageRating ?? null},
+                  google_average_rating
+                ),
+                google_total_review_count = coalesce(
+                  ${page.totalReviewCount ?? null},
+                  google_total_review_count
+                ),
+                provider_totals_refreshed_at = case
+                  when ${page.averageRating ?? null}::numeric is not null
+                    or ${page.totalReviewCount ?? null}::integer is not null
+                  then now()
+                  else provider_totals_refreshed_at
+                end
               where id = ${input.externalLocationId}
             `
           }
@@ -679,6 +695,46 @@ export async function syncLinkedLocation(input: {
       // that needs more pages never finishes. The cursor and the tombstone
       // window survive, so the next sweep resumes where this one stopped.
       return settleFailure("sweep_incomplete", { parked: true })
+    }
+    if (input.type === "sweep" && header.sweepStartedAt) {
+      const [evidence] = await withTenant(
+        input.organisationId,
+        (sql) => sql<
+          {
+            expectedCount: number | null
+            seenCount: number
+            storedCount: number
+          }[]
+        >`
+          select
+            e.google_total_review_count as "expectedCount",
+            count(r.id) filter (
+              where r.last_seen_at >= ${header.sweepStartedAt}
+            )::integer as "seenCount",
+            count(r.id)::integer as "storedCount"
+          from external_location e
+          left join review r on r.external_location_id = e.id
+          where e.id = ${input.externalLocationId}
+          group by e.google_total_review_count
+        `
+      )
+      const expectedCount = evidence?.expectedCount ?? null
+      const seenCount = evidence?.seenCount ?? 0
+      const storedCount = evidence?.storedCount ?? 0
+      const countMismatch = expectedCount !== null && seenCount !== expectedCount
+      const incompleteEnumerationWithoutProviderTotal =
+        expectedCount === null && seenCount < storedCount
+
+      if (countMismatch || incompleteEnumerationWithoutProviderTotal) {
+        log.warn("review.sweep_provider_count_mismatch", {
+          organisationId: input.organisationId,
+          externalLocationId: input.externalLocationId,
+          expectedCount,
+          seenCount,
+          storedCount,
+        })
+        return settleFailure("sweep_provider_count_mismatch")
+      }
     }
     await withTenant(input.organisationId, async (sql) => {
       if (input.type === "sweep" && header.sweepStartedAt) {

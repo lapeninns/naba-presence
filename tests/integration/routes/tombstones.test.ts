@@ -26,6 +26,7 @@ describeDatabase("provider-deleted review tombstones", () => {
   let locationId: string
   let googleAccountName: string
   let googleLocationName: string
+  let omitProviderTotals = false
   const present = new Set(Array.from({ length: 100 }, (_, index) => index))
 
   beforeAll(async () => {
@@ -94,6 +95,7 @@ describeDatabase("provider-deleted review tombstones", () => {
       status: 200,
       json: {
         reviews: slice.map(review),
+        ...(!omitProviderTotals ? { totalReviewCount: reviews.length } : {}),
         ...(offset + 50 < reviews.length
           ? { nextPageToken: String(offset + 50) }
           : {}),
@@ -233,6 +235,63 @@ describeDatabase("provider-deleted review tombstones", () => {
       last_error_code: "sweep_incomplete",
     })
   })
+
+  it("preserves stored history when Google returns an unexplained empty page", async () => {
+    omitProviderTotals = true
+    present.clear()
+    await admin`
+      update review
+      set provider_deleted_at = null, last_seen_at = null
+      where external_location_id = ${externalLocationId}
+    `
+    await admin`
+      update sync_checkpoint
+      set page_token = null, sweep_started_at = null
+      where organisation_id = ${owner.organisationId}
+        and external_location_id = ${externalLocationId}
+        and sync_type = 'sweep'
+    `
+
+    const response = await postSync("sweep", {
+      externalLocationIds: [externalLocationId],
+      maxPagesPerLocation: 50,
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({
+      locations: [
+        {
+          status: "failed",
+          errorCode: "sweep_provider_count_mismatch",
+        },
+      ],
+    })
+
+    const [reviews] = await admin<{ stored: number; visible: number }[]>`
+      select
+        count(*)::integer as stored,
+        count(*) filter (
+          where provider_deleted_at is null
+        )::integer as visible
+      from review
+      where external_location_id = ${externalLocationId}
+    `
+    expect(reviews.visible).toBe(reviews.stored)
+    expect(reviews.visible).toBeGreaterThan(0)
+
+    const [checkpoint] = await admin<
+      { status: string; last_error_code: string | null }[]
+    >`
+      select status, last_error_code
+      from sync_checkpoint
+      where organisation_id = ${owner.organisationId}
+        and external_location_id = ${externalLocationId}
+        and sync_type = 'sweep'
+    `
+    expect(checkpoint).toMatchObject({
+      status: "failed",
+      last_error_code: "sweep_provider_count_mismatch",
+    })
+  })
 })
 
 describeDatabase("sweeps larger than one page budget", () => {
@@ -292,6 +351,7 @@ describeDatabase("sweeps larger than one page budget", () => {
               Date.parse("2026-07-01T12:00:00.000Z") - index * 60_000
             ).toISOString(),
           })),
+          totalReviewCount: reviews.length,
           ...(offset + 50 < reviews.length
             ? { nextPageToken: String(offset + 50) }
             : {}),
