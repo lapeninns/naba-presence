@@ -44,6 +44,7 @@ export function BookingTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="booking links"
       useResource={usePlaceActions}
       resource="booking"
     >

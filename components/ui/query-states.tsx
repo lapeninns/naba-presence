@@ -6,6 +6,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
 
@@ -28,10 +29,37 @@ export function queryStatus(
   return "ready"
 }
 
-/** Default pending skeleton: a heading line and a content block, announced busy. */
-export function QueryPending({ className }: { className?: string }) {
+/**
+ * The default pending state: a sentence saying what is being fetched, then the
+ * placeholder blocks.
+ *
+ * The sentence is not decoration. Every `Skeleton` is `aria-hidden`, and
+ * `aria-busy` on a plain div announces nothing on insertion, so this component
+ * used to be literally empty to a screen reader — and to a sighted user it was
+ * two grey rectangles that looked the same at 400ms and at 30s. Callers that
+ * pass a `label` get a `role="status"` region, which is announced when it
+ * appears and again if the label changes.
+ */
+export function QueryPending({
+  className,
+  label,
+}: {
+  className?: string
+  /** What is being fetched, e.g. "Loading this location's hours". */
+  label?: string
+}) {
   return (
-    <div className={cn("flex flex-col gap-3", className)} aria-busy="true">
+    <div
+      className={cn("flex flex-col gap-3", className)}
+      aria-busy="true"
+      role={label ? "status" : undefined}
+    >
+      {label ? (
+        <p className="flex items-center gap-2 text-ui text-ink-muted">
+          <Spinner decorative className="size-3.5 shrink-0" />
+          {label}
+        </p>
+      ) : null}
       <Skeleton className="h-8 w-48" />
       <Skeleton className="h-40 w-full" />
     </div>
@@ -88,6 +116,8 @@ export type QueryStatesProps = {
   status: QueryStatus
   /** Rendered while pending; defaults to `<QueryPending />`. */
   pending?: ReactNode
+  /** Names what is loading on the default pending state. Ignored if `pending` is set. */
+  pendingLabel?: string
   /**
    * Rendered on error. A string is the alert title; an object configures
    * `QueryError`; a React element is rendered as-is (for surfaces whose error
@@ -105,12 +135,14 @@ export type QueryStatesProps = {
 export function QueryStates({
   status,
   pending,
+  pendingLabel,
   error,
   onRetry,
   empty,
   children,
 }: QueryStatesProps) {
-  if (status === "pending") return <>{pending ?? <QueryPending />}</>
+  if (status === "pending")
+    return <>{pending ?? <QueryPending label={pendingLabel} />}</>
   if (status === "error") {
     if (isValidElement(error)) return error
     const content: QueryErrorContent =

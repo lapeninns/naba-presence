@@ -67,6 +67,7 @@ export function PhotosTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="photos"
       useResource={useMediaPage}
       resource="photos"
     >

@@ -27,6 +27,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="food menu"
       useResource={useFoodMenus}
       resource="menu"
     >

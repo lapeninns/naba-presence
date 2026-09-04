@@ -33,6 +33,7 @@ export function HoursTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="opening hours"
       useResource={useHours}
       resource="hours"
     >

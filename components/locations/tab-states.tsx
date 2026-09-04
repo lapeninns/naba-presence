@@ -4,8 +4,16 @@ import { Empty } from "@/components/ui/empty"
 import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { isNotLinkedError } from "@/lib/errors/action-errors"
 
-export function TabLoading() {
-  return <QueryPending />
+/**
+ * The pending state for every per-location tab.
+ *
+ * It takes a label because its sibling `TabError` below spends real care
+ * telling "not linked to Google yet" apart from a genuine failure, while the
+ * loading path said nothing at all — for the five to ten seconds that Google's
+ * fan-out actually takes.
+ */
+export function TabLoading({ label }: { label?: string } = {}) {
+  return <QueryPending label={label} />
 }
 
 export function TabError({ error, onRetry }: { error: unknown; onRetry: () => void }) {

@@ -133,6 +133,11 @@ export type LocationTabRenderProps<T> = TabGateReasons & {
 
 export type LocationTabProps<T> = {
   locationId: string
+  /**
+   * What this tab is fetching, in the operator's words, e.g. "opening hours".
+   * Rendered as "Reading the opening hours from Google…" while pending.
+   */
+  loadingLabel?: string
   /** The resource query hook, e.g. `useHours`. Called by the shell once the gate passes. */
   useResource: (locationId: string) => ResourceQuery<T>
   /**
@@ -165,8 +170,12 @@ export function LocationTab<T>({
   writesEnabled,
   requires,
   gatedTitle,
+  loadingLabel,
   children,
 }: LocationTabProps<T>) {
+  const pendingLabel = loadingLabel
+    ? `Reading the ${loadingLabel} from Google…`
+    : undefined
   const capsQuery = useLocationCapabilities(locationId)
 
   // A failed capabilities query is an honest retry for every tab: without the
@@ -184,7 +193,7 @@ export function LocationTab<T>({
     // The gate needs a known role: pending → skeleton, unsatisfied → notice.
     // In both the resource hook below is not mounted, so the owner/admin-only
     // GET is never issued.
-    if (capsQuery.isPending) return <TabLoading />
+    if (capsQuery.isPending) return <TabLoading label={pendingLabel} />
     if (!gateSatisfied(capsQuery.data, requires))
       return <Empty title={gatedTitle ?? GATED_SECTION_TITLE} />
   }
@@ -196,6 +205,7 @@ export function LocationTab<T>({
       resource={resource}
       writesEnabled={writesEnabled}
       caps={capsQuery.data}
+      pendingLabel={pendingLabel}
     >
       {children}
     </LocationTabResource>
@@ -208,12 +218,14 @@ function LocationTabResource<T>({
   resource,
   writesEnabled,
   caps,
+  pendingLabel,
   children,
 }: Pick<
   LocationTabProps<T>,
   "locationId" | "useResource" | "resource" | "writesEnabled" | "children"
 > & {
   caps: LocationCapabilities | undefined
+  pendingLabel: string | undefined
 }) {
   const query = useResource(locationId)
 
@@ -221,7 +233,8 @@ function LocationTabResource<T>({
   // error would show a skeleton forever instead of the retry.
   if (query.isError)
     return <TabError error={query.error} onRetry={() => void query.refetch()} />
-  if (query.isPending || query.data === undefined) return <TabLoading />
+  if (query.isPending || query.data === undefined)
+    return <TabLoading label={pendingLabel} />
 
   const data = query.data
   const enabled = writesEnabled

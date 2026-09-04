@@ -58,6 +58,7 @@ function AdministrationShell({
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="access and verification"
       useResource={useAdministration}
       resource="administration"
       requires="canEditCanonical"

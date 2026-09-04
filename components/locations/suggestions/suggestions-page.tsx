@@ -16,7 +16,7 @@ import { useProfile } from "@/lib/queries/use-location-profile"
  */
 export function SuggestionsTab({ locationId }: { locationId: string }) {
   return (
-    <LocationTab locationId={locationId} useResource={useProfile}>
+    <LocationTab locationId={locationId} loadingLabel="suggested updates" useResource={useProfile}>
       {({ data: profile, editReason }) => (
         <SuggestionsView
           locationId={locationId}

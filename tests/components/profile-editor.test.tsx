@@ -227,3 +227,49 @@ describe("ProfileTab", () => {
     })
   })
 })
+
+describe("ProfileTab while Google's half is still loading", () => {
+  it("does not claim the listing is in sync before Google has answered", async () => {
+    // The four NabaPresence fields match Google in this fixture, so `rows` is
+    // empty — but categories, address, open status and attributes have not
+    // been fetched. Claiming "In sync with Google" here was worse than saying
+    // nothing: the page asserted everything was fine, then grew by seven
+    // controls a second later.
+    const fetchMock = vi.fn(async (...args: [RequestInfo, RequestInit?]) => {
+      const url = String(args[0])
+      if (url.includes("/capabilities"))
+        return jsonResponse({
+          capabilities: { canEditCanonical: true, canPublish: true },
+        })
+      if (url.includes("/business-information")) return new Promise(() => {}) // never settles
+      if (url.includes("/profile")) return jsonResponse(PROFILE)
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    expect(
+      await screen.findByRole("textbox", { name: "Business name" })
+    ).toBeInTheDocument()
+
+    expect(screen.queryByText("In sync with Google")).toBeNull()
+    expect(screen.queryByText("Everything on this page matches Google.")).toBeNull()
+    expect(
+      screen.getByText(/Reading categories, address and attributes from Google/i)
+    ).toBeInTheDocument()
+  })
+
+  it("never asks Google for industry data a listing cannot have", async () => {
+    // Seven paced Google calls, ~3.4s, every one of which fails for an
+    // ordinary business. Google omits canOperateLodgingData/canOperateHealthData
+    // for exactly those listings, and the fixture's metadata omits both.
+    const fetchMock = stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("/industry"))
+      ).toBe(false)
+    )
+  })
+})

@@ -5,6 +5,8 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
+import { industryCapability } from "@/lib/locations/industry-capability"
+import { Spinner } from "@/components/ui/spinner"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import type { ChangeRow } from "@/components/editors/change-diff"
 import { LocationTab } from "@/components/locations/location-tab"
@@ -110,6 +112,7 @@ export function ProfileTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="business profile"
       useResource={useProfileEditor}
       resource="businessInformation"
     >
@@ -404,29 +407,42 @@ function ProfileEditor({
   }
 
   const isDirty = valuesDirty || listingDirty || attributesDirty
+  // Until Google's half of the listing is in, `rows` can only hold the four
+  // NabaPresence fields, so an empty `rows` does NOT mean the listing matches:
+  // categories, address, open status and every attribute are simply unfetched.
+  // Claiming "in sync" here is worse than saying nothing — the page asserts
+  // everything is fine and then silently grows by seven controls.
+  const googleReady = business !== null
+  const settled = googleReady && rows.length === 0
   const blocked =
     publishReason ??
     (Object.keys(listingIssues).length > 0
       ? "Fix the highlighted fields before publishing."
-      : rows.length === 0
-        ? "Everything already matches Google."
-        : null)
+      : // While Google's half is outstanding the Review button is already
+        // disabled by having nothing to review, and the status line beside the
+        // fields says why. A gate note here would be the same sentence twice.
+        !googleReady
+        ? null
+        : rows.length === 0
+          ? "Everything already matches Google."
+          : null)
 
   const unsupported = business
     ? presentUnsupportedLeaves(business.location)
     : []
+  const industry = industryCapability(business?.location)
 
   return (
     <EditorFrame
       title="Business profile"
       description="The name, categories, contact details and attributes customers see on Google."
-      statusLabel={rows.length === 0 ? "In sync with Google" : undefined}
+      statusLabel={settled ? "In sync with Google" : undefined}
       tone="healthy"
       gateReason={editReason}
       footer={
         <EditorFooter
           status={
-            rows.length === 0 ? "in_sync" : needsAck ? "conflict" : "edited"
+            settled ? "in_sync" : needsAck ? "conflict" : "edited"
           }
           isDirty={rows.length > 0}
           canDiscard={isDirty}
@@ -438,7 +454,11 @@ function ProfileEditor({
             setErrors({})
           }}
           disabledReason={blocked}
-          hint="Everything on this page matches Google."
+          hint={
+            googleReady
+              ? "Everything on this page matches Google."
+              : "Nothing to publish yet."
+          }
         />
       }
     >
@@ -451,7 +471,7 @@ function ProfileEditor({
         errors={errors}
         issues={listingIssues}
         disabled={disabled}
-        googleReady={business !== null}
+        googleReady={googleReady}
       />
 
       <ContactSection
@@ -462,12 +482,19 @@ function ProfileEditor({
         errors={errors}
         issues={listingIssues}
         disabled={disabled}
-        googleReady={business !== null}
+        googleReady={googleReady}
       />
 
       {state.businessPending ? (
-        <p className="text-ui text-ink-muted" aria-live="polite">
-          Reading the rest of the listing from Google…
+        // Named, not just "loading": the fields below are about to appear and
+        // push the footer down the page, so the operator should know that is
+        // coming rather than watch the page move under them.
+        <p
+          role="status"
+          className="flex items-center gap-2 text-ui text-ink-muted"
+        >
+          <Spinner decorative className="size-3.5 shrink-0" />
+          Reading categories, address and attributes from Google…
         </p>
       ) : null}
 
@@ -481,8 +508,14 @@ function ProfileEditor({
 
       {/* Lodging, calls and healthcare publish through their own Google APIs
           with their own hashes, so they keep their own controls rather than
-          pretending to be part of the listing write above. */}
-      <IndustrySections locationId={locationId} enabled={business !== null} />
+          pretending to be part of the listing write above.
+
+          Mounted only when Google says this listing can actually have that
+          data: the group costs seven paced Google calls, and for an ordinary
+          business every one of them fails and it renders nothing. */}
+      {industry.any ? (
+        <IndustrySections locationId={locationId} enabled={googleReady} />
+      ) : null}
 
       <AttributesSection
         metadata={business?.attributeMetadata ?? []}

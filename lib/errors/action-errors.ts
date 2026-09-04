@@ -365,6 +365,22 @@ export const SERVICE_UNAVAILABLE_COPY =
 export const NETWORK_ERROR_COPY =
   "We couldn’t reach NabaPresence. Check your connection and try again."
 export const GENERIC_ERROR_COPY = "Something went wrong. Please try again."
+export const TIMEOUT_ERROR_COPY =
+  "Google took too long to answer. Nothing was changed — try again."
+
+/**
+ * A timed-out or cancelled fetch. `AbortSignal.timeout()` rejects with a
+ * `TimeoutError` and `AbortController.abort()` with an `AbortError`; both are
+ * `DOMException`s, which is why neither matched the `TypeError` branch below.
+ * Named rather than `instanceof DOMException` so it also holds in jsdom and on
+ * the server, where the constructor is not always the same global.
+ */
+export function isTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  )
+}
 
 /**
  * Copy for an error CODE, rather than a thrown error.
@@ -394,6 +410,11 @@ export function describeActionError(
   // fetch() rejects with a TypeError when the network is down or the request
   // never reached the server; apiFetch does not wrap it.
   if (error instanceof TypeError) return NETWORK_ERROR_COPY
+  // An aborted or timed-out request rejects with a DOMException, NOT a
+  // TypeError, so it used to fall through to "Something went wrong" — the one
+  // sentence this file exists to avoid. A request that ran out of time is a
+  // different fact from a request that failed, and the operator can act on it.
+  if (isTimeoutError(error)) return TIMEOUT_ERROR_COPY
   return GENERIC_ERROR_COPY
 }
 

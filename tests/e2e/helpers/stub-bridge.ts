@@ -348,7 +348,20 @@ export default async function startJourneyBridge(config: FullConfig) {
       regularHours: { periods: [] },
       specialHours: { specialHourPeriods: [] },
       moreHours: [],
-      metadata: { canHaveFoodMenus: true, mapsUri: "https://maps.example/x", newReviewUri: "https://g.page/x/review" },
+      // The lodging and healthcare rules below serve real data for this
+      // location, so its metadata has to say Google will answer them. Google
+      // returns these two keys only when they are true, and the profile editor
+      // reads them to decide whether the industry group is worth seven paced
+      // calls (lib/locations/industry-capability.ts). Without them the fixture
+      // described a location that serves lodging data while telling callers it
+      // cannot — a shape Google never produces.
+      metadata: {
+        canHaveFoodMenus: true,
+        canOperateLodgingData: true,
+        canOperateHealthData: true,
+        mapsUri: "https://maps.example/x",
+        newReviewUri: "https://g.page/x/review",
+      },
     }
     stub.respond({ method: "GET", pathIncludes: "readMask" }, () => ({
       status: 200,

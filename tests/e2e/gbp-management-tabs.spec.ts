@@ -82,7 +82,7 @@ test("Industry sections humanise Business Calls state and surface a failing sect
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
   await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), calls: available({ callsState: "ENABLED" }), callInsights: available({ businessCallsInsights: [] }), healthcareServices: { data: null, error: "Google request failed." }, providerAttributes: available({ attributes: [] }), insuranceNetworks: available({ networks: [] }), canManage: true, writesEnabled: true } } }))
-  await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel" }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   // Lodging and calls are sections of the business profile now.
   await page.goto("/locations/location-management")
   // The status badge already humanises correctly ("Currently On", never

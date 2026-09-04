@@ -31,6 +31,7 @@ export function PostsTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
       locationId={locationId}
+      loadingLabel="posts"
       useResource={usePosts}
       resource="posts"
     >
