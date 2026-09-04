@@ -4,7 +4,12 @@ import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/ui/status-pill"
 
-export type EditorStatus = "in_sync" | "edited" | "google_dirty" | "conflict"
+export type EditorStatus =
+  | "in_sync"
+  | "edited"
+  | "unpublished"
+  | "google_dirty"
+  | "conflict"
 
 const STATUS: Record<
   EditorStatus,
@@ -12,6 +17,9 @@ const STATUS: Record<
 > = {
   in_sync: { tone: "healthy", label: "In sync with Google" },
   edited: { tone: "attention", label: "Edited" },
+  // Saved here, never sent. "Edited" read as "you just changed something",
+  // which is wrong when the difference has been sitting there for a week.
+  unpublished: { tone: "attention", label: "Not on Google yet" },
   google_dirty: { tone: "attention", label: "Changed on Google" },
   conflict: { tone: "at-risk", label: "Conflict" },
 }

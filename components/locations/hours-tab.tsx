@@ -24,7 +24,7 @@ import { useHours } from "@/lib/queries/use-location-hours"
 
 const STATUS: Record<HoursState["status"], EditorStatus> = {
   in_sync: "in_sync",
-  core_dirty: "edited",
+  core_dirty: "unpublished",
   google_dirty: "google_dirty",
   conflict: "conflict",
 }

@@ -128,7 +128,13 @@ function MenuForm({
       gateReason={editReason}
       footer={
         <EditorFooter
-          status={isDirty ? "edited" : state.status === "in_sync" ? "in_sync" : "google_dirty"}
+          status={
+            isDirty
+              ? "edited"
+              : state.status === "in_sync"
+                ? "in_sync"
+                : "unpublished"
+          }
           isDirty={isDirty}
           onReview={() => {
             setServerError(null)
