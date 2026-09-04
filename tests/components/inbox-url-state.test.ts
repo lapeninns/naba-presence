@@ -4,7 +4,6 @@ import {
   autoSelectId,
   mobilePaneFor,
   parseInboxState,
-  queueToStatuses,
   serializeInboxState,
   toReviewsFilters,
   hasActiveFilters,
@@ -21,9 +20,35 @@ describe("inbox url state", () => {
   })
 
   it("reads Home's ?locationId= contract as the initial location filter", () => {
+    // One param, two shapes: a single id from every existing deep link, or a
+    // comma list from the multi-select. Decode always yields the array.
     const state = parseInboxState(new URLSearchParams("locationId=loc-9"))
-    expect(state.locationId).toBe("loc-9")
+    expect(state.locationIds).toEqual(["loc-9"])
     expect(hasActiveFilters(state)).toBe(true)
+    expect(
+      parseInboxState(new URLSearchParams("locationId=loc-9,loc-8")).locationIds
+    ).toEqual(["loc-9", "loc-8"])
+  })
+
+  it("carries the agency filters", () => {
+    const state = parseInboxState(
+      new URLSearchParams("clientId=c1&assignee=me&view=oldest-first")
+    )
+    expect(state.clientId).toBe("c1")
+    expect(state.assignee).toBe("me")
+    expect(state.view).toBe("oldest-first")
+    expect(hasActiveFilters(state)).toBe(true)
+  })
+
+  it("names the queue on the wire instead of expanding it to statuses", () => {
+    // "Awaiting my approval" depends on who requested the approval and who may
+    // publish — facts the browser does not have. The server decides, so the
+    // rail's counts and its rows answer to one definition.
+    const filters = toReviewsFilters(
+      parseInboxState(new URLSearchParams("queue=awaiting_my_approval"))
+    )
+    expect(filters.queue).toBe("awaiting_my_approval")
+    expect(filters).not.toHaveProperty("statuses")
   })
 
   it("treats a non-default sort as an active filter", () => {
@@ -56,6 +81,7 @@ describe("inbox url state", () => {
   it("omits the default needs_reply queue from the URL", () => {
     const params = serializeInboxState({
       queue: "needs_reply",
+      locationIds: [],
       ratings: [],
       search: "",
       sort: "updated_desc",
@@ -69,6 +95,7 @@ describe("inbox url state", () => {
   it("writes queue=all when the operator leaves the default", () => {
     const params = serializeInboxState({
       queue: "all",
+      locationIds: [],
       ratings: [],
       search: "",
       sort: "updated_desc",
@@ -81,8 +108,8 @@ describe("inbox url state", () => {
 
   it("round-trips through serialize omitting defaults and empties", () => {
     const state: InboxState = {
-      queue: "published",
-      locationId: "loc-1",
+      queue: "done",
+      locationIds: ["loc-1"],
       ratings: [5],
       search: "",
       sort: "updated_desc",
@@ -92,7 +119,7 @@ describe("inbox url state", () => {
       selected: "rev-2",
     }
     const params = serializeInboxState(state)
-    expect(params.get("queue")).toBe("published")
+    expect(params.get("queue")).toBe("done")
     expect(params.get("locationId")).toBe("loc-1")
     expect(params.get("rating")).toBe("5")
     expect(params.get("selected")).toBe("rev-2")
@@ -101,19 +128,14 @@ describe("inbox url state", () => {
     expect(params.has("verification")).toBe(false)
   })
 
-  it("expands the queue into backend statuses and drops it from filters", () => {
-    expect(queueToStatuses("all")).toBeUndefined()
-    expect(queueToStatuses("awaiting_approval")).toEqual(["awaiting_approval"])
-    expect(queueToStatuses("published")).toEqual(["published"])
-    expect(queueToStatuses("needs_reply")).toContain("new")
-
+  it("passes the queue and locations straight through to the wire filters", () => {
     const filters = toReviewsFilters(
       parseInboxState(
-        new URLSearchParams("queue=awaiting_approval&locationId=loc-1")
+        new URLSearchParams("queue=awaiting_my_approval&locationId=loc-1,loc-2")
       )
     )
-    expect(filters.statuses).toEqual(["awaiting_approval"])
-    expect(filters.locationId).toBe("loc-1")
+    expect(filters.queue).toBe("awaiting_my_approval")
+    expect(filters.locationIds).toEqual(["loc-1", "loc-2"])
   })
 
   it("narrows loose URL lists to the contract vocabulary before the wire", () => {

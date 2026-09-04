@@ -419,7 +419,15 @@ export function decodeReviewsQuery(params: URLSearchParams): ReviewsQuery {
 
 export const reviewRowSchema = z.object({
   id: z.string(),
-  location: z.object({ id: z.string(), name: z.string() }),
+  // The client rides on every row: in an agency inbox a location name alone
+  // does not say whose business a review belongs to, and replying in the wrong
+  // voice is the mistake the rail and this line exist to prevent.
+  location: z.object({
+    id: z.string(),
+    name: z.string(),
+    clientId: z.string().nullable(),
+    clientName: z.string().nullable(),
+  }),
   reviewer: z.object({
     displayName: z.string().nullable(),
     isAnonymous: z.boolean(),

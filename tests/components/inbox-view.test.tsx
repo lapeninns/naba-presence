@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",
-    location: { id: "loc-1", name: "Riverside" },
+    location: { id: "loc-1", name: "Riverside", clientId: "c1", clientName: "Old Crown Group" },
     reviewer: { displayName: "Sam Traveller", isAnonymous: false, profilePhotoUrl: null },
     rating: 4,
     text: "Great stay, would return.",
@@ -202,17 +202,20 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
   })
 
   it("gates a queue change", async () => {
+    // The queue tab strip became a rail: an agency's first question is not
+    // "how many are awaiting approval" but "which client is behind".
     const user = userEvent.setup()
     renderInbox()
     const textbox = await dirtyComposer(user)
+    const rail = screen.getByRole("navigation", { name: "Review queues" })
 
-    await user.click(screen.getByRole("tab", { name: /All reviews/ }))
+    await user.click(within(rail).getByRole("button", { name: /^Done/ }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(screen.getByRole("tab", { name: /All reviews/ }))
+    await user.click(within(rail).getByRole("button", { name: /^Done/ }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")

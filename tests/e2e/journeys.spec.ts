@@ -36,14 +36,20 @@ test.describe("inbox critical journeys", () => {
     const list = page.getByRole("region", { name: "Review list" })
     await expect(list.getByText(state.directReview.text, { exact: true })).toBeVisible()
     await expect(list.getByText(state.approvalReview.text, { exact: true })).toBeVisible()
-    await expect(page.getByRole("tab", { name: /All reviews,\s+2/ })).toBeVisible()
+    // The queue tab strip became a rail grouped by client: an agency's first
+    // question is which client is behind, not which workflow state a review
+    // is in.
+    const rail = page.getByRole("navigation", { name: "Review queues" })
+    await expect(rail.getByRole("button", { name: /^Needs reply/ })).toBeVisible()
 
-    // Location filter narrows the queue and scopes counts.
+    // Location filter narrows the queue.
     await page.getByLabel("Filter by location").fill(state.directReview.locationName)
     await page
       .getByRole("option", { name: state.directReview.locationName, exact: true })
       .click()
-    await expect(page.getByRole("tab", { name: /All reviews,\s+1/ })).toBeVisible()
+    await expect(
+      list.getByText(state.approvalReview.text, { exact: true })
+    ).toHaveCount(0)
 
     await openReview(page, state.directReview.text)
     await saveVerifiedDraft(
@@ -94,7 +100,7 @@ test.describe("inbox critical journeys", () => {
     const approverContext = await browser.newContext()
     const approver = await approverContext.newPage()
     await useCookie(approver, baseURL, state.approval.approverCookie)
-    await approver.goto("/inbox?queue=awaiting_approval")
+    await approver.goto("/inbox?queue=awaiting_my_approval")
     await openReview(approver, state.approval.text)
     const approved = approver.waitForResponse(
       (r) =>

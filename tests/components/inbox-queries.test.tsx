@@ -30,7 +30,7 @@ afterEach(() => {
 
 const row = {
   id: "rev-1",
-  location: { id: "loc-1", name: "Riverside" },
+  location: { id: "loc-1", name: "Riverside", clientId: null, clientName: null },
   reviewer: { displayName: "Sam", isAnonymous: false, profilePhotoUrl: null },
   rating: 5,
   text: "Lovely",

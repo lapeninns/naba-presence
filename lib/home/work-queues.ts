@@ -1,7 +1,4 @@
-import {
-  QUEUE_STATUS_MAP,
-  type Queue,
-} from "@/lib/inbox/url-state"
+import type { ReviewCounts, ReviewQueue } from "@/lib/contracts/reviews"
 
 export type WorkWindow = "live" | "last_30_days"
 
@@ -14,15 +11,19 @@ export type WorkItem = {
   window: WorkWindow
 }
 
-/** Same math as Inbox queue tabs — keeps Overview and Inbox from drifting. */
+/**
+ * The queue's own count, straight from the server.
+ *
+ * Overview used to re-derive this by summing workflow statuses, which meant
+ * Home and the inbox agreed only for as long as nobody changed what a queue
+ * means. Both now read the same `byQueue` numbers, computed once from the
+ * predicates the list query filters by.
+ */
 export function countForQueue(
-  byStatus: Record<string, number>,
-  queue: Queue,
-  total = 0
+  counts: Pick<ReviewCounts, "byQueue"> | undefined,
+  queue: ReviewQueue
 ): number {
-  const statuses = QUEUE_STATUS_MAP[queue]
-  if (!statuses) return total
-  return statuses.reduce((sum, status) => sum + (byStatus[status] ?? 0), 0)
+  return counts?.byQueue?.[queue] ?? 0
 }
 
 /**
@@ -31,25 +32,27 @@ export function countForQueue(
  * summary so the window is labeled explicitly.
  */
 export function buildWorkItems(input: {
-  byStatus: Record<string, number>
-  total: number
+  counts: Pick<ReviewCounts, "byQueue"> | undefined
   unresolvedComplaints: number
+  /** Narrows every link to one client, for a client-scoped Home. */
+  clientId?: string
 }): WorkItem[] {
+  const scope = input.clientId ? `&clientId=${input.clientId}` : ""
   return [
     {
       id: "needs_reply",
       label: "Needs reply",
       description: "Open reviews waiting for a reply",
-      count: countForQueue(input.byStatus, "needs_reply", input.total),
-      href: "/inbox?queue=needs_reply",
+      count: countForQueue(input.counts, "needs_reply"),
+      href: `/inbox?queue=needs_reply${scope}`,
       window: "live",
     },
     {
       id: "awaiting_approval",
       label: "Awaiting approval",
       description: "Drafts waiting for a manager",
-      count: countForQueue(input.byStatus, "awaiting_approval", input.total),
-      href: "/inbox?queue=awaiting_approval",
+      count: countForQueue(input.counts, "awaiting_my_approval"),
+      href: `/inbox?queue=awaiting_my_approval${scope}`,
       window: "live",
     },
     {
@@ -57,7 +60,7 @@ export function buildWorkItems(input: {
       label: "Unresolved low ratings",
       description: "1–2 star reviews with no published reply",
       count: input.unresolvedComplaints,
-      href: "/inbox?rating=1,2&replyState=unreplied",
+      href: `/inbox?rating=1,2&replyState=unreplied${scope}`,
       window: "last_30_days",
     },
   ]

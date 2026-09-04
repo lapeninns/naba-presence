@@ -16,7 +16,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const rowFixture = {
   id: "rev-1",
-  location: { id: "loc-1", name: "Riverside" },
+  location: { id: "loc-1", name: "Riverside", clientId: "c1", clientName: "Old Crown Group" },
   reviewer: { displayName: "Sam", isAnonymous: false, profilePhotoUrl: null },
   rating: 5,
   text: "Lovely stay",

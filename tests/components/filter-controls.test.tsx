@@ -7,6 +7,7 @@ import type { InboxState } from "@/lib/inbox/url-state"
 
 const baseState: InboxState = {
   queue: "all",
+  locationIds: [],
   ratings: [],
   search: "",
   sort: "updated_desc",

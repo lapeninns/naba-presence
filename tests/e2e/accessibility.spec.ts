@@ -147,7 +147,12 @@ async function mockReviewWorkspace(
                 id: "review-state-a11y",
                 reviewer: { displayName: "Jordan Lee", isAnonymous: false, profilePhotoUrl: null },
                 rating: 5,
-                location: { id: "location-state-a11y", name: "Camden" },
+                location: {
+              id: "location-state-a11y",
+              name: "Camden",
+              clientId: "client-state-a11y",
+              clientName: "Camden Group",
+            },
                 text: "A thoughtful and accessible review.",
                 createTime: "2026-07-28T10:00:00.000Z",
                 updateTime: "2026-07-28T10:00:00.000Z",
@@ -707,7 +712,12 @@ for (const theme of themes) {
                     profilePhotoUrl: null,
                   },
                   rating: 5,
-                  location: { id: "location-a11y", name: "Camden" },
+                  location: {
+              id: "location-a11y",
+              name: "Camden",
+              clientId: "client-reviews-a11y",
+              clientName: "Camden Group",
+            },
                   text: "A thoughtful and accessible review.",
                   createTime: "2026-07-28T10:00:00.000Z",
                   updateTime: "2026-07-28T10:00:00.000Z",
@@ -841,14 +851,16 @@ for (const theme of themes) {
             exact: true,
           })
         ).toBeVisible()
-        // What must stay absent is LiveReplyDisclosure's "Live on Google"
-        // chip: that section shows Google's copy only when it disagrees with
-        // what the composer holds, and this fixture's draft and reply are the
-        // same words. `exact` is load-bearing — an unanchored getByText is a
-        // case-insensitive SUBSTRING match, so it also hits the strip sentence
-        // above and reports a correctly absent section as present.
+        // What must stay absent is LiveReplyDisclosure's toggle: that section
+        // shows Google's copy only when it disagrees with what the composer
+        // holds, and this fixture's draft and reply are the same words.
+        //
+        // Asserted on the toggle rather than the words "Live on Google",
+        // which the lifecycle strip now also uses as the published step's meta
+        // line — a different claim (where the reply got to) about the same
+        // reply.
         await expect(
-          selectedReview.getByText("Live on Google", { exact: true })
+          selectedReview.getByRole("button", { name: /differs from the reply below/ })
         ).toBeHidden()
         await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
         await expect(

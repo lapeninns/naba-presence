@@ -47,8 +47,7 @@ function OverviewView() {
       <SetupChecklistCard role={role} />
       <DisconnectedBanner />
       <WorkQueue
-        byStatus={counts.data?.byStatus ?? {}}
-        total={counts.data?.total ?? 0}
+        counts={counts.data}
         unresolvedComplaints={
           analytics.data?.summary.unresolvedComplaints ?? 0
         }

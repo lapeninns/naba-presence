@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import { GlobeIcon, ImageIcon, ReplyIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Checkbox } from "@/components/ui/checkbox"
 import { StarRating } from "@/components/inbox/star-rating"
 import { SITUATION_TONE_CHIP } from "@/components/inbox/situation-tone"
 import { formatDate } from "@/lib/format"
@@ -25,6 +26,9 @@ function ReviewList({
   onMovePastEnd,
   timezone = "Europe/London",
   isRefreshing = false,
+  selection,
+  onReachEnd,
+  isLoadingMore = false,
 }: {
   reviews: ReviewRow[]
   selectedId: string | undefined
@@ -39,6 +43,16 @@ function ReviewList({
   timezone?: string
   /** Soft cue while a background refetch keeps previous rows visible. */
   isRefreshing?: boolean
+  /** Bulk selection. Omitted on surfaces where batching makes no sense. */
+  selection?: {
+    selected: ReadonlySet<string>
+    toggle: (id: string) => void
+    extendTo: (id: string) => void
+  }
+  /** Called when the end of the loaded rows scrolls into view. */
+  onReachEnd?: () => void
+  /** Shown under the rows while the next page is on its way. */
+  isLoadingMore?: boolean
 }) {
   const containerRef = useRef<HTMLUListElement>(null)
 
@@ -111,6 +125,26 @@ function ReviewList({
 
   const activeIndex = reviews.findIndex((review) => review.id === selectedId)
 
+  // Loading the next page as the end comes into view, rather than paging
+  // seven rows at a time over a fifty-row window. The visible "Load more"
+  // button below is not a fallback for slow connections — it is the keyboard
+  // and screen-reader path, since an observer that fires on scroll never
+  // fires for someone tabbing through rows.
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = sentinelRef.current
+    if (!node || !onReachEnd) return
+    if (typeof IntersectionObserver === "undefined") return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onReachEnd()
+      },
+      { rootMargin: "200px" }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [onReachEnd])
+
   return (
     <section
       aria-label="Review list"
@@ -164,7 +198,32 @@ function ReviewList({
             : "text-muted-foreground"
 
           return (
-            <li key={review.id}>
+            <li key={review.id} className="relative">
+              {selection ? (
+                <span
+                  className={cn(
+                    "absolute top-3.5 left-3 z-10 transition-opacity duration-(--np-duration-fast)",
+                    // Visible once ticked or on hover/focus, so an untouched
+                    // list is not a wall of empty boxes — but never hidden
+                    // from keyboards, which have no hover.
+                    selection.selected.has(review.id)
+                      ? "opacity-100"
+                      : "opacity-0 focus-within:opacity-100 group-hover/row:opacity-100"
+                  )}
+                >
+                  <Checkbox
+                    checked={selection.selected.has(review.id)}
+                    aria-label={`Select the review from ${displayName}`}
+                    onClick={(event) => {
+                      if ((event as React.MouseEvent).shiftKey) {
+                        selection.extendTo(review.id)
+                        return
+                      }
+                      selection.toggle(review.id)
+                    }}
+                  />
+                </span>
+              ) : null}
               <button
                 type="button"
                 data-slot="review-row"
@@ -175,7 +234,8 @@ function ReviewList({
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  "relative flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-[colors,background-color] duration-(--nr-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
+                  "group/row relative flex w-full items-start gap-3 border-b border-border/60 py-3 pr-4 text-left transition-[colors,background-color] duration-(--nr-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
+                  selection ? "pl-10" : "pl-4",
                   selected
                     ? // Accent tint (Google pale blue) is the sanctioned
                       // selection surface; the 2px leading bar in
@@ -237,7 +297,13 @@ function ReviewList({
                         secondaryText
                       )}
                     >
-                      {review.location.name}
+                      {/* Client first: in an agency inbox the location name
+                          alone ("High Street") does not say whose business
+                          this is, and replying in the wrong voice is the
+                          mistake this line exists to prevent. */}
+                      {review.location.clientName
+                        ? `${review.location.clientName} · ${review.location.name}`
+                        : review.location.name}
                     </span>
                     {hasIcons ? (
                       <span className="flex shrink-0 items-center gap-1.5">
@@ -284,6 +350,14 @@ function ReviewList({
           )
         })}
       </ul>
+      {onReachEnd ? (
+        <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
+      ) : null}
+      {isLoadingMore ? (
+        <p className="px-4 py-3 text-caption text-ink-muted" aria-live="polite">
+          Loading more reviews…
+        </p>
+      ) : null}
     </section>
   )
 }

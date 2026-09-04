@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 
 import { Skeleton } from "@/components/ui/skeleton"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
 import {
   buildWorkItems,
   totalOpenWork,
@@ -65,13 +66,14 @@ function WorkCard({ item }: { item: WorkItem }) {
 }
 
 function WorkQueue({
-  byStatus,
-  total,
+  counts,
   unresolvedComplaints,
   isPending,
 }: {
-  byStatus: Record<string, number>
-  total: number
+  // The whole counts payload, not a re-derivation from workflow statuses:
+  // Home and the inbox rail now read the same server-computed queue numbers,
+  // so they cannot disagree about what "needs reply" means.
+  counts: Pick<ReviewCounts, "byQueue"> | undefined
   unresolvedComplaints: number
   isPending?: boolean
 }) {
@@ -93,7 +95,7 @@ function WorkQueue({
     )
   }
 
-  const items = buildWorkItems({ byStatus, total, unresolvedComplaints })
+  const items = buildWorkItems({ counts, unresolvedComplaints })
   const open = totalOpenWork(items)
 
   return (

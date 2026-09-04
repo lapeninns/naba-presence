@@ -5,49 +5,38 @@ import {
   countForQueue,
   totalOpenWork,
 } from "@/lib/home/work-queues"
-import { QUEUE_STATUS_MAP } from "@/lib/inbox/url-state"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
 
-const byStatus = {
-  new: 2,
-  drafted: 1,
-  verified: 3,
-  awaiting_approval: 4,
-  publish_requested: 1,
-  published: 10,
-  rejected: 1,
-  failed: 2,
+const counts: Pick<ReviewCounts, "byQueue"> = {
+  byQueue: {
+    needs_reply: 9,
+    awaiting_my_approval: 4,
+    awaiting_others: 2,
+    publishing: 1,
+    failed: 2,
+    done: 11,
+    all: 29,
+  },
 }
 
 describe("countForQueue", () => {
-  it("matches Inbox QUEUE_STATUS_MAP for needs_reply", () => {
-    const expected = QUEUE_STATUS_MAP.needs_reply!.reduce(
-      (sum, status) => sum + (byStatus[status as keyof typeof byStatus] ?? 0),
-      0
-    )
-    expect(countForQueue(byStatus, "needs_reply")).toBe(expected)
-    expect(countForQueue(byStatus, "needs_reply")).toBe(2 + 1 + 3 + 2 + 1)
+  it("reads the server's own count for a queue", () => {
+    // Home used to re-derive this by summing workflow statuses, so it agreed
+    // with the inbox only until somebody changed what a queue means. Both now
+    // read the same numbers, computed from the predicates the list filters by.
+    expect(countForQueue(counts, "needs_reply")).toBe(9)
+    expect(countForQueue(counts, "awaiting_my_approval")).toBe(4)
+    expect(countForQueue(counts, "all")).toBe(29)
   })
 
-  it("sums awaiting_approval from a single status", () => {
-    expect(countForQueue(byStatus, "awaiting_approval")).toBe(4)
-  })
-
-  it("uses total for the all queue", () => {
-    expect(countForQueue(byStatus, "all", 29)).toBe(29)
-  })
-
-  it("treats missing statuses as zero", () => {
-    expect(countForQueue({}, "needs_reply")).toBe(0)
+  it("reads zero rather than throwing before the counts arrive", () => {
+    expect(countForQueue(undefined, "needs_reply")).toBe(0)
   })
 })
 
 describe("buildWorkItems", () => {
   it("builds inbox deep links and labels windows", () => {
-    const items = buildWorkItems({
-      byStatus,
-      total: 29,
-      unresolvedComplaints: 7,
-    })
+    const items = buildWorkItems({ counts, unresolvedComplaints: 7 })
     expect(items).toEqual([
       {
         id: "needs_reply",
@@ -62,7 +51,7 @@ describe("buildWorkItems", () => {
         label: "Awaiting approval",
         description: "Drafts waiting for a manager",
         count: 4,
-        href: "/inbox?queue=awaiting_approval",
+        href: "/inbox?queue=awaiting_my_approval",
         window: "live",
       },
       {
@@ -75,5 +64,18 @@ describe("buildWorkItems", () => {
       },
     ])
     expect(totalOpenWork(items)).toBe(9 + 4 + 7)
+  })
+
+  it("narrows every link to one client when scoped", () => {
+    // A client-scoped Home has to send the operator to that client's inbox,
+    // not to everything.
+    const items = buildWorkItems({
+      counts,
+      unresolvedComplaints: 0,
+      clientId: "c1",
+    })
+    for (const item of items) {
+      expect(item.href).toContain("clientId=c1")
+    }
   })
 })

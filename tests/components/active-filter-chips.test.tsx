@@ -7,7 +7,7 @@ import type { InboxState } from "@/lib/inbox/url-state"
 
 const state: InboxState = {
   queue: "all",
-  locationId: "loc-1",
+  locationIds: ["loc-1"],
   ratings: [5],
   search: "slow",
   sort: "updated_desc",
@@ -35,7 +35,7 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
     expect(screen.getByText("Verification: Failed")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove location filter" }))
-    expect(onChange).toHaveBeenCalledWith({ locationId: undefined })
+    expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
   it("humanizes multi-value publish and sync chips", () => {
@@ -43,7 +43,7 @@ describe("ActiveFilterChips", () => {
       <ActiveFilterChips
         state={{
           ...state,
-          locationId: undefined,
+          locationIds: [],
           ratings: [1, 2],
           search: "",
           verification: [],
@@ -78,7 +78,7 @@ describe("ActiveFilterChips", () => {
   it("renders nothing when no filters are active", () => {
     const { container } = render(
       <ActiveFilterChips
-        state={{ ...state, locationId: undefined, ratings: [], search: "", verification: [] }}
+        state={{ ...state, locationIds: [], ratings: [], search: "", verification: [] }}
         locations={[]}
         onChange={() => {}}
         onClear={() => {}}
@@ -92,7 +92,7 @@ describe("ActiveFilterChips", () => {
       <ActiveFilterChips
         state={{
           ...state,
-          locationId: undefined,
+          locationIds: [],
           ratings: [],
           search: "",
           verification: [],

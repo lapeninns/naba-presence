@@ -107,7 +107,9 @@ export function buildInboxQuery(
       r.id::text as id,
       json_build_object(
         'id', l.id::text,
-        'name', l.name
+        'name', l.name,
+        'clientId', l.client_id::text,
+        'clientName', client_row.name
       ) as location,
       json_build_object(
         'displayName', r.reviewer_display_name,
@@ -146,6 +148,7 @@ export function buildInboxQuery(
         : sql``
     }
     join location l on l.id = r.location_id
+    left join client client_row on client_row.id = l.client_id
     left join lateral (
       select id, body, verification_status
       from draft

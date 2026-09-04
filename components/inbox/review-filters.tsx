@@ -47,8 +47,10 @@ function ReviewFilters({
 }) {
   const searchId = useId()
   const locationId = useId()
+  // One location at a time in this control; the multi-select lives behind
+  // "More filters", and the chip row shows when several are applied.
   const selectedLocation =
-    locations.find((location) => location.id === state.locationId) ?? null
+    locations.find((location) => location.id === state.locationIds[0]) ?? null
   const advancedCount = advancedFilterCount(state)
 
   // Start expanded when the URL already carries advanced filters (deep link /
@@ -186,7 +188,7 @@ function ReviewFilters({
             items={locations}
             value={selectedLocation}
             onValueChange={(location: LocationOption | null) =>
-              onChange({ locationId: location?.id })
+              onChange({ locationIds: location ? [location.id] : [] })
             }
             itemToStringLabel={(location: LocationOption) => location.name}
           >

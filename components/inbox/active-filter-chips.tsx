@@ -20,16 +20,45 @@ export type LocationOption = { id: string; name: string }
 
 type Chip = { label: string; removeLabel: string; clear: Partial<InboxState> }
 
-function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
+function buildChips(
+  state: InboxState,
+  locations: LocationOption[],
+  clientName?: string
+): Chip[] {
   const chips: Chip[] = []
-  if (state.locationId) {
+  if (state.clientId) {
+    chips.push({
+      label: `Client: ${clientName ?? "selected"}`,
+      removeLabel: "Remove client filter",
+      clear: { clientId: undefined },
+    })
+  }
+  if (state.locationIds.length === 1) {
     const name =
-      locations.find((location) => location.id === state.locationId)?.name ??
+      locations.find((location) => location.id === state.locationIds[0])?.name ??
       "location"
     chips.push({
       label: `Location: ${name}`,
       removeLabel: "Remove location filter",
-      clear: { locationId: undefined },
+      clear: { locationIds: [] },
+    })
+  } else if (state.locationIds.length > 1) {
+    chips.push({
+      label: `${state.locationIds.length} locations`,
+      removeLabel: "Remove location filter",
+      clear: { locationIds: [] },
+    })
+  }
+  if (state.assignee) {
+    chips.push({
+      label:
+        state.assignee === "me"
+          ? "Assigned to me"
+          : state.assignee === "unassigned"
+            ? "Unassigned"
+            : "Assigned",
+      removeLabel: "Remove assignee filter",
+      clear: { assignee: undefined },
     })
   }
   if (state.ratings.length) {
@@ -94,16 +123,19 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
 function ActiveFilterChips({
   state,
   locations,
+  clientName,
   onChange,
   onClear,
 }: {
   state: InboxState
   locations: LocationOption[]
+  /** Resolved by the caller, which already holds the client list. */
+  clientName?: string
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
 }) {
   if (!hasActiveFilters(state)) return null
-  const chips = buildChips(state, locations)
+  const chips = buildChips(state, locations, clientName)
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {chips.map((chip) => (

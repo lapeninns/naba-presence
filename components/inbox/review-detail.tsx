@@ -21,7 +21,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { LifecycleStrip } from "@/components/inbox/detail/lifecycle-strip"
 import { Skeleton } from "@/components/ui/skeleton"
+import { deriveLifecycle } from "@/lib/inbox/lifecycle"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
 import { StarRating } from "@/components/inbox/star-rating"
 import {
@@ -562,7 +564,17 @@ function ReviewDetail({
       <PaneHeader
         leading={leading}
         navigation={navigation}
-        strip={<SituationStrip review={review} />}
+        strip={
+          <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
+            {/* The pipeline first, then the one-line situation. Publishing is
+                the only irreversible thing this product does, so where a reply
+                has got to — and who moved it — belongs on screen rather than
+                being assembled by the reader from a status word, a badge and
+                an activity list. */}
+            <LifecycleStrip steps={deriveLifecycle(review)} />
+            <SituationStrip review={review} />
+          </div>
+        }
       >
         <ReviewerIdentity review={review} />
       </PaneHeader>

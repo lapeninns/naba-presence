@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseQueryResult } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -142,7 +142,12 @@ describe("ReviewDetail", () => {
       },
     })
     render(<ReviewDetail reviewId="rev-1" />)
-    expect(screen.queryByText("Live on Google")).not.toBeInTheDocument()
+    // Scoped to the reply area: "Live on Google" is also the lifecycle
+    // strip's meta line for a published reply, which is a different claim
+    // (where the reply got to) from the disclosure this test is about.
+    expect(
+      screen.queryByRole("button", { name: /reply on Google/i })
+    ).not.toBeInTheDocument()
   })
 
   it("surfaces the live reply, behind a disclosure, when the draft has moved on", async () => {
@@ -168,7 +173,12 @@ describe("ReviewDetail", () => {
     })
     render(<ReviewDetail reviewId="rev-1" />)
 
-    expect(screen.getByText("Live on Google")).toBeInTheDocument()
+    // "Live on Google" also appears as the lifecycle strip's meta line for a
+    // published reply, which is a different claim from this disclosure's
+    // label, so match the one inside the reply area.
+    expect(
+      screen.getAllByText("Live on Google").length
+    ).toBeGreaterThanOrEqual(1)
     expect(screen.getByText("30 Jul, 12:00")).toBeInTheDocument()
     // Collapsed until asked for.
     expect(
@@ -209,7 +219,12 @@ describe("ReviewDetail", () => {
     expect(
       screen.getByRole("button", { name: /differs from the reply below/ })
     ).toHaveTextContent("Waiting for approval")
-    expect(screen.queryByText("Live on Google")).not.toBeInTheDocument()
+    // Scoped to the reply area: "Live on Google" is also the lifecycle
+    // strip's meta line for a published reply, which is a different claim
+    // (where the reply got to) from the disclosure this test is about.
+    expect(
+      screen.queryByRole("button", { name: /reply on Google/i })
+    ).not.toBeInTheDocument()
   })
 
   it("skips media rows that carry neither a thumbnail nor a video", () => {
@@ -232,7 +247,10 @@ describe("ReviewDetail", () => {
       },
     })
     render(<ReviewDetail reviewId="rev-1" />)
-    expect(screen.getAllByRole("listitem")).toHaveLength(1)
+    // Scoped to the media list: the header's lifecycle strip is also a list,
+    // and an unscoped count would silently start asserting on it.
+    const media = screen.getByRole("region", { name: /attached photo/ })
+    expect(within(media).getAllByRole("listitem")).toHaveLength(1)
     expect(
       screen.getByRole("button", { name: "Open Breakfast buffet" })
     ).toBeInTheDocument()

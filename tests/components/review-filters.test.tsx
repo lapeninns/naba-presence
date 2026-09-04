@@ -12,6 +12,7 @@ describe("ReviewFilters", () => {
       <ReviewFilters
         state={{
           queue: "all",
+          locationIds: [],
           ratings: [],
           search: "",
           sort: "updated_desc",
@@ -46,7 +47,7 @@ describe("ReviewFilters", () => {
       <ReviewFilters
         state={{
           queue: "all",
-          locationId: "loc-1",
+          locationIds: ["loc-1"],
           ratings: [],
           search: "",
           sort: "updated_desc",

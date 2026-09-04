@@ -9,8 +9,14 @@ import {
   MessagesSquareIcon,
 } from "lucide-react"
 
-import { QueueTabs } from "@/components/inbox/queue-tabs"
+import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
+import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
+import { InboxRail } from "@/components/inbox/inbox-rail"
 import { ReviewFilters } from "@/components/inbox/review-filters"
+import {
+  SelectionProvider,
+  useSelection,
+} from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
 import { EmptyState } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
@@ -23,8 +29,18 @@ import {
   useReadIsDirty,
 } from "@/components/inbox/dirty-context"
 import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
+import { applySavedView, savedView } from "@/lib/inbox/saved-views"
+import { useClients } from "@/lib/queries/use-clients"
 import {
   autoSelectId,
   DESKTOP_MEDIA_QUERY,
@@ -38,7 +54,6 @@ import {
 } from "@/lib/inbox/url-state"
 import {
   adjacentReviewId,
-  pageForIndex,
   type AdjacentDirection,
 } from "@/lib/inbox/queue-nav"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
@@ -49,11 +64,6 @@ import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 
-// Page-based pagination over the loaded rows: 7 per page, Prev/Next controls.
-// The API is cursor-based, so "next page" past the loaded rows triggers one
-// fetchNextPage per click; already-loaded pages page locally.
-const PAGE_SIZE = 7
-
 function InboxViewInner({
   showLocationFilter,
 }: {
@@ -61,16 +71,22 @@ function InboxViewInner({
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const state = useMemo(
-    () => parseInboxState(new URLSearchParams(searchParams.toString())),
-    [searchParams]
-  )
+  const state = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    // A saved view expands into filters, but anything the URL states
+    // explicitly wins: an operator who opens a view and then narrows it by
+    // rating meant the narrowing.
+    return applySavedView(parseInboxState(params), params)
+  }, [searchParams])
   const filters = useMemo(() => toReviewsFilters(state), [state])
   const dirtyGate = useDirtyGate()
   const readIsDirty = useReadIsDirty()
 
   const reviewsQuery = useReviews(filters)
-  const countsQuery = useReviewCounts(state.locationId)
+  const countsQuery = useReviewCounts({ groupBy: "client" })
+  const clientsQuery = useClients()
+  const selection = useSelection()
+  const [railOpen, setRailOpen] = useState(false)
   const health = useConnectionHealth()
   // Via the shared directory hook, not a bare useQuery on the same key: this
   // view and LocationsIndex share one QueryClient across client navigation,
@@ -80,42 +96,15 @@ function InboxViewInner({
 
   const reviews = flattenReviews(reviewsQuery.data)
 
-  // Current page (0-based). Resets when the filter content changes
-  // (stringified — `filters` object identity also changes on selection, which
-  // must NOT bounce the user back to page 1).
-  const [page, setPage] = useState(0)
-  const filtersKey = JSON.stringify(filters)
-  const [prevFiltersKey, setPrevFiltersKey] = useState(filtersKey)
-  if (prevFiltersKey !== filtersKey) {
-    setPrevFiltersKey(filtersKey)
-    setPage(0)
-  }
-
-  const pageCount = Math.max(1, Math.ceil(reviews.length / PAGE_SIZE))
-  const currentPage = Math.min(page, pageCount - 1)
-  const pageReviews = reviews.slice(
-    currentPage * PAGE_SIZE,
-    currentPage * PAGE_SIZE + PAGE_SIZE
-  )
-  const hasPrevPage = currentPage > 0
-  const hasNextPage = currentPage < pageCount - 1 || !!reviewsQuery.hasNextPage
-
-  const onPrevPage = useCallback(() => {
-    setPage((p) => Math.max(0, p - 1))
-  }, [setPage])
-  const onNextPage = useCallback(() => {
-    const next = currentPage + 1
-    // Crossing into rows the client doesn't have yet: fetch the API's next
-    // cursor page (one page of 50 covers ~7 UI pages, so this is rare).
-    if (
-      next * PAGE_SIZE >= reviews.length &&
-      reviewsQuery.hasNextPage &&
-      !reviewsQuery.isFetchingNextPage
-    ) {
+  // No page state: the list loads continuously. The seven-per-page control
+  // over a fifty-row window meant "Page 3 of 8" was only ever true of the rows
+  // already fetched, and an operator working a backlog spent as much time
+  // paging as replying.
+  const loadMore = useCallback(() => {
+    if (reviewsQuery.hasNextPage && !reviewsQuery.isFetchingNextPage) {
       void reviewsQuery.fetchNextPage()
     }
-    setPage(next)
-  }, [currentPage, reviews.length, reviewsQuery, setPage])
+  }, [reviewsQuery])
 
   const updateState = useCallback(
     (partial: Partial<InboxState>, mode: "replace" | "push") => {
@@ -146,7 +135,12 @@ function InboxViewInner({
     (queue: Queue) => {
       void (async () => {
         if (!(await dirtyGate())) return
-        updateState({ queue, selected: undefined }, "replace")
+        // Choosing a queue under "Everything" clears the client scope — the
+        // heading says everything, so it has to mean it.
+        updateState(
+          { queue, clientId: undefined, selected: undefined, view: undefined },
+          "replace"
+        )
       })()
     },
     [dirtyGate, updateState]
@@ -164,12 +158,52 @@ function InboxViewInner({
     },
     [dirtyGate, updateState]
   )
+  const onSelectView = useCallback(
+    (slug: string) => {
+      void (async () => {
+        if (!(await dirtyGate())) return
+        // A view REPLACES the filter set rather than layering on top: half of
+        // the previous view's filters silently surviving is how an operator
+        // ends up staring at an empty list they cannot explain.
+        const view = savedView(slug)
+        if (!view) return
+        router.replace(
+          `/inbox?${serializeInboxState({
+            queue: view.state.queue ?? "needs_reply",
+            locationIds: [],
+            ratings: [],
+            search: "",
+            sort: "updated_desc",
+            verification: [],
+            publishStatus: [],
+            syncStatus: [],
+            ...view.state,
+            view: slug,
+          } as InboxState).toString()}`
+        )
+      })()
+    },
+    [dirtyGate, router]
+  )
+  const onSelectClientQueue = useCallback(
+    (clientId: string, queue: Queue) => {
+      void (async () => {
+        if (!(await dirtyGate())) return
+        updateState(
+          { clientId, queue, selected: undefined, view: undefined },
+          "replace"
+        )
+      })()
+    },
+    [dirtyGate, updateState]
+  )
   const onClearFilters = useCallback(() => {
     void (async () => {
       if (!(await dirtyGate())) return
       router.replace(
         `/inbox?${serializeInboxState({
           queue: state.queue,
+          locationIds: [],
           ratings: [],
           search: "",
           sort: "updated_desc",
@@ -202,8 +236,6 @@ function InboxViewInner({
       if (!(await dirtyGate())) return false
       const nextId = adjacentReviewId(reviews, state.selected, direction)
       if (nextId) {
-        const index = reviews.findIndex((review) => review.id === nextId)
-        setPage(pageForIndex(index, PAGE_SIZE))
         updateState({ selected: nextId }, "push")
         return true
       }
@@ -216,14 +248,13 @@ function InboxViewInner({
         const newItems = result.data?.pages.at(-1)?.items ?? []
         const firstNew = newItems[0]
         if (firstNew) {
-          setPage(pageForIndex(reviews.length, PAGE_SIZE))
           updateState({ selected: firstNew.id }, "push")
           return true
         }
       }
       return false
     },
-    [dirtyGate, reviews, reviewsQuery, setPage, state.selected, updateState]
+    [dirtyGate, reviews, reviewsQuery, state.selected, updateState]
   )
 
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
@@ -258,19 +289,17 @@ function InboxViewInner({
   const onAdjacentReviewRef = useRef(onAdjacentReview)
   const selectedRef = useRef(state.selected)
   const reviewsRef = useRef(reviews)
-  const selectReviewRef = useRef((id: string, index: number) => {
-    setPage(pageForIndex(index, PAGE_SIZE))
+  const selectReviewRef = useRef((id: string) => {
     updateState({ selected: id }, "push")
   })
   useEffect(() => {
     onAdjacentReviewRef.current = onAdjacentReview
     selectedRef.current = state.selected
     reviewsRef.current = reviews
-    selectReviewRef.current = (id: string, index: number) => {
-      setPage(pageForIndex(index, PAGE_SIZE))
+    selectReviewRef.current = (id: string) => {
       updateState({ selected: id }, "push")
     }
-  }, [onAdjacentReview, reviews, setPage, state.selected, updateState])
+  }, [onAdjacentReview, reviews, state.selected, updateState])
   useEffect(() => {
     let timer: number | undefined
     function onPublished(event: Event) {
@@ -294,15 +323,12 @@ function InboxViewInner({
         const stillThere =
           target && current.some((review) => review.id === target)
         if (stillThere) {
-          selectReviewRef.current(
-            target,
-            current.findIndex((review) => review.id === target)
-          )
+          selectReviewRef.current(target)
           return
         }
         const shifted = index >= 0 ? current[index] : undefined
         if (shifted && shifted.id !== reviewId) {
-          selectReviewRef.current(shifted.id, index)
+          selectReviewRef.current(shifted.id)
           return
         }
         void onAdjacentReviewRef.current("next")
@@ -319,15 +345,6 @@ function InboxViewInner({
     reviewsQuery.isFetching &&
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
-
-  // After Next past already-loaded rows, the page index advances before the
-  // cursor fetch lands — keep skeletons instead of flashing an empty list.
-  const waitingForPageRows =
-    !reviewsQuery.isPending &&
-    !reviewsQuery.isError &&
-    reviews.length > 0 &&
-    pageReviews.length === 0 &&
-    (reviewsQuery.isFetchingNextPage || !!reviewsQuery.hasNextPage)
 
   function renderListSkeleton() {
     return (
@@ -391,18 +408,22 @@ function InboxViewInner({
         </div>
       )
     }
-    if (waitingForPageRows) {
-      return renderListSkeleton()
-    }
     return (
       <ReviewList
-        reviews={pageReviews}
+        reviews={reviews}
         selectedId={state.selected}
         onSelect={onSelect}
         onMovePastEnd={(direction) => {
           void onAdjacentReview(direction)
         }}
         isRefreshing={isListRefreshing}
+        onReachEnd={loadMore}
+        isLoadingMore={reviewsQuery.isFetchingNextPage}
+        selection={{
+          selected: selection.selected,
+          toggle: (id) => selection.toggle(id),
+          extendTo: (id) => selection.extendTo(id, reviews.map((r) => r.id)),
+        }}
       />
     )
   }
@@ -423,8 +444,55 @@ function InboxViewInner({
     if (state.selected) backButtonRef.current?.focus()
   }, [state.selected])
 
+  // `r` and `a` are handled by the detail pane's own controls, which know
+  // whether they are currently allowed; the hotkey layer only moves focus
+  // there. Firing a publish from here would bypass every gate the action bar
+  // applies.
+  const hotkeyHandlers = useMemo(
+    () => ({
+      next: () => void onAdjacentReview("next"),
+      previous: () => void onAdjacentReview("prev"),
+      "toggle-selection": () => {
+        if (state.selected) selection.toggle(state.selected)
+      },
+      "extend-selection": () => {
+        if (state.selected)
+          selection.extendTo(state.selected, reviews.map((review) => review.id))
+      },
+      "clear-selection": () => selection.clear(),
+    }),
+    [onAdjacentReview, reviews, selection, state.selected]
+  )
+
+  const rail = (
+    <InboxRail
+      state={state}
+      counts={countsQuery.data}
+      countsPending={countsQuery.isPending}
+      clients={(clientsQuery.data?.items ?? []).map((client) => ({
+        id: client.id,
+        name: client.name,
+        health: client.health,
+      }))}
+      onQueueChange={onQueueChange}
+      onSelectView={onSelectView}
+      onSelectClientQueue={onSelectClientQueue}
+    />
+  )
+
   return (
-    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.4fr)]">
+    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[232px_minmax(340px,0.9fr)_minmax(0,1.5fr)]">
+      <InboxHotkeys handlers={hotkeyHandlers} />
+      {/* The rail is desktop-only furniture; below lg it opens as a sheet from
+          the list header, because three panes on a phone is none of them. */}
+      <div
+        className={cn(
+          "min-h-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
+          "hidden lg:flex lg:flex-col"
+        )}
+      >
+        {rail}
+      </div>
       {/* Queue pane: solid card (design-system hierarchy: lists stay solid,
           not glass), shadow elevates it off the tinted page background. */}
       <div
@@ -433,14 +501,25 @@ function InboxViewInner({
           mobilePane === "detail" ? "hidden lg:flex" : "flex"
         )}
       >
-        <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/40 px-3 py-3">
-          <QueueTabs
-            queue={state.queue}
-            total={countsQuery.data?.total ?? 0}
-            byStatus={countsQuery.data?.byStatus ?? {}}
-            countsPending={countsQuery.isPending}
-            onQueueChange={onQueueChange}
-          />
+        <div className="flex flex-col gap-2 border-b border-line-subtle px-3 py-3">
+          <div className="flex items-center gap-2 lg:hidden">
+            <Sheet open={railOpen} onOpenChange={setRailOpen}>
+              <SheetTrigger
+                render={<Button variant="outline" size="sm" />}
+              >
+                Queues
+              </SheetTrigger>
+              <SheetContent side="left" className="data-[side=left]:w-80">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Review queues</SheetTitle>
+                  <SheetDescription>
+                    Filter the inbox by queue, client or saved view.
+                  </SheetDescription>
+                </SheetHeader>
+                <div onClick={() => setRailOpen(false)}>{rail}</div>
+              </SheetContent>
+            </Sheet>
+          </div>
           <ReviewFilters
             state={state}
             locations={locationsQuery.data ?? []}
@@ -450,39 +529,30 @@ function InboxViewInner({
           />
         </div>
         {renderList()}
-        {!reviewsQuery.isPending &&
-        !reviewsQuery.isError &&
-        reviews.length > 0 ? (
-          <nav
-            aria-label="Review pages"
-            className="flex items-center justify-between gap-2 border-t border-border/60 px-4 py-2.5"
-          >
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!hasPrevPage}
-              onClick={onPrevPage}
+        {!reviewsQuery.isPending && !reviewsQuery.isError && reviews.length > 0 ? (
+          <div className="flex items-center justify-between gap-2 border-t border-line-subtle px-4 py-2">
+            {/* Announced politely rather than as a page number, because the
+                count changes as rows load rather than jumping between pages. */}
+            <span
+              aria-live="polite"
+              className="text-caption text-ink-muted tabular-nums"
             >
-              <ChevronLeftIcon aria-hidden />
-              Previous
-            </Button>
-            <span className="text-caption text-muted-foreground tabular-nums">
-              Page {currentPage + 1}
-              {reviewsQuery.hasNextPage
-                ? " · more available"
-                : ` of ${pageCount}`}
+              Showing {reviews.length}
+              {reviewsQuery.hasNextPage ? " so far" : ""}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!hasNextPage || reviewsQuery.isFetchingNextPage}
-              onClick={onNextPage}
-            >
-              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Next"}
-              <ChevronRightIcon aria-hidden />
-            </Button>
-          </nav>
+            {reviewsQuery.hasNextPage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={reviewsQuery.isFetchingNextPage}
+                onClick={loadMore}
+              >
+                {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
+        <BulkActionBar rows={reviews} />
       </div>
 
       <section
@@ -573,7 +643,9 @@ function InboxView({
 }) {
   return (
     <DirtyGuardProvider>
-      <InboxViewInner showLocationFilter={showLocationFilter} />
+      <SelectionProvider>
+        <InboxViewInner showLocationFilter={showLocationFilter} />
+      </SelectionProvider>
     </DirtyGuardProvider>
   )
 }

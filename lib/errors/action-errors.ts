@@ -366,6 +366,18 @@ export const NETWORK_ERROR_COPY =
   "We couldn’t reach NabaPresence. Check your connection and try again."
 export const GENERIC_ERROR_COPY = "Something went wrong. Please try again."
 
+/**
+ * Copy for an error CODE, rather than a thrown error.
+ *
+ * The bulk endpoint and the failed-publish banner both report codes that were
+ * never thrown here — they came back inside a per-row result or a stored
+ * attempt — and they deserve the same sentences as the errors that were.
+ */
+export function describeErrorCode(code: unknown): string {
+  if (typeof code !== "string") return describeActionError(code)
+  return COPY[code] ?? GENERIC_ERROR_COPY
+}
+
 export function describeActionError(
   error: unknown,
   options: DescribeActionErrorOptions = {}

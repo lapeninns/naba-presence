@@ -55,7 +55,12 @@ function row(
 ): InboxQueryRow & { capabilities: ReviewCapabilities } {
   return {
     id,
-    location: { id: LOCATION, name: "Riverside" },
+    location: {
+      id: LOCATION,
+      name: "Riverside",
+      clientId: null,
+      clientName: null,
+    },
     reviewer: { displayName: "A", isAnonymous: false, profilePhotoUrl: null },
     rating,
     text: "Lovely",

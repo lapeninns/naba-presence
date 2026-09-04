@@ -8,7 +8,7 @@ import type { ReviewRow } from "@/lib/api/reviews"
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",
-    location: { id: "loc-1", name: "Riverside" },
+    location: { id: "loc-1", name: "Riverside", clientId: "c1", clientName: "Old Crown Group" },
     reviewer: { displayName: "Sam Traveller", isAnonymous: false, profilePhotoUrl: null },
     rating: 4,
     text: "Great stay, would return.",

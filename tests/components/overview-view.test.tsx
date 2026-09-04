@@ -131,15 +131,19 @@ describe("OverviewView", () => {
     fakeCounts({
       isPending: false,
       isError: false,
-      data: { total: 21, byStatus: fullByStatus, byQueue: {
-        needs_reply: 0,
-        awaiting_my_approval: 0,
-        awaiting_others: 0,
-        publishing: 0,
-        failed: 0,
-        done: 0,
-        all: 0,
-      } },
+      data: {
+        total: 21,
+        byStatus: fullByStatus,
+        byQueue: {
+          needs_reply: 8,
+          awaiting_my_approval: 4,
+          awaiting_others: 0,
+          publishing: 0,
+          failed: 0,
+          done: 9,
+          all: 21,
+        },
+      },
     })
     fakeAnalytics({
       isPending: false,
@@ -149,7 +153,8 @@ describe("OverviewView", () => {
     render(<OverviewView />)
 
     expect(screen.getByRole("heading", { name: "Your work" })).toBeInTheDocument()
-    // needs_reply = new+drafted+verified+failed+rejected = 8
+    // Straight from the server's own queue count — Home no longer re-derives
+    // it by summing workflow statuses.
     expect(screen.getByRole("link", { name: /Needs reply/ })).toHaveAttribute(
       "href",
       "/inbox?queue=needs_reply"
@@ -157,7 +162,7 @@ describe("OverviewView", () => {
     expect(screen.getByRole("link", { name: /Needs reply/ })).toHaveTextContent("8")
     expect(
       screen.getByRole("link", { name: /Awaiting approval/ })
-    ).toHaveAttribute("href", "/inbox?queue=awaiting_approval")
+    ).toHaveAttribute("href", "/inbox?queue=awaiting_my_approval")
     expect(
       screen.getByRole("link", { name: /Unresolved low ratings/ })
     ).toHaveAttribute("href", "/inbox?rating=1,2&replyState=unreplied")
