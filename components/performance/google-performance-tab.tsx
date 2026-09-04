@@ -19,10 +19,10 @@ import { formatDate, formatNumber } from "@/lib/format"
 
 type PresenceRangeId = (typeof PRESENCE_RANGES)[number]["id"]
 
-export function GooglePerformanceTab() {
+export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
   const [rangeId, setRangeId] = useState<PresenceRangeId>("28d")
   const role = useSessionRole()
-  const presence = useAnalyticsPresence({ range: rangeId })
+  const presence = useAnalyticsPresence({ range: rangeId, clientId })
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -34,8 +34,8 @@ export function GooglePerformanceTab() {
     </div>
   )
 
-  if (presence.isPending) return <div className="flex flex-col gap-(--nr-gap-section)">{header}<ReportingPanel variant="loading" /></div>
-  if (presence.isError) return <div className="flex flex-col gap-(--nr-gap-section)">{header}<ReportingPanel variant="error" onRetry={() => void presence.refetch()} /></div>
+  if (presence.isPending) return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" /></div>
+  if (presence.isError) return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="error" onRetry={() => void presence.refetch()} /></div>
 
   const data = presence.data
   const reasons = humaniseUnavailableReasons(data.unavailableReasons)
@@ -56,8 +56,8 @@ export function GooglePerformanceTab() {
     ) : data.state === "empty" ? (
       <ReportingPanel variant="empty" title="No activity yet" description="Google has not reported any visibility data for this window." />
     ) : (
-      <div className="flex flex-col gap-(--nr-gap-section)">
-        <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+      <div className="flex flex-col gap-(--np-gap-section)">
+        <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
           {ORDERED_METRICS.map((metric) => (
             <StatTile key={metric} label={metricLabel(metric)} value={formatNumber(data.totals[metric])} />
           ))}
@@ -79,7 +79,7 @@ export function GooglePerformanceTab() {
     )
 
   return (
-    <div className="flex flex-col gap-(--nr-gap-section)">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {/* Leading h2 keeps heading order valid before the ChartCard h3 (REV-2). */}
       <h2 className="sr-only">Google performance</h2>
       {header}

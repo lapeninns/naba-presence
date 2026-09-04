@@ -52,7 +52,7 @@ export function PhotoPreview({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-hidden rounded-(--nr-radius-field) bg-black/90">
+        <div className="overflow-hidden rounded-(--np-radius-field) bg-black/90">
           {item.thumbnailUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -68,7 +68,7 @@ export function PhotoPreview({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--nr-radius-field) bg-muted/50 px-3 py-2 text-caption text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-field) bg-muted/50 px-3 py-2 text-caption text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             {customer ? (
               <UserRoundIcon aria-hidden className="size-3.5" />

@@ -53,10 +53,10 @@ function PulseChart({
         }
         action={
           <Link
-            href="/performance"
+            href="/reports"
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            See Performance
+            See reports
           </Link>
         }
         state={state}

@@ -6,8 +6,18 @@ import { fetchBusinessInformation, fetchBusinessInformationMetadata } from "@/li
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
-export function useBusinessInformation(id: string) {
-  return useQuery({ queryKey: queryKeys.locationBusinessInformation(id), queryFn: (ctx) => fetchBusinessInformation(id, requestOptions(ctx)) })
+/**
+ * `enabled` lets the profile editor hold this back until the NabaPresence copy
+ * has arrived. Both routes call Google, and Google calls on one connection are
+ * paced by the server's rate limiter, so firing them together makes the fields
+ * an operator can actually edit wait on the ones they cannot.
+ */
+export function useBusinessInformation(id: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.locationBusinessInformation(id),
+    queryFn: (ctx) => fetchBusinessInformation(id, requestOptions(ctx)),
+    enabled: options?.enabled ?? true,
+  })
 }
 
 export function useBusinessInformationMetadata(id: string, type: "categories" | "chains", query: string) {

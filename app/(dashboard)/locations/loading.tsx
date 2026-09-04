@@ -9,7 +9,7 @@ export default function LocationsLoading() {
   return (
     <div
       aria-busy="true"
-      className="mx-auto flex w-full max-w-7xl flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)"
+      className="mx-auto flex w-full max-w-7xl flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
     >
       <div className="flex min-w-0 flex-col gap-2">
         <Skeleton className="h-6 w-48" />

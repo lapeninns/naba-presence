@@ -209,7 +209,7 @@ function SignInForm({
       <div
         role="group"
         aria-label="Account action"
-        className="flex gap-1 rounded-(--nr-radius-control) bg-muted p-1"
+        className="flex gap-1 rounded-(--np-radius-control) bg-muted p-1"
       >
         <Button
           type="button"
@@ -217,7 +217,7 @@ function SignInForm({
           className={cn(
             "flex-1",
             mode === "sign-in"
-              ? "bg-background text-foreground shadow-(--nr-shadow-card) hover:bg-background"
+              ? "bg-background text-foreground hover:bg-background"
               : "text-muted-foreground"
           )}
           aria-pressed={mode === "sign-in"}
@@ -232,7 +232,7 @@ function SignInForm({
           className={cn(
             "flex-1",
             mode === "create-account"
-              ? "bg-background text-foreground shadow-(--nr-shadow-card) hover:bg-background"
+              ? "bg-background text-foreground hover:bg-background"
               : "text-muted-foreground"
           )}
           aria-pressed={mode === "create-account"}

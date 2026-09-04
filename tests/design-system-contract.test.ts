@@ -105,29 +105,29 @@ for (const status of ["success", "warning", "danger", "info"]) {
 }
 
 /**
- * Legacy names screens still use. They must keep RESOLVING while the migration
- * runs; the B6 codemod deletes the alias block and flips this expectation.
+ * The shape tokens every screen reads. They were `--nr-*` names shadowing
+ * `--np-*` roles through a compatibility block; the block is gone and these
+ * are the roles themselves.
  */
-const LEGACY_ALIASES = [
-  "--nr-sidebar-width",
-  "--nr-page-pad-x",
-  "--nr-page-max-width",
-  "--nr-radius-control",
-  "--nr-radius-card",
-  "--nr-radius-panel",
-  "--nr-radius-modal",
-  "--nr-radius-field",
-  "--nr-radius-tag",
-  "--nr-radius-pill",
-  "--nr-shadow-card",
-  "--nr-shadow-float",
-  "--nr-shadow-modal",
-  "--nr-duration-fast",
-  "--nr-duration-standard",
-  "--nr-duration-overlay",
-  "--nr-ease-standard",
-  "--nr-gap-card",
-  "--nr-gap-section",
+const SHAPE_TOKENS = [
+  "--np-sidebar-width",
+  "--np-page-pad-x",
+  "--np-page-max-width",
+  "--np-radius-control",
+  "--np-radius-card",
+  "--np-radius-panel",
+  "--np-radius-modal",
+  "--np-radius-field",
+  "--np-radius-tag",
+  "--np-radius-pill",
+  "--np-shadow-raised",
+  "--np-shadow-modal",
+  "--np-duration-fast",
+  "--np-duration-standard",
+  "--np-duration-overlay",
+  "--np-ease-standard",
+  "--np-gap-card",
+  "--np-gap-section",
 ]
 
 describe("NabaPresence design tokens", () => {
@@ -135,19 +135,16 @@ describe("NabaPresence design tokens", () => {
     expect(globals).toContain(`${role}:`)
   )
 
-  it.each(LEGACY_ALIASES)("keeps %s resolvable during the migration", (alias) => {
-    expect(() => resolveToken(tokens.light, alias, "light")).not.toThrow()
-    expect(() => resolveToken(tokens.dark, alias, "dark")).not.toThrow()
+  it.each(SHAPE_TOKENS)("resolves %s in both themes", (token) => {
+    expect(() => resolveToken(tokens.light, token, "light")).not.toThrow()
+    expect(() => resolveToken(tokens.dark, token, "dark")).not.toThrow()
   })
 
-  it("routes every legacy alias through a --np-* role", () => {
-    // An alias holding its own literal value would drift from the role it is
-    // supposed to shadow, and the two would diverge silently.
-    const literalAliases = Object.entries(tokens.light)
-      .filter(([name]) => name.startsWith("--nr-"))
-      .filter(([, value]) => /oklch\(|#[0-9a-f]{3}/i.test(value))
-      .map(([name]) => name)
-    expect(literalAliases).toEqual([])
+  it("has retired the --nr-* compatibility layer entirely", () => {
+    // The aliases existed so unmigrated screens kept rendering during the
+    // rebuild. Every screen is migrated, so a new `--nr-` name would be a
+    // second vocabulary starting up again.
+    expect(globals).not.toMatch(/--nr-/)
   })
 
   it("maps the shadcn contract onto the roles", () => {
@@ -241,16 +238,16 @@ describe("density", () => {
 
 describe("primitives read tokens, not literals", () => {
   it("uses purpose-specific radius and motion tokens", () => {
-    expect(primitiveSource).toContain("--nr-radius-control")
-    expect(primitiveSource).toContain("--nr-radius-card")
-    expect(primitiveSource).toContain("--nr-duration-fast")
-    expect(primitiveSource).toContain("--nr-radius-field")
+    expect(primitiveSource).toContain("--np-radius-control")
+    expect(primitiveSource).toContain("--np-radius-card")
+    expect(primitiveSource).toContain("--np-duration-fast")
+    expect(primitiveSource).toContain("--np-radius-field")
   })
 
   it("keeps overlays on tokenised durations and shadows", () => {
-    expect(primitiveSource).toContain("--nr-duration-standard")
-    expect(primitiveSource).toContain("--nr-radius-modal")
-    expect(primitiveSource).toContain("--nr-shadow-modal")
+    expect(primitiveSource).toContain("--np-duration-standard")
+    expect(primitiveSource).toContain("--np-radius-modal")
+    expect(primitiveSource).toContain("--np-shadow-modal")
     for (const hardCodedDuration of ["duration-1", "duration-2", "duration-5"]) {
       expect(primitiveSource).not.toContain(hardCodedDuration)
     }
@@ -259,7 +256,7 @@ describe("primitives read tokens, not literals", () => {
   it("supports all three PageFrame width modes", () => {
     expect(pageFrame).toContain('width?: "standard" | "wide" | "workspace"')
     expect(pageFrame).toContain(
-      'width === "standard" && "max-w-(--nr-page-max-width)"'
+      'width === "standard" && "max-w-(--np-page-max-width)"'
     )
     expect(pageFrame).toContain('width === "wide" && "max-w-7xl"')
     expect(pageFrame).toContain(

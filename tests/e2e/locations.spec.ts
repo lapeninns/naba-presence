@@ -11,19 +11,19 @@ const STRUCTURE_RULES = [
   "page-has-heading-one",
 ]
 const TABS = [
-  { segment: "", label: "Profile" },
+  { segment: "", label: "Business profile" },
   { segment: "hours", label: "Hours" },
+  { segment: "suggestions", label: "Suggested updates" },
   { segment: "photos", label: "Photos" },
   { segment: "posts", label: "Posts" },
   { segment: "booking", label: "Booking" },
   { segment: "menu", label: "Menu" },
-  // The three M8 consoles (Task 8): owner-scoped entries only. Industry and
-  // Administration are hidden for non-owner/admin (see the console role walk
-  // below), so their clean-load + axe iterations are only meaningful — and
-  // only render — under the owner cookie this whole loop already uses.
-  { segment: "business-information", label: "Business info" },
-  { segment: "industry", label: "Industry" },
-  { segment: "administration", label: "Access" },
+  // Owner-scoped entries: both gate their own GET on canEditCanonical and are
+  // hidden for non-owner/admin (see the console role walk below), so their
+  // clean-load + axe iterations only render under the owner cookie this whole
+  // loop already uses.
+  { segment: "access", label: "People" },
+  { segment: "verification", label: "Verification" },
 ] as const
 
 async function applyCookie(
@@ -36,7 +36,7 @@ async function applyCookie(
 }
 
 test.describe("locations", () => {
-  test("index lists locations and the workspace exposes the wave-1 tabs plus the three M8 consoles", async ({
+  test("index lists locations and the workspace exposes every section tab", async ({
     baseURL,
     page,
   }) => {
@@ -63,7 +63,7 @@ test.describe("locations", () => {
 
   for (const theme of ["light", "dark"] as const) {
     for (const tab of TABS) {
-      test(`${tab.label || "Profile"} tab loads clean (${theme})`, async ({
+      test(`${tab.label} tab loads clean (${theme})`, async ({
         baseURL,
         page,
       }) => {
@@ -132,28 +132,27 @@ test.describe("locations", () => {
       const page = await context.newPage()
       await applyCookie(page, baseURL, cookie)
       await page.goto(`/locations/${state.primaryLocationId}`)
-      const save = page.getByRole("button", { name: "Save changes" })
-      await expect(save).toBeVisible()
+      const review = page.getByRole("button", { name: "Review changes" })
+      await expect(review).toBeVisible()
+      const gate = page.getByText(
+        "Only owners and admins can edit this location."
+      )
       if (canEdit) {
-        await expect(save)
-          .toBeEnabled()
-          .catch(async () => {
-            // Enabled once dirty; assert the gate reason is absent instead.
-            await expect(
-              page.getByText("Only owners and admins can edit this location.")
-            ).toHaveCount(0)
-          })
-      } else {
-        await expect(save).toBeDisabled()
+        // Review is enabled once there is something to publish; what matters
+        // here is that nothing tells an owner they may not edit.
+        await expect(gate).toHaveCount(0)
         await expect(
-          page.getByText("Only owners and admins can edit this location.")
-        ).toBeVisible()
+          page.getByRole("textbox", { name: "Business name" })
+        ).toBeEnabled()
+      } else {
+        await expect(review).toBeDisabled()
+        await expect(gate.first()).toBeVisible()
       }
       await context.close()
     }
   })
 
-  test("console role walk: Industry/Access hidden for member/viewer; Business info stays read-only for everyone", async ({
+  test("console role walk: People/Verification hidden for member/viewer; the business profile stays read-only for everyone", async ({
     baseURL,
     browser,
   }) => {
@@ -174,11 +173,23 @@ test.describe("locations", () => {
       })
       await applyCookie(page, baseURL, cookie)
 
-      // Business info (§9): read-open for every role; only editing is gated,
-      // never the whole tab.
-      await page.goto(
-        `/locations/${state.primaryLocationId}/business-information`
-      )
+      // The industry sections gate their own GET on canEditCanonical before it
+      // ever fires, so a member loading the profile must never surface a
+      // request (403 or otherwise) for them.
+      const industryResponses: number[] = []
+      page.on("response", (response) => {
+        if (
+          new URL(response.url()).pathname ===
+          `/api/locations/${state.primaryLocationId}/industry`
+        ) {
+          industryResponses.push(response.status())
+        }
+      })
+
+      // The business profile is read-open for every role; only editing is
+      // gated, never the whole tab.
+      await page.goto(`/locations/${state.primaryLocationId}`)
+      await page.waitForLoadState("networkidle")
       await expect(
         page.getByRole("heading", { name: "Identity" })
       ).toBeVisible()
@@ -188,42 +199,25 @@ test.describe("locations", () => {
       } else {
         await expect(name).toBeDisabled()
         await expect(
-          page.getByText("Only owners and admins can edit this location.")
-        ).toBeVisible()
-      }
-
-      const nav = page.getByRole("navigation", { name: "Location sections" })
-      if (canManage) {
-        await expect(nav.getByRole("link", { name: "Industry" })).toBeVisible()
-        await expect(
-          nav.getByRole("link", { name: "Access" })
-        ).toBeVisible()
-      } else {
-        await expect(nav.getByRole("link", { name: "Industry" })).toHaveCount(0)
-        await expect(
-          nav.getByRole("link", { name: "Access" })
-        ).toHaveCount(0)
-
-        // Industry/Administration gate their own GET on canEditCanonical
-        // (D4) before it ever fires — a direct goto of either route must
-        // never surface a request (403 or otherwise) to the tab.
-        const industryResponses: number[] = []
-        page.on("response", (response) => {
-          if (
-            new URL(response.url()).pathname ===
-            `/api/locations/${state.primaryLocationId}/industry`
-          ) {
-            industryResponses.push(response.status())
-          }
-        })
-        await page.goto(`/locations/${state.primaryLocationId}/industry`)
-        await expect(
-          page.getByText("This section is available to owners and admins")
+          page.getByText("Only owners and admins can edit this location.").first()
         ).toBeVisible()
         expect(
           industryResponses,
           `${cookie} industry GET must never fire for a non-manager`
         ).toEqual([])
+      }
+
+      const nav = page.getByRole("navigation", { name: "Location sections" })
+      if (canManage) {
+        await expect(nav.getByRole("link", { name: "People" })).toBeVisible()
+        await expect(
+          nav.getByRole("link", { name: "Verification" })
+        ).toBeVisible()
+      } else {
+        await expect(nav.getByRole("link", { name: "People" })).toHaveCount(0)
+        await expect(
+          nav.getByRole("link", { name: "Verification" })
+        ).toHaveCount(0)
 
         const administrationResponses: number[] = []
         page.on("response", (response) => {
@@ -234,7 +228,7 @@ test.describe("locations", () => {
             administrationResponses.push(response.status())
           }
         })
-        await page.goto(`/locations/${state.primaryLocationId}/administration`)
+        await page.goto(`/locations/${state.primaryLocationId}/access`)
         await expect(
           page.getByText("This section is available to owners and admins")
         ).toBeVisible()
@@ -249,7 +243,7 @@ test.describe("locations", () => {
     }
   })
 
-  test("canonical save journey: an owner edits the business name and saves", async ({
+  test("publish journey: an owner edits the business name, reviews the diff, then publishes", async ({
     baseURL,
     page,
   }) => {
@@ -259,15 +253,22 @@ test.describe("locations", () => {
     const name = page.getByRole("textbox", { name: "Business name" })
     await expect(name).toBeVisible()
     await name.fill("Riverside Rooms & Spa")
+
+    // Nothing reaches Google until the diff has been seen: the review sheet
+    // names the field and what it will become.
+    await page.getByRole("button", { name: "Review changes" }).click()
+    const sheet = page.getByRole("dialog")
+    await expect(sheet.getByText("Business name")).toBeVisible()
+    await expect(sheet.getByText("Riverside Rooms & Spa")).toBeVisible()
+
     const saved = page.waitForResponse(
       (r) =>
         r.request().method() === "PUT" &&
         new URL(r.url()).pathname ===
           `/api/locations/${state.primaryLocationId}/profile`
     )
-    await page.getByRole("button", { name: "Save changes" }).click()
+    await sheet.getByRole("button", { name: "Publish to Google" }).click()
     expect((await saved).status()).toBe(200)
-    await expect(page.getByText("Profile saved", { exact: true })).toBeVisible()
   })
 
   test("location workspace exposes a Performance tab with review metrics", async ({
@@ -323,22 +324,21 @@ test.describe("locations", () => {
     ).toBeVisible()
   })
 
-  test("business information publish journey: an owner edits and publishes the business name to Google", async ({
+  test("listing publish journey: a Google-only field goes out through the same review sheet", async ({
     baseURL,
     page,
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto(
-      `/locations/${state.primaryLocationId}/business-information`
-    )
-    const name = page.getByRole("textbox", { name: "Business name" })
-    await expect(name).toBeVisible()
-    await name.fill("Riverside Rooms & Spa (Google)")
-    await page.getByRole("button", { name: "Publish to Google" }).click()
-    await expect(
-      page.getByText("Publish these details to Google?")
-    ).toBeVisible()
+    await page.goto(`/locations/${state.primaryLocationId}`)
+    // Google's half of the listing fans out across several of its APIs, paced
+    // by the per-connection rate limiter, so the fields it owns arrive after
+    // the NabaPresence copy the editor opens on.
+    await page.waitForLoadState("networkidle")
+    const storeCode = page.getByRole("textbox", { name: "Store code" })
+    await expect(storeCode).toBeVisible()
+    await storeCode.fill("RIVERSIDE-2")
+    await page.getByRole("button", { name: "Review changes" }).click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
     // load, and the route 409s (business_information_stale) if Google's
     // current state no longer hashes to match — a live optimistic-concurrency
@@ -349,11 +349,11 @@ test.describe("locations", () => {
         new URL(r.url()).pathname ===
           `/api/locations/${state.primaryLocationId}/business-information`
     )
-    await page.getByRole("button", { name: "Publish", exact: true }).click()
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Publish to Google" })
+      .click()
     expect((await published).status()).toBe(200)
-    await expect(
-      page.getByText("Published to Google", { exact: true })
-    ).toBeVisible()
   })
 
   test("industry publish journey: an owner updates and publishes the lodging check-in time", async ({
@@ -362,7 +362,12 @@ test.describe("locations", () => {
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto(`/locations/${state.primaryLocationId}/industry`)
+    // Lodging is a section of the business profile now, shown only for a
+    // listing Google holds lodging data for.
+    await page.goto(`/locations/${state.primaryLocationId}`)
+    // See the note in the listing publish journey: the industry sections load
+    // after the editor's first paint.
+    await page.waitForLoadState("networkidle")
     const checkin = page.getByLabel("Check-in time")
     await expect(checkin).toBeVisible()
     await checkin.fill("16:00")
@@ -379,13 +384,13 @@ test.describe("locations", () => {
     ).toBeVisible()
   })
 
-  test("administration publish journey: an owner starts a Google verification (non-destructive)", async ({
+  test("verification journey: an owner starts a Google verification (non-destructive)", async ({
     baseURL,
     page,
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto(`/locations/${state.primaryLocationId}/administration`)
+    await page.goto(`/locations/${state.primaryLocationId}/verification`)
     // Administration fans out 7 Google calls, each paced ~500ms apart on the
     // shared connection (lib/server/google.ts's per-connection rate limiter)
     // — a real, deliberate characteristic of the protected server code, not
@@ -411,13 +416,13 @@ test.describe("locations", () => {
     ).toBeVisible()
   })
 
-  test("administration danger zone: delete stays disabled until the location name is typed", async ({
+  test("access danger zone: delete stays disabled until the location name is typed", async ({
     baseURL,
     page,
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto(`/locations/${state.primaryLocationId}/administration`)
+    await page.goto(`/locations/${state.primaryLocationId}/access`)
     // See the same note in the publish journey above: Administration's 7-way
     // Google fan-out is genuinely slower than the default 5s expect timeout
     // budgets for.

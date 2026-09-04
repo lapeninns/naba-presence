@@ -82,7 +82,7 @@ function ReviewFilters({
     <div className="flex flex-col gap-2">
       {/* Search + sort share one strip; filters live on the rows below — no
           slide-over panel covering the detail pane. */}
-      <div className="flex items-center gap-1.5 rounded-(--nr-radius-field) border border-border/70 bg-muted/30 p-1">
+      <div className="flex items-center gap-1.5 rounded-(--np-radius-field) border border-border/70 bg-muted/30 p-1">
         <div className="relative min-w-0 flex-1">
           <SearchIcon
             aria-hidden
@@ -154,7 +154,7 @@ function ReviewFilters({
       <div
         id="inbox-advanced-filters"
         className={cn(
-          "grid transition-[grid-template-rows] duration-(--nr-duration-standard) ease-out",
+          "grid transition-[grid-template-rows] duration-(--np-duration-standard) ease-out",
           moreOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         )}
       >
@@ -162,7 +162,7 @@ function ReviewFilters({
           {moreOpen || advancedCount > 0 ? (
             <div
               className={cn(
-                "pt-0.5 transition-opacity duration-(--nr-duration-fast)",
+                "pt-0.5 transition-opacity duration-(--np-duration-fast)",
                 moreOpen ? "opacity-100" : "pointer-events-none opacity-0"
               )}
               inert={!moreOpen || undefined}

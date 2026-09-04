@@ -29,7 +29,7 @@ export function ReportingPanel({
     return (
       <div aria-busy="true" className="flex flex-col gap-2">
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-12 rounded-(--nr-radius-card)" />
+          <Skeleton key={i} className="h-12 rounded-(--np-radius-card)" />
         ))}
       </div>
     )

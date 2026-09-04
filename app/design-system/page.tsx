@@ -135,7 +135,7 @@ export const metadata = { title: "Design system · NabaPresence" }
 
 export default function Page() {
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-(--nr-page-max-width) flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)">
+    <main className="mx-auto flex min-h-svh w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)">
       <header className="flex flex-col gap-2">
         <h1 className="font-heading text-2xl font-bold tracking-tight">
           NabaPresence design system
@@ -161,7 +161,7 @@ export default function Page() {
               key={theme.name}
               data-theme-probe={theme.name.toLowerCase()}
               aria-label={`${theme.name} theme contrast evidence`}
-              className={`rounded-(--nr-radius-panel) border p-5 ${theme.className}`}
+              className={`rounded-(--np-radius-panel) border p-5 ${theme.className}`}
             >
               <h3 className="font-heading text-base font-semibold">
                 {theme.name} theme
@@ -223,9 +223,9 @@ export default function Page() {
           ].map(([name, value], index) => (
             <div
               key={name}
-              className="border bg-card p-4 shadow-(--nr-shadow-card)"
+              className="border bg-card p-4"
               style={{
-                borderRadius: `var(--nr-radius-${["control", "field", "card", "panel"][index]})`,
+                borderRadius: `var(--np-radius-${["control", "field", "card", "panel"][index]})`,
               }}
             >
               <p className="font-semibold">{name}</p>

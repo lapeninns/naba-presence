@@ -29,6 +29,7 @@ export const GET = route({
     keywordsQuerySchema.parse({
       range: searchParams.get("range") ?? undefined,
       locationId: searchParams.get("locationId") ?? undefined,
+      clientId: searchParams.get("clientId") ?? undefined,
     }),
   handler: async ({ session, query, tenant }) => {
     const now = new Date()
@@ -49,6 +50,7 @@ export const GET = route({
         join location_link ll on ll.location_id = l.id and ll.is_active = true
         where 1 = 1
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
+          ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
         order by l.name
       `
@@ -66,6 +68,7 @@ export const GET = route({
         join location l on l.id = ll.location_id
         where k.metric_month >= ${from}::date
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
+          ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
         group by k.keyword
         order by
@@ -84,6 +87,7 @@ export const GET = route({
         join location l on l.id = ll.location_id
         where sc.sync_type = 'keywords'
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
+          ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
       `
       return { locations, rows, checkpoints }

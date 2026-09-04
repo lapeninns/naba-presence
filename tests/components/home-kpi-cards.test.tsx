@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { HealthKpis } from "@/components/home/health-kpis"
-import { OverviewView } from "@/components/home/overview-view"
+import { HomeView } from "@/components/home/home-view"
 import * as healthHook from "@/lib/queries/use-connection-health"
 
 function jsonFor(url: string) {
@@ -79,7 +79,7 @@ describe("Health KPIs from the 30-day summary", () => {
           })
       )
     )
-    renderWithClient(<OverviewView />)
+    renderWithClient(<HomeView />)
     expect(await screen.findByText("Reviews received")).toBeInTheDocument()
     expect(screen.getByText("Average rating")).toBeInTheDocument()
     expect(screen.getByText("Response rate")).toBeInTheDocument()

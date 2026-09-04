@@ -26,7 +26,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
   const keywords = useAnalyticsKeywords({ range: "6m", locationId })
 
   return (
-    <div className="flex flex-col gap-(--nr-gap-section)">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {/* Review metrics — filtered from the org-wide overview.locations[] */}
       <section className="flex flex-col gap-3">
         {/* "Review activity" (not "Reviews") — the StatTile below is literally
@@ -44,7 +44,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
             return <ReportingPanel variant="empty" title="No review activity" description="This location has no reviews in the last 30 days." />
           }
           return (
-            <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
               <StatTile label="Reviews" value={formatNumber(row.reviews)} />
               <StatTile label="Average rating" value={row.averageRating === null ? "—" : row.averageRating.toFixed(1)} />
               <StatTile label="Response rate" value={row.responseRate === null ? "—" : formatPercent(row.responseRate)} />
@@ -73,7 +73,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
         ) : (
           <>
             <FetchedAtCaption iso={presence.data.freshThrough} timezone="UTC" />
-            <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
               {ORDERED_METRICS.map((metric) => (
                 <StatTile key={metric} label={metricLabel(metric)} value={formatNumber(presence.data.totals[metric])} />
               ))}

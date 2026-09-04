@@ -29,7 +29,7 @@ export function ChartLegend({ items }: { items: Array<{ label: string; colorVar:
         <li key={item.label} className="flex items-center gap-1.5 text-caption text-muted-foreground">
           <span
             aria-hidden
-            className="size-2.5 rounded-(--nr-radius-tag)"
+            className="size-2.5 rounded-(--np-radius-tag)"
             style={{ backgroundColor: chartColor(item.colorVar) }}
           />
           {item.label}
@@ -111,7 +111,7 @@ export function ReportingLineChart({
           contentStyle={{
             background: "var(--popover)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--nr-radius-control)",
+            borderRadius: "var(--np-radius-control)",
             color: "var(--popover-foreground)",
             fontSize: "var(--text-ui)", // 0.8125rem — the ui type token
           }}
@@ -158,7 +158,7 @@ export function ReportingBarChart({
           contentStyle={{
             background: "var(--popover)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--nr-radius-control)",
+            borderRadius: "var(--np-radius-control)",
             color: "var(--popover-foreground)",
             fontSize: "var(--text-ui)", // 0.8125rem — the ui type token
           }}

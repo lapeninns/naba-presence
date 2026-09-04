@@ -61,7 +61,7 @@ function CheckboxGroup({
           <div
             key={option.value}
             className={cn(
-              "flex cursor-pointer items-center gap-2.5 rounded-(--nr-radius-control) px-2 py-1 transition-colors",
+              "flex cursor-pointer items-center gap-2.5 rounded-(--np-radius-control) px-2 py-1 transition-colors",
               checked ? "bg-accent/60" : "hover:bg-muted/50"
             )}
             onClick={() => onToggle(option.value)}
@@ -103,7 +103,7 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-(--nr-radius-control) border px-1.5 text-caption font-semibold tabular-nums transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-(--np-radius-control) border px-1.5 text-caption font-semibold tabular-nums transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
               checked
                 ? "border-primary/40 bg-accent text-foreground"
                 : "border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -138,7 +138,7 @@ function ReplyFilter({
     <div
       role="radiogroup"
       aria-label="Reply state"
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-(--nr-radius-control) border border-border/70 bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-(--np-radius-control) border border-border/70 bg-muted/40 p-0.5"
     >
       {(
         [
@@ -163,7 +163,7 @@ function ReplyFilter({
               )
             }
             className={cn(
-              "rounded-[calc(var(--nr-radius-control)-2px)] px-2 py-1 text-center text-caption font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "rounded-[calc(var(--np-radius-control)-2px)] px-2 py-1 text-center text-caption font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
               checked
                 ? "bg-card text-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
@@ -197,7 +197,7 @@ function AdvancedFilters({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-(--nr-radius-field) border border-border/70 bg-card p-3">
+    <div className="flex flex-col gap-4 rounded-(--np-radius-field) border border-border/70 bg-card p-3">
       <CheckboxGroup
         legend="Verification"
         options={VERIFICATION_OPTIONS}
@@ -251,7 +251,7 @@ function AdvancedFilters({
           </div>
         </div>
       </fieldset>
-      <details className="group rounded-(--nr-radius-control) border border-border/60 open:bg-muted/20">
+      <details className="group rounded-(--np-radius-control) border border-border/60 open:bg-muted/20">
         <summary className="cursor-pointer list-none px-2.5 py-2 text-caption font-medium marker:content-none [&::-webkit-details-marker]:hidden">
           <span className="flex items-center justify-between gap-2">
             Sync status
@@ -299,7 +299,7 @@ function MoreFiltersToggle({
       <span className="inline-flex items-center gap-1.5">
         More filters
         {count > 0 ? (
-          <span className="inline-flex min-w-4 items-center justify-center rounded-(--nr-radius-pill) bg-primary px-1.5 text-caption font-semibold text-primary-foreground tabular-nums">
+          <span className="inline-flex min-w-4 items-center justify-center rounded-(--np-radius-pill) bg-primary px-1.5 text-caption font-semibold text-primary-foreground tabular-nums">
             {count}
           </span>
         ) : null}

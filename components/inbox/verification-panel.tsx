@@ -77,7 +77,7 @@ function VerificationPanel({
     <section
       aria-labelledby={headingId}
       className={cn(
-        "flex flex-col gap-2 rounded-(--nr-radius-control) border p-3",
+        "flex flex-col gap-2 rounded-(--np-radius-control) border p-3",
         blocking
           ? "border-destructive/30 bg-destructive/5"
           : "border-warning/40 bg-warning/10"

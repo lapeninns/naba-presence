@@ -10,11 +10,11 @@ const STRUCTURE_RULES = [
 ]
 
 test.describe("home", () => {
-  test("renders the organisation roll-up", async ({ page }) => {
+  test("renders the agency roll-up", async ({ page }) => {
     await page.goto("/home")
     await expect(page).toHaveURL("/home")
     await expect(
-      page.getByRole("heading", { name: "Overview", level: 1 })
+      page.getByRole("heading", { name: "Home", level: 1 })
     ).toBeVisible()
     // Health labels only render once analytics resolves — proving the
     // populated (non-loading, non-error) state was reached.
@@ -23,6 +23,10 @@ test.describe("home", () => {
     await expect(page.getByText("Response rate")).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Your work" })
+    ).toBeVisible()
+    // The agency question Home now answers: which client needs you.
+    await expect(
+      page.getByRole("heading", { name: "Work by client" })
     ).toBeVisible()
   })
 
@@ -36,8 +40,8 @@ test.describe("home", () => {
   }) => {
     await page.goto("/home")
     await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible()
-    const link = page.getByRole("link", { name: /See Performance/i }).first()
-    await expect(link).toHaveAttribute("href", "/performance")
+    const link = page.getByRole("link", { name: /See reports/i }).first()
+    await expect(link).toHaveAttribute("href", "/reports")
   })
 
   test("attention rows link to the location's low-rated reviews", async ({

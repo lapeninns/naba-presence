@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { ClientSelect } from "@/components/performance/client-select"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 import { ReplyPerformanceTab } from "@/components/performance/reply-performance-tab"
 import { GooglePerformanceTab } from "@/components/performance/google-performance-tab"
@@ -25,33 +26,56 @@ export function PerformanceView() {
   const searchParams = useSearchParams()
   const param = searchParams.get("tab")
   const active: TabValue = isTab(param) ? param : "reply"
+  const clientId = searchParams.get("clientId") ?? undefined
 
-  function selectTab(next: string) {
+  function replaceParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
-    if (next === "reply") params.delete("tab")
-    else params.set("tab", next)
+    mutate(params)
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
+  function selectTab(next: string) {
+    replaceParams((params) => {
+      if (next === "reply") params.delete("tab")
+      else params.set("tab", next)
+    })
+  }
+
   return (
-    <Tabs value={active} onValueChange={selectTab}>
-      <TabsList>
-        {TABS.map((tab) => (
-          <TabsTab key={tab.value} value={tab.value}>
-            {tab.label}
-          </TabsTab>
-        ))}
-      </TabsList>
-      <TabsPanel value="reply">
-        <ReplyPerformanceTab />
-      </TabsPanel>
-      <TabsPanel value="google">
-        <GooglePerformanceTab />
-      </TabsPanel>
-      <TabsPanel value="keywords">
-        <KeywordsTab />
-      </TabsPanel>
-    </Tabs>
+    <div className="flex flex-col gap-4">
+      {/* The client scope belongs above the tabs: it applies to all three, and
+          picking it per tab would let two of them disagree about whose numbers
+          are on screen. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <ClientSelect
+          value={clientId}
+          onChange={(next) =>
+            replaceParams((params) => {
+              if (next) params.set("clientId", next)
+              else params.delete("clientId")
+            })
+          }
+        />
+      </div>
+      <Tabs value={active} onValueChange={selectTab}>
+        <TabsList>
+          {TABS.map((tab) => (
+            <TabsTab key={tab.value} value={tab.value}>
+              {tab.label}
+            </TabsTab>
+          ))}
+        </TabsList>
+        <TabsPanel value="reply">
+          <ReplyPerformanceTab clientId={clientId} />
+        </TabsPanel>
+        <TabsPanel value="google">
+          <GooglePerformanceTab clientId={clientId} />
+        </TabsPanel>
+        <TabsPanel value="keywords">
+          <KeywordsTab clientId={clientId} />
+        </TabsPanel>
+      </Tabs>
+    </div>
   )
 }

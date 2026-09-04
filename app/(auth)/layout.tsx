@@ -22,7 +22,7 @@ export default function AuthLayout({
 
           <ul className="flex flex-col gap-4">
             {[
-              "Every Google review in one inbox",
+              "Every client's Google reviews in one inbox",
               "Verify a reply before it goes live",
               "Publish straight to Google Business Profile",
             ].map((beat) => (
@@ -30,7 +30,7 @@ export default function AuthLayout({
                 key={beat}
                 className="flex items-center gap-3 text-body font-medium"
               >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-(--nr-radius-control) bg-accent text-accent-foreground">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-control) bg-accent text-accent-foreground">
                   <Check className="size-4" aria-hidden />
                 </span>
                 {beat}
@@ -40,8 +40,8 @@ export default function AuthLayout({
         </div>
 
         <p className="max-w-md text-caption leading-relaxed text-sidebar-foreground/70">
-          Your team signs in here. Google Business Profile is connected once for
-          the organisation by an owner in Settings.
+          Your team signs in here. Each client&rsquo;s Google account is connected
+          once, by an owner, when you set that client up.
         </p>
       </aside>
 

@@ -17,7 +17,7 @@ function Empty({
     <div
       data-slot="empty"
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-(--nr-radius-card) border border-dashed border-border p-10 text-center",
+        "flex flex-col items-center justify-center gap-2 rounded-(--np-radius-card) border border-dashed border-border p-10 text-center",
         className
       )}
     >

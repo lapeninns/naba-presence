@@ -15,7 +15,7 @@ import { REPLY_RANGES, resolveReplyRange, type ReplyRangeId } from "@/lib/report
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { formatDate, formatDuration, formatNumber, formatPercent } from "@/lib/format"
 
-export function ReplyPerformanceTab() {
+export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const [rangeId, setRangeId] = useState<ReplyRangeId>("30d")
   // Memoise the range: resolveReplyRange defaults `now` to `new Date()`, so
   // calling it in the render body minted fresh from/to ISO strings every render
@@ -23,8 +23,8 @@ export function ReplyPerformanceTab() {
   // infinite fetch loop (72 requests in 5s, observed). Capture the window once
   // per rangeId change so the query keys stay stable.
   const { current, previous } = useMemo(() => resolveReplyRange(rangeId), [rangeId])
-  const now = useAnalyticsOverview(current)
-  const prior = useAnalyticsOverview(previous)
+  const now = useAnalyticsOverview({ ...current, clientId })
+  const prior = useAnalyticsOverview({ ...previous, clientId })
 
   if (now.isPending) return <ReportingPanel variant="loading" />
   if (now.isError) return <ReportingPanel variant="error" onRetry={() => void now.refetch()} />
@@ -36,7 +36,7 @@ export function ReplyPerformanceTab() {
   const hasSeries = now.data.series.some((point) => point.reviewCount > 0)
 
   return (
-    <div className="flex flex-col gap-(--nr-gap-section)">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {/* Leading h2 keeps the heading order valid: page h1 -> tab h2 -> card h3 (REV-2). */}
       <h2 className="sr-only">Reply performance</h2>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -46,7 +46,7 @@ export function ReplyPerformanceTab() {
 
       <DivergenceBanner providerTotals={now.data.providerTotals} />
 
-      <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="Reviews" value={formatNumber(s.reviewVolume)} delta={<DeltaBadge current={s.reviewVolume} previous={p?.reviewVolume ?? null} unit="count" />} />
         <StatTile label="Average rating" value={s.averageRating === null ? "—" : s.averageRating.toFixed(1)} delta={<DeltaBadge current={s.averageRating} previous={p?.averageRating ?? null} unit="rating" />} />
         <StatTile label="Response rate" value={s.responseRate === null ? "—" : formatPercent(s.responseRate)} delta={<DeltaBadge current={s.responseRate} previous={p?.responseRate ?? null} unit="percent" />} />
@@ -54,7 +54,7 @@ export function ReplyPerformanceTab() {
         <StatTile label="Median response time" value={formatDuration(s.medianFirstResponseSeconds)} delta={<DeltaBadge current={s.medianFirstResponseSeconds} previous={p?.medianFirstResponseSeconds ?? null} unit="duration" />} />
       </div>
 
-      <div className="grid gap-(--nr-gap-card) lg:grid-cols-2">
+      <div className="grid gap-(--np-gap-card) lg:grid-cols-2">
         <ChartCard title="Review volume" state={hasSeries ? "ready" : "empty"} emptyLabel="No reviews in this window.">
           <ReportingBarChart data={now.data.series} xKey="period" xTickFormatter={tick} series={[{ key: "reviewCount", label: "Reviews", colorVar: 1 }, { key: "replies", label: "Replies", colorVar: 4 }]} />
         </ChartCard>

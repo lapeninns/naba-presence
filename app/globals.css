@@ -11,9 +11,8 @@
      1. RAMPS      raw colour steps. The only layer a designer edits.
      2. SEMANTIC   the `--np-*` roles every component reads.
      3. COMPONENT  the few values that vary by density or control kind.
-     4. ALIASES    the shadcn token contract and the legacy `--nr-*` names,
-                   so hundreds of existing `bg-background` / `rounded-(--nr-…)`
-                   usages keep working while screens migrate.
+     4. ALIASES    the shadcn token contract, so every existing
+                   `bg-background` / `border-border` usage keeps working.
 
    Nothing in layers 2–4 may introduce a literal colour: a role's value is a
    ramp step or another role. Contrast is not asserted in a comment here — it
@@ -83,13 +82,6 @@
   --shadow-np-pop: var(--np-shadow-pop);
   --shadow-np-modal: var(--np-shadow-modal);
   /* Legacy shadow utilities, retained until the codemod. */
-  --shadow-nr-card: var(--nr-shadow-card);
-  --shadow-nr-panel: var(--nr-shadow-panel);
-  --shadow-nr-float: var(--nr-shadow-float);
-  --shadow-nr-hover: var(--nr-shadow-hover);
-  --shadow-nr-pop: var(--nr-shadow-pop);
-  --shadow-nr-modal: var(--nr-shadow-modal);
-  --shadow-nr-primary: var(--nr-shadow-primary);
 
   /* shadcn contract — resolved through the alias layer below. */
   --color-background: var(--background);
@@ -321,41 +313,6 @@
   --sidebar-border: var(--np-line);
   --sidebar-ring: var(--np-focus-ring);
 
-  /* Legacy `--nr-*` names. Every one resolves to a `--np-*` role so migrated
-     and unmigrated components render identically; the codemod in B6 deletes
-     this block. */
-  --nr-sidebar-width: var(--np-sidebar-width);
-  --nr-sidebar-margin: 0px;
-  --nr-page-pad-x: var(--np-page-pad-x);
-  --nr-page-pad-y: var(--np-page-pad-y);
-  --nr-page-max-width: var(--np-page-max-width);
-  --nr-gap-card: var(--np-gap-card);
-  --nr-gap-section: var(--np-gap-section);
-  --nr-card-pad: var(--np-card-pad);
-  --nr-panel-pad: var(--np-panel-pad);
-  --nr-radius-tag: var(--np-radius-tag);
-  --nr-radius-chip: var(--np-radius-control);
-  --nr-radius-control: var(--np-radius-control);
-  --nr-radius-field: var(--np-radius-field);
-  --nr-radius-card: var(--np-radius-card);
-  --nr-radius-panel: var(--np-radius-panel);
-  --nr-radius-shell: var(--np-radius-panel);
-  --nr-radius-modal: var(--np-radius-modal);
-  --nr-radius-pill: var(--np-radius-pill);
-  --nr-shadow-card: none;
-  --nr-shadow-panel: none;
-  --nr-shadow-float: var(--np-shadow-raised);
-  --nr-shadow-hover: var(--np-shadow-raised);
-  --nr-shadow-pop: var(--np-shadow-pop);
-  --nr-shadow-modal: var(--np-shadow-modal);
-  --nr-shadow-primary: none;
-  --nr-duration-fast: var(--np-duration-fast);
-  --nr-duration-standard: var(--np-duration-standard);
-  --nr-duration-deliberate: var(--np-duration-deliberate);
-  --nr-duration-overlay: var(--np-duration-overlay);
-  --nr-ease-standard: var(--np-ease-standard);
-  --nr-ease-out: var(--np-ease-out);
-  --nr-lift-hover: -1px;
 }
 
 .dark {
@@ -452,7 +409,6 @@
     --np-duration-standard: 1ms;
     --np-duration-deliberate: 1ms;
     --np-duration-overlay: 1ms;
-    --nr-lift-hover: 0px;
   }
 }
 

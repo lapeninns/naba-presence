@@ -9,14 +9,15 @@ import type { AuthMessage } from "@/lib/api/auth-errors"
 const COPY = {
   "sign-in": {
     eyebrow: "Welcome back",
-    title: "Sign in to run your reviews",
-    description: "Trusted replies for Google Business Profile, from one inbox.",
+    title: "Sign in to your clients’ reviews",
+    description:
+      "Every client's Google Business Profile, from one inbox.",
   },
   "create-account": {
-    eyebrow: "New organisation",
+    eyebrow: "New agency",
     title: "Create your NabaPresence account",
     description:
-      "Set up your organisation, then connect Google Business Profile once from Settings.",
+      "Name your agency, then add your first client and connect its Google account.",
   },
 } satisfies Record<
   SignInMode,

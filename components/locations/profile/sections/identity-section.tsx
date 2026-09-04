@@ -39,6 +39,7 @@ export function IdentitySection({
   errors,
   issues,
   disabled,
+  googleReady,
 }: {
   locationId: string
   values: ProfileFormValues
@@ -48,6 +49,8 @@ export function IdentitySection({
   errors: Partial<Record<keyof ProfileFormValues, string>>
   issues: PayloadFieldErrors
   disabled: boolean
+  /** False while Google's half of the listing has not arrived. */
+  googleReady: boolean
 }) {
   const labelsId = useId()
 
@@ -80,136 +83,145 @@ export function IdentitySection({
         <FieldError />
       </Field>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-ui font-medium">Primary category</span>
-        <div className="flex flex-wrap items-center gap-2">
-          {draft.primaryCategory ? (
-            <Badge variant="secondary">
-              {categoryLabel(draft.primaryCategory)}
-            </Badge>
-          ) : (
-            <span className="text-caption text-muted-foreground">
-              No primary category set.
-            </span>
-          )}
-        </div>
-        <CategorySearch
-          locationId={locationId}
-          label="Change primary category"
-          disabled={disabled}
-          onSelect={(category) =>
-            setDraft((d) => ({ ...d, primaryCategory: category }))
-          }
-        />
-      </div>
+      {googleReady ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <span className="text-ui font-medium">Primary category</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {draft.primaryCategory ? (
+                <Badge variant="secondary">
+                  {categoryLabel(draft.primaryCategory)}
+                </Badge>
+              ) : (
+                <span className="text-caption text-muted-foreground">
+                  No primary category set.
+                </span>
+              )}
+            </div>
+            <CategorySearch
+              locationId={locationId}
+              label="Change primary category"
+              disabled={disabled}
+              onSelect={(category) =>
+                setDraft((d) => ({ ...d, primaryCategory: category }))
+              }
+            />
+          </div>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-ui font-medium">Additional categories</span>
-        <div className="flex flex-wrap items-center gap-2">
-          {draft.additionalCategories.length === 0 ? (
-            <span className="text-caption text-muted-foreground">
-              None set.
-            </span>
-          ) : (
-            draft.additionalCategories.map((category) => (
-              <Badge key={category.name} variant="outline">
-                {categoryLabel(category)}
-                <button
-                  type="button"
-                  aria-label={`Remove ${categoryLabel(category)}`}
-                  disabled={disabled}
-                  onClick={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      additionalCategories: d.additionalCategories.filter(
-                        (c) => c.name !== category.name
-                      ),
-                    }))
-                  }
-                >
-                  ×
-                </button>
-              </Badge>
-            ))
-          )}
-        </div>
-        <CategorySearch
-          locationId={locationId}
-          label="Add another category"
-          disabled={disabled}
-          onSelect={(category) =>
-            setDraft((d) =>
-              d.primaryCategory?.name === category.name ||
-              d.additionalCategories.some((c) => c.name === category.name)
-                ? d
-                : {
-                    ...d,
-                    additionalCategories: [...d.additionalCategories, category],
-                  }
-            )
-          }
-        />
-      </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-ui font-medium">Additional categories</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {draft.additionalCategories.length === 0 ? (
+                <span className="text-caption text-muted-foreground">
+                  None set.
+                </span>
+              ) : (
+                draft.additionalCategories.map((category) => (
+                  <Badge key={category.name} variant="outline">
+                    {categoryLabel(category)}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${categoryLabel(category)}`}
+                      disabled={disabled}
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          additionalCategories: d.additionalCategories.filter(
+                            (c) => c.name !== category.name
+                          ),
+                        }))
+                      }
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))
+              )}
+            </div>
+            <CategorySearch
+              locationId={locationId}
+              label="Add another category"
+              disabled={disabled}
+              onSelect={(category) =>
+                setDraft((d) =>
+                  d.primaryCategory?.name === category.name ||
+                  d.additionalCategories.some((c) => c.name === category.name)
+                    ? d
+                    : {
+                        ...d,
+                        additionalCategories: [
+                          ...d.additionalCategories,
+                          category,
+                        ],
+                      }
+                )
+              }
+            />
+          </div>
 
-      <Field>
-        <FieldLabel htmlFor={labelsId}>Labels</FieldLabel>
-        <Textarea
-          id={labelsId}
-          value={draft.labels.join("\n")}
-          disabled={disabled}
-          rows={3}
-          placeholder="One label per line"
-          onChange={(event) =>
-            setDraft((d) => ({
-              ...d,
-              labels: event.target.value
-                .split("\n")
-                .map((line) => line.trim())
-                .filter(Boolean),
-            }))
-          }
-        />
-      </Field>
+          <Field>
+            <FieldLabel htmlFor={labelsId}>Labels</FieldLabel>
+            <Textarea
+              id={labelsId}
+              value={draft.labels.join("\n")}
+              disabled={disabled}
+              rows={3}
+              placeholder="One label per line"
+              onChange={(event) =>
+                setDraft((d) => ({
+                  ...d,
+                  labels: event.target.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                }))
+              }
+            />
+          </Field>
 
-      <Field>
-        <FieldLabel>Store code</FieldLabel>
-        <Input
-          value={draft.storeCode}
-          disabled={disabled}
-          onChange={(event) =>
-            setDraft((d) => ({ ...d, storeCode: event.target.value }))
-          }
-        />
-      </Field>
+          <Field>
+            <FieldLabel>Store code</FieldLabel>
+            <Input
+              value={draft.storeCode}
+              disabled={disabled}
+              onChange={(event) =>
+                setDraft((d) => ({ ...d, storeCode: event.target.value }))
+              }
+            />
+          </Field>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-ui font-medium">Open status</span>
-        <Select
-          value={draft.openStatus}
-          onValueChange={(value: string | null) =>
-            value && setDraft((d) => ({ ...d, openStatus: value }))
-          }
-          disabled={disabled}
-        >
-          <SelectTrigger aria-label="Open status">
-            {/* Render function so the trigger reads the humanised label on
+          <div className="flex flex-col gap-1">
+            <span className="text-ui font-medium">Open status</span>
+            <Select
+              value={draft.openStatus}
+              onValueChange={(value: string | null) =>
+                value && setDraft((d) => ({ ...d, openStatus: value }))
+              }
+              disabled={disabled}
+            >
+              <SelectTrigger aria-label="Open status">
+                {/* Render function so the trigger reads the humanised label on
                 first paint, before the popup's items have registered (§7). */}
-            <SelectValue>
-              {(value: string | null) => (value ? openStatusLabel(value) : "")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {OPEN_STATUS_OPTIONS.map((status) => (
-              <SelectItem key={status} value={status}>
-                {openStatusLabel(status)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {issues.title ? (
-          <p className="text-caption text-danger-ink">{issues.title}</p>
-        ) : null}
-      </div>
+                <SelectValue>
+                  {(value: string | null) =>
+                    value ? openStatusLabel(value) : ""
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {OPEN_STATUS_OPTIONS.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {openStatusLabel(status)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {issues.title ? (
+              <p className="text-caption text-danger-ink">{issues.title}</p>
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </section>
   )
 }

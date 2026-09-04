@@ -150,7 +150,7 @@ function ReviewList({
       aria-label="Review list"
       aria-busy={isRefreshing || undefined}
       className={cn(
-        "relative flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity duration-(--nr-duration-fast)",
+        "relative flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity duration-(--np-duration-fast)",
         isRefreshing && "opacity-80"
       )}
     >
@@ -234,7 +234,7 @@ function ReviewList({
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  "group/row relative flex w-full items-start gap-3 border-b border-border/60 py-3 pr-4 text-left transition-[colors,background-color] duration-(--nr-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
+                  "group/row relative flex w-full items-start gap-3 border-b border-border/60 py-3 pr-4 text-left transition-[colors,background-color] duration-(--np-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
                   selection ? "pl-10" : "pl-4",
                   selected
                     ? // Accent tint (Google pale blue) is the sanctioned
@@ -261,7 +261,7 @@ function ReviewList({
                       title={situation.headline}
                       aria-label={situation.headline}
                       className={cn(
-                        "inline-flex shrink-0 items-center rounded-(--nr-radius-pill) px-1.5 py-px text-caption font-medium",
+                        "inline-flex shrink-0 items-center rounded-(--np-radius-pill) px-1.5 py-px text-caption font-medium",
                         SITUATION_TONE_CHIP[situation.tone]
                       )}
                     >

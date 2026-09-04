@@ -33,7 +33,7 @@ describe("DivergenceBanner", () => {
 })
 
 describe("PulseChart", () => {
-  it("cross-links to Performance and shows the pulse heading", () => {
+  it("cross-links to Reports and shows the pulse heading", () => {
     const overview: AnalyticsOverview = {
       from: "2026-07-01T00:00:00.000Z",
       to: "2026-08-01T00:00:00.000Z",
@@ -71,7 +71,7 @@ describe("PulseChart", () => {
     )
     expect(screen.getByRole("heading", { name: "Pulse" })).toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: /See Performance/i })
-    ).toHaveAttribute("href", "/performance")
+      screen.getByRole("link", { name: /See reports/i })
+    ).toHaveAttribute("href", "/reports")
   })
 })

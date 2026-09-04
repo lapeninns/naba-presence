@@ -278,7 +278,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         <p
           dir="auto"
           lang={review.detectedLanguageCode ?? undefined}
-          className="rounded-(--nr-radius-field) border border-border/70 bg-muted/40 px-4 py-3 text-body whitespace-pre-line"
+          className="rounded-(--np-radius-field) border border-border/70 bg-muted/40 px-4 py-3 text-body whitespace-pre-line"
         >
           {body}
         </p>
@@ -338,7 +338,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-(--nr-radius-field) border border-border bg-background focus-within:ring-3 focus-within:ring-ring/30">
+      <div className="overflow-hidden rounded-(--np-radius-field) border border-border bg-background focus-within:ring-3 focus-within:ring-ring/30">
         <Textarea
           ref={textareaRef}
           id={fieldId}

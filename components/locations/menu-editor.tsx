@@ -91,7 +91,7 @@ export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; o
         const items = Array.isArray(section.items) ? (section.items as Json[]) : []
         const sectionLabel = label(section)
         return (
-          <section key={sectionIndex} className="flex flex-col gap-3 rounded-(--nr-radius-card) border border-border p-4">
+          <section key={sectionIndex} className="flex flex-col gap-3 rounded-(--np-radius-card) border border-border p-4">
             <div className="flex items-center gap-2">
               <Input
                 aria-label={`Section ${sectionIndex + 1} name`}

@@ -3,6 +3,7 @@
 import {
   ImagesIcon,
   Maximize2Icon,
+  StarIcon,
   StoreIcon,
   Trash2Icon,
   UserRoundIcon,
@@ -47,7 +48,7 @@ export function MediaCard({
   const mediaKind = item.mediaFormat.toLowerCase()
 
   return (
-    <li className="group overflow-hidden rounded-(--nr-radius-card) border border-border/70 bg-background shadow-sm transition-[border-color,box-shadow,transform] duration-(--nr-duration-fast) hover:-translate-y-0.5 hover:border-border hover:shadow-(--nr-shadow-card)">
+    <li className="group overflow-hidden rounded-(--np-radius-card) border border-border/70 bg-background shadow-sm transition-[border-color,box-shadow,transform] duration-(--np-duration-fast) hover:-translate-y-0.5 hover:border-border hover:">
       <button
         type="button"
         onClick={onOpen}
@@ -61,7 +62,7 @@ export function MediaCard({
             alt=""
             referrerPolicy="no-referrer"
             loading="lazy"
-            className="size-full object-cover transition-transform duration-(--nr-duration-deliberate) group-hover:scale-[1.02]"
+            className="size-full object-cover transition-transform duration-(--np-duration-deliberate) group-hover:scale-[1.02]"
           />
         ) : (
           <span
@@ -131,6 +132,23 @@ export function MediaCard({
                 </SelectContent>
               </Select>
             </label>
+            {item.category === "LOGO" ? (
+              <Badge variant="secondary">Logo</Badge>
+            ) : (
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={() => onCategoryChange("LOGO")}
+                disabled={disabled || updating}
+                // Moving a photo to LOGO through the category dropdown works,
+                // but nobody looking for "make this our logo" thinks to open a
+                // list called "Move to category".
+                aria-label={`Use this ${mediaKind} as the logo`}
+                title="Use as logo"
+              >
+                <StarIcon aria-hidden />
+              </Button>
+            )}
             <Button
               variant="destructive"
               size="icon-sm"

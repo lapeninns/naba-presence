@@ -80,7 +80,7 @@ export function PhotosToolbar({
         <div
           role="group"
           aria-label="Photo ownership"
-          className="grid grid-cols-3 gap-1 rounded-(--nr-radius-control) bg-muted/70 p-1 sm:inline-grid"
+          className="grid grid-cols-3 gap-1 rounded-(--np-radius-control) bg-muted/70 p-1 sm:inline-grid"
         >
           {OWNERSHIP_FILTERS.map((option) => (
             <Button

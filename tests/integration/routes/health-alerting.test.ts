@@ -353,13 +353,15 @@ describeDatabase("operations health alerting", () => {
     )
     expect(response.status, await response.clone().text()).toBe(200)
     const health = await response.json()
-    expect(health).toMatchObject({
-      scope: "platform",
-      failedWebhookEvents: 1,
-      deadWebhookEvents: 1,
-      ambiguousPublishAttempts: 1,
-      schedulerHeartbeatAt: expect.any(String),
-    })
+    // Platform scope counts every tenant in the database, so these are
+    // lower bounds, not equalities: a local database that has also run the
+    // e2e journey seed (or is holding a previous run's tenants) legitimately
+    // carries more. The tenant-scoped assertions above are the exact ones.
+    expect(health.scope).toBe("platform")
+    expect(health.schedulerHeartbeatAt).toEqual(expect.any(String))
+    expect(health.failedWebhookEvents).toBeGreaterThanOrEqual(1)
+    expect(health.deadWebhookEvents).toBeGreaterThanOrEqual(1)
+    expect(health.ambiguousPublishAttempts).toBeGreaterThanOrEqual(1)
   })
 
   it("rejects an invalid platform monitor token", async () => {

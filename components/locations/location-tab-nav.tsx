@@ -80,7 +80,7 @@ export function LocationTabNav({
                         prefetch
                         aria-current={isActive ? "page" : undefined}
                         className={cn(
-                          "inline-flex shrink-0 items-center border-b-2 px-3 py-2 text-ui font-medium transition-colors duration-(--nr-duration-fast) focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+                          "inline-flex shrink-0 items-center border-b-2 px-3 py-2 text-ui font-medium transition-colors duration-(--np-duration-fast) focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
                           isActive
                             ? "border-primary text-foreground"
                             : "border-transparent text-muted-foreground hover:text-foreground"

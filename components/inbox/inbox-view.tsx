@@ -356,9 +356,9 @@ function InboxViewInner({
           >
             <Skeleton className="size-8 shrink-0 rounded-full" />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Skeleton className="h-3.5 w-28 rounded-(--nr-radius-tag)" />
-              <Skeleton className="h-3 w-40 rounded-(--nr-radius-tag)" />
-              <Skeleton className="h-3 w-full max-w-56 rounded-(--nr-radius-tag)" />
+              <Skeleton className="h-3.5 w-28 rounded-(--np-radius-tag)" />
+              <Skeleton className="h-3 w-40 rounded-(--np-radius-tag)" />
+              <Skeleton className="h-3 w-full max-w-56 rounded-(--np-radius-tag)" />
             </div>
           </div>
         ))}
@@ -497,7 +497,7 @@ function InboxViewInner({
           not glass), shadow elevates it off the tinted page background. */}
       <div
         className={cn(
-          "min-h-0 flex-col overflow-hidden rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card)",
+          "min-h-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-border bg-card",
           mobilePane === "detail" ? "hidden lg:flex" : "flex"
         )}
       >
@@ -558,7 +558,7 @@ function InboxViewInner({
       <section
         aria-label="Selected review"
         className={cn(
-          "min-h-0 rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card) lg:flex lg:flex-col",
+          "min-h-0 rounded-(--np-radius-card) border border-border bg-card lg:flex lg:flex-col",
           mobilePane === "detail" ? "flex flex-col" : "hidden lg:flex"
         )}
       >
@@ -566,7 +566,7 @@ function InboxViewInner({
           <DetailErrorBoundary key={state.selected}>
             <div
               key={state.selected}
-              className="flex min-h-0 flex-1 animate-in flex-col duration-(--nr-duration-fast) fade-in-0"
+              className="flex min-h-0 flex-1 animate-in flex-col duration-(--np-duration-fast) fade-in-0"
             >
               <ReviewDetail
                 reviewId={state.selected}

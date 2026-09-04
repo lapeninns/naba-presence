@@ -1,1 +1,1 @@
-export { AdministrationTab } from "./administration-tab"
+export { AccessTab, VerificationTab } from "./administration-tab"

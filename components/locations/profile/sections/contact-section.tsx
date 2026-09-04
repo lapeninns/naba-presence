@@ -18,6 +18,7 @@ export function ContactSection({
   errors,
   issues,
   disabled,
+  googleReady,
 }: {
   values: ProfileFormValues
   setValues: Dispatch<SetStateAction<ProfileFormValues>>
@@ -26,6 +27,8 @@ export function ContactSection({
   errors: Partial<Record<keyof ProfileFormValues, string>>
   issues: PayloadFieldErrors
   disabled: boolean
+  /** False while Google's half of the listing has not arrived. */
+  googleReady: boolean
 }) {
   const addressId = useId()
 
@@ -58,48 +61,52 @@ export function ContactSection({
         <FieldError />
       </Field>
 
-      <Field error={issues.addressLines}>
-        <FieldLabel htmlFor={addressId}>Address lines</FieldLabel>
-        <Textarea
-          id={addressId}
-          value={draft.addressLines.join("\n")}
-          disabled={disabled}
-          rows={3}
-          placeholder="One line per address line"
-          onChange={(event) =>
-            setDraft((d) => ({
-              ...d,
-              addressLines: event.target.value
-                .split("\n")
-                .map((line) => line.trim())
-                .filter(Boolean),
-            }))
-          }
-        />
-        <FieldError />
-      </Field>
+      {googleReady ? (
+        <>
+          <Field error={issues.addressLines}>
+            <FieldLabel htmlFor={addressId}>Address lines</FieldLabel>
+            <Textarea
+              id={addressId}
+              value={draft.addressLines.join("\n")}
+              disabled={disabled}
+              rows={3}
+              placeholder="One line per address line"
+              onChange={(event) =>
+                setDraft((d) => ({
+                  ...d,
+                  addressLines: event.target.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                }))
+              }
+            />
+            <FieldError />
+          </Field>
 
-      <Field>
-        <FieldLabel>Town or city</FieldLabel>
-        <Input
-          value={draft.locality}
-          disabled={disabled}
-          onChange={(event) =>
-            setDraft((d) => ({ ...d, locality: event.target.value }))
-          }
-        />
-      </Field>
+          <Field>
+            <FieldLabel>Town or city</FieldLabel>
+            <Input
+              value={draft.locality}
+              disabled={disabled}
+              onChange={(event) =>
+                setDraft((d) => ({ ...d, locality: event.target.value }))
+              }
+            />
+          </Field>
 
-      <Field>
-        <FieldLabel>Postcode</FieldLabel>
-        <Input
-          value={draft.postalCode}
-          disabled={disabled}
-          onChange={(event) =>
-            setDraft((d) => ({ ...d, postalCode: event.target.value }))
-          }
-        />
-      </Field>
+          <Field>
+            <FieldLabel>Postcode</FieldLabel>
+            <Input
+              value={draft.postalCode}
+              disabled={disabled}
+              onChange={(event) =>
+                setDraft((d) => ({ ...d, postalCode: event.target.value }))
+              }
+            />
+          </Field>
+        </>
+      ) : null}
     </section>
   )
 }

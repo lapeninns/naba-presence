@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { PostsTab } from "@/components/locations/posts-tab"
@@ -36,23 +37,44 @@ function renderTab() {
 afterEach(() => vi.clearAllMocks())
 
 describe("PostsTab", () => {
-  it("lists a draft post with a publish action and an enabled composer", () => {
+  it("opens on the posts, not on an empty form, and previews what is typed", async () => {
+    const user = userEvent.setup()
     usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByText("Open late tonight")).toBeInTheDocument()
-    // The listed draft can be published; the empty composer's Save draft is
-    // present but disabled until something is typed (dirty).
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
+    // The composer used to sit permanently above the list, so the page opened
+    // on a blank form rather than on the posts.
+    expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "New post" }))
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByRole("button", { name: "Save draft" })).toBeDisabled()
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      "Late opening on Friday"
+    )
+    expect(within(sheet).getAllByText("Late opening on Friday").length).toBe(2)
+    expect(within(sheet).getByRole("button", { name: "Save draft" })).toBeEnabled()
   })
 
-  it("shows a paused notice and disables composing when posts are paused", () => {
+  it("shows a paused notice and blocks composing when posts are paused", async () => {
+    const user = userEvent.setup()
     usePostsMock.mockReturnValue({ data: makeState({ writesEnabled: false }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
-    expect(screen.getByText("Publishing to Google is currently unavailable, so new posts cannot be composed.")).toBeInTheDocument()
+    const trigger = screen.getByRole("button", { name: "New post" })
+    expect(trigger).toBeDisabled()
+    await user.click(trigger)
+    expect(screen.queryByRole("dialog")).toBeNull()
+    // A disabled control with no reason beside it is the thing this rebuild
+    // exists to remove.
+    expect(
+      screen.getByText(
+        "Publishing to Google is currently unavailable, so new posts cannot be composed."
+      )
+    ).toBeInTheDocument()
   })
 
   it("shows the second-approver copy path via an awaiting-approval post for a publisher", () => {

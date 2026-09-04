@@ -11,8 +11,9 @@ export default async function ResetPasswordPage({
   const params = await searchParams
   return (
     <AuthCard
+      eyebrow="Account"
       title="Choose a new password"
-      description="Enter a new password to finish resetting your account."
+      description="Pick a new password. You will stay signed out everywhere else until you use it."
       footer={
         <a className="underline underline-offset-4" href="/sign-in">
           Back to sign in

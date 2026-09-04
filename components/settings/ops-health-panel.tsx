@@ -46,7 +46,7 @@ function Metric({
   tone?: "default" | "warn" | "ok"
 }) {
   return (
-    <li className="flex flex-col gap-1 rounded-(--nr-radius-card) border border-border p-3">
+    <li className="flex flex-col gap-1 rounded-(--np-radius-card) border border-border p-3">
       <span className="text-caption text-muted-foreground">{label}</span>
       <span
         className={
@@ -263,7 +263,7 @@ export function OpsHealthPanel() {
             {failures.data.map((item) => (
               <li
                 key={item.id}
-                className="flex flex-col gap-2 rounded-(--nr-radius-card) border border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 rounded-(--np-radius-card) border border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-2">

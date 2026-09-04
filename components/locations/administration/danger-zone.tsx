@@ -57,7 +57,7 @@ export function runDangerZoneOperation(
 // points people who want that at Connections instead.
 export function DangerZone() {
   return (
-    <section className="flex flex-col gap-4 rounded-(--nr-radius-card) border border-destructive/30 bg-destructive/5 p-4">
+    <section className="flex flex-col gap-4 rounded-(--np-radius-card) border border-destructive/30 bg-destructive/5 p-4">
       <div className="flex flex-col gap-1">
         <h3 className="text-ui font-semibold text-destructive">Danger zone</h3>
         <p className="text-caption text-muted-foreground">

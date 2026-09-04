@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/locations/loc-1/administration",
+  usePathname: () => "/locations/loc-1/access",
 }))
 
 // The nav decorates tabs with import-review pending counts; the counts hook
@@ -29,12 +29,14 @@ describe("LocationTabNav", () => {
       "Booking",
       "Menu",
       "Performance",
-      "Access",
+      "People",
+      "Verification",
+      "Suggested updates",
     ]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
-    const active = screen.getByRole("link", { name: "Access" })
-    expect(active).toHaveAttribute("href", "/locations/loc-1/administration")
+    const active = screen.getByRole("link", { name: "People" })
+    expect(active).toHaveAttribute("href", "/locations/loc-1/access")
     expect(active).toHaveAttribute("aria-current", "page")
     expect(screen.queryByRole("link", { name: "Reviews" })).not.toBeInTheDocument()
     // Retired: both edited the same listing through a second save model.
@@ -48,7 +50,7 @@ describe("LocationTabNav", () => {
     expect(
       screen.getByRole("link", { name: "Business profile" })
     ).toBeInTheDocument()
-    for (const gone of ["Access"]) {
+    for (const gone of ["People", "Verification"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
     // The whole Access section disappears rather than rendering an empty

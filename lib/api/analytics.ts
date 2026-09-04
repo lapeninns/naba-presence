@@ -25,6 +25,9 @@ export function fetchAnalyticsOverview(
   if (params?.from) query.set("from", params.from)
   if (params?.to) query.set("to", params.to)
   if (params?.granularity) query.set("granularity", params.granularity)
+  // The route reads snake_case for this one; every other analytics param is
+  // camelCase, which is exactly the kind of detail a caller should not carry.
+  if (params?.clientId) query.set("client_id", params.clientId)
   const suffix = query.size ? `?${query}` : ""
   return apiFetch(`/api/analytics/overview${suffix}`, {
     schema: analyticsOverviewSchema,

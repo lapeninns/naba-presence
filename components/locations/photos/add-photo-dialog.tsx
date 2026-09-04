@@ -143,7 +143,7 @@ export function AddPhotoDialog({
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="group flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-(--nr-radius-field) border border-dashed border-border bg-muted/30 px-4 py-6 text-center transition-colors hover:bg-muted/60">
+            <label className="group flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-(--np-radius-field) border border-dashed border-border bg-muted/30 px-4 py-6 text-center transition-colors hover:bg-muted/60">
               <input
                 ref={fileRef}
                 type="file"
@@ -164,9 +164,9 @@ export function AddPhotoDialog({
               </span>
             </label>
 
-            <div className="flex min-h-40 flex-col justify-center gap-3 rounded-(--nr-radius-field) border border-border/70 bg-muted/20 p-4">
+            <div className="flex min-h-40 flex-col justify-center gap-3 rounded-(--np-radius-field) border border-border/70 bg-muted/20 p-4">
               <div className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-(--nr-radius-control) bg-background text-muted-foreground ring-1 ring-border/70">
+                <span className="flex size-8 items-center justify-center rounded-(--np-radius-control) bg-background text-muted-foreground ring-1 ring-border/70">
                   <LinkIcon aria-hidden className="size-4" />
                 </span>
                 <div>

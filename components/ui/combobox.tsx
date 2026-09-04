@@ -13,7 +13,7 @@ function ComboboxInput({ className, ...props }: ComboboxPrimitive.Input.Props) {
     <ComboboxPrimitive.Input
       data-slot="combobox-input"
       className={cn(
-        "h-8 w-full min-w-0 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+        "h-8 w-full min-w-0 rounded-(--np-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
         className
       )}
       {...props}
@@ -28,7 +28,7 @@ function ComboboxContent({ className, children, ...props }: ComboboxPrimitive.Po
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
           className={cn(
-            "max-h-[min(20rem,var(--available-height))] w-[var(--anchor-width)] overflow-y-auto rounded-(--nr-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--nr-shadow-modal) outline-none",
+            "max-h-[min(20rem,var(--available-height))] w-[var(--anchor-width)] overflow-y-auto rounded-(--np-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--np-shadow-modal) outline-none",
             className
           )}
           {...props}
@@ -48,7 +48,7 @@ function ComboboxItem({ className, ...props }: ComboboxPrimitive.Item.Props) {
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "flex cursor-default items-center rounded-(--nr-radius-control) px-3 py-1.5 text-ui outline-none data-highlighted:bg-muted",
+        "flex cursor-default items-center rounded-(--np-radius-control) px-3 py-1.5 text-ui outline-none data-highlighted:bg-muted",
         className
       )}
       {...props}

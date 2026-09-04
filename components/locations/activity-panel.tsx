@@ -72,7 +72,7 @@ function ActivityList({
             {activity.items.map((item) => (
               <li
                 key={item.id}
-                className="flex flex-col gap-1 rounded-(--nr-radius-card) border border-border px-3 py-2"
+                className="flex flex-col gap-1 rounded-(--np-radius-card) border border-border px-3 py-2"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-ui font-medium">

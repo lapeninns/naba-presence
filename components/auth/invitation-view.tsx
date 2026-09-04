@@ -43,7 +43,7 @@ function InvitationView({
 
   if (query.isPending) {
     return (
-      <AuthCard title="Checking your invitation">
+      <AuthCard eyebrow="Invitation" title="Checking your invitation">
         <div aria-busy="true" className="flex flex-col gap-4">
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-9 w-full" />
@@ -98,7 +98,11 @@ function InvitationView({
 
   if (viewer === null) {
     return (
-      <AuthCard title={`Join ${data.organisationName}`}>
+      <AuthCard
+        eyebrow="Invitation"
+        title={`Join ${data.organisationName}`}
+        description="Set a password and you will be able to work on the clients this agency has given you."
+      >
         <SignInForm
           initialMode="create-account"
           inviteToken={token}
@@ -109,7 +113,11 @@ function InvitationView({
   }
 
   return (
-    <AuthCard title={`Join ${data.organisationName}`}>
+    <AuthCard
+      eyebrow="Invitation"
+      title={`Join ${data.organisationName}`}
+      description="Accepting adds this agency to the account you are already signed in with."
+    >
       <InvitationActions
         viewer={viewer}
         invitedEmail={data.email}

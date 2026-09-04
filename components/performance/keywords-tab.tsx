@@ -18,10 +18,10 @@ import { useSessionRole } from "@/lib/queries/use-session"
 
 type KeywordRangeId = (typeof KEYWORD_RANGES)[number]["id"]
 
-export function KeywordsTab() {
+export function KeywordsTab({ clientId }: { clientId?: string }) {
   const [rangeId, setRangeId] = useState<KeywordRangeId>("6m")
   const role = useSessionRole()
-  const keywords = useAnalyticsKeywords({ range: rangeId })
+  const keywords = useAnalyticsKeywords({ range: rangeId, clientId })
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -37,7 +37,7 @@ export function KeywordsTab() {
   if (keywords.isError) {
     const paused = keywords.error instanceof ApiClientError && keywords.error.code === "keywords_paused"
     return (
-      <div className="flex flex-col gap-(--nr-gap-section)">
+      <div className="flex flex-col gap-(--np-gap-section)">
         {header}
         {paused ? (
           <ReportingPanel variant="paused" title="Keyword reporting is paused" description="Google search-keyword reporting is on hold for now. Please check back soon." />
@@ -49,7 +49,7 @@ export function KeywordsTab() {
   }
 
   if (keywords.isPending) {
-    return <div className="flex flex-col gap-(--nr-gap-section)">{header}<ReportingPanel variant="loading" /></div>
+    return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" /></div>
   }
 
   const data = keywords.data
@@ -86,7 +86,7 @@ export function KeywordsTab() {
     )
 
   return (
-    <div className="flex flex-col gap-(--nr-gap-section)">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {/* Leading h2 keeps heading order valid when deep-linked via ?tab=keywords (REV-2). */}
       <h2 className="sr-only">Search keywords</h2>
       {header}

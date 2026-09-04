@@ -7,7 +7,6 @@ import { useState } from "react"
 import { AddPhotoDialog } from "@/components/locations/photos/add-photo-dialog"
 import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
-import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
 import { isPatchableMediaCategory } from "@/lib/locations/media-labels"
@@ -74,7 +73,7 @@ export function PhotosLibrary({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="overflow-hidden rounded-(--nr-radius-card) border border-border/70 bg-card shadow-(--nr-shadow-card)">
+      <section className="overflow-hidden rounded-(--np-radius-card) border border-border/70 bg-card">
         <PhotosToolbar
           total={media.total}
           categories={media.categories}
@@ -85,8 +84,6 @@ export function PhotosLibrary({
           disabled={disabled}
           onAdd={() => setAddOpen(true)}
         />
-
-        <GateNote reason={writeReason} />
 
         {media.total === 0 ? (
           <PhotosEmpty

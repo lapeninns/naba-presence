@@ -18,7 +18,8 @@ export type LocationTabSegment =
   | "booking"
   | "menu"
   | "performance"
-  | "administration"
+  | "access"
+  | "verification"
 
 export type LocationTabDef = {
   segment: LocationTabSegment
@@ -65,7 +66,10 @@ export const LOCATION_IA_SECTIONS: LocationIaSection[] = [
   {
     id: "access",
     label: "Access",
-    tabs: [{ segment: "administration", label: "Access", consoleGated: true }],
+    tabs: [
+      { segment: "access", label: "People", consoleGated: true },
+      { segment: "verification", label: "Verification", consoleGated: true },
+    ],
   },
   {
     id: "insights",

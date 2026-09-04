@@ -1,7 +1,7 @@
 "use client"
 
+import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
-import { GateNote } from "@/components/locations/publish-gate"
 import { SectionPanel } from "@/components/locations/section-panel"
 import type { AdministrationState } from "@/lib/api/location-administration"
 import { asRecord } from "@/lib/locations/google-values"
@@ -19,12 +19,29 @@ import {
   VoiceOfMerchantSummary,
 } from "./voice-of-merchant"
 
-export function AdministrationTab({
+/**
+ * The Google-side administration data, shared by the two segments that split
+ * out of the old "Administration" console.
+ *
+ * That console put who-may-edit-the-listing, whether-it-is-verified and
+ * three destructive Google operations on one page under a name that described
+ * none of them. Who has access and whether Google trusts the listing are two
+ * different questions asked at two different times, so they are now two tabs.
+ *
+ * The GET is owner/admin-only server-side; `requires` makes the shell gate the
+ * query on canEditCanonical, so nobody else fires the request that would 403.
+ */
+function AdministrationShell({
   locationId,
   locationName,
+  children,
 }: {
   locationId: string
   locationName?: string
+  children: (props: {
+    state: AdministrationState
+    editReason: string | null
+  }) => React.ReactNode
 }) {
   // The danger zone needs the location's display name for its typed-name
   // confirmation. The workspace layout already fetches this same directory
@@ -38,9 +55,6 @@ export function AdministrationTab({
     directoryQuery.data?.find((entry) => entry.id === locationId)?.name ??
     ""
 
-  // D4: the GET is owner/admin-only server-side — `requires` makes the shell
-  // gate the query itself on canEditCanonical, so a non-owner/admin never
-  // fires the 403 request.
   return (
     <LocationTab
       locationId={locationId}
@@ -55,99 +69,107 @@ export function AdministrationTab({
           disabled={disabled}
           publishReason={editReason ?? publishReason}
         >
-          <AdministrationSections state={state} editReason={editReason} />
+          {children({ state, editReason })}
         </AdministrationProvider>
       )}
     </LocationTab>
   )
 }
 
-function AdministrationSections({
-  state,
-  editReason,
+/** Who may edit this listing on Google, and the operations that end it. */
+export function AccessTab({
+  locationId,
+  locationName,
 }: {
-  state: AdministrationState
-  editReason: string | null
+  locationId: string
+  locationName?: string
 }) {
   return (
-    <div className="flex flex-col gap-8">
-      <GateNote reason={editReason} />
+    <AdministrationShell locationId={locationId} locationName={locationName}>
+      {({ state, editReason }) => (
+        <EditorFrame
+          title="People with access"
+          description="Who can edit this listing inside Google. These are Google accounts, not NabaPresence team members."
+          gateReason={editReason}
+        >
+          <section className="flex flex-col gap-2">
+            <h3 className="text-title font-medium">Location admins</h3>
+            <SectionPanel title="Location admins" result={state.locationAdmins}>
+              {(data) => <AdminsSection data={data} />}
+            </SectionPanel>
+          </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Voice of merchant</h2>
-        <SectionPanel title="Voice of merchant" result={state.voice}>
-          {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
-        </SectionPanel>
-      </section>
+          <section className="flex flex-col gap-2">
+            <h3 className="text-title font-medium">Account admins</h3>
+            <SectionPanel title="Account admins" result={state.accountAdmins}>
+              {(data) => <AdminsSection data={data} />}
+            </SectionPanel>
+          </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Suggested updates</h2>
-        <SectionPanel title="Suggested updates" result={state.googleUpdated}>
-          {(data) => <GoogleUpdateSummary data={asRecord(data)} />}
-        </SectionPanel>
-      </section>
+          <section className="flex flex-col gap-2">
+            <h3 className="text-title font-medium">Invitations</h3>
+            <SectionPanel title="Invitations" result={state.invitations}>
+              {(data) => <InvitationsList data={data} />}
+            </SectionPanel>
+            <div>
+              <CreateAdminDialog />
+            </div>
+          </section>
 
-      <section className="flex max-w-lg flex-col gap-6">
-        <h2 className="text-title font-semibold">Verification</h2>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Verification history
-          </h3>
-          <SectionPanel
-            title="Verification history"
-            result={state.verifications}
-          >
-            {(data) => <VerificationHistory data={asRecord(data)} />}
-          </SectionPanel>
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Start a new verification
-          </h3>
-          <SectionPanel
-            title="Verification options"
-            result={state.verificationOptions}
-          >
-            {(data) => <StartVerification data={asRecord(data)} />}
-          </SectionPanel>
-        </div>
-      </section>
+          <DangerZone />
+        </EditorFrame>
+      )}
+    </AdministrationShell>
+  )
+}
 
-      <section className="flex flex-col gap-6">
-        <h2 className="text-title font-semibold">Administrators</h2>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Location admins
-          </h3>
-          <SectionPanel title="Location admins" result={state.locationAdmins}>
-            {(data) => <AdminsSection data={data} />}
-          </SectionPanel>
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Account admins
-          </h3>
-          <SectionPanel title="Account admins" result={state.accountAdmins}>
-            {(data) => <AdminsSection data={data} />}
-          </SectionPanel>
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Invitations
-          </h3>
-          <SectionPanel title="Invitations" result={state.invitations}>
-            {(data) => <InvitationsList data={data} />}
-          </SectionPanel>
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-ui font-semibold text-muted-foreground">
-            Add an administrator
-          </h3>
-          <CreateAdminDialog />
-        </div>
-      </section>
+/** Whether Google trusts this listing, and how to prove it again. */
+export function VerificationTab({
+  locationId,
+  locationName,
+}: {
+  locationId: string
+  locationName?: string
+}) {
+  return (
+    <AdministrationShell locationId={locationId} locationName={locationName}>
+      {({ state, editReason }) => (
+        <EditorFrame
+          title="Verification"
+          description="Whether Google has confirmed this business is real, and what it is showing publicly as a result."
+          gateReason={editReason}
+        >
+          <section className="flex flex-col gap-2">
+            <h3 className="text-title font-medium">How Google sees this listing</h3>
+            <SectionPanel title="Voice of merchant" result={state.voice}>
+              {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
+            </SectionPanel>
+            <SectionPanel title="Suggested updates" result={state.googleUpdated}>
+              {(data) => <GoogleUpdateSummary data={asRecord(data)} />}
+            </SectionPanel>
+          </section>
 
-      <DangerZone />
-    </div>
+          <section className="flex max-w-lg flex-col gap-2">
+            <h3 className="text-title font-medium">Verification history</h3>
+            <SectionPanel
+              title="Verification history"
+              result={state.verifications}
+            >
+              {(data) => <VerificationHistory data={asRecord(data)} />}
+            </SectionPanel>
+          </section>
+
+          <section className="flex max-w-lg flex-col gap-2">
+            <h3 className="text-title font-medium">Start a new verification</h3>
+            <SectionPanel
+              title="Verification options"
+              result={state.verificationOptions}
+            >
+              {(data) => <StartVerification data={asRecord(data)} />}
+            </SectionPanel>
+          </section>
+        </EditorFrame>
+      )}
+    </AdministrationShell>
   )
 }

@@ -29,14 +29,14 @@ function HealthKpis({
       {isPending || !summary ? (
         <div
           aria-busy="true"
-          className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4"
+          className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4"
         >
           {[0, 1, 2, 3].map((index) => (
-            <Skeleton key={index} className="h-28 rounded-(--nr-radius-card)" />
+            <Skeleton key={index} className="h-28 rounded-(--np-radius-card)" />
           ))}
         </div>
       ) : (
-        <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
           <StatTile
             label="Reviews received"
             value={formatNumber(summary.reviewVolume)}

@@ -3,7 +3,7 @@
 import { useId, useMemo } from "react"
 
 import { SectionPanel } from "@/components/locations/section-panel"
-import { TabError, TabLoading } from "@/components/locations/tab-states"
+import { TabError } from "@/components/locations/tab-states"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -62,21 +62,36 @@ function asString(value: unknown): string {
  * The GET is owner/admin-only server-side, so the capability query gates the
  * mount: a member never fires the request that would 403.
  */
-export function IndustrySections({ locationId }: { locationId: string }) {
+export function IndustrySections({
+  locationId,
+  enabled = true,
+}: {
+  locationId: string
+  /** False until the rest of the listing has loaded; see useIndustry. */
+  enabled?: boolean
+}) {
   const caps = useLocationCapabilities(locationId)
   if (!caps.data?.canEditCanonical) return null
-  return <IndustryResource locationId={locationId} caps={caps.data} />
+  return (
+    <IndustryResource
+      locationId={locationId}
+      caps={caps.data}
+      enabled={enabled}
+    />
+  )
 }
 
 function IndustryResource({
   locationId,
   caps,
+  enabled,
 }: {
   locationId: string
   caps: LocationCapabilities
+  enabled: boolean
 }) {
-  const query = useIndustry(locationId)
-  if (query.isPending) return <TabLoading />
+  const query = useIndustry(locationId, { enabled })
+  if (!enabled || query.isPending) return null
   if (query.isError)
     return <TabError error={query.error} onRetry={() => void query.refetch()} />
 
@@ -312,7 +327,7 @@ function LodgingSection({
           Google suggested lodging updates could not be loaded right now.
         </p>
       ) : suggestedPaths.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-(--nr-radius-card) border border-border px-3 py-2">
+        <div className="flex flex-col gap-2 rounded-(--np-radius-card) border border-border px-3 py-2">
           <p className="text-ui font-medium">
             Google suggested lodging updates
           </p>

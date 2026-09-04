@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import type { ChangeRow } from "@/components/editors/change-diff"
 import { LocationTab } from "@/components/locations/location-tab"
@@ -13,8 +14,10 @@ import { IdentitySection } from "@/components/locations/profile/sections/identit
 import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
 import { ApiClientError } from "@/lib/api/client"
 import {
+  fetchBusinessInformation,
   publishBusinessAttributes,
   publishBusinessInformation,
+  type BusinessInformationState,
   type GoogleAttribute,
 } from "@/lib/api/location-business-information"
 import {
@@ -156,8 +159,8 @@ function ProfileEditor({
   const [errors, setErrors] = useState<FieldErrors>({})
 
   const initialListing = useMemo(
-    () => draftFromLocation(business.location),
-    [business.location]
+    () => draftFromLocation(business?.location),
+    [business?.location]
   )
   const {
     draft: listing,
@@ -166,13 +169,16 @@ function ProfileEditor({
     discard: discardListing,
   } = useEditorDraft({
     initial: initialListing,
-    revision: business.locationHash,
+    revision: business?.locationHash ?? null,
     key: `location-listing-${locationId}`,
   })
 
   const initialAttributes = useMemo(
-    () => attributesFromState(business.attributes, business.attributeMetadata),
-    [business.attributes, business.attributeMetadata]
+    () =>
+      business
+        ? attributesFromState(business.attributes, business.attributeMetadata)
+        : {},
+    [business]
   )
   const {
     draft: attributes,
@@ -181,7 +187,7 @@ function ProfileEditor({
     discard: discardAttributes,
   } = useEditorDraft<Record<string, GoogleAttribute>>({
     initial: initialAttributes,
-    revision: business.attributesHash,
+    revision: business?.attributesHash ?? null,
     key: `location-attributes-${locationId}`,
   })
 
@@ -196,11 +202,11 @@ function ProfileEditor({
   const attributesUpdate = useMemo(
     () =>
       buildAttributesUpdate(
-        business.attributeMetadata,
+        business?.attributeMetadata ?? [],
         initialAttributes,
         attributes
       ),
-    [business.attributeMetadata, initialAttributes, attributes]
+    [business, initialAttributes, attributes]
   )
 
   // Fields NabaPresence can push whose copy already differs from Google's.
@@ -242,7 +248,7 @@ function ProfileEditor({
       })
     }
     const metaByName = new Map(
-      business.attributeMetadata.map((meta) => [meta.parent, meta])
+      (business?.attributeMetadata ?? []).map((meta) => [meta.parent, meta])
     )
     for (const name of attributesUpdate.attributeMask) {
       const meta = metaByName.get(name)
@@ -260,7 +266,7 @@ function ProfileEditor({
     listingUpdate.updateMask,
     initialListing,
     listing,
-    business.attributeMetadata,
+    business,
     attributesUpdate.attributeMask,
     initialAttributes,
     attributes,
@@ -268,6 +274,10 @@ function ProfileEditor({
 
   const [reviewOpen, setReviewOpen] = useState(false)
   const saved = useRef<ProfileState | null>(null)
+  // Publishing the name to Google moves Google's own copy of the listing, and
+  // with it the hash the next two steps pin. Re-read it after that step so the
+  // steps that follow are not rejected for a change this flow just made.
+  const listingAfterProfile = useRef<BusinessInformationState | null>(null)
 
   /**
    * Up to four requests behind one button, in the order the data depends on:
@@ -308,6 +318,7 @@ function ProfileEditor({
             (field) => EDITABLE.includes(field.key) && field.status !== "in_sync"
           )
           .map((field) => field.key)
+        listingAfterProfile.current = null
         // Nothing drifted: the NabaPresence copy already matches Google.
         if (fields.length === 0) return
         await runProfileOperation(locationId, {
@@ -319,9 +330,10 @@ function ProfileEditor({
           expectedGoogleHash: fresh.googleHash,
           confirmOverwriteGoogleChanges: needsAck,
         })
+        listingAfterProfile.current = await fetchBusinessInformation(locationId)
       },
     })
-    if (listingUpdate.updateMask.length > 0) {
+    if (business && listingUpdate.updateMask.length > 0) {
       list.push({
         key: "listing",
         label: "Publish categories, address and status",
@@ -331,11 +343,13 @@ function ProfileEditor({
             payload: businessInformationPayloadSchema.parse(
               listingUpdate.payload
             ),
-            expectedGoogleHash: business.locationHash,
+            expectedGoogleHash:
+              listingAfterProfile.current?.locationHash ??
+              business.locationHash,
           }),
       })
     }
-    if (attributesUpdate.attributeMask.length > 0) {
+    if (business && attributesUpdate.attributeMask.length > 0) {
       list.push({
         key: "attributes",
         label: "Publish attributes",
@@ -343,7 +357,9 @@ function ProfileEditor({
           publishBusinessAttributes(locationId, {
             attributeMask: attributesUpdate.attributeMask,
             attributes: attributesUpdate.attributes,
-            expectedGoogleHash: business.attributesHash,
+            expectedGoogleHash:
+              listingAfterProfile.current?.attributesHash ??
+              business.attributesHash,
           }),
       })
     }
@@ -357,8 +373,7 @@ function ProfileEditor({
     needsAck,
     listingUpdate,
     attributesUpdate,
-    business.locationHash,
-    business.attributesHash,
+    business,
   ])
 
   const flow = usePublishFlow({
@@ -397,7 +412,9 @@ function ProfileEditor({
         ? "Everything already matches Google."
         : null)
 
-  const unsupported = presentUnsupportedLeaves(business.location)
+  const unsupported = business
+    ? presentUnsupportedLeaves(business.location)
+    : []
 
   return (
     <EditorFrame
@@ -434,6 +451,7 @@ function ProfileEditor({
         errors={errors}
         issues={listingIssues}
         disabled={disabled}
+        googleReady={business !== null}
       />
 
       <ContactSection
@@ -444,15 +462,30 @@ function ProfileEditor({
         errors={errors}
         issues={listingIssues}
         disabled={disabled}
+        googleReady={business !== null}
       />
+
+      {state.businessPending ? (
+        <p className="text-ui text-ink-muted" aria-live="polite">
+          Reading the rest of the listing from Google…
+        </p>
+      ) : null}
+
+      {state.businessError ? (
+        <CapabilityBanner
+          tone="info"
+          title="We couldn't read this listing from Google"
+          description="The name, description, phone and website above are what NabaPresence holds, and you can still edit them. Categories, address and attributes need Google, so they're hidden until it answers."
+        />
+      ) : null}
 
       {/* Lodging, calls and healthcare publish through their own Google APIs
           with their own hashes, so they keep their own controls rather than
           pretending to be part of the listing write above. */}
-      <IndustrySections locationId={locationId} />
+      <IndustrySections locationId={locationId} enabled={business !== null} />
 
       <AttributesSection
-        metadata={business.attributeMetadata}
+        metadata={business?.attributeMetadata ?? []}
         draft={attributes}
         onChange={(next) =>
           setAttributes((prev) => ({ ...prev, [next.name]: next }))

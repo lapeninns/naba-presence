@@ -250,7 +250,7 @@ describe("mode toggle", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Sign in to run your reviews",
+        name: "Sign in to your clients’ reviews",
       })
     ).toBeInTheDocument()
 

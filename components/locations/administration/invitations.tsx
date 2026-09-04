@@ -82,7 +82,7 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
   const pendingOperation = respond.isPending ? respond.variables : null
 
   return (
-    <li className="flex items-center justify-between gap-2 rounded-(--nr-radius-card) border border-border p-3">
+    <li className="flex items-center justify-between gap-2 rounded-(--np-radius-card) border border-border p-3">
       <div className="flex items-center gap-2">
         <span className="text-ui font-medium">
           {role ? adminRoleLabel(role) : "Invitation"}

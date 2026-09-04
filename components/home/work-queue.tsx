@@ -34,13 +34,13 @@ function WorkCard({ item }: { item: WorkItem }) {
       href={item.href}
       prefetch={false}
       className={cn(
-        "flex flex-col gap-3 rounded-(--nr-radius-card) border border-border bg-card p-4 shadow-(--nr-shadow-card) transition-colors duration-(--nr-duration-fast)",
+        "flex flex-col gap-3 rounded-(--np-radius-card) border border-border bg-card p-4 transition-colors duration-(--np-duration-fast)",
         "hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
         hasWork ? "border-border" : "opacity-90"
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="flex size-9 items-center justify-center rounded-(--nr-radius-control) bg-muted text-muted-foreground">
+        <span className="flex size-9 items-center justify-center rounded-(--np-radius-control) bg-muted text-muted-foreground">
           <Icon aria-hidden className="size-4" />
         </span>
         <span
@@ -85,10 +85,10 @@ function WorkQueue({
         </h2>
         <div
           aria-busy="true"
-          className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4"
+          className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4"
         >
           {[0, 1, 2, 3].map((index) => (
-            <Skeleton key={index} className="h-32 rounded-(--nr-radius-card)" />
+            <Skeleton key={index} className="h-32 rounded-(--np-radius-card)" />
           ))}
         </div>
       </section>
@@ -116,7 +116,7 @@ function WorkQueue({
           </p>
         ) : null}
       </div>
-      <div className="grid gap-(--nr-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (
           <WorkCard key={item.id} item={item} />
         ))}

@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useMemo } from "react"
 
+import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PhotosLibrary } from "@/components/locations/photos/photos-library"
 import {
@@ -70,13 +71,20 @@ export function PhotosTab({ locationId }: { locationId: string }) {
       resource="photos"
     >
       {({ data: media, publishReason }) => (
-        <PhotosLibrary
-          locationId={locationId}
-          media={media}
-          state={state}
-          onStateChange={updateState}
-          writeReason={publishReason}
-        />
+        <EditorFrame
+          title="Photos"
+          description="Every photo on the listing, yours and your customers'. Changes here reach Google as soon as they are made."
+          gateReason={publishReason}
+          gateTitle="You can look, but not change these photos"
+        >
+          <PhotosLibrary
+            locationId={locationId}
+            media={media}
+            state={state}
+            onStateChange={updateState}
+            writeReason={publishReason}
+          />
+        </EditorFrame>
       )}
     </LocationTab>
   )

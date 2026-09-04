@@ -2,9 +2,9 @@
 
 import { useState } from "react"
 
+import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -48,11 +48,18 @@ export function BookingTab({ locationId }: { locationId: string }) {
       resource="booking"
     >
       {({ data: state, publishReason }) => (
-        <BookingLinks
-          locationId={locationId}
-          state={state}
-          writeReason={publishReason}
-        />
+        <EditorFrame
+          title="Booking links"
+          description="The buttons customers see on the listing: reserve a table, book a room, order online. Changes reach Google straight away."
+          gateReason={publishReason}
+          gateTitle="You can look, but not change these links"
+        >
+          <BookingLinks
+            locationId={locationId}
+            state={state}
+            writeReason={publishReason}
+          />
+        </EditorFrame>
       )}
     </LocationTab>
   )
@@ -105,9 +112,10 @@ function BookingLinks({
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Booking and action links</h2>
         {state.links.length === 0 ? (
-          <p className="text-ui text-muted-foreground">No booking links yet.</p>
+          <p className="text-ui text-muted-foreground">
+            No booking links yet. Add one below and it appears on the listing.
+          </p>
         ) : (
           <Table className="min-w-[560px]">
             <TableHeader>
@@ -157,7 +165,7 @@ function BookingLinks({
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Add a booking link</h2>
+        <h3 className="text-title font-medium">Add a booking link</h3>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-ui">
             <span className="text-caption text-muted-foreground">Type</span>
@@ -205,7 +213,6 @@ function BookingLinks({
             Add booking link
           </Button>
         </div>
-        <GateNote reason={writeReason} />
       </section>
 
       <OverwriteConfirmDialog

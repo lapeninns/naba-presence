@@ -94,7 +94,7 @@ function ActivityTimeline({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="overflow-hidden rounded-(--nr-radius-field) border border-border/70 bg-background"
+      className="overflow-hidden rounded-(--np-radius-field) border border-border/70 bg-background"
     >
       {collapsible ? (
         <h3 id="activity-heading">
@@ -106,13 +106,13 @@ function ActivityTimeline({
             onClick={() => setOpen((value) => !value)}
             className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none focus-visible:ring-inset sm:px-4"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-(--nr-radius-control) bg-muted text-muted-foreground ring-1 ring-border/60 transition-colors ring-inset group-hover:text-foreground">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-(--np-radius-control) bg-muted text-muted-foreground ring-1 ring-border/60 transition-colors ring-inset group-hover:text-foreground">
               <HistoryIcon aria-hidden className="size-4" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-center gap-2">
                 <span className="text-ui font-semibold">Activity</span>
-                <span className="rounded-(--nr-radius-pill) bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
+                <span className="rounded-(--np-radius-pill) bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
                   {eventCountLabel}
                 </span>
               </span>
@@ -125,7 +125,7 @@ function ActivityTimeline({
               <ChevronDownIcon
                 aria-hidden
                 className={cn(
-                  "size-4 transition-transform duration-(--nr-duration-fast)",
+                  "size-4 transition-transform duration-(--np-duration-fast)",
                   !open && "-rotate-90"
                 )}
               />
@@ -137,13 +137,13 @@ function ActivityTimeline({
           id="activity-heading"
           className="flex items-center gap-3 px-3 py-3 sm:px-4"
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-(--nr-radius-control) bg-muted text-muted-foreground ring-1 ring-border/60 ring-inset">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-(--np-radius-control) bg-muted text-muted-foreground ring-1 ring-border/60 ring-inset">
             <HistoryIcon aria-hidden className="size-4" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
               <span className="text-ui font-semibold">Activity</span>
-              <span className="rounded-(--nr-radius-pill) bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
+              <span className="rounded-(--np-radius-pill) bg-muted px-2 py-0.5 text-caption font-medium text-muted-foreground">
                 {eventCountLabel}
               </span>
             </span>
@@ -180,13 +180,13 @@ function ActivityTimeline({
               return (
                 <li
                   key={`${event.action}-${event.createdAt}-${event.actorName ?? ""}`}
-                  className="min-w-0 snap-start rounded-(--nr-radius-control) border border-border/70 bg-background p-3 shadow-sm @min-[32rem]/activity-panel:p-2.5 @min-[52rem]/activity-panel:p-3"
+                  className="min-w-0 snap-start rounded-(--np-radius-control) border border-border/70 bg-background p-3 shadow-sm @min-[32rem]/activity-panel:p-2.5 @min-[52rem]/activity-panel:p-3"
                 >
                   <div className="flex min-w-0 items-start gap-3 @min-[32rem]/activity-panel:flex-col @min-[32rem]/activity-panel:gap-2 @min-[52rem]/activity-panel:flex-row @min-[52rem]/activity-panel:gap-3">
                     <span
                       aria-hidden
                       className={cn(
-                        "flex size-9 shrink-0 items-center justify-center rounded-(--nr-radius-control) ring-1 ring-inset @min-[32rem]/activity-panel:size-8 @min-[52rem]/activity-panel:size-9",
+                        "flex size-9 shrink-0 items-center justify-center rounded-(--np-radius-control) ring-1 ring-inset @min-[32rem]/activity-panel:size-8 @min-[52rem]/activity-panel:size-9",
                         TONE_CHIP[tone]
                       )}
                     >

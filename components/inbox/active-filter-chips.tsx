@@ -141,7 +141,7 @@ function ActiveFilterChips({
       {chips.map((chip) => (
         <span
           key={chip.removeLabel}
-          className="inline-flex h-6 items-center gap-0.5 rounded-(--nr-radius-pill) border border-border/70 bg-muted/60 pr-1 pl-2.5 text-caption text-foreground"
+          className="inline-flex h-6 items-center gap-0.5 rounded-(--np-radius-pill) border border-border/70 bg-muted/60 pr-1 pl-2.5 text-caption text-foreground"
         >
           {chip.label}
           <Button

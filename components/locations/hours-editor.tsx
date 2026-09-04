@@ -58,7 +58,7 @@ export function HoursEditor({
         <h2 className="text-ui font-semibold">Regular hours</h2>
         <ul className="flex flex-col gap-2">
           {value.regular.map((day, index) => (
-            <li key={day.dayOfWeek} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
+            <li key={day.dayOfWeek} className="flex flex-wrap items-center gap-3 rounded-(--np-radius-control) border border-border p-3">
               <span className="w-24 font-medium">{DAY_LABELS[day.dayOfWeek]}</span>
               <label className="flex items-center gap-2 text-ui">
                 <Checkbox
@@ -123,7 +123,7 @@ export function HoursEditor({
         <h2 className="text-ui font-semibold">Special hours</h2>
         <ul className="flex flex-col gap-2">
           {value.special.map((entry, index) => (
-            <li key={specialKeys[index]} className="flex flex-wrap items-center gap-3 rounded-(--nr-radius-control) border border-border p-3">
+            <li key={specialKeys[index]} className="flex flex-wrap items-center gap-3 rounded-(--np-radius-control) border border-border p-3">
               <Input
                 type="date"
                 aria-label={`Special date ${index + 1}`}

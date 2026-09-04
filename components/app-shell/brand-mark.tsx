@@ -17,7 +17,7 @@ function BrandMark({
     >
       <span
         className={cn(
-          "flex shrink-0 items-center justify-center rounded-(--nr-radius-control) bg-primary text-primary-foreground",
+          "flex shrink-0 items-center justify-center rounded-(--np-radius-control) bg-primary text-primary-foreground",
           large ? "size-10" : "size-8"
         )}
       >

@@ -10,7 +10,7 @@ const STRUCTURE_RULES = [
 ]
 
 const AUTH_PAGES = [
-  { path: "/sign-in", heading: "Sign in to run your reviews" },
+  { path: "/sign-in", heading: "Sign in to your clients’ reviews" },
   {
     path: "/sign-in?mode=create-account",
     heading: "Create your NabaPresence account",

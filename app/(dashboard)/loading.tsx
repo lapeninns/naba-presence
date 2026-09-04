@@ -9,7 +9,7 @@ export default function DashboardLoading() {
   return (
     <div
       aria-busy="true"
-      className="mx-auto flex w-full max-w-(--nr-page-max-width) flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)"
+      className="mx-auto flex w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
     >
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-col gap-2">
@@ -17,9 +17,9 @@ export default function DashboardLoading() {
           <Skeleton className="h-4 w-72 max-w-full" />
         </div>
       </div>
-      <div className="grid gap-(--nr-gap-section) sm:grid-cols-2">
-        <Skeleton className="h-32 rounded-(--nr-radius-card)" />
-        <Skeleton className="h-32 rounded-(--nr-radius-card)" />
+      <div className="grid gap-(--np-gap-section) sm:grid-cols-2">
+        <Skeleton className="h-32 rounded-(--np-radius-card)" />
+        <Skeleton className="h-32 rounded-(--np-radius-card)" />
       </div>
     </div>
   )

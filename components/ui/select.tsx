@@ -18,7 +18,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-(--nr-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
+        "inline-flex h-8 min-w-0 items-center justify-between gap-2 rounded-(--np-radius-control) border border-border bg-card px-3 text-ui focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
         className
       )}
       {...props}
@@ -44,7 +44,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            "max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-(--nr-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--nr-shadow-modal) outline-none",
+            "max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-(--np-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--np-shadow-modal) outline-none",
             className
           )}
           {...props}
@@ -65,7 +65,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-(--nr-radius-control) py-1.5 pr-2 pl-8 text-ui outline-none data-highlighted:bg-muted",
+        "flex cursor-default items-center gap-2 rounded-(--np-radius-control) py-1.5 pr-2 pl-8 text-ui outline-none data-highlighted:bg-muted",
         className
       )}
       {...props}

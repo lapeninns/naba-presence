@@ -14,8 +14,8 @@ function PageFrame({
       id="main"
       tabIndex={-1}
       className={cn(
-        "mx-auto flex w-full flex-col gap-(--nr-gap-section) px-5 py-6 md:px-(--nr-page-pad-x) md:py-(--nr-page-pad-y)",
-        width === "standard" && "max-w-(--nr-page-max-width)",
+        "mx-auto flex w-full flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)",
+        width === "standard" && "max-w-(--np-page-max-width)",
         width === "wide" && "max-w-7xl",
         // Fill the shell's content box and keep overflow inside child panes
         // (inbox split, location workspace) so expanding panels don't stretch

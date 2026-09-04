@@ -101,12 +101,12 @@ describe("contrast maths", () => {
 })
 
 describe("token file structure", () => {
-  it("keeps every legacy --nr-* name resolvable", () => {
-    // Screens still on the old names must render identically until the B6
-    // codemod; an alias that stops resolving is a silent visual regression.
-    const legacy = Object.keys(parsed.light).filter((name) => name.startsWith("--nr-"))
-    expect(legacy.length).toBeGreaterThan(20)
-    for (const name of legacy) {
+  it("resolves every --np-* name in both themes", () => {
+    // A role that stops resolving is a silent visual regression: the utility
+    // that reads it renders with no value at all rather than failing loudly.
+    const roles = Object.keys(parsed.light).filter((name) => name.startsWith("--np-"))
+    expect(roles.length).toBeGreaterThan(60)
+    for (const name of roles) {
       expect(() => resolveToken(parsed.light, name, "light")).not.toThrow()
       expect(() => resolveToken(parsed.dark, name, "dark")).not.toThrow()
     }

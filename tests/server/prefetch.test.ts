@@ -197,7 +197,7 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("homePrefetch targets the counts and analytics keys OverviewView reads", () => {
+  it("homePrefetch targets the counts and analytics keys HomeView reads", () => {
     expect(homePrefetch()(session).map((entry) => entry.queryKey)).toEqual([
       queryKeys.reviewCounts("organisation"),
       queryKeys.analytics("overview", { window: "last-30-days" }),

@@ -27,7 +27,7 @@ function AttentionList({
       return (
         <div aria-busy="true" className="flex flex-col gap-2">
           {[0, 1, 2, 3, 4].map((index) => (
-            <Skeleton key={index} className="h-12 rounded-(--nr-radius-card)" />
+            <Skeleton key={index} className="h-12 rounded-(--np-radius-card)" />
           ))}
         </div>
       )
@@ -65,7 +65,7 @@ function AttentionList({
     }
 
     return (
-      <ul className="flex flex-col overflow-hidden rounded-(--nr-radius-card) border border-border bg-card shadow-(--nr-shadow-card)">
+      <ul className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-border bg-card">
         {rows.map((location) => (
           <li
             key={location.id}
@@ -74,7 +74,7 @@ function AttentionList({
             <Link
               href={`/inbox?locationId=${location.id}&rating=1,2`}
               prefetch={false}
-              className="flex items-center justify-between gap-3 px-4 py-3 text-ui transition-colors duration-(--nr-duration-fast) hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+              className="flex items-center justify-between gap-3 px-4 py-3 text-ui transition-colors duration-(--np-duration-fast) hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
             >
               <span className="min-w-0 truncate font-medium">
                 {location.name}

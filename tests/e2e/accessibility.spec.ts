@@ -472,15 +472,16 @@ for (const theme of themes) {
       })
 
       test("home", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie (see the module comment above): the
-        // Overview page reads live counts + analytics (Your work / Health /
-        // Pulse). A real cookie makes those calls resolve against the real
-        // backend instead of 401-ing and hard-redirecting to /sign-in.
+        // Real journey tenant/cookie (see the module comment above): Home
+        // reads live counts, the client list and analytics (Your work / Work
+        // by client / Health / Pulse). A real cookie makes those calls resolve
+        // against the real backend instead of 401-ing and hard-redirecting to
+        // /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto("/home")
         await expect(
-          page.getByRole("heading", { name: "Overview", level: 1 })
+          page.getByRole("heading", { name: "Home", level: 1 })
         ).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Pulse" })
@@ -556,23 +557,20 @@ for (const theme of themes) {
       })
 
       test("location profile workspace", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie + the real seeded `primaryLocationId`:
-        // the CanonicalDiff table's "NabaPresence vs Google" section is the
-        // CURRENT profile-workspace content — the pinned copy this test used
-        // to assert on ("Identity NabaPresence currently stores for this
-        // location") doesn't exist anywhere in the app any more
-        // (components/locations/profile-tab.tsx renders a diff table, not
-        // that sentence).
+        // Real journey tenant/cookie + the real seeded `primaryLocationId`.
+        // The workspace opens on the merged business profile editor: one
+        // heading, one set of fields, no second tab holding Google's copy of
+        // the same listing.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto(`/locations/${state.primaryLocationId}`)
         await expect(
-          page.getByRole("heading", { name: "NabaPresence vs Google" })
+          page.getByRole("heading", { name: "Business profile" })
         ).toBeVisible()
         await expect(
           page
             .getByRole("navigation", { name: "Location sections" })
-            .getByRole("link", { name: "Profile" })
+            .getByRole("link", { name: "Business profile" })
         ).toHaveAttribute("aria-current", "page")
         await expectAccessible(
           page,

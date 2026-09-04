@@ -25,7 +25,7 @@ function StatusChip() {
   return (
     <Badge
       variant="secondary"
-      className="gap-1.5 rounded-(--nr-radius-pill) px-2.5 py-1 text-ui font-normal text-muted-foreground"
+      className="gap-1.5 rounded-(--np-radius-pill) px-2.5 py-1 text-ui font-normal text-muted-foreground"
     >
       <span
         aria-hidden="true"

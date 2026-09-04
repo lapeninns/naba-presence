@@ -18,7 +18,7 @@ function DropdownMenuContent({ className, children, ...props }: MenuPrimitive.Po
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
           className={cn(
-            "min-w-48 rounded-(--nr-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--nr-shadow-modal) outline-none",
+            "min-w-48 rounded-(--np-radius-modal) border bg-popover p-1 text-popover-foreground shadow-(--np-shadow-modal) outline-none",
             className
           )}
           {...props}
@@ -35,7 +35,7 @@ function DropdownMenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
     <MenuPrimitive.Item
       data-slot="dropdown-menu-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-(--nr-radius-control) px-3 py-1.5 text-ui outline-none data-highlighted:bg-muted",
+        "flex cursor-default items-center gap-2 rounded-(--np-radius-control) px-3 py-1.5 text-ui outline-none data-highlighted:bg-muted",
         className
       )}
       {...props}

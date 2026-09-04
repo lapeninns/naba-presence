@@ -10,6 +10,7 @@ export function useAnalyticsOverview(params?: {
   from?: string
   to?: string
   granularity?: "day" | "week" | "month"
+  clientId?: string
 }) {
   const keyParams = params ?? { window: "last-30-days" }
   return useQuery({

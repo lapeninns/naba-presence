@@ -142,7 +142,7 @@ function SituationStrip({ review }: { review: Review }) {
     <div
       role="status"
       className={cn(
-        "flex items-start gap-2 px-4 py-2 text-ui transition-[box-shadow,background-color] duration-(--nr-duration-deliberate)",
+        "flex items-start gap-2 px-4 py-2 text-ui transition-[box-shadow,background-color] duration-(--np-duration-deliberate)",
         SITUATION_TONE_STRIP[situation.tone],
         pulse && "ring-2 ring-success/50 ring-inset"
       )}
@@ -212,7 +212,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="rounded-(--nr-radius-field) bg-muted/80 px-4 py-3 text-body text-muted-foreground italic">
+      <p className="rounded-(--np-radius-field) bg-muted/80 px-4 py-3 text-body text-muted-foreground italic">
         A rating with no written review.
       </p>
     )
@@ -222,7 +222,7 @@ function ReviewBody({ review }: { review: Review }) {
   const originalLanguage = languageName(parsed.originalLang)
 
   return (
-    <div className="flex flex-col gap-2 rounded-(--nr-radius-field) bg-muted/80 px-4 py-3">
+    <div className="flex flex-col gap-2 rounded-(--np-radius-field) bg-muted/80 px-4 py-3">
       <blockquote
         lang={parsed.bodyLang ?? undefined}
         dir="auto"
@@ -309,7 +309,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 type="button"
                 aria-label={`Open ${label}`}
                 onClick={() => setActiveIndex(index)}
-                className="relative block w-full overflow-hidden rounded-(--nr-radius-control) border border-border/60 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+                className="relative block w-full overflow-hidden rounded-(--np-radius-control) border border-border/60 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
               >
                 {item.thumbnailUrl ? (
                   // Remote Google CDN thumbnails, not project assets — next/image
@@ -376,14 +376,14 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 autoPlay
                 playsInline
                 poster={active.thumbnailUrl ?? undefined}
-                className="max-h-[min(70vh,36rem)] w-full rounded-(--nr-radius-control) bg-black"
+                className="max-h-[min(70vh,36rem)] w-full rounded-(--np-radius-control) bg-black"
               />
             ) : active?.thumbnailUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={active.thumbnailUrl}
                 alt={activeLabel}
-                className="max-h-[min(70vh,36rem)] w-full rounded-(--nr-radius-control) object-contain"
+                className="max-h-[min(70vh,36rem)] w-full rounded-(--np-radius-control) object-contain"
               />
             ) : null}
             {hasMultiple ? (
@@ -437,13 +437,13 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   const at = reply.googleReplyUpdatedAt
 
   return (
-    <section className="rounded-(--nr-radius-field) border border-dashed border-border">
+    <section className="rounded-(--np-radius-field) border border-dashed border-border">
       <h3>
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--nr-radius-field) px-3 py-2 text-caption focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-field) px-3 py-2 text-caption focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
         >
           <ChevronRightIcon
             aria-hidden
@@ -454,7 +454,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
           />
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-(--nr-radius-pill) px-2 py-0.5 font-medium",
+              "inline-flex items-center gap-1.5 rounded-(--np-radius-pill) px-2 py-0.5 font-medium",
               SITUATION_TONE_CHIP[state.tone]
             )}
           >
@@ -497,7 +497,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
 function ActionFooterSkeleton() {
   return (
     <div className="flex justify-end gap-2" aria-hidden>
-      <Skeleton className="h-8 w-28 rounded-(--nr-radius-control)" />
+      <Skeleton className="h-8 w-28 rounded-(--np-radius-control)" />
     </div>
   )
 }
@@ -527,13 +527,13 @@ function ReviewDetail({
         <PaneHeader leading={leading} navigation={navigation}>
           <Skeleton className="size-10 rounded-full" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-4 w-36 rounded-(--nr-radius-tag)" />
-            <Skeleton className="h-3 w-52 rounded-(--nr-radius-tag)" />
+            <Skeleton className="h-4 w-36 rounded-(--np-radius-tag)" />
+            <Skeleton className="h-3 w-52 rounded-(--np-radius-tag)" />
           </div>
         </PaneHeader>
         <div className="flex flex-col gap-4 p-6">
-          <Skeleton className="h-24 w-full rounded-(--nr-radius-card)" />
-          <Skeleton className="h-40 w-full rounded-(--nr-radius-card)" />
+          <Skeleton className="h-24 w-full rounded-(--np-radius-card)" />
+          <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
         </div>
         {actions ? (
           <footer className="shrink-0 border-t border-border/60 px-4 py-3">
