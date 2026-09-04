@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
-import { IndustryTab } from "@/components/locations/industry-tab"
+import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -37,24 +37,29 @@ function stub(caps: unknown) {
   return fetchMock
 }
 
-describe("IndustryTab", () => {
-  it("gates a member without firing the 403 GET", async () => {
+describe("IndustrySections", () => {
+  it("shows a member nothing at all, and never fires the 403 GET", async () => {
     const fetchMock = stub({ canEditCanonical: false, canPublish: false })
-    renderWithProviders(<IndustryTab locationId="loc-1" />)
-    expect(await screen.findByText(/available to owners and admins/i)).toBeInTheDocument()
+    const { container } = renderWithProviders(<IndustrySections locationId="loc-1" />)
+    // A member has no business seeing "available to owners and admins" halfway
+    // down a profile they can otherwise read: the group simply isn't theirs.
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/capabilities"))).toBe(true)
+    )
+    expect(container).toBeEmptyDOMElement()
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/industry"))).toBe(false)
   })
 
   it("shows the honest section error, never the raw Google message", async () => {
     stub({ canEditCanonical: true, canPublish: true })
-    renderWithProviders(<IndustryTab locationId="loc-1" />)
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
     expect(await screen.findByText(/couldn't load healthcare/i)).toBeInTheDocument()
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument()
   })
 
   it("applies Google suggested lodging values into the form", async () => {
     stub({ canEditCanonical: true, canPublish: true })
-    renderWithProviders(<IndustryTab locationId="loc-1" />)
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
     expect(await screen.findByText(/google suggests changes/i)).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: /apply suggested values/i }))
     expect(screen.getByLabelText("Pets allowed")).toBeChecked()
@@ -63,7 +68,7 @@ describe("IndustryTab", () => {
 
   it("business-calls publish sets callsState, masks only callsState, and sends the industry confirmation", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
-    renderWithProviders(<IndustryTab locationId="loc-1" />)
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
     // The calls control is a base-ui Select (NOT a native <select>), so drive it
     // for real: open the trigger, then click the humanised "Off" option (value
     // DISABLED). No `?.`/`.catch()` — the interaction must actually change state.

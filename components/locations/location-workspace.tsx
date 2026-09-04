@@ -4,7 +4,7 @@ import { notFound, usePathname } from "next/navigation"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { LocationTabNav } from "@/components/locations/location-tab-nav"
-import { LocationActivityPanel } from "@/components/locations/activity-panel"
+import { ActivityDrawer } from "@/components/editors/activity-drawer"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
@@ -124,6 +124,7 @@ export function LocationWorkspace({
           </span>
         }
         description={address ?? undefined}
+        actions={<ActivityDrawer locationId={locationId} />}
       />
 
       <LocationTabNav
@@ -135,7 +136,6 @@ export function LocationWorkspace({
           header and section nav above it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto">
         {children}
-        <LocationActivityPanel locationId={locationId} />
       </div>
       </PageFrame>
     </ClientScopeProvider>

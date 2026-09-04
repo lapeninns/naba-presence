@@ -96,7 +96,6 @@
  * between renders.
  */
 
-import type { UseQueryResult } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 
 import { TabError, TabLoading } from "@/components/locations/tab-states"
@@ -111,6 +110,20 @@ import {
 } from "@/lib/locations/gating"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 
+/**
+ * The part of a TanStack query result the shell reads. Any `UseQueryResult` is
+ * assignable to it, and so is a hook that composes two queries into one state
+ * (the merged profile editor needs both the canonical profile and the Google
+ * business information before it can show a single draft).
+ */
+export type ResourceQuery<T> = {
+  data: T | undefined
+  isPending: boolean
+  isError: boolean
+  error: Error | null
+  refetch: () => unknown
+}
+
 export type LocationTabRenderProps<T> = TabGateReasons & {
   /** The loaded resource (the query's `data`, never undefined here). */
   data: T
@@ -121,7 +134,7 @@ export type LocationTabRenderProps<T> = TabGateReasons & {
 export type LocationTabProps<T> = {
   locationId: string
   /** The resource query hook, e.g. `useHours`. Called by the shell once the gate passes. */
-  useResource: (locationId: string) => UseQueryResult<T>
+  useResource: (locationId: string) => ResourceQuery<T>
   /**
    * Capability resource key (`"hours"`, `"booking"`, …) used to derive
    * `publishReason` via `resourceDisabledReason`. Omit to fall back to the
@@ -204,9 +217,11 @@ function LocationTabResource<T>({
 }) {
   const query = useResource(locationId)
 
-  if (query.isPending) return <TabLoading />
+  // Error first: a failed query has no data, so checking for data before the
+  // error would show a skeleton forever instead of the retry.
   if (query.isError)
     return <TabError error={query.error} onRetry={() => void query.refetch()} />
+  if (query.isPending || query.data === undefined) return <TabLoading />
 
   const data = query.data
   const enabled = writesEnabled

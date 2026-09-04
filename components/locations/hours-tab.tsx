@@ -1,31 +1,32 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 
+import { EditorFooter, type EditorStatus } from "@/components/editors/editor-footer"
+import { EditorFrame } from "@/components/editors/editor-frame"
+import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { HoursEditor } from "@/components/locations/hours-editor"
 import { LocationTab } from "@/components/locations/location-tab"
-import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { SaveBar } from "@/components/locations/save-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import {
+  fetchHours,
   publishHours,
   saveHours,
   type HoursState,
 } from "@/lib/api/location-hours"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useEditorDraft } from "@/lib/editors/use-editor-draft"
+import { usePublishFlow } from "@/lib/editors/use-publish-flow"
 import { hoursFormSchema } from "@/lib/locations/forms/hours"
 import type { TabGateReasons } from "@/lib/locations/gating"
-import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
+import { hoursChangeRows } from "@/lib/locations/hours-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useHours } from "@/lib/queries/use-location-hours"
-import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
-const STATUS_COPY: Record<HoursState["status"], string> = {
-  in_sync: "In sync with Google",
-  core_dirty: "You have unpublished changes",
-  google_dirty: "Google changed independently",
-  conflict: "Both sides changed — review before publishing",
+const STATUS: Record<HoursState["status"], EditorStatus> = {
+  in_sync: "in_sync",
+  core_dirty: "edited",
+  google_dirty: "google_dirty",
+  conflict: "conflict",
 }
 
 export function HoursTab({ locationId }: { locationId: string }) {
@@ -37,7 +38,7 @@ export function HoursTab({ locationId }: { locationId: string }) {
     >
       {({ data: hours, disabled, editReason, publishReason }) => (
         <HoursForm
-          // Remount on an external revision change so form-level error, dialog and
+          // Remount on an external revision change so form-level error, sheet and
           // mutation state reset with the draft, as the pre-shell tab did.
           key={hours.canonicalResource.revision}
           locationId={locationId}
@@ -58,53 +59,78 @@ function HoursForm({
   editReason,
   publishReason: gateReason,
 }: TabGateReasons & { locationId: string; hours: HoursState }) {
-  const [draft, setDraft] = useResetOnRevision(
-    hours.canonical,
-    hours.canonicalResource.revision
-  )
-  const [publishOpen, setPublishOpen] = useState(false)
+  const { draft, setDraft, isDirty, discard } = useEditorDraft({
+    initial: hours.canonical,
+    revision: hours.canonicalResource.revision,
+    key: `location-hours-${locationId}`,
+  })
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(hours.canonical)
-  useDirtyGuard({
-    key: `location-hours-${locationId}`,
-    isDirty,
-    snapshot: () => JSON.stringify(draft),
-  })
-
-  // Nested per-field mapping is impractical for the weekly structure, so server
-  // errors surface in the form-level Alert (plus the hook's toast).
-  const save = useResourceMutation({
-    mutationFn: () =>
-      saveHours(locationId, {
-        expectedCanonicalRevision: hours.canonicalResource.revision,
-        hours: draft,
+  const rows = useMemo(
+    () =>
+      hoursChangeRows({
+        draft,
+        google: hours.google,
+        canonical: hours.canonical,
       }),
-    invalidate: [queryKeys.locationHours(locationId)],
-    successToast: "Opening hours saved",
-    onSuccess: () => setFormError(null),
-    onError: (_error, message) => setFormError(message),
-  })
+    [draft, hours.google, hours.canonical]
+  )
 
-  const publish = useResourceMutation({
-    mutationFn: (confirmOverwrite: boolean) =>
-      publishHours(locationId, {
-        expectedCanonicalRevision: hours.canonicalResource.revision,
-        expectedCanonicalHash: hours.canonicalHash,
-        expectedGoogleHash: hours.googleHash,
-        approvedUpdateMask: hours.updateMask,
-        confirmOverwriteGoogleChanges: confirmOverwrite,
-      }),
+  const needsAck =
+    hours.status === "google_dirty" || hours.status === "conflict"
+
+  /**
+   * Save then publish, behind one button. The publish call needs the revision
+   * and hash the save produces, so the two were always sequential; the operator
+   * just had to know that and press them in order. Each step reports its own
+   * result, because "saved but not published" is a real outcome an operator
+   * must be able to see.
+   */
+  const saved = useRef<HoursState | null>(null)
+  const buildSteps = useCallback(
+    () => [
+      {
+        key: "save",
+        label: "Save the schedule in NabaPresence",
+        run: async () => {
+          await saveHours(locationId, {
+            expectedCanonicalRevision: hours.canonicalResource.revision,
+            hours: draft,
+          })
+          saved.current = await fetchHours(locationId)
+        },
+      },
+      {
+        key: "publish",
+        label: "Publish it to Google",
+        run: async () => {
+          const fresh = saved.current
+          if (!fresh) throw new Error("The schedule was not saved.")
+          // An empty mask means the saved schedule already matches Google —
+          // nothing left to send, and the publish route would reject it.
+          if (fresh.updateMask.length === 0) return
+          await publishHours(locationId, {
+            expectedCanonicalRevision: fresh.canonicalResource.revision,
+            expectedCanonicalHash: fresh.canonicalHash,
+            expectedGoogleHash: fresh.googleHash,
+            approvedUpdateMask: fresh.updateMask,
+            confirmOverwriteGoogleChanges: needsAck,
+          })
+        },
+      },
+    ],
+    [locationId, draft, hours.canonicalResource.revision, needsAck]
+  )
+
+  const flow = usePublishFlow({
+    steps: buildSteps,
     invalidate: [queryKeys.locationHours(locationId)],
     successToast: "Opening hours published to Google",
-    onSuccess: () => {
-      setPublishOpen(false)
-      setFormError(null)
-    },
-    onError: (_error, message) => setFormError(message),
+    onSuccess: () => setReviewOpen(false),
   })
 
-  function submit() {
+  function review() {
     const parsed = hoursFormSchema.safeParse(draft)
     if (!parsed.success) {
       setFormError(
@@ -113,30 +139,36 @@ function HoursForm({
       return
     }
     setFormError(null)
-    save.mutate()
+    flow.reset()
+    setReviewOpen(true)
   }
 
-  const needsAck =
-    hours.status === "google_dirty" || hours.status === "conflict"
-  const publishReason =
-    gateReason ??
-    (hours.status === "in_sync"
-      ? "Opening hours already match Google."
-      : isDirty
-        ? "Save your changes before publishing."
-        : null)
+  const publishReason = editReason ?? gateReason
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge variant={hours.status === "in_sync" ? "secondary" : "warning"}>
-          {STATUS_COPY[hours.status]}
-        </Badge>
-        <span className="text-caption text-muted-foreground">
-          Times shown in {hours.location.timezone}.
-        </span>
-      </div>
-
+    <EditorFrame
+      title="Opening hours"
+      description={`The hours customers see on Google. Times are in ${hours.location.timezone}.`}
+      statusLabel={
+        hours.status === "in_sync" && !isDirty ? "In sync with Google" : undefined
+      }
+      tone="healthy"
+      gateReason={editReason}
+      footer={
+        <EditorFooter
+          status={isDirty ? "edited" : STATUS[hours.status]}
+          isDirty={isDirty}
+          onReview={review}
+          onDiscard={discard}
+          disabledReason={publishReason}
+          hint={
+            hours.status === "in_sync"
+              ? "These hours match Google."
+              : "Google holds a different schedule. Review to see what differs."
+          }
+        />
+      }
+    >
       {hours.warnings.map((warning) => (
         <Alert key={warning} variant="warning">
           <AlertTitle>Heads up</AlertTitle>
@@ -152,27 +184,16 @@ function HoursForm({
         </Alert>
       ) : null}
 
-      <SaveBar
-        onSave={submit}
-        onPublish={() => setPublishOpen(true)}
-        isDirty={isDirty}
-        saving={save.isPending}
-        publishing={publish.isPending}
-        editReason={editReason}
-        publishReason={publishReason}
+      <ReviewChangesSheet
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        rows={rows}
+        locationName={hours.location.name}
+        onPublish={() => void flow.publish()}
+        publishing={flow.isPublishing}
+        results={flow.results}
+        error={flow.error}
       />
-
-      <OverwriteConfirmDialog
-        open={publishOpen}
-        onOpenChange={setPublishOpen}
-        title="Publish opening hours to Google?"
-        description="This updates the opening hours on your Google Business Profile to match NabaPresence."
-        confirmLabel="Publish"
-        requireAcknowledgement={needsAck}
-        acknowledgementLabel="Google changed the opening hours independently. Overwrite them with the NabaPresence schedule."
-        pending={publish.isPending}
-        onConfirm={() => publish.mutate(needsAck)}
-      />
-    </div>
+    </EditorFrame>
   )
 }

@@ -2,8 +2,8 @@
 
 import { useId, useMemo } from "react"
 
-import { LocationTab } from "@/components/locations/location-tab"
 import { SectionPanel } from "@/components/locations/section-panel"
+import { TabError, TabLoading } from "@/components/locations/tab-states"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ import {
   publishIndustry,
   type IndustryState,
 } from "@/lib/api/location-industry"
+import type { LocationCapabilities } from "@/lib/locations/gating"
 import { callsStateLabel } from "@/lib/locations/console-labels"
 import {
   inputToTimeOfDay,
@@ -31,6 +32,8 @@ import {
 import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
 import { queryKeys } from "@/lib/queries/keys"
 import { useIndustry } from "@/lib/queries/use-location-industry"
+import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
+import { tabGateReasons } from "@/lib/locations/gating"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 // --- raw Google leaf -> typed accessor helpers -----------------------------
@@ -47,27 +50,59 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
-// D4: the GET is owner/admin-only server-side. `requires` keeps the shell from
-// mounting `useIndustry` until the role is known and satisfied, so a member
-// never fires the 403 request.
-export function IndustryTab({ locationId }: { locationId: string }) {
+/**
+ * Lodging, business calls and healthcare: the fields that only exist for some
+ * kinds of business.
+ *
+ * They used to be a whole tab called "Industry", named after the Google APIs
+ * that serve them rather than after anything a hotelier would look for. Now
+ * they are sections of the business profile, and they appear only for a
+ * listing Google actually holds them for.
+ *
+ * The GET is owner/admin-only server-side, so the capability query gates the
+ * mount: a member never fires the request that would 403.
+ */
+export function IndustrySections({ locationId }: { locationId: string }) {
+  const caps = useLocationCapabilities(locationId)
+  if (!caps.data?.canEditCanonical) return null
+  return <IndustryResource locationId={locationId} caps={caps.data} />
+}
+
+function IndustryResource({
+  locationId,
+  caps,
+}: {
+  locationId: string
+  caps: LocationCapabilities
+}) {
+  const query = useIndustry(locationId)
+  if (query.isPending) return <TabLoading />
+  if (query.isError)
+    return <TabError error={query.error} onRetry={() => void query.refetch()} />
+
+  const { disabled, editReason, publishReason } = tabGateReasons(
+    caps,
+    "industry",
+    query.data.writesEnabled ?? true
+  )
+  // Every one of these sections is empty for most listings; rendering the
+  // headings anyway would tell a cafe owner their profile is missing a Lodging
+  // section it can never have.
+  if (
+    query.data.lodging.data == null &&
+    query.data.calls.data == null &&
+    query.data.healthcareServices.data == null &&
+    query.data.providerAttributes.data == null
+  )
+    return null
+
   return (
-    <LocationTab
+    <IndustryEditor
       locationId={locationId}
-      useResource={useIndustry}
-      resource="industry"
-      requires="canEditCanonical"
-    >
-      {({ data: state, disabled, editReason, publishReason }) => (
-        <IndustryEditor
-          locationId={locationId}
-          state={state}
-          disabled={disabled}
-          editReason={editReason}
-          publishReason={editReason ?? publishReason}
-        />
-      )}
-    </LocationTab>
+      state={query.data}
+      disabled={disabled}
+      publishReason={editReason ?? publishReason}
+    />
   )
 }
 
@@ -75,21 +110,18 @@ function IndustryEditor({
   locationId,
   state,
   disabled,
-  editReason,
   publishReason,
 }: {
   locationId: string
   state: IndustryState
   disabled: boolean
-  editReason: string | null
   publishReason: string | null
 }) {
   return (
     <div className="flex flex-col gap-8">
-      <GateNote reason={editReason} />
 
       <section className="flex max-w-2xl flex-col gap-4">
-        <h2 className="text-title font-semibold">Lodging</h2>
+        <h3 className="text-title font-medium">Lodging</h3>
         <SectionPanel title="Lodging" result={state.lodging}>
           {(data) => (
             <LodgingSection
@@ -109,7 +141,7 @@ function IndustryEditor({
       </section>
 
       <section className="flex max-w-xs flex-col gap-4">
-        <h2 className="text-title font-semibold">Business calls</h2>
+        <h3 className="text-title font-medium">Business calls</h3>
         <SectionPanel title="Business calls" result={state.calls}>
           {(data) => (
             <BusinessCallsSection
@@ -123,7 +155,7 @@ function IndustryEditor({
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-title font-semibold">Healthcare</h2>
+        <h3 className="text-title font-medium">Healthcare</h3>
         <p className="text-caption text-muted-foreground">
           Google holds healthcare service and provider details for this listing
           that can&apos;t be edited here yet.

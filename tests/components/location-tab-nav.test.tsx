@@ -22,15 +22,13 @@ describe("LocationTabNav", () => {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0)
     }
     for (const label of [
-      "Profile",
+      "Business profile",
       "Hours",
       "Photos",
       "Posts",
       "Booking",
       "Menu",
       "Performance",
-      "Business info",
-      "Industry",
       "Access",
     ]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
@@ -39,12 +37,18 @@ describe("LocationTabNav", () => {
     expect(active).toHaveAttribute("href", "/locations/loc-1/administration")
     expect(active).toHaveAttribute("aria-current", "page")
     expect(screen.queryByRole("link", { name: "Reviews" })).not.toBeInTheDocument()
+    // Retired: both edited the same listing through a second save model.
+    for (const gone of ["Business info", "Industry"]) {
+      expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
+    }
   })
 
   it("hides the owner/admin-only consoles for a member (no reachable 403)", () => {
     render(<LocationTabNav locationId="loc-1" canManageConsoles={false} />)
-    expect(screen.getByRole("link", { name: "Business info" })).toBeInTheDocument()
-    for (const gone of ["Industry", "Access"]) {
+    expect(
+      screen.getByRole("link", { name: "Business profile" })
+    ).toBeInTheDocument()
+    for (const gone of ["Access"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
     // The whole Access section disappears rather than rendering an empty

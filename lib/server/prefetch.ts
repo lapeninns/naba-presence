@@ -190,7 +190,7 @@ export function homePrefetch(): (session: Session) => PrefetchEntry[] {
  * One per-location tab: its capabilities only. Every tab reads them and the
  * LocationTab shell waits on them before mounting the resource hook, so this
  * removes that waterfall. Tab state itself is NOT prefetched: hours, profile,
- * photos, booking, menu, business information, industry and administration
+ * photos, booking, menu, business profile, industry and administration
  * read Google live, and posts reconciles against Google on every list
  * (lib/server/posts.ts), so any of them inside the RSC render would gate first
  * paint (and every <Link prefetch> to the page) on Google for seconds. `search` is the page's URL

@@ -43,7 +43,17 @@ describe("location IA", () => {
       "access",
       "insights",
     ])
-    expect(sections[0].tabs[0]).toMatchObject({ segment: "", label: "Profile" })
+    expect(sections[0].tabs[0]).toMatchObject({
+      segment: "",
+      label: "Business profile",
+    })
+    // "Business info" and "Industry" were separate tabs editing the same
+    // listing; they are sections of the profile editor now.
+    expect(sections[0].tabs.map((t) => t.segment)).toEqual([
+      "",
+      "hours",
+      "suggestions",
+    ])
   })
 
   it("hides the console tabs from members, section and all", () => {
@@ -57,7 +67,6 @@ describe("location IA", () => {
       "insights",
     ])
     const labels = member.flatMap((s) => s.tabs.map((t) => t.label))
-    expect(labels).not.toContain("Industry")
     expect(labels).not.toContain("Access")
   })
 })

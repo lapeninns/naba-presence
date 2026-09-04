@@ -98,7 +98,15 @@ function proposalTitle(proposal: ImportProposal): string {
   return proposal.sectionLabel ?? "Menu"
 }
 
-export function ImportReviewPanel({
+/**
+ * One resource's worth of pending suggestions from Google.
+ *
+ * This used to be a card wedged above the fields of two different editors, so
+ * an operator arriving to change the opening description first had to get past
+ * a queue of unrelated decisions. It now lives on its own segment, and the tab
+ * carries the count.
+ */
+export function SuggestionList({
   locationId,
   resourceType,
   canonicalRevision,
@@ -191,7 +199,9 @@ export function ImportReviewPanel({
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div className="flex items-center gap-2">
           <CardTitle as="h2" className="text-base">
-            Suggestions from Google
+            {resourceType === "profile"
+              ? "Business profile"
+              : "Food menu"}
           </CardTitle>
           {pending.length > 0 ? (
             <Badge variant="warning">{pending.length}</Badge>

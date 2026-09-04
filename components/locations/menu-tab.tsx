@@ -1,28 +1,27 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 
-import { ImportReviewPanel } from "@/components/locations/import-review-panel"
+import { EditorFooter } from "@/components/editors/editor-footer"
+import { EditorFrame } from "@/components/editors/editor-frame"
+import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { LocationTab } from "@/components/locations/location-tab"
 import { MenuEditor } from "@/components/locations/menu-editor"
-import { MenuPublishPreview } from "@/components/locations/menu-publish-preview"
-import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { SaveBar } from "@/components/locations/save-bar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Empty } from "@/components/ui/empty"
 import {
+  fetchFoodMenus,
   publishFoodMenus,
   saveFoodMenus,
   type FoodMenusState,
 } from "@/lib/api/location-menu"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useEditorDraft } from "@/lib/editors/use-editor-draft"
+import { usePublishFlow } from "@/lib/editors/use-publish-flow"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
-import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
+import { menuChangeRows } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
-import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 export function MenuTab({ locationId }: { locationId: string }) {
   return (
@@ -61,79 +60,91 @@ function MenuForm({
   editReason,
   publishReason: gateReason,
 }: TabGateReasons & { locationId: string; state: FoodMenusState }) {
-  const [draft, setDraft] = useResetOnRevision(
-    state.canonicalMenus,
-    state.canonicalResource.revision
-  )
-  const [publishOpen, setPublishOpen] = useState(false)
+  const { draft, setDraft, isDirty, discard } = useEditorDraft({
+    initial: state.canonicalMenus,
+    revision: state.canonicalResource.revision,
+    key: `location-menu-${locationId}`,
+  })
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
 
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(state.canonicalMenus)
-  useDirtyGuard({
-    key: `location-menu-${locationId}`,
-    isDirty,
-    snapshot: () => JSON.stringify(draft),
-  })
+  const rows = useMemo(
+    () => menuChangeRows({ draft, google: state.googleMenus }),
+    [draft, state.googleMenus]
+  )
 
-  // Nested per-field mapping is impractical for the freeform menu JSON, so
-  // server errors surface in the form-level Alert (plus the hook's toast).
-  const save = useResourceMutation({
-    mutationFn: () =>
-      saveFoodMenus(locationId, {
-        expectedCanonicalRevision: state.canonicalResource.revision,
-        menus: draft,
-      }),
-    invalidate: [queryKeys.locationMenu(locationId)],
-    successToast: "Menu saved",
-    onSuccess: () => setServerError(null),
-    onError: (_error, message) => setServerError(message),
-  })
+  const saved = useRef<FoodMenusState | null>(null)
+  const buildSteps = useCallback(
+    () => [
+      {
+        key: "save",
+        label: "Save the menu in NabaPresence",
+        run: async () => {
+          await saveFoodMenus(locationId, {
+            expectedCanonicalRevision: state.canonicalResource.revision,
+            menus: draft,
+          })
+          saved.current = await fetchFoodMenus(locationId)
+        },
+      },
+      {
+        key: "publish",
+        label: "Replace the food menu on Google",
+        run: async () => {
+          const fresh = saved.current
+          if (!fresh) throw new Error("The menu was not saved.")
+          await publishFoodMenus(locationId, {
+            expectedCanonicalRevision: fresh.canonicalResource.revision,
+            expectedCanonicalHash: fresh.canonicalHash,
+            expectedGoogleHash: fresh.googleHash,
+          })
+        },
+      },
+    ],
+    [locationId, draft, state.canonicalResource.revision]
+  )
 
-  const publish = useResourceMutation({
-    mutationFn: () =>
-      publishFoodMenus(locationId, {
-        expectedCanonicalRevision: state.canonicalResource.revision,
-        expectedCanonicalHash: state.canonicalHash,
-        expectedGoogleHash: state.googleHash,
-      }),
+  const flow = usePublishFlow({
+    steps: buildSteps,
     invalidate: [queryKeys.locationMenu(locationId)],
     successToast: "Menu published to Google",
     onSuccess: () => {
-      setPublishOpen(false)
+      setReviewOpen(false)
       setServerError(null)
     },
-    onError: (_error, message) => setServerError(message),
   })
 
-  const publishReason =
-    gateReason ??
-    (state.status === "in_sync"
-      ? "Menu already matches Google."
-      : isDirty
-        ? "Save your changes before publishing."
-        : null)
+  const publishReason = editReason ?? gateReason
   const draftCounts = countFoodMenus(draft as Array<Record<string, unknown>>)
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge variant={state.status === "in_sync" ? "secondary" : "warning"}>
-          {state.status === "in_sync"
-            ? "In sync with Google"
-            : "You have unpublished changes"}
-        </Badge>
-        <span className="text-caption text-muted-foreground">
-          {draftCounts.sections} sections · {draftCounts.items} items
-        </span>
-      </div>
-
-      <ImportReviewPanel
-        locationId={locationId}
-        resourceType="food_menus"
-        canonicalRevision={state.canonicalResource.revision}
-        editDisabledReason={editReason}
-      />
-
+    <EditorFrame
+      title="Food menu"
+      description={`Publishing replaces the whole food menu on Google. ${draftCounts.sections} sections, ${draftCounts.items} items.`}
+      statusLabel={
+        state.status === "in_sync" && !isDirty ? "In sync with Google" : undefined
+      }
+      tone="healthy"
+      gateReason={editReason}
+      footer={
+        <EditorFooter
+          status={isDirty ? "edited" : state.status === "in_sync" ? "in_sync" : "google_dirty"}
+          isDirty={isDirty}
+          onReview={() => {
+            setServerError(null)
+            flow.reset()
+            setReviewOpen(true)
+          }}
+          onDiscard={discard}
+          disabledReason={publishReason}
+          hint={
+            state.status === "in_sync"
+              ? "This menu matches Google."
+              : "Google holds a different menu. Review to see what differs."
+          }
+        />
+      }
+    >
       <MenuEditor menus={draft} onChange={setDraft} disabled={disabled} />
 
       {serverError ? (
@@ -142,32 +153,16 @@ function MenuForm({
         </Alert>
       ) : null}
 
-      <SaveBar
-        onSave={() => save.mutate()}
-        onPublish={() => setPublishOpen(true)}
-        isDirty={isDirty}
-        saving={save.isPending}
-        publishing={publish.isPending}
-        editReason={editReason}
-        publishReason={publishReason}
+      <ReviewChangesSheet
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        rows={rows}
+        locationName={state.location.name}
+        onPublish={() => void flow.publish()}
+        publishing={flow.isPublishing}
+        results={flow.results}
+        error={flow.error}
       />
-
-      <OverwriteConfirmDialog
-        open={publishOpen}
-        onOpenChange={setPublishOpen}
-        title="Replace the Google food menu?"
-        description="Publishing replaces your entire Google food menu with the menu shown here."
-        confirmLabel="Publish"
-        requireAcknowledgement
-        acknowledgementLabel="I understand this replaces the whole food menu on Google."
-        pending={publish.isPending}
-        onConfirm={() => publish.mutate()}
-      >
-        <MenuPublishPreview
-          canonicalMenus={state.canonicalMenus}
-          googleMenus={state.googleMenus}
-        />
-      </OverwriteConfirmDialog>
-    </div>
+    </EditorFrame>
   )
 }

@@ -8,10 +8,11 @@ import { visibleLocationSections } from "@/lib/locations/location-ia"
 import { useImportReviewCounts } from "@/lib/queries/use-import-review"
 import { cn } from "@/lib/utils"
 
-// Import-review pending counts light up the tab that reviews them.
+// Every pending suggestion, of either kind, counts against the one tab that
+// now reviews them.
 const PROPOSAL_SEGMENTS: Record<string, string> = {
-  profile: "",
-  food_menus: "menu",
+  profile: "suggestions",
+  food_menus: "suggestions",
 }
 
 export function LocationTabNav({

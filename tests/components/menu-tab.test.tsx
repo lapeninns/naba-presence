@@ -50,7 +50,8 @@ describe("MenuTab", () => {
     expect(screen.getByDisplayValue("Starters")).toBeInTheDocument()
     expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
     expect(screen.getByDisplayValue("6.50")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
   })
 
   it("shows a clear notice when the location cannot have a food menu", () => {

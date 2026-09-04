@@ -1,10 +1,10 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
-import { IndustryTab } from "@/components/locations/industry-tab"
+import { SuggestionsTab } from "@/components/locations/suggestions/suggestions-page"
 import { locationTabPrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
-export default async function IndustryPage({
+export default async function SuggestionsPage({
   params,
 }: {
   params: Promise<{ id: string }>
@@ -13,7 +13,7 @@ export default async function IndustryPage({
   const state = await prefetch(session, locationTabPrefetch(id))
   return (
     <HydrationBoundary state={state}>
-      <IndustryTab locationId={id} />
+      <SuggestionsTab locationId={id} />
     </HydrationBoundary>
   )
 }

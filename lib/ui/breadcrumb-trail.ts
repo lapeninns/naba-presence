@@ -13,8 +13,6 @@ const LOCATION_SECTIONS: Record<string, string> = {
   menu: "Menu",
   booking: "Booking",
   performance: "Performance",
-  "business-information": "Business info",
-  industry: "Industry",
   administration: "Access",
 }
 

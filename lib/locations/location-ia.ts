@@ -12,13 +12,12 @@
 export type LocationTabSegment =
   | ""
   | "hours"
+  | "suggestions"
   | "photos"
   | "posts"
   | "booking"
   | "menu"
   | "performance"
-  | "business-information"
-  | "industry"
   | "administration"
 
 export type LocationTabDef = {
@@ -39,17 +38,14 @@ export const LOCATION_IA_SECTIONS: LocationIaSection[] = [
     id: "profile",
     label: "Profile",
     tabs: [
-      { segment: "", label: "Profile" },
-      // Two tabs editing one listing is the duplication this IA exists to
-      // remove, but they still have separate save models; B5 merges them into
-      // one editor at the section root and leaves this as a redirect. Until
-      // then both stay reachable rather than one becoming a dead end.
-      { segment: "business-information", label: "Business info" },
+      // One tab, one listing. "Business info" and "Industry" were separate tabs
+      // editing the same profile through different Google APIs; they are now
+      // sections of this editor, and their old paths redirect here.
+      { segment: "", label: "Business profile" },
       { segment: "hours", label: "Hours" },
-      // Industry stays a separate tab only while it remains a provider-shaped
-      // console. B5 folds lodging, calls and healthcare into the profile
-      // sections they belong to, gated by capability.
-      { segment: "industry", label: "Industry", consoleGated: true },
+      // Its own segment, not a card above two editors' fields: accepting what
+      // Google changed is a different job from editing the listing.
+      { segment: "suggestions", label: "Suggested updates" },
     ],
   },
   {

@@ -1,6 +1,6 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
-import { ProfileTab } from "@/components/locations/profile-tab"
+import { ProfileTab } from "@/components/locations/profile/profile-editor"
 import { locationTabPrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 

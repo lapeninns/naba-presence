@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { HoursTab } from "@/components/locations/hours-tab"
@@ -47,21 +48,45 @@ function renderTab() {
 afterEach(() => vi.clearAllMocks())
 
 describe("HoursTab", () => {
-  it("renders each weekday and Monday's open time for an owner", () => {
+  it("renders each weekday and one primary action for an owner", () => {
     useHoursMock.mockReturnValue({ data: makeHours(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByText("Monday")).toBeInTheDocument()
     expect(screen.getByText("Sunday")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeInTheDocument()
+    // The two-button "Save changes / Publish to Google" pair is gone: nothing
+    // reaches Google except through the review sheet.
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
   })
 
-  it("disables editing for a viewer and publish when writes are off", () => {
+  it("names what would change on Google before anything is published", async () => {
+    const user = userEvent.setup()
+    useHoursMock.mockReturnValue({ data: makeHours(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+
+    // Dirty the draft: close Monday, which Google currently has as closed too,
+    // so open it a different way — change the opening time.
+    const opensAt = screen.getByLabelText(/Monday.*opens/i)
+    await user.clear(opensAt)
+    await user.type(opensAt, "08:00")
+
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByText("Monday")).toBeInTheDocument()
+    expect(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    ).toBeInTheDocument()
+  })
+
+  it("disables editing for a viewer and says why", () => {
     useHoursMock.mockReturnValue({ data: makeHours({ writesEnabled: false }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Publish to Google" })).toBeDisabled()
-    expect(screen.getByText("Only owners and admins can edit this location.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()
+    expect(
+      screen.getAllByText("Only owners and admins can edit this location.").length
+    ).toBeGreaterThan(0)
   })
 })

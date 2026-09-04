@@ -20,18 +20,32 @@ import {
 } from "@/lib/locations/business-information-draft"
 import { categoryLabel, openStatusLabel } from "@/lib/locations/console-labels"
 import type { BusinessInformationDraft } from "@/lib/locations/google-values"
+import type { ProfileFormValues } from "@/lib/locations/forms/profile"
 
-/** Name, description, categories, labels, store code and open status. */
+/**
+ * Who this business is: the name and description customers read, then the
+ * categories and status Google files it under.
+ *
+ * Name and description are the NabaPresence copy — the one Google gets when
+ * this publishes — so they are edited once here, not again under a second tab
+ * holding Google's version of the same two fields.
+ */
 export function IdentitySection({
   locationId,
+  values,
+  setValues,
   draft,
   setDraft,
+  errors,
   issues,
   disabled,
 }: {
   locationId: string
+  values: ProfileFormValues
+  setValues: Dispatch<SetStateAction<ProfileFormValues>>
   draft: BusinessInformationDraft
   setDraft: Dispatch<SetStateAction<BusinessInformationDraft>>
+  errors: Partial<Record<keyof ProfileFormValues, string>>
   issues: PayloadFieldErrors
   disabled: boolean
 }) {
@@ -39,24 +53,28 @@ export function IdentitySection({
 
   return (
     <section className="flex max-w-xl flex-col gap-4">
-      <h2 className="text-title font-semibold">Identity</h2>
-      <Field error={issues.title}>
+      <h3 className="text-title font-medium">Identity</h3>
+
+      <Field error={errors.name}>
         <FieldLabel>Business name</FieldLabel>
         <Input
-          value={draft.title}
+          value={values.name}
           disabled={disabled}
-          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+          onChange={(event) =>
+            setValues((v) => ({ ...v, name: event.target.value }))
+          }
         />
         <FieldError />
       </Field>
-      <Field error={issues.description}>
+
+      <Field error={errors.description}>
         <FieldLabel>Description</FieldLabel>
         <Textarea
-          value={draft.description}
+          value={values.description}
           disabled={disabled}
           rows={4}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, description: e.target.value }))
+          onChange={(event) =>
+            setValues((v) => ({ ...v, description: event.target.value }))
           }
         />
         <FieldError />
@@ -141,27 +159,29 @@ export function IdentitySection({
           disabled={disabled}
           rows={3}
           placeholder="One label per line"
-          onChange={(e) =>
+          onChange={(event) =>
             setDraft((d) => ({
               ...d,
-              labels: e.target.value
+              labels: event.target.value
                 .split("\n")
-                .map((l) => l.trim())
+                .map((line) => line.trim())
                 .filter(Boolean),
             }))
           }
         />
       </Field>
+
       <Field>
         <FieldLabel>Store code</FieldLabel>
         <Input
           value={draft.storeCode}
           disabled={disabled}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, storeCode: e.target.value }))
+          onChange={(event) =>
+            setDraft((d) => ({ ...d, storeCode: event.target.value }))
           }
         />
       </Field>
+
       <div className="flex flex-col gap-1">
         <span className="text-ui font-medium">Open status</span>
         <Select
@@ -186,6 +206,9 @@ export function IdentitySection({
             ))}
           </SelectContent>
         </Select>
+        {issues.title ? (
+          <p className="text-caption text-danger-ink">{issues.title}</p>
+        ) : null}
       </div>
     </section>
   )

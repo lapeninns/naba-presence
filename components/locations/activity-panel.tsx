@@ -54,8 +54,9 @@ function ActivityList({
 
   return (
     <section className="flex flex-col gap-3">
+      {/* The drawer's own SheetTitle is the heading here; a second one would
+          repeat it and break heading order inside the dialog. */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-title font-semibold">Recent activity</h2>
         <p className="text-caption text-muted-foreground">
           {formatNumber(activity.total)} recorded{" "}
           {activity.total === 1 ? "change" : "changes"}
