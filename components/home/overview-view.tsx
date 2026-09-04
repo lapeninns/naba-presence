@@ -6,13 +6,16 @@ import { AttentionList } from "@/components/home/attention-list"
 import { DisconnectedBanner } from "@/components/home/disconnected-banner"
 import { HealthKpis } from "@/components/home/health-kpis"
 import { PulseChart } from "@/components/home/pulse-chart"
+import { SetupChecklistCard } from "@/components/home/setup-checklist-card"
 import { WorkQueue } from "@/components/home/work-queue"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
+import { useSessionRole } from "@/lib/queries/use-session"
 
 function OverviewView() {
   const counts = useReviewCounts()
   const analytics = useAnalyticsOverview()
+  const role = useSessionRole()
 
   const isPending = counts.isPending || analytics.isPending
   const isError = counts.isError || analytics.isError
@@ -41,6 +44,7 @@ function OverviewView() {
 
   return (
     <div className="flex flex-col gap-8">
+      <SetupChecklistCard role={role} />
       <DisconnectedBanner />
       <WorkQueue
         byStatus={counts.data?.byStatus ?? {}}

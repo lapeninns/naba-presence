@@ -15,7 +15,7 @@ export function ReconnectAlert() {
         Google access for one of your accounts has expired. Reconnect to resume reviews and publishing.
       </AlertDescription>
       <AlertAction>
-        <Button size="sm" disabled={connect.isPending} onClick={() => connect.mutate()}>
+        <Button size="sm" disabled={connect.isPending} onClick={() => connect.mutate({})}>
           Reconnect
         </Button>
       </AlertAction>

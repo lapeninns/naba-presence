@@ -10,6 +10,7 @@ import {
   googleOAuthUrl,
   pkceChallenge,
 } from "@/lib/server/google"
+import { safeOAuthReturn } from "@/lib/server/oauth-return"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -17,7 +18,7 @@ export const runtime = "nodejs"
 export const POST = route({
   roles: ["owner", "admin"],
   body: connectStartBodySchema,
-  handler: async ({ session }) => {
+  handler: async ({ session, body }) => {
     const nonce = randomToken(24)
     const verifier = randomToken(64)
     const statePayload = Buffer.from(
@@ -26,6 +27,11 @@ export const POST = route({
         verifier,
         organisationId: session.organisationId,
         userId: session.userId,
+        // Both survive the round trip inside the SIGNED state, not the query
+        // string: the callback has to trust them, and a Google redirect is
+        // attacker-influenced.
+        clientId: body.clientId,
+        returnTo: safeOAuthReturn(body.returnTo),
         expiresAt: Date.now() + 10 * 60 * 1000,
       })
     ).toString("base64url")

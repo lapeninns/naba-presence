@@ -30,10 +30,13 @@ test.describe("connections OAuth return", () => {
   // stub handlers on the identical `{ method: "GET", pathIncludes: "/accounts" }`
   // matcher (one per tenant) used to shadow each other via last-registered-wins,
   // so the primary org's own real GBP account name never actually resolved.
+  //
+  // The account picker moved to the setup flow, where choosing accounts
+  // happens against a named client, so this asserts there.
   test("the primary org's accounts list resolves its own account name", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto("/settings/connections")
+    await page.goto(`/setup?client=${state.clientId}&step=account`)
     await expect(page.getByText("Sprint 5 Stub account")).toBeVisible()
   })
 

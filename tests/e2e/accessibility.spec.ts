@@ -1152,20 +1152,18 @@ for (const theme of themes) {
             exact: true,
           })
         ).toBeVisible()
+        // Choosing accounts, importing locations and backfilling history all
+        // moved to /setup, where they run in order against a named client.
+        // What is left here is the account-level view: what is connected, who
+        // depends on it, and how to start a client.
         await expect(
-          page.getByRole("heading", { name: "Google accounts", level: 2 })
+          page.getByRole("heading", { name: "Who depends on each account", level: 2 })
         ).toBeVisible()
-        await expect(page.getByText("Naba Presence Hospitality")).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Import locations", level: 2 })
-        ).toBeVisible()
-        await expect(page.getByText("Camden Hotel").first()).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Backfill reviews", level: 2 })
-        ).toBeVisible()
-        await expect(page.getByText("Synced")).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Google notifications", level: 2 })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("heading", { name: "Setting up a client", level: 2 })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} connections`)
       })

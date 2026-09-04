@@ -13,7 +13,21 @@ import { z } from "zod"
 // ---------------------------------------------------------------------------
 
 /** POST `/api/google/connect/start` body (intentionally empty). */
-export const connectStartBodySchema = z.object({})
+export const connectStartBodySchema = z.object({
+  /**
+   * Which client this connection is being made for. Carried through Google's
+   * round trip in the signed state so the callback can file the discovered
+   * location under the right client and return the operator to the step they
+   * left, instead of dropping them on a settings page with no context.
+   */
+  clientId: z.uuid().optional(),
+  /**
+   * Where to send the browser afterwards. Validated against an allow-list on
+   * the server — a user-supplied redirect that survives an OAuth round trip is
+   * an open redirect if it is not.
+   */
+  returnTo: z.string().max(200).optional(),
+})
 
 /** POST `/api/google/connections/[id]/disconnect` params. */
 export const disconnectParamsSchema = z.object({ id: z.string() })

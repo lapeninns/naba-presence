@@ -21,7 +21,7 @@ import type { DiscoveredLocation } from "@/lib/api/google-locations"
 
 type RowState = "idle" | "pending" | "imported" | { error: string }
 
-export function ImportCard() {
+export function ImportCard({ clientId }: { clientId?: string } = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
   const connectionId = deriveAutoSelection({
@@ -58,7 +58,11 @@ export function ImportCard() {
   const importOne = async (location: DiscoveredLocation, confirmRelink: boolean) => {
     setRowState((prev) => ({ ...prev, [location.id]: "pending" }))
     try {
-      await link.mutateAsync({ externalLocationId: location.id, confirmRelink })
+      await link.mutateAsync({
+        externalLocationId: location.id,
+        confirmRelink,
+        ...(clientId ? { clientId } : {}),
+      })
       setRowState((prev) => ({ ...prev, [location.id]: "imported" }))
     } catch (error) {
       if (error instanceof ApiClientError && error.code === "relink_confirmation_required") {

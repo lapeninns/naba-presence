@@ -39,10 +39,17 @@ export function useLocationImport() {
   // React Query matches by prefix — so this already covers both directory
   // views. It no longer reaches the ["locations", <id>, …] resource keys,
   // which a link/unlink has no reason to drop.
-  const invalidate = () => client.invalidateQueries({ queryKey: queryKeys.locations })
+  const invalidate = () => {
+    void client.invalidateQueries({ queryKey: queryKeys.locations })
+    // Linking changes a client's location and linked counts, and its health.
+    void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
+  }
   const link = useMutation({
-    mutationFn: (input: { externalLocationId: string; confirmRelink?: boolean }) =>
-      linkExternalLocation({ ...input, timezone: resolveClientTimezone() }),
+    mutationFn: (input: {
+      externalLocationId: string
+      confirmRelink?: boolean
+      clientId?: string
+    }) => linkExternalLocation({ ...input, timezone: resolveClientTimezone() }),
     onSuccess: invalidate,
   })
   const unlink = useMutation({

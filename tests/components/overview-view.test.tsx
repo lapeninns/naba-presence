@@ -9,6 +9,8 @@ import type { ReviewCounts } from "@/lib/api/review-counts"
 import * as analyticsHook from "@/lib/queries/use-analytics-overview"
 import * as countsHook from "@/lib/queries/use-review-counts"
 import * as healthHook from "@/lib/queries/use-connection-health"
+import * as sessionHook from "@/lib/queries/use-session"
+import * as clientsHook from "@/lib/queries/use-clients"
 
 function fakeCounts(value: Partial<UseQueryResult<ReviewCounts>>) {
   vi.spyOn(countsHook, "useReviewCounts").mockReturnValue(
@@ -20,6 +22,29 @@ function fakeAnalytics(value: Partial<UseQueryResult<AnalyticsOverview>>) {
     value as UseQueryResult<AnalyticsOverview>
   )
 }
+/**
+ * Home now reads the session role and the client list for its setup card.
+ * Stubbed rather than wrapped in a provider so these tests keep asserting the
+ * Overview's own composition instead of a fetch pipeline.
+ */
+function fakeShellData({ nextStep = "done" as const } = {}) {
+  vi.spyOn(sessionHook, "useSessionRole").mockReturnValue("owner")
+  vi.spyOn(clientsHook, "useClients").mockReturnValue({
+    data: {
+      items: [
+        {
+          id: "c1",
+          name: "Old Crown Group",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    },
+  } as unknown as ReturnType<typeof clientsHook.useClients>)
+  vi.spyOn(clientsHook, "useClientSetup").mockReturnValue({
+    data: { setup: { nextStep } },
+  } as unknown as ReturnType<typeof clientsHook.useClientSetup>)
+}
+
 function fakeHealth(
   value: Partial<ReturnType<typeof healthHook.useConnectionHealth>> = {}
 ) {
@@ -85,6 +110,7 @@ afterEach(() => {
 
 describe("OverviewView", () => {
   it("shows busy skeletons while either query is pending", () => {
+    fakeShellData()
     fakeHealth()
     fakeCounts({ isPending: true, isError: false })
     fakeAnalytics({
@@ -100,6 +126,7 @@ describe("OverviewView", () => {
   })
 
   it("renders work queues aligned with inbox and 30-day health KPIs", () => {
+    fakeShellData()
     fakeHealth()
     fakeCounts({
       isPending: false,
@@ -151,6 +178,7 @@ describe("OverviewView", () => {
 
   it("offers a retry that refetches both sources when both fail with no data", async () => {
     const user = userEvent.setup()
+    fakeShellData()
     fakeHealth()
     const countsRefetch = vi.fn()
     const analyticsRefetch = vi.fn()
@@ -176,6 +204,7 @@ describe("OverviewView", () => {
   })
 
   it("shows caught-up copy when every work count is zero", () => {
+    fakeShellData()
     fakeHealth()
     fakeCounts({
       isPending: false,

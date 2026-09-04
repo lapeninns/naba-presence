@@ -84,7 +84,7 @@ export const POST = route({
       let locationId = input.locationId
       if (!locationId) {
         const [location] = await sql<{ id: string }[]>`
-          insert into location (organisation_id, name, address_json, timezone)
+          insert into location (organisation_id, name, address_json, timezone, client_id)
           values (
             ${session.organisationId},
             ${input.name ?? external.title},
@@ -93,12 +93,16 @@ export const POST = route({
                 ? sql.json(JSON.parse(JSON.stringify(external.address)))
                 : null
             },
-            ${input.timezone}
+            ${input.timezone},
+            ${input.clientId ?? null}
           )
           on conflict (organisation_id, name) do update
           set
             address_json = coalesce(location.address_json, excluded.address_json),
-            timezone = excluded.timezone
+            timezone = excluded.timezone,
+            -- Only fills a gap. Re-importing must never move a location that
+            -- already belongs to another client.
+            client_id = coalesce(location.client_id, excluded.client_id)
           returning id::text as id
         `
         locationId = location.id
@@ -115,6 +119,16 @@ export const POST = route({
             "location_not_found",
             "Internal location not found."
           )
+        }
+        // Linking an EXISTING location from the setup flow files it under the
+        // client, but only when it has none — reassigning silently would move
+        // someone else's listing.
+        if (input.clientId) {
+          await sql`
+            update location
+               set client_id = ${input.clientId}
+             where id = ${locationId} and client_id is null
+          `
         }
         await sql`
           update location

@@ -27,7 +27,7 @@ describe("useConnectionWorkspace", () => {
     vi.stubGlobal("location", { ...window.location, assign })
     const { result } = renderHook(() => useConnectionWorkspace(), { wrapper })
     await act(async () => {
-      result.current.connect.mutate()
+      result.current.connect.mutate({})
     })
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://accounts.google.test/o/oauth2/v2/auth?x=1"))
     vi.unstubAllGlobals()

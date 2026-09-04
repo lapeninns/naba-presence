@@ -70,7 +70,7 @@ export function OAuthReturn() {
       <AlertTitle>We couldn’t connect Google</AlertTitle>
       <AlertDescription>{error}</AlertDescription>
       <AlertAction>
-        <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate()}>
+        <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate({})}>
           Try again
         </Button>
       </AlertAction>

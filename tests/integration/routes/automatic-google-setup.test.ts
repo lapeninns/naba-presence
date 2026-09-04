@@ -467,7 +467,11 @@ describeDatabase("automatic Google review setup", () => {
     )
     expect([303, 307]).toContain(redirected.status)
     const location = new URL(redirected.headers.get("location")!)
-    expect(location.pathname).toBe("/connections")
+    // The callback now returns to the step the operator left, via the
+    // signed state. Without a readable state — which is often what failed —
+    // it falls back to the connections page directly rather than through the
+    // legacy alias.
+    expect(location.pathname).toBe("/settings/connections")
     expect(location.searchParams.get("google")).toBe("error")
     expect(location.searchParams.get("status")).toBe("502")
     expect(location.searchParams.get("rid")).toBeTruthy()

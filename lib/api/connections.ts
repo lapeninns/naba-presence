@@ -18,10 +18,12 @@ export function fetchConnections(options?: RequestOptions) {
   })
 }
 
-export function startGoogleConnect() {
+export function startGoogleConnect(
+  input: { clientId?: string; returnTo?: string } = {}
+) {
   return apiFetch("/api/google/connect/start", {
     method: "POST",
-    body: {},
+    body: input,
     schema: connectStartResponseSchema,
   })
 }

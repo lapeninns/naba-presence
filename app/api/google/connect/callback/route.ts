@@ -19,6 +19,11 @@ import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { route } from "@/lib/server/route"
+import {
+  DEFAULT_OAUTH_RETURN,
+  safeOAuthReturn,
+  withOAuthStatus,
+} from "@/lib/server/oauth-return"
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -28,6 +33,9 @@ const stateSchema = z.object({
   verifier: z.string().min(43),
   organisationId: z.uuid(),
   userId: z.uuid(),
+  // Optional so a state minted before these existed still parses.
+  clientId: z.uuid().optional(),
+  returnTo: z.string().optional(),
   expiresAt: z.number(),
 })
 
@@ -223,6 +231,10 @@ async function completeOAuth({
       userId: session.userId,
       connectionId: connection.id,
       accessToken: tokens.access_token,
+      // The location this discovers belongs to the client the operator was
+      // setting up. Without it, a freshly connected listing lands unassigned
+      // and has to be filed by hand immediately after.
+      clientId: state.clientId ?? null,
       requestId,
     })
   } catch (error) {
@@ -263,7 +275,7 @@ async function completeOAuth({
       }
     })
   }
-  return { connection, setup }
+  return { connection, setup, returnTo: safeOAuthReturn(state.returnTo) }
 }
 
 /**
@@ -300,16 +312,25 @@ export const GET = route({
   handler: async ({ request, requestId, clientRequestId }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     try {
-      await completeOAuth({ request, requestId, clientRequestId })
+      const { returnTo } = await completeOAuth({
+        request,
+        requestId,
+        clientRequestId,
+      })
+      // Back to the step the operator left, not to a settings page they never
+      // asked for. The path came through the signed state and is checked
+      // against an allow-list, so Google's redirect cannot choose it.
       return NextResponse.redirect(
-        new URL("/connections?google=connected", baseUrl)
+        new URL(withOAuthStatus(returnTo, { google: "connected" }), baseUrl)
       )
     } catch (error) {
       const status = String(redirectStatus(error, requestId))
+      // The error path cannot read the state (that is often what failed), so
+      // it falls back to the connections page.
       const path =
         error instanceof ApiError && error.code === "authentication_required"
           ? "/sign-in"
-          : "/connections"
+          : DEFAULT_OAUTH_RETURN
       // `rid` is the correlation id a user can quote in a support ticket; the
       // redirect is the only thing they can see.
       return NextResponse.redirect(

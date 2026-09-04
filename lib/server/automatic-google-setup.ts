@@ -24,6 +24,13 @@ type AutomaticGoogleSetupInput = {
   readonly userId: string
   readonly connectionId: string
   readonly accessToken: string
+  /**
+   * The client this connection was made for, when the operator came through
+   * the setup flow. Null when they connected from Settings with no client in
+   * mind — the location then lands unassigned, which the Clients page shows
+   * as its own group rather than hiding.
+   */
+  readonly clientId?: string | null
   readonly requestId: string
 }
 
@@ -146,16 +153,20 @@ export async function prepareAutomaticGoogleReviewSetup(
       `
       if (!existingLink) {
         const [managedLocation] = await sql<{ id: string }[]>`
-          insert into location (organisation_id, name, address_json, timezone)
+          insert into location (organisation_id, name, address_json, timezone, client_id)
           values (
             ${input.organisationId},
             ${title},
             ${location.storefrontAddress ? sql.json(location.storefrontAddress) : null},
-            'Europe/London'
+            'Europe/London',
+            ${input.clientId ?? null}
           )
           on conflict (organisation_id, name) do update
           set
-            address_json = coalesce(location.address_json, excluded.address_json)
+            address_json = coalesce(location.address_json, excluded.address_json),
+            -- Only fills a gap; never moves a location that already belongs to
+            -- someone. Reconnecting must not silently reassign a listing.
+            client_id = coalesce(location.client_id, excluded.client_id)
           returning id::text as id
         `
         const [link] = await sql<{ id: string }[]>`

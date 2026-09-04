@@ -79,6 +79,12 @@ export type LocationsResponse = z.infer<typeof locationsResponseSchema>
 
 /** POST `/api/location-links` body. */
 export const linkLocationRequestSchema = z.object({
+  /**
+   * The client this location belongs to. Set when linking from the setup
+   * flow; omitted when importing from Settings with no client in mind, in
+   * which case the location lands unassigned and Clients shows it as such.
+   */
+  clientId: z.uuid().optional(),
   externalLocationId: z.uuid(),
   locationId: z.uuid().optional(),
   name: z.string().trim().min(1).max(160).optional(),

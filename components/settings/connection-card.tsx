@@ -51,7 +51,7 @@ export function ConnectionCard() {
           title="No Google account connected"
           description="Connect a Google Business Profile to import locations and manage reviews."
           action={
-            <Button disabled={connect.isPending} onClick={() => connect.mutate()}>
+            <Button disabled={connect.isPending} onClick={() => connect.mutate({})}>
               Connect Google Business Profile
             </Button>
           }
@@ -87,7 +87,7 @@ export function ConnectionCard() {
             </TableBody>
           </Table>
           <div>
-            <Button variant="outline" disabled={connect.isPending} onClick={() => connect.mutate()}>
+            <Button variant="outline" disabled={connect.isPending} onClick={() => connect.mutate({})}>
               Connect another account
             </Button>
           </div>
