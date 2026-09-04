@@ -31,13 +31,13 @@ const accessibilityTags = [
   "wcag22aa",
 ]
 // Matches the CURRENT top-level `<Section title="...">` headings on
-// /design-system (app/design-system/page.tsx) — the design system was
-// consolidated to four broad sections since this sweep was last revived.
+// /design-system (app/design-system/page.tsx).
 const proofSections = [
   "Foundations",
   "Typography",
   "Spacing and radius",
   "Primitives",
+  "Compositions",
 ]
 
 async function expectAccessible(page: Page, surface: string) {

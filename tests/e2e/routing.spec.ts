@@ -15,7 +15,7 @@ async function applyCookie(
 // /posts) are gone: they acted on a silently chosen "primary location", which
 // means nothing once an organisation looks after several businesses.
 const dashboardRoutes = [
-  { path: "/home", label: "Home", heading: /^Overview$/ },
+  { path: "/home", label: "Home", heading: /^Home$/ },
   { path: "/inbox", label: "Inbox", heading: /^Reviews$/ },
   { path: "/clients", label: "Clients", heading: /^Clients$/ },
   { path: "/reports", label: "Reports", heading: /^Reports$/ },
@@ -50,7 +50,7 @@ test("root redirects to home", async ({ page }) => {
 
   await expect(page).toHaveURL("/home")
   await expect(
-    page.getByRole("heading", { name: "Overview", level: 1 })
+    page.getByRole("heading", { name: "Home", level: 1 })
   ).toBeVisible()
 })
 

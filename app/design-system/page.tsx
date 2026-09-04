@@ -52,6 +52,14 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Breadcrumbs } from "@/components/ui/breadcrumb"
+import { CapabilityBanner } from "@/components/editors/capability-banner"
+import { ChangeDiff } from "@/components/editors/change-diff"
+import { EditorFooterDemo } from "@/app/design-system/editor-footer-demo"
+import { KpiTile } from "@/components/ui/kpi-tile"
+import { StatusPill } from "@/components/ui/status-pill"
+import { Stepper } from "@/components/ui/stepper"
+import { STATUS_TONES } from "@/lib/ui/status-tone"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -60,12 +68,14 @@ type SectionTitle =
   | "Typography"
   | "Spacing and radius"
   | "Primitives"
+  | "Compositions"
 
 const SECTION_IDS: Record<SectionTitle, string> = {
   Foundations: "foundations",
   Typography: "typography",
   "Spacing and radius": "spacing-and-radius",
   Primitives: "primitives",
+  Compositions: "compositions",
 }
 
 const SORT_ITEMS: Record<string, string> = {
@@ -141,11 +151,10 @@ export default function Page() {
           NabaPresence design system
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          The frontend is being rebuilt on this branch. Foundation primitives
-          (Button, Card, Badge, Alert, Skeleton, Spinner, Field, Input, Label,
-          Textarea, Dialog, AlertDialog, Sheet, Toast, Tabs, Select, Combobox,
-          Dropdown Menu, Avatar, Empty) are re-admitted below; remaining
-          shared compositions return in later milestone tasks.
+          Every specimen below reads the same tokens the app does, so a role
+          that drifts shows up here first. Foundations, type and shape come
+          from `app/globals.css`; the pairs are measured, not asserted in a
+          comment.
         </p>
       </header>
 
@@ -517,6 +526,102 @@ export default function Page() {
           <Empty
             title="No reviews yet"
             description="New Google reviews will appear here as they arrive."
+          />
+        </div>
+      </Section>
+
+      <Section title="Compositions">
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          The pieces built for the agency rebuild. Each one exists because the
+          same shape was being reinvented per screen.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Status pill</h3>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Five tones, one vocabulary. Health, connection state, review
+            situation and diff status all read from it.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {STATUS_TONES.map((tone) => (
+              <StatusPill key={tone} tone={tone}>
+                {tone}
+              </StatusPill>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">KPI tile</h3>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <KpiTile label="Reviews received" value="128" hint="Last 30 days" />
+            <KpiTile label="Average rating" value="4.6" hint="Last 30 days" />
+            <KpiTile label="Response rate" value="92%" hint="Last 30 days" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Stepper</h3>
+          <Stepper
+            steps={[
+              { id: "agency", label: "Agency", state: "done" },
+              { id: "client", label: "Client", state: "done" },
+              { id: "connect", label: "Connect Google", state: "current" },
+              { id: "locations", label: "Locations", state: "todo" },
+            ]}
+          />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Change diff</h3>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            What every Google write shows before it happens. A conflict row
+            says Google moved the field after the draft started.
+          </p>
+          <ChangeDiff
+            caption="Changes to publish for Old Crown"
+            rows={[
+              {
+                field: "Phone",
+                before: "01223 277 217",
+                after: "01223 277 218",
+              },
+              {
+                field: "Description",
+                before: "A riverside pub.",
+                after: "A riverside pub with rooms.",
+                state: "conflict",
+              },
+            ]}
+          />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Editor footer</h3>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            One primary action. The gate note carries the reason whenever it is
+            disabled.
+          </p>
+          <EditorFooterDemo />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Capability banner</h3>
+          <CapabilityBanner
+            tone="read_only"
+            title="You can look, but not change this"
+            description="Only owners and admins can edit this location."
+          />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h3 className="text-title font-semibold">Breadcrumb</h3>
+          <Breadcrumbs
+            crumbs={[
+              { label: "Clients", href: "/clients" },
+              { label: "Old Crown Group", href: "/clients/demo" },
+              { label: "Old Crown Girton" },
+            ]}
           />
         </div>
       </Section>

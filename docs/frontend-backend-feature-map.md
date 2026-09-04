@@ -40,9 +40,9 @@ cells note the new home, and `docs/architecture.md` describes each piece.
   `lib/contracts/location-activity.ts`.
 - Provider writes run through `lib/server/gbp-write.ts`; reply publishing is
   decomposed into `lib/server/publishing/`.
-- The location workspace groups its tabs into six sections
-  (`lib/locations/location-ia.ts`: Overview, Profile, Content, Customers,
-  Access, Insights); every tab renders inside `components/locations/location-tab.tsx`;
+- The location workspace groups its tabs into five sections
+  (`lib/locations/location-ia.ts`: Profile, Content, Customers, Access,
+  Insights); every tab renders inside `components/locations/location-tab.tsx`;
   mutations use `lib/queries/use-resource-mutation.ts`; error copy comes from
   `lib/errors/action-errors.ts`; query states from `components/ui/query-states.tsx`;
   each dashboard segment has an `error.tsx` boundary.
@@ -83,19 +83,19 @@ Status meanings:
 | Reconnect and disconnected states | Complete | Partial | Persistent reconnect banner with cause, affected features, last successful sync, and one clear action | P0 |
 | Location directory | Complete | Usable | Add health/status columns, saved filters, search, bulk selection, and a clear create/link location action | P1 |
 | Location onboarding and matching | Complete | Prototype | Guided create-or-match wizard with address preview, duplicate warnings, verification state, and explicit final confirmation | P0 |
-| Home dashboard | Complete | Usable | Redesign hierarchy, actionable exception cards, location health, and setup progress; remove empty decorative space | P1 |
+| Home dashboard | Complete | Rebuilt for the agency (September 2026): setup card, work by client, attention list, pulse | Per-client trend sparklines | P2 |
 | Cross-location inbox | Complete (`lib/contracts/reviews.ts` is the vocabulary and wire codec; filters, queue and selection live in the URL via `lib/inbox/url-state.ts`, so the page is deliberately not server-prefetched) | Usable | Improve density, keyboard workflow, bulk selection, saved filters, and responsive detail navigation | P1 |
 | Review detail and reply approval | Complete | Usable | Clarify reply lifecycle, verification findings, activity timeline, publish state, retry state, and destructive actions | P1 |
-| Location overview/profile | Complete | Partial and duplicated | Merge the lightweight Profile surface with structured Business Information; remove competing ownership concepts from the UI | P0 |
-| Complete Business Information | Complete | Partial (`components/locations/business-information/` has identity, contact, attributes and category-search sections plus a publish-confirm dialog; adapters in `lib/locations/google-values.ts`) | Finish address, services, service areas, labels, open state, and chain relationships as sections | P0 |
+| Location overview/profile | Complete | Done (September 2026): `components/locations/profile/profile-editor.tsx` is one editor over both halves of the listing; `business-information` and `industry` are redirects | Services, service areas and chain relationships are still read-only | P1 |
+| Complete Business Information | Complete | Done (September 2026): identity, categories, contact, address, attributes and the capability-gated industry sections are sections of the profile editor; adapters in `lib/locations/google-values.ts` | Finish services, service areas and chain relationships as sections | P1 |
 | Category and chain lookup | Complete | Prototype | Searchable comboboxes with result descriptions, selected chips, primary/secondary category rules, and chain preview | P0 |
 | Attributes | Complete | Prototype | Metadata-driven boolean, enum, repeated-enum, URL, and text controls grouped by Google category | P0 |
 | Hours | Complete | Usable | Improve weekly grid, split periods, copy-to-days, holiday calendar, diff visualization, validation, and timezone messaging | P1 |
-| Google-suggested updates | Complete | Prototype | Field-level before/after review with accept/reject selection and impact summary | P0 |
-| Verification | Complete | Partial (`components/locations/administration/verification.tsx`) | Method cards, destination masking, PIN entry, progress states, retry guidance, and verification history timeline | P0 |
-| Owners, managers, and invitations | Complete | Partial (`components/locations/administration/admins.tsx`, `invitations.tsx`) | People table, role badges, invite dialog, role-change confirmation, removal confirmation, and pending invitation actions | P0 |
+| Google-suggested updates | Complete | Its own segment (September 2026): `/locations/[id]/suggestions`, with the pending count on the tab | Impact summary across both resource types | P1 |
+| Verification | Complete | Its own segment (September 2026): `/locations/[id]/verification`, `components/locations/administration/verification.tsx` | Method cards, destination masking, PIN entry, progress states and retry guidance | P1 |
+| Owners, managers, and invitations | Complete | Its own segment (September 2026): `/locations/[id]/access`, `components/locations/administration/{admins,invitations}.tsx` | Role-change confirmation and richer pending-invitation actions | P1 |
 | Location transfer and deletion | Complete | Partial (`components/locations/administration/danger-zone.tsx`) | Dedicated high-risk dialogs with destination lookup, typed confirmation, consequences, and operation status | P0 |
-| Posts | Complete | Usable | Visual composer, post-type guidance, media picker, live Google-style preview, scheduling calendar, drafts, and approval timeline | P1 |
+| Posts | Complete | Composer sheet with live preview (September 2026) | Media picker and approval timeline. Scheduling stays out until a due-posts claim exists: the column was written and sent, but nothing ever published on time (see `lib/contracts/location-posts.ts`) | P1 |
 | Photos and videos | Complete | Usable (`components/locations/photos/*`; page and owner/category filters live in the URL via `lib/locations/photos-url-state.ts`) | Responsive gallery, drag-and-drop upload, progress, validation before upload, cover/profile affordances, and lightbox | P1 |
 | Food menus | Complete | Usable | Improve nested editor with drag ordering, reusable items, option groups, currency handling, validation summary, and mobile editing | P1 |
 | Booking and place-action links | Complete | Usable | Show consumer-facing preview, provider ownership, preferred link, validation status, and clearer immutable-link handling | P1 |

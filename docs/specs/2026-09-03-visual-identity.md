@@ -31,10 +31,15 @@ introduce a literal colour.
    density.
 3. **Component tokens** — the few values that vary by density or control kind
    (`--np-field-h`, `--np-table-header-bg`, `--np-row-py`).
-4. **Aliases** — the shadcn contract (`--background`, `--primary`, …) and
-   every legacy `--nr-*` name, each resolving to a `--np-*` role so screens
-   migrate one at a time instead of in one breaking change. The B6 codemod
-   deletes this layer.
+4. **Aliases** — the shadcn contract (`--background`, `--primary`, …), each
+   resolving to a `--np-*` role.
+
+The rebuild also carried a fifth, temporary layer: every legacy `--nr-*` name,
+resolving to the `--np-*` role that replaced it, so screens could migrate one
+at a time instead of in one breaking change. It is gone. Every screen reads the
+roles directly, and `tests/design-system-contract.test.ts` now fails if a
+`--nr-` name reappears — a compatibility layer that outlives its migration is
+just a second vocabulary.
 
 Two naming traps are documented rather than fixed, because fixing them would
 mean forking shadcn: its `--accent` is a HIGHLIGHT SURFACE, not the brand
@@ -95,8 +100,8 @@ immediately: it caught seven token pairs below target and an accent ladder
 specified outside sRGB, all in the first draft of this palette.
 
 Structural checks run alongside the ratios: every semantic role must have a
-dark-theme value, every alias must resolve, and every `--np-*` colour must be
-inside sRGB — a clamped colour means the value in the file is not the value on
+dark-theme value, every role must resolve in both themes, and every `--np-*`
+colour must be inside sRGB — a clamped colour means the value in the file is not the value on
 screen.
 
 ## What this does not change
