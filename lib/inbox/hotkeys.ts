@@ -46,7 +46,12 @@ export const SHORTCUTS: { keys: string; action: InboxAction; label: string }[] =
  */
 export function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null
-  if (!element) return false
+  // The listener sits on `document`, so the target is not always an element:
+  // with nothing focused a keydown can target the document itself. Guarding on
+  // `closest` rather than on truthiness matters, because `element.closest?.(…)`
+  // on a non-element evaluates to `undefined`, and `undefined !== null` is
+  // true — which used to report "they are typing" and swallow every shortcut.
+  if (!element || typeof element.closest !== "function") return false
   const tag = element.tagName
   return (
     tag === "INPUT" ||
@@ -55,7 +60,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     element.isContentEditable === true ||
     // A listbox or menu is driving its own arrow keys and letters.
     element.getAttribute?.("role") === "listbox" ||
-    element.closest?.("[role='dialog'],[role='menu'],[role='listbox']") !== null
+    element.closest("[role='dialog'],[role='menu'],[role='listbox']") !== null
   )
 }
 

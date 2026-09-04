@@ -66,6 +66,14 @@ describe("isTypingTarget", () => {
     div.remove()
   })
 
+  it("does not mistake the document for a text field", () => {
+    // The listener sits on `document`, so with nothing focused the keydown
+    // target IS the document. Reporting that as "typing" swallowed every
+    // shortcut in the inbox, silently, depending on what had focus.
+    expect(isTypingTarget(document)).toBe(false)
+    expect(isTypingTarget(window)).toBe(false)
+  })
+
   it("stands off dialogs and menus, which drive their own keys", () => {
     const dialog = document.createElement("div")
     dialog.setAttribute("role", "dialog")
