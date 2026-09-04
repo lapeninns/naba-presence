@@ -35,7 +35,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
             with the tile once it has (both break the pinned test). */}
         <h2 className="text-title font-semibold tracking-tight">Review activity</h2>
         {overview.isPending ? (
-          <ReportingPanel variant="loading" />
+          <ReportingPanel variant="loading" title="Loading review activity…" />
         ) : overview.isError ? (
           <ReportingPanel variant="error" onRetry={() => void overview.refetch()} />
         ) : (() => {
@@ -61,7 +61,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
           <RangeSelect value={rangeId} onChange={setRangeId} options={PRESENCE_RANGES} label="Visibility range" />
         </div>
         {presence.isPending ? (
-          <ReportingPanel variant="loading" />
+          <ReportingPanel variant="loading" title="Loading visibility figures…" />
         ) : presence.isError ? (
           <ReportingPanel variant="error" onRetry={() => void presence.refetch()} />
         ) : !presence.data.ingestionEnabled ? (
@@ -99,7 +99,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
       <section className="flex flex-col gap-3">
         <h2 className="text-title font-semibold tracking-tight">Search keywords</h2>
         {keywords.isPending ? (
-          <ReportingPanel variant="loading" />
+          <ReportingPanel variant="loading" title="Loading search keywords…" />
         ) : keywords.isError ? (
           <ReportingPanel variant="paused" title="Keyword reporting is paused" description="Google search-keyword reporting is temporarily paused." />
         ) : keywords.data.keywords.length === 0 ? (

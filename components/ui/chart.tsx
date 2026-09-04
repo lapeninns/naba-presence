@@ -67,7 +67,9 @@ export function ChartCard({
       </CardHeader>
       <CardContent>
         {state === "loading" ? (
-          <ReportingPanel variant="loading" />
+          // The card's own title names the figures, so the skeleton borrows it
+          // rather than repeating a generic "Loading".
+          <ReportingPanel variant="loading" title={`Loading ${title.toLowerCase()}…`} />
         ) : state === "error" ? (
           <ReportingPanel variant="error" onRetry={onRetry} />
         ) : state === "empty" ? (

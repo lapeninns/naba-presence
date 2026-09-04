@@ -4,11 +4,21 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 
-type PanelVariant = "loading" | "empty" | "error" | "paused" | "off"
+type PanelVariant = "loading" | "empty" | "error" | "paused" | "off" | "collecting"
 
 const COPY: Record<Exclude<PanelVariant, "loading">, { title: string; description: string }> = {
   empty: { title: "Nothing to show yet", description: "There is no data for this window." },
+  // A state the screen cannot resolve by waiting: the request already came
+  // back, and it said Google has not sent any figures for this window yet.
+  // It used to render as `loading` — a skeleton that could only ever stop on
+  // a reload, days later.
+  collecting: {
+    title: "Nothing collected yet",
+    description:
+      "Google has not sent any figures for this window. They appear here once it does.",
+  },
   error: { title: "We could not load this", description: "Check your connection, then try again." },
   paused: { title: "Reporting is paused", description: "This report is on hold for now. Please check back soon." },
   off: { title: "Not switched on", description: "Ask an admin to enable this for your account." },
@@ -27,7 +37,17 @@ export function ReportingPanel({
 }) {
   if (variant === "loading") {
     return (
-      <div aria-busy="true" className="flex flex-col gap-2">
+      <div
+        aria-busy="true"
+        role={title ? "status" : undefined}
+        className="flex flex-col gap-2"
+      >
+        {title ? (
+          <p className="flex items-center gap-2 text-ui text-ink-muted">
+            <Spinner decorative className="size-3.5 shrink-0" />
+            {title}
+          </p>
+        ) : null}
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} className="h-12 rounded-(--np-radius-card)" />
         ))}

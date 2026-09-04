@@ -26,7 +26,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
 
-  if (now.isPending) return <ReportingPanel variant="loading" />
+  if (now.isPending) return <ReportingPanel variant="loading" title="Loading reply performance…" />
   if (now.isError) return <ReportingPanel variant="error" onRetry={() => void now.refetch()} />
 
   const s = now.data.summary

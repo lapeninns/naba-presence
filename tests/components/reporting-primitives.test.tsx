@@ -40,7 +40,7 @@ describe("FetchedAtCaption", () => {
     render(<FetchedAtCaption iso="2026-08-01T00:00:00.000Z" timezone="Europe/London" />)
     expect(screen.getByText(/As at/i)).toBeInTheDocument()
     render(<FetchedAtCaption iso={null} timezone="Europe/London" />)
-    expect(screen.getByText(/not yet|no data|—/i)).toBeInTheDocument()
+    expect(screen.getByText("Nothing collected yet")).toBeInTheDocument()
   })
 })
 

@@ -25,7 +25,7 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <FetchedAtCaption iso={keywords.data?.from ?? null} timezone="UTC" prefix="Impressions since" />
+      <FetchedAtCaption iso={keywords.data?.from ?? null} timezone="UTC" prefix="Impressions since" pending={keywords.isPending} />
       <div className="flex items-center gap-3">
         <RangeSelect value={rangeId} onChange={setRangeId} options={KEYWORD_RANGES} label="Keyword range" />
         <RefreshGoogleButton kind="keywords" canTrigger={canTriggerSync(role)} onDone={() => void keywords.refetch()} />
@@ -49,7 +49,7 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
   }
 
   if (keywords.isPending) {
-    return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" /></div>
+    return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" title="Loading keywords…" /></div>
   }
 
   const data = keywords.data
@@ -59,7 +59,11 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
     data.state === "no_link" ? (
       <ReportingPanel variant="empty" title="No linked location" description="Connect a Google location to see the searches that surface it." />
     ) : data.state === "pending" ? (
-      <ReportingPanel variant="loading" />
+      // NOT `loading`: this response has already arrived. "pending" is the
+      // server saying Google has not reported anything for this window yet
+      // (app/api/analytics/presence/route.ts), so a skeleton here would spin
+      // until the operator gave up and reloaded.
+      <ReportingPanel variant="collecting" />
     ) : data.state === "unavailable" ? (
       <Alert variant="warning"><AlertTitle>Some keywords could not be refreshed</AlertTitle><AlertDescription>{reasons[0] ?? "We will retry automatically."}</AlertDescription></Alert>
     ) : data.keywords.length === 0 ? (

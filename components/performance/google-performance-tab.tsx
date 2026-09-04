@@ -26,7 +26,7 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <FetchedAtCaption iso={presence.data?.freshThrough ?? null} timezone="UTC" />
+      <FetchedAtCaption iso={presence.data?.freshThrough ?? null} timezone="UTC" pending={presence.isPending} />
       <div className="flex items-center gap-3">
         <RangeSelect value={rangeId} onChange={setRangeId} options={PRESENCE_RANGES} label="Google performance range" />
         <RefreshGoogleButton kind="performance" canTrigger={canTriggerSync(role)} onDone={() => void presence.refetch()} />
@@ -34,7 +34,7 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
     </div>
   )
 
-  if (presence.isPending) return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" /></div>
+  if (presence.isPending) return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="loading" title="Loading visibility figures…" /></div>
   if (presence.isError) return <div className="flex flex-col gap-(--np-gap-section)">{header}<ReportingPanel variant="error" onRetry={() => void presence.refetch()} /></div>
 
   const data = presence.data
@@ -47,7 +47,11 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
     ) : data.state === "no_link" ? (
       <ReportingPanel variant="empty" title="No linked location" description="Add a Google location to see how it is performing." />
     ) : data.state === "pending" ? (
-      <ReportingPanel variant="loading" />
+      // NOT `loading`: this response has already arrived. "pending" is the
+      // server saying Google has not reported anything for this window yet
+      // (app/api/analytics/presence/route.ts), so a skeleton here would spin
+      // until the operator gave up and reloaded.
+      <ReportingPanel variant="collecting" />
     ) : data.state === "unavailable" ? (
       <Alert variant="warning">
         <AlertTitle>Some figures could not be refreshed</AlertTitle>

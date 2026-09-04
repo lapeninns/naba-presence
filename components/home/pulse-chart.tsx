@@ -49,7 +49,11 @@ function PulseChart({
       <ChartCard
         title="Review volume"
         description={
-          <FetchedAtCaption iso={overview?.to ?? null} timezone={timezone} />
+          <FetchedAtCaption
+            iso={overview?.to ?? null}
+            timezone={timezone}
+            pending={isPending}
+          />
         }
         action={
           <Link

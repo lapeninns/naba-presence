@@ -41,6 +41,10 @@ describe("KeywordsTab", () => {
   it("shows an empty panel when there are no keywords", async () => {
     stub({ range: "6m", from: "2026-03-01", state: "empty", locations: [{ id: "l", name: "L" }], keywords: [], unavailableReasons: [] })
     renderTab()
-    expect(await screen.findByText(/no.*keyword|nothing/i)).toBeInTheDocument()
+    // The panel's own title, not a loose regex: this assertion used to be
+    // satisfied by the header caption's "No data yet — nothing to show",
+    // which rendered while the query was still in flight. It passed without
+    // the empty panel ever being on screen.
+    expect(await screen.findByText("No keywords yet")).toBeInTheDocument()
   })
 })
