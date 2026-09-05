@@ -6,6 +6,7 @@ import {
   Inbox,
   MapPin,
   Plus,
+  Search,
   Settings,
   TrendingUp,
   UserPlus,
@@ -41,9 +42,15 @@ const GO_TO = [
 
 const ACTIONS = [
   { href: "/clients/new", label: "New client", icon: Plus },
-  { href: "/settings/connections", label: "Connect a Google account", icon: Plus },
+  {
+    href: "/settings/connections",
+    label: "Connect a Google account",
+    icon: Plus,
+  },
   { href: "/team", label: "Invite a teammate", icon: UserPlus },
 ]
+
+const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
 
 /**
  * Jump to anything: a client, a location, a page, an action.
@@ -89,7 +96,7 @@ function CommandPalette({
               >
                 <StatusPill tone={healthTone(client.health)} variant="dot" />
                 <span className="flex-1 truncate">{client.name}</span>
-                <span className="text-caption text-ink-muted">
+                <span className="text-caption text-ink-muted tabular-nums">
                   {client.locationCount === 1
                     ? "1 location"
                     : `${client.locationCount} locations`}
@@ -107,7 +114,7 @@ function CommandPalette({
                 value={`location ${location.name}`}
                 onSelect={() => go(`/locations/${location.id}`)}
               >
-                <MapPin className="size-4 text-ink-faint" aria-hidden />
+                <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
                 {location.clientId ? (
                   <span className="truncate text-caption text-ink-muted">
@@ -128,7 +135,7 @@ function CommandPalette({
                 value={`go ${item.label}`}
                 onSelect={() => go(item.href)}
               >
-                <Icon className="size-4 text-ink-faint" aria-hidden />
+                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
               </CommandItem>
             )
@@ -144,7 +151,7 @@ function CommandPalette({
                 value={`action ${item.label}`}
                 onSelect={() => go(item.href)}
               >
-                <Icon className="size-4 text-ink-faint" aria-hidden />
+                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
               </CommandItem>
             )
@@ -184,6 +191,32 @@ function useCommandPalette() {
   return { open, setOpen }
 }
 
+const subscribeNever = () => () => {}
+
+/**
+ * The hint shows the key the viewer actually has. The server render cannot
+ * know the platform, so it shows ⌘ and the client corrects to Ctrl after
+ * hydration through the same snapshot split the theme toggle uses; a wrong
+ * glyph for one frame beats a hydration mismatch.
+ */
+function useShortcutHint() {
+  return useSyncPlatform() === "apple" ? "⌘K" : "Ctrl K"
+}
+
+function useSyncPlatform() {
+  return React.useSyncExternalStore(
+    subscribeNever,
+    () => (/Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "apple" : "other"),
+    () => "apple"
+  )
+}
+
+/**
+ * The toolbar's search field. It looks like a capsule search field — a grey
+ * pill with a magnifier, "Search" and the shortcut — but it is a button that
+ * opens the palette, because the palette is where typing goes. Below `sm`
+ * only the magnifier shows; the label stays in the accessible name.
+ */
 function CommandPaletteButton({
   onClick,
   className,
@@ -191,18 +224,23 @@ function CommandPaletteButton({
   onClick: () => void
   className?: string
 }) {
+  const hint = useShortcutHint()
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-(--np-radius-control) border border-line bg-surface px-2.5 text-ui text-ink-muted transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+        "flex h-(--np-control-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-2.5 text-ui text-ink-muted sm:w-56 sm:px-3",
+        "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink active:scale-[0.98]",
+        "focus-halo focus-visible:outline-none",
         className
       )}
     >
-      <span className="hidden sm:inline">Search</span>
-      <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
-      <span className="sm:hidden">Search clients and locations</span>
+      <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
+      <span className="sr-only flex-1 text-left sm:not-sr-only">Search</span>
+      <Kbd className="hidden border-0 bg-transparent px-0 text-ink-muted sm:inline-flex">
+        {hint}
+      </Kbd>
     </button>
   )
 }

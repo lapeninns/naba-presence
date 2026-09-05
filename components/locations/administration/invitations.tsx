@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { PlusIcon } from "lucide-react"
+import { useId, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,6 +16,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -42,21 +44,17 @@ import { useAdministrationSection } from "./context"
 export function InvitationsList({ data }: { data: unknown }) {
   const invitations = asArray(asRecord(data).invitations)
   if (invitations.length === 0) {
-    return (
-      <p className="text-caption text-muted-foreground">
-        No pending invitations.
-      </p>
-    )
+    return <p className="text-caption text-ink-muted">No pending invitations.</p>
   }
   return (
-    <ul className="flex flex-col gap-2">
+    <GroupedList aria-label="Pending invitations">
       {invitations.map((invitation, index) => (
         <InvitationRow
           key={asString(invitation.name) || index}
           invitation={invitation}
         />
       ))}
-    </ul>
+    </GroupedList>
   )
 }
 
@@ -82,31 +80,32 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
   const pendingOperation = respond.isPending ? respond.variables : null
 
   return (
-    <li className="flex items-center justify-between gap-2 rounded-(--np-radius-card) border border-border p-3">
-      <div className="flex items-center gap-2">
-        <span className="text-ui font-medium">
-          {role ? adminRoleLabel(role) : "Invitation"}
-        </span>
-        <Badge variant="info">Invited</Badge>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => respond.mutate("decline_invitation")}
-          disabled={writeBlocked || !name || respond.isPending}
-        >
-          {pendingOperation === "decline_invitation" ? "Declining…" : "Decline"}
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => respond.mutate("accept_invitation")}
-          disabled={writeBlocked || !name || respond.isPending}
-        >
-          {pendingOperation === "accept_invitation" ? "Accepting…" : "Accept"}
-        </Button>
-      </div>
-    </li>
+    <GroupedListItem
+      label={role ? adminRoleLabel(role) : "Invitation"}
+      description="Waiting for a reply on Google"
+      trailing={
+        <>
+          <Badge variant="info">Invited</Badge>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => respond.mutate("decline_invitation")}
+            disabled={writeBlocked || !name || respond.isPending}
+          >
+            {pendingOperation === "decline_invitation"
+              ? "Declining…"
+              : "Decline"}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => respond.mutate("accept_invitation")}
+            disabled={writeBlocked || !name || respond.isPending}
+          >
+            {pendingOperation === "accept_invitation" ? "Accepting…" : "Accept"}
+          </Button>
+        </>
+      }
+    />
   )
 }
 
@@ -126,6 +125,8 @@ export function CreateAdminDialog() {
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("MANAGER")
+  const scopeLabelId = useId()
+  const roleLabelId = useId()
 
   const parsed = createAdminSchema.safeParse({ scope, admin: email, role })
   const emailError =
@@ -157,7 +158,8 @@ export function CreateAdminDialog() {
         if (!next) setEmail("")
       }}
     >
-      <DialogTrigger render={<Button disabled={disabled} />}>
+      <DialogTrigger render={<Button pill disabled={disabled} />}>
+        <PlusIcon aria-hidden data-icon="inline-start" />
         Add administrator
       </DialogTrigger>
       <DialogContent>
@@ -168,13 +170,19 @@ export function CreateAdminDialog() {
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <span className="text-ui font-medium">Scope</span>
+          <div className="flex flex-col gap-1.5">
+            <span id={scopeLabelId} className="text-ui font-medium text-ink">
+              Scope
+            </span>
             <Select
               value={scope}
               onValueChange={(value: string | null) => value && setScope(value)}
             >
-              <SelectTrigger aria-label="Scope">
+              <SelectTrigger
+                className="w-full"
+                aria-label="Scope"
+                aria-describedby={scopeLabelId}
+              >
                 <SelectValue>
                   {(value: string | null) =>
                     value ? (ADMIN_SCOPE_LABELS[value] ?? value) : ""
@@ -200,13 +208,19 @@ export function CreateAdminDialog() {
             />
             <FieldError />
           </Field>
-          <div className="flex flex-col gap-1">
-            <span className="text-ui font-medium">Role</span>
+          <div className="flex flex-col gap-1.5">
+            <span id={roleLabelId} className="text-ui font-medium text-ink">
+              Role
+            </span>
             <Select
               value={role}
               onValueChange={(value: string | null) => value && setRole(value)}
             >
-              <SelectTrigger aria-label="Role">
+              <SelectTrigger
+                className="w-full"
+                aria-label="Role"
+                aria-describedby={roleLabelId}
+              >
                 <SelectValue>
                   {(value: string | null) =>
                     value ? adminRoleLabel(value) : ""
@@ -224,7 +238,7 @@ export function CreateAdminDialog() {
           </div>
         </div>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
+          <DialogClose render={<Button variant="secondary" />}>
             Cancel
           </DialogClose>
           <Button

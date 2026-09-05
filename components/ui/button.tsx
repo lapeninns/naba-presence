@@ -4,25 +4,42 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Apple's four button styles, translated to the web and held to WCAG:
+ *
+ *   filled   `default`      the one primary action on a surface
+ *   tinted   `tinted`       a prominent secondary action, accent on its tint
+ *   grey     `secondary`    the workhorse; `outline` is the same grey with a
+ *                           hairline edge for when it sits on another grey
+ *   plain    `ghost`        toolbar and inline actions, surface only on hover
+ *   red      `destructive`  a tinted red, never a filled one
+ *
+ * Every hover and pressed colour is a literal token, never a colour-mix: the
+ * contrast gate refuses a value it cannot resolve, and a hover state whose
+ * ratio nobody measures is exactly where AA quietly breaks.
+ *
+ * Focus is the `focus-halo` utility (a soft accent halo, no offset). The
+ * variants that already draw a box-shadow at rest or on hover restate the
+ * halo under `focus-visible:` so the two never fight over the property.
+ */
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent bg-clip-padding text-ui font-medium whitespace-nowrap transition-colors duration-(--np-duration-fast) select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 aria-invalid:text-danger-ink [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        // Hover and active are literal tokens, never a color-mix: the
-        // contrast gate refuses a value it cannot resolve, and a hover state
-        // whose ratio nobody measures is exactly where AA quietly breaks.
         default:
-          "bg-primary text-primary-foreground hover:bg-[var(--np-accent-hover)] active:bg-[var(--np-accent-active)]",
-        outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30",
+          "bg-primary text-primary-foreground hover:bg-[var(--np-accent-hover)] active:bg-[var(--np-accent-active)] aria-expanded:bg-[var(--np-accent-hover)]",
+        tinted:
+          "bg-accent-tint text-accent-ink hover:bg-[var(--np-accent-tint-strong)] active:bg-[var(--np-accent-tint-strong)] aria-expanded:bg-[var(--np-accent-tint-strong)]",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[var(--np-hover-bg)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+          "bg-fill text-ink hover:bg-fill-secondary active:bg-fill aria-expanded:bg-fill-secondary",
+        outline:
+          "bg-fill text-ink hairline hover:bg-fill-secondary focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:bg-fill aria-expanded:bg-fill-secondary",
         ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+          "text-ink hover:bg-fill-tertiary active:bg-fill-secondary aria-expanded:bg-fill-tertiary",
         destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-danger-tint text-danger-ink hover:[box-shadow:inset_0_0_0_0.5px_var(--np-danger-line)] focus-visible:[box-shadow:var(--np-focus-halo)]",
+        link: "text-accent-ink underline-offset-4 hover:underline active:scale-100",
       },
       size: {
         // The default height follows the density token so a compact table or
@@ -30,18 +47,25 @@ const buttonVariants = cva(
         // 28px, clearing the 24px target-size floor.
         default:
           "h-(--np-control-h) gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
-        xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        lg: "h-9 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
-        icon: "size-8",
-        "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
+        xs: "h-6 gap-1 px-2 text-caption has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-7 gap-1 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        lg: "h-9 gap-2 px-4 text-body has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        icon: "size-(--np-control-h)",
+        "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
         "icon-sm": "size-7",
         "icon-lg": "size-9",
+      },
+      // A capsule for prominent calls to action and toolbar buttons. Icon
+      // sizes become perfect circles.
+      pill: {
+        true: "rounded-(--np-radius-pill)",
+        false: "",
       },
     },
     defaultVariants: {
       variant: "default",
       size: "default",
+      pill: false,
     },
   }
 )
@@ -54,7 +78,9 @@ const buttonVariants = cva(
 type IconSize = "icon" | "icon-sm" | "icon-xs" | "icon-lg"
 type AnySize = NonNullable<VariantProps<typeof buttonVariants>["size"]>
 type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
-  Omit<VariantProps<typeof buttonVariants>, "size"> & {
+  Omit<VariantProps<typeof buttonVariants>, "size" | "pill"> & {
+    /** Capsule shape. For the page's prominent call to action and for toolbar buttons. */
+    pill?: boolean
     render?: useRender.RenderProp<ButtonPrimitive.State>
   }
 export type ButtonProps =
@@ -88,6 +114,7 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  pill = false,
   // Type-only marker (see ButtonProps) — destructured solely to keep it out
   // of the {...props} spread below, since it isn't a real DOM attribute.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -97,7 +124,9 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-variant={variant}
+      data-size={size}
+      className={cn(buttonVariants({ variant, size, pill, className }))}
       {...props}
       type={props.type ?? "button"}
     />

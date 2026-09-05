@@ -64,7 +64,12 @@ test.describe("inbox critical journeys", () => {
     )
     await page.getByRole("button", { name: "Publish reply" }).click()
     expect((await published).status()).toBe(200)
-    await expect(page.getByText("Reply published", { exact: true })).toBeVisible()
+    // The toast, specifically: the review's activity timeline gains a
+    // "Reply published" entry at the same moment, so a page-wide text match
+    // would be ambiguous.
+    await expect(
+      page.locator('[data-slot="toast-title"]', { hasText: "Reply published" })
+    ).toBeVisible()
   })
 
   test("approver journey: request routes to approval, approver publishes", async ({
@@ -109,7 +114,9 @@ test.describe("inbox critical journeys", () => {
     )
     await approver.getByRole("button", { name: "Approve reply" }).click()
     expect((await approved).status()).toBe(200)
-    await expect(approver.getByText("Reply published", { exact: true })).toBeVisible()
+    await expect(
+      approver.locator('[data-slot="toast-title"]', { hasText: "Reply published" })
+    ).toBeVisible()
     await approverContext.close()
   })
 

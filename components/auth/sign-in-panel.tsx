@@ -3,6 +3,7 @@
 import { useState } from "react"
 
 import { AuthCard } from "@/components/auth/auth-card"
+import { AuthLink } from "@/components/auth/auth-link"
 import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
 import type { AuthMessage } from "@/lib/api/auth-errors"
 
@@ -10,8 +11,7 @@ const COPY = {
   "sign-in": {
     eyebrow: "Welcome back",
     title: "Sign in to your clients’ reviews",
-    description:
-      "Every client's Google Business Profile, from one inbox.",
+    description: "Every client's Google Business Profile, from one inbox.",
   },
   "create-account": {
     eyebrow: "New agency",
@@ -44,9 +44,7 @@ function SignInPanel({
       title={copy.title}
       description={copy.description}
       footer={
-        <a className="underline underline-offset-4" href="/forgot-password">
-          Forgot your password?
-        </a>
+        <AuthLink href="/forgot-password">Forgot your password?</AuthLink>
       }
     >
       <SignInForm

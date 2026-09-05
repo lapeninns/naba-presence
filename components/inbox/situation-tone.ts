@@ -6,6 +6,7 @@ import {
 } from "lucide-react"
 
 import type { SituationTone } from "@/lib/inbox/review-situation"
+import type { StatusTone } from "@/lib/ui/status-tone"
 
 /** Icons for situation tone — shared by list chips and the detail strip. */
 export const SITUATION_TONE_ICON: Record<SituationTone, typeof CircleCheckIcon> = {
@@ -15,23 +16,39 @@ export const SITUATION_TONE_ICON: Record<SituationTone, typeof CircleCheckIcon> 
   neutral: CircleDashedIcon,
 }
 
-// Chips (list status, live-reply disclosure) carry a full tint; they are small.
-export const SITUATION_TONE_CHIP: Record<SituationTone, string> = {
-  positive: "bg-success/10 text-success",
-  // Measured AA choices, mirroring Badge: on a warning tint the readable text
-  // colour is the plain foreground, not the amber itself.
-  caution: "bg-warning/15 text-foreground",
-  attention: "bg-destructive/10 text-destructive",
-  neutral: "bg-muted text-muted-foreground",
+/**
+ * The situation tone as the product-wide status vocabulary, so a list row can
+ * draw the same dot the shell's health chip and the client list draw.
+ */
+export const SITUATION_TONE_STATUS: Record<SituationTone, StatusTone> = {
+  positive: "healthy",
+  caution: "attention",
+  attention: "at-risk",
+  neutral: "neutral",
 }
 
-// The status strip runs the full width of the pane, so a saturated fill on it
-// shouts — and the calmest state ("all done") was shouting loudest. Urgency is
-// carried by the icon and headline colour instead; only the two states that
-// genuinely need attention also tint their background.
+/** The tone's ink alone, for text that sits on the surface rather than a tint. */
+export const SITUATION_TONE_INK: Record<SituationTone, string> = {
+  positive: "text-success-ink",
+  caution: "text-warning-ink",
+  attention: "text-danger-ink",
+  neutral: "text-ink-muted",
+}
+
+// Chips (live-reply disclosure) carry the status tint with its measured ink.
+export const SITUATION_TONE_CHIP: Record<SituationTone, string> = {
+  positive: "bg-success-tint text-success-ink",
+  caution: "bg-warning-tint text-warning-ink",
+  attention: "bg-danger-tint text-danger-ink",
+  neutral: "bg-fill text-ink-muted",
+}
+
+// The status strip runs the full width of the pane. The tints are light
+// enough that even the calm states can carry one without shouting; urgency
+// is in the icon and the headline ink.
 export const SITUATION_TONE_STRIP: Record<SituationTone, string> = {
-  positive: "bg-muted/40 text-success",
-  caution: "bg-warning/10 text-foreground",
-  attention: "bg-destructive/10 text-destructive",
-  neutral: "bg-muted/40 text-muted-foreground",
+  positive: "bg-success-tint text-success-ink",
+  caution: "bg-warning-tint text-warning-ink",
+  attention: "bg-danger-tint text-danger-ink",
+  neutral: "bg-fill text-ink-muted",
 }

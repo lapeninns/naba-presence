@@ -1,12 +1,71 @@
 "use client"
 
+import { Plus, X } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { DAY_LABELS } from "@/lib/locations/forms/hours"
 import type { NormalizedHours } from "@/lib/api/location-hours"
+import { cn } from "@/lib/utils"
+
+/**
+ * Time fields sit in a fixed-width slot with tabular figures so a column of
+ * "09:00 – 17:00" lines up down the whole week.
+ */
+const TIME_CLASS = "w-26 tabular-nums"
+
+/**
+ * One row of the schedule: the day (or date) in a fixed column, the on/off
+ * switch with its state word, then the periods. Rows sit on a white card and
+ * are divided by hairlines, the way a grouped list is. Below `sm` the periods
+ * drop under the day so nothing squeezes.
+ */
+function ScheduleRow({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <li
+      className={cn(
+        "grid min-h-(--np-row-h) grid-cols-[minmax(6rem,auto)_auto] items-center gap-x-4 gap-y-2 px-(--np-card-pad) py-2 sm:grid-cols-[6.5rem_auto_1fr]",
+        className
+      )}
+    >
+      {children}
+    </li>
+  )
+}
+
+function OpenSwitch({
+  open,
+  disabled,
+  label,
+  onChange,
+}: {
+  open: boolean
+  disabled: boolean
+  label: string
+  onChange: (open: boolean) => void
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <Switch
+        checked={open}
+        disabled={disabled}
+        aria-label={label}
+        onCheckedChange={onChange}
+      />
+      <span className="w-12 text-ui text-ink-muted">
+        {open ? "Open" : "Closed"}
+      </span>
+    </span>
+  )
+}
 
 export function HoursEditor({
   value,
@@ -39,13 +98,21 @@ export function HoursEditor({
   // ref during render. Falls back to a fresh 1:1 assignment if
   // `value.special` is ever replaced wholesale from outside this component
   // (e.g. a different draft loading).
-  const [specialKeys, setSpecialKeys] = useState<readonly number[]>(() => value.special.map((_, i) => i))
+  const [specialKeys, setSpecialKeys] = useState<readonly number[]>(() =>
+    value.special.map((_, i) => i)
+  )
   if (specialKeys.length !== value.special.length) {
     setSpecialKeys(value.special.map((_, i) => i))
   }
   function addSpecial() {
-    setSpecialKeys((keys) => [...keys, (keys.length ? Math.max(...keys) : -1) + 1])
-    setSpecial([...value.special, { effectiveDate: "", isClosed: true, opensAt: null, closesAt: null }])
+    setSpecialKeys((keys) => [
+      ...keys,
+      (keys.length ? Math.max(...keys) : -1) + 1,
+    ])
+    setSpecial([
+      ...value.special,
+      { effectiveDate: "", isClosed: true, opensAt: null, closesAt: null },
+    ])
   }
   function removeSpecial(index: number) {
     setSpecialKeys((keys) => keys.filter((_, i) => i !== index))
@@ -53,113 +120,249 @@ export function HoursEditor({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-3">
-        <h2 className="text-ui font-semibold">Regular hours</h2>
-        <ul className="flex flex-col gap-2">
-          {value.regular.map((day, index) => (
-            <li key={day.dayOfWeek} className="flex flex-wrap items-center gap-3 rounded-(--np-radius-control) border border-border p-3">
-              <span className="w-24 font-medium">{DAY_LABELS[day.dayOfWeek]}</span>
-              <label className="flex items-center gap-2 text-ui">
-                <Checkbox
-                  checked={day.isClosed}
+    <div className="flex flex-col gap-(--np-gap-section)">
+      <section className="flex flex-col gap-2">
+        <h3 className="px-(--np-card-pad) text-title font-semibold text-ink">
+          Regular hours
+        </h3>
+        <ul className="divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface">
+          {value.regular.map((day, index) => {
+            const dayLabel = DAY_LABELS[day.dayOfWeek]
+            return (
+              <ScheduleRow key={day.dayOfWeek}>
+                <span className="text-body font-medium text-ink">
+                  {dayLabel}
+                </span>
+                <OpenSwitch
+                  open={!day.isClosed}
                   disabled={disabled}
-                  onCheckedChange={(checked) =>
-                    setRegular(index, checked === true ? { ...day, isClosed: true, periods: [] } : { ...day, isClosed: false, periods: [{ opensAt: "09:00", closesAt: "17:00" }] })
+                  label={`${dayLabel} open`}
+                  onChange={(open) =>
+                    setRegular(
+                      index,
+                      open
+                        ? {
+                            ...day,
+                            isClosed: false,
+                            periods: [{ opensAt: "09:00", closesAt: "17:00" }],
+                          }
+                        : { ...day, isClosed: true, periods: [] }
+                    )
                   }
-                  aria-label={`${DAY_LABELS[day.dayOfWeek]} closed`}
                 />
-                Closed
-              </label>
-              {!day.isClosed
-                ? day.periods.map((period, periodIndex) => (
-                    <span key={periodIndex} className="flex items-center gap-2">
-                      <Input
-                        type="time"
-                        aria-label={`${DAY_LABELS[day.dayOfWeek]} opens`}
-                        value={period.opensAt}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          setRegular(index, { ...day, periods: day.periods.map((p, pi) => (pi === periodIndex ? { ...p, opensAt: event.target.value } : p)) })
+                {!day.isClosed ? (
+                  <span className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-2 sm:col-span-1">
+                    {day.periods.map((period, periodIndex) => (
+                      <span
+                        key={periodIndex}
+                        className="flex items-center gap-2"
+                      >
+                        <Input
+                          type="time"
+                          aria-label={`${dayLabel} opens`}
+                          value={period.opensAt}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            setRegular(index, {
+                              ...day,
+                              periods: day.periods.map((p, pi) =>
+                                pi === periodIndex
+                                  ? { ...p, opensAt: event.target.value }
+                                  : p
+                              ),
+                            })
+                          }
+                          className={TIME_CLASS}
+                        />
+                        <span aria-hidden className="text-ink-faint">
+                          –
+                        </span>
+                        <Input
+                          type="time"
+                          aria-label={`${dayLabel} closes`}
+                          value={period.closesAt}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            setRegular(index, {
+                              ...day,
+                              periods: day.periods.map((p, pi) =>
+                                pi === periodIndex
+                                  ? { ...p, closesAt: event.target.value }
+                                  : p
+                              ),
+                            })
+                          }
+                          className={TIME_CLASS}
+                        />
+                        {!disabled ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Remove a period for ${dayLabel}`}
+                            onClick={() =>
+                              setRegular(index, {
+                                ...day,
+                                periods: day.periods.filter(
+                                  (_, pi) => pi !== periodIndex
+                                ),
+                              })
+                            }
+                          >
+                            <X strokeWidth={1.75} aria-hidden />
+                          </Button>
+                        ) : null}
+                      </span>
+                    ))}
+                    {!disabled && day.periods.length < 3 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setRegular(index, {
+                            ...day,
+                            periods: [
+                              ...day.periods,
+                              { opensAt: "09:00", closesAt: "17:00" },
+                            ],
+                          })
                         }
-                        className="w-28"
-                      />
-                      <span aria-hidden>–</span>
-                      <Input
-                        type="time"
-                        aria-label={`${DAY_LABELS[day.dayOfWeek]} closes`}
-                        value={period.closesAt}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          setRegular(index, { ...day, periods: day.periods.map((p, pi) => (pi === periodIndex ? { ...p, closesAt: event.target.value } : p)) })
-                        }
-                        className="w-28"
-                      />
-                      {!disabled ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Remove a period for ${DAY_LABELS[day.dayOfWeek]}`}
-                          onClick={() => setRegular(index, { ...day, periods: day.periods.filter((_, pi) => pi !== periodIndex) })}
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </span>
-                  ))
-                : null}
-              {!day.isClosed && !disabled && day.periods.length < 3 ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setRegular(index, { ...day, periods: [...day.periods, { opensAt: "09:00", closesAt: "17:00" }] })}>
-                  Add hours
-                </Button>
-              ) : null}
-            </li>
-          ))}
+                      >
+                        <Plus strokeWidth={1.75} aria-hidden />
+                        Add hours
+                      </Button>
+                    ) : null}
+                  </span>
+                ) : null}
+              </ScheduleRow>
+            )
+          })}
         </ul>
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-ui font-semibold">Special hours</h2>
-        <ul className="flex flex-col gap-2">
-          {value.special.map((entry, index) => (
-            <li key={specialKeys[index]} className="flex flex-wrap items-center gap-3 rounded-(--np-radius-control) border border-border p-3">
-              <Input
-                type="date"
-                aria-label={`Special date ${index + 1}`}
-                value={entry.effectiveDate}
-                disabled={disabled}
-                onChange={(event) => setSpecial(value.special.map((s, i) => (i === index ? { ...s, effectiveDate: event.target.value } : s)))}
-                className="w-40"
-              />
-              <label className="flex items-center gap-2 text-ui">
-                <Checkbox
-                  checked={entry.isClosed}
+      <section className="flex flex-col gap-2">
+        <h3 className="px-(--np-card-pad) text-title font-semibold text-ink">
+          Special hours
+        </h3>
+        {value.special.length > 0 ? (
+          <ul className="divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface">
+            {value.special.map((entry, index) => (
+              <ScheduleRow
+                key={specialKeys[index]}
+                className="sm:grid-cols-[auto_auto_1fr]"
+              >
+                <Input
+                  type="date"
+                  aria-label={`Special date ${index + 1}`}
+                  value={entry.effectiveDate}
                   disabled={disabled}
-                  aria-label={`Special date ${index + 1} closed`}
-                  onCheckedChange={(checked) =>
-                    setSpecial(value.special.map((s, i) => (i === index ? (checked === true ? { ...s, isClosed: true, opensAt: null, closesAt: null } : { ...s, isClosed: false, opensAt: "09:00", closesAt: "17:00" }) : s)))
+                  onChange={(event) =>
+                    setSpecial(
+                      value.special.map((s, i) =>
+                        i === index
+                          ? { ...s, effectiveDate: event.target.value }
+                          : s
+                      )
+                    )
+                  }
+                  className="w-40 tabular-nums"
+                />
+                <OpenSwitch
+                  open={!entry.isClosed}
+                  disabled={disabled}
+                  label={`Special date ${index + 1} open`}
+                  onChange={(open) =>
+                    setSpecial(
+                      value.special.map((s, i) =>
+                        i === index
+                          ? open
+                            ? {
+                                ...s,
+                                isClosed: false,
+                                opensAt: "09:00",
+                                closesAt: "17:00",
+                              }
+                            : {
+                                ...s,
+                                isClosed: true,
+                                opensAt: null,
+                                closesAt: null,
+                              }
+                          : s
+                      )
+                    )
                   }
                 />
-                Closed
-              </label>
-              {!entry.isClosed ? (
-                <>
-                  <Input type="time" aria-label={`Special date ${index + 1} opens`} value={entry.opensAt ?? ""} disabled={disabled} onChange={(event) => setSpecial(value.special.map((s, i) => (i === index ? { ...s, opensAt: event.target.value } : s)))} className="w-28" />
-                  <span aria-hidden>–</span>
-                  <Input type="time" aria-label={`Special date ${index + 1} closes`} value={entry.closesAt ?? ""} disabled={disabled} onChange={(event) => setSpecial(value.special.map((s, i) => (i === index ? { ...s, closesAt: event.target.value } : s)))} className="w-28" />
-                </>
-              ) : null}
-              {!disabled ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => removeSpecial(index)}>
-                  Remove
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                <span className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-2 sm:col-span-1">
+                  {!entry.isClosed ? (
+                    <span className="flex items-center gap-2">
+                      <Input
+                        type="time"
+                        aria-label={`Special date ${index + 1} opens`}
+                        value={entry.opensAt ?? ""}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setSpecial(
+                            value.special.map((s, i) =>
+                              i === index
+                                ? { ...s, opensAt: event.target.value }
+                                : s
+                            )
+                          )
+                        }
+                        className={TIME_CLASS}
+                      />
+                      <span aria-hidden className="text-ink-faint">
+                        –
+                      </span>
+                      <Input
+                        type="time"
+                        aria-label={`Special date ${index + 1} closes`}
+                        value={entry.closesAt ?? ""}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setSpecial(
+                            value.special.map((s, i) =>
+                              i === index
+                                ? { ...s, closesAt: event.target.value }
+                                : s
+                            )
+                          )
+                        }
+                        className={TIME_CLASS}
+                      />
+                    </span>
+                  ) : null}
+                  {!disabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="sm:ml-auto"
+                      onClick={() => removeSpecial(index)}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </span>
+              </ScheduleRow>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-(--np-card-pad) text-ui text-ink-muted">
+            No special days yet. Holidays and one-off closures go here.
+          </p>
+        )}
         {!disabled ? (
-          <Button type="button" variant="outline" size="sm" className="self-start" onClick={addSpecial}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="ml-(--np-card-pad) self-start"
+            onClick={addSpecial}
+          >
+            <Plus strokeWidth={1.75} aria-hidden />
             Add a special day
           </Button>
         ) : null}

@@ -21,10 +21,13 @@ test.describe("rebuild foundation", () => {
     // connected/disconnected, which hid one client's broken login behind
     // another client's working one. It now reports a count.
     await page.goto("/home")
+    // The chip is the toolbar's link to /clients; the home page's own
+    // "Work by client" empty state can say "No clients yet" too, so match
+    // the link rather than any text on the page.
     await expect(
-      page.getByText(
-        /All clients connected|clients? needs? attention|Importing reviews|No clients yet|Not connected yet/
-      )
+      page.getByRole("link", {
+        name: /All clients connected|clients? needs? attention|Importing reviews|No clients yet|Not connected yet/,
+      })
     ).toBeVisible({ timeout: 10_000 })
   })
 

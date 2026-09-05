@@ -1,18 +1,60 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
+import * as React from "react"
+
 import {
   type ConnectionHealth,
   useConnectionHealth,
 } from "@/lib/queries/use-connection-health"
+import { TONE_CLASSES, type StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
-const DOT_CLASS: Record<ConnectionHealth, string> = {
-  connected: "bg-success",
-  loading: "bg-muted-foreground/50",
-  stale: "bg-warning",
-  disconnected: "bg-muted-foreground",
-  error: "bg-destructive",
+/**
+ * A toolbar capsule: a grey pill from the fill ladder carrying a vivid dot and
+ * a short label. The dot is the only colour — the capsule itself stays grey
+ * so the toolbar never turns a status hue — and the label is always in the
+ * accessibility tree even when it is hidden below `sm`.
+ */
+function HealthCapsule({
+  tone,
+  pulse = false,
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"span"> & {
+  tone: StatusTone
+  /** The dot breathes while the state is still being established. */
+  pulse?: boolean
+}) {
+  return (
+    <span
+      data-slot="health-capsule"
+      data-tone={tone}
+      className={cn(
+        "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--np-radius-pill) bg-fill-secondary px-2.5 text-caption font-medium whitespace-nowrap text-ink-muted",
+        className
+      )}
+      {...props}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-2 shrink-0 rounded-full",
+          TONE_CLASSES[tone].dot,
+          pulse && "animate-pulse"
+        )}
+      />
+      {children}
+    </span>
+  )
+}
+
+const CONNECTION_TONE: Record<ConnectionHealth, StatusTone> = {
+  connected: "healthy",
+  loading: "neutral",
+  stale: "attention",
+  disconnected: "neutral",
+  error: "at-risk",
 }
 
 // Always visible: a compact colour dot at every width, with the text label
@@ -23,21 +65,10 @@ const DOT_CLASS: Record<ConnectionHealth, string> = {
 function StatusChip() {
   const { status, label } = useConnectionHealth()
   return (
-    <Badge
-      variant="secondary"
-      className="gap-1.5 rounded-(--np-radius-pill) px-2.5 py-1 text-ui font-normal text-muted-foreground"
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          DOT_CLASS[status],
-          status === "loading" && "animate-pulse"
-        )}
-      />
+    <HealthCapsule tone={CONNECTION_TONE[status]} pulse={status === "loading"}>
       <span className="sr-only sm:not-sr-only">{label}</span>
-    </Badge>
+    </HealthCapsule>
   )
 }
 
-export { StatusChip }
+export { HealthCapsule, StatusChip }

@@ -35,12 +35,19 @@ function InvitationActions({
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-body text-muted-foreground">
+      <p className="text-body text-ink-muted">
         {sameEmail
           ? `You are signed in as ${viewer.email}. Sign out and continue to accept this invitation.`
           : `You are signed in as ${viewer.email}, but this invitation is for ${invitedEmail}.`}
       </p>
-      <Button type="button" onClick={handleSignOut} disabled={pending}>
+      <Button
+        type="button"
+        size="lg"
+        pill
+        className="w-full"
+        onClick={handleSignOut}
+        disabled={pending}
+      >
         {pending ? "Signing out…" : "Sign out and continue"}
       </Button>
     </div>

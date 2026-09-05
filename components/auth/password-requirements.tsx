@@ -1,4 +1,4 @@
-import { Check, Circle } from "lucide-react"
+import { Circle, CircleCheck } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -19,22 +19,36 @@ function checkPasswordRules(value: string): PasswordRule[] {
   ]
 }
 
+/**
+ * The rules as a small checklist that ticks itself as the password grows.
+ * Each row's state is in its accessible name, so the success glyph and the
+ * ink change are never the only signal.
+ */
 function PasswordRequirements({ value }: { value: string }) {
   return (
-    <ul className="flex flex-col gap-1.5 pt-1">
+    <ul className="flex flex-col gap-1 pt-1">
       {checkPasswordRules(value).map((rule) => (
         <li
           key={rule.id}
           aria-label={`${rule.met ? "Met" : "Not yet met"}: ${rule.label}`}
+          data-met={rule.met || undefined}
           className={cn(
-            "flex items-center gap-1.5 text-caption",
-            rule.met ? "text-foreground" : "text-muted-foreground"
+            "flex items-center gap-1.5 text-caption transition-colors duration-(--np-duration-fast) ease-spring-snappy",
+            rule.met ? "text-ink" : "text-ink-muted"
           )}
         >
           {rule.met ? (
-            <Check className="size-3.5 text-success" aria-hidden />
+            <CircleCheck
+              className="size-3.5 shrink-0 text-success-ink"
+              strokeWidth={1.75}
+              aria-hidden
+            />
           ) : (
-            <Circle className="size-3.5" aria-hidden />
+            <Circle
+              className="size-3.5 shrink-0 text-ink-faint"
+              strokeWidth={1.75}
+              aria-hidden
+            />
           )}
           {rule.label}
         </li>

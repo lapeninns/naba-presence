@@ -16,8 +16,11 @@ export default async function SettingsCompliancePage() {
   }
   const canManage = session.role === "owner"
   return (
-    <div className="flex flex-col gap-10">
-      <PageHeader title="Data and compliance" description="Handle data-subject requests, legal holds and record exports." />
+    <div className="flex flex-col gap-(--np-gap-section)">
+      <PageHeader
+        title="Data and compliance"
+        description="Handle data-subject requests, legal holds and record exports."
+      />
       <PrivacyRequestsCard canManage={canManage} />
       {canManage ? <LegalHoldsCard /> : null}
       {canManage ? <PrivacyExportCard /> : null}

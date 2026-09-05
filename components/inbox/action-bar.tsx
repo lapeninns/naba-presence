@@ -46,6 +46,12 @@ import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 const VERIFIED = new Set(["pass", "warn"])
 const REJECT_NOTE_LIMIT = 2000
 
+/**
+ * The pane's footer: one filled capsule for the irreversible step (publish,
+ * submit, approve), a grey capsule for the way back (reject), and the rest
+ * behind an ellipsis. Why a button is off is written next to it, not hidden
+ * in a title attribute.
+ */
 function ActionBar({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const reasonId = useId()
@@ -73,7 +79,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const work = replyWork(review)
 
   const verifiedDraft = review.drafts.find(
-    (draft) => draft.verificationStatus && VERIFIED.has(draft.verificationStatus)
+    (draft) =>
+      draft.verificationStatus && VERIFIED.has(draft.verificationStatus)
   )
   const publishState = evaluatePublish({
     status: review.workflowStatus,
@@ -192,77 +199,103 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       {blockedReason ? (
-        <p id={reasonId} className="min-w-0 flex-1 text-caption text-muted-foreground">
+        <p id={reasonId} className="min-w-0 flex-1 text-caption text-ink-muted">
           {blockedReason}
         </p>
       ) : null}
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
-      {awaitingApproval ? (
-        <>
+        {awaitingApproval ? (
+          <>
+            <Button
+              variant="secondary"
+              pill
+              disabled={!approvalState.enabled || approval.isPending}
+              title={approvalState.reason}
+              aria-describedby={blockedReason ? reasonId : undefined}
+              onClick={() => setRejectOpen(true)}
+            >
+              <XIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
+              Reject reply
+            </Button>
+            <Button
+              pill
+              disabled={!approvalState.enabled || approval.isPending}
+              title={approvalState.reason}
+              aria-describedby={blockedReason ? reasonId : undefined}
+              onClick={() => void onDecision("approve")}
+            >
+              <CheckIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+              {approval.isPending ? "Approving…" : "Approve reply"}
+            </Button>
+          </>
+        ) : offerRequestApproval ? (
           <Button
-            variant="outline"
-            size="sm"
-            disabled={!approvalState.enabled || approval.isPending}
-            title={approvalState.reason}
+            pill
+            disabled={
+              nothingToPublish ||
+              !requestApprovalState.enabled ||
+              publish.isPending
+            }
+            title={blockedReason ?? requestApprovalState.reason}
             aria-describedby={blockedReason ? reasonId : undefined}
-            onClick={() => setRejectOpen(true)}
+            onClick={() => void onPublish()}
           >
-            <XIcon aria-hidden />
-            Reject reply
+            <SendHorizonalIcon
+              aria-hidden
+              strokeWidth={1.75}
+              data-icon="inline-start"
+            />
+            {publish.isPending ? "Submitting…" : "Submit for approval"}
           </Button>
+        ) : (
           <Button
-            size="sm"
-            disabled={!approvalState.enabled || approval.isPending}
-            title={approvalState.reason}
+            pill
+            disabled={
+              nothingToPublish || !publishState.enabled || publish.isPending
+            }
+            title={blockedReason ?? publishState.reason}
             aria-describedby={blockedReason ? reasonId : undefined}
-            onClick={() => void onDecision("approve")}
+            onClick={() => void onPublish()}
           >
-            <CheckIcon aria-hidden />
-            {approval.isPending ? "Approving…" : "Approve reply"}
+            <CloudUploadIcon
+              aria-hidden
+              strokeWidth={1.75}
+              data-icon="inline-start"
+            />
+            {publish.isPending ? "Publishing…" : publishLabel}
           </Button>
-        </>
-      ) : offerRequestApproval ? (
-        <Button
-          size="sm"
-          disabled={
-            nothingToPublish || !requestApprovalState.enabled || publish.isPending
-          }
-          title={blockedReason ?? requestApprovalState.reason}
-          aria-describedby={blockedReason ? reasonId : undefined}
-          onClick={() => void onPublish()}
-        >
-          <SendHorizonalIcon aria-hidden />
-          {publish.isPending ? "Submitting…" : "Submit for approval"}
-        </Button>
-      ) : (
-        <Button
-          size="sm"
-          disabled={nothingToPublish || !publishState.enabled || publish.isPending}
-          title={blockedReason ?? publishState.reason}
-          aria-describedby={blockedReason ? reasonId : undefined}
-          onClick={() => void onPublish()}
-        >
-          <CloudUploadIcon aria-hidden />
-          {publish.isPending ? "Publishing…" : publishLabel}
-        </Button>
-      )}
+        )}
 
-      {deleteState.enabled ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="icon-sm" aria-label="Review actions" />}
-          >
-            <MoreHorizontalIcon aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onClick={() => setDeleteOpen(true)}>
-              <Trash2Icon aria-hidden />
-              Delete published reply
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
+        {deleteState.enabled ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  pill
+                  aria-label="Review actions"
+                />
+              }
+            >
+              <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2Icon aria-hidden />
+                Delete published reply
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
@@ -273,12 +306,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             afterwards.
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+            <AlertDialogClose render={<Button variant="secondary" />}>
               Keep reply
             </AlertDialogClose>
             <Button
               variant="destructive"
-              size="sm"
               disabled={remove.isPending}
               onClick={() => void onDelete()}
             >
@@ -306,27 +338,31 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             The draft returns to its author to edit. You can add a note
             explaining why.
           </AlertDialogDescription>
-          <label htmlFor="reject-note" className="text-ui font-semibold">
-            Note (optional)
-          </label>
-          <Textarea
-            id="reject-note"
-            maxLength={REJECT_NOTE_LIMIT}
-            value={rejectNote}
-            onChange={(event) => setRejectNote(event.target.value)}
-            placeholder="Explain what needs to change…"
-          />
-          <p className="text-caption text-muted-foreground tabular-nums">
-            {rejectNote.length.toLocaleString("en-GB")} /{" "}
-            {REJECT_NOTE_LIMIT.toLocaleString("en-GB")}
-          </p>
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="reject-note"
+              className="text-ui font-medium text-ink"
+            >
+              Note (optional)
+            </label>
+            <Textarea
+              id="reject-note"
+              maxLength={REJECT_NOTE_LIMIT}
+              value={rejectNote}
+              onChange={(event) => setRejectNote(event.target.value)}
+              placeholder="Explain what needs to change…"
+            />
+            <p className="text-caption text-ink-muted tabular-nums">
+              {rejectNote.length.toLocaleString("en-GB")} /{" "}
+              {REJECT_NOTE_LIMIT.toLocaleString("en-GB")}
+            </p>
+          </div>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+            <AlertDialogClose render={<Button variant="secondary" />}>
               Cancel
             </AlertDialogClose>
             <Button
               variant="destructive"
-              size="sm"
               disabled={approval.isPending}
               onClick={() =>
                 void onDecision("reject", rejectNote.trim() || undefined)

@@ -4,6 +4,7 @@ import { Menu } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 import { ShellBreadcrumbs } from "./breadcrumbs-context"
 import {
@@ -15,41 +16,49 @@ import { ContextHealthChip } from "./context-health-chip"
 import { ThemeToggle } from "./theme-toggle"
 
 /**
- * The bar above the page: where you are, how to get anywhere, and whether
- * anything is broken.
+ * The toolbar: the strip above the content column that the page scrolls
+ * beneath. Where you are (the trail), how to get anywhere (search), and
+ * whether anything is broken (the health capsule). The page's own title is
+ * NOT here — it lives in `PageHeader`, in the content column, with its
+ * actions — which is what makes this a toolbar and not a title bar.
  *
- * The old topbar held only a status dot and a theme toggle, so the nested
- * agency IA had no wayfinding at all — a user three levels into a location's
- * hours tab could not see which client they were in.
- */
-/**
- * `sessionReady` gates every data-reading child.
+ * It is a material: translucent and blurred, with a hairline along its bottom
+ * edge drawn as an inset shadow so it never takes a pixel of layout. The
+ * shell makes it sticky inside the scroll column; this component only draws.
  *
- * On the first anonymous visit the shell provisions the session cookie before
- * anything else runs. A query that fires ahead of it gets a 401, and the API
- * client treats that as "sign in again" and hard-navigates away — so an
- * ungated chip in the topbar would bounce the user off the page they asked
- * for.
+ * `sessionReady` gates every data-reading child. On the first anonymous visit
+ * the shell provisions the session cookie before anything else runs. A query
+ * that fires ahead of it gets a 401, and the API client treats that as "sign
+ * in again" and hard-navigates away — so an ungated chip in the toolbar
+ * would bounce the user off the page they asked for.
  */
-function Topbar({
+function Toolbar({
   onOpenNav,
   sessionReady,
+  className,
 }: {
   onOpenNav: () => void
   sessionReady: boolean
+  className?: string
 }) {
   const palette = useCommandPalette()
 
   return (
-    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-line-subtle px-4 md:px-(--np-page-pad-x)">
+    <header
+      data-slot="toolbar"
+      className={cn(
+        "flex h-(--np-toolbar-h) shrink-0 items-center gap-3 material-toolbar px-4 [box-shadow:inset_0_-0.5px_0_var(--np-line)] md:px-(--np-page-pad-x)",
+        className
+      )}
+    >
       <Button
-        variant="outline"
-        size="icon-sm"
+        variant="secondary"
+        size="icon"
         className="md:hidden"
         aria-label="Open navigation"
         onClick={onOpenNav}
       >
-        <Menu aria-hidden />
+        <Menu strokeWidth={1.75} aria-hidden />
       </Button>
 
       {sessionReady ? (
@@ -59,10 +68,10 @@ function Topbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {sessionReady ? <ContextHealthChip /> : null}
         {sessionReady ? (
           <CommandPaletteButton onClick={() => palette.setOpen(true)} />
         ) : null}
-        {sessionReady ? <ContextHealthChip /> : null}
         <ThemeToggle />
       </div>
 
@@ -73,4 +82,7 @@ function Topbar({
   )
 }
 
-export { Topbar }
+/** The toolbar under the name the shell has always imported it by. */
+const Topbar = Toolbar
+
+export { Toolbar, Topbar }

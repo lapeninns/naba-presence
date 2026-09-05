@@ -12,10 +12,10 @@ export default async function SettingsOpsPage() {
     return <AccessDenied area="Operations health" />
   }
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-(--np-gap-section)">
       <PageHeader
         title="Operations"
-        description="Sync freshness, webhook failures, publish attempts, and scheduler health for this organisation."
+        description="Sync freshness, webhook failures, publish attempts and scheduler health for this organisation."
       />
       <OpsHealthPanel />
     </div>

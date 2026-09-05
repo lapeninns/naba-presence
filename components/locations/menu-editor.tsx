@@ -1,5 +1,7 @@
 "use client"
 
+import { Plus } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,14 +29,25 @@ function withLabel(node: Json, displayName: string, description: string): Json {
   return { ...node, labels: [first, ...labels.slice(1)] }
 }
 
-const CURRENCY_SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", AUD: "$", CAD: "$", NZD: "$", INR: "₹", JPY: "¥" }
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  GBP: "£",
+  EUR: "€",
+  USD: "$",
+  AUD: "$",
+  CAD: "$",
+  NZD: "$",
+  INR: "₹",
+  JPY: "¥",
+}
 
 // The item's own currency, derived from its existing price; GBP only as a
 // fallback for an item that has never had a price (never rewrites another currency).
 export function currencyOf(item: Json): string {
   const price = (item.attributes ?? {}) as Json
   const code = (price.price ?? {}) as Json
-  return typeof code.currencyCode === "string" && code.currencyCode ? code.currencyCode : "GBP"
+  return typeof code.currencyCode === "string" && code.currencyCode
+    ? code.currencyCode
+    : "GBP"
 }
 
 export function currencySymbol(code: string): string {
@@ -60,7 +73,10 @@ function withPrice(item: Json, value: string): Json {
   }
   // Preserve the item's existing currency; default GBP only for a brand-new price.
   const existing = (attributes.price ?? {}) as Json
-  const currencyCode = typeof existing.currencyCode === "string" && existing.currencyCode ? existing.currencyCode : "GBP"
+  const currencyCode =
+    typeof existing.currencyCode === "string" && existing.currencyCode
+      ? existing.currencyCode
+      : "GBP"
   const [unitsPart, fractionPart = ""] = trimmed.split(".")
   const units = String(Number.parseInt(unitsPart || "0", 10) || 0)
   const nanos = fractionPart ? Math.round(Number(`0.${fractionPart}`) * 1e9) : 0
@@ -68,7 +84,20 @@ function withPrice(item: Json, value: string): Json {
   return { ...item, attributes }
 }
 
-export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; onChange: (next: FoodMenu[]) => void; disabled: boolean }) {
+/**
+ * Each menu section is a white card: its name in the header row over a
+ * hairline, then one hairline-divided row per item (name, description,
+ * price), then the add-item action in the card's footer.
+ */
+export function MenuEditor({
+  menus,
+  onChange,
+  disabled,
+}: {
+  menus: FoodMenu[]
+  onChange: (next: FoodMenu[]) => void
+  disabled: boolean
+}) {
   const menu = (menus[0] ?? {}) as Json
   const sections = Array.isArray(menu.sections) ? (menu.sections as Json[]) : []
 
@@ -83,59 +112,183 @@ export function MenuEditor({ menus, onChange, disabled }: { menus: FoodMenu[]; o
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-(--np-gap-card)">
       {/* Google's FoodMenu sections/items carry no stable resource id (they
           are plain localized-label blobs), so a positional key is the best
           available here — noted per the console-editor a11y pass. */}
       {sections.map((section, sectionIndex) => {
-        const items = Array.isArray(section.items) ? (section.items as Json[]) : []
+        const items = Array.isArray(section.items)
+          ? (section.items as Json[])
+          : []
         const sectionLabel = label(section)
         return (
-          <section key={sectionIndex} className="flex flex-col gap-3 rounded-(--np-radius-card) border border-border p-4">
-            <div className="flex items-center gap-2">
+          <section
+            key={sectionIndex}
+            className="flex flex-col rounded-(--np-radius-card) bg-surface"
+          >
+            <div className="flex items-center gap-2 border-b border-line-subtle px-(--np-card-pad) py-3">
               <Input
                 aria-label={`Section ${sectionIndex + 1} name`}
+                placeholder="Section name"
                 value={sectionLabel.displayName}
                 disabled={disabled}
-                onChange={(event) => setSection(sectionIndex, withLabel(section, event.target.value, sectionLabel.description))}
-                className="max-w-xs font-medium"
+                onChange={(event) =>
+                  setSection(
+                    sectionIndex,
+                    withLabel(
+                      section,
+                      event.target.value,
+                      sectionLabel.description
+                    )
+                  )
+                }
+                className="max-w-xs font-semibold"
               />
               {!disabled ? (
-                <Button variant="ghost" size="sm" onClick={() => setSections(sections.filter((_, i) => i !== sectionIndex))}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() =>
+                    setSections(sections.filter((_, i) => i !== sectionIndex))
+                  }
+                >
                   Remove section
                 </Button>
               ) : null}
             </div>
-            <ul className="flex flex-col gap-3">
-              {items.map((item, itemIndex) => {
-                const itemLabel = label(item)
-                return (
-                  <li key={itemIndex} className="flex flex-wrap items-start gap-2">
-                    <Input aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`} value={itemLabel.displayName} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, event.target.value, itemLabel.description) : it)))} className="w-48" />
-                    <Textarea aria-label={`Item description — section ${sectionIndex + 1}, item ${itemIndex + 1}`} value={itemLabel.description} disabled={disabled} rows={1} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withLabel(it, itemLabel.displayName, event.target.value) : it)))} className="w-56" />
-                    <span className="flex items-center gap-1">
-                      <span className="text-caption text-muted-foreground">{currencySymbol(currencyOf(item))}</span>
-                      <Input aria-label={`Item price — section ${sectionIndex + 1}, item ${itemIndex + 1}`} inputMode="decimal" value={readPrice(item)} disabled={disabled} onChange={(event) => setItems(sectionIndex, items.map((it, i) => (i === itemIndex ? withPrice(it, event.target.value) : it)))} className="w-24" />
-                    </span>
-                    {!disabled ? (
-                      <Button variant="ghost" size="sm" onClick={() => setItems(sectionIndex, items.filter((_, i) => i !== itemIndex))}>
-                        Remove
-                      </Button>
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
+            {items.length > 0 ? (
+              <ul className="divide-y divide-line-subtle">
+                {items.map((item, itemIndex) => {
+                  const itemLabel = label(item)
+                  return (
+                    <li
+                      key={itemIndex}
+                      className="flex flex-wrap items-start gap-2 px-(--np-card-pad) py-3"
+                    >
+                      <Input
+                        aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                        placeholder="Item"
+                        value={itemLabel.displayName}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setItems(
+                            sectionIndex,
+                            items.map((it, i) =>
+                              i === itemIndex
+                                ? withLabel(
+                                    it,
+                                    event.target.value,
+                                    itemLabel.description
+                                  )
+                                : it
+                            )
+                          )
+                        }
+                        className="w-48"
+                      />
+                      <Textarea
+                        aria-label={`Item description — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                        placeholder="Description"
+                        value={itemLabel.description}
+                        disabled={disabled}
+                        rows={1}
+                        onChange={(event) =>
+                          setItems(
+                            sectionIndex,
+                            items.map((it, i) =>
+                              i === itemIndex
+                                ? withLabel(
+                                    it,
+                                    itemLabel.displayName,
+                                    event.target.value
+                                  )
+                                : it
+                            )
+                          )
+                        }
+                        className="min-h-(--np-field-h) w-56"
+                      />
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-ui text-ink-muted tabular-nums">
+                          {currencySymbol(currencyOf(item))}
+                        </span>
+                        <Input
+                          aria-label={`Item price — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={readPrice(item)}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            setItems(
+                              sectionIndex,
+                              items.map((it, i) =>
+                                i === itemIndex
+                                  ? withPrice(it, event.target.value)
+                                  : it
+                              )
+                            )
+                          }
+                          className="w-24 text-right tabular-nums"
+                        />
+                      </span>
+                      {!disabled ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto"
+                          onClick={() =>
+                            setItems(
+                              sectionIndex,
+                              items.filter((_, i) => i !== itemIndex)
+                            )
+                          }
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="px-(--np-card-pad) py-3 text-ui text-ink-muted">
+                No items in this section yet.
+              </p>
+            )}
             {!disabled ? (
-              <Button variant="outline" size="sm" className="self-start" onClick={() => setItems(sectionIndex, [...items, { labels: [{ displayName: "" }] }])}>
-                Add item
-              </Button>
+              <div className="border-t border-line-subtle px-(--np-card-pad) py-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setItems(sectionIndex, [
+                      ...items,
+                      { labels: [{ displayName: "" }] },
+                    ])
+                  }
+                >
+                  <Plus strokeWidth={1.75} aria-hidden />
+                  Add item
+                </Button>
+              </div>
             ) : null}
           </section>
         )
       })}
       {!disabled ? (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setSections([...sections, { labels: [{ displayName: "" }], items: [] }])}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={() =>
+            setSections([
+              ...sections,
+              { labels: [{ displayName: "" }], items: [] },
+            ])
+          }
+        >
+          <Plus strokeWidth={1.75} aria-hidden />
           Add section
         </Button>
       ) : null}

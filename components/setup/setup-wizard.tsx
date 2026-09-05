@@ -41,6 +41,9 @@ function isStep(value: string | null): value is SetupStep {
  *
  * The step lives in the URL so a half-finished setup is a link an operator can
  * send to a colleague.
+ *
+ * One centred panel: the stepper across the top, the step beneath it, and a
+ * footer with Back as a plain button and Continue as the filled capsule.
  */
 function SetupWizard({ clientId }: { clientId: string }) {
   const router = useRouter()
@@ -74,11 +77,16 @@ function SetupWizard({ clientId }: { clientId: string }) {
   }
 
   const clientName = clientQuery.data?.client.name
+  const isDone = current === "done"
 
   return (
     <QueryStates
       status={
-        setupQuery.isPending ? "pending" : setupQuery.isError ? "error" : "ready"
+        setupQuery.isPending
+          ? "pending"
+          : setupQuery.isError
+            ? "error"
+            : "ready"
       }
       error="We couldn't load this client's setup"
       onRetry={() => void setupQuery.refetch()}
@@ -98,65 +106,70 @@ function SetupWizard({ clientId }: { clientId: string }) {
             }
           />
 
-          <div className="flex flex-col gap-8 lg:flex-row">
-            <div className="lg:w-56 lg:shrink-0">
-              <Stepper
-                orientation="vertical"
-                aria-label="Setup steps"
-                steps={stepperState(current, furthest).map((step) => ({
-                  id: step.id,
-                  label: step.label,
-                  state: step.state,
-                }))}
-              />
-            </div>
+          <section
+            aria-labelledby="setup-step-title"
+            className="mx-auto flex w-full max-w-3xl flex-col rounded-(--np-radius-panel) bg-surface"
+          >
+            {isDone ? null : (
+              <div className="hidden px-(--np-panel-pad) pt-(--np-panel-pad) sm:block">
+                <Stepper
+                  orientation="horizontal"
+                  aria-label="Setup steps"
+                  steps={stepperState(current, furthest).map((step) => ({
+                    id: step.id,
+                    label: step.label,
+                    state: step.state,
+                  }))}
+                />
+              </div>
+            )}
 
-            <section
-              aria-labelledby="setup-step-title"
-              className="flex min-w-0 flex-1 flex-col rounded-(--np-radius-card) border border-line bg-surface"
-            >
-              <div className="flex flex-col gap-1.5 border-b border-line-subtle px-6 py-5">
+            <div className="flex flex-col gap-1 px-(--np-panel-pad) pt-(--np-panel-pad) pb-4">
+              {isDone ? null : (
                 <p className="text-caption font-medium text-ink-muted">
                   Step {stepIndex(current) + 1} of {SETUP_STEPS.length - 1}
                 </p>
-                <h2 id="setup-step-title" className="font-display text-section">
-                  {definition.title}
-                </h2>
-                <p className="max-w-prose text-ui text-ink-muted">
-                  {definition.description}
-                </p>
-              </div>
-
-              <div className="flex flex-1 flex-col gap-4 px-6 py-5">
-                <StepBody
-                  step={current}
-                  clientId={clientId}
-                  clientName={clientName ?? "this client"}
-                  onAdvance={advance}
-                />
-              </div>
-
-              {current === "done" ? null : (
-                <div className="flex items-center justify-between gap-3 border-t border-line-subtle px-6 py-4">
-                  <Button
-                    variant="ghost"
-                    onClick={back}
-                    disabled={stepIndex(current) === 0}
-                  >
-                    Back
-                  </Button>
-                  <div className="flex items-center gap-3">
-                    <p className="hidden text-caption text-ink-muted sm:block">
-                      You can come back to any step later
-                    </p>
-                    <Button onClick={advance}>
-                      {definition.optional ? "Skip for now" : "Continue"}
-                    </Button>
-                  </div>
-                </div>
               )}
-            </section>
-          </div>
+              <h2
+                id="setup-step-title"
+                className="text-section font-semibold text-ink"
+              >
+                {definition.title}
+              </h2>
+              <p className="max-w-prose text-ui text-ink-muted">
+                {definition.description}
+              </p>
+            </div>
+
+            <div className="flex flex-1 flex-col gap-4 border-t border-line-subtle px-(--np-panel-pad) py-(--np-panel-pad)">
+              <StepBody
+                step={current}
+                clientId={clientId}
+                clientName={clientName ?? "this client"}
+                onAdvance={advance}
+              />
+            </div>
+
+            {isDone ? null : (
+              <div className="flex items-center justify-between gap-3 border-t border-line-subtle px-(--np-panel-pad) py-4">
+                <Button
+                  variant="ghost"
+                  onClick={back}
+                  disabled={stepIndex(current) === 0}
+                >
+                  Back
+                </Button>
+                <div className="flex items-center gap-3">
+                  <p className="hidden text-caption text-ink-muted sm:block">
+                    You can come back to any step later
+                  </p>
+                  <Button pill onClick={advance}>
+                    {definition.optional ? "Skip for now" : "Continue"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </section>
         </>
       )}
     </QueryStates>
@@ -209,12 +222,13 @@ function StepClientSummary({
 }) {
   return (
     <div className="flex flex-col items-start gap-3">
-      <p className="text-body">
-        You&rsquo;re setting up <strong className="font-medium">{clientName}</strong>.
+      <p className="text-body text-ink">
+        You&rsquo;re setting up{" "}
+        <strong className="font-semibold">{clientName}</strong>.
       </p>
       <Link
         href={`/clients/${clientId}/settings`}
-        className={buttonVariants({ variant: "outline", size: "sm" })}
+        className={buttonVariants({ variant: "secondary", size: "sm" })}
       >
         Rename or add notes
       </Link>

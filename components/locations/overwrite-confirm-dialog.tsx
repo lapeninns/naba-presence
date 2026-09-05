@@ -51,17 +51,26 @@ export function OverwriteConfirmDialog({
         <AlertDialogDescription>{description}</AlertDialogDescription>
         {children}
         {requireAcknowledgement ? (
-          <label className="flex items-start gap-2 text-ui">
+          <label className="flex items-start gap-2.5 text-ui text-ink">
             {/* Base UI's Checkbox auto-wires aria-labelledby to a wrapping
                 native <label> — no separate aria-label needed here (mirrors
                 typed-attribute-control.tsx). */}
-            <Checkbox checked={ack} onCheckedChange={(value) => setAck(value === true)} />
+            <Checkbox
+              className="mt-px"
+              checked={ack}
+              onCheckedChange={(value) => setAck(value === true)}
+            />
             <span>{acknowledgementLabel}</span>
           </label>
         ) : null}
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline">Cancel</Button>} />
-          <Button onClick={onConfirm} disabled={pending || (requireAcknowledgement && !ack)}>
+          <AlertDialogClose
+            render={<Button variant="secondary">Cancel</Button>}
+          />
+          <Button
+            onClick={onConfirm}
+            disabled={pending || (requireAcknowledgement && !ack)}
+          >
             {pending ? "Working…" : confirmLabel}
           </Button>
         </AlertDialogFooter>

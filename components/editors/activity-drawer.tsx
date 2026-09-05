@@ -26,18 +26,18 @@ function ActivityDrawer({ locationId }: { locationId: string }) {
   const [open, setOpen] = React.useState(false)
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger render={<Button variant="outline" size="sm" />}>
-        <History className="size-3.5" aria-hidden />
+      <SheetTrigger render={<Button variant="secondary" />}>
+        <History strokeWidth={1.75} aria-hidden />
         Activity
       </SheetTrigger>
-      <SheetContent side="right" className="sm:max-w-lg">
+      <SheetContent side="right" className="md:max-w-lg">
         <SheetHeader>
           <SheetTitle>Recent activity</SheetTitle>
           <SheetDescription>
             Changes published to Google for this location.
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
           {open ? <LocationActivityPanel locationId={locationId} /> : null}
         </div>
       </SheetContent>

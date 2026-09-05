@@ -12,8 +12,11 @@ export default async function SettingsConnectionsPage() {
     return <AccessDenied area="Google connections" />
   }
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title="Google Business Profile" description="Connect Google, choose accounts, import locations and manage notifications." />
+    <div className="flex flex-col gap-(--np-gap-section)">
+      <PageHeader
+        title="Google Business Profile"
+        description="The Google accounts this agency has connected, which clients depend on each, and how Google tells us about new reviews."
+      />
       <ConnectionsWorkspace />
     </div>
   )

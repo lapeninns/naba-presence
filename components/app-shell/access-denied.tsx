@@ -1,7 +1,9 @@
+import { Lock } from "lucide-react"
 import Link from "next/link"
 
-import { PageFrame } from "@/components/app-shell/page-frame"
+import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
 import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 /**
  * An explicit "you don't have access" page.
@@ -25,18 +27,19 @@ function AccessDenied({
   whoCanHelp?: string
 }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-start gap-4 py-16">
-      <h1 className="font-display text-page-title">
-        You don&rsquo;t have access to this page
-      </h1>
-      <p className="text-body text-ink-muted">
-        {area} is limited to {whoCanHelp}. Ask {whoCanHelp} in your agency if
-        you need it.
-      </p>
-      <Link href="/home" className={buttonVariants({ variant: "outline" })}>
-        Back to Home
-      </Link>
-    </div>
+    <PageEmptyState
+      icon={<Lock strokeWidth={1.75} aria-hidden />}
+      title="You don’t have access to this page"
+      description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your agency if you need it.`}
+      action={
+        <Link
+          href="/home"
+          className={cn(buttonVariants({ variant: "secondary" }))}
+        >
+          Back to Home
+        </Link>
+      }
+    />
   )
 }
 

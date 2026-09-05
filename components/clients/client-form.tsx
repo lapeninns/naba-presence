@@ -1,11 +1,13 @@
 "use client"
 
+import { CheckIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useClientMutations } from "@/lib/queries/use-clients"
@@ -50,74 +52,91 @@ function NewClientForm() {
   }
 
   return (
-    <form onSubmit={submit} className="flex max-w-lg flex-col gap-5">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-name">Client name</Label>
-        <Input
-          id="client-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Old Crown Group"
-          required
-          maxLength={120}
-          autoFocus
-        />
-        <p className="text-caption text-ink-muted">
-          The business as you and your team refer to it, not necessarily its
-          Google listing name.
-        </p>
-      </div>
-
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="text-ui font-medium">Colour</legend>
-        <p className="text-caption text-ink-muted">
-          Used on the client&rsquo;s mark so it is recognisable in a long list.
-        </p>
-        <div className="flex flex-wrap gap-2 pt-1">
-          {COLOURS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setColour(option === colour ? null : option)}
-              aria-pressed={colour === option}
-              aria-label={`Use colour ${option}`}
-              style={{ backgroundColor: option }}
-              className={cn(
-                "size-8 rounded-(--np-radius-control) transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                colour === option &&
-                  "ring-2 ring-[var(--np-accent)] ring-offset-2 ring-offset-background"
-              )}
+    <form onSubmit={submit} className="max-w-lg">
+      <Card>
+        <CardContent className="flex flex-col gap-(--np-gap-section)">
+          <Field>
+            <FieldLabel>Client name</FieldLabel>
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Old Crown Group"
+              required
+              maxLength={120}
+              autoFocus
             />
-          ))}
-        </div>
-      </fieldset>
+            <FieldDescription>
+              The business as you and your team refer to it, not necessarily its
+              Google listing name.
+            </FieldDescription>
+          </Field>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="client-notes">Notes (optional)</Label>
-        <Textarea
-          id="client-notes"
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-          rows={3}
-          maxLength={2000}
-          placeholder="Anything your team should know before replying for this client."
-        />
-      </div>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="text-ui font-medium text-ink">Colour</legend>
+            <p className="text-caption text-ink-muted">
+              Used on the client&rsquo;s mark so it is recognisable in a long
+              list.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {COLOURS.map((option) => {
+                const selected = colour === option
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setColour(selected ? null : option)}
+                    aria-pressed={selected}
+                    aria-label={`Use colour ${option}`}
+                    style={{ backgroundColor: option }}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-(--np-radius-control) text-primary-foreground focus-halo transition duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96]",
+                      selected &&
+                        "[box-shadow:0_0_0_2px_var(--np-surface),0_0_0_4px_var(--np-accent)]"
+                    )}
+                  >
+                    {selected ? (
+                      <CheckIcon
+                        aria-hidden
+                        className="size-4"
+                        strokeWidth={2}
+                      />
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
 
-      {error ? (
-        <p role="alert" className="text-ui text-danger-ink">
-          {error}
-        </p>
-      ) : null}
+          <Field>
+            <FieldLabel>Notes (optional)</FieldLabel>
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={3}
+              maxLength={2000}
+              placeholder="Anything your team should know before replying for this client."
+            />
+          </Field>
 
-      <div className="flex gap-2">
-        <Button type="submit" disabled={!name.trim() || create.isPending}>
-          {create.isPending ? "Creating…" : "Create client"}
-        </Button>
-        <Button type="button" variant="ghost" onClick={() => router.back()}>
-          Cancel
-        </Button>
-      </div>
+          {error ? (
+            <p role="alert" className="text-ui text-danger-ink">
+              {error}
+            </p>
+          ) : null}
+        </CardContent>
+        <CardFooter className="justify-end gap-2 border-t">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.back()}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!name.trim() || create.isPending}>
+            {create.isPending ? "Creating…" : "Create client"}
+          </Button>
+        </CardFooter>
+      </Card>
     </form>
   )
 }

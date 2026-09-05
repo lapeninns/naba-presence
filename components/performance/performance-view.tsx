@@ -20,6 +20,10 @@ function isTab(value: string | null): value is TabValue {
   return TABS.some((tab) => tab.value === value)
 }
 
+/**
+ * Three reports, each its own section with its own range, so these stay Tabs
+ * rather than a segmented control: they are not three views of one dataset.
+ */
 export function PerformanceView() {
   const router = useRouter()
   const pathname = usePathname()
@@ -47,7 +51,7 @@ export function PerformanceView() {
       {/* The client scope belongs above the tabs: it applies to all three, and
           picking it per tab would let two of them disagree about whose numbers
           are on screen. */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <ClientSelect
           value={clientId}
           onChange={(next) =>

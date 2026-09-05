@@ -1,8 +1,12 @@
+import Link from "next/link"
+
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
-import { ClientsIndex, NewClientButton } from "@/components/clients/clients-index"
+import {
+  ClientsIndex,
+  NewClientButton,
+} from "@/components/clients/clients-index"
 import { buttonVariants } from "@/components/ui/button"
 import { getSession } from "@/lib/server/session"
-import Link from "next/link"
 
 export const metadata = { title: "Clients · NabaPresence" }
 
@@ -19,7 +23,7 @@ export default async function ClientsPage() {
           <>
             <Link
               href="/locations"
-              className={buttonVariants({ variant: "outline" })}
+              className={buttonVariants({ variant: "secondary" })}
             >
               All locations
             </Link>

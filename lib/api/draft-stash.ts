@@ -28,6 +28,20 @@ export function stashAllDrafts(): void {
   }
 }
 
+/**
+ * Stashes one draft, best-effort. Used when a dirty editor is unmounted for
+ * a reason the user never chose (a layout switch moving it to a new subtree)
+ * so the next mount can `takeStashedDraft` it back.
+ */
+export function stashDraft(key: string, value: string): void {
+  if (value === "") return
+  try {
+    sessionStorage.setItem(PREFIX + key, value)
+  } catch {
+    // Storage full or unavailable: the draft is lost exactly as before.
+  }
+}
+
 export function takeStashedDraft(key: string): string | null {
   const value = sessionStorage.getItem(PREFIX + key)
   if (value !== null) sessionStorage.removeItem(PREFIX + key)

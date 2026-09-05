@@ -50,7 +50,7 @@ describe("InvitationsPanel", () => {
     expect(screen.getByRole("button", { name: "Send invitation" })).toBeInTheDocument()
   })
 
-  it("submits canPublish: false for a Viewer invitation even after the checkbox was checked first", async () => {
+  it("submits canPublish: false for a Viewer invitation even after the switch was turned on first", async () => {
     const user = userEvent.setup()
     const create = vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
       invitation: {
@@ -67,7 +67,7 @@ describe("InvitationsPanel", () => {
     renderPanel([])
 
     await user.type(screen.getByRole("textbox", { name: "Email address" }), "new@test.com")
-    await user.click(screen.getByRole("checkbox"))
+    await user.click(screen.getByRole("switch", { name: "Can publish" }))
     await user.click(screen.getByRole("combobox", { name: "Invitation role" }))
     await user.click(await screen.findByRole("option", { name: "Viewer" }))
     await user.click(screen.getByRole("button", { name: "Send invitation" }))

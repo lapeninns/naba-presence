@@ -16,7 +16,14 @@ describeDatabase("client setup flow", () => {
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
-    server = await startAppServer()
+    // The connect-start route builds a Google authorization URL, which needs
+    // a client id. CI has none, so without these the route answers 503 and
+    // both OAuth-start cases below fail there while passing on a developer
+    // machine whose .env carries real credentials.
+    server = await startAppServer({
+      GOOGLE_CLIENT_ID: "setup-flow-google-client",
+      GOOGLE_CLIENT_SECRET: "setup-flow-google-secret",
+    })
   })
 
   afterAll(async () => {

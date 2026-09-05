@@ -93,14 +93,10 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
               You have unsaved changes to this reply. Discard them?
             </AlertDialogDescription>
             <AlertDialogFooter>
-              <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+              <AlertDialogClose render={<Button variant="secondary" />}>
                 Keep editing
               </AlertDialogClose>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => settle(true)}
-              >
+              <Button variant="destructive" onClick={() => settle(true)}>
                 Discard
               </Button>
             </AlertDialogFooter>

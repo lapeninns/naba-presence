@@ -56,12 +56,12 @@ export function QueryPending({
     >
       {label ? (
         <p className="flex items-center gap-2 text-ui text-ink-muted">
-          <Spinner decorative className="size-3.5 shrink-0" />
+          <Spinner decorative size="sm" />
           {label}
         </p>
       ) : null}
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-7 w-48" />
+      <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
     </div>
   )
 }
@@ -99,7 +99,7 @@ export function QueryError({
     <div className={className}>
       <Alert variant="destructive">
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription className="flex flex-col items-start gap-2">
+        <AlertDescription className="flex flex-col items-start gap-2.5">
           <span>{description ?? describeActionError(cause)}</span>
           {onRetry ? (
             <Button variant="outline" size="sm" onClick={onRetry}>
@@ -178,7 +178,7 @@ export function RouteErrorState({
         className
       )}
     >
-      <Alert variant="destructive">
+      <Alert variant="destructive" className="text-left">
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>{description}</AlertDescription>
       </Alert>
@@ -187,7 +187,10 @@ export function RouteErrorState({
         {/* A real <a> styled as a button, not Button+render — see the note in
             app/not-found.tsx for why. cn() dedupes buttonVariants' own
             conflicting base/variant utility classes (e.g. border-color). */}
-        <Link href={homeHref} className={cn(buttonVariants({ variant: "outline" }))}>
+        <Link
+          href={homeHref}
+          className={cn(buttonVariants({ variant: "outline" }))}
+        >
           Go to Home
         </Link>
       </div>

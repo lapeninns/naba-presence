@@ -28,13 +28,16 @@ export function FetchedAtCaption({
 }) {
   if (iso) {
     return (
-      <p className="text-caption text-muted-foreground">
+      <p className="text-caption text-ink-muted tabular-nums">
         {`${prefix} ${formatDate(iso, timezone)}`}
       </p>
     )
   }
   return (
-    <p className="text-caption text-muted-foreground" role={pending ? "status" : undefined}>
+    <p
+      className="text-caption text-ink-muted"
+      role={pending ? "status" : undefined}
+    >
       {pending ? "Loading…" : "Nothing collected yet"}
     </p>
   )

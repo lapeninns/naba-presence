@@ -1,3 +1,4 @@
+import { Building2, Sparkles } from "lucide-react"
 import Link from "next/link"
 
 import { AccessDeniedPage } from "@/components/app-shell/access-denied"
@@ -6,6 +7,7 @@ import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { SetupWizard } from "@/components/setup/setup-wizard"
 import { buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { withTenant } from "@/lib/server/db"
 import { getSession } from "@/lib/server/session"
 
@@ -43,8 +45,10 @@ export default async function SetupPage({
   }
 
   const unfinished = session
-    ? await withTenant(session.organisationId, (sql) =>
-        sql<{ id: string; name: string }[]>`
+    ? await withTenant(
+        session.organisationId,
+        (sql) =>
+          sql<{ id: string; name: string }[]>`
           select c.id::text as id, c.name
           from client c
           where c.archived_at is null
@@ -68,43 +72,33 @@ export default async function SetupPage({
         title="Client setup"
         eyebrow="Clients"
         description="Setup runs for one client at a time. Pick the one you're working on."
+        actions={
+          <Link href="/clients/new" className={buttonVariants({ pill: true })}>
+            New client
+          </Link>
+        }
       />
       {unfinished.length === 0 ? (
         <Empty
+          icon={<Sparkles />}
           title="Nothing waiting to be set up"
           description="Every client you look after has at least one location linked to Google."
-          action={
-            <Link href="/clients/new" className={buttonVariants()}>
-              New client
-            </Link>
-          }
         />
       ) : (
-        <div className="flex flex-col gap-3">
-          <ul className="flex flex-col gap-2">
-            {unfinished.map((entry) => (
-              <li key={entry.id}>
-                <Link
-                  href={`/setup?client=${entry.id}`}
-                  className="flex items-center justify-between gap-3 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 transition-colors duration-(--np-duration-fast) hover:bg-[var(--np-hover-bg)]"
-                >
-                  <span className="font-medium">{entry.name}</span>
-                  <span className="text-caption text-ink-muted">
-                    No locations linked yet
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <div>
-            <Link
-              href="/clients/new"
-              className={buttonVariants({ variant: "outline" })}
-            >
-              New client
-            </Link>
-          </div>
-        </div>
+        <GroupedList
+          header="Waiting to be set up"
+          footer="A client stays here until at least one of its locations is linked to Google."
+        >
+          {unfinished.map((entry) => (
+            <GroupedListItem
+              key={entry.id}
+              icon={<Building2 />}
+              label={entry.name}
+              trailing="No locations linked yet"
+              href={`/setup?client=${entry.id}`}
+            />
+          ))}
+        </GroupedList>
       )}
     </PageFrame>
   )

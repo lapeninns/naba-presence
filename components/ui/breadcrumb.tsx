@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
@@ -25,21 +26,26 @@ function Breadcrumbs({
   if (crumbs.length === 0) return null
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)} {...props}>
-      <ol className="flex min-w-0 items-center gap-1.5 text-ui">
+      <ol className="flex min-w-0 items-center gap-1 text-ui">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1
           return (
-            <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1.5">
+            <li
+              key={`${crumb.label}-${index}`}
+              className="flex min-w-0 items-center gap-1"
+            >
               {index > 0 ? (
-                <span aria-hidden className="text-ink-faint select-none">
-                  /
-                </span>
+                <ChevronRight
+                  aria-hidden
+                  strokeWidth={1.75}
+                  className="size-3.5 shrink-0 text-ink-faint"
+                />
               ) : null}
               {isLast || !crumb.href ? (
                 <span
                   aria-current={isLast ? "page" : undefined}
                   className={cn(
-                    "truncate",
+                    "inline-flex min-h-6 items-center truncate",
                     isLast ? "font-medium text-ink" : "text-ink-muted"
                   )}
                 >
@@ -48,7 +54,7 @@ function Breadcrumbs({
               ) : (
                 <Link
                   href={crumb.href}
-                  className="truncate text-ink-muted transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  className="focus-halo inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) text-ink-muted transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink"
                 >
                   {crumb.label}
                 </Link>

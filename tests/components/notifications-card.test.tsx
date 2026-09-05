@@ -35,7 +35,7 @@ describe("NotificationsCard", () => {
   it("shows the pub/sub topic and humanised notification types", () => {
     renderCard()
     expect(screen.getByRole("textbox", { name: "Pub/Sub topic" })).toHaveValue("projects/p/topics/reviews")
-    expect(screen.getByRole("checkbox", { name: "New reviews" })).toBeInTheDocument()
+    expect(screen.getByRole("switch", { name: "New reviews" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save notifications" })).toBeInTheDocument()
   })
 })

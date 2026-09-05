@@ -79,13 +79,29 @@ const SEMANTIC_ROLES = [
   "--np-shadow-raised",
   "--np-shadow-pop",
   "--np-shadow-modal",
+  "--np-shadow-hairline",
   "--np-duration-fast",
   "--np-duration-standard",
   "--np-duration-overlay",
   "--np-ease-standard",
+  "--np-ease-spring",
+  "--np-ease-spring-snappy",
   "--np-sidebar-width",
+  "--np-toolbar-h",
   "--np-page-pad-x",
   "--np-page-max-width",
+  "--np-ink-quaternary",
+  "--np-fill",
+  "--np-fill-secondary",
+  "--np-fill-tertiary",
+  "--np-accent-tint-strong",
+  "--np-accent-vivid",
+  "--np-focus-halo",
+  "--np-material-sidebar",
+  "--np-material-toolbar",
+  "--np-material-popover",
+  "--np-scrim",
+  "--np-radius-sheet",
   "--np-row-py",
   "--np-row-h",
   "--np-cell-px",
@@ -178,6 +194,18 @@ describe("NabaPresence design tokens", () => {
     expect(globals).not.toContain("injectCss")
   })
 
+  it("degrades materials to opaque twins under reduced transparency", () => {
+    expect(globals).toMatch(
+      /prefers-reduced-transparency: reduce[\s\S]*--np-material-sidebar: var\(--np-material-sidebar-opaque\)/
+    )
+    expect(globals).toMatch(/@supports not \(backdrop-filter: blur\(1px\)\)/)
+  })
+
+  it("encodes motion as springs, not fades", () => {
+    expect(globals).toMatch(/--np-ease-spring:\s*linear\(/)
+    expect(globals).toMatch(/--np-ease-spring-snappy:\s*linear\(/)
+  })
+
   it("has no dead spacing scale", () => {
     expect(globals).not.toMatch(/--np-space-\d/)
     expect(globals).not.toMatch(/--nr-space-\d/)
@@ -190,9 +218,9 @@ describe("type roles", () => {
       "--text-caption: 0.75rem", // 12px
       "--text-ui: 0.8125rem", // 13px
       "--text-body: 0.875rem", // 14px
-      "--text-title: 1rem", // 16px
-      "--text-section: 1.125rem", // 18px
-      "--text-page-title: 1.625rem", // 26px
+      "--text-title: 0.9375rem", // 15px
+      "--text-section: 1.0625rem", // 17px
+      "--text-page-title: 1.5rem", // 24px
       "--text-display: 2rem", // 32px
     ]) {
       expect(globals).toContain(role)
@@ -213,9 +241,29 @@ describe("type roles", () => {
     }
   })
 
-  it("keeps a display family distinct from the UI family", () => {
-    expect(globals).toContain("--font-display: var(--font-newsreader)")
+  it("gives every type role a tracking value", () => {
+    for (const role of [
+      "caption",
+      "ui",
+      "body",
+      "title",
+      "section",
+      "page-title",
+      "display",
+    ]) {
+      expect(globals).toContain(`--text-${role}--letter-spacing:`)
+    }
+  })
+
+  it("carries hierarchy in one family: display resolves to the UI family", () => {
+    // Weight and tracking make the hierarchy, never a second typeface.
+    expect(globals).toContain("--font-display: var(--font-sans)")
     expect(globals).toContain("--font-heading: var(--font-display)")
+    expect(globals).not.toContain("newsreader")
+  })
+
+  it("puts the platform font first and Inter as the fallback", () => {
+    expect(globals).toMatch(/--font-sans:\s*-apple-system, BlinkMacSystemFont, var\(--font-inter\)/)
   })
 })
 

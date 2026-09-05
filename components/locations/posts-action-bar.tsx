@@ -1,5 +1,6 @@
 "use client"
 
+import { ExternalLink } from "lucide-react"
 import { useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
@@ -160,11 +161,13 @@ export function PostsActionBar({
           className={buttonVariants({ variant: "ghost", size: "sm" })}
         >
           View on Google
+          <ExternalLink strokeWidth={1.75} aria-hidden />
         </a>
       ) : null}
       <Button
         size="sm"
         variant="ghost"
+        className="text-danger-ink hover:bg-danger-tint"
         onClick={() => setDeleteOpen(true)}
         disabled={Boolean(deleteReason) || remove.isPending}
       >

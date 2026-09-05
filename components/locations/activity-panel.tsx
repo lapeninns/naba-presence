@@ -18,10 +18,10 @@ function humanise(value: string): string {
 
 function statusVariant(
   status: string
-): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "succeeded") return "secondary"
+): "success" | "destructive" | "secondary" {
+  if (status === "succeeded") return "success"
   if (status === "failed" || status === "ambiguous") return "destructive"
-  return "outline"
+  return "secondary"
 }
 
 export function LocationActivityPanel({ locationId }: { locationId: string }) {
@@ -41,6 +41,10 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
   )
 }
 
+/**
+ * A plain list of hairline-divided rows. It sits on the sheet's white, so
+ * the rows need no card of their own; the separators do the work.
+ */
 function ActivityList({
   activity,
   page,
@@ -56,38 +60,33 @@ function ActivityList({
     <section className="flex flex-col gap-3">
       {/* The drawer's own SheetTitle is the heading here; a second one would
           repeat it and break heading order inside the dialog. */}
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-caption text-muted-foreground">
-          {formatNumber(activity.total)} recorded{" "}
-          {activity.total === 1 ? "change" : "changes"}
-        </p>
-      </div>
+      <p className="text-caption text-ink-muted tabular-nums">
+        {formatNumber(activity.total)} recorded{" "}
+        {activity.total === 1 ? "change" : "changes"}
+      </p>
       {activity.items.length === 0 ? (
-        <p className="text-ui text-muted-foreground">
+        <p className="text-ui text-ink-muted">
           No Google management changes recorded for this location yet.
         </p>
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
+          <ul className="divide-y divide-line-subtle">
             {activity.items.map((item) => (
-              <li
-                key={item.id}
-                className="flex flex-col gap-1 rounded-(--np-radius-card) border border-border px-3 py-2"
-              >
+              <li key={item.id} className="flex flex-col gap-1.5 py-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-ui font-medium">
+                  <span className="text-body font-semibold text-ink">
                     {humanise(item.operation)}
                   </span>
-                  <Badge variant="outline">{humanise(item.resourceType)}</Badge>
+                  <Badge variant="secondary">
+                    {humanise(item.resourceType)}
+                  </Badge>
                   <Badge variant={statusVariant(item.status)}>
                     {humanise(item.status)}
                   </Badge>
                 </div>
-                <p className="text-caption text-muted-foreground">
+                <p className="text-caption text-ink-muted tabular-nums">
                   {new Date(item.createdAt).toLocaleString("en-GB")}
-                  {item.actorDisplayName
-                    ? ` · ${item.actorDisplayName}`
-                    : null}
+                  {item.actorDisplayName ? ` · ${item.actorDisplayName}` : null}
                   {item.updateMask.length > 0
                     ? ` · ${item.updateMask.map(humanise).join(", ")}`
                     : null}
@@ -104,18 +103,18 @@ function ActivityList({
               className="flex items-center justify-between gap-2"
             >
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 disabled={page <= 1}
                 onClick={() => onPageChange(Math.max(1, page - 1))}
               >
                 Previous
               </Button>
-              <span className="text-caption text-muted-foreground tabular-nums">
+              <span className="text-caption text-ink-muted tabular-nums">
                 Page {page} of {pageCount}
               </span>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 disabled={page >= pageCount}
                 onClick={() => onPageChange(Math.min(pageCount, page + 1))}

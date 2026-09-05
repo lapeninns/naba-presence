@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Select,
   SelectContent,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import type { LatestVerification } from "@/lib/api/reviews"
+import { cn } from "@/lib/utils"
 
 const BYTE_LIMIT = 4096
 const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.9)
@@ -250,26 +252,35 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         className="flex flex-col gap-2"
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3 id={`${fieldId}-heading`} className="text-ui font-semibold">
+          <h3
+            id={`${fieldId}-heading`}
+            className="text-ui font-semibold text-ink"
+          >
             Your reply
           </h3>
           {provenance ? (
-            <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
-              <SparklesIcon aria-hidden className="size-3 shrink-0" />
+            <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
+              <SparklesIcon
+                aria-hidden
+                strokeWidth={1.75}
+                className="size-3.5 shrink-0"
+              />
               {provenance}
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
             <CircleCheckIcon
               aria-hidden
-              className="size-3.5 shrink-0 text-success"
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0 text-success-ink"
             />
             In sync with Google
           </span>
           <span aria-hidden className="flex-1" />
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
+            pill
             onClick={() => setEditingSettled(true)}
           >
             Edit reply
@@ -278,7 +289,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         <p
           dir="auto"
           lang={review.detectedLanguageCode ?? undefined}
-          className="rounded-(--np-radius-field) border border-border/70 bg-muted/40 px-4 py-3 text-body whitespace-pre-line"
+          className="rounded-(--np-radius-control) bg-surface-sunken px-4 py-3 text-body whitespace-pre-line text-ink"
         >
           {body}
         </p>
@@ -295,32 +306,43 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         <label
           id={`${fieldId}-heading`}
           htmlFor={fieldId}
-          className="text-ui font-semibold"
+          className="text-ui font-semibold text-ink"
         >
           Your reply
         </label>
         {provenance ? (
-          <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
-            <SparklesIcon aria-hidden className="size-3 shrink-0" />
+          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
+            <SparklesIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0"
+            />
             {isDirty ? `${provenance} · unsaved edits` : provenance}
           </span>
         ) : null}
         <span aria-hidden className="flex-1" />
         {reasons.length > 0 ? (
-          <span className="inline-flex items-center gap-1.5 text-caption font-medium">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 text-caption font-medium",
+              blocking > 0 ? "text-danger-ink" : "text-warning-ink"
+            )}
+          >
             <TriangleAlertIcon
               aria-hidden
-              className="size-3.5 shrink-0 text-warning"
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0"
             />
             {blocking > 0
               ? `${blocking} ${blocking === 1 ? "issue" : "issues"} to fix before publishing`
               : `${reasons.length} ${reasons.length === 1 ? "point" : "points"} to check before publishing`}
           </span>
         ) : settled && !isDirty ? (
-          <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
             <CircleCheckIcon
               aria-hidden
-              className="size-3.5 shrink-0 text-success"
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0 text-success-ink"
             />
             In sync with Google
           </span>
@@ -328,162 +350,174 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       </div>
 
       {!canEdit ? (
-        <p className="text-caption text-muted-foreground">
+        <p className="text-caption text-ink-muted">
           You can read this reply, but you do not have permission to edit it.
         </p>
       ) : !canDraft ? (
-        <p className="text-caption text-muted-foreground">
+        <p className="text-caption text-ink-muted">
           A publish for this reply is under way. You can edit it again once
           Google answers.
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-(--np-radius-field) border border-border bg-background focus-within:ring-3 focus-within:ring-ring/30">
-        <Textarea
-          ref={textareaRef}
-          id={fieldId}
-          lang={review.detectedLanguageCode ?? undefined}
-          dir="auto"
-          value={body}
-          readOnly={!canEdit || !canDraft}
-          aria-invalid={overLimit || undefined}
-          aria-describedby={`${fieldId}-count ${fieldId}-hint`}
-          onChange={(event) => setBody(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              event.key === "Enter" &&
-              canSave
-            ) {
-              event.preventDefault()
-              void onSave()
-            }
-          }}
-          placeholder="Write a reply, or generate one to start."
-          className="min-h-28 rounded-none border-0 bg-transparent shadow-none read-only:cursor-default read-only:bg-muted/20 focus-visible:ring-0 disabled:opacity-100"
-        />
+      <Textarea
+        ref={textareaRef}
+        id={fieldId}
+        lang={review.detectedLanguageCode ?? undefined}
+        dir="auto"
+        value={body}
+        readOnly={!canEdit || !canDraft}
+        aria-invalid={overLimit || undefined}
+        aria-describedby={`${fieldId}-count ${fieldId}-hint`}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            event.key === "Enter" &&
+            canSave
+          ) {
+            event.preventDefault()
+            void onSave()
+          }
+        }}
+        placeholder="Write a reply, or generate one to start."
+        className="min-h-28 read-only:cursor-default read-only:bg-surface-sunken"
+      />
 
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-muted/30 px-2 py-1.5">
-          <Select
-            value={tone}
-            onValueChange={(value: string | null) =>
-              setTone((value ?? "warm_professional") as Tone)
-            }
-            items={TONE_ITEMS}
-            disabled={!canEdit || !canDraft}
+      {/* The composer's toolbar: tone and the draft tools at the leading
+          edge, the byte count and Save at the trailing edge. Publish lives in
+          the pane footer beneath — it is the one irreversible action. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Select
+          value={tone}
+          onValueChange={(value: string | null) =>
+            setTone((value ?? "warm_professional") as Tone)
+          }
+          items={TONE_ITEMS}
+          disabled={!canEdit || !canDraft}
+        >
+          <SelectTrigger
+            aria-label="Reply tone"
+            aria-describedby={`${fieldId}-tone-hint`}
+            title="Used when you generate a draft"
+            className="w-full basis-full sm:w-auto sm:max-w-56 sm:shrink-0 sm:basis-auto"
           >
-            <SelectTrigger
-              aria-label="Reply tone"
-              aria-describedby={`${fieldId}-tone-hint`}
-              title="Used when you generate a draft"
-              className="h-9 w-full basis-full border-border/70 bg-background px-2.5 shadow-none sm:h-8 sm:w-auto sm:max-w-56 sm:shrink-0 sm:basis-auto"
+            <span
+              aria-hidden
+              className="shrink-0 text-caption font-medium text-ink-muted"
             >
-              <span
-                aria-hidden
-                className="shrink-0 text-caption font-medium text-muted-foreground"
-              >
-                Tone
-              </span>
-              <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
-              <SelectValue className="flex-1 text-left" />
-            </SelectTrigger>
-            <SelectContent>
-              {TONES.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span className="sr-only" id={`${fieldId}-tone-hint`}>
-            Tone is used when you generate a draft
-          </span>
+              Tone
+            </span>
+            <SelectValue className="flex-1 text-left" />
+          </SelectTrigger>
+          <SelectContent>
+            {TONES.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="sr-only" id={`${fieldId}-tone-hint`}>
+          Tone is used when you generate a draft
+        </span>
 
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!canGenerate}
+          onClick={onGenerateClick}
+        >
+          <SparklesIcon
+            aria-hidden
+            strokeWidth={1.75}
+            data-icon="inline-start"
+          />
+          {generateOrSave.isPending ? "Working…" : generateLabel}
+        </Button>
+
+        {latestDraft ? (
           <Button
             variant="ghost"
             size="sm"
-            disabled={!canGenerate}
-            onClick={onGenerateClick}
-          >
-            <SparklesIcon aria-hidden data-icon="inline-start" />
-            {generateOrSave.isPending ? "Working…" : generateLabel}
-          </Button>
-
-          {latestDraft ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={
-                !canEdit ||
-                !canDraft ||
-                verify.isPending ||
-                generateOrSave.isPending
-              }
-              onClick={() => void onReverify()}
-            >
-              <ShieldCheckIcon aria-hidden data-icon="inline-start" />
-              {verify.isPending ? "Verifying…" : "Re-verify"}
-            </Button>
-          ) : null}
-
-          {canEdit && canDraft && isDirty ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={generateOrSave.isPending}
-              onClick={() => setBody(seededBody)}
-            >
-              <RotateCcwIcon aria-hidden data-icon="inline-start" />
-              Revert
-            </Button>
-          ) : null}
-
-          <span aria-hidden className="flex-1" />
-
-          <span
-            id={`${fieldId}-count`}
-            className={
-              bytes === 0
-                ? "sr-only"
-                : overLimit
-                  ? "font-mono text-caption text-destructive tabular-nums"
-                  : nearLimit
-                    ? "font-mono text-caption text-warning tabular-nums"
-                    : "font-mono text-caption text-muted-foreground tabular-nums"
+            disabled={
+              !canEdit ||
+              !canDraft ||
+              verify.isPending ||
+              generateOrSave.isPending
             }
+            onClick={() => void onReverify()}
           >
-            {bytes.toLocaleString("en-GB")} /{" "}
-            {BYTE_LIMIT.toLocaleString("en-GB")}
-          </span>
-          <span role="status" className="sr-only">
-            {overLimit
-              ? "Your reply is over the 4,096-byte limit."
-              : nearLimit
-                ? "Your reply is approaching the 4,096-byte limit."
-                : ""}
-          </span>
-
-          {canEdit && canDraft ? (
-            <span
-              id={`${fieldId}-hint`}
-              className="hidden text-caption text-muted-foreground sm:inline"
-              title={`Save with ${shortcut}`}
-            >
-              {shortcut}
-            </span>
-          ) : (
-            <span id={`${fieldId}-hint`} className="sr-only" />
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!canSave}
-            onClick={() => void onSave()}
-          >
-            Save draft
+            <ShieldCheckIcon
+              aria-hidden
+              strokeWidth={1.75}
+              data-icon="inline-start"
+            />
+            {verify.isPending ? "Verifying…" : "Re-verify"}
           </Button>
-        </div>
+        ) : null}
+
+        {canEdit && canDraft && isDirty ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={generateOrSave.isPending}
+            onClick={() => setBody(seededBody)}
+          >
+            <RotateCcwIcon
+              aria-hidden
+              strokeWidth={1.75}
+              data-icon="inline-start"
+            />
+            Revert
+          </Button>
+        ) : null}
+
+        <span aria-hidden className="flex-1" />
+
+        <span
+          id={`${fieldId}-count`}
+          className={cn(
+            "text-caption tabular-nums",
+            bytes === 0 && "sr-only",
+            overLimit
+              ? "text-danger-ink"
+              : nearLimit
+                ? "text-warning-ink"
+                : "text-ink-muted"
+          )}
+        >
+          {bytes.toLocaleString("en-GB")} / {BYTE_LIMIT.toLocaleString("en-GB")}
+        </span>
+        <span role="status" className="sr-only">
+          {overLimit
+            ? "Your reply is over the 4,096-byte limit."
+            : nearLimit
+              ? "Your reply is approaching the 4,096-byte limit."
+              : ""}
+        </span>
+
+        {canEdit && canDraft ? (
+          <span
+            id={`${fieldId}-hint`}
+            className="hidden sm:inline-flex"
+            title={`Save with ${shortcut}`}
+          >
+            <Kbd>{shortcut}</Kbd>
+          </span>
+        ) : (
+          <span id={`${fieldId}-hint`} className="sr-only" />
+        )}
+
+        <Button
+          variant="secondary"
+          size="sm"
+          pill
+          disabled={!canSave}
+          onClick={() => void onSave()}
+        >
+          Save draft
+        </Button>
       </div>
 
       {reasons.length > 0 ? (
@@ -501,11 +535,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             cannot be undone.
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+            <AlertDialogClose render={<Button variant="secondary" />}>
               Keep editing
             </AlertDialogClose>
             <Button
-              size="sm"
               onClick={() => {
                 setConfirmOpen(false)
                 void runGenerate()

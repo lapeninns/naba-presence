@@ -5,6 +5,7 @@ import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 type ThemeSetting = "light" | "dark" | "system"
 
@@ -12,12 +13,6 @@ const NEXT_THEME: Record<ThemeSetting, ThemeSetting> = {
   light: "dark",
   dark: "system",
   system: "light",
-}
-
-const THEME_ICON: Record<ThemeSetting, typeof Sun> = {
-  light: Sun,
-  dark: Moon,
-  system: Monitor,
 }
 
 function isThemeSetting(value: string | undefined): value is ThemeSetting {
@@ -42,6 +37,17 @@ function useHydrated() {
   )
 }
 
+/**
+ * The three glyphs are stacked and only one is at rest; the others are turned
+ * a quarter and shrunk away, so a change of theme reads as the sun turning
+ * into the moon rather than one icon blinking into another. The spring curve
+ * gives the turn its settle; reduced motion collapses it globally.
+ */
+const GLYPH_CLASS =
+  "absolute size-4 transition duration-(--np-duration-standard) ease-spring"
+const GLYPH_AT_REST = "rotate-0 scale-100 opacity-100"
+const GLYPH_AWAY = "scale-50 opacity-0"
+
 // One button, three states, no keyboard shortcut. The button itself always
 // renders so the header's layout never shifts; only the icon and label swap
 // once hydration confirms the real persisted theme.
@@ -52,16 +58,39 @@ function ThemeToggle() {
   const current: ThemeSetting =
     hydrated && isThemeSetting(theme) ? theme : "system"
   const next = NEXT_THEME[current]
-  const Icon = THEME_ICON[current]
 
   return (
     <Button
-      variant="ghost"
-      size="icon-sm"
+      variant="secondary"
+      size="icon"
+      className="relative rounded-(--np-radius-pill)"
       aria-label={`Theme: ${current}, switch to ${next}`}
       onClick={() => setTheme(next)}
     >
-      <Icon aria-hidden />
+      <Sun
+        className={cn(
+          GLYPH_CLASS,
+          current === "light" ? GLYPH_AT_REST : cn(GLYPH_AWAY, "-rotate-90")
+        )}
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <Moon
+        className={cn(
+          GLYPH_CLASS,
+          current === "dark" ? GLYPH_AT_REST : cn(GLYPH_AWAY, "rotate-90")
+        )}
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <Monitor
+        className={cn(
+          GLYPH_CLASS,
+          current === "system" ? GLYPH_AT_REST : cn(GLYPH_AWAY, "rotate-90")
+        )}
+        strokeWidth={1.75}
+        aria-hidden
+      />
     </Button>
   )
 }

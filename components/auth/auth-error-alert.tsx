@@ -23,7 +23,12 @@ function AuthErrorAlert({
             <ResendConfirmationButton email={email} />
           ) : null}
           {message.action === "request-reset-link" ? (
-            <Link href="/forgot-password" className="underline underline-offset-4">
+            // Inherits the alert's ink so the link reads as part of the
+            // message; the underline is what marks it as a route out.
+            <Link
+              href="/forgot-password"
+              className="inline-flex min-h-6 items-center rounded-(--np-radius-tag) font-medium underline underline-offset-4 focus-halo"
+            >
               Request another link
             </Link>
           ) : null}

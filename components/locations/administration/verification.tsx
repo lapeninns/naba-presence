@@ -5,6 +5,7 @@ import { useId, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
+import { GroupedList } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -34,32 +35,35 @@ export function VerificationHistory({ data }: { data: RawRecord }) {
   const verifications = asArray(data.verifications)
   if (verifications.length === 0) {
     return (
-      <p className="text-caption text-muted-foreground">
-        No verification attempts yet.
-      </p>
+      <p className="text-caption text-ink-muted">No verification attempts yet.</p>
     )
   }
   return (
-    <ul className="flex flex-col gap-3">
+    <GroupedList aria-label="Verification attempts">
       {verifications.map((verification, index) => (
         <VerificationRow
           key={asString(verification.name) || index}
           verification={verification}
         />
       ))}
-    </ul>
+    </GroupedList>
   )
 }
 
 function verificationBadgeVariant(
   state: string
-): "success" | "info" | "destructive" | "outline" {
+): "success" | "info" | "destructive" | "secondary" {
   if (state === "COMPLETED") return "success"
   if (state === "PENDING") return "info"
   if (state === "FAILED") return "destructive"
-  return "outline"
+  return "secondary"
 }
 
+/**
+ * One attempt as a grouped-list row. A pending attempt grows a PIN field and
+ * its confirm button under the title, so the row is hand-built rather than a
+ * `GroupedListItem`: the label and trailing slots there are inline spans.
+ */
 function VerificationRow({ verification }: { verification: RawRecord }) {
   const { locationId, disabled, writeBlocked } = useAdministrationSection()
   const method =
@@ -81,9 +85,9 @@ function VerificationRow({ verification }: { verification: RawRecord }) {
   })
 
   return (
-    <li className="flex flex-col gap-2 rounded-(--np-radius-card) border border-border p-3">
-      <div className="flex items-center gap-2">
-        <span className="text-ui font-medium">
+    <li className="flex min-h-(--np-row-h) flex-col justify-center gap-3 border-t border-line-subtle px-(--np-card-pad) py-3 first:border-t-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-body text-ink">
           {verificationMethodLabel(method)}
         </span>
         <Badge variant={verificationBadgeVariant(state)}>
@@ -92,17 +96,18 @@ function VerificationRow({ verification }: { verification: RawRecord }) {
       </div>
       {state === "PENDING" && name ? (
         <div className="flex flex-wrap items-end gap-2">
-          <Field>
+          <Field className="w-40">
             <FieldLabel htmlFor={pinId}>PIN</FieldLabel>
             <Input
               id={pinId}
               value={pin}
               disabled={disabled}
+              inputMode="numeric"
+              autoComplete="one-time-code"
               onChange={(e) => setPin(e.target.value)}
             />
           </Field>
           <Button
-            size="sm"
             onClick={() => complete.mutate()}
             disabled={writeBlocked || !pin.trim() || complete.isPending}
           >
@@ -129,6 +134,7 @@ function availableMethods(data: RawRecord): string[] {
 export function StartVerification({ data }: { data: RawRecord }) {
   const { locationId, disabled, writeBlocked } = useAdministrationSection()
   const methods = availableMethods(data)
+  const methodLabelId = useId()
   // Only reset the selected method when `data` itself changes identity (a
   // refetch), not on every incidental re-render.
   const [method, setMethod] = useResetOnRevision(methods[0] ?? "", data)
@@ -145,22 +151,28 @@ export function StartVerification({ data }: { data: RawRecord }) {
 
   if (methods.length === 0) {
     return (
-      <p className="text-caption text-muted-foreground">
+      <p className="text-caption text-ink-muted">
         Google has no verification methods available for this listing right now.
       </p>
     )
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="flex flex-col gap-1">
-        <span className="text-ui font-medium">Verification method</span>
+    <div className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+      <div className="flex flex-col gap-1.5">
+        <span id={methodLabelId} className="text-ui font-medium text-ink">
+          Verification method
+        </span>
         <Select
           value={method}
           onValueChange={(value: string | null) => value && setMethod(value)}
           disabled={disabled}
         >
-          <SelectTrigger aria-label="Verification method">
+          <SelectTrigger
+            className="w-full sm:w-64"
+            aria-label="Verification method"
+            aria-describedby={methodLabelId}
+          >
             <SelectValue>
               {(value: string | null) =>
                 value ? verificationMethodLabel(value) : ""
@@ -176,12 +188,14 @@ export function StartVerification({ data }: { data: RawRecord }) {
           </SelectContent>
         </Select>
       </div>
-      <Button
-        onClick={() => start.mutate()}
-        disabled={writeBlocked || start.isPending}
-      >
-        {start.isPending ? "Starting…" : "Start verification"}
-      </Button>
+      <div>
+        <Button
+          onClick={() => start.mutate()}
+          disabled={writeBlocked || start.isPending}
+        >
+          {start.isPending ? "Starting…" : "Start verification"}
+        </Button>
+      </div>
       <SectionGateNote />
     </div>
   )

@@ -7,6 +7,7 @@ import { DeletePhotoDialog } from "@/components/locations/photos/delete-photo-di
 import { MediaCard } from "@/components/locations/photos/media-card"
 import { PhotoPreview } from "@/components/locations/photos/photo-preview"
 import { Button } from "@/components/ui/button"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   updateMediaCategory,
   type MediaCategory,
@@ -68,27 +69,29 @@ export function PhotosGrid({
 
   return (
     <>
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-3 p-3 sm:p-4">
-        {items.map((item) => (
-          <MediaCard
-            key={item.id}
-            item={item}
-            disabled={disabled}
-            updating={updatingId === item.id}
-            patchCategories={patchCategories}
-            onOpen={() => setPreviewItem(item)}
-            onCategoryChange={(next) => {
-              if (next === item.category) return
-              changeCategory.mutate({ item, category: next })
-            }}
-            onDelete={() => setDeleteTarget(item)}
-          />
-        ))}
-      </ul>
+      <TooltipProvider>
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-3 p-(--np-card-pad)">
+          {items.map((item) => (
+            <MediaCard
+              key={item.id}
+              item={item}
+              disabled={disabled}
+              updating={updatingId === item.id}
+              patchCategories={patchCategories}
+              onOpen={() => setPreviewItem(item)}
+              onCategoryChange={(next) => {
+                if (next === item.category) return
+                changeCategory.mutate({ item, category: next })
+              }}
+              onDelete={() => setDeleteTarget(item)}
+            />
+          ))}
+        </ul>
+      </TooltipProvider>
 
       <nav
         aria-label="Photo pages"
-        className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2.5 sm:px-4"
+        className="flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle px-(--np-card-pad) py-2.5"
       >
         <Button
           variant="ghost"
@@ -96,10 +99,10 @@ export function PhotosGrid({
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
         >
-          <ChevronLeftIcon aria-hidden />
+          <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
           Previous
         </Button>
-        <span className="order-first w-full text-center text-caption text-muted-foreground tabular-nums sm:order-none sm:w-auto">
+        <span className="order-first w-full text-center text-caption text-ink-muted tabular-nums sm:order-none sm:w-auto">
           {formatNumber(rangeStart)}–{formatNumber(rangeEnd)} of{" "}
           {formatNumber(total)}
           {pageCount > 1 ? ` · Page ${page} of ${pageCount}` : null}
@@ -111,7 +114,7 @@ export function PhotosGrid({
           onClick={() => onPageChange(page + 1)}
         >
           Next
-          <ChevronRightIcon aria-hidden />
+          <ChevronRightIcon aria-hidden strokeWidth={1.75} />
         </Button>
       </nav>
 

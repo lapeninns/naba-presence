@@ -37,10 +37,11 @@ export type RailClient = {
 /**
  * The inbox's left rail: what needs doing, and for whom.
  *
- * Replaces a tab strip that could only express workflow status. An agency's
- * first question is not "how many reviews are awaiting approval" but "which
- * client is behind", so the queues appear twice: once across everything, and
- * once per client.
+ * Drawn as a Mail-style sidebar on the canvas: groups under quiet captions,
+ * rows that highlight on the accent tint when selected, counts in tabular
+ * figures at the trailing edge. The queues appear twice — once across
+ * everything, and once per client — because an agency's first question is
+ * not "how many reviews are awaiting approval" but "which client is behind".
  */
 function InboxRail({
   state,
@@ -63,10 +64,7 @@ function InboxRail({
   const clientById = new Map(clients.map((client) => [client.id, client]))
 
   return (
-    <nav
-      aria-label="Review queues"
-      className="flex w-full flex-col gap-5 overflow-y-auto p-3"
-    >
+    <nav aria-label="Review queues" className="flex w-full flex-col gap-6">
       <div className="flex flex-col gap-0.5">
         <RailHeading>Everything</RailHeading>
         {QUEUE_ORDER.map((queue) => {
@@ -136,11 +134,14 @@ function RailHeading({ children }: { children: React.ReactNode }) {
   // A span, not a heading: the page's h1 is "Reviews", and section headings in
   // a rail would sit above it in the outline.
   return (
-    <span className="px-2 pb-1 text-caption font-medium tracking-wide text-ink-muted uppercase">
+    <span className="px-2.5 pb-1 text-caption font-medium text-ink-muted">
       {children}
     </span>
   )
 }
+
+const railRowClassName =
+  "flex h-8 w-full items-center gap-2 rounded-(--np-radius-control) pr-2 text-left text-ui font-medium focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]"
 
 function RailRow({
   label,
@@ -184,12 +185,11 @@ function RailRow({
         .filter(Boolean)
         .join(", ")}
       className={cn(
-        "flex items-center gap-2 rounded-(--np-radius-control) py-1.5 pr-2 text-left text-ui transition-colors duration-(--np-duration-fast)",
-        indent ? "pl-7" : "pl-2",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        railRowClassName,
+        indent ? "pl-8" : "pl-2.5",
         active
-          ? "bg-accent-tint font-medium text-accent-ink"
-          : "text-ink-muted hover:bg-[var(--np-hover-bg)] hover:text-ink"
+          ? "bg-accent-tint text-accent-ink"
+          : "text-ink hover:bg-fill-tertiary"
       )}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -197,9 +197,14 @@ function RailRow({
       {count === undefined ? null : countsPending ? (
         // A skeleton, never a zero: showing "0" before the count arrives
         // tells the operator there is nothing to do when there may be plenty.
-        <Skeleton className="h-3 w-5 rounded-(--np-radius-tag)" />
+        <Skeleton className="h-3 w-5" />
       ) : (
-        <span className="text-caption tabular-nums">
+        <span
+          className={cn(
+            "text-caption tabular-nums",
+            active ? "text-accent-ink" : "text-ink-muted"
+          )}
+        >
           {count > 0 ? (
             count
           ) : (
@@ -248,23 +253,27 @@ function ClientGroup({
         // The group's own toggle says what it does; its rows already carry the
         // client's name, so an unqualified name here would collide with them.
         aria-label={`${open ? "Collapse" : "Expand"} ${name}`}
-        className="flex items-center gap-2 rounded-(--np-radius-control) px-2 py-1.5 text-left text-ui transition-colors duration-(--np-duration-fast) hover:bg-[var(--np-hover-bg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className={cn(
+          railRowClassName,
+          "pl-2.5 text-ink hover:bg-fill-tertiary"
+        )}
       >
         {health ? <StatusPill tone={healthTone(health)} variant="dot" /> : null}
-        <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
         {health === "disconnected" || health === "not_connected" ? (
           <span
             className="flex text-danger-ink"
             title={`${name} is not syncing with Google`}
           >
-            <TriangleAlert className="size-3.5" aria-hidden />
+            <TriangleAlert className="size-3.5" strokeWidth={1.75} aria-hidden />
             <span className="sr-only">Not syncing with Google</span>
           </span>
         ) : null}
         <ChevronDown
           aria-hidden
+          strokeWidth={1.75}
           className={cn(
-            "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast)",
+            "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
             open && "rotate-180"
           )}
         />

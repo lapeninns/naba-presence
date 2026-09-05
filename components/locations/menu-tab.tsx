@@ -1,5 +1,6 @@
 "use client"
 
+import { UtensilsCrossed } from "lucide-react"
 import { useCallback, useMemo, useRef, useState } from "react"
 
 import { EditorFooter } from "@/components/editors/editor-footer"
@@ -45,6 +46,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
           />
         ) : (
           <Empty
+            icon={<UtensilsCrossed aria-hidden />}
             title="This location can’t have a food menu"
             description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
           />

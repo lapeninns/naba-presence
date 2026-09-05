@@ -27,10 +27,13 @@ function ResendConfirmationButton({
 
   return (
     <span className="flex flex-col items-start gap-1.5">
+      {/* A plain text action, not a grey button: it is the secondary route
+          on a surface whose one filled button is the form's submit. */}
       <Button
         type="button"
-        variant="outline"
+        variant="link"
         size="sm"
+        className="px-0"
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
@@ -52,7 +55,7 @@ function ResendConfirmationButton({
         {pending ? "Sending…" : "Resend confirmation email"}
       </Button>
       {state === "failed" && failure ? (
-        <span className="text-caption text-destructive" role="alert">
+        <span className="text-caption text-danger-ink" role="alert">
           {failure}
         </span>
       ) : null}

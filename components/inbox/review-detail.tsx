@@ -64,6 +64,11 @@ function languageName(code: string | null): string | null {
   }
 }
 
+/**
+ * The inspector's pinned head: a slim toolbar row for the return-to-list and
+ * previous/next controls, the reviewer's identity, then the lifecycle and
+ * situation. Hairlines, no fills — the card is the surface.
+ */
 function PaneHeader({
   leading,
   navigation,
@@ -76,16 +81,18 @@ function PaneHeader({
   strip?: ReactNode
 }) {
   return (
-    <header className="flex shrink-0 flex-col border-b border-border/60">
+    <header className="flex shrink-0 flex-col border-b border-line-subtle">
       {leading || navigation ? (
-        <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
+        <div className="flex h-11 items-center gap-2 border-b border-line-subtle px-2">
           {leading ? <div className="min-w-0 lg:hidden">{leading}</div> : null}
           {navigation ? (
-            <div className="ml-auto flex shrink-0 items-center">{navigation}</div>
+            <div className="ml-auto flex shrink-0 items-center">
+              {navigation}
+            </div>
           ) : null}
         </div>
       ) : null}
-      <div className="@container/review-identity flex items-center gap-3 px-4 py-3 sm:px-5">
+      <div className="@container/review-identity flex items-center gap-3 px-(--np-card-pad) py-3">
         {children}
       </div>
       {strip}
@@ -142,19 +149,19 @@ function SituationStrip({ review }: { review: Review }) {
     <div
       role="status"
       className={cn(
-        "flex items-start gap-2 px-4 py-2 text-ui transition-[box-shadow,background-color] duration-(--np-duration-deliberate)",
+        "flex items-start gap-2 rounded-(--np-radius-control) px-3 py-2 text-ui transition-[box-shadow,background-color] duration-(--np-duration-deliberate) ease-spring",
         SITUATION_TONE_STRIP[situation.tone],
-        pulse && "ring-2 ring-success/50 ring-inset"
+        pulse && "ring-2 ring-(--np-success-line) ring-inset"
       )}
     >
-      <Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <Icon aria-hidden strokeWidth={1.75} className="mt-px size-4 shrink-0" />
       <p className="min-w-0">
         <span className="font-semibold">{situation.headline}</span>
         <span className="hidden sm:inline" aria-hidden>
           {" "}
           ·{" "}
         </span>
-        <span className="mt-0.5 block text-muted-foreground sm:mt-0 sm:inline">
+        <span className="mt-0.5 block sm:mt-0 sm:inline">
           {situation.detail}
         </span>
       </p>
@@ -172,27 +179,37 @@ function ReviewerIdentity({ review }: { review: Review }) {
       : null
   return (
     <div className="flex min-w-0 flex-1 items-start gap-3">
-      <Avatar className="size-11 text-ui @min-[32rem]/review-identity:size-12">
+      <Avatar size="lg">
         {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
         <AvatarFallback>{initials(displayName)}</AvatarFallback>
       </Avatar>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 @min-[32rem]/review-identity:flex-row @min-[32rem]/review-identity:items-start @min-[32rem]/review-identity:justify-between @min-[32rem]/review-identity:gap-6">
         <div className="min-w-0">
-          <h2 className="truncate text-title font-semibold">{displayName}</h2>
+          <h2 className="truncate text-title font-semibold text-ink">
+            {displayName}
+          </h2>
           <div className="mt-0.5">
             <StarRating rating={review.rating} size="md" />
           </div>
         </div>
-        <div className="flex min-w-0 flex-col gap-0.5 text-caption text-muted-foreground @min-[32rem]/review-identity:shrink-0 @min-[32rem]/review-identity:items-end">
+        <div className="flex min-w-0 flex-col gap-0.5 text-caption text-ink-muted @min-[32rem]/review-identity:shrink-0 @min-[32rem]/review-identity:items-end">
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <MapPinIcon aria-hidden className="size-3.5 shrink-0" />
+            <MapPinIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0"
+            />
             <span className="truncate">{review.locationName}</span>
           </span>
           <time
             dateTime={review.createTime}
             className="inline-flex items-center gap-1.5 tabular-nums"
           >
-            <ClockIcon aria-hidden className="size-3.5 shrink-0" />
+            <ClockIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0"
+            />
             {formatDateTime(review.createTime, review.timezone)}
           </time>
         </div>
@@ -212,7 +229,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="rounded-(--np-radius-field) bg-muted/80 px-4 py-3 text-body text-muted-foreground italic">
+      <p className="rounded-(--np-radius-control) bg-surface-sunken px-4 py-3 text-body text-ink-muted italic">
         A rating with no written review.
       </p>
     )
@@ -222,19 +239,23 @@ function ReviewBody({ review }: { review: Review }) {
   const originalLanguage = languageName(parsed.originalLang)
 
   return (
-    <div className="flex flex-col gap-2 rounded-(--np-radius-field) bg-muted/80 px-4 py-3">
+    <div className="flex flex-col gap-2 rounded-(--np-radius-control) bg-surface-sunken px-4 py-3">
       <blockquote
         lang={parsed.bodyLang ?? undefined}
         dir="auto"
-        className="text-body whitespace-pre-line"
+        className="text-body whitespace-pre-line text-ink"
       >
         {parsed.body}
       </blockquote>
 
       {original ? (
         <>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted-foreground">
-            <GlobeIcon aria-hidden className="size-3.5 shrink-0" />
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted">
+            <GlobeIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 shrink-0"
+            />
             <span>
               {originalLanguage
                 ? `Translated from ${originalLanguage}`
@@ -255,7 +276,7 @@ function ReviewBody({ review }: { review: Review }) {
             <blockquote
               lang={parsed.originalLang ?? undefined}
               dir="auto"
-              className="border-t border-border/60 pt-2 text-body whitespace-pre-line text-muted-foreground"
+              className="border-t border-line-subtle pt-2 text-body whitespace-pre-line text-ink-muted"
             >
               {original}
             </blockquote>
@@ -309,7 +330,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 type="button"
                 aria-label={`Open ${label}`}
                 onClick={() => setActiveIndex(index)}
-                className="relative block w-full overflow-hidden rounded-(--np-radius-control) border border-border/60 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+                className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
               >
                 {item.thumbnailUrl ? (
                   // Remote Google CDN thumbnails, not project assets — next/image
@@ -322,8 +343,12 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                     className="aspect-square w-full object-cover"
                   />
                 ) : (
-                  <span className="flex aspect-square w-full items-center justify-center bg-muted text-muted-foreground">
-                    <PlayIcon aria-hidden className="size-4" />
+                  <span className="flex aspect-square w-full items-center justify-center text-ink-muted">
+                    <PlayIcon
+                      aria-hidden
+                      strokeWidth={1.75}
+                      className="size-4"
+                    />
                   </span>
                 )}
                 {item.videoUrl ? (
@@ -331,7 +356,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                     aria-hidden
                     className="pointer-events-none absolute inset-0 flex items-center justify-center"
                   >
-                    <span className="flex size-6 items-center justify-center rounded-full bg-background/80 text-foreground">
+                    <span className="flex size-6 items-center justify-center rounded-(--np-radius-pill) bg-surface/85 text-ink shadow-(--np-shadow-raised)">
                       <PlayIcon className="size-3" />
                     </span>
                   </span>
@@ -392,23 +417,25 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                   type="button"
                   variant="secondary"
                   size="icon-sm"
+                  pill
                   aria-label="Previous media"
                   onClick={showPrevious}
-                  className="absolute top-1/2 left-2 -translate-y-1/2"
+                  className="absolute top-1/2 left-2 -translate-y-1/2 shadow-(--np-shadow-raised)"
                 >
-                  <ChevronLeftIcon aria-hidden />
+                  <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
                 </Button>
                 <Button
                   type="button"
                   variant="secondary"
                   size="icon-sm"
+                  pill
                   aria-label="Next media"
                   onClick={showNext}
-                  className="absolute top-1/2 right-2 -translate-y-1/2"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 shadow-(--np-shadow-raised)"
                 >
-                  <ChevronRightIcon aria-hidden />
+                  <ChevronRightIcon aria-hidden strokeWidth={1.75} />
                 </Button>
-                <p className="mt-2 text-center text-caption text-muted-foreground tabular-nums">
+                <p className="mt-2 text-center text-caption text-ink-muted tabular-nums">
                   {(activeIndex ?? 0) + 1} of {items.length}
                 </p>
               </>
@@ -437,38 +464,34 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   const at = reply.googleReplyUpdatedAt
 
   return (
-    <section className="rounded-(--np-radius-field) border border-dashed border-border">
+    <section className="rounded-(--np-radius-control) bg-surface-sunken">
       <h3>
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-field) px-3 py-2 text-caption focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill focus-visible:outline-none"
         >
           <ChevronRightIcon
             aria-hidden
+            strokeWidth={1.75}
             className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
               open && "rotate-90"
             )}
           />
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-(--np-radius-pill) px-2 py-0.5 font-medium",
+              "inline-flex h-(--np-pill-h) items-center gap-1.5 rounded-(--np-radius-pill) px-2 font-medium",
               SITUATION_TONE_CHIP[state.tone]
             )}
           >
-            <Icon aria-hidden className="size-3.5" />
+            <Icon aria-hidden strokeWidth={1.75} className="size-3.5" />
             {state.label}
           </span>
-          <span className="text-muted-foreground">
-            differs from the reply below
-          </span>
+          <span className="text-ink-muted">differs from the reply below</span>
           {at ? (
-            <time
-              dateTime={at}
-              className="ml-auto text-muted-foreground tabular-nums"
-            >
+            <time dateTime={at} className="ml-auto text-ink-muted tabular-nums">
               {formatDateTime(at, review.timezone)}
             </time>
           ) : null}
@@ -476,13 +499,14 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
       </h3>
       {open ? (
         <div className="flex flex-col gap-2 px-3 pt-1 pb-3">
-          <p dir="auto" className="text-body whitespace-pre-line">
+          <p dir="auto" className="text-body whitespace-pre-line text-ink">
             {reply.body}
           </p>
           {reply.googlePolicyViolation ? (
-            <p className="flex items-start gap-1.5 text-caption text-destructive">
+            <p className="flex items-start gap-1.5 text-caption text-danger-ink">
               <TriangleAlertIcon
                 aria-hidden
+                strokeWidth={1.75}
                 className="mt-0.5 size-3.5 shrink-0"
               />
               Google flagged this reply: {reply.googlePolicyViolation}
@@ -497,7 +521,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
 function ActionFooterSkeleton() {
   return (
     <div className="flex justify-end gap-2" aria-hidden>
-      <Skeleton className="h-8 w-28 rounded-(--np-radius-control)" />
+      <Skeleton className="h-(--np-control-h) w-28 rounded-(--np-radius-pill)" />
     </div>
   )
 }
@@ -514,9 +538,9 @@ function ReviewDetail({
   leading?: ReactNode
   /** Previous / next review controls, pinned in the pane chrome. */
   navigation?: ReactNode
-  /** Reply workspace, rendered after the review in the scroll region. */
+  /** Reply workspace, pinned above the actions so the field never scrolls away. */
   composer?: ReactNode
-  /** Lifecycle actions, pinned below the scroll region so the CTA never scrolls away. */
+  /** Lifecycle actions, pinned at the foot of the pane so the CTA never scrolls away. */
   actions?: ReactNode
 }) {
   const query = useReviewDetail(reviewId)
@@ -525,20 +549,30 @@ function ReviewDetail({
     return (
       <div aria-busy="true" className="flex min-h-0 flex-1 flex-col">
         <PaneHeader leading={leading} navigation={navigation}>
-          <Skeleton className="size-10 rounded-full" />
+          <Skeleton className="size-12 rounded-(--np-radius-pill)" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-4 w-36 rounded-(--np-radius-tag)" />
-            <Skeleton className="h-3 w-52 rounded-(--np-radius-tag)" />
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-52" />
           </div>
         </PaneHeader>
-        <div className="flex flex-col gap-4 p-6">
-          <Skeleton className="h-24 w-full rounded-(--np-radius-card)" />
-          <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
+        <div className="flex min-h-0 flex-1 flex-col gap-4 p-(--np-card-pad)">
+          <Skeleton className="h-24 w-full rounded-(--np-radius-control)" />
+          <Skeleton className="h-8 w-40" />
         </div>
-        {actions ? (
-          <footer className="shrink-0 border-t border-border/60 px-4 py-3">
-            <ActionFooterSkeleton />
-          </footer>
+        {composer || actions ? (
+          <div className="flex shrink-0 flex-col border-t border-line-subtle">
+            {composer ? (
+              <div className="flex flex-col gap-2 px-(--np-card-pad) py-3">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-28 w-full rounded-(--np-radius-field)" />
+              </div>
+            ) : null}
+            {actions ? (
+              <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
+                <ActionFooterSkeleton />
+              </footer>
+            ) : null}
+          </div>
         ) : null}
       </div>
     )
@@ -551,7 +585,7 @@ function ReviewDetail({
           title="We could not load this review."
           cause={query.error}
           onRetry={() => void query.refetch()}
-          className="p-6"
+          className="p-(--np-card-pad)"
         />
       </div>
     )
@@ -565,7 +599,7 @@ function ReviewDetail({
         leading={leading}
         navigation={navigation}
         strip={
-          <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
+          <div className="flex flex-col gap-3 px-(--np-card-pad) pb-3">
             {/* The pipeline first, then the one-line situation. Publishing is
                 the only irreversible thing this product does, so where a reply
                 has got to — and who moved it — belongs on screen rather than
@@ -579,14 +613,14 @@ function ReviewDetail({
         <ReviewerIdentity review={review} />
       </PaneHeader>
 
-      {/* One scroll region ordered as the task runs: read what they said, then
-          write. The live reply appears only when it disagrees with the draft,
-          and the audit trail is reference so it sits last and collapsed. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-5">
+      {/* One scroll region for reading: what they said, then what is on
+          Google if it disagrees with the draft, then the audit trail last and
+          collapsed. Writing happens in the pinned area beneath, so the field
+          and the Publish button are always in reach. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-(--np-card-pad)">
         <ReviewBody review={review} />
         <ReviewMedia media={review.media} />
         <LiveReplyDisclosure review={review} />
-        {composer}
         <ActivityTimeline
           timeline={review.timeline}
           timezone={review.timezone}
@@ -594,10 +628,19 @@ function ReviewDetail({
         />
       </div>
 
-      {actions ? (
-        <footer className="shrink-0 border-t border-border/60 px-4 py-3">
-          {actions}
-        </footer>
+      {composer || actions ? (
+        <div className="flex shrink-0 flex-col border-t border-line-subtle bg-surface">
+          {composer ? (
+            <div className="max-h-[45dvh] overflow-y-auto px-(--np-card-pad) py-3">
+              {composer}
+            </div>
+          ) : null}
+          {actions ? (
+            <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
+              {actions}
+            </footer>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

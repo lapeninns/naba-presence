@@ -9,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -17,9 +18,12 @@ import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
+import { cn } from "@/lib/utils"
 
 /**
- * Actions over a selection.
+ * Actions over a selection, floating over the workspace as a capsule on the
+ * popover material — the way a Mac shows a selection's tools without moving
+ * the rows underneath.
  *
  * Reports eligibility BEFORE acting — "3 of 5 can be approved" — because the
  * alternative is an operator pressing Approve on five rows and being told
@@ -40,7 +44,8 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
   if (chosen.length === 0) return null
 
   const approvable = chosen.filter(
-    (row) => row.workflowStatus === "awaiting_approval" && row.capabilities.canPublish
+    (row) =>
+      row.workflowStatus === "awaiting_approval" && row.capabilities.canPublish
   )
 
   const run = async (
@@ -48,7 +53,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
     assigneeId?: string | null
   ) => {
     const ids =
-      action === "approve" ? approvable.map((row) => row.id) : chosen.map((row) => row.id)
+      action === "approve"
+        ? approvable.map((row) => row.id)
+        : chosen.map((row) => row.id)
     if (ids.length === 0) return
     try {
       const result = await bulk.mutateAsync({
@@ -74,19 +81,39 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
     }
   }
 
+  const partial = approvable.length < chosen.length && approvable.length > 0
+  const failures = outcome
+    ? outcome.results.filter((row) => row.status !== "ok")
+    : []
+  // A single row of tools is a capsule; once there is a note or a list of
+  // outcomes under it, the panel radius keeps the corners concentric.
+  const hasNotes = partial || failures.length > 0
+
   return (
-    <div className="flex flex-col gap-2 border-t border-line bg-surface px-3 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-ui font-medium tabular-nums">
+    <div
+      role="region"
+      aria-label="Selected reviews"
+      data-slot="bulk-action-bar"
+      className={cn(
+        "absolute bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 material-popover shadow-(--np-shadow-pop)",
+        "transition-[opacity,translate] duration-(--np-duration-overlay) ease-spring starting:translate-y-2 starting:opacity-0",
+        hasNotes
+          ? "rounded-(--np-radius-panel) px-3 py-2.5"
+          : "rounded-(--np-radius-pill) py-1.5 pr-1.5 pl-3"
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="pr-1.5 text-ui font-medium text-ink tabular-nums">
           {chosen.length} selected
         </span>
 
         <Button
           size="sm"
+          pill
           disabled={approvable.length === 0 || bulk.isPending}
           onClick={() => void run("approve")}
         >
-          <Check className="size-3.5" aria-hidden />
+          <Check aria-hidden strokeWidth={1.75} data-icon="inline-start" />
           {approvable.length === chosen.length
             ? "Approve"
             : `Approve ${approvable.length} of ${chosen.length}`}
@@ -94,12 +121,19 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<Button size="sm" variant="outline" disabled={bulk.isPending} />}
+            render={
+              <Button
+                size="sm"
+                variant="secondary"
+                pill
+                disabled={bulk.isPending}
+              />
+            }
           >
-            <UserPlus className="size-3.5" aria-hidden />
+            <UserPlus aria-hidden strokeWidth={1.75} data-icon="inline-start" />
             Assign
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent side="top" align="center">
             {(members.data?.members ?? []).map((member) => (
               <DropdownMenuItem
                 key={member.userId}
@@ -108,6 +142,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
                 {member.displayName ?? member.email}
               </DropdownMenuItem>
             ))}
+            {(members.data?.members ?? []).length > 0 ? (
+              <DropdownMenuSeparator />
+            ) : null}
             <DropdownMenuItem onClick={() => void run("assign", null)}>
               Unassign
             </DropdownMenuItem>
@@ -116,43 +153,51 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
+          pill
           disabled={bulk.isPending}
           onClick={() => void run("mark_reviewed")}
         >
           Mark reviewed
         </Button>
 
-        <Button size="sm" variant="ghost" onClick={clear} className="ml-auto">
-          <X className="size-3.5" aria-hidden />
-          Clear
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          pill
+          aria-label="Clear selection"
+          onClick={clear}
+        >
+          <X aria-hidden strokeWidth={1.75} />
         </Button>
       </div>
 
-      {approvable.length < chosen.length && approvable.length > 0 ? (
+      {partial ? (
         <p className="text-caption text-ink-muted">
           {chosen.length - approvable.length} of these are not awaiting your
           approval, so Approve will skip them.
         </p>
       ) : null}
 
-      {outcome && outcome.results.some((row) => row.status !== "ok") ? (
+      {failures.length > 0 ? (
         <ul className="flex flex-col gap-1" aria-live="polite">
-          {outcome.results
-            .filter((row) => row.status !== "ok")
-            .map((row) => (
-              <li key={row.reviewId} className="flex items-center gap-2 text-caption">
-                <StatusPill
-                  tone={row.status === "failed" ? "at-risk" : "attention"}
-                  variant="inline"
-                >
-                  {row.status === "failed" ? "Failed" : "Skipped"}
-                </StatusPill>
-                <span className="text-ink-muted">
-                  {row.code ? describeErrorCode(row.code) : "No reason given."}
-                </span>
-              </li>
-            ))}
+          {failures.map((row) => (
+            <li
+              key={row.reviewId}
+              className="flex items-center gap-2 text-caption"
+            >
+              <StatusPill
+                tone={row.status === "failed" ? "at-risk" : "attention"}
+                variant="inline"
+                className="text-caption"
+              >
+                {row.status === "failed" ? "Failed" : "Skipped"}
+              </StatusPill>
+              <span className="text-ink-muted">
+                {row.code ? describeErrorCode(row.code) : "No reason given."}
+              </span>
+            </li>
+          ))}
         </ul>
       ) : null}
     </div>

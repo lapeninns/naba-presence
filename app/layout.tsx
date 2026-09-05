@@ -1,22 +1,23 @@
-import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
-import { Newsreader } from "next/font/google"
+import { Inter } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
-// The editorial voice: Newsreader carries page titles and display numbers,
-// Geist everything else. `adjustFontFallback` keeps the Georgia fallback close
-// enough in metrics that a slow font load does not reflow a heading, and PDF
-// or PNG exports of a page render that fallback rather than nothing.
-const newsreader = Newsreader({
+// One family, platform-native. `--font-sans` in globals.css puts San
+// Francisco first, so Apple devices never download a font; Inter is the
+// fallback everywhere else because it carries an optical-size axis, which is
+// what keeps 13px UI text open and 32px figures tight the way SF does.
+// `adjustFontFallback` keeps the system fallback's metrics close enough that
+// a slow font load does not reflow a heading.
+const inter = Inter({
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600"],
-  variable: "--font-newsreader",
-  fallback: ["Georgia", "Times New Roman", "serif"],
+  axes: ["opsz"],
+  variable: "--font-inter",
+  fallback: ["Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
 })
 
 export const metadata = {
@@ -33,10 +34,9 @@ export default function RootLayout({
       lang="en"
       suppressHydrationWarning
       className={cn(
-        "antialiased font-sans",
-        GeistSans.variable,
-        GeistMono.variable,
-        newsreader.variable
+        "font-sans antialiased",
+        inter.variable,
+        GeistMono.variable
       )}
     >
       <body>

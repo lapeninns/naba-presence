@@ -1,5 +1,6 @@
 "use client"
 
+import { Check, Minus, X } from "lucide-react"
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
@@ -14,6 +15,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { Spinner } from "@/components/ui/spinner"
 
 /**
  * The confirmation step in front of every Google write.
@@ -67,7 +69,7 @@ function ReviewChangesSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex flex-col gap-0 sm:max-w-xl">
+      <SheetContent side="right" className="flex flex-col gap-0 md:max-w-xl">
         <SheetHeader>
           <SheetTitle>Review changes</SheetTitle>
           <SheetDescription>
@@ -77,15 +79,15 @@ function ReviewChangesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-6">
           <ChangeDiff
             rows={rows}
             caption={`Changes to publish for ${locationName}`}
           />
 
           {conflicts.length > 0 ? (
-            <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-[var(--np-warning-line)] bg-warning-tint p-3">
-              <p className="text-ui text-warning-ink">
+            <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-warning-tint p-4 text-warning-ink">
+              <p className="text-ui">
                 {conflicts.length === 1
                   ? `Google's copy of ${conflicts[0].field} changed after you started editing. Publishing replaces it.`
                   : `Google changed ${conflicts.length} of these fields after you started editing. Publishing replaces its values.`}
@@ -93,7 +95,9 @@ function ReviewChangesSheet({
               <Label className="flex items-start gap-2.5 text-ui text-warning-ink">
                 <Checkbox
                   checked={acknowledged}
-                  onCheckedChange={(checked) => setAcknowledged(Boolean(checked))}
+                  onCheckedChange={(checked) =>
+                    setAcknowledged(Boolean(checked))
+                  }
                 />
                 <span>
                   I&rsquo;ve read what Google has now and want to replace it.
@@ -105,23 +109,8 @@ function ReviewChangesSheet({
           {results && results.length > 0 ? (
             <ol className="flex flex-col gap-1.5" aria-label="Publish progress">
               {results.map((step) => (
-                <li key={step.key} className="flex items-baseline gap-2 text-ui">
-                  <span
-                    aria-hidden
-                    className={
-                      step.status === "done"
-                        ? "text-success-ink"
-                        : step.status === "failed"
-                          ? "text-danger-ink"
-                          : "text-ink-faint"
-                    }
-                  >
-                    {step.status === "done"
-                      ? "\u2713"
-                      : step.status === "failed"
-                        ? "\u2717"
-                        : "\u00b7"}
-                  </span>
+                <li key={step.key} className="flex items-center gap-2 text-ui">
+                  <StepGlyph status={step.status} />
                   <span className="text-ink-muted">
                     {step.label}
                     <span className="sr-only">
@@ -146,7 +135,7 @@ function ReviewChangesSheet({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-line-subtle px-4 py-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 material-toolbar px-6 py-3 [box-shadow:inset_0_0.5px_0_var(--np-line)]">
           {onSaveDraft ? (
             <Button variant="ghost" onClick={() => void onSaveDraft()}>
               Save without publishing
@@ -155,7 +144,7 @@ function ReviewChangesSheet({
             <span />
           )}
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Keep editing
             </Button>
             <Button
@@ -168,6 +157,36 @@ function ReviewChangesSheet({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** The per-step mark. Decorative: the sr-only text beside it carries the state. */
+function StepGlyph({ status }: { status: PublishStepResult["status"] }) {
+  const base = "size-4 shrink-0"
+  if (status === "done")
+    return (
+      <Check
+        className={`${base} text-success-ink`}
+        strokeWidth={2}
+        aria-hidden
+      />
+    )
+  if (status === "failed")
+    return (
+      <X className={`${base} text-danger-ink`} strokeWidth={2} aria-hidden />
+    )
+  if (status === "running")
+    return (
+      <span className={`${base} inline-flex items-center justify-center`}>
+        <Spinner decorative size="sm" />
+      </span>
+    )
+  return (
+    <Minus
+      className={`${base} text-ink-faint`}
+      strokeWidth={1.75}
+      aria-hidden
+    />
   )
 }
 

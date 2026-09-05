@@ -5,17 +5,21 @@ import { cn } from "@/lib/utils"
 
 export type CapabilityTone = "blocked" | "read_only" | "info"
 
+/**
+ * Tint plus ink per tone, no border: the tinted surface is the boundary, and
+ * every ink/tint pair here is one the contrast gate measures.
+ */
 const TONE = {
   blocked: {
-    className: "border-[var(--np-danger-line)] bg-danger-tint text-danger-ink",
+    className: "bg-danger-tint text-danger-ink",
     Icon: TriangleAlert,
   },
   read_only: {
-    className: "border-line bg-surface-sunken text-ink-muted",
+    className: "bg-surface-sunken text-ink",
     Icon: Lock,
   },
   info: {
-    className: "border-[var(--np-info-line)] bg-info-tint text-info-ink",
+    className: "bg-info-tint text-info-ink",
     Icon: Info,
   },
 } as const
@@ -42,15 +46,26 @@ function CapabilityBanner({
   const { className, Icon } = TONE[tone]
   return (
     <div
+      data-slot="capability-banner"
+      data-tone={tone}
       className={cn(
-        "flex flex-wrap items-start gap-3 rounded-(--np-radius-card) border p-3",
+        "flex flex-wrap items-start gap-3 rounded-(--np-radius-card) px-4 py-3",
         className
       )}
     >
-      <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <Icon className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} aria-hidden />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-ui font-medium">{title}</p>
-        {description ? <p className="text-ui">{description}</p> : null}
+        <p className="text-body font-semibold">{title}</p>
+        {description ? (
+          <p
+            className={cn(
+              "text-ui",
+              tone === "read_only" ? "text-ink-muted" : undefined
+            )}
+          >
+            {description}
+          </p>
+        ) : null}
       </div>
       {action ? (
         <Button

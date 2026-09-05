@@ -1,3 +1,4 @@
+import { Store } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
@@ -13,6 +14,7 @@ export function NoLocationEmpty({ role }: { role: string | null }) {
   const canConnect = role === "owner" || role === "admin"
   return (
     <Empty
+      icon={<Store aria-hidden />}
       title="No business connected yet"
       description={
         canConnect
@@ -21,7 +23,10 @@ export function NoLocationEmpty({ role }: { role: string | null }) {
       }
       action={
         canConnect ? (
-          <Link href="/settings/connections" className={cn(buttonVariants())}>
+          <Link
+            href="/settings/connections"
+            className={cn(buttonVariants({ pill: true }))}
+          >
             Connect Google
           </Link>
         ) : undefined

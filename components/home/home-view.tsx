@@ -14,6 +14,10 @@ import { useClients } from "@/lib/queries/use-clients"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useSessionRole } from "@/lib/queries/use-session"
 
+/**
+ * The summary: the figures first, the last 30 days as a curve, then the two
+ * lists that are today's to-do, and finally the per-client table.
+ */
 function HomeView() {
   const counts = useReviewCounts()
   const analytics = useAnalyticsOverview()
@@ -30,7 +34,7 @@ function HomeView() {
 
   if (!isPending && isError && !counts.data && !analytics.data) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-(--np-gap-section)">
         <DisconnectedBanner />
         <Alert variant="destructive">
           <AlertTitle>We could not load your home page.</AlertTitle>
@@ -46,17 +50,9 @@ function HomeView() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-(--np-gap-section)">
       <SetupChecklistCard role={role} />
       <DisconnectedBanner />
-      <WorkQueue
-        counts={counts.data}
-        unresolvedComplaints={
-          analytics.data?.summary.unresolvedComplaints ?? 0
-        }
-        isPending={isPending}
-      />
-      <WorkByClient clients={clients.data?.items} isPending={clients.isPending} />
       <HealthKpis summary={analytics.data?.summary} isPending={isPending} />
       <PulseChart
         overview={analytics.data}
@@ -64,11 +60,24 @@ function HomeView() {
         isError={analytics.isError}
         onRetry={() => void analytics.refetch()}
       />
-      <AttentionList
-        locations={analytics.data?.locations}
-        isPending={analytics.isPending}
-        isError={analytics.isError && !analytics.data}
-        onRetry={() => void analytics.refetch()}
+      <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
+        <WorkQueue
+          counts={counts.data}
+          unresolvedComplaints={
+            analytics.data?.summary.unresolvedComplaints ?? 0
+          }
+          isPending={isPending}
+        />
+        <AttentionList
+          locations={analytics.data?.locations}
+          isPending={analytics.isPending}
+          isError={analytics.isError && !analytics.data}
+          onRetry={() => void analytics.refetch()}
+        />
+      </div>
+      <WorkByClient
+        clients={clients.data?.items}
+        isPending={clients.isPending}
       />
     </div>
   )

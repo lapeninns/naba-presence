@@ -37,8 +37,8 @@ export function PhotoPreview({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(92vh,52rem)] gap-4 overflow-y-auto p-3 sm:max-w-4xl sm:p-4">
-        <DialogHeader className="pr-10">
+      <DialogContent className="max-h-[min(92vh,52rem)] gap-4 overflow-y-auto p-4 sm:max-w-4xl">
+        <DialogHeader>
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{categoryLabel}</DialogTitle>
             <Badge variant={customer ? "outline" : "secondary"}>
@@ -52,7 +52,7 @@ export function PhotoPreview({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-hidden rounded-(--np-radius-field) bg-black/90">
+        <div className="overflow-hidden rounded-[calc(var(--np-radius-modal)-1rem)] bg-surface-sunken">
           {item.thumbnailUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -62,18 +62,22 @@ export function PhotoPreview({
               className="max-h-[min(70vh,40rem)] w-full object-contain"
             />
           ) : (
-            <div className="flex min-h-72 items-center justify-center text-white/60">
-              <ImagesIcon aria-hidden className="size-8" />
+            <div className="flex min-h-72 items-center justify-center text-ink-faint">
+              <ImagesIcon aria-hidden className="size-8" strokeWidth={1.25} />
             </div>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-field) bg-muted/50 px-3 py-2 text-caption text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-control) bg-surface-sunken px-3 py-2 text-caption text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
             {customer ? (
-              <UserRoundIcon aria-hidden className="size-3.5" />
+              <UserRoundIcon
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+              />
             ) : (
-              <StoreIcon aria-hidden className="size-3.5" />
+              <StoreIcon aria-hidden className="size-3.5" strokeWidth={1.75} />
             )}
             {customer ? "Shared by a customer" : "Uploaded by your business"}
           </span>
@@ -82,10 +86,14 @@ export function PhotoPreview({
               href={item.googleUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 font-medium text-foreground hover:underline"
+              className="inline-flex min-h-6 items-center gap-1.5 rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline"
             >
               Open original
-              <ExternalLinkIcon aria-hidden className="size-3.5" />
+              <ExternalLinkIcon
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+              />
             </a>
           ) : null}
         </div>

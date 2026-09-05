@@ -1,11 +1,12 @@
 "use client"
 
-import { Plus } from "lucide-react"
+import { Building2Icon, MapPinIcon, PlusIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
@@ -14,7 +15,7 @@ import { StatusPill } from "@/components/ui/status-pill"
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { useClients } from "@/lib/queries/use-clients"
-import { formatRelativeTime } from "@/lib/format"
+import { formatNumber, formatRelativeTime } from "@/lib/format"
 
 /**
  * Every client, ordered so the ones needing work come first.
@@ -30,10 +31,20 @@ function ClientsIndex({ role }: { role: string | null }) {
 
   if (clients.isPending) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true">
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
+      <div
+        aria-busy="true"
+        className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface"
+      >
+        {[0, 1, 2].map((index) => (
+          <div
+            key={index}
+            className="flex h-(--np-row-h) items-center gap-3 px-(--np-cell-px)"
+          >
+            <Skeleton className="size-8 rounded-(--np-radius-control)" />
+            <Skeleton className="h-3.5 w-40 max-w-[40%]" />
+            <Skeleton className="ml-auto h-3.5 w-16" />
+          </div>
+        ))}
       </div>
     )
   }
@@ -63,6 +74,7 @@ function ClientsIndex({ role }: { role: string | null }) {
   if (items.length === 0) {
     return (
       <Empty
+        icon={<Building2Icon />}
         title={canCreate ? "Set up your first client" : "No clients yet"}
         description={
           canCreate
@@ -71,7 +83,10 @@ function ClientsIndex({ role }: { role: string | null }) {
         }
         action={
           canCreate ? (
-            <Link href="/clients/new" className={buttonVariants()}>
+            <Link
+              href="/clients/new"
+              className={buttonVariants({ pill: true })}
+            >
               New client
             </Link>
           ) : undefined
@@ -81,13 +96,14 @@ function ClientsIndex({ role }: { role: string | null }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-(--np-gap-section)">
       <DataTable
         caption="Clients, with their Google health and open review work"
         rows={items}
         rowId={(client) => client.id}
         onRowClick={(client) => router.push(`/clients/${client.id}`)}
         density="compact"
+        surface
         columns={[
           {
             id: "name",
@@ -97,7 +113,7 @@ function ClientsIndex({ role }: { role: string | null }) {
                 <ClientAvatar name={client.name} colour={client.colour} />
                 <Link
                   href={`/clients/${client.id}`}
-                  className="font-medium text-ink underline-offset-4 hover:underline"
+                  className="rounded-(--np-radius-tag) font-medium text-ink underline-offset-4 focus-halo hover:underline"
                   onClick={(event) => event.stopPropagation()}
                 >
                   {client.name}
@@ -109,7 +125,7 @@ function ClientsIndex({ role }: { role: string | null }) {
             id: "health",
             header: "Health",
             cell: (client) => (
-              <StatusPill tone={healthTone(client.health)}>
+              <StatusPill variant="inline" tone={healthTone(client.health)}>
                 {healthLabel(client.health)}
               </StatusPill>
             ),
@@ -117,23 +133,31 @@ function ClientsIndex({ role }: { role: string | null }) {
           {
             id: "locations",
             header: "Locations",
+            numeric: true,
             cell: (client) => (
-              <span className="tabular-nums">
-                {client.linkedCount} / {client.locationCount}
+              <span>
+                {formatNumber(client.linkedCount)}
+                <span className="text-ink-muted">
+                  {" / "}
+                  {formatNumber(client.locationCount)}
+                </span>
               </span>
             ),
           },
           {
             id: "work",
             header: "Needs reply · approval",
+            numeric: true,
             cell: (client) => <OpenWork client={client} />,
           },
           {
             id: "sync",
             header: "Last sync",
             cell: (client) => (
-              <span className="text-ink-muted">
-                {client.lastSyncAt ? formatRelativeTime(client.lastSyncAt) : "Not yet"}
+              <span className="text-caption text-ink-muted">
+                {client.lastSyncAt
+                  ? formatRelativeTime(client.lastSyncAt)
+                  : "Not yet"}
               </span>
             ),
           },
@@ -141,25 +165,25 @@ function ClientsIndex({ role }: { role: string | null }) {
       />
 
       {unassigned > 0 ? (
-        <div className="flex items-center gap-3 rounded-(--np-radius-card) border border-line bg-surface-sunken px-4 py-3">
-          <div className="flex-1">
-            <p className="text-ui font-medium">
-              {unassigned === 1
-                ? "1 location has no client"
-                : `${unassigned} locations have no client`}
-            </p>
-            <p className="text-caption text-ink-muted">
+        <Alert icon={<MapPinIcon strokeWidth={1.75} aria-hidden />}>
+          <AlertTitle>
+            {unassigned === 1
+              ? "1 location has no client"
+              : `${unassigned} locations have no client`}
+          </AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-3">
+            <span>
               Imported from Google but not yet filed under a client. They stay
               out of client filters and reports until you assign them.
-            </p>
-          </div>
-          <Link
-            href="/locations"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Review locations
-          </Link>
-        </div>
+            </span>
+            <Link
+              href="/locations"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              Review locations
+            </Link>
+          </AlertDescription>
+        </Alert>
       ) : null}
     </div>
   )
@@ -171,13 +195,13 @@ function OpenWork({ client }: { client: ClientSummary }) {
     return <span className="text-ink-muted">Clear</span>
   }
   return (
-    <span className="flex items-center gap-1.5 tabular-nums">
-      <span className="font-medium">{needsReply}</span>
+    <span className="inline-flex items-center justify-end gap-1.5 tabular-nums">
+      <span className="font-medium text-ink">{formatNumber(needsReply)}</span>
       <span className="text-ink-muted">·</span>
-      <span className="text-ink-muted">{awaitingApproval}</span>
+      <span className="text-ink-muted">{formatNumber(awaitingApproval)}</span>
       {failed > 0 ? (
         <StatusPill tone="at-risk" variant="inline">
-          {failed} failed
+          {formatNumber(failed)} failed
         </StatusPill>
       ) : null}
     </span>
@@ -188,8 +212,8 @@ export { ClientsIndex, NewClientButton }
 
 function NewClientButton() {
   return (
-    <Link href="/clients/new" className={buttonVariants()}>
-      <Plus className="size-4" aria-hidden />
+    <Link href="/clients/new" className={buttonVariants({ pill: true })}>
+      <PlusIcon aria-hidden strokeWidth={1.75} />
       New client
     </Link>
   )

@@ -72,11 +72,13 @@ function InboxHotkeys({ handlers }: { handlers: HotkeyHandlers }) {
             These work anywhere in the inbox, except while you are typing.
           </DialogDescription>
         </DialogHeader>
-        <ul className="flex flex-col gap-1.5">
+        {/* A menu-style list: the action at the leading edge, its keys as
+            keycaps at the trailing edge, rows at menu height. */}
+        <ul className="flex flex-col">
           {SHORTCUTS.map((shortcut) => (
             <li
               key={shortcut.action}
-              className="flex items-center justify-between gap-4 text-ui"
+              className="flex h-(--np-menu-item-h) items-center justify-between gap-4 text-ui text-ink"
             >
               <span>{shortcut.label}</span>
               <span className="flex gap-1">

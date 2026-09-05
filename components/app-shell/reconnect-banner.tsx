@@ -3,9 +3,9 @@
 import { TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
 import { useClients } from "@/lib/queries/use-clients"
+import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
 
@@ -26,8 +26,13 @@ function formatWhen(iso: string | null | undefined): string | null {
  *
  * On org-wide pages this renders nothing. Home's attention list carries those
  * clients instead, where each row can name its own client and its own fix.
+ *
+ * Visually a tinted warning card sitting at the top of the content column,
+ * inside the page's own gutters, with a plain (accent-text) action. Nothing
+ * else in the shell is red or bordered, and this should not be either: it is
+ * a card with a colour, not an alarm.
  */
-export function ReconnectBanner() {
+export function ReconnectBanner({ className }: { className?: string }) {
   const clientId = useClientScope()
   const clients = useClients()
 
@@ -48,24 +53,38 @@ export function ReconnectBanner() {
   const lastRefresh = formatWhen(broken?.lastRefreshAt)
 
   return (
-    <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
-      <TriangleAlertIcon aria-hidden />
-      <AlertTitle>{client.name}: Google needs reconnecting</AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          {broken?.googleEmail
-            ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
-            : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
-          {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
-        </span>
+    <div className={cn("shrink-0", className)}>
+      <div
+        role="alert"
+        className="flex flex-col gap-3 rounded-(--np-radius-card) bg-warning-tint px-4 py-3 text-ui text-ink sm:flex-row sm:items-center"
+      >
+        <TriangleAlertIcon
+          className="size-4 shrink-0 text-warning-ink"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <p className="font-semibold">
+            {client.name}: Google needs reconnecting
+          </p>
+          <p className="text-ink-muted">
+            {broken?.googleEmail
+              ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
+              : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
+            {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
+          </p>
+        </div>
         <Link
           href={`/clients/${client.id}`}
           prefetch={false}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "shrink-0 self-start text-accent-ink sm:self-center"
+          )}
         >
-          Reconnect
+          Reconnect Google
         </Link>
-      </AlertDescription>
-    </Alert>
+      </div>
+    </div>
   )
 }

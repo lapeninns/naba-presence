@@ -21,7 +21,7 @@ export type DiffRow = {
   /**
    * `conflict` means Google changed this field since the draft started, so
    * publishing overwrites someone else's edit and the sheet asks for an
-   * explicit acknowledgement.
+   * explicit acknowledgement. Rows without a state are treated as `changed`.
    */
   state?: "changed" | "conflict" | "unchanged"
 }
@@ -33,6 +33,11 @@ export type DiffRow = {
  * table lets a screen reader announce "Phone, on Google now, 01223 277 217"
  * instead of reading two disconnected lists and leaving the pairing to the
  * listener.
+ *
+ * Removals sit on the danger tint and additions on the success tint, in
+ * monospace so a changed digit lines up with the one it replaces. An
+ * unchanged row carries neither tint. The words "Not set" and "Cleared" say
+ * what an empty cell means, so the tint is never the only signal.
  */
 function DiffView({
   rows,
@@ -49,8 +54,9 @@ function DiffView({
 }) {
   return (
     <div
+      data-slot="diff-view"
       className={cn(
-        "overflow-hidden rounded-(--np-radius-card) border border-line",
+        "overflow-hidden rounded-(--np-radius-card) bg-surface",
         className
       )}
     >
@@ -64,26 +70,39 @@ function DiffView({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.field}>
-              <TableCell className="align-top font-medium">
-                <span className="flex flex-col gap-1">
-                  {row.field}
-                  {row.state === "conflict" ? (
-                    <StatusPill tone="attention" variant="inline">
-                      Changed on Google
-                    </StatusPill>
-                  ) : null}
-                </span>
-              </TableCell>
-              <TableCell className="align-top text-ink-muted">
-                {row.before || <span className="text-ink-muted">Not set</span>}
-              </TableCell>
-              <TableCell className="align-top">
-                {row.after || <span className="text-ink-muted">Cleared</span>}
-              </TableCell>
-            </TableRow>
-          ))}
+          {rows.map((row) => {
+            const changed = row.state !== "unchanged"
+            return (
+              <TableRow key={row.field} data-state={row.state ?? "changed"}>
+                <TableCell className="align-top font-medium text-ink">
+                  <span className="flex flex-col gap-1">
+                    {row.field}
+                    {row.state === "conflict" ? (
+                      <StatusPill tone="attention" variant="inline">
+                        Changed on Google
+                      </StatusPill>
+                    ) : null}
+                  </span>
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "align-top font-mono text-ui break-words",
+                    changed ? "bg-danger-tint text-danger-ink" : "text-ink-muted"
+                  )}
+                >
+                  {row.before || <span className="font-sans">Not set</span>}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "align-top font-mono text-ui break-words",
+                    changed ? "bg-success-tint text-success-ink" : "text-ink"
+                  )}
+                >
+                  {row.after || <span className="font-sans">Cleared</span>}
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>

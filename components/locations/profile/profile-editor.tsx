@@ -493,7 +493,7 @@ function ProfileEditor({
           role="status"
           className="flex items-center gap-2 text-ui text-ink-muted"
         >
-          <Spinner decorative className="size-3.5 shrink-0" />
+          <Spinner decorative size="sm" className="shrink-0" />
           Reading categories, address and attributes from Google…
         </p>
       ) : null}
@@ -527,9 +527,11 @@ function ProfileEditor({
       />
 
       {unsupported.length > 0 ? (
-        <section className="flex max-w-xl flex-col gap-2">
-          <h3 className="text-title font-medium">Other Google details</h3>
-          <p className="text-ui text-muted-foreground">
+        <section className="flex max-w-2xl flex-col gap-1 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+          <h3 className="text-title font-semibold text-ink">
+            Other Google details
+          </h3>
+          <p className="text-ui text-ink-muted">
             Google holds more on this listing than NabaPresence can edit yet:{" "}
             {unsupported.map(({ label }) => label).join(", ")}. Change those in
             Google directly.
