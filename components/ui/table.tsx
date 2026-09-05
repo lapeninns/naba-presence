@@ -8,10 +8,13 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     // overflows — whether that's true is a runtime layout fact this shared
     // primitive can't know ahead of time, so it's applied unconditionally
     // (a focusable non-scrolling wrapper on wider viewports is harmless).
-    <div className="w-full overflow-x-auto" tabIndex={0}>
+    <div className="focus-halo w-full overflow-x-auto" tabIndex={0}>
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom border-collapse text-ui", className)}
+        className={cn(
+          "w-full caption-bottom border-collapse text-ui text-ink",
+          className
+        )}
         {...props}
       />
     </div>
@@ -22,6 +25,9 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
  * `sticky` keeps the column labels visible while a long table scrolls, which
  * a directory of forty clients needs. It is opt-in because a sticky header
  * inside a page that scrolls as a whole would detach and float.
+ *
+ * A sticky header sits on the toolbar material so rows blur beneath it, the
+ * one place a material is allowed near a table: it is chrome, not a row.
  */
 function TableHeader({
   className,
@@ -32,8 +38,8 @@ function TableHeader({
     <thead
       data-slot="table-header"
       className={cn(
-        "[&_th]:border-b [&_th]:border-border",
-        sticky && "sticky top-0 z-10 [&_th]:bg-[var(--np-table-header-bg)]",
+        "[&_th]:border-b [&_th]:border-line-subtle [&_tr:hover]:bg-transparent",
+        sticky && "sticky top-0 z-10 [&_th]:material-toolbar",
         className
       )}
       {...props}
@@ -45,15 +51,29 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
   return <tbody data-slot="table-body" className={className} {...props} />
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+/**
+ * `interactive` marks a row the whole of which is a target (DataTable sets it
+ * when `onRowClick` is given): pointer cursor, a press state and a visible
+ * focus treatment. The focus treatment is an outline rather than the halo
+ * because a `tr` inside a collapsed-border table does not paint box-shadow
+ * consistently across engines.
+ */
+function TableRow({
+  className,
+  interactive = false,
+  ...props
+}: React.ComponentProps<"tr"> & { interactive?: boolean }) {
   return (
     <tr
       data-slot="table-row"
+      data-interactive={interactive || undefined}
       className={cn(
-        "border-b border-line-subtle transition-colors duration-(--np-duration-fast) last:border-0 hover:bg-[var(--np-hover-bg)]",
+        "border-b border-line-subtle transition-colors duration-(--np-duration-fast) ease-spring-snappy last:border-0 hover:bg-(--np-hover-bg)",
         // Selection is a background, not a border: a selected row that also
         // changes height would make a checkbox column jitter as rows toggle.
         "data-[selected=true]:bg-accent-tint",
+        interactive &&
+          "cursor-pointer active:bg-fill-tertiary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--np-focus-ring)",
         className
       )}
       {...props}
@@ -61,13 +81,22 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+/**
+ * `numeric` right-aligns the column and sets tabular figures, so a column of
+ * counts lines up on the decimal point. Set it on the head and every cell.
+ */
+function TableHead({
+  className,
+  numeric = false,
+  ...props
+}: React.ComponentProps<"th"> & { numeric?: boolean }) {
   return (
     <th
       scope="col"
       data-slot="table-head"
       className={cn(
-        "h-(--np-row-h) px-(--np-cell-px) text-left align-middle text-caption font-medium text-ink-muted",
+        "h-(--np-row-h) px-(--np-cell-px) text-left align-middle text-ui font-medium whitespace-nowrap text-ink-muted",
+        numeric && "text-right tabular-nums",
         className
       )}
       {...props}
@@ -75,11 +104,19 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({
+  className,
+  numeric = false,
+  ...props
+}: React.ComponentProps<"td"> & { numeric?: boolean }) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("px-(--np-cell-px) py-(--np-row-py) align-middle", className)}
+      className={cn(
+        "px-(--np-cell-px) py-(--np-row-py) align-middle",
+        numeric && "text-right tabular-nums",
+        className
+      )}
       {...props}
     />
   )

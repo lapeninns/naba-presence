@@ -7,7 +7,7 @@ import { LocationTab } from "@/components/locations/location-tab"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -111,65 +112,69 @@ function BookingLinks({
   })
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-3">
+    <div className="flex flex-col gap-(--np-gap-section)">
+      <section className="flex flex-col gap-2">
         {state.links.length === 0 ? (
-          <p className="text-ui text-muted-foreground">
+          <p className="text-ui text-ink-muted">
             No booking links yet. Add one below and it appears on the listing.
           </p>
         ) : (
-          <Table className="min-w-[560px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Link</TableHead>
-                <TableHead>Preferred</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {state.links.map((link) => (
-                <TableRow key={link.id}>
-                  <TableCell className="font-medium">
-                    {humaniseActionType(link.placeActionType)}
-                  </TableCell>
-                  <TableCell className="max-w-[240px] truncate text-muted-foreground">
-                    {link.uri}
-                  </TableCell>
-                  <TableCell>
-                    {link.isPreferred ? (
-                      <Badge variant="secondary">Preferred</Badge>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {link.isEditable ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteTarget(link)}
-                        disabled={disabled}
-                        aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}
-                      >
-                        Remove
-                      </Button>
-                    ) : (
-                      <Badge variant="outline">Managed by Google</Badge>
-                    )}
-                  </TableCell>
+          <div className="overflow-hidden rounded-(--np-radius-card) bg-surface">
+            <Table className="min-w-140">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Link</TableHead>
+                  <TableHead>Preferred</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {state.links.map((link) => (
+                  <TableRow key={link.id}>
+                    <TableCell className="font-medium text-ink">
+                      {humaniseActionType(link.placeActionType)}
+                    </TableCell>
+                    <TableCell className="max-w-60 truncate text-ink-muted">
+                      {link.uri}
+                    </TableCell>
+                    <TableCell>
+                      {link.isPreferred ? (
+                        <Badge variant="tinted">Preferred</Badge>
+                      ) : (
+                        <span className="text-ink-faint">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {link.isEditable ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteTarget(link)}
+                          disabled={disabled}
+                          aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}
+                        >
+                          Remove
+                        </Button>
+                      ) : (
+                        <Badge variant="secondary">Managed by Google</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h3 className="text-title font-medium">Add a booking link</h3>
+      <section className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+        <h3 className="text-title font-semibold text-ink">
+          Add a booking link
+        </h3>
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-ui">
-            <span className="text-caption text-muted-foreground">Type</span>
+          <Field>
+            <FieldLabel>Type</FieldLabel>
             <Select
               value={type}
               onValueChange={(next) => setType(next as PlaceActionType)}
@@ -185,9 +190,9 @@ function BookingLinks({
                 ))}
               </SelectContent>
             </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-ui">
-            <span className="text-caption text-muted-foreground">Link</span>
+          </Field>
+          <Field>
+            <FieldLabel>Link</FieldLabel>
             <Input
               value={uri}
               onChange={(event) => setUri(event.target.value)}
@@ -196,18 +201,18 @@ function BookingLinks({
               className="w-72"
               disabled={disabled}
             />
-          </label>
-          <label className="flex items-center gap-2 text-ui">
-            <Checkbox
+          </Field>
+          <div className="flex h-(--np-field-h) items-center gap-2 text-ui text-ink">
+            <Switch
               checked={preferred}
               onCheckedChange={(value) => setPreferred(value === true)}
               disabled={disabled}
               aria-label="Preferred link"
             />
-            Preferred
-          </label>
+            <span aria-hidden>Preferred</span>
+          </div>
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={() => add.mutate()}
             disabled={disabled || uri.trim().length === 0 || add.isPending}
           >

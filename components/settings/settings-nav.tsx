@@ -1,7 +1,9 @@
 "use client"
 
+import { Activity, Link2, Scale, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import type { ComponentType, SVGProps } from "react"
 
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { cn } from "@/lib/utils"
@@ -10,14 +12,61 @@ import { cn } from "@/lib/utils"
 // can act on which client is daily work. Listing is gone entirely — it
 // administered a location from a page nowhere near it, and that now lives in
 // the location's own Access section.
-const AREAS = [
-  { href: "/settings", label: "Policy", capability: "always" as const },
-  { href: "/settings/compliance", label: "Compliance", capability: "canViewCompliance" as const },
-  { href: "/settings/connections", label: "Connections", capability: "canManageConnections" as const },
-  { href: "/settings/ops", label: "Operations", capability: "canManageConnections" as const },
+//
+// Each area carries the System Settings glyph square: a small tinted tile in
+// one of the status solids (or the accent), with the glyph in that solid's
+// measured on-colour. The colour is a landmark for the eye, never the only
+// signal — the label sits beside it.
+const AREAS: {
+  href: string
+  label: string
+  capability: "always" | "canViewCompliance" | "canManageConnections"
+  icon: ComponentType<SVGProps<SVGSVGElement>>
+  tile: string
+}[] = [
+  {
+    href: "/settings",
+    label: "Policy",
+    capability: "always",
+    icon: ShieldCheck,
+    tile: "bg-primary text-primary-foreground",
+  },
+  {
+    href: "/settings/compliance",
+    label: "Compliance",
+    capability: "canViewCompliance",
+    icon: Scale,
+    tile: "bg-[var(--np-info-solid)] text-[var(--np-info-on-solid)]",
+  },
+  {
+    href: "/settings/connections",
+    label: "Connections",
+    capability: "canManageConnections",
+    icon: Link2,
+    tile: "bg-[var(--np-success-solid)] text-[var(--np-success-on-solid)]",
+  },
+  {
+    href: "/settings/ops",
+    label: "Operations",
+    capability: "canManageConnections",
+    icon: Activity,
+    tile: "bg-[var(--np-warning-solid)] text-[var(--np-warning-on-solid)]",
+  },
 ]
 
-export function SettingsNav({ role }: { role: string | null }) {
+/**
+ * The settings sidebar, in the System Settings pattern: a column of rows with
+ * a leading glyph tile and the selected row on the accent tint. Below `lg` it
+ * folds into a horizontally scrolling strip of the same rows so the pattern
+ * survives a phone.
+ */
+export function SettingsNav({
+  role,
+  className,
+}: {
+  role: string | null
+  className?: string
+}) {
   const pathname = usePathname()
   const caps = settingsGatingFromRole(role)
   const visible = AREAS.filter(
@@ -25,13 +74,17 @@ export function SettingsNav({ role }: { role: string | null }) {
   )
 
   return (
-    <nav aria-label="Settings sections" className="overflow-x-auto">
-      <ul className="flex min-w-max gap-1 border-b border-border">
+    <nav
+      aria-label="Settings sections"
+      className={cn("-mx-1 overflow-x-auto px-1 lg:mx-0 lg:px-0", className)}
+    >
+      <ul className="flex min-w-max gap-1 lg:min-w-0 lg:flex-col lg:gap-0.5">
         {visible.map((area) => {
           const isActive =
             area.href === "/settings"
               ? pathname === "/settings"
               : pathname === area.href || pathname.startsWith(`${area.href}/`)
+          const Icon = area.icon
           return (
             <li key={area.href}>
               <Link
@@ -39,12 +92,21 @@ export function SettingsNav({ role }: { role: string | null }) {
                 prefetch
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "inline-flex shrink-0 items-center border-b-2 px-3 py-2 text-ui font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+                  "flex h-(--np-control-h) items-center gap-2.5 rounded-(--np-radius-control) pr-3 pl-1.5 text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
                   isActive
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "bg-accent-tint text-accent-ink"
+                    : "text-ink hover:bg-fill-tertiary"
                 )}
               >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "flex size-6 shrink-0 items-center justify-center rounded-(--np-radius-tag)",
+                    area.tile
+                  )}
+                >
+                  <Icon className="size-4" strokeWidth={1.75} />
+                </span>
                 {area.label}
               </Link>
             </li>

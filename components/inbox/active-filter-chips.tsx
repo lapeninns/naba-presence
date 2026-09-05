@@ -1,8 +1,7 @@
 "use client"
 
-import { XIcon } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
+import { RemovableChip } from "@/components/ui/chip"
 import {
   formatDateRangeChip,
   formatPublishStatusChip,
@@ -120,6 +119,10 @@ function buildChips(
   return chips
 }
 
+/**
+ * The filters in force, as tinted removable capsules, so the reason a list is
+ * short is always on screen next to it.
+ */
 function ActiveFilterChips({
   state,
   locations,
@@ -139,20 +142,13 @@ function ActiveFilterChips({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {chips.map((chip) => (
-        <span
+        <RemovableChip
           key={chip.removeLabel}
-          className="inline-flex h-6 items-center gap-0.5 rounded-(--np-radius-pill) border border-border/70 bg-muted/60 pr-1 pl-2.5 text-caption text-foreground"
+          removeLabel={chip.removeLabel}
+          onRemove={() => onChange(chip.clear)}
         >
           {chip.label}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={chip.removeLabel}
-            onClick={() => onChange(chip.clear)}
-          >
-            <XIcon aria-hidden />
-          </Button>
-        </span>
+        </RemovableChip>
       ))}
       <Button variant="link" size="sm" onClick={onClear}>
         Clear all filters

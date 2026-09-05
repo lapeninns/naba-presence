@@ -1,7 +1,8 @@
 "use client"
 
+import { HomeSection } from "@/components/home/home-section"
+import { KpiTile } from "@/components/ui/kpi-tile"
 import { Skeleton } from "@/components/ui/skeleton"
-import { StatTile } from "@/components/reporting/stat-tile"
 import type { AnalyticsSummary } from "@/lib/api/analytics"
 import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
 
@@ -15,17 +16,11 @@ function HealthKpis({
   isPending?: boolean
 }) {
   return (
-    <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <h2 id={HEADING_ID} className="text-title font-semibold tracking-tight">
-          Health
-        </h2>
-        <p className="text-caption text-muted-foreground">
-          Last 30 days on Google — replies and ratings from reviews created in
-          this window.
-        </p>
-      </div>
-
+    <HomeSection
+      id={HEADING_ID}
+      title="Health"
+      description="Last 30 days on Google — replies and ratings from reviews created in this window."
+    >
       {isPending || !summary ? (
         <div
           aria-busy="true"
@@ -37,20 +32,21 @@ function HealthKpis({
         </div>
       ) : (
         <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
-          <StatTile
+          <KpiTile
             label="Reviews received"
             value={formatNumber(summary.reviewVolume)}
             hint="Created in the last 30 days"
           />
-          <StatTile
+          <KpiTile
             label="Average rating"
             value={
               summary.averageRating === null
                 ? "—"
                 : summary.averageRating.toFixed(1)
             }
+            hint="Out of 5"
           />
-          <StatTile
+          <KpiTile
             label="Response rate"
             value={
               summary.responseRate === null
@@ -59,14 +55,14 @@ function HealthKpis({
             }
             hint="Published or accepted replies"
           />
-          <StatTile
+          <KpiTile
             label="Median response time"
             value={formatDuration(summary.medianFirstResponseSeconds)}
             hint="First reply, last 30 days"
           />
         </div>
       )}
-    </section>
+    </HomeSection>
   )
 }
 

@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import {
   useEffect,
   useRef,
@@ -10,6 +9,7 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { AuthLink } from "@/components/auth/auth-link"
 import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -77,13 +77,11 @@ function ForgotPasswordForm() {
 
   if (sentTo) {
     return (
-      <div className="flex flex-col gap-5">
-        <p role="status" className="text-body">
+      <div className="flex flex-col items-start gap-5">
+        <p role="status" className="text-body text-ink">
           If an account exists for {sentTo}, a reset link is on its way.
         </p>
-        <Link href="/sign-in" className="underline underline-offset-4">
-          Back to sign in
-        </Link>
+        <AuthLink href="/sign-in">Back to sign in</AuthLink>
       </div>
     )
   }
@@ -111,7 +109,13 @@ function ForgotPasswordForm() {
         <FieldError />
       </Field>
 
-      <Button type="submit" disabled={pending}>
+      <Button
+        type="submit"
+        size="lg"
+        pill
+        className="w-full"
+        disabled={pending}
+      >
         {pending ? "Sending…" : "Send reset link"}
       </Button>
     </form>

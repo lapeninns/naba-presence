@@ -1,11 +1,12 @@
 "use client"
 
 import { Plus } from "lucide-react"
-import { useState } from "react"
+import { useId, useState } from "react"
 
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
+import { Field, FieldLabel } from "@/components/ui/field"
 import {
   Select,
   SelectContent,
@@ -17,6 +18,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -58,6 +60,7 @@ export function PostComposerSheet({
   const [summary, setSummary] = useState("")
   const [eventTitle, setEventTitle] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const typeLabelId = useId()
 
   const isDirty = summary.trim().length > 0 || eventTitle.trim().length > 0
   useDirtyGuard({
@@ -95,11 +98,11 @@ export function PostComposerSheet({
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger render={<Button size="sm" disabled={disabled} />}>
-        <Plus className="size-3.5" aria-hidden />
+      <SheetTrigger render={<Button pill disabled={disabled} />}>
+        <Plus aria-hidden strokeWidth={1.75} data-icon="inline-start" />
         New post
       </SheetTrigger>
-      <SheetContent side="right" className="flex flex-col gap-0 sm:max-w-xl">
+      <SheetContent side="right" className="flex flex-col gap-0 md:max-w-xl">
         <SheetHeader>
           <SheetTitle>New post</SheetTitle>
           <SheetDescription>
@@ -108,16 +111,22 @@ export function PostComposerSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-          <label className="flex flex-col gap-1 text-ui">
-            <span className="text-caption text-ink-muted">Type</span>
+        <div className="flex min-h-0 flex-1 flex-col gap-(--np-gap-section) overflow-y-auto px-6 pb-6">
+          <div className="flex flex-col gap-1.5">
+            <span id={typeLabelId} className="text-ui font-medium text-ink">
+              Type
+            </span>
             <Select
               value={topicType}
               onValueChange={(next) =>
                 setTopicType(next as "STANDARD" | "EVENT" | "OFFER")
               }
             >
-              <SelectTrigger className="w-48" aria-label="Post type">
+              <SelectTrigger
+                className="w-48"
+                aria-label="Post type"
+                aria-describedby={typeLabelId}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -128,24 +137,25 @@ export function PostComposerSheet({
                 ))}
               </SelectContent>
             </Select>
-          </label>
+          </div>
 
           {topicType !== "STANDARD" ? (
-            <label className="flex flex-col gap-1 text-ui">
-              <span className="text-caption text-ink-muted">
+            <Field>
+              <FieldLabel>
                 {topicType === "OFFER" ? "Offer title" : "Event title"}
-              </span>
+              </FieldLabel>
               <Textarea
                 value={eventTitle}
                 onChange={(event) => setEventTitle(event.target.value)}
                 rows={1}
+                className="min-h-(--np-field-h)"
                 disabled={disabled}
               />
-            </label>
+            </Field>
           ) : null}
 
-          <label className="flex flex-col gap-1 text-ui">
-            <span className="text-caption text-ink-muted">Summary</span>
+          <Field>
+            <FieldLabel>Summary</FieldLabel>
             <Textarea
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
@@ -153,7 +163,7 @@ export function PostComposerSheet({
               disabled={disabled}
               aria-label="Post summary"
             />
-          </label>
+          </Field>
 
           <PostPreview
             topicType={topicType}
@@ -169,8 +179,8 @@ export function PostComposerSheet({
           <GateNote reason={disabledReason} />
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-line-subtle px-4 py-3">
-          <Button variant="outline" onClick={() => setOpen(false)}>
+        <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-line-subtle px-6 py-4">
+          <Button variant="secondary" onClick={() => setOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -179,7 +189,7 @@ export function PostComposerSheet({
           >
             {create.isPending ? "Saving…" : "Save draft"}
           </Button>
-        </div>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   )

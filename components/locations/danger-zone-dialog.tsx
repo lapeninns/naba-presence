@@ -2,7 +2,14 @@
 
 import { useState } from "react"
 
-import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -14,8 +21,19 @@ import { Input } from "@/components/ui/input"
 // pair wires the Input's id to the label's htmlFor automatically (see
 // components/ui/input.tsx's useFieldContext), so no separate aria-label is
 // needed on the Input itself.
+//
+// Cancel is the grey button and the destructive action, which names the
+// object, comes last so it sits at the trailing edge (and on top when the
+// footer stacks on a phone).
 export function DangerZoneDialog({
-  open, onOpenChange, title, description, expectedName, confirmLabel, pending, onConfirm,
+  open,
+  onOpenChange,
+  title,
+  description,
+  expectedName,
+  confirmLabel,
+  pending,
+  onConfirm,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -35,17 +53,34 @@ export function DangerZoneDialog({
     expectedName.trim().length > 0 &&
     typed.trim().toLowerCase() === expectedName.trim().toLowerCase()
   return (
-    <AlertDialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) setTyped("") }}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next)
+        if (!next) setTyped("")
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
         <Field>
           <FieldLabel>Type the location&apos;s name to confirm</FieldLabel>
-          <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={expectedName} autoComplete="off" />
+          <Input
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            placeholder={expectedName}
+            autoComplete="off"
+          />
         </Field>
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline">Cancel</Button>} />
-          <Button variant="destructive" onClick={onConfirm} disabled={!matches || pending}>
+          <AlertDialogClose
+            render={<Button variant="secondary">Cancel</Button>}
+          />
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={!matches || pending}
+          >
             {pending ? "Working…" : confirmLabel}
           </Button>
         </AlertDialogFooter>

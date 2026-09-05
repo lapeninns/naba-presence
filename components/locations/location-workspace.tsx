@@ -36,6 +36,15 @@ function formatAddress(address: unknown): string | null {
   return parts.length ? parts.join(", ") : null
 }
 
+/**
+ * The gutters and bottom padding of PageFrame, negated and then restored as
+ * padding on the scrolling pane. Two reasons: a sticky editor footer inside
+ * the pane can bleed to the pane's edges (its own negative margins mirror
+ * these), and `overflow-y-auto` would otherwise clip that bleed.
+ */
+const PANE_BLEED =
+  "-mx-5 -mb-6 px-5 pb-6 md:-mx-(--np-page-pad-x) md:-mb-(--np-page-pad-y) md:px-(--np-page-pad-x) md:pb-(--np-page-pad-y)"
+
 export function LocationWorkspace({
   locationId,
   role,
@@ -57,7 +66,19 @@ export function LocationWorkspace({
   if (directory.isPending) {
     return (
       <PageFrame width="workspace">
-        <Skeleton className="h-16 w-full" />
+        {/* The shape of the context bar below: eyebrow, title with its pill,
+            address, and the segmented nav. */}
+        <div className="flex flex-col gap-4" aria-busy="true">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-4 w-24" />
+            <div className="flex items-center gap-2.5">
+              <Skeleton className="h-7 w-64 max-w-full" />
+              <Skeleton className="h-(--np-pill-h) w-28 rounded-(--np-radius-pill)" />
+            </div>
+            <Skeleton className="h-4 w-72 max-w-full" />
+          </div>
+          <Skeleton className="h-(--np-control-h) w-full max-w-xl rounded-(--np-radius-control)" />
+        </div>
       </PageFrame>
     )
   }
@@ -85,60 +106,71 @@ export function LocationWorkspace({
   return (
     <ClientScopeProvider clientId={current?.clientId ?? null}>
       <PageFrame width="workspace">
-      <PageHeader
-        title={current?.name ?? "Location"}
-        eyebrow={current?.clientName ?? undefined}
-        meta={
-          <span className="flex flex-wrap items-center gap-1.5">
-            {current?.linked ? (
-              <StatusPill tone={current.verified ? "healthy" : "pending"}>
-                {current.verified ? "Linked · Verified" : "Linked · Pending verification"}
-              </StatusPill>
-            ) : (
-              <StatusPill tone="neutral">Not linked</StatusPill>
-            )}
-            {siblings.length > 1 ? (
-              <Combobox
-                items={siblings}
-                itemToStringLabel={(entry: DirectoryEntry) => entry.name}
-                value={current ?? null}
-                onValueChange={(next: DirectoryEntry | null) => {
-                  if (next)
-                    window.location.assign(`/locations/${next.id}${activeSuffix}`)
-                }}
-              >
-                <ComboboxInput
-                  placeholder="Switch location"
-                  aria-label="Switch to another location in this client"
-                  className="h-8 max-w-56"
-                />
-                <ComboboxContent>
-                  {siblings.map((entry) => (
-                    <ComboboxItem key={entry.id} value={entry}>
-                      {entry.name}
-                    </ComboboxItem>
-                  ))}
-                </ComboboxContent>
-              </Combobox>
-            ) : null}
-          </span>
-        }
-        description={address ?? undefined}
-        actions={<ActivityDrawer locationId={locationId} />}
-      />
+        {/* The context bar: client as the eyebrow, the location name as the
+            page's one h1, its Google state beside it, then the section
+            switcher. It never scrolls; the pane below does. */}
+        <PageHeader
+          title={current?.name ?? "Location"}
+          eyebrow={current?.clientName ?? undefined}
+          meta={
+            <span className="flex flex-wrap items-center gap-2">
+              {current?.linked ? (
+                <StatusPill tone={current.verified ? "healthy" : "pending"}>
+                  {current.verified
+                    ? "Linked · Verified"
+                    : "Linked · Pending verification"}
+                </StatusPill>
+              ) : (
+                <StatusPill tone="neutral">Not linked</StatusPill>
+              )}
+              {siblings.length > 1 ? (
+                <Combobox
+                  items={siblings}
+                  itemToStringLabel={(entry: DirectoryEntry) => entry.name}
+                  value={current ?? null}
+                  onValueChange={(next: DirectoryEntry | null) => {
+                    if (next)
+                      window.location.assign(
+                        `/locations/${next.id}${activeSuffix}`
+                      )
+                  }}
+                >
+                  <ComboboxInput
+                    placeholder="Switch location"
+                    aria-label="Switch to another location in this client"
+                    wrapperClassName="w-56"
+                    className="h-(--np-control-h)"
+                  />
+                  <ComboboxContent>
+                    {siblings.map((entry) => (
+                      <ComboboxItem key={entry.id} value={entry}>
+                        {entry.name}
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxContent>
+                </Combobox>
+              ) : null}
+            </span>
+          }
+          description={address ?? undefined}
+          actions={<ActivityDrawer locationId={locationId} />}
+          tabs={
+            <LocationTabNav
+              locationId={locationId}
+              canManageConsoles={canManageConsoles}
+            />
+          }
+        />
 
-      <LocationTabNav
-        locationId={locationId}
-        canManageConsoles={canManageConsoles}
-      />
-      {/* The scrolling pane: PageFrame width="workspace" hides overflow on
-          <main>, so tab content must scroll here rather than squash the
-          header and section nav above it. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto">
-        {children}
-      </div>
+        {/* The scrolling pane: PageFrame width="workspace" hides overflow on
+            <main>, so tab content must scroll here rather than squash the
+            header and section nav above it. */}
+        <div
+          className={`flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto ${PANE_BLEED}`}
+        >
+          {children}
+        </div>
       </PageFrame>
     </ClientScopeProvider>
   )
 }
-

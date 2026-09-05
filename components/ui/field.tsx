@@ -1,6 +1,12 @@
 "use client"
 
-import { createContext, useContext, useId, useLayoutEffect, useState } from "react"
+import {
+  createContext,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useState,
+} from "react"
 
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -21,6 +27,12 @@ export function useFieldContext() {
   return useContext(FieldContext)
 }
 
+/**
+ * A labelled form control: label above in the UI role at medium weight, the
+ * control, then a caption-sized description or error beneath. The Field
+ * carries `data-invalid` when it has an error so a control inside it can swap
+ * its edge to the danger line without knowing about the context.
+ */
 function Field({
   error,
   className,
@@ -43,6 +55,7 @@ function Field({
     >
       <div
         data-slot="field"
+        data-invalid={error ? "" : undefined}
         className={cn("flex flex-col gap-1.5", className)}
         {...props}
       >
@@ -52,9 +65,18 @@ function Field({
   )
 }
 
-function FieldLabel(props: React.ComponentProps<typeof Label>) {
+function FieldLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof Label>) {
   const field = useFieldContext()
-  return <Label htmlFor={field?.id} {...props} />
+  return (
+    <Label
+      htmlFor={field?.id}
+      className={cn("text-ui font-medium text-ink", className)}
+      {...props}
+    />
+  )
 }
 
 function FieldDescription({
@@ -85,7 +107,7 @@ function FieldDescription({
     <div
       id={field?.descriptionId}
       data-slot="field-description"
-      className={cn("text-caption text-muted-foreground", className)}
+      className={cn("text-caption text-ink-muted", className)}
       {...props}
     />
   )
@@ -99,7 +121,7 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
       id={field.errorId}
       role="alert"
       data-slot="field-error"
-      className={cn("text-caption text-destructive", className)}
+      className={cn("text-caption text-danger-ink", className)}
       {...props}
     >
       {field.error}
@@ -136,5 +158,23 @@ export function fieldControlProps(field: FieldContextValue | null) {
     "aria-describedby": describedBy.length ? describedBy.join(" ") : undefined,
   }
 }
+
+/**
+ * The field chrome every text-like control shares: field height and radius,
+ * the half-pixel edge in `line-strong` (the one line that clears 3:1), the
+ * focus halo layered over that edge, and the danger edge when invalid.
+ * Exported so a control outside this file (a date input, a number field)
+ * can look like an Input without copying the recipe.
+ */
+export const fieldChromeClassName = cn(
+  "min-w-0 rounded-(--np-radius-field) bg-(--np-field-bg) text-body text-ink outline-none",
+  "[box-shadow:0_0_0_0.5px_var(--np-line-strong)]",
+  "transition-[box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
+  "placeholder:text-ink-muted",
+  "focus-visible:[box-shadow:var(--np-focus-halo),0_0_0_0.5px_var(--np-line-strong)]",
+  "aria-invalid:[box-shadow:0_0_0_0.5px_var(--np-danger-line)]",
+  "aria-invalid:focus-visible:[box-shadow:var(--np-focus-halo),0_0_0_0.5px_var(--np-danger-line)]",
+  "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+)
 
 export { Field, FieldDescription, FieldError, FieldLabel }

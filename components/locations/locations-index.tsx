@@ -9,7 +9,12 @@ import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
-import { useLocationDirectory, type DirectoryEntry } from "@/lib/queries/use-locations"
+import {
+  useLocationDirectory,
+  type DirectoryEntry,
+} from "@/lib/queries/use-locations"
+import { TONE_CLASSES, type StatusTone } from "@/lib/ui/status-tone"
+import { cn } from "@/lib/utils"
 
 function formatAddress(address: unknown): string {
   if (!address || typeof address !== "object") return "—"
@@ -29,6 +34,42 @@ function formatAddress(address: unknown): string {
 }
 
 /**
+ * The Google state of one row, as a tone for its dot and the word the dot
+ * stands for. Only the management payload carries `verified`, so the default
+ * (member) list never calls these.
+ */
+function googleTone(location: DirectoryEntry): StatusTone {
+  if (!location.linked) return "neutral"
+  return location.verified ? "healthy" : "pending"
+}
+
+function googleWord(location: DirectoryEntry): string {
+  if (!location.linked) return "Not linked"
+  return location.verified ? "Verified" : "Pending verification"
+}
+
+/** The skeleton draws the list's own shape: a group caption, then a white card of rows. */
+function LocationsIndexSkeleton() {
+  return (
+    <div className="flex flex-col gap-2" aria-busy="true">
+      <div className="flex items-center gap-2.5 px-(--np-card-pad)">
+        <Skeleton className="size-6 rounded-(--np-radius-control)" />
+        <Skeleton className="h-5 w-40" />
+      </div>
+      <div className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface px-(--np-cell-px)">
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="flex h-(--np-row-h) items-center gap-4">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-56 max-w-full" />
+            <Skeleton className="ml-auto h-4 w-24" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Every location in the agency, grouped by client.
  *
  * Off the primary navigation: an agency navigates by client, and this is the
@@ -36,27 +77,26 @@ function formatAddress(address: unknown): string {
  * forgotten, or filing the locations Google imported before anyone assigned
  * them. That second job is why unassigned locations come FIRST rather than
  * being buried under the clients that are already in order.
+ *
+ * Each group is a Mac list: a caption naming the client, then a white card of
+ * hairline-divided rows with a health dot and the name leading, the address
+ * as muted caption metadata, and the Google state in words at the trailing
+ * edge. There is no "last synced" column because the directory payload
+ * carries no sync timestamp; showing one would be a claim the data cannot
+ * back.
  */
 export function LocationsIndex({ role }: { role: string | null }) {
   const management = role === "owner" || role === "admin"
   const directory = useLocationDirectory(role)
 
-  if (directory.isPending) {
-    return (
-      <div className="flex flex-col gap-2" aria-busy="true">
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
-      </div>
-    )
-  }
+  if (directory.isPending) return <LocationsIndexSkeleton />
   if (directory.isError) {
     return (
       <Empty
         title="We couldn't load your locations"
         description="Something went wrong reaching the server."
         action={
-          <Button variant="outline" onClick={() => directory.refetch()}>
+          <Button variant="secondary" onClick={() => directory.refetch()}>
             Try again
           </Button>
         }
@@ -81,33 +121,61 @@ export function LocationsIndex({ role }: { role: string | null }) {
     return a.name.localeCompare(b.name)
   })
 
+  const nameLink = (location: DirectoryEntry) => (
+    <Link
+      href={`/locations/${location.id}`}
+      className="inline-flex min-h-6 items-center rounded-(--np-radius-tag) font-medium text-ink underline-offset-4 focus-halo hover:underline"
+    >
+      {location.name}
+    </Link>
+  )
+  // Owners and admins see the health dot in front of the name; the word it
+  // stands for is the Google column on the same row. Members get the plain
+  // list: their payload withholds `verified`, and a dot that could only ever
+  // say "linked" would read as a health it cannot prove.
+  const nameColumn = {
+    id: "name",
+    header: "Location",
+    cell: (location: DirectoryEntry) =>
+      management ? (
+        <span className="flex items-center gap-2.5">
+          <StatusPill variant="dot" tone={googleTone(location)} />
+          {nameLink(location)}
+        </span>
+      ) : (
+        nameLink(location)
+      ),
+  }
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {ordered.map(([key, group]) => (
         <section key={key} className="flex flex-col gap-2">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 px-(--np-card-pad)">
             {key === "__unassigned" ? null : (
               <ClientAvatar name={group.name} className="size-6 text-caption" />
             )}
-            <h2 className="text-title">
+            <h2 className="text-title font-semibold text-ink">
               {key === "__unassigned" ? (
                 group.name
               ) : (
                 <Link
                   href={`/clients/${key}`}
-                  className="underline-offset-4 hover:underline"
+                  className="rounded-(--np-radius-tag) underline-offset-4 focus-halo hover:underline"
                 >
                   {group.name}
                 </Link>
               )}
             </h2>
-            <span className="text-caption text-ink-muted">
-              {group.rows.length === 1 ? "1 location" : `${group.rows.length} locations`}
+            <span className="text-caption text-ink-muted tabular-nums">
+              {group.rows.length === 1
+                ? "1 location"
+                : `${group.rows.length} locations`}
             </span>
           </div>
 
           {key === "__unassigned" ? (
-            <p className="text-ui text-ink-muted">
+            <p className="px-(--np-card-pad) text-ui text-ink-muted">
               Imported from Google but not filed under a client. They stay out
               of client filters and reports until you assign them, which you do
               from a client&rsquo;s settings.
@@ -119,26 +187,16 @@ export function LocationsIndex({ role }: { role: string | null }) {
             rows={group.rows}
             rowId={(location) => location.id}
             density="compact"
+            surface
             columns={
               management
                 ? [
-                    {
-                      id: "name",
-                      header: "Location",
-                      cell: (location) => (
-                        <Link
-                          href={`/locations/${location.id}`}
-                          className="font-medium text-ink underline-offset-4 hover:underline"
-                        >
-                          {location.name}
-                        </Link>
-                      ),
-                    },
+                    nameColumn,
                     {
                       id: "address",
                       header: "Address",
                       cell: (location) => (
-                        <span className="text-ink-muted">
+                        <span className="text-caption text-ink-muted">
                           {formatAddress(location.address)}
                         </span>
                       ),
@@ -146,30 +204,20 @@ export function LocationsIndex({ role }: { role: string | null }) {
                     {
                       id: "status",
                       header: "Google",
-                      cell: (location) =>
-                        location.linked ? (
-                          <StatusPill tone={location.verified ? "healthy" : "pending"}>
-                            {location.verified ? "Verified" : "Pending verification"}
-                          </StatusPill>
-                        ) : (
-                          <StatusPill tone="neutral">Not linked</StatusPill>
-                        ),
-                    },
-                  ]
-                : [
-                    {
-                      id: "name",
-                      header: "Location",
+                      className: "whitespace-nowrap",
                       cell: (location) => (
-                        <Link
-                          href={`/locations/${location.id}`}
-                          className="font-medium text-ink underline-offset-4 hover:underline"
+                        <span
+                          className={cn(
+                            "text-caption",
+                            TONE_CLASSES[googleTone(location)].text
+                          )}
                         >
-                          {location.name}
-                        </Link>
+                          {googleWord(location)}
+                        </span>
                       ),
                     },
                   ]
+                : [nameColumn]
             }
           />
         </section>

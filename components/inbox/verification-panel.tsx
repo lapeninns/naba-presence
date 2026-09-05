@@ -1,7 +1,12 @@
 "use client"
 
 import { useId } from "react"
-import { CircleCheckIcon, ClockIcon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
+import {
+  CircleCheckIcon,
+  ClockIcon,
+  OctagonXIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import type { LatestVerification } from "@/lib/api/reviews"
@@ -15,10 +20,10 @@ const VERDICT_ICON = {
 } as const
 
 const VERDICT_ICON_TONE: Record<string, string> = {
-  pass: "text-success",
-  warn: "text-warning",
-  fail: "text-destructive",
-  pending: "text-muted-foreground",
+  pass: "text-success-ink",
+  warn: "text-warning-ink",
+  fail: "text-danger-ink",
+  pending: "text-ink-muted",
 }
 
 /**
@@ -39,7 +44,8 @@ function VerificationPanel({
 }) {
   const reasons = verification?.reasons ?? []
   const verdict = verification?.verdict ?? "pending"
-  const VerdictIcon = VERDICT_ICON[verdict as keyof typeof VERDICT_ICON] ?? ClockIcon
+  const VerdictIcon =
+    VERDICT_ICON[verdict as keyof typeof VERDICT_ICON] ?? ClockIcon
   // Unique per instance so the panel is safe to render more than once on a
   // page without a duplicate-id axe violation.
   const headingId = useId()
@@ -48,9 +54,10 @@ function VerificationPanel({
     <div className="flex flex-wrap items-center gap-2">
       <VerdictIcon
         aria-hidden
+        strokeWidth={1.75}
         className={cn("size-4 shrink-0", VERDICT_ICON_TONE[verdict])}
       />
-      <h3 id={headingId} className="text-ui font-semibold">
+      <h3 id={headingId} className="text-ui font-semibold text-ink">
         Verification
       </h3>
     </div>
@@ -58,9 +65,12 @@ function VerificationPanel({
 
   if (reasons.length === 0) {
     return (
-      <section aria-labelledby={headingId} className="flex flex-wrap items-center gap-2">
+      <section
+        aria-labelledby={headingId}
+        className="flex flex-wrap items-center gap-2"
+      >
         {heading}
-        <p className="text-caption text-muted-foreground">
+        <p className="text-caption text-ink-muted">
           {verification
             ? "No issues found in this reply."
             : status === "new"
@@ -77,10 +87,8 @@ function VerificationPanel({
     <section
       aria-labelledby={headingId}
       className={cn(
-        "flex flex-col gap-2 rounded-(--np-radius-control) border p-3",
-        blocking
-          ? "border-destructive/30 bg-destructive/5"
-          : "border-warning/40 bg-warning/10"
+        "flex flex-col gap-2 rounded-(--np-radius-control) p-3",
+        blocking ? "bg-danger-tint" : "bg-warning-tint"
       )}
     >
       {heading}
@@ -92,11 +100,12 @@ function VerificationPanel({
           >
             <Badge
               variant={reason.severity === "fail" ? "destructive" : "warning"}
+              shape="tag"
               className="shrink-0"
             >
               {reason.severity === "fail" ? "Blocking" : "Warning"}
             </Badge>
-            <span className="text-foreground/80">{reason.message}</span>
+            <span className="pt-0.5 text-ink">{reason.message}</span>
           </li>
         ))}
       </ul>

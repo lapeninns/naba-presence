@@ -1,7 +1,9 @@
+import { SearchX } from "lucide-react"
 import Link from "next/link"
 
-import { PageFrame } from "@/components/app-shell/page-frame"
+import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
 import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 /**
  * Inside the shell, not the bare root 404: someone who follows a stale link to
@@ -11,16 +13,19 @@ import { buttonVariants } from "@/components/ui/button"
 export default function DashboardNotFound() {
   return (
     <PageFrame>
-      <div className="mx-auto flex max-w-md flex-col items-start gap-4 py-16">
-        <h1 className="font-display text-page-title">We couldn&rsquo;t find that</h1>
-        <p className="text-body text-ink-muted">
-          The client or location you followed may have been removed, or the link
-          may be wrong.
-        </p>
-        <Link href="/clients" className={buttonVariants({ variant: "outline" })}>
-          Back to Clients
-        </Link>
-      </div>
+      <PageEmptyState
+        icon={<SearchX strokeWidth={1.75} aria-hidden />}
+        title="We couldn’t find that"
+        description="The client or location you followed may have been removed, or the link may be wrong."
+        action={
+          <Link
+            href="/clients"
+            className={cn(buttonVariants({ variant: "secondary" }))}
+          >
+            Back to Clients
+          </Link>
+        }
+      />
     </PageFrame>
   )
 }

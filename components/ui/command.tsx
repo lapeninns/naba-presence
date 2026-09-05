@@ -1,7 +1,7 @@
 "use client"
 
 import { Command as CommandPrimitive } from "cmdk"
-import { Search } from "lucide-react"
+import { SearchIcon } from "lucide-react"
 import * as React from "react"
 
 import {
@@ -10,16 +10,20 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Kbd } from "@/components/ui/kbd"
 import { cn } from "@/lib/utils"
 
 /**
  * The command palette shell, over cmdk.
  *
  * cmdk owns the listbox semantics, the filtering and the arrow-key roving
- * focus; this file supplies the chrome. The dialog keeps a real title and
- * description, visually hidden — a dialog with no accessible name is
- * announced as an unnamed region, which is precisely the state a keyboard user
- * lands in when they hit the shortcut.
+ * focus; this file supplies the chrome: the popover material, a capsule
+ * search field on top, grouped results under caption labels, and an
+ * accent-tinted highlight (a palette is a list you scan, so it does not use
+ * the solid menu highlight). The dialog keeps a real title and description,
+ * visually hidden — a dialog with no accessible name is announced as an
+ * unnamed region, which is precisely the state a keyboard user lands in when
+ * they hit the shortcut.
  */
 function CommandDialog({
   open,
@@ -38,21 +42,24 @@ function CommandDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl"
+        className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden rounded-(--np-radius-modal) border-0 bg-transparent p-0 shadow-(--np-shadow-modal) sm:max-w-xl"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
-        <Command>{children}</Command>
+        <Command className="material-popover">{children}</Command>
       </DialogContent>
     </Dialog>
   )
 }
 
-function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
+function Command({
+  className,
+  ...props
+}: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"
-      className={cn("flex w-full flex-col overflow-hidden", className)}
+      className={cn("flex w-full flex-col overflow-hidden text-ink", className)}
       {...props}
     />
   )
@@ -63,16 +70,28 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-line px-4">
-      <Search className="size-4 shrink-0 text-ink-faint" aria-hidden />
-      <CommandPrimitive.Input
-        data-slot="command-input"
+    <div className="border-b border-line-subtle p-2">
+      <div
+        data-slot="command-search"
         className={cn(
-          "h-12 w-full bg-transparent text-body outline-none placeholder:text-ink-muted",
-          className
+          "flex h-(--np-field-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-3",
+          "transition-[box-shadow] duration-(--np-duration-fast) ease-spring-snappy focus-within:[box-shadow:var(--np-focus-halo)]"
         )}
-        {...props}
-      />
+      >
+        <SearchIcon
+          className="size-4 shrink-0 text-ink-muted"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <CommandPrimitive.Input
+          data-slot="command-input"
+          className={cn(
+            "h-full w-full min-w-0 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted",
+            className
+          )}
+          {...props}
+        />
+      </div>
     </div>
   )
 }
@@ -84,13 +103,18 @@ function CommandList({
   return (
     <CommandPrimitive.List
       data-slot="command-list"
-      className={cn("max-h-80 overflow-x-hidden overflow-y-auto p-1.5", className)}
+      className={cn(
+        "max-h-80 overflow-x-hidden overflow-y-auto p-1",
+        className
+      )}
       {...props}
     />
   )
 }
 
-function CommandEmpty(props: React.ComponentProps<typeof CommandPrimitive.Empty>) {
+function CommandEmpty(
+  props: React.ComponentProps<typeof CommandPrimitive.Empty>
+) {
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
@@ -124,9 +148,30 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "flex cursor-pointer items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-2 text-ui outline-none select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent-tint data-[selected=true]:text-accent-ink",
+        "flex min-h-(--np-menu-item-h) cursor-default items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-1.5 text-ui text-ink outline-none select-none",
+        "transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy",
+        "data-[selected=true]:bg-accent-tint data-[selected=true]:text-accent-ink",
+        "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+        "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
+      {...props}
+    />
+  )
+}
+
+/**
+ * A trailing keyboard hint for a palette row, in the keycap style. Reads as
+ * a key to a screen reader, and stays legible when the row is highlighted.
+ */
+function CommandShortcut({
+  className,
+  ...props
+}: React.ComponentProps<typeof Kbd>) {
+  return (
+    <Kbd
+      data-slot="command-shortcut"
+      className={cn("ml-auto shrink-0", className)}
       {...props}
     />
   )
@@ -139,7 +184,7 @@ function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn("-mx-1.5 my-1 h-px bg-line-subtle", className)}
+      className={cn("mx-2 my-1 h-px bg-line-subtle", className)}
       {...props}
     />
   )
@@ -154,4 +199,5 @@ export {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 }

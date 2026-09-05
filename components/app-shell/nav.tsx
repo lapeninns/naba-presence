@@ -61,8 +61,21 @@ function isActivePath(pathname: string | null, href: string) {
  * with nothing selected there would strand the user.
  */
 function isClientsActive(pathname: string | null) {
-  return isActivePath(pathname, "/clients") || isActivePath(pathname, "/locations")
+  return (
+    isActivePath(pathname, "/clients") || isActivePath(pathname, "/locations")
+  )
 }
+
+/**
+ * The sidebar row: a selection pill when current, a soft grey on hover, and a
+ * spring on press. Shared by the six destinations and the pinned clients so
+ * the two never drift apart in shape.
+ */
+const NAV_ROW_CLASS = cn(
+  "flex items-center gap-2.5 rounded-(--np-radius-control) px-2.5 text-ui font-medium",
+  "transition duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.98]",
+  "focus-halo focus-visible:outline-none"
+)
 
 function Nav({
   onNavigate,
@@ -82,7 +95,7 @@ function Nav({
           <div key={group.id} role="group" aria-labelledby={labelId}>
             <span
               id={labelId}
-              className="block px-2.5 pb-1 text-caption font-medium tracking-wide text-ink-muted uppercase"
+              className="block px-2.5 pb-1.5 text-caption font-medium text-ink-muted"
             >
               {group.label}
             </span>
@@ -101,15 +114,22 @@ function Nav({
                       aria-current={active ? "page" : undefined}
                       onClick={onNavigate}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-1.5 text-ui font-medium transition-colors duration-(--np-duration-fast)",
-                        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar focus-visible:outline-none",
+                        NAV_ROW_CLASS,
+                        "h-8",
                         active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/75 hover:bg-[var(--np-hover-bg)] hover:text-sidebar-foreground"
+                          ? "bg-accent-tint text-accent-ink"
+                          : "text-ink hover:bg-fill-tertiary"
                       )}
                     >
-                      <Icon className="size-4 shrink-0" aria-hidden />
-                      {item.label}
+                      <Icon
+                        className={cn(
+                          "size-4 shrink-0",
+                          active ? "text-accent-ink" : "text-ink-muted"
+                        )}
+                        strokeWidth={1.75}
+                        aria-hidden
+                      />
+                      <span className="truncate">{item.label}</span>
                     </Link>
                   </li>
                 )
@@ -125,14 +145,17 @@ function Nav({
                           aria-current={active ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                            "flex items-center gap-2 rounded-(--np-radius-control) py-1 pr-2.5 pl-9 text-ui transition-colors duration-(--np-duration-fast)",
-                            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar focus-visible:outline-none",
+                            NAV_ROW_CLASS,
+                            "h-7 gap-2 pl-9 font-normal",
                             active
-                              ? "bg-surface-sunken font-medium text-ink"
-                              : "text-sidebar-foreground/70 hover:text-sidebar-foreground"
+                              ? "bg-accent-tint font-medium text-accent-ink"
+                              : "text-ink-muted hover:bg-fill-tertiary hover:text-ink"
                           )}
                         >
-                          <StatusPill tone={healthTone(client.health)} variant="dot" />
+                          <StatusPill
+                            tone={healthTone(client.health)}
+                            variant="dot"
+                          />
                           <span className="truncate">{client.name}</span>
                         </Link>
                       </li>

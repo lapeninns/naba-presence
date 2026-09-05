@@ -16,12 +16,15 @@ export function LocationContextBar({
   locationCount: number
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-ui text-muted-foreground">{locationName}</p>
+    <div
+      data-slot="location-context-bar"
+      className="flex flex-wrap items-center justify-between gap-2"
+    >
+      <p className="text-ui text-ink-muted">{locationName}</p>
       {locationCount > 1 ? (
         <Link
           href="/locations"
-          className="text-ui font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+          className="inline-flex min-h-6 items-center rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline-offset-4 focus-halo hover:underline"
         >
           All locations ({locationCount})
         </Link>

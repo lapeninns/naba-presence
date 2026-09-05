@@ -10,6 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useClients } from "@/lib/queries/use-clients"
 
 import { AccountMenu } from "./account-menu"
@@ -89,6 +90,48 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+/**
+ * The sidebar's three parts — the organisation at the top, the navigation
+ * that scrolls, the account row at the bottom — shared by the persistent
+ * desktop column and the mobile sheet so the two never disagree.
+ */
+function SidebarBody({
+  session,
+  sessionReady,
+  organisationName,
+  onNavigate,
+}: {
+  session: ShellSession | null
+  sessionReady: boolean
+  organisationName: string
+  onNavigate?: () => void
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center px-4 pt-4 pb-3">
+        <BrandMark size="sm" title={organisationName} subtitle="NabaPresence" />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+        {sessionReady ? <SidebarNav onNavigate={onNavigate} /> : null}
+      </div>
+
+      <div className="shrink-0 p-2">
+        <AccountMenu session={session} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Mac-style three-part window: a translucent sidebar, a toolbar the
+ * content scrolls beneath, and the content column.
+ *
+ * The toolbar is sticky INSIDE the scroll column rather than a sibling above
+ * it, which is what lets the page pass under its material. Ordinary pages
+ * scroll the column; workspace frames (`h-full`) fill the box left beneath
+ * the toolbar and scroll their own panes, so the sidebar never grows.
+ */
 function AppShell({
   session,
   children,
@@ -101,69 +144,66 @@ function AppShell({
   const organisationName = session?.organisationName ?? "Your agency"
 
   return (
+    // One provider for the whole shell so toolbar and row tooltips share a
+    // delay and open instantly when the pointer moves between neighbours.
     // `h-svh`, not `min-h-svh`: the shell is viewport-locked so expanding
     // content scrolls inside its own pane instead of stretching the sidebar.
-    <div className="h-svh md:flex">
-        <a
-          href="#main"
-          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-3 focus-visible:left-3 focus-visible:z-50 focus-visible:rounded-(--np-radius-control) focus-visible:bg-primary focus-visible:px-3 focus-visible:py-2 focus-visible:text-ui focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:outline-none"
+    <TooltipProvider>
+    <div className="flex h-svh bg-canvas text-ink">
+      <a
+        href="#main"
+        className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-3 focus-visible:left-3 focus-visible:z-50 focus-visible:flex focus-visible:h-(--np-control-h) focus-visible:items-center focus-visible:rounded-(--np-radius-pill) focus-visible:bg-primary focus-visible:px-4 focus-visible:text-ui focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-(--np-shadow-pop) focus-visible:outline-none"
+      >
+        Skip to content
+      </a>
+
+      <aside className="hidden w-(--np-sidebar-width) shrink-0 material-sidebar [box-shadow:inset_-0.5px_0_0_var(--np-line)] md:flex md:flex-col md:overflow-hidden">
+        <SidebarBody
+          session={session}
+          sessionReady={sessionReady}
+          organisationName={organisationName}
+        />
+      </aside>
+
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="material-sidebar text-ink data-[side=left]:w-72 data-[side=left]:border-r-0 data-[side=left]:[box-shadow:inset_-0.5px_0_0_var(--np-line)]"
         >
-          Skip to content
-        </a>
+          <SheetHeader className="sr-only">
+            <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription>
+              Primary navigation for NabaPresence.
+            </SheetDescription>
+          </SheetHeader>
+          <SidebarBody
+            session={session}
+            sessionReady={sessionReady}
+            organisationName={organisationName}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
 
-        <aside className="hidden shrink-0 border-r border-line bg-sidebar text-sidebar-foreground md:flex md:w-(--np-sidebar-width) md:flex-col md:overflow-hidden">
-          <div className="flex shrink-0 items-center gap-2.5 px-4 py-4">
-            <BrandMark size="sm" subtitle={organisationName} />
-          </div>
+      {/* The scroll column. The toolbar sticks to its top and the page passes
+          beneath the material; a workspace frame fills the remainder. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <Topbar
+          onOpenNav={() => setMobileNavOpen(true)}
+          sessionReady={sessionReady}
+          className="sticky top-0 z-20"
+        />
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-            {sessionReady ? <SidebarNav /> : null}
-          </div>
+        {sessionReady ? (
+          <ReconnectBanner className="px-5 pt-5 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)" />
+        ) : null}
 
-          <div className="shrink-0 border-t border-line-subtle p-2">
-            <AccountMenu session={session} />
-          </div>
-        </aside>
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <Topbar onOpenNav={() => setMobileNavOpen(true)} sessionReady={sessionReady} />
-
-          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-            <SheetContent
-              side="left"
-              className="bg-sidebar text-sidebar-foreground data-[side=left]:w-72"
-            >
-              <SheetHeader className="sr-only">
-                <SheetTitle>Navigation</SheetTitle>
-                <SheetDescription>
-                  Primary navigation for NabaPresence.
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex h-full flex-col">
-                <div className="px-4 py-4">
-                  <BrandMark size="sm" subtitle={organisationName} />
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-2">
-                  {sessionReady ? (
-                    <SidebarNav onNavigate={() => setMobileNavOpen(false)} />
-                  ) : null}
-                </div>
-                <div className="border-t border-line-subtle p-2">
-                  <AccountMenu session={session} />
-                </div>
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          {sessionReady ? <ReconnectBanner /> : null}
-
-          {/* Scroll here for ordinary pages; workspace frames (`h-full`) fill
-              this box and scroll internally so the sidebar never grows. */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {sessionReady ? children : null}
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {sessionReady ? children : null}
         </div>
+      </div>
     </div>
+    </TooltipProvider>
   )
 }
 

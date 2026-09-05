@@ -3,13 +3,10 @@
 import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/ui/status-pill"
+import { cn } from "@/lib/utils"
 
 export type EditorStatus =
-  | "in_sync"
-  | "edited"
-  | "unpublished"
-  | "google_dirty"
-  | "conflict"
+  "in_sync" | "edited" | "unpublished" | "google_dirty" | "conflict"
 
 const STATUS: Record<
   EditorStatus,
@@ -35,6 +32,11 @@ const STATUS: Record<
  *
  * Here there is one primary action. It opens a sheet showing exactly what will
  * change on Google, and publishing happens from there.
+ *
+ * Visually it is a toolbar: the toolbar material with a hairline top edge,
+ * the status at the leading edge and the actions at the trailing edge with
+ * the primary last. `EditorFrame` pins it to the bottom of the scrolling
+ * pane so it stays in reach however long the form above it is.
  */
 function EditorFooter({
   status,
@@ -44,6 +46,7 @@ function EditorFooter({
   onDiscard,
   disabledReason,
   hint,
+  className,
 }: {
   status: EditorStatus
   /** Anything to publish: local edits, or drift that was already there. */
@@ -56,11 +59,18 @@ function EditorFooter({
   disabledReason?: string | null
   /** Context that helps the decision: when this was last published, by whom. */
   hint?: React.ReactNode
+  className?: string
 }) {
   const entry = STATUS[status]
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-3 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3">
+    <div
+      data-slot="editor-footer"
+      className={cn(
+        "flex flex-col gap-2 material-toolbar py-3 [box-shadow:inset_0_0.5px_0_var(--np-line)]",
+        className
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-3">
         <StatusPill tone={entry.tone}>{entry.label}</StatusPill>
         <p className="text-ui text-ink-muted">
           {isDirty
@@ -69,7 +79,7 @@ function EditorFooter({
         </p>
         <div className="ml-auto flex items-center gap-2">
           <Button
-            variant="ghost"
+            variant="secondary"
             onClick={onDiscard}
             disabled={!(canDiscard ?? isDirty)}
           >

@@ -1,6 +1,5 @@
 "use client"
 
-import { TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -12,7 +11,6 @@ function DisconnectedBanner() {
   if (status !== "disconnected") return null
   return (
     <Alert variant="destructive">
-      <TriangleAlertIcon aria-hidden />
       <AlertTitle>Google is not connected</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
         <span>

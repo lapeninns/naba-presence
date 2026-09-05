@@ -1,5 +1,7 @@
 "use client"
 
+import { CircleCheckIcon } from "lucide-react"
+
 import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
@@ -48,7 +50,7 @@ function SuggestionsView({
   return (
     <EditorFrame
       title="Suggested updates"
-      description="Changes Google has made to this listing that NabaPresence has not taken yet. Applying one updates the NabaPresence copy; ignoring one keeps what you have."
+      description="Changes Google has made to this listing that NabaPresence has not taken yet. Accepting one updates the NabaPresence copy; dismissing one keeps what you have."
       statusLabel={pending === 0 ? "Nothing waiting" : undefined}
       tone="healthy"
       gateReason={editReason}
@@ -57,8 +59,9 @@ function SuggestionsView({
       !profileReview.isPending &&
       !menuReview.isPending ? (
         <Empty
+          icon={<CircleCheckIcon />}
           title="Nothing to review"
-          description="When Google changes this listing behind your back, the change shows up here for you to accept or ignore."
+          description="When Google changes this listing behind your back, the change shows up here for you to accept or dismiss."
         />
       ) : null}
 

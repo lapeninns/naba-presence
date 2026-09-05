@@ -25,8 +25,10 @@ export default async function ClientLayout({
   const session = await getSession()
 
   if (session) {
-    const [client] = await withTenant(session.organisationId, (sql) =>
-      sql<{ id: string }[]>`
+    const [client] = await withTenant(
+      session.organisationId,
+      (sql) =>
+        sql<{ id: string }[]>`
         select c.id::text as id
         from client c
         where c.id = ${clientId}
@@ -39,5 +41,7 @@ export default async function ClientLayout({
     if (!client) notFound()
   }
 
-  return <ClientScopeProvider clientId={clientId}>{children}</ClientScopeProvider>
+  return (
+    <ClientScopeProvider clientId={clientId}>{children}</ClientScopeProvider>
+  )
 }

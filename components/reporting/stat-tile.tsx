@@ -1,5 +1,11 @@
-import { Card, CardContent } from "@/components/ui/card"
+import { KpiTile } from "@/components/ui/kpi-tile"
 
+/**
+ * A headline figure. Kept as a name for the reporting screens; the tile
+ * itself is `KpiTile`, so a stat here and a stat on Home are the same shape.
+ * `delta` is any node and lands beside the label; for a movement row under
+ * the figure use `KpiTile` with `kpiDelta` directly.
+ */
 export function StatTile({
   label,
   value,
@@ -11,16 +17,5 @@ export function StatTile({
   hint?: string
   delta?: React.ReactNode
 }) {
-  return (
-    <Card size="sm">
-      <CardContent className="flex flex-col gap-1">
-        <p className="text-ui text-muted-foreground">{label}</p>
-        <div className="flex items-baseline gap-2">
-          <p className="text-page-title font-semibold tracking-tight tabular-nums">{value}</p>
-          {delta}
-        </div>
-        {hint ? <p className="text-caption text-muted-foreground">{hint}</p> : null}
-      </CardContent>
-    </Card>
-  )
+  return <KpiTile label={label} value={value} hint={hint} trailing={delta} />
 }

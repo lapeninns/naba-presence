@@ -7,8 +7,6 @@ import { NotificationsCard } from "@/components/settings/notifications-card"
 import { OAuthReturn } from "@/components/settings/oauth-return"
 import { ReconnectAlert } from "@/components/settings/reconnect-alert"
 import { buttonVariants } from "@/components/ui/button"
-import { StatusPill } from "@/components/ui/status-pill"
-import { healthTone } from "@/lib/clients/health"
 import { useClients } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 
@@ -22,7 +20,7 @@ import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
  * where they run in sequence against a named client and can be resumed.
  *
  * What stays here is the account-level view: what is connected, what is
- * broken, and who depends on it.
+ * broken, and who depends on it — one grouped list, one row per account.
  */
 export function ConnectionsWorkspace() {
   const { query } = useConnectionWorkspace()
@@ -41,73 +39,34 @@ export function ConnectionsWorkspace() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-(--np-gap-section)">
       <OAuthReturn />
       <ReconnectAlert />
-      <ConnectionCard />
-
-      {hasConnection ? (
-        <section aria-labelledby="connection-clients" className="flex flex-col gap-3">
-          <div>
-            <h2 id="connection-clients" className="text-section">
-              Who depends on each account
-            </h2>
-            <p className="text-ui text-ink-muted">
-              Disconnecting a Google account stops reviews syncing for every
-              client below it.
-            </p>
-          </div>
-          <ul className="flex flex-col gap-2">
-            {(query.data?.connections ?? []).map((connection) => {
-              const served = clientsByConnection.get(connection.id) ?? []
-              return (
-                <li
-                  key={connection.id}
-                  className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 sm:flex-row sm:items-center"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-ui font-medium">
-                      {connection.googleEmail ?? "Google account"}
-                    </p>
-                    <p className="text-caption text-ink-muted">
-                      {served.length === 0
-                        ? "No clients use this account yet."
-                        : `Used by ${served.map((client) => client.name).join(", ")}.`}
-                    </p>
-                  </div>
-                  <StatusPill
-                    tone={
-                      connection.reconnectRequired || connection.status !== "active"
-                        ? healthTone("disconnected")
-                        : healthTone("healthy")
-                    }
-                  >
-                    {connection.reconnectRequired || connection.status !== "active"
-                      ? "Needs reconnecting"
-                      : "Connected"}
-                  </StatusPill>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
+      <ConnectionCard clientsByConnection={clientsByConnection} />
 
       {hasConnection ? <NotificationsCard /> : null}
 
-      <section aria-labelledby="connection-setup" className="flex flex-col gap-2">
-        <h2 id="connection-setup" className="text-section">
-          Setting up a client
-        </h2>
-        <p className="text-ui text-ink-muted">
-          Choosing Business Profile accounts, linking locations and importing
-          review history all happen per client, in order, where you can stop and
-          come back.
-        </p>
+      <section
+        aria-labelledby="connection-setup"
+        className="flex flex-col gap-3"
+      >
+        <div className="flex flex-col gap-1">
+          <h2
+            id="connection-setup"
+            className="text-title font-semibold text-ink"
+          >
+            Setting up a client
+          </h2>
+          <p className="text-ui text-ink-muted">
+            Choosing Business Profile accounts, linking locations and importing
+            review history all happen per client, in order, where you can stop
+            and come back.
+          </p>
+        </div>
         <div>
           <Link
             href="/clients/new"
-            className={buttonVariants({ variant: "outline" })}
+            className={buttonVariants({ variant: "secondary", pill: true })}
           >
             Set up a client
           </Link>

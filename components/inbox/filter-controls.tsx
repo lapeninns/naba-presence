@@ -1,7 +1,7 @@
 "use client"
 
 import { useId } from "react"
-import { ChevronDownIcon, StarIcon } from "lucide-react"
+import { ChevronDownIcon, SlidersHorizontalIcon, StarIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -41,15 +41,23 @@ function CheckboxGroup({
   options,
   selected,
   onToggle,
+  hideLegend = false,
 }: {
   legend: string
   options: readonly { value: string; label: string; ariaLabel?: string }[]
   selected: string[]
   onToggle: (value: string) => void
+  /** The legend stays for assistive tech when a visible heading already names the group. */
+  hideLegend?: boolean
 }) {
   return (
     <fieldset className="flex flex-col gap-0.5">
-      <legend className="mb-1 text-caption font-medium text-muted-foreground">
+      <legend
+        className={cn(
+          "mb-1 px-2 text-caption font-medium text-ink-muted",
+          hideLegend && "sr-only"
+        )}
+      >
         {legend}
       </legend>
       {options.map((option) => {
@@ -60,10 +68,7 @@ function CheckboxGroup({
         return (
           <div
             key={option.value}
-            className={cn(
-              "flex cursor-pointer items-center gap-2.5 rounded-(--np-radius-control) px-2 py-1 transition-colors",
-              checked ? "bg-accent/60" : "hover:bg-muted/50"
-            )}
+            className="flex h-8 cursor-pointer items-center gap-2.5 rounded-(--np-radius-control) px-2 transition-colors duration-(--np-duration-fast) hover:bg-(--np-hover-bg)"
             onClick={() => onToggle(option.value)}
           >
             <Checkbox
@@ -72,7 +77,7 @@ function CheckboxGroup({
               onClick={(event) => event.stopPropagation()}
               onCheckedChange={() => onToggle(option.value)}
             />
-            <span aria-hidden="true" className="text-ui">
+            <span aria-hidden="true" className="text-ui text-ink">
               {option.label}
             </span>
           </div>
@@ -82,7 +87,11 @@ function CheckboxGroup({
   )
 }
 
-/** Compact 1–5 star multi-select — always visible above the list. */
+/**
+ * Compact 1–5 star multi-select. Capsule chips on the fill grey; a chosen
+ * rating fills with the accent, the same way a pressed ToggleChip does. The
+ * roles stay `checkbox` because several can be on at once.
+ */
 function RatingFilter({
   ratings,
   onChange,
@@ -91,7 +100,11 @@ function RatingFilter({
   onChange: (ratings: number[]) => void
 }) {
   return (
-    <div role="group" aria-label="Rating" className="flex shrink-0 items-center gap-0.5">
+    <div
+      role="group"
+      aria-label="Rating"
+      className="flex shrink-0 flex-wrap items-center gap-1"
+    >
       {RATING_OPTIONS.map((option) => {
         const checked = ratings.includes(option.value)
         return (
@@ -103,19 +116,18 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-(--np-radius-control) border px-1.5 text-caption font-semibold tabular-nums transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-0.5 rounded-(--np-radius-pill) px-2 text-caption font-medium tabular-nums focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
               checked
-                ? "border-primary/40 bg-accent text-foreground"
-                : "border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                ? "bg-primary text-primary-foreground hover:bg-(--np-accent-hover)"
+                : "bg-fill text-ink hover:bg-fill-secondary"
             )}
           >
             <StarIcon
               aria-hidden
+              strokeWidth={1.75}
               className={cn(
                 "size-3",
-                checked
-                  ? "fill-(--rating) stroke-(--rating)"
-                  : "fill-transparent stroke-current"
+                checked ? "fill-current stroke-current" : "fill-transparent stroke-current"
               )}
             />
             {option.value}
@@ -126,7 +138,11 @@ function RatingFilter({
   )
 }
 
-/** Any / Unreplied / Replied — always visible. */
+/**
+ * Any / Unreplied / Replied. Drawn as a segmented control — a fill-grey track
+ * with a white, raised thumb on the chosen segment — but kept as a radio
+ * group, because exactly one is on and that is what a radio says.
+ */
 function ReplyFilter({
   replyState,
   onChange,
@@ -138,7 +154,7 @@ function ReplyFilter({
     <div
       role="radiogroup"
       aria-label="Reply state"
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-(--np-radius-control) border border-border/70 bg-muted/40 p-0.5"
+      className="inline-flex h-7 w-full shrink-0 items-center gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5"
     >
       {(
         [
@@ -163,10 +179,10 @@ function ReplyFilter({
               )
             }
             className={cn(
-              "rounded-[calc(var(--np-radius-control)-2px)] px-2 py-1 text-center text-caption font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+              "h-full min-w-0 flex-1 rounded-[calc(var(--np-radius-control)-2px)] px-2 text-center text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
               checked
-                ? "bg-card text-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-surface text-ink shadow-(--np-shadow-raised)"
+                : "text-ink-muted hover:text-ink"
             )}
           >
             {option.label}
@@ -178,8 +194,9 @@ function ReplyFilter({
 }
 
 /**
- * Verification / publish / dates / sync — expands inline under the list
- * toolbar. No sheet or sidebar: filters stay next to the queue they affect.
+ * Verification / publish / dates / sync — a white card that expands inline
+ * under the toggle. No sheet or sidebar: filters stay next to the queue they
+ * affect.
  */
 function AdvancedFilters({
   state,
@@ -197,7 +214,7 @@ function AdvancedFilters({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-(--np-radius-field) border border-border/70 bg-card p-3">
+    <div className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-2">
       <CheckboxGroup
         legend="Verification"
         options={VERIFICATION_OPTIONS}
@@ -214,8 +231,8 @@ function AdvancedFilters({
           onChange({ publishStatus: toggle(state.publishStatus, value) })
         }
       />
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="text-caption font-medium text-muted-foreground">
+      <fieldset className="flex flex-col gap-1.5 px-2">
+        <legend className="mb-1 text-caption font-medium text-ink-muted">
           Date range
         </legend>
         <div className="grid grid-cols-2 gap-2">
@@ -231,7 +248,6 @@ function AdvancedFilters({
               onChange={(event) =>
                 onChange({ dateFrom: toIso(event.target.value) })
               }
-              className="h-8 shadow-none"
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -246,25 +262,30 @@ function AdvancedFilters({
               onChange={(event) =>
                 onChange({ dateTo: toIso(event.target.value) })
               }
-              className="h-8 shadow-none"
             />
           </div>
         </div>
       </fieldset>
-      <details className="group rounded-(--np-radius-control) border border-border/60 open:bg-muted/20">
-        <summary className="cursor-pointer list-none px-2.5 py-2 text-caption font-medium marker:content-none [&::-webkit-details-marker]:hidden">
-          <span className="flex items-center justify-between gap-2">
-            Sync status
-            <span className="font-normal text-muted-foreground group-open:hidden">
+      <details className="group flex flex-col">
+        <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-2 rounded-(--np-radius-control) px-2 text-ui font-medium text-ink focus-halo transition-colors duration-(--np-duration-fast) select-none marker:content-none hover:bg-(--np-hover-bg) focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+          <span>Sync status</span>
+          <span className="inline-flex items-center gap-1.5 text-caption font-normal text-ink-muted">
+            <span className="group-open:hidden">
               {state.syncStatus.length
                 ? `${state.syncStatus.length} selected`
                 : "Optional"}
             </span>
+            <ChevronDownIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 transition-transform duration-(--np-duration-fast) ease-spring-snappy group-open:rotate-180"
+            />
           </span>
         </summary>
-        <div className="border-t border-border/50 px-1 pb-1.5">
+        <div className="pt-1">
           <CheckboxGroup
             legend="Sync status"
+            hideLegend
             options={SYNC_STATUS_OPTIONS}
             selected={state.syncStatus}
             onToggle={(value) =>
@@ -289,25 +310,31 @@ function MoreFiltersToggle({
   return (
     <Button
       type="button"
-      variant={open || count > 0 ? "secondary" : "outline"}
+      variant={open || count > 0 ? "secondary" : "ghost"}
       size="sm"
+      pill
       aria-expanded={open}
       aria-controls="inbox-advanced-filters"
-      className="h-7 shrink-0 gap-1.5 px-2.5"
+      className="shrink-0"
       onClick={() => onOpenChange(!open)}
     >
-      <span className="inline-flex items-center gap-1.5">
-        More filters
-        {count > 0 ? (
-          <span className="inline-flex min-w-4 items-center justify-center rounded-(--np-radius-pill) bg-primary px-1.5 text-caption font-semibold text-primary-foreground tabular-nums">
-            {count}
-          </span>
-        ) : null}
-      </span>
+      <SlidersHorizontalIcon
+        aria-hidden
+        strokeWidth={1.75}
+        data-icon="inline-start"
+        className="size-3.5 text-ink-muted"
+      />
+      More filters
+      {count > 0 ? (
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-(--np-radius-pill) bg-primary px-1 text-caption font-semibold text-primary-foreground tabular-nums">
+          {count}
+        </span>
+      ) : null}
       <ChevronDownIcon
         aria-hidden
+        strokeWidth={1.75}
         className={cn(
-          "size-3.5 text-muted-foreground transition-transform",
+          "size-3.5 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
           open && "rotate-180"
         )}
       />

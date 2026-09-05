@@ -1,5 +1,6 @@
 "use client"
 
+import { ListChecksIcon } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
@@ -36,25 +37,29 @@ function SetupChecklistCard({ role }: { role: string | null }) {
   return (
     <section
       aria-labelledby="setup-checklist"
-      className="flex flex-col gap-3 rounded-(--np-radius-card) border border-[var(--np-accent)] bg-accent-tint px-4 py-3 sm:flex-row sm:items-center"
+      className="flex flex-col gap-3 rounded-(--np-radius-card) bg-accent-tint p-(--np-card-pad) sm:flex-row sm:items-center sm:gap-4"
     >
       <span
         aria-hidden
-        className="flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[var(--np-accent)] text-caption font-semibold text-accent-ink"
+        className="flex size-9 shrink-0 items-center justify-center rounded-(--np-radius-pill) bg-surface text-accent-ink"
       >
-        {done}/{total}
+        <ListChecksIcon className="size-4" strokeWidth={1.75} />
       </span>
       <div className="min-w-0 flex-1">
-        <h2 id="setup-checklist" className="text-title">
+        <h2 id="setup-checklist" className="text-body font-semibold text-ink">
           Finish setting up {first.name}
         </h2>
         <p className="text-ui text-accent-ink">
           Next: {definition.title.toLowerCase()}.
+          <span className="tabular-nums">
+            {" "}
+            {done} of {total} steps done.
+          </span>
         </p>
       </div>
       <Link
         href={`/setup?client=${first.id}&step=${nextStep}`}
-        className={buttonVariants()}
+        className={buttonVariants({ pill: true })}
       >
         Continue setup
       </Link>

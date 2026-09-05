@@ -1,6 +1,7 @@
 # Visual identity: calm editorial, light-first
 
-Status: accepted, 2026-09-03. Supersedes
+Status: superseded, 2026-09-04, by
+`docs/specs/2026-09-04-apple-identity.md`. Was accepted 2026-09-03. Superseded
 `docs/specs/2026-07-28-design-system.md` and
 `docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md`.
 Amends §7 of `docs/superpowers/specs/2026-07-31-frontend-rebuild-design.md`.

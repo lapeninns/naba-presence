@@ -1,17 +1,24 @@
 "use client"
 
+import { Building2Icon } from "lucide-react"
 import Link from "next/link"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { Skeleton } from "@/components/ui/skeleton"
-import { StatusPill } from "@/components/ui/status-pill"
+import { HomeSection, ListRowsSkeleton } from "@/components/home/home-section"
+import { buttonVariants } from "@/components/ui/button"
 import { DataTable } from "@/components/ui/data-table"
+import { Empty } from "@/components/ui/empty"
+import { StatusPill } from "@/components/ui/status-pill"
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { formatNumber } from "@/lib/format"
 import { formatRelativeTime } from "@/lib/format/date"
+import { cn } from "@/lib/utils"
 
 const HEADING_ID = "work-by-client-heading"
+
+const countLinkClassName =
+  "rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-4 tabular-nums focus-halo hover:underline"
 
 /**
  * Who needs you today, by client.
@@ -31,16 +38,9 @@ function WorkByClient({
 }) {
   if (isPending) {
     return (
-      <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-        <h2 id={HEADING_ID} className="text-section font-medium tracking-tight">
-          Work by client
-        </h2>
-        <div aria-busy="true" className="flex flex-col gap-2">
-          {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-12 rounded-(--np-radius-card)" />
-          ))}
-        </div>
-      </section>
+      <HomeSection id={HEADING_ID} title="Work by client">
+        <ListRowsSkeleton rows={3} />
+      </HomeSection>
     )
   }
 
@@ -56,23 +56,37 @@ function WorkByClient({
     .sort((a, b) => b.open - a.open || a.name.localeCompare(b.name))
 
   return (
-    <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-      <h2 id={HEADING_ID} className="text-section font-medium tracking-tight">
-        Work by client
-      </h2>
+    <HomeSection
+      id={HEADING_ID}
+      title="Work by client"
+      description="Open work for each client, busiest first."
+    >
       <DataTable
         caption="Open work for each client"
         rows={rows}
         rowId={(row) => row.id}
         density="compact"
+        surface
         empty={
-          <p className="text-ui text-ink-muted">
-            No clients yet.{" "}
-            <Link href="/clients/new" className="underline">
-              Add your first one
-            </Link>
-            .
-          </p>
+          <div className="rounded-(--np-radius-card) bg-surface">
+            <Empty
+              icon={<Building2Icon />}
+              title="No clients yet"
+              description="Add the first business you look after and its open work appears here."
+              action={
+                <Link
+                  href="/clients/new"
+                  className={buttonVariants({
+                    variant: "secondary",
+                    pill: true,
+                  })}
+                >
+                  New client
+                </Link>
+              }
+              className="py-8"
+            />
+          </div>
         }
         columns={[
           {
@@ -81,7 +95,7 @@ function WorkByClient({
             cell: (row) => (
               <Link
                 href={`/clients/${row.id}`}
-                className="flex items-center gap-2 font-medium hover:underline"
+                className="inline-flex items-center gap-2.5 rounded-(--np-radius-tag) font-medium text-ink underline-offset-4 focus-halo hover:underline"
               >
                 <ClientAvatar name={row.name} colour={row.colour} size="sm" />
                 {row.name}
@@ -92,7 +106,7 @@ function WorkByClient({
             id: "health",
             header: "Health",
             cell: (row) => (
-              <StatusPill tone={healthTone(row.health)}>
+              <StatusPill variant="inline" tone={healthTone(row.health)}>
                 {healthLabel(row.health)}
               </StatusPill>
             ),
@@ -100,63 +114,63 @@ function WorkByClient({
           {
             id: "needs_reply",
             header: "Needs reply",
-            className: "text-right tabular-nums",
+            numeric: true,
             cell: (row) =>
               row.openWork.needsReply > 0 ? (
                 <Link
                   href={`/inbox?queue=needs_reply&clientId=${row.id}`}
-                  className="underline"
+                  className={countLinkClassName}
                 >
                   {formatNumber(row.openWork.needsReply)}
                 </Link>
               ) : (
-                <span className="text-ink-faint">0</span>
+                <span className="text-ink-muted">0</span>
               ),
           },
           {
             id: "awaiting",
             header: "Awaiting approval",
-            className: "text-right tabular-nums",
+            numeric: true,
             cell: (row) =>
               row.openWork.awaitingApproval > 0 ? (
                 <Link
                   href={`/inbox?queue=awaiting_my_approval&clientId=${row.id}`}
-                  className="underline"
+                  className={countLinkClassName}
                 >
                   {formatNumber(row.openWork.awaitingApproval)}
                 </Link>
               ) : (
-                <span className="text-ink-faint">0</span>
+                <span className="text-ink-muted">0</span>
               ),
           },
           {
             id: "failed",
             header: "Failed",
-            className: "text-right tabular-nums",
+            numeric: true,
             cell: (row) =>
               row.openWork.failed > 0 ? (
                 <Link
                   href={`/inbox?queue=failed&clientId=${row.id}`}
-                  className="text-danger-ink underline"
+                  className={cn(countLinkClassName, "text-danger-ink")}
                 >
                   {formatNumber(row.openWork.failed)}
                 </Link>
               ) : (
-                <span className="text-ink-faint">0</span>
+                <span className="text-ink-muted">0</span>
               ),
           },
           {
             id: "synced",
             header: "Last sync",
             cell: (row) => (
-              <span className="text-ink-muted">
+              <span className="text-caption text-ink-muted">
                 {row.lastSyncAt ? formatRelativeTime(row.lastSyncAt) : "Never"}
               </span>
             ),
           },
         ]}
       />
-    </section>
+    </HomeSection>
   )
 }
 

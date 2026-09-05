@@ -19,12 +19,20 @@ export const STATUS_TONES = [
 export type StatusTone = (typeof STATUS_TONES)[number]
 
 /**
- * Tailwind classes per tone, reading the measured token pairs. Every ink/tint
- * pair here clears 4.5:1 in both themes (lib/design/contrast-pairs.ts), which
- * is why status text no longer has to fall back to plain foreground the way
- * the old badge variants did.
+ * Tailwind classes per tone, reading the measured token pairs.
+ *
+ * `text` on `tint` is the pill: every pair clears 4.5:1 in both themes
+ * (lib/design/contrast-pairs.ts), which is why status text no longer has to
+ * fall back to plain foreground the way the old badge variants did.
+ *
+ * `dot` is the vivid, solid step of each family: the dot is a graphic, not
+ * text, so it only has to clear 3:1 and can afford to be bright. Neutral has
+ * no solid step; its dot is the strong line, the one grey that clears 3:1.
  */
-export const TONE_CLASSES: Record<StatusTone, { text: string; tint: string; dot: string }> = {
+export const TONE_CLASSES: Record<
+  StatusTone,
+  { text: string; tint: string; dot: string }
+> = {
   healthy: {
     text: "text-success-ink",
     tint: "bg-success-tint",
@@ -47,7 +55,7 @@ export const TONE_CLASSES: Record<StatusTone, { text: string; tint: string; dot:
   },
   neutral: {
     text: "text-ink-muted",
-    tint: "bg-surface-sunken",
+    tint: "bg-fill",
     dot: "bg-[var(--np-line-strong)]",
   },
 }

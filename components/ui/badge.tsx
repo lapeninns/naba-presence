@@ -4,36 +4,48 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * A small, non-interactive label: a count, a category, a state word.
+ *
+ * Two shapes: `pill` (a capsule, the default) and `tag` (the tag radius, for
+ * a badge that sits flush in a table cell or a field). Backgrounds come from
+ * the fill ladder and the status tints, so a badge never needs a border; the
+ * `outline` variant is white with a hairline edge for a white-on-white
+ * surface. Height is the 22px pill metric.
+ *
+ * Every ink/tint pair here is measured (lib/design/contrast-pairs.ts), which
+ * is why the status variants can carry their own ink instead of falling back
+ * to plain foreground the way the old ones did.
+ */
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-(--np-radius-pill) border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-(--np-pill-h) w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-2 text-caption font-medium whitespace-nowrap tabular-nums focus-halo transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
         // Darken rather than the stock `bg-primary/80` lightening, which drops
         // white-on-primary to 3.27:1 when the badge is a link. See button.tsx.
         default:
-          "bg-primary text-primary-foreground [a]:hover:bg-[var(--np-accent-hover)]",
-        secondary:
-          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
-        destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+          "bg-primary text-primary-foreground [a&]:hover:bg-[var(--np-accent-hover)]",
+        tinted:
+          "bg-accent-tint text-accent-ink [a&]:hover:bg-[var(--np-accent-tint-strong)]",
+        secondary: "bg-fill text-ink [a&]:hover:bg-fill-secondary",
+        destructive: "bg-danger-tint text-danger-ink",
         outline:
-          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
-        ghost:
-          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
-        link: "text-primary underline-offset-4 hover:underline",
-        success:
-          "border-transparent bg-success/10 text-success [a&]:hover:bg-success/20",
-        warning:
-          "border-transparent bg-warning/15 text-foreground [a&]:hover:bg-warning/25",
-        // text-info measures 3.77:1 on bg-info/10 in light mode (fails AA
-        // for 12px text) — use text-foreground, the same safe choice made
-        // for warning above. See task-7-report.md.
-        info: "border-transparent bg-info/10 text-foreground [a&]:hover:bg-info/20",
+          "bg-surface text-ink hairline focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] [a&]:hover:bg-fill-tertiary",
+        ghost: "text-ink-muted [a&]:hover:bg-fill-tertiary [a&]:hover:text-ink",
+        link: "text-accent-ink underline-offset-4 hover:underline",
+        success: "bg-success-tint text-success-ink",
+        warning: "bg-warning-tint text-warning-ink",
+        info: "bg-info-tint text-info-ink",
+      },
+      shape: {
+        pill: "rounded-(--np-radius-pill)",
+        tag: "rounded-(--np-radius-tag)",
       },
     },
     defaultVariants: {
       variant: "default",
+      shape: "pill",
     },
   }
 )
@@ -41,6 +53,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = "default",
+  shape = "pill",
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
@@ -48,7 +61,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant }), className),
+        className: cn(badgeVariants({ variant, shape }), className),
       },
       props
     ),
@@ -56,6 +69,7 @@ function Badge({
     state: {
       slot: "badge",
       variant,
+      shape,
     },
   })
 }

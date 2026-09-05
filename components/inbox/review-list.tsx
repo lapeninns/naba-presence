@@ -5,18 +5,32 @@ import { GlobeIcon, ImageIcon, ReplyIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
+import { StatusPill } from "@/components/ui/status-pill"
 import { StarRating } from "@/components/inbox/star-rating"
-import { SITUATION_TONE_CHIP } from "@/components/inbox/situation-tone"
-import { formatDate } from "@/lib/format"
+import { SITUATION_TONE_STATUS } from "@/components/inbox/situation-tone"
+import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { situationFromReviewRow } from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { cn } from "@/lib/utils"
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
 function initials(name: string | null): string {
   if (!name) return "?"
   const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
   return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?"
+}
+
+/**
+ * The way Mail dates a row: a gap for today ("4 min ago"), a date for
+ * anything older, and the year only once it is not this year — so a backlog
+ * from 2024 still says so instead of "2 years ago".
+ */
+function listTime(iso: string, timezone: string): string {
+  const age = Date.now() - new Date(iso).getTime()
+  if (age >= 0 && age < ONE_DAY_MS) return formatRelativeTime(iso)
+  return formatDate(iso, timezone)
 }
 
 function ReviewList({
@@ -64,12 +78,11 @@ function ReviewList({
   }
 
   // Below lg, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
-  // selection and swaps this pane back into view; this list panel itself
-  // never unmounts (it's only CSS-hidden while the detail pane shows), so
+  // selection and closes the detail sheet; this list never unmounts, so
   // restoring focus here — to the row that was just deselected, or the
   // roving tab-stop if it's no longer in the list — mirrors that button
-  // moving focus into the detail pane on the way there, rather than
-  // silently dropping focus on the way back.
+  // taking focus on the way into the sheet, rather than silently dropping
+  // focus on the way back.
   const previouslySelectedId = useRef(selectedId)
   useEffect(() => {
     if (previouslySelectedId.current && !selectedId) {
@@ -157,16 +170,16 @@ function ReviewList({
       {isRefreshing ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-border/40"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-line-subtle"
         >
-          <div className="h-full w-1/3 animate-pulse bg-primary/70" />
+          <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
       ) : null}
       {/* Native <ul>/<li> give the list/listitem roles; the row stays a real
           <button> (role button) so getByRole("button", { name }) works and the
           list satisfies aria-required-children. Roving tabindex lives on the
-          buttons. */}
-      <ul ref={containerRef} className="flex flex-col">
+          buttons. Compact density: a working queue is read, not browsed. */}
+      <ul ref={containerRef} data-density="compact" className="flex flex-col">
         {reviews.map((review, index) => {
           const selected = review.id === selectedId
           // Roving tabindex: the selected row is the tab stop; if nothing is
@@ -184,31 +197,23 @@ function ReviewList({
             review.text,
             review.detectedLanguageCode
           )
-          const hasIcons =
-            review.hasMedia || review.replyStatus === "published"
-          // --muted-foreground is calibrated against the page/card surface
-          // (6.24:1 in dark); on the selected row's --accent tint it drops to
-          // 4.48:1, just under AA. The selected row therefore softens the
-          // row's OWN foreground instead — 5.7:1 on the tint in dark, 5.6:1
-          // in light — which keeps the secondary/primary hierarchy without
-          // failing contrast. (The `·` separators stay muted: they are
-          // aria-hidden decoration, not text a reader has to make out.)
-          const secondaryText = selected
-            ? "text-foreground/70"
-            : "text-muted-foreground"
+          const hasIcons = review.hasMedia || review.replyStatus === "published"
 
           return (
-            <li key={review.id} className="relative">
+            <li
+              key={review.id}
+              className="group/row relative border-b border-line-subtle last:border-b-0"
+            >
               {selection ? (
                 <span
                   className={cn(
-                    "absolute top-3.5 left-3 z-10 transition-opacity duration-(--np-duration-fast)",
+                    "absolute top-2.5 left-3 z-10 flex transition-opacity duration-(--np-duration-fast)",
                     // Visible once ticked or on hover/focus, so an untouched
                     // list is not a wall of empty boxes — but never hidden
                     // from keyboards, which have no hover.
                     selection.selected.has(review.id)
                       ? "opacity-100"
-                      : "opacity-0 focus-within:opacity-100 group-hover/row:opacity-100"
+                      : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100"
                   )}
                 >
                   <Checkbox
@@ -234,69 +239,37 @@ function ReviewList({
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  "group/row relative flex w-full items-start gap-3 border-b border-border/60 py-3 pr-4 text-left transition-[colors,background-color] duration-(--np-duration-fast) focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/30",
-                  selection ? "pl-10" : "pl-4",
+                  // The halo is inset because the list clips at the card's
+                  // corners; an outer halo would be cut off on the edge rows.
+                  "relative flex w-full items-start gap-2.5 py-2 pr-3 text-left transition-[background-color] duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none",
+                  selection ? "pl-9" : "pl-3",
                   selected
-                    ? // Accent tint (Google pale blue) is the sanctioned
-                      // selection surface; the 2px leading bar in
-                      // accent-foreground disambiguates selection from hover
-                      // without relying on colour alone.
-                      "bg-accent before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent-foreground/70 before:content-['']"
-                    : "hover:bg-muted/60"
+                    ? "bg-accent-tint"
+                    : "hover:bg-(--np-hover-bg) active:bg-fill-tertiary"
                 )}
               >
-                <Avatar className="mt-0.5">
-                  {photoUrl ? (
-                    <AvatarImage src={photoUrl} alt="" />
-                  ) : null}
+                <Avatar size="sm" className="mt-0.5">
+                  {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
                   <AvatarFallback>{initials(displayName)}</AvatarFallback>
                 </Avatar>
 
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-ui font-medium">
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-ui font-semibold text-ink">
                       {displayName}
                     </span>
-                    <span
-                      title={situation.headline}
-                      aria-label={situation.headline}
-                      className={cn(
-                        "inline-flex shrink-0 items-center rounded-(--np-radius-pill) px-1.5 py-px text-caption font-medium",
-                        SITUATION_TONE_CHIP[situation.tone]
-                      )}
+                    <time
+                      dateTime={review.updateTime}
+                      title={formatDateTime(review.updateTime, timezone)}
+                      className="shrink-0 text-caption text-ink-muted tabular-nums"
                     >
-                      {situation.chip}
-                    </span>
+                      {listTime(review.updateTime, timezone)}
+                    </time>
                   </span>
 
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 text-caption text-ink-muted">
                     <StarRating rating={review.rating} />
-                    <span
-                      aria-hidden
-                      className="text-caption text-muted-foreground/60"
-                    >
-                      ·
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 text-caption tabular-nums",
-                        secondaryText
-                      )}
-                    >
-                      {formatDate(review.updateTime, timezone)}
-                    </span>
-                    <span
-                      aria-hidden
-                      className="text-caption text-muted-foreground/60"
-                    >
-                      ·
-                    </span>
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-caption",
-                        secondaryText
-                      )}
-                    >
+                    <span className="min-w-0 flex-1 truncate">
                       {/* Client first: in an agency inbox the location name
                           alone ("High Street") does not say whose business
                           this is, and replying in the wrong voice is the
@@ -306,41 +279,54 @@ function ReviewList({
                         : review.location.name}
                     </span>
                     {hasIcons ? (
-                      <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="flex shrink-0 items-center gap-1">
                         {review.hasMedia ? (
                           <ImageIcon
                             role="img"
                             aria-label="Has photos"
-                            className="size-3.5 text-muted-foreground"
+                            strokeWidth={1.75}
+                            className="size-3.5"
                           />
                         ) : null}
                         {review.replyStatus === "published" ? (
                           <ReplyIcon
                             role="img"
                             aria-label="Reply published"
-                            className="size-3.5 text-success"
+                            strokeWidth={1.75}
+                            className="size-3.5 text-success-ink"
                           />
                         ) : null}
                       </span>
                     ) : null}
+                    {/* The situation as the product's status dot plus its
+                        short word; the headline is the accessible name so a
+                        reader hears "Ready to publish", not "Ready". */}
+                    <StatusPill
+                      tone={SITUATION_TONE_STATUS[situation.tone]}
+                      variant="inline"
+                      title={situation.headline}
+                      aria-label={situation.headline}
+                      className="shrink-0 text-caption"
+                    >
+                      {situation.chip}
+                    </StatusPill>
                   </span>
 
                   <span
                     lang={parsed?.bodyLang ?? undefined}
                     dir="auto"
-                    className={cn("line-clamp-2 text-caption", secondaryText)}
+                    className="line-clamp-2 text-ui text-ink-muted"
                   >
                     {parsed?.body ?? "No review text"}
                   </span>
 
                   {parsed?.original ? (
-                    <span
-                      className={cn(
-                        "flex items-center gap-x-2 text-caption",
-                        secondaryText
-                      )}
-                    >
-                      <GlobeIcon aria-hidden className="size-3.5 shrink-0" />
+                    <span className="flex items-center gap-1.5 text-caption text-ink-muted">
+                      <GlobeIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0"
+                      />
                       Translated
                     </span>
                   ) : null}
@@ -354,7 +340,10 @@ function ReviewList({
         <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
       ) : null}
       {isLoadingMore ? (
-        <p className="px-4 py-3 text-caption text-ink-muted" aria-live="polite">
+        <p
+          className="px-3 py-2.5 text-caption text-ink-muted"
+          aria-live="polite"
+        >
           Loading more reviews…
         </p>
       ) : null}

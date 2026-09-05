@@ -1,7 +1,11 @@
 "use client"
 
+import {
+  fieldChromeClassName,
+  fieldControlProps,
+  useFieldContext,
+} from "@/components/ui/field"
 import { cn } from "@/lib/utils"
-import { fieldControlProps, useFieldContext } from "@/components/ui/field"
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   const field = useFieldContext()
@@ -9,7 +13,10 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
     <textarea
       data-slot="textarea"
       className={cn(
-        "min-h-32 w-full resize-y rounded-(--np-radius-control) border border-border bg-card px-3 py-2 text-body focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",
+        fieldChromeClassName,
+        // Same chrome as Input; the minimum height is a few lines rather than
+        // the field height, and it stays user-resizable vertically.
+        "min-h-24 w-full resize-y px-3 py-2",
         className
       )}
       {...fieldControlProps(field)}

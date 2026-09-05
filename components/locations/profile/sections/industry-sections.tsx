@@ -5,9 +5,11 @@ import { useId, useMemo } from "react"
 import { SectionPanel } from "@/components/locations/section-panel"
 import { TabError } from "@/components/locations/tab-states"
 import { GateNote } from "@/components/locations/publish-gate"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -16,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { useToastManager } from "@/components/ui/toast"
 import {
   publishIndustry,
@@ -133,10 +136,9 @@ function IndustryEditor({
   publishReason: string | null
 }) {
   return (
-    <div className="flex flex-col gap-8">
-
+    <div className="flex flex-col gap-(--np-gap-section)">
       <section className="flex max-w-2xl flex-col gap-4">
-        <h3 className="text-title font-medium">Lodging</h3>
+        <h3 className="text-title font-semibold text-ink">Lodging</h3>
         <SectionPanel title="Lodging" result={state.lodging}>
           {(data) => (
             <LodgingSection
@@ -155,8 +157,8 @@ function IndustryEditor({
         </SectionPanel>
       </section>
 
-      <section className="flex max-w-xs flex-col gap-4">
-        <h3 className="text-title font-medium">Business calls</h3>
+      <section className="flex max-w-sm flex-col gap-4">
+        <h3 className="text-title font-semibold text-ink">Business calls</h3>
         <SectionPanel title="Business calls" result={state.calls}>
           {(data) => (
             <BusinessCallsSection
@@ -169,24 +171,28 @@ function IndustryEditor({
         </SectionPanel>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h3 className="text-title font-medium">Healthcare</h3>
-        <p className="text-caption text-muted-foreground">
-          Google holds healthcare service and provider details for this listing
-          that can&apos;t be edited here yet.
-        </p>
-        <SectionPanel
-          title="Healthcare services"
-          result={state.healthcareServices}
-        >
-          {(data) => <HealthcareServicesReadOnly data={data as RawRecord} />}
-        </SectionPanel>
-        <SectionPanel
-          title="Provider attributes"
-          result={state.providerAttributes}
-        >
-          {(data) => <ProviderAttributesReadOnly data={data as RawRecord} />}
-        </SectionPanel>
+      <section className="flex max-w-2xl flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-title font-semibold text-ink">Healthcare</h3>
+          <p className="text-ui text-ink-muted">
+            Google holds healthcare service and provider details for this
+            listing that can&apos;t be edited here yet.
+          </p>
+        </div>
+        <div className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface">
+          <SectionPanel
+            title="Healthcare services"
+            result={state.healthcareServices}
+          >
+            {(data) => <HealthcareServicesReadOnly data={data as RawRecord} />}
+          </SectionPanel>
+          <SectionPanel
+            title="Provider attributes"
+            result={state.providerAttributes}
+          >
+            {(data) => <ProviderAttributesReadOnly data={data as RawRecord} />}
+          </SectionPanel>
+        </div>
       </section>
     </div>
   )
@@ -203,6 +209,11 @@ type AmenitySection =
   | "wellness"
   | "pools"
 
+/**
+ * One amenity as a grouped-list row with a switch at the trailing edge. The
+ * label names the switch through `aria-labelledby`, so a screen reader hears
+ * "Pets allowed, switch, off" and a label lookup finds the control.
+ */
 function AmenityToggle({
   id,
   label,
@@ -216,17 +227,20 @@ function AmenityToggle({
   disabled: boolean
   onChange: (next: boolean) => void
 }) {
+  const labelId = `${id}-label`
   return (
-    <label className="flex items-center gap-2 text-ui" htmlFor={id}>
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      {label}
-    </label>
+    <GroupedListItem
+      label={<span id={labelId}>{label}</span>}
+      trailing={
+        <Switch
+          id={id}
+          aria-labelledby={labelId}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={(next) => onChange(next)}
+        />
+      }
+    />
   )
 }
 
@@ -321,22 +335,20 @@ function LodgingSection({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {suggestedError ? (
-        <p className="text-caption text-muted-foreground">
+        <p className="text-caption text-ink-muted">
           Google suggested lodging updates could not be loaded right now.
         </p>
       ) : suggestedPaths.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-(--np-radius-card) border border-border px-3 py-2">
-          <p className="text-ui font-medium">
-            Google suggested lodging updates
-          </p>
-          <p className="text-caption text-muted-foreground">
-            Google suggests changes to{" "}
-            {suggestedPaths.map((path) => path.replace(/_/g, " ")).join(", ")}.
-            Apply them into this form, review, then save to publish.
-          </p>
-          <div>
+        <Alert variant="info">
+          <AlertTitle>Google suggested lodging updates</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2.5">
+            <span>
+              Google suggests changes to{" "}
+              {suggestedPaths.map((path) => path.replace(/_/g, " ")).join(", ")}
+              . Apply them into this form, review, then save to publish.
+            </span>
             <Button
               size="sm"
               variant="outline"
@@ -345,15 +357,15 @@ function LodgingSection({
             >
               Apply suggested values
             </Button>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
       ) : (
-        <p className="text-caption text-muted-foreground">
+        <p className="text-caption text-ink-muted">
           Google has not suggested lodging changes.
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad) sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={checkinId}>Check-in time</FieldLabel>
           <Input
@@ -376,8 +388,7 @@ function LodgingSection({
         </Field>
       </div>
 
-      <fieldset className="flex flex-col gap-2" disabled={disabled}>
-        <legend className="text-ui font-medium">Pets and parking</legend>
+      <GroupedList header="Pets and parking">
         <AmenityToggle
           id={`${baseId}-pets`}
           label="Pets allowed"
@@ -413,10 +424,9 @@ function LodgingSection({
           disabled={disabled}
           onChange={(v) => setNested("parking", "valetParkingAvailable", v)}
         />
-      </fieldset>
+      </GroupedList>
 
-      <fieldset className="flex flex-col gap-2" disabled={disabled}>
-        <legend className="text-ui font-medium">Accessibility</legend>
+      <GroupedList header="Accessibility">
         <AmenityToggle
           id={`${baseId}-entrance`}
           label="Step-free / accessible entrance"
@@ -435,10 +445,9 @@ function LodgingSection({
             setNested("accessibility", "mobilityAccessibleParking", v)
           }
         />
-      </fieldset>
+      </GroupedList>
 
-      <fieldset className="flex flex-col gap-2" disabled={disabled}>
-        <legend className="text-ui font-medium">Connectivity</legend>
+      <GroupedList header="Connectivity">
         <AmenityToggle
           id={`${baseId}-wifi`}
           label="Wi‑Fi available"
@@ -462,12 +471,9 @@ function LodgingSection({
             setNested("connectivity", "publicAreaWifiAvailable", v)
           }
         />
-      </fieldset>
+      </GroupedList>
 
-      <fieldset className="flex flex-col gap-2" disabled={disabled}>
-        <legend className="text-ui font-medium">
-          Food, wellness, and housekeeping
-        </legend>
+      <GroupedList header="Food, wellness, and housekeeping">
         <AmenityToggle
           id={`${baseId}-breakfast`}
           label="Breakfast available"
@@ -519,7 +525,7 @@ function LodgingSection({
           disabled={disabled}
           onChange={(v) => setNested("housekeeping", "dailyHousekeeping", v)}
         />
-      </fieldset>
+      </GroupedList>
 
       <div>
         <Button
@@ -557,6 +563,7 @@ function BusinessCallsSection({
   // The loaded value is its own revision token: local edits survive until a
   // refetch actually changes it.
   const [callsState, setCallsState] = useResetOnRevision(initial, initial)
+  const labelId = useId()
 
   const dirty = callsState !== initial
 
@@ -574,13 +581,13 @@ function BusinessCallsSection({
   })
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <span className="text-ui font-medium">
+    <div className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span id={labelId} className="text-ui font-medium text-ink">
             Accept calls from customers
           </span>
-          <Badge variant={initial === "ENABLED" ? "success" : "outline"}>
+          <Badge variant={initial === "ENABLED" ? "success" : "secondary"}>
             Currently {callsStateLabel(initial)}
           </Badge>
         </div>
@@ -591,7 +598,11 @@ function BusinessCallsSection({
           }
           disabled={disabled}
         >
-          <SelectTrigger aria-label="Calls">
+          <SelectTrigger
+            className="w-full"
+            aria-label="Calls"
+            aria-describedby={labelId}
+          >
             <SelectValue>
               {(value: string | null) => (value ? callsStateLabel(value) : "")}
             </SelectValue>
@@ -621,32 +632,45 @@ function BusinessCallsSection({
 }
 
 // --- Healthcare (read-only; §12 — no typed editor yet) --------------------
+function ReadOnlyRow({
+  label,
+  description,
+}: {
+  label: string
+  description: string
+}) {
+  return (
+    <div className="flex min-h-(--np-row-h) flex-col justify-center px-(--np-card-pad) py-2">
+      <span className="text-body text-ink">{label}</span>
+      <span className="text-caption text-ink-muted">{description}</span>
+    </div>
+  )
+}
+
 function HealthcareServicesReadOnly({ data }: { data: RawRecord }) {
   const count = Array.isArray(data.services) ? data.services.length : 0
   return (
-    <div className="flex flex-col gap-0.5 text-ui">
-      <span className="font-medium">Healthcare services</span>
-      <span className="text-caption text-muted-foreground">
-        {count > 0
+    <ReadOnlyRow
+      label="Healthcare services"
+      description={`${
+        count > 0
           ? `Google lists ${count} service${count === 1 ? "" : "s"} for this listing. `
-          : ""}
-        Not editable here yet.
-      </span>
-    </div>
+          : ""
+      }Not editable here yet.`}
+    />
   )
 }
 
 function ProviderAttributesReadOnly({ data }: { data: RawRecord }) {
   const hasAttributes = Object.keys(data).length > 0
   return (
-    <div className="flex flex-col gap-0.5 text-ui">
-      <span className="font-medium">Provider attributes</span>
-      <span className="text-caption text-muted-foreground">
-        {hasAttributes
+    <ReadOnlyRow
+      label="Provider attributes"
+      description={`${
+        hasAttributes
           ? "Google holds provider attributes for this listing. "
-          : ""}
-        Not editable here yet.
-      </span>
-    </div>
+          : ""
+      }Not editable here yet.`}
+    />
   )
 }

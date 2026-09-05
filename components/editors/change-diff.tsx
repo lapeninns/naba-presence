@@ -33,16 +33,16 @@ export type ChangeRow = {
  * table lets a screen reader announce "Phone, on Google now, 01223 277 217"
  * rather than reading two disconnected lists and leaving the pairing to the
  * listener.
+ *
+ * It sits on the sheet's white, so its boundary is a hairline rather than a
+ * second white card.
  */
-function ChangeDiff({
-  rows,
-  caption,
-}: {
-  rows: ChangeRow[]
-  caption: string
-}) {
+function ChangeDiff({ rows, caption }: { rows: ChangeRow[]; caption: string }) {
   return (
-    <div className="overflow-hidden rounded-(--np-radius-card) border border-line">
+    <div
+      data-slot="change-diff"
+      className="overflow-hidden rounded-(--np-radius-card) hairline"
+    >
       <Table>
         <caption className="sr-only">{caption}</caption>
         <TableHeader>
@@ -54,8 +54,8 @@ function ChangeDiff({
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.key ?? row.field}>
-              <TableCell className="align-top font-medium">
+            <TableRow key={row.key ?? row.field} data-state={row.state}>
+              <TableCell className="align-top font-medium text-ink">
                 <span className="flex flex-col gap-1">
                   {row.field}
                   {row.state === "conflict" ? (
@@ -66,10 +66,10 @@ function ChangeDiff({
                 </span>
               </TableCell>
               <TableCell className="align-top text-ink-muted">
-                {row.before || <span className="text-ink-muted">Not set</span>}
+                {row.before || <span className="text-ink-faint">Not set</span>}
               </TableCell>
-              <TableCell className="align-top">
-                {row.after || <span className="text-ink-muted">Cleared</span>}
+              <TableCell className="align-top text-ink">
+                {row.after || <span className="text-ink-faint">Cleared</span>}
               </TableCell>
             </TableRow>
           ))}

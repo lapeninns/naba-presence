@@ -19,6 +19,8 @@ export type DataTableColumn<Row> = {
   cell: (row: Row) => React.ReactNode
   /** Applied to both the header cell and every body cell in the column. */
   className?: string
+  /** Right-aligned with tabular figures: counts, ratings, money. */
+  numeric?: boolean
 }
 
 type DataTableProps<Row> = {
@@ -38,6 +40,11 @@ type DataTableProps<Row> = {
   density?: "compact" | "comfortable"
   stickyHeader?: boolean
   empty?: React.ReactNode
+  /**
+   * Draws the table on its own white card. Leave off when the table already
+   * sits inside a Card or an inset group.
+   */
+  surface?: boolean
   className?: string
 }
 
@@ -63,6 +70,7 @@ function DataTable<Row>({
   density,
   stickyHeader = false,
   empty,
+  surface = false,
   className,
 }: DataTableProps<Row>) {
   const ids = rows.map(rowId)
@@ -92,13 +100,20 @@ function DataTable<Row>({
   }
 
   return (
-    <div data-density={density} className={cn("min-w-0", className)}>
+    <div
+      data-density={density}
+      className={cn(
+        "min-w-0",
+        surface && "overflow-hidden rounded-(--np-radius-card) bg-surface",
+        className
+      )}
+    >
       <Table>
         <caption className="sr-only">{caption}</caption>
         <TableHeader sticky={stickyHeader}>
           <TableRow>
             {selection ? (
-              <TableHead className="w-10">
+              <TableHead className="w-10 pr-0">
                 <Checkbox
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
@@ -112,7 +127,11 @@ function DataTable<Row>({
               </TableHead>
             ) : null}
             {columns.map((column) => (
-              <TableHead key={column.id} className={column.className}>
+              <TableHead
+                key={column.id}
+                numeric={column.numeric}
+                className={column.className}
+              >
                 {column.header}
               </TableHead>
             ))}
@@ -126,11 +145,26 @@ function DataTable<Row>({
               <TableRow
                 key={id}
                 data-selected={isSelected || undefined}
+                interactive={Boolean(onRowClick)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={onRowClick ? "cursor-pointer" : undefined}
+                // A clickable row is also a keyboard target: Enter and Space
+                // open it, the same as the pointer does.
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          onRowClick(row)
+                        }
+                      }
+                    : undefined
+                }
               >
                 {selection ? (
                   <TableCell
+                    className="w-10 pr-0"
                     // Stops a checkbox click from also triggering the row's
                     // own navigation.
                     onClick={(event) => event.stopPropagation()}
@@ -143,7 +177,11 @@ function DataTable<Row>({
                   </TableCell>
                 ) : null}
                 {columns.map((column) => (
-                  <TableCell key={column.id} className={column.className}>
+                  <TableCell
+                    key={column.id}
+                    numeric={column.numeric}
+                    className={column.className}
+                  >
                     {column.cell(row)}
                   </TableCell>
                 ))}

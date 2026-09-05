@@ -84,6 +84,23 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-ink-faint", bg: "--np-surface-canvas", kind: "graphic", note: "separators and inert icons" },
   { fg: "--np-ink-faint", bg: "--np-surface", kind: "graphic", note: "inert icons inside a card" },
 
+  // Fill ladder: the grey a control is made of.
+  { fg: "--np-ink", bg: "--np-fill", kind: "text", note: "grey button label and segmented control thumb text" },
+  { fg: "--np-ink-muted", bg: "--np-fill", kind: "text", note: "unselected segment label on the track" },
+  { fg: "--np-ink", bg: "--np-fill-secondary", kind: "text", note: "text in a search field or keycap" },
+  { fg: "--np-ink-muted", bg: "--np-fill-secondary", kind: "text", note: "placeholder in a search field" },
+  { fg: "--np-ink-muted", bg: "--np-fill-tertiary", kind: "text", note: "secondary text on a subtle well" },
+  { fg: "--np-accent-ink", bg: "--np-fill", kind: "text", note: "tinted action inside a grey control" },
+
+  // Materials, measured against their opaque twins: the translucent value
+  // composites over content and cannot be measured, so the twin is the floor.
+  { fg: "--np-ink", bg: "--np-material-sidebar-opaque", kind: "text", note: "sidebar item label" },
+  { fg: "--np-ink-muted", bg: "--np-material-sidebar-opaque", kind: "text", note: "sidebar group label" },
+  { fg: "--np-ink", bg: "--np-material-toolbar-opaque", kind: "text", note: "toolbar title" },
+  { fg: "--np-ink-muted", bg: "--np-material-toolbar-opaque", kind: "text", note: "toolbar breadcrumb" },
+  { fg: "--np-ink", bg: "--np-material-popover-opaque", kind: "text", note: "menu item label" },
+  { fg: "--np-ink-muted", bg: "--np-material-popover-opaque", kind: "text", note: "menu item shortcut hint" },
+
   // Accent.
   { fg: "--np-ink-on-accent", bg: "--np-accent", kind: "text", note: "primary button label" },
   { fg: "--np-ink-on-accent", bg: "--np-accent-hover", kind: "text", note: "primary button label, hovered" },
@@ -92,6 +109,16 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-accent-ink", bg: "--np-surface", kind: "text", note: "links in a card" },
   { fg: "--np-accent-ink", bg: "--np-accent-tint", kind: "text", note: "active nav item and selected chip" },
   { fg: "--np-accent-ink", bg: "--np-selection-bg", kind: "text", note: "text in a selected row" },
+  { fg: "--np-ink", bg: "--np-accent-tint", kind: "text", note: "primary text on a tinted card or selected row" },
+  { fg: "--np-ink-muted", bg: "--np-accent-tint", kind: "text", note: "secondary text in a selected row" },
+  { fg: "--np-success-ink", bg: "--np-accent-tint", kind: "text", note: "status text in a selected row" },
+  { fg: "--np-warning-ink", bg: "--np-accent-tint", kind: "text", note: "attention text in a selected row" },
+  { fg: "--np-danger-ink", bg: "--np-accent-tint", kind: "text", note: "danger text in a selected row" },
+  { fg: "--np-info-ink", bg: "--np-accent-tint", kind: "text", note: "pending text in a selected row" },
+  { fg: "--np-accent-ink", bg: "--np-accent-tint-strong", kind: "text", note: "text over a text selection" },
+  { fg: "--np-ink", bg: "--np-accent-tint-strong", kind: "text", note: "selected text" },
+  { fg: "--np-accent-vivid", bg: "--np-surface", kind: "graphic", note: "vivid accent used as a graphic: switch on-state, progress, active icon" },
+  { fg: "--np-ink-on-accent", bg: "--np-accent-vivid", kind: "large-text", note: "switch knob glyph on the vivid accent" },
 
   // Lines and focus: 3:1 as non-text indicators.
   { fg: "--np-line-strong", bg: "--np-surface-canvas", kind: "graphic", note: "input and button borders" },
@@ -118,6 +145,12 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-ink", bg: "--np-field-bg", kind: "text", note: "typed value in an input" },
   { fg: "--np-ink-muted", bg: "--np-field-bg", kind: "text", note: "input placeholder" },
   { fg: "--np-ink-muted", bg: "--np-table-header-bg", kind: "text", note: "table header label" },
+  { fg: "--np-line-strong", bg: "--np-field-bg", kind: "graphic", note: "field edge" },
+  { fg: "--np-danger-line", bg: "--np-field-bg", kind: "graphic", note: "invalid field edge" },
+  { fg: "--np-success-solid", bg: "--np-surface", kind: "graphic", note: "healthy status dot" },
+  { fg: "--np-danger-solid", bg: "--np-surface", kind: "graphic", note: "at-risk status dot" },
+  { fg: "--np-info-solid", bg: "--np-surface", kind: "graphic", note: "pending status dot" },
+  { fg: "--np-warning-ink", bg: "--np-surface", kind: "graphic", note: "attention status dot" },
 ]
 
 export type PairResult = {
@@ -204,7 +237,7 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
   // Every semantic role the light theme declares must be answered by the dark
   // block, unless it is theme-independent (shape, motion, spacing, density).
   const themeIndependent =
-    /^--np-(radius|duration|ease|sidebar|page|gap|card|panel|row|cell|control|list|field-h|pill)/
+    /^--np-(radius|corner|duration|ease|sidebar-width|toolbar|page|gap|card|panel|row|cell|control|list|field-h|pill|menu|material-blur|material-saturate)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
     Object.keys(parsed.dark).filter((name) => parsed.dark[name] !== parsed.light[name])

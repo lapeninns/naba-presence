@@ -16,7 +16,7 @@ function StepBackfill({ onAdvance }: { onAdvance: () => void }) {
     <div className="flex flex-col gap-4">
       <BackfillCard />
       <div>
-        <Button variant="outline" onClick={onAdvance}>
+        <Button variant="secondary" onClick={onAdvance}>
           Continue while this runs
         </Button>
       </div>

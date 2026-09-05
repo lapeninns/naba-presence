@@ -8,6 +8,7 @@ import { AddPhotoDialog } from "@/components/locations/photos/add-photo-dialog"
 import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
 import { Button } from "@/components/ui/button"
+import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
 import { isPatchableMediaCategory } from "@/lib/locations/media-labels"
 import {
@@ -73,7 +74,7 @@ export function PhotosLibrary({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="overflow-hidden rounded-(--np-radius-card) border border-border/70 bg-card">
+      <section className="overflow-hidden rounded-(--np-radius-card) bg-surface">
         <PhotosToolbar
           total={media.total}
           categories={media.categories}
@@ -132,25 +133,21 @@ function PhotosEmpty({
   onClearFilters: () => void
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-      <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <ImagesIcon aria-hidden className="size-5" />
-      </span>
-      <div>
-        <h3 className="text-ui font-semibold">
-          {filtersActive ? "No matching photos" : "No photos yet"}
-        </h3>
-        <p className="mt-1 max-w-sm text-caption text-muted-foreground">
-          {filtersActive
-            ? "Try a different ownership or category filter."
-            : "Add high-quality photos to help customers understand what to expect."}
-        </p>
-      </div>
-      {filtersActive ? (
-        <Button variant="outline" size="sm" onClick={onClearFilters}>
-          Clear filters
-        </Button>
-      ) : null}
-    </div>
+    <Empty
+      icon={<ImagesIcon />}
+      title={filtersActive ? "No matching photos" : "No photos yet"}
+      description={
+        filtersActive
+          ? "Try a different ownership or category filter."
+          : "Add high-quality photos to help customers understand what to expect."
+      }
+      action={
+        filtersActive ? (
+          <Button variant="secondary" size="sm" onClick={onClearFilters}>
+            Clear filters
+          </Button>
+        ) : undefined
+      }
+    />
   )
 }

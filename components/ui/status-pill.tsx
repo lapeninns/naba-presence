@@ -19,6 +19,9 @@ type StatusPillProps = React.ComponentProps<"span"> & {
  * Colour is never the only signal: `pill` and `inline` always carry a label,
  * and `dot` is documented as needing the state in adjacent text. A viewer who
  * cannot distinguish the hues still reads the word.
+ *
+ * The pill is tinted (ink on tint, measured at 4.5:1); the dot is the vivid
+ * solid step, so it stays legible at 6–8px.
  */
 function StatusPill({
   tone,
@@ -34,7 +37,11 @@ function StatusPill({
       <span
         data-slot="status-pill"
         data-tone={tone}
-        className={cn("inline-flex size-2 shrink-0 rounded-full", classes.dot, className)}
+        className={cn(
+          "inline-flex size-2 shrink-0 rounded-(--np-radius-pill)",
+          classes.dot,
+          className
+        )}
         {...props}
       />
     )
@@ -44,16 +51,27 @@ function StatusPill({
     <span
       data-slot="status-pill"
       data-tone={tone}
+      data-variant={variant}
       className={cn(
-        "inline-flex w-fit shrink-0 items-center gap-1.5 whitespace-nowrap text-caption font-medium",
+        "inline-flex w-fit shrink-0 items-center gap-1.5 text-caption font-medium whitespace-nowrap tabular-nums",
         variant === "pill" &&
-          cn("h-(--np-pill-h) rounded-(--np-radius-pill) px-2", classes.tint, classes.text),
-        variant === "inline" && classes.text,
+          cn(
+            "h-(--np-pill-h) rounded-(--np-radius-pill) pr-2 pl-1.5",
+            classes.tint,
+            classes.text
+          ),
+        variant === "inline" && cn("text-ui", classes.text),
         className
       )}
       {...props}
     >
-      <span className={cn("size-1.5 shrink-0 rounded-full", classes.dot)} aria-hidden />
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-(--np-radius-pill)",
+          classes.dot
+        )}
+        aria-hidden
+      />
       {children}
     </span>
   )

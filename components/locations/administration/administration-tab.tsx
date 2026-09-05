@@ -77,6 +77,31 @@ function AdministrationShell({
   )
 }
 
+/** A titled group of the tab: a headline, then its list or card. */
+function TabSection({
+  title,
+  description,
+  className,
+  children,
+}: {
+  title: string
+  description?: string
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className={className ?? "flex flex-col gap-3"}>
+      <div className="flex flex-col gap-1">
+        <h3 className="text-title font-semibold text-ink">{title}</h3>
+        {description ? (
+          <p className="text-ui text-ink-muted">{description}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 /** Who may edit this listing on Google, and the operations that end it. */
 export function AccessTab({
   locationId,
@@ -93,29 +118,26 @@ export function AccessTab({
           description="Who can edit this listing inside Google. These are Google accounts, not NabaPresence team members."
           gateReason={editReason}
         >
-          <section className="flex flex-col gap-2">
-            <h3 className="text-title font-medium">Location admins</h3>
+          <TabSection title="Location admins">
             <SectionPanel title="Location admins" result={state.locationAdmins}>
               {(data) => <AdminsSection data={data} />}
             </SectionPanel>
-          </section>
+          </TabSection>
 
-          <section className="flex flex-col gap-2">
-            <h3 className="text-title font-medium">Account admins</h3>
+          <TabSection title="Account admins">
             <SectionPanel title="Account admins" result={state.accountAdmins}>
               {(data) => <AdminsSection data={data} />}
             </SectionPanel>
-          </section>
+          </TabSection>
 
-          <section className="flex flex-col gap-2">
-            <h3 className="text-title font-medium">Invitations</h3>
+          <TabSection title="Invitations">
             <SectionPanel title="Invitations" result={state.invitations}>
               {(data) => <InvitationsList data={data} />}
             </SectionPanel>
             <div>
               <CreateAdminDialog />
             </div>
-          </section>
+          </TabSection>
 
           <DangerZone />
         </EditorFrame>
@@ -140,35 +162,43 @@ export function VerificationTab({
           description="Whether Google has confirmed this business is real, and what it is showing publicly as a result."
           gateReason={editReason}
         >
-          <section className="flex flex-col gap-2">
-            <h3 className="text-title font-medium">How Google sees this listing</h3>
-            <SectionPanel title="Voice of merchant" result={state.voice}>
-              {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
-            </SectionPanel>
-            <SectionPanel title="Suggested updates" result={state.googleUpdated}>
-              {(data) => <GoogleUpdateSummary data={asRecord(data)} />}
-            </SectionPanel>
-          </section>
+          <TabSection title="How Google sees this listing">
+            <div className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface">
+              <SectionPanel title="Voice of merchant" result={state.voice}>
+                {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
+              </SectionPanel>
+              <SectionPanel
+                title="Suggested updates"
+                result={state.googleUpdated}
+              >
+                {(data) => <GoogleUpdateSummary data={asRecord(data)} />}
+              </SectionPanel>
+            </div>
+          </TabSection>
 
-          <section className="flex max-w-lg flex-col gap-2">
-            <h3 className="text-title font-medium">Verification history</h3>
+          <TabSection
+            title="Verification history"
+            className="flex max-w-lg flex-col gap-3"
+          >
             <SectionPanel
               title="Verification history"
               result={state.verifications}
             >
               {(data) => <VerificationHistory data={asRecord(data)} />}
             </SectionPanel>
-          </section>
+          </TabSection>
 
-          <section className="flex max-w-lg flex-col gap-2">
-            <h3 className="text-title font-medium">Start a new verification</h3>
+          <TabSection
+            title="Start a new verification"
+            className="flex max-w-lg flex-col gap-3"
+          >
             <SectionPanel
               title="Verification options"
               result={state.verificationOptions}
             >
               {(data) => <StartVerification data={asRecord(data)} />}
             </SectionPanel>
-          </section>
+          </TabSection>
         </EditorFrame>
       )}
     </AdministrationShell>

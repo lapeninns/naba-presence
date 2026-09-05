@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------------
-   NabaPresence design system — calm editorial, light-first.
+   NabaPresence design system — Apple-grade, platform-native, light-first.
 
    Four layers, top to bottom:
      1. RAMPS      raw colour steps. The only layer a designer edits.
@@ -18,31 +18,55 @@
    ramp step or another role. Contrast is not asserted in a comment here — it
    is measured from THIS file by `pnpm check:contrast`, by
    `tests/design-tokens-contrast.test.ts`, and by the /design-system page.
-   See docs/specs/2026-09-visual-identity.md.
+   See docs/specs/2026-09-04-apple-identity.md.
+
+   The Apple vocabulary this file speaks:
+     - LABEL LADDER   ink / ink-muted / ink-faint / ink-quaternary
+     - FILL LADDER    fill / fill-secondary / fill-tertiary (control surfaces)
+     - GROUPED BG     canvas is a soft grey; cards are white with no border
+     - MATERIALS      translucent, blurred surfaces for chrome, with an opaque
+                      fallback under reduced-transparency
+     - SPRINGS        motion is a spring curve, never a linear fade
+     - CONCENTRIC     an inner radius is the outer radius minus the padding
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  /* Newsreader carries page titles and display numbers; Geist carries UI. */
-  --font-display: var(--font-newsreader);
+  /* San Francisco where the platform has it, Inter everywhere else. Inter is
+     the fallback because it carries an optical-size axis, which is what keeps
+     small UI text open and large titles tight the way SF does. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, var(--font-inter), "Segoe UI", system-ui,
+    sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", var(--font-geist-mono), Menlo, monospace;
+  /* Titles and display figures use the same family as UI: hierarchy is
+     carried by weight and tracking, never by a second typeface. */
+  --font-display: var(--font-sans);
   --font-heading: var(--font-display);
 
-  /* Type roles — the only sanctioned font sizes in feature code. */
+  /* Type roles — the only sanctioned font sizes in feature code.
+     Each role also owns a tracking value; large sizes tighten, small loosen. */
   --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
+  --text-caption--letter-spacing: 0.01em;
   --text-ui: 0.8125rem;
-  --text-ui--line-height: 1.25rem;
+  --text-ui--line-height: 1.125rem;
+  --text-ui--letter-spacing: 0;
   --text-body: 0.875rem;
-  --text-body--line-height: 1.375rem;
-  --text-title: 1rem;
-  --text-title--line-height: 1.5rem;
-  --text-section: 1.125rem;
-  --text-section--line-height: 1.625rem;
-  --text-page-title: 1.625rem;
-  --text-page-title--line-height: 2rem;
+  --text-body--line-height: 1.25rem;
+  --text-body--letter-spacing: 0;
+  --text-title: 0.9375rem;
+  --text-title--line-height: 1.25rem;
+  --text-title--letter-spacing: -0.01em;
+  --text-section: 1.0625rem;
+  --text-section--line-height: 1.375rem;
+  --text-section--letter-spacing: -0.015em;
+  --text-page-title: 1.5rem;
+  --text-page-title--line-height: 1.75rem;
+  --text-page-title--letter-spacing: -0.02em;
   --text-display: 2rem;
-  --text-display--line-height: 2.375rem;
+  --text-display--line-height: 2.25rem;
+  --text-display--letter-spacing: -0.025em;
 
   /* Semantic colour utilities: bg-canvas, text-ink-muted, border-line… */
   --color-canvas: var(--np-surface-canvas);
@@ -53,7 +77,11 @@
   --color-ink: var(--np-ink);
   --color-ink-muted: var(--np-ink-muted);
   --color-ink-faint: var(--np-ink-faint);
+  --color-ink-quaternary: var(--np-ink-quaternary);
   --color-ink-inverse: var(--np-ink-inverse);
+  --color-fill: var(--np-fill);
+  --color-fill-secondary: var(--np-fill-secondary);
+  --color-fill-tertiary: var(--np-fill-tertiary);
   --color-line-subtle: var(--np-line-subtle);
   --color-line: var(--np-line);
   --color-line-strong: var(--np-line-strong);
@@ -69,19 +97,38 @@
   --color-danger-tint: var(--np-danger-tint);
   --color-info-ink: var(--np-info-ink);
   --color-info-tint: var(--np-info-tint);
+  --color-material-sidebar: var(--np-material-sidebar);
+  --color-material-toolbar: var(--np-material-toolbar);
+  --color-material-popover: var(--np-material-popover);
 
   --radius-sm: var(--np-radius-tag);
   --radius-md: var(--np-radius-control);
   --radius-lg: var(--np-radius-card);
   --radius-xl: var(--np-radius-panel);
   --radius-2xl: var(--np-radius-modal);
-  --radius-3xl: var(--np-radius-modal);
-  --radius-4xl: var(--np-radius-modal);
+  --radius-3xl: var(--np-radius-sheet);
+  --radius-4xl: var(--np-radius-sheet);
 
   --shadow-np-raised: var(--np-shadow-raised);
   --shadow-np-pop: var(--np-shadow-pop);
   --shadow-np-modal: var(--np-shadow-modal);
-  /* Legacy shadow utilities, retained until the codemod. */
+  --shadow-np-hairline: var(--np-shadow-hairline);
+  --shadow-np-focus: var(--np-focus-halo);
+
+  /* Skeleton shimmer: a highlight that travels once every two seconds. */
+  --animate-shimmer: shimmer 2s var(--np-ease-standard) infinite;
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  --ease-spring: var(--np-ease-spring);
+  --ease-spring-snappy: var(--np-ease-spring-snappy);
+  --ease-standard: var(--np-ease-standard);
 
   /* shadcn contract — resolved through the alias layer below. */
   --color-background: var(--background);
@@ -126,62 +173,83 @@
 }
 
 :root {
+  color-scheme: light;
+
   /* ---- 1. RAMPS ------------------------------------------------------- */
-  /* One warm neutral hue for every grey, so surfaces read as paper. */
+  /* One cool neutral hue for every grey, so surfaces read as platform chrome
+     rather than paper. Chroma stays tiny; the tint is felt, not seen. */
   --np-ramp-neutral-0: oklch(1 0 0);
-  --np-ramp-neutral-25: oklch(0.985 0.004 75);
-  --np-ramp-neutral-50: oklch(0.972 0.005 75);
-  --np-ramp-neutral-100: oklch(0.955 0.005 75);
-  --np-ramp-neutral-200: oklch(0.918 0.006 75);
-  --np-ramp-neutral-300: oklch(0.86 0.007 75);
-  --np-ramp-neutral-400: oklch(0.645 0.011 70);
-  --np-ramp-neutral-500: oklch(0.6 0.011 65);
-  --np-ramp-neutral-600: oklch(0.49 0.013 62);
-  --np-ramp-neutral-800: oklch(0.32 0.012 60);
-  --np-ramp-neutral-900: oklch(0.26 0.011 60);
-  --np-ramp-neutral-950: oklch(0.205 0.008 70);
+  --np-ramp-neutral-50: oklch(0.978 0.003 260);
+  --np-ramp-neutral-100: oklch(0.963 0.005 265);
+  --np-ramp-neutral-150: oklch(0.942 0.006 265);
+  --np-ramp-neutral-200: oklch(0.915 0.007 265);
+  --np-ramp-neutral-300: oklch(0.87 0.008 265);
+  --np-ramp-neutral-400: oklch(0.78 0.01 265);
+  --np-ramp-neutral-500: oklch(0.62 0.012 265);
+  --np-ramp-neutral-600: oklch(0.51 0.014 265);
+  --np-ramp-neutral-800: oklch(0.32 0.012 265);
+  --np-ramp-neutral-900: oklch(0.22 0.01 265);
+  --np-ramp-neutral-950: oklch(0.16 0.008 265);
 
-  /* Accent: one hue, low chroma, dark enough to carry white text. */
-  --np-ramp-accent-100: oklch(0.949 0.022 200);
-  --np-ramp-accent-300: oklch(0.78 0.072 200);
-  --np-ramp-accent-500: oklch(0.46 0.072 200);
-  --np-ramp-accent-600: oklch(0.41 0.064 200);
-  --np-ramp-accent-700: oklch(0.36 0.056 200);
-  --np-ramp-accent-900: oklch(0.24 0.034 200);
+  /* Accent: system blue. Apple's own #007AFF fails 4.5:1 on white, so the
+     text and button steps sit darker; the vivid step is kept for tints,
+     selection and graphics where only 3:1 applies. */
+  --np-ramp-accent-100: oklch(0.945 0.025 256);
+  --np-ramp-accent-200: oklch(0.89 0.05 256);
+  --np-ramp-accent-400: oklch(0.65 0.18 256);
+  --np-ramp-accent-500: oklch(0.56 0.19 256);
+  --np-ramp-accent-600: oklch(0.49 0.165 256);
+  --np-ramp-accent-700: oklch(0.46 0.15 256);
+  --np-ramp-accent-900: oklch(0.3 0.1 256);
 
-  --np-ramp-success-100: oklch(0.951 0.03 150);
-  --np-ramp-success-500: oklch(0.5 0.104 150);
-  --np-ramp-success-700: oklch(0.42 0.09 150);
-  --np-ramp-warning-100: oklch(0.955 0.035 80);
-  --np-ramp-warning-300: oklch(0.86 0.11 80);
-  --np-ramp-warning-500: oklch(0.52 0.1 72);
-  --np-ramp-danger-100: oklch(0.951 0.024 27);
-  --np-ramp-danger-500: oklch(0.505 0.166 27);
-  --np-ramp-danger-700: oklch(0.43 0.15 27);
-  --np-ramp-info-100: oklch(0.949 0.024 250);
-  --np-ramp-info-500: oklch(0.48 0.113 250);
+  --np-ramp-success-100: oklch(0.955 0.04 150);
+  --np-ramp-success-500: oklch(0.5 0.13 150);
+  --np-ramp-success-700: oklch(0.46 0.12 150);
+  --np-ramp-warning-100: oklch(0.96 0.027 70);
+  --np-ramp-warning-300: oklch(0.85 0.11 70);
+  --np-ramp-warning-500: oklch(0.53 0.12 60);
+  --np-ramp-danger-100: oklch(0.955 0.02 25);
+  --np-ramp-danger-500: oklch(0.56 0.2 27);
+  --np-ramp-danger-700: oklch(0.5 0.19 27);
+  --np-ramp-info-100: oklch(0.95 0.026 235);
+  --np-ramp-info-500: oklch(0.52 0.105 235);
 
   /* ---- 2. SEMANTIC ROLES ---------------------------------------------- */
-  --np-surface-canvas: var(--np-ramp-neutral-25);
+  /* Grouped background model: the page is soft grey, content sits on white.
+     A card needs neither a border nor a shadow to be a card. */
+  --np-surface-canvas: var(--np-ramp-neutral-100);
   --np-surface: var(--np-ramp-neutral-0);
   --np-surface-raised: var(--np-ramp-neutral-0);
-  --np-surface-sunken: var(--np-ramp-neutral-100);
+  --np-surface-sunken: var(--np-ramp-neutral-150);
   --np-surface-overlay: var(--np-ramp-neutral-0);
 
+  /* Label ladder. Quaternary is DECORATIVE ONLY — disabled glyphs and inert
+     ornaments — and is deliberately absent from the contrast manifest. */
   --np-ink: var(--np-ramp-neutral-900);
   --np-ink-muted: var(--np-ramp-neutral-600);
   --np-ink-faint: var(--np-ramp-neutral-500);
+  --np-ink-quaternary: var(--np-ramp-neutral-400);
   --np-ink-inverse: var(--np-ramp-neutral-0);
 
-  --np-line-subtle: var(--np-ramp-neutral-100);
+  /* Fill ladder: the grey a control is made of. Segmented tracks, grey
+     buttons, search fields, keycaps. */
+  --np-fill: var(--np-ramp-neutral-150);
+  --np-fill-secondary: var(--np-ramp-neutral-100);
+  --np-fill-tertiary: var(--np-ramp-neutral-50);
+
+  /* Separators are hairlines: one light colour, drawn thin. `line-strong` is
+     the only line that must clear 3:1 and is reserved for control edges. */
+  --np-line-subtle: var(--np-ramp-neutral-150);
   --np-line: var(--np-ramp-neutral-200);
-  --np-line-strong: var(--np-ramp-neutral-400);
+  --np-line-strong: var(--np-ramp-neutral-500);
   --np-line-focus: var(--np-ramp-accent-500);
 
   --np-accent: var(--np-ramp-accent-500);
   --np-accent-hover: var(--np-ramp-accent-600);
   --np-accent-active: var(--np-ramp-accent-700);
   --np-accent-tint: var(--np-ramp-accent-100);
+  --np-accent-tint-strong: var(--np-ramp-accent-200);
+  --np-accent-vivid: var(--np-ramp-accent-400);
   --np-accent-ink: var(--np-ramp-accent-600);
   --np-ink-on-accent: var(--np-ramp-neutral-0);
 
@@ -189,67 +257,123 @@
   --np-success-tint: var(--np-ramp-success-100);
   --np-success-solid: var(--np-ramp-success-500);
   --np-success-on-solid: var(--np-ramp-neutral-0);
-  --np-success-line: oklch(0.635 0.095 150);
+  --np-success-line: oklch(0.62 0.13 150);
   --np-warning-ink: var(--np-ramp-warning-500);
   --np-warning-tint: var(--np-ramp-warning-100);
   --np-warning-solid: var(--np-ramp-warning-300);
-  --np-warning-on-solid: oklch(0.28 0.055 70);
-  --np-warning-line: oklch(0.645 0.115 80);
+  --np-warning-on-solid: oklch(0.3 0.06 60);
+  --np-warning-line: oklch(0.64 0.13 70);
   --np-danger-ink: var(--np-ramp-danger-700);
   --np-danger-tint: var(--np-ramp-danger-100);
   --np-danger-solid: var(--np-ramp-danger-500);
   --np-danger-on-solid: var(--np-ramp-neutral-0);
-  --np-danger-line: oklch(0.65 0.135 27);
+  --np-danger-line: oklch(0.66 0.17 27);
   --np-info-ink: var(--np-ramp-info-500);
   --np-info-tint: var(--np-ramp-info-100);
   --np-info-solid: var(--np-ramp-info-500);
   --np-info-on-solid: var(--np-ramp-neutral-0);
-  --np-info-line: oklch(0.64 0.105 250);
+  --np-info-line: oklch(0.63 0.12 235);
 
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: var(--np-ramp-neutral-50);
   --np-focus-ring: var(--np-ramp-accent-500);
+  /* The halo hugs the control: no offset, soft edge, accent at partial alpha.
+     Its solid colour is measured above as --np-focus-ring. */
+  --np-focus-halo: 0 0 0 3.5px oklch(0.56 0.19 256 / 0.35);
 
-  /* Charts: six hues, each measured against the canvas at 3:1. */
-  --np-chart-1: oklch(0.5 0.079 200);
-  --np-chart-2: oklch(0.53 0.135 40);
-  --np-chart-3: oklch(0.5 0.088 145);
-  --np-chart-4: oklch(0.5 0.13 300);
-  --np-chart-5: oklch(0.52 0.11 258);
-  --np-chart-6: oklch(0.52 0.075 100);
+  /* Materials: translucent chrome that content scrolls beneath. Each has an
+     opaque twin used under reduced-transparency or when blur is unsupported.
+     Text on a material is not in the manifest — it composites over whatever
+     is behind it — so anything readable on one uses the label ladder at the
+     alpha given here, which keeps the surface close to its opaque twin. */
+  --np-material-sidebar: oklch(0.963 0.005 265 / 0.78);
+  --np-material-toolbar: oklch(1 0 0 / 0.78);
+  --np-material-popover: oklch(1 0 0 / 0.88);
+  --np-material-sidebar-opaque: var(--np-ramp-neutral-100);
+  --np-material-toolbar-opaque: var(--np-ramp-neutral-0);
+  --np-material-popover-opaque: var(--np-ramp-neutral-0);
+  --np-material-blur: 24px;
+  --np-material-saturate: 180%;
+  --np-scrim: oklch(0 0 0 / 0.28);
+
+  /* Charts: Apple's system hues, each measured against a card at 3:1. */
+  --np-chart-1: oklch(0.55 0.17 256);
+  --np-chart-2: oklch(0.6 0.145 55);
+  --np-chart-3: oklch(0.55 0.13 150);
+  --np-chart-4: oklch(0.55 0.17 300);
+  --np-chart-5: oklch(0.55 0.085 200);
+  --np-chart-6: oklch(0.58 0.17 350);
   --np-chart-grid: var(--np-line-subtle);
   --np-chart-axis: var(--np-ink-muted);
-  --np-rating: oklch(0.655 0.13 78);
+  --np-rating: oklch(0.66 0.14 72);
 
-  /* Shape. Editorial means modest: the old 12–24px ladder is retired. */
-  --np-radius-tag: 4px;
-  --np-radius-control: 8px;
-  --np-radius-field: 8px;
-  --np-radius-card: 12px;
-  --np-radius-panel: 12px;
-  --np-radius-modal: 16px;
+  /* Shape. Larger than before and concentric by construction: an element
+     nested inside another with padding P uses `calc(outer - P)`, floored at
+     the tag radius, so corners share a centre instead of fighting. */
+  --np-radius-tag: 6px;
+  --np-radius-control: 10px;
+  --np-radius-field: 10px;
+  --np-radius-card: 14px;
+  --np-radius-panel: 16px;
+  --np-radius-modal: 20px;
+  --np-radius-sheet: 28px;
   --np-radius-pill: 999px;
+  /* Continuous ("squircle") corners where the browser can draw them. */
+  --np-corner-shape: superellipse(1.5);
 
-  /* Elevation is border-led: cards get a line, never a shadow. */
-  --np-shadow-raised: 0 1px 2px rgb(41 37 32 / 0.06);
-  --np-shadow-pop: 0 8px 24px rgb(41 37 32 / 0.12);
-  --np-shadow-modal: 0 24px 64px rgb(41 37 32 / 0.18);
+  /* Elevation. Cards on the grouped canvas have none. Chrome and overlays
+     use a hairline plus two shadow layers: ambient (wide, faint) and key
+     (tight, darker). The hairline is a box-shadow so it never adds layout. */
+  --np-shadow-hairline: 0 0 0 0.5px oklch(0 0 0 / 0.12);
+  --np-shadow-raised:
+    0 0 0 0.5px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.06);
+  --np-shadow-pop:
+    0 0 0 0.5px oklch(0 0 0 / 0.1), 0 2px 6px oklch(0 0 0 / 0.06),
+    0 12px 32px oklch(0 0 0 / 0.14);
+  --np-shadow-modal:
+    0 0 0 0.5px oklch(0 0 0 / 0.1), 0 8px 20px oklch(0 0 0 / 0.1),
+    0 32px 80px oklch(0 0 0 / 0.22);
 
-  --np-duration-fast: 120ms;
-  --np-duration-standard: 180ms;
-  --np-duration-deliberate: 240ms;
-  --np-duration-overlay: 260ms;
+  /* Motion. Springs encoded as linear() so every browser plays the same
+     curve. `snappy` settles without overshoot (controls, hover, segmented
+     thumbs); `spring` has a small overshoot (popovers, sheets, toasts). */
+  --np-duration-fast: 160ms;
+  --np-duration-standard: 260ms;
+  --np-duration-deliberate: 360ms;
+  --np-duration-overlay: 320ms;
   --np-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --np-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --np-ease-spring-snappy: linear(
+    0,
+    0.108 8%,
+    0.35 18%,
+    0.62 30%,
+    0.8 42%,
+    0.9 55%,
+    0.96 70%,
+    0.99 85%,
+    1
+  );
+  --np-ease-spring: linear(
+    0,
+    0.42 12%,
+    0.82 26%,
+    1.02 42%,
+    1.045 52%,
+    1.01 68%,
+    0.997 80%,
+    1
+  );
 
-  --np-sidebar-width: 236px;
+  --np-sidebar-width: 244px;
+  --np-toolbar-h: 52px;
   --np-page-pad-x: 32px;
-  --np-page-pad-y: 28px;
+  --np-page-pad-y: 24px;
   --np-page-max-width: 1240px;
   --np-gap-card: 12px;
-  --np-gap-section: 20px;
-  --np-card-pad: 18px;
-  --np-panel-pad: 22px;
+  --np-gap-section: 24px;
+  --np-card-pad: 16px;
+  --np-panel-pad: 20px;
 
   /* ---- 3. COMPONENT TOKENS -------------------------------------------- */
   /* Density: `comfortable` is the default; DataTable and the inbox list opt
@@ -259,13 +383,14 @@
   --np-row-py: 10px;
   --np-row-h: 44px;
   --np-cell-px: 14px;
-  --np-control-h: 34px;
+  --np-control-h: 32px;
   --np-list-gap: 2px;
 
-  --np-field-h: 36px;
+  --np-field-h: 34px;
   --np-field-bg: var(--np-surface);
-  --np-table-header-bg: var(--np-surface-sunken);
+  --np-table-header-bg: var(--np-surface);
   --np-pill-h: 22px;
+  --np-menu-item-h: 30px;
 
   /* ---- 4. ALIASES ------------------------------------------------------ */
   /* shadcn's `--accent` is a HIGHLIGHT SURFACE, not the brand colour: it maps
@@ -278,9 +403,9 @@
   --popover-foreground: var(--np-ink);
   --primary: var(--np-accent);
   --primary-foreground: var(--np-ink-on-accent);
-  --secondary: var(--np-surface-sunken);
+  --secondary: var(--np-fill);
   --secondary-foreground: var(--np-ink);
-  --muted: var(--np-surface-sunken);
+  --muted: var(--np-fill-secondary);
   --muted-foreground: var(--np-ink-muted);
   --accent: var(--np-selection-bg);
   --accent-foreground: var(--np-accent-ink);
@@ -304,7 +429,7 @@
   --chart-4: var(--np-chart-4);
   --chart-5: var(--np-chart-5);
 
-  --sidebar: var(--np-surface);
+  --sidebar: var(--np-material-sidebar-opaque);
   --sidebar-foreground: var(--np-ink);
   --sidebar-primary: var(--np-accent);
   --sidebar-primary-foreground: var(--np-ink-on-accent);
@@ -312,95 +437,143 @@
   --sidebar-accent-foreground: var(--np-accent-ink);
   --sidebar-border: var(--np-line);
   --sidebar-ring: var(--np-focus-ring);
-
 }
 
 .dark {
-  /* Same warm hue, ladder inverted, a touch more chroma so it is not dead. */
+  color-scheme: dark;
+
+  /* Elevation in the dark is lightness: each layer above the canvas is a
+     step lighter, and shadows only add a little separation on top. */
   --np-surface-canvas: var(--np-ramp-neutral-950);
-  --np-surface: oklch(0.245 0.008 70);
-  --np-surface-raised: oklch(0.278 0.009 70);
-  --np-surface-sunken: oklch(0.182 0.007 70);
-  --np-surface-overlay: oklch(0.262 0.009 70);
+  --np-surface: oklch(0.225 0.008 265);
+  --np-surface-raised: oklch(0.265 0.009 265);
+  --np-surface-sunken: oklch(0.19 0.008 265);
+  --np-surface-overlay: oklch(0.25 0.009 265);
 
-  --np-ink: oklch(0.945 0.006 75);
-  --np-ink-muted: oklch(0.752 0.009 75);
-  --np-ink-faint: oklch(0.62 0.01 75);
-  --np-ink-inverse: oklch(0.205 0.008 70);
+  --np-ink: oklch(0.955 0.004 265);
+  --np-ink-muted: oklch(0.75 0.01 265);
+  --np-ink-faint: oklch(0.6 0.012 265);
+  --np-ink-quaternary: oklch(0.42 0.01 265);
+  --np-ink-inverse: var(--np-ramp-neutral-950);
 
-  --np-line-subtle: oklch(0.28 0.008 70);
-  --np-line: oklch(0.34 0.009 70);
-  --np-line-strong: oklch(0.56 0.012 70);
-  --np-line-focus: oklch(0.8 0.09 200);
+  --np-fill: oklch(0.31 0.009 265);
+  --np-fill-secondary: oklch(0.275 0.009 265);
+  --np-fill-tertiary: oklch(0.245 0.008 265);
 
-  --np-accent: oklch(0.8 0.09 200);
-  --np-accent-hover: oklch(0.85 0.085 200);
-  --np-accent-active: oklch(0.88 0.075 200);
-  --np-accent-tint: oklch(0.31 0.05 200);
-  --np-accent-ink: oklch(0.82 0.09 200);
-  --np-ink-on-accent: oklch(0.22 0.032 200);
+  --np-line-subtle: oklch(0.27 0.008 265);
+  --np-line: oklch(0.31 0.009 265);
+  --np-line-strong: oklch(0.55 0.012 265);
+  --np-line-focus: oklch(0.7 0.155 256);
 
-  --np-success-ink: oklch(0.81 0.13 150);
-  --np-success-tint: oklch(0.29 0.055 150);
-  --np-success-solid: oklch(0.78 0.14 150);
-  --np-success-on-solid: oklch(0.2 0.04 150);
-  --np-success-line: oklch(0.555 0.1 150);
-  --np-warning-ink: oklch(0.84 0.125 80);
-  --np-warning-tint: oklch(0.3 0.05 75);
-  --np-warning-solid: oklch(0.84 0.13 80);
-  --np-warning-on-solid: oklch(0.24 0.05 70);
-  --np-warning-line: oklch(0.565 0.115 78);
-  --np-danger-ink: oklch(0.79 0.115 27);
-  --np-danger-tint: oklch(0.3 0.065 27);
-  --np-danger-solid: oklch(0.72 0.15 27);
-  --np-danger-on-solid: oklch(0.2 0.045 27);
-  --np-danger-line: oklch(0.575 0.14 27);
-  --np-info-ink: oklch(0.81 0.09 250);
-  --np-info-tint: oklch(0.3 0.055 250);
-  --np-info-solid: oklch(0.78 0.1 250);
-  --np-info-on-solid: oklch(0.2 0.04 250);
-  --np-info-line: oklch(0.56 0.11 250);
+  --np-accent: oklch(0.53 0.178 256);
+  --np-accent-hover: oklch(0.56 0.19 256);
+  --np-accent-active: oklch(0.5 0.17 256);
+  --np-accent-tint: oklch(0.3 0.07 256);
+  --np-accent-tint-strong: oklch(0.36 0.1 256);
+  --np-accent-vivid: oklch(0.66 0.18 256);
+  --np-accent-ink: oklch(0.74 0.135 256);
+  --np-ink-on-accent: oklch(1 0 0);
+
+  --np-success-ink: oklch(0.8 0.15 150);
+  --np-success-tint: oklch(0.28 0.06 150);
+  --np-success-solid: oklch(0.72 0.17 150);
+  --np-success-on-solid: oklch(0.18 0.04 150);
+  --np-success-line: oklch(0.55 0.11 150);
+  --np-warning-ink: oklch(0.84 0.135 75);
+  --np-warning-tint: oklch(0.29 0.055 70);
+  --np-warning-solid: oklch(0.8 0.15 70);
+  --np-warning-on-solid: oklch(0.22 0.05 65);
+  --np-warning-line: oklch(0.58 0.12 70);
+  --np-danger-ink: oklch(0.8 0.11 25);
+  --np-danger-tint: oklch(0.29 0.07 27);
+  --np-danger-solid: oklch(0.68 0.19 27);
+  --np-danger-on-solid: oklch(0.18 0.05 27);
+  --np-danger-line: oklch(0.58 0.15 27);
+  --np-info-ink: oklch(0.8 0.1 235);
+  --np-info-tint: oklch(0.29 0.055 235);
+  --np-info-solid: oklch(0.74 0.11 235);
+  --np-info-on-solid: oklch(0.18 0.035 235);
+  --np-info-line: oklch(0.56 0.11 235);
 
   --np-selection-bg: var(--np-accent-tint);
-  --np-hover-bg: oklch(0.29 0.009 70);
-  --np-focus-ring: oklch(0.8 0.09 200);
+  --np-hover-bg: oklch(0.27 0.009 265);
+  --np-focus-ring: oklch(0.7 0.155 256);
+  --np-focus-halo: 0 0 0 3.5px oklch(0.7 0.155 256 / 0.4);
 
-  --np-chart-1: oklch(0.76 0.09 200);
-  --np-chart-2: oklch(0.75 0.125 40);
-  --np-chart-3: oklch(0.79 0.11 145);
-  --np-chart-4: oklch(0.76 0.11 300);
-  --np-chart-5: oklch(0.75 0.1 258);
-  --np-chart-6: oklch(0.81 0.1 100);
+  --np-material-sidebar: oklch(0.19 0.008 265 / 0.78);
+  --np-material-toolbar: oklch(0.225 0.008 265 / 0.78);
+  --np-material-popover: oklch(0.25 0.009 265 / 0.88);
+  --np-material-sidebar-opaque: oklch(0.19 0.008 265);
+  --np-material-toolbar-opaque: oklch(0.225 0.008 265);
+  --np-material-popover-opaque: oklch(0.25 0.009 265);
+  --np-scrim: oklch(0 0 0 / 0.5);
+
+  --np-chart-1: oklch(0.72 0.14 256);
+  --np-chart-2: oklch(0.76 0.14 55);
+  --np-chart-3: oklch(0.76 0.14 150);
+  --np-chart-4: oklch(0.74 0.14 300);
+  --np-chart-5: oklch(0.76 0.1 200);
+  --np-chart-6: oklch(0.75 0.15 350);
   --np-chart-grid: var(--np-line-subtle);
   --np-chart-axis: var(--np-ink-muted);
   --np-rating: oklch(0.82 0.15 82);
 
-  --np-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4);
-  --np-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
-  --np-shadow-modal: 0 24px 64px rgb(0 0 0 / 0.6);
+  --np-shadow-hairline: 0 0 0 0.5px oklch(1 0 0 / 0.12);
+  --np-shadow-raised:
+    0 0 0 0.5px oklch(1 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.4);
+  --np-shadow-pop:
+    0 0 0 0.5px oklch(1 0 0 / 0.1), 0 2px 6px oklch(0 0 0 / 0.3),
+    0 12px 32px oklch(0 0 0 / 0.5);
+  --np-shadow-modal:
+    0 0 0 0.5px oklch(1 0 0 / 0.1), 0 8px 20px oklch(0 0 0 / 0.4),
+    0 32px 80px oklch(0 0 0 / 0.6);
 
-  --np-field-bg: oklch(0.222 0.008 70);
-  --np-table-header-bg: var(--np-surface-sunken);
+  --np-field-bg: oklch(0.2 0.008 265);
+  --np-table-header-bg: var(--np-surface);
 }
 
 /* Compact density: spacing only. Applied by DataTable and the inbox list, and
    by the shell when the viewer sets the preference. */
 [data-density="compact"] {
   --np-row-py: 6px;
-  --np-row-h: 34px;
+  --np-row-h: 32px;
   --np-cell-px: 10px;
   --np-control-h: 28px;
   --np-list-gap: 0px;
-  --np-field-h: 32px;
+  --np-field-h: 30px;
+  --np-menu-item-h: 26px;
 }
 
 [data-density="comfortable"] {
   --np-row-py: 10px;
   --np-row-h: 44px;
   --np-cell-px: 14px;
-  --np-control-h: 34px;
+  --np-control-h: 32px;
   --np-list-gap: 2px;
-  --np-field-h: 36px;
+  --np-field-h: 34px;
+  --np-menu-item-h: 30px;
+}
+
+/* Materials degrade to their opaque twins when the viewer asks for less
+   transparency or the browser cannot blur. Chrome stays legible either way. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  .dark {
+    --np-material-sidebar: var(--np-material-sidebar-opaque);
+    --np-material-toolbar: var(--np-material-toolbar-opaque);
+    --np-material-popover: var(--np-material-popover-opaque);
+    --np-material-blur: 0px;
+    --np-material-saturate: 100%;
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  :root,
+  .dark {
+    --np-material-sidebar: var(--np-material-sidebar-opaque);
+    --np-material-toolbar: var(--np-material-toolbar-opaque);
+    --np-material-popover: var(--np-material-popover-opaque);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -416,13 +589,73 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply font-sans;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground;
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
   }
-  html {
-    @apply font-sans;
+  ::selection {
+    background: var(--np-accent-tint-strong);
+  }
+  /* Overlay-style scrollbars: thin, no track, gutter reserved so a list
+     does not jump when its scrollbar appears. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--np-ink-quaternary) transparent;
+  }
+  /* Continuous corners on every rounded box that supports them. */
+  @supports (corner-shape: superellipse(1.5)) {
+    [data-slot],
+    button,
+    input,
+    select,
+    textarea {
+      corner-shape: var(--np-corner-shape);
+    }
+  }
+}
+
+@utility material-sidebar {
+  background-color: var(--np-material-sidebar);
+  backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+  -webkit-backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+}
+
+@utility material-toolbar {
+  background-color: var(--np-material-toolbar);
+  backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+  -webkit-backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+}
+
+@utility material-popover {
+  background-color: var(--np-material-popover);
+  backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+  -webkit-backdrop-filter: blur(var(--np-material-blur))
+    saturate(var(--np-material-saturate));
+}
+
+/* The hairline as a utility: a half-pixel edge that never changes layout. */
+@utility hairline {
+  box-shadow: var(--np-shadow-hairline);
+}
+
+/* Focus as Apple draws it: a soft halo hugging the control, no offset. */
+@utility focus-halo {
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--np-focus-halo);
   }
 }
 

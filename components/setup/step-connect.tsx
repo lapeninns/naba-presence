@@ -32,7 +32,8 @@ function StepConnect({
 
   const connections = workspace.query.data?.connections ?? []
   const usable = connections.filter(
-    (connection) => connection.status === "active" && !connection.reconnectRequired
+    (connection) =>
+      connection.status === "active" && !connection.reconnectRequired
   )
 
   const connect = async () => {
@@ -67,29 +68,38 @@ function StepConnect({
       onRetry={() => void workspace.query.refetch()}
     >
       {() => (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-[var(--np-accent)] bg-accent-tint p-4">
-            <div>
-              <h3 className="text-title">Connect a Google account</h3>
+        <div className="grid gap-(--np-gap-card) lg:grid-cols-2">
+          <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-accent-tint p-(--np-card-pad)">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-title font-semibold text-ink">
+                Connect a Google account
+              </h3>
               <p className="text-ui text-ink-muted">
                 Sign in to the Google account that manages {clientName}&rsquo;s
                 Business Profile. You&rsquo;ll be sent to Google and brought
                 straight back here.
               </p>
             </div>
-            <Button onClick={connect} disabled={starting} className="self-start">
+            <Button
+              pill
+              onClick={connect}
+              disabled={starting}
+              className="self-start"
+            >
               {starting ? "Opening Google…" : "Continue with Google"}
             </Button>
           </div>
 
           <div
             className={cn(
-              "flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4",
+              "flex flex-col gap-3 rounded-(--np-radius-card) bg-surface-sunken p-(--np-card-pad)",
               usable.length === 0 && "opacity-60"
             )}
           >
-            <div>
-              <h3 className="text-title">Use an account already connected</h3>
+            <div className="flex flex-col gap-1">
+              <h3 className="text-title font-semibold text-ink">
+                Use an account already connected
+              </h3>
               <p className="text-ui text-ink-muted">
                 One Google login can manage several Business Profile accounts.
                 {usable.length === 0
@@ -98,13 +108,13 @@ function StepConnect({
               </p>
             </div>
             {connections.length > 0 ? (
-              <ul className="flex flex-col gap-2">
+              <ul className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-tag) bg-surface">
                 {connections.map((connection) => (
                   <li
                     key={connection.id}
-                    className="flex items-center gap-3 rounded-(--np-radius-control) border border-line px-3 py-2"
+                    className="flex min-h-(--np-row-h) items-center gap-3 px-3 py-2"
                   >
-                    <span className="min-w-0 flex-1 truncate text-ui">
+                    <span className="min-w-0 flex-1 truncate text-ui text-ink">
                       {connection.googleEmail ?? "Google account"}
                     </span>
                     {connection.reconnectRequired ||

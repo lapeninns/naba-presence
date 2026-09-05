@@ -119,6 +119,11 @@ const NO_COUNTS: EmptyCounts = {
   lastSyncAt: null,
 }
 
+/**
+ * The list's empty state: a light glyph, the reason, and the one action that
+ * changes it. Grey capsules, because the action is a way out rather than the
+ * page's primary verb.
+ */
 function EmptyState({
   reason,
   counts = NO_COUNTS,
@@ -131,7 +136,7 @@ function EmptyState({
   const { icon: Icon, title, description } = content(reason, counts)
   const action =
     reason === "filtered" && onClear ? (
-      <Button variant="outline" size="sm" onClick={onClear}>
+      <Button variant="secondary" pill onClick={onClear}>
         Clear filters
       </Button>
     ) : reason === "disconnected" ||
@@ -140,7 +145,7 @@ function EmptyState({
       reason === "not_connected" ? (
       <Link
         href="/settings/connections"
-        className={buttonVariants({ variant: "outline", size: "sm" })}
+        className={buttonVariants({ variant: "secondary", pill: true })}
       >
         Manage connection
       </Link>
@@ -148,15 +153,11 @@ function EmptyState({
 
   return (
     <Empty
+      icon={<Icon aria-hidden />}
       title={title}
       description={description}
-      className="border-none"
       action={action}
-    >
-      <span className="mb-1 flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon aria-hidden className="size-5" />
-      </span>
-    </Empty>
+    />
   )
 }
 

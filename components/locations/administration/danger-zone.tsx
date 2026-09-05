@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import { GroupedList } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   DANGER_ZONE_OPERATIONS,
@@ -24,6 +25,7 @@ import {
 import { transferLocationSchema } from "@/lib/locations/forms/administration"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+import { cn } from "@/lib/utils"
 
 import { SectionGateNote, useAdministrationSection } from "./context"
 
@@ -57,25 +59,77 @@ export function runDangerZoneOperation(
 // points people who want that at Connections instead.
 export function DangerZone() {
   return (
-    <section className="flex flex-col gap-4 rounded-(--np-radius-card) border border-destructive/30 bg-destructive/5 p-4">
+    <section className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h3 className="text-ui font-semibold text-destructive">Danger zone</h3>
-        <p className="text-caption text-muted-foreground">
+        <h3 className="text-title font-semibold text-ink">Danger zone</h3>
+        <p className="text-ui text-ink-muted">
           These actions change how this location is managed on Google. Each one
           cannot be undone from here.
         </p>
       </div>
-      <TransferLocationAction />
-      <DeleteLocationAction />
-      <p className="text-caption text-muted-foreground">
-        To stop managing a location without deleting it from Google, unlink it
-        under{" "}
-        <Link href="/settings/connections" className="underline">
-          Connections
-        </Link>
-        .
-      </p>
+      <GroupedList
+        aria-label="Danger zone actions"
+        footer={
+          <>
+            To stop managing a location without deleting it from Google, unlink
+            it under{" "}
+            <Link
+              href="/settings/connections"
+              className="rounded-(--np-radius-tag) text-accent-ink underline-offset-3 focus-halo hover:underline"
+            >
+              Connections
+            </Link>
+            .
+          </>
+        }
+      >
+        <TransferLocationAction />
+        <DeleteLocationAction />
+      </GroupedList>
     </section>
+  )
+}
+
+/**
+ * One destructive row: title and consequence on the left, the action at the
+ * trailing edge, and the per-action gate note beneath. Hand-built rather than
+ * a `GroupedListItem` because the note is a block element.
+ */
+function DangerRow({
+  title,
+  description,
+  action,
+  tone = "default",
+  children,
+}: {
+  title: string
+  description: string
+  action: React.ReactNode
+  tone?: "default" | "danger"
+  children?: React.ReactNode
+}) {
+  return (
+    <li
+      data-tone={tone}
+      className="flex min-h-(--np-row-h) flex-col justify-center gap-2 border-t border-line-subtle px-(--np-card-pad) py-3 first:border-t-0"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
+          <p
+            className={cn(
+              "text-body",
+              tone === "danger" ? "text-danger-ink" : "text-ink"
+            )}
+          >
+            {title}
+          </p>
+          <p className="text-caption text-ink-muted">{description}</p>
+        </div>
+        {action}
+      </div>
+      <SectionGateNote />
+      {children}
+    </li>
   )
 }
 
@@ -112,14 +166,10 @@ function TransferLocationAction() {
   })
 
   return (
-    <div className="flex flex-col gap-2 border-t border-destructive/20 pt-4 first:border-t-0 first:pt-0">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-ui font-medium">Transfer this location</p>
-          <p className="text-caption text-muted-foreground">
-            Move this Google location to another Google account.
-          </p>
-        </div>
+    <DangerRow
+      title="Transfer this location"
+      description="Move this Google location to another Google account."
+      action={
         <Button
           variant="destructive"
           size="sm"
@@ -128,9 +178,8 @@ function TransferLocationAction() {
         >
           Transfer this location
         </Button>
-      </div>
-      <SectionGateNote />
-
+      }
+    >
       <Dialog
         open={collecting}
         onOpenChange={(next) => {
@@ -158,7 +207,7 @@ function TransferLocationAction() {
             <FieldError />
           </Field>
           <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>
+            <DialogClose render={<Button variant="secondary" />}>
               Cancel
             </DialogClose>
             <Button
@@ -185,7 +234,7 @@ function TransferLocationAction() {
         pending={transfer.isPending}
         onConfirm={() => transfer.mutate()}
       />
-    </div>
+    </DangerRow>
   )
 }
 
@@ -204,14 +253,11 @@ function DeleteLocationAction() {
   })
 
   return (
-    <div className="flex flex-col gap-2 border-t border-destructive/20 pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-ui font-medium">Delete this location</p>
-          <p className="text-caption text-muted-foreground">
-            Permanently remove this listing from Google.
-          </p>
-        </div>
+    <DangerRow
+      title="Delete this location"
+      description="Permanently remove this listing from Google."
+      tone="danger"
+      action={
         <Button
           variant="destructive"
           size="sm"
@@ -220,9 +266,8 @@ function DeleteLocationAction() {
         >
           Delete this location
         </Button>
-      </div>
-      <SectionGateNote />
-
+      }
+    >
       <DangerZoneDialog
         open={open}
         onOpenChange={setOpen}
@@ -233,6 +278,6 @@ function DeleteLocationAction() {
         pending={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
-    </div>
+    </DangerRow>
   )
 }

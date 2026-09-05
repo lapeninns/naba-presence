@@ -4,6 +4,7 @@ import { PlusIcon, RefreshCwIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ToggleChip } from "@/components/ui/chip"
 import {
   Select,
   SelectContent,
@@ -41,16 +42,16 @@ export function PhotosToolbar({
   onAdd: () => void
 }) {
   return (
-    <div className="@container/photo-toolbar flex flex-col gap-3 border-b border-border/60 px-3 py-3 sm:px-4">
+    <div className="@container/photo-toolbar flex flex-col gap-3 border-b border-line-subtle px-(--np-card-pad) py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-title font-semibold">Photo library</h2>
+            <h2 className="text-title font-semibold text-ink">Photo library</h2>
             <Badge variant="secondary">
               {formatNumber(total)} {total === 1 ? "item" : "items"}
             </Badge>
           </div>
-          <p className="mt-0.5 text-caption text-muted-foreground">
+          <p className="mt-0.5 text-caption text-ink-muted">
             Browse and manage the photos and videos visible on your Google
             listing.
           </p>
@@ -64,49 +65,49 @@ export function PhotosToolbar({
           >
             <RefreshCwIcon
               aria-hidden
+              strokeWidth={1.75}
               className={refreshing ? "animate-spin" : undefined}
               data-icon="inline-start"
             />
             {refreshing ? "Refreshing…" : "Refresh"}
           </Button>
-          <Button size="sm" disabled={disabled} onClick={onAdd}>
-            <PlusIcon aria-hidden data-icon="inline-start" />
+          <Button pill size="sm" disabled={disabled} onClick={onAdd}>
+            <PlusIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
             Add photos
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 @min-[42rem]/photo-toolbar:flex-row @min-[42rem]/photo-toolbar:items-end @min-[42rem]/photo-toolbar:justify-between">
+      <div className="flex flex-col gap-2 @min-[42rem]/photo-toolbar:flex-row @min-[42rem]/photo-toolbar:items-center @min-[42rem]/photo-toolbar:justify-between">
         <div
           role="group"
           aria-label="Photo ownership"
-          className="grid grid-cols-3 gap-1 rounded-(--np-radius-control) bg-muted/70 p-1 sm:inline-grid"
+          className="flex flex-wrap items-center gap-1.5"
         >
           {OWNERSHIP_FILTERS.map((option) => (
-            <Button
+            <ToggleChip
               key={option.value}
-              type="button"
-              size="sm"
-              variant={state.ownership === option.value ? "secondary" : "ghost"}
-              aria-pressed={state.ownership === option.value}
+              pressed={state.ownership === option.value}
               onClick={() =>
                 onStateChange({ ownership: option.value, page: 1 })
               }
-              className="w-full"
             >
               {option.label}
-            </Button>
+            </ToggleChip>
           ))}
         </div>
-        <label className="flex min-w-0 flex-col gap-1 text-ui sm:w-52">
-          <span className="text-caption text-muted-foreground">Category</span>
+        <label className="flex min-w-0 items-center gap-2 text-ui">
+          <span className="text-ui text-ink-muted">Category</span>
           <Select
             value={state.category}
             onValueChange={(next) =>
               onStateChange({ category: next as CategoryFilter, page: 1 })
             }
           >
-            <SelectTrigger className="w-full" aria-label="Filter by category">
+            <SelectTrigger
+              className="w-full sm:w-52"
+              aria-label="Filter by category"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

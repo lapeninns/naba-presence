@@ -1,10 +1,16 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Webhook } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import { KpiTile } from "@/components/ui/kpi-tile"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
+import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { replayWebhookFailure } from "@/lib/api/operations-health"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -14,6 +20,7 @@ import {
   useOperationsHealth,
   useWebhookFailures,
 } from "@/lib/queries/use-operations-health"
+import { cn } from "@/lib/utils"
 
 /**
  * Three reconcile intervals at the documented 900s default — the same
@@ -36,30 +43,58 @@ function formatAge(seconds: number | null): string {
   return `${Math.round(seconds / 86_400)} d ago`
 }
 
+/**
+ * One figure. `warn` paints the value in the danger ink; the figure itself
+ * still says what it is, so colour is never the only signal. A timestamp is
+ * a figure too here, just a smaller one.
+ */
 function Metric({
   label,
   value,
   tone = "default",
+  small = false,
 }: {
   label: string
   value: string
   tone?: "default" | "warn" | "ok"
+  small?: boolean
 }) {
   return (
-    <li className="flex flex-col gap-1 rounded-(--np-radius-card) border border-border p-3">
-      <span className="text-caption text-muted-foreground">{label}</span>
-      <span
-        className={
-          tone === "warn"
-            ? "text-title font-semibold text-destructive"
-            : tone === "ok"
-              ? "text-title font-semibold text-foreground"
-              : "text-title font-semibold"
+    <li>
+      <KpiTile
+        label={label}
+        className="h-full"
+        value={
+          <span
+            className={cn(
+              tone === "warn" && "text-danger-ink",
+              small && "text-title font-semibold tracking-normal"
+            )}
+          >
+            {value}
+          </span>
         }
-      >
-        {value}
-      </span>
+      />
     </li>
+  )
+}
+
+function SectionHeading({
+  id,
+  children,
+  aside,
+}: {
+  id: string
+  children: React.ReactNode
+  aside?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id={id} className="text-title font-semibold text-ink">
+        {children}
+      </h2>
+      {aside ? <p className="text-caption text-ink-muted">{aside}</p> : null}
+    </div>
   )
 }
 
@@ -83,7 +118,24 @@ export function OpsHealthPanel() {
   })
 
   if (health.isPending) {
-    return <p className="text-ui text-muted-foreground">Loading operations health…</p>
+    return (
+      <div className="flex flex-col gap-3" role="status" aria-busy="true">
+        <p className="flex items-center gap-2 text-ui text-ink-muted">
+          <Spinner decorative size="sm" />
+          Loading operations health
+        </p>
+        <ul
+          className="grid gap-(--np-gap-card) sm:grid-cols-2 lg:grid-cols-4"
+          aria-hidden
+        >
+          {Array.from({ length: 4 }, (_, index) => (
+            <li key={index}>
+              <Skeleton className="h-24 w-full rounded-(--np-radius-card)" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
   }
   if (health.isError) {
     return (
@@ -110,15 +162,18 @@ export function OpsHealthPanel() {
   const staleTicks = data.schedulerTicks.filter((tick) => tick.stale)
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-title font-semibold">System health</h2>
-          <p className="text-caption text-muted-foreground">
-            Updated {formatWhen(data.generatedAt)}
-          </p>
-        </div>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="flex flex-col gap-(--np-gap-section)">
+      <section
+        aria-labelledby="ops-system-health"
+        className="flex flex-col gap-3"
+      >
+        <SectionHeading
+          id="ops-system-health"
+          aside={`Updated ${formatWhen(data.generatedAt)}`}
+        >
+          System health
+        </SectionHeading>
+        <ul className="grid gap-(--np-gap-card) sm:grid-cols-2 lg:grid-cols-3">
           <Metric
             label="Sync failed"
             value={formatNumber(syncFailed)}
@@ -142,6 +197,7 @@ export function OpsHealthPanel() {
             label="Scheduler heartbeat"
             value={formatWhen(data.schedulerHeartbeatAt)}
             tone={data.schedulerHeartbeatStale ? "warn" : "ok"}
+            small
           />
           <Metric
             label="Reconcile freshness"
@@ -152,41 +208,49 @@ export function OpsHealthPanel() {
                 ? "warn"
                 : "ok"
             }
+            small
           />
         </ul>
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Scheduled ticks</h2>
+      <section aria-labelledby="ops-ticks" className="flex flex-col gap-3">
+        <SectionHeading
+          id="ops-ticks"
+          aside={
+            staleTicks.length > 0
+              ? staleTicks.length === 1
+                ? "One tick has not completed recently."
+                : `${formatNumber(staleTicks.length)} ticks have not completed recently.`
+              : undefined
+          }
+        >
+          Scheduled ticks
+        </SectionHeading>
         {data.schedulerTicks.length === 0 ? (
-          <p className="text-ui text-muted-foreground">
+          <p className="text-ui text-ink-muted">
             No scheduler activity recorded yet.
           </p>
         ) : (
-          <>
-            {staleTicks.length > 0 ? (
-              <p className="text-ui text-destructive">
-                {staleTicks.length === 1
-                  ? "One tick has not completed recently."
-                  : `${formatNumber(staleTicks.length)} ticks have not completed recently.`}
-              </p>
-            ) : null}
-            <ul className="flex flex-wrap gap-2">
-              {data.schedulerTicks.map((tick) => (
-                <li key={tick.name}>
-                  <Badge variant={tick.stale ? "destructive" : "outline"}>
-                    {tick.name}: {formatWhen(tick.lastCompletedAt)}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </>
+          <GroupedList aria-label="Scheduler ticks">
+            {data.schedulerTicks.map((tick) => (
+              <GroupedListItem
+                key={tick.name}
+                label={<span className="font-mono text-ui">{tick.name}</span>}
+                description={`Last completed ${formatWhen(tick.lastCompletedAt)}`}
+                trailing={
+                  tick.stale ? (
+                    <StatusPill tone="at-risk">Stale</StatusPill>
+                  ) : undefined
+                }
+              />
+            ))}
+          </GroupedList>
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Sync and connections</h2>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section aria-labelledby="ops-sync" className="flex flex-col gap-3">
+        <SectionHeading id="ops-sync">Sync and connections</SectionHeading>
+        <ul className="grid gap-(--np-gap-card) sm:grid-cols-2 lg:grid-cols-3">
           <Metric
             label="Sync running"
             value={formatNumber(Number(data.sync.running ?? 0))}
@@ -202,6 +266,7 @@ export function OpsHealthPanel() {
                 ? data.sync.lastSuccessfulReviewUpdate
                 : null
             )}
+            small
           />
           <Metric
             label="Webhook backlog"
@@ -222,73 +287,98 @@ export function OpsHealthPanel() {
             tone={data.refreshTokensExpiringSoon > 0 ? "warn" : "ok"}
           />
         </ul>
-        <div className="flex flex-wrap gap-2">
-          {data.connections.map((row) => (
-            <Badge key={row.status} variant="outline">
-              {row.status}: {formatNumber(row.count)}
-            </Badge>
-          ))}
-        </div>
+        {data.connections.length > 0 ? (
+          <GroupedList header="Connections by status">
+            {data.connections.map((row) => (
+              <GroupedListItem
+                key={row.status}
+                label={row.status}
+                trailing={formatNumber(row.count)}
+              />
+            ))}
+          </GroupedList>
+        ) : null}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Publishing (24 hours)</h2>
+      <section aria-labelledby="ops-publishing" className="flex flex-col gap-3">
+        <SectionHeading id="ops-publishing">
+          Publishing (24 hours)
+        </SectionHeading>
         {data.publish24h.length === 0 ? (
-          <p className="text-ui text-muted-foreground">No publish attempts yet.</p>
+          <p className="text-ui text-ink-muted">No publish attempts yet.</p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
+          <GroupedList aria-label="Publish attempts by status">
             {data.publish24h.map((row) => (
-              <li key={row.status}>
-                <Badge variant={row.status === "failed" ? "destructive" : "secondary"}>
-                  {row.status}: {formatNumber(row.count)}
-                </Badge>
-              </li>
+              <GroupedListItem
+                key={row.status}
+                label={row.status}
+                tone={row.status === "failed" ? "danger" : "default"}
+                trailing={formatNumber(row.count)}
+              />
             ))}
-          </ul>
+          </GroupedList>
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title font-semibold">Failed webhook events</h2>
+      <section aria-labelledby="ops-webhooks" className="flex flex-col gap-3">
+        <SectionHeading id="ops-webhooks">Failed webhook events</SectionHeading>
         {failures.isPending ? (
-          <p className="text-ui text-muted-foreground">Loading failures…</p>
+          <p
+            className="flex items-center gap-2 text-ui text-ink-muted"
+            role="status"
+          >
+            <Spinner decorative size="sm" />
+            Loading failures
+          </p>
         ) : failures.isError ? (
-          <p className="text-ui text-destructive">Could not load webhook failures.</p>
+          <p className="text-ui text-danger-ink" role="alert">
+            Could not load webhook failures.
+          </p>
         ) : failures.data.length === 0 ? (
-          <p className="text-ui text-muted-foreground">
+          <p className="text-ui text-ink-muted">
             No failed or dead webhook events.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <GroupedList aria-label="Failed webhook events">
             {failures.data.map((item) => (
-              <li
+              <GroupedListItem
                 key={item.id}
-                className="flex flex-col gap-2 rounded-(--np-radius-card) border border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-ui font-medium">{item.eventType}</span>
-                    <Badge variant="outline">{item.status}</Badge>
-                  </div>
-                  <p className="text-caption text-muted-foreground">
+                icon={<Webhook />}
+                label={
+                  <span className="flex items-center gap-2">
+                    <span className="truncate">{item.eventType}</span>
+                    <Badge
+                      variant={
+                        item.status === "dead" ? "destructive" : "warning"
+                      }
+                      shape="tag"
+                    >
+                      {item.status}
+                    </Badge>
+                  </span>
+                }
+                description={
+                  <>
                     Received {formatWhen(item.receivedAt)}
                     {item.lastErrorCode ? ` · ${item.lastErrorCode}` : null}
                     {` · retries ${formatNumber(item.retryCount)}`}
-                  </p>
-                </div>
-                {item.status === "failed" ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={replay.isPending}
-                    onClick={() => replay.mutate(item.id)}
-                  >
-                    Replay
-                  </Button>
-                ) : null}
-              </li>
+                  </>
+                }
+                trailing={
+                  item.status === "failed" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={replay.isPending}
+                      onClick={() => replay.mutate(item.id)}
+                    >
+                      Replay
+                    </Button>
+                  ) : undefined
+                }
+              />
             ))}
-          </ul>
+          </GroupedList>
         )}
       </section>
     </div>

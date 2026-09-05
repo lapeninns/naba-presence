@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useId, useState } from "react"
-import { Loader2Icon, SearchIcon } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import {
@@ -11,9 +10,20 @@ import {
   ReplyFilter,
   advancedFilterCount,
 } from "@/components/inbox/filter-controls"
-import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem } from "@/components/ui/combobox"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxItem,
+} from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import {
   DEFAULT_REVIEW_SORT,
@@ -30,37 +40,22 @@ import { cn } from "@/lib/utils"
 // value ("updated_desc") instead of the sentence-case label. Both the map and
 // the rendered items come from the contract's sort vocabulary.
 
-function ReviewFilters({
+/**
+ * Search and sort: the strip that belongs at the head of the list, the way
+ * Mail keeps its search field above the messages rather than in the sidebar.
+ * Search is debounced into the URL; the local draft follows the URL when it
+ * is cleared from elsewhere ("Clear filters", the chip's remove button).
+ */
+function ReviewSearchBar({
   state,
-  locations,
-  showLocationFilter = true,
   onChange,
-  onClear,
+  className,
 }: {
   state: InboxState
-  locations: LocationOption[]
-  // Server-resolved; see the note on InboxView in inbox-view.tsx for why this
-  // is not derived from `locations.length` here.
-  showLocationFilter?: boolean
   onChange: (partial: Partial<InboxState>) => void
-  onClear: () => void
+  className?: string
 }) {
   const searchId = useId()
-  const locationId = useId()
-  // One location at a time in this control; the multi-select lives behind
-  // "More filters", and the chip row shows when several are applied.
-  const selectedLocation =
-    locations.find((location) => location.id === state.locationIds[0]) ?? null
-  const advancedCount = advancedFilterCount(state)
-
-  // Start expanded when the URL already carries advanced filters (deep link /
-  // restored state). Operators can collapse it; we do not auto-reopen on every
-  // chip clear, which would fight intentional collapse.
-  const [moreOpen, setMoreOpen] = useState(() => advancedFilterCount(state) > 0)
-
-  // Controlled + debounced search: local draft mirrors the URL's search, syncs
-  // back when it is cleared externally ("Clear filters"/chip-clear), and writes
-  // to the URL only after the user pauses typing.
   const [searchDraft, setSearchDraft] = useState(state.search)
   // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-need-an-effect):
   // setting state during render — not inside an effect body — keeps this a single
@@ -79,82 +74,116 @@ function ReviewFilters({
   const searchPending = searchDraft !== state.search
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Search + sort share one strip; filters live on the rows below — no
-          slide-over panel covering the detail pane. */}
-      <div className="flex items-center gap-1.5 rounded-(--np-radius-field) border border-border/70 bg-muted/30 p-1">
-        <div className="relative min-w-0 flex-1">
-          <SearchIcon
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <label htmlFor={searchId} className="sr-only">
-            Search reviews
-          </label>
-          <Input
-            id={searchId}
-            type="search"
-            role="searchbox"
-            aria-label="Search reviews"
-            aria-busy={searchPending || undefined}
-            value={searchDraft}
-            placeholder="Search reviewer or review text…"
-            onChange={(event) => setSearchDraft(event.target.value)}
-            className="h-8 border-transparent bg-transparent pr-8 pl-8 text-ui shadow-none focus-visible:bg-card focus-visible:ring-ring/20"
-          />
-          {searchPending ? (
-            <Loader2Icon
-              aria-hidden
-              className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground"
-            />
-          ) : null}
-        </div>
+    <div className={cn("flex items-center gap-2", className)}>
+      <label htmlFor={searchId} className="sr-only">
+        Search reviews
+      </label>
+      <Input
+        id={searchId}
+        type="search"
+        role="searchbox"
+        aria-label="Search reviews"
+        aria-busy={searchPending || undefined}
+        value={searchDraft}
+        placeholder="Search reviews"
+        onChange={(event) => setSearchDraft(event.target.value)}
+        className="min-w-0 flex-1"
+      />
 
-        <Select
-          value={state.sort}
-          onValueChange={(value: string | null) =>
-            onChange({
-              sort: value && isReviewSort(value) ? value : DEFAULT_REVIEW_SORT,
-            })
-          }
-          items={REVIEW_SORT_LABELS}
-        >
-          <SelectTrigger
-            aria-label="Sort reviews"
-            className="h-8 w-auto shrink-0 border-transparent bg-transparent shadow-none hover:bg-card"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {REVIEW_SORTS.map((sort) => (
-              <SelectItem key={sort} value={sort}>
-                {REVIEW_SORT_LABELS[sort]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <Select
+        value={state.sort}
+        onValueChange={(value: string | null) =>
+          onChange({
+            sort: value && isReviewSort(value) ? value : DEFAULT_REVIEW_SORT,
+          })
+        }
+        items={REVIEW_SORT_LABELS}
+      >
+        <SelectTrigger aria-label="Sort reviews" className="shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {REVIEW_SORTS.map((sort) => (
+            <SelectItem key={sort} value={sort}>
+              {REVIEW_SORT_LABELS[sort]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <RatingFilter
-          ratings={state.ratings}
-          onChange={(ratings) => onChange({ ratings })}
-        />
+/**
+ * Every filter the inbox has. By default it is the whole set — search and
+ * sort at the top, the chips of what is applied at the bottom — so it can
+ * stand alone. The workspace splits it: `showSearch={false}` puts the rest
+ * in the rail while `ReviewSearchBar` heads the list, and `showChips={false}`
+ * lets the list show the applied chips next to the rows they narrow.
+ */
+function ReviewFilters({
+  state,
+  locations,
+  showLocationFilter = true,
+  showSearch = true,
+  showChips = true,
+  onChange,
+  onClear,
+  className,
+}: {
+  state: InboxState
+  locations: LocationOption[]
+  // Server-resolved; see the note on InboxView in inbox-view.tsx for why this
+  // is not derived from `locations.length` here.
+  showLocationFilter?: boolean
+  /** Render the search-and-sort strip at the top. */
+  showSearch?: boolean
+  /** Render the applied-filter chips at the bottom. */
+  showChips?: boolean
+  onChange: (partial: Partial<InboxState>) => void
+  onClear: () => void
+  className?: string
+}) {
+  const locationId = useId()
+  // One location at a time in this control; the multi-select lives behind
+  // "More filters", and the chip row shows when several are applied.
+  const selectedLocation =
+    locations.find((location) => location.id === state.locationIds[0]) ?? null
+  const advancedCount = advancedFilterCount(state)
+
+  // Start expanded when the URL already carries advanced filters (deep link /
+  // restored state). Operators can collapse it; we do not auto-reopen on every
+  // chip clear, which would fight intentional collapse.
+  const [moreOpen, setMoreOpen] = useState(() => advancedFilterCount(state) > 0)
+
+  return (
+    <div className={cn("flex flex-col gap-3", className)}>
+      {showSearch ? (
+        <ReviewSearchBar state={state} onChange={onChange} />
+      ) : null}
+
+      <div className="flex flex-col gap-2">
         <ReplyFilter
           replyState={state.replyState}
           onChange={(replyState) => onChange({ replyState })}
         />
-        <MoreFiltersToggle
-          open={moreOpen}
-          count={advancedCount}
-          onOpenChange={setMoreOpen}
-        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <RatingFilter
+            ratings={state.ratings}
+            onChange={(ratings) => onChange({ ratings })}
+          />
+          <MoreFiltersToggle
+            open={moreOpen}
+            count={advancedCount}
+            onOpenChange={setMoreOpen}
+          />
+        </div>
       </div>
 
       <div
         id="inbox-advanced-filters"
         className={cn(
-          "grid transition-[grid-template-rows] duration-(--np-duration-standard) ease-out",
+          "grid transition-[grid-template-rows] duration-(--np-duration-standard) ease-spring",
           moreOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         )}
       >
@@ -192,7 +221,11 @@ function ReviewFilters({
             }
             itemToStringLabel={(location: LocationOption) => location.name}
           >
-            <ComboboxInput id={locationId} placeholder="All locations" aria-label="Filter by location" />
+            <ComboboxInput
+              id={locationId}
+              placeholder="All locations"
+              aria-label="Filter by location"
+            />
             <ComboboxContent>
               {locations.map((location) => (
                 <ComboboxItem key={location.id} value={location}>
@@ -204,14 +237,16 @@ function ReviewFilters({
         </div>
       ) : null}
 
-      <ActiveFilterChips
-        state={state}
-        locations={locations}
-        onChange={onChange}
-        onClear={onClear}
-      />
+      {showChips ? (
+        <ActiveFilterChips
+          state={state}
+          locations={locations}
+          onChange={onChange}
+          onClear={onClear}
+        />
+      ) : null}
     </div>
   )
 }
 
-export { ReviewFilters }
+export { ReviewFilters, ReviewSearchBar }

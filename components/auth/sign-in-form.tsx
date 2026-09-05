@@ -185,14 +185,17 @@ function SignInForm({
   if (stage === "confirm-sent") {
     return (
       <div className="flex flex-col gap-4">
-        <h2 className="text-title font-semibold">Check your email</h2>
-        <p className="text-body text-muted-foreground">
+        <h2 className="text-title font-semibold text-ink">Check your email</h2>
+        <p className="text-body text-ink-muted">
           We sent a confirmation link to {email}. Open it, then sign in.
         </p>
         <ResendConfirmationButton email={email} inviteToken={inviteToken} />
         <Button
           type="button"
-          variant="outline"
+          variant="secondary"
+          size="lg"
+          pill
+          className="w-full"
           onClick={() => {
             setStage("form")
             switchMode("sign-in")
@@ -206,41 +209,38 @@ function SignInForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+      {/* Drawn as a segmented control: a grey track with a white raised
+          thumb on the selected segment. It stays a group of two pressed
+          buttons rather than a tablist because the two modes are one form
+          with two shapes, not two panels, and `aria-pressed` is what tests
+          and assistive tech read. */}
       <div
         role="group"
         aria-label="Account action"
-        className="flex gap-1 rounded-(--np-radius-control) bg-muted p-1"
+        className="flex h-(--np-control-h) gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5"
       >
-        <Button
-          type="button"
-          variant="ghost"
-          className={cn(
-            "flex-1",
-            mode === "sign-in"
-              ? "bg-background text-foreground hover:bg-background"
-              : "text-muted-foreground"
-          )}
-          aria-pressed={mode === "sign-in"}
-          aria-label="Switch to sign in"
-          onClick={() => switchMode("sign-in")}
-        >
-          Sign in
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={cn(
-            "flex-1",
-            mode === "create-account"
-              ? "bg-background text-foreground hover:bg-background"
-              : "text-muted-foreground"
-          )}
-          aria-pressed={mode === "create-account"}
-          aria-label="Switch to create account"
-          onClick={() => switchMode("create-account")}
-        >
-          Create account
-        </Button>
+        {(
+          [
+            ["sign-in", "Sign in", "Switch to sign in"],
+            ["create-account", "Create account", "Switch to create account"],
+          ] as const
+        ).map(([value, label, name]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            aria-label={name}
+            onClick={() => switchMode(value)}
+            className={cn(
+              "flex h-full min-w-0 flex-1 items-center justify-center rounded-[calc(var(--np-radius-control)-2px)] px-3 text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none active:scale-[0.98]",
+              mode === value
+                ? "bg-surface text-ink shadow-(--np-shadow-raised)"
+                : "text-ink-muted hover:text-ink"
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {message ? (
@@ -309,7 +309,13 @@ function SignInForm({
         </>
       )}
 
-      <Button type="submit" disabled={pending}>
+      <Button
+        type="submit"
+        size="lg"
+        pill
+        className="w-full"
+        disabled={pending}
+      >
         {mode === "sign-in"
           ? pending
             ? "Signing in…"
@@ -325,8 +331,8 @@ function SignInForm({
         // confirm whether the address is registered. Showing it
         // unconditionally keeps the resend path (spec §8) without adding an
         // enumeration channel.
-        <div className="flex flex-col items-start gap-1.5 border-t border-border/70 pt-5">
-          <p className="text-caption text-muted-foreground">
+        <div className="flex flex-col items-start gap-1 border-t border-line-subtle pt-5">
+          <p className="text-caption text-ink-muted">
             Didn&apos;t receive a confirmation email?
           </p>
           <ResendConfirmationButton email={email} inviteToken={inviteToken} />

@@ -1,10 +1,18 @@
 "use client"
 
+import { ChevronRightIcon, CircleCheckIcon } from "lucide-react"
 import Link from "next/link"
 
+import {
+  HomeSection,
+  ListRowsSkeleton,
+  listCardClassName,
+  listRowClassName,
+} from "@/components/home/home-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Empty } from "@/components/ui/empty"
+import { StatusPill } from "@/components/ui/status-pill"
 import { formatNumber } from "@/lib/format"
 import type { AnalyticsLocation } from "@/lib/api/analytics"
 
@@ -24,13 +32,7 @@ function AttentionList({
 }) {
   function renderBody() {
     if (isPending) {
-      return (
-        <div aria-busy="true" className="flex flex-col gap-2">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <Skeleton key={index} className="h-12 rounded-(--np-radius-card)" />
-          ))}
-        </div>
-      )
+      return <ListRowsSkeleton rows={5} />
     }
 
     if (isError) {
@@ -58,34 +60,42 @@ function AttentionList({
 
     if (rows.length === 0) {
       return (
-        <p className="text-ui text-muted-foreground">
-          No locations have unresolved low ratings in the last 30 days.
-        </p>
+        <div className="rounded-(--np-radius-card) bg-surface">
+          <Empty
+            icon={<CircleCheckIcon />}
+            title="Nothing needs attention"
+            description="No locations have unresolved low ratings in the last 30 days."
+            className="py-8"
+          />
+        </div>
       )
     }
 
     return (
-      <ul className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-border bg-card">
+      <ul className={listCardClassName}>
         {rows.map((location) => (
-          <li
-            key={location.id}
-            className="border-b border-border/60 last:border-b-0"
-          >
+          <li key={location.id}>
             <Link
               href={`/inbox?locationId=${location.id}&rating=1,2`}
               prefetch={false}
-              className="flex items-center justify-between gap-3 px-4 py-3 text-ui transition-colors duration-(--np-duration-fast) hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+              className={listRowClassName}
             >
-              <span className="min-w-0 truncate font-medium">
+              <StatusPill variant="dot" tone="at-risk" />
+              <span className="min-w-0 flex-1 truncate text-body font-medium text-ink">
                 {location.name}
               </span>
-              <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-caption text-ink-muted tabular-nums">
                 {`${formatNumber(location.unresolvedComplaints)} unresolved ${
                   location.unresolvedComplaints === 1
                     ? "complaint"
                     : "complaints"
                 }`}
               </span>
+              <ChevronRightIcon
+                aria-hidden
+                strokeWidth={1.75}
+                className="size-4 shrink-0 text-ink-faint"
+              />
             </Link>
           </li>
         ))}
@@ -94,17 +104,13 @@ function AttentionList({
   }
 
   return (
-    <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <h2 id={HEADING_ID} className="text-title font-semibold tracking-tight">
-          Locations needing attention
-        </h2>
-        <p className="text-caption text-muted-foreground">
-          1–2 star reviews with no published reply · last 30 days
-        </p>
-      </div>
+    <HomeSection
+      id={HEADING_ID}
+      title="Locations needing attention"
+      description="1–2 star reviews with no published reply · last 30 days"
+    >
       {renderBody()}
-    </section>
+    </HomeSection>
   )
 }
 

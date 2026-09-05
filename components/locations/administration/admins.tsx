@@ -54,10 +54,10 @@ export function AdminsSection({ data }: { data: unknown }) {
 
 function AdminRowActions({ admin }: { admin: AdminRow }) {
   return (
-    <div className="flex items-center gap-2">
+    <span className="flex items-center gap-2">
       <UpdateAdminRoleControl admin={admin} />
       <RemoveAdminAction admin={admin} />
-    </div>
+    </span>
   )
 }
 
@@ -88,13 +88,16 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
   if (!name || currentRole === "PRIMARY_OWNER") return null
 
   return (
-    <div className="flex items-center gap-2">
+    <span className="flex items-center gap-2">
       <Select
         value={role}
         onValueChange={(value: string | null) => value && setRole(value)}
         disabled={disabled}
       >
-        <SelectTrigger aria-label={`Role for ${admin.admin ?? name}`}>
+        <SelectTrigger
+          className="w-32"
+          aria-label={`Role for ${admin.admin ?? name}`}
+        >
           <SelectValue>
             {(value: string | null) => (value ? adminRoleLabel(value) : "")}
           </SelectValue>
@@ -109,13 +112,13 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
       </Select>
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         onClick={() => update.mutate()}
         disabled={writeBlocked || role === currentRole || update.isPending}
       >
         {update.isPending ? "Saving…" : "Update role"}
       </Button>
-    </div>
+    </span>
   )
 }
 

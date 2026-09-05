@@ -5,6 +5,9 @@ import { CalendarDays, Tag } from "lucide-react"
  *
  * The composer used to be three form controls with no sense of the result, so
  * the first time anyone saw a post rendered was on Google, after it published.
+ *
+ * It sits on the sheet's white surface, so it carries the hairline edge that
+ * a white-on-white card needs.
  */
 export function PostPreview({
   topicType,
@@ -17,26 +20,28 @@ export function PostPreview({
 }) {
   const Icon = topicType === "OFFER" ? Tag : CalendarDays
   return (
-    <figure className="flex flex-col gap-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
-      <figcaption className="border-b border-line-subtle bg-surface-sunken px-3 py-2 text-caption text-ink-muted">
+    <figure className="flex flex-col overflow-hidden rounded-(--np-radius-card) bg-surface hairline">
+      <figcaption className="border-b border-line-subtle px-3 py-2 text-caption font-medium text-ink-muted">
         Preview
       </figcaption>
       <div className="flex flex-col gap-2 p-3">
         {topicType !== "STANDARD" ? (
-          <p className="flex items-center gap-1.5 text-title font-medium">
-            <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />
+          <p className="flex items-center gap-1.5 text-body font-semibold text-ink">
+            <Icon
+              className="size-4 shrink-0 text-ink-muted"
+              strokeWidth={1.75}
+              aria-hidden
+            />
             {eventTitle || (
-              <span className="text-ink-faint">
+              <span className="font-normal text-ink-faint">
                 {topicType === "OFFER" ? "Offer title" : "Event title"}
               </span>
             )}
           </p>
         ) : null}
-        <p className="text-body whitespace-pre-wrap" dir="auto">
+        <p className="text-body whitespace-pre-wrap text-ink" dir="auto">
           {summary || (
-            <span className="text-ink-faint">
-              Your post text appears here.
-            </span>
+            <span className="text-ink-faint">Your post text appears here.</span>
           )}
         </p>
       </div>

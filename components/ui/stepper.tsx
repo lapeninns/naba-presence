@@ -36,7 +36,7 @@ function Stepper({
       className={cn(
         orientation === "horizontal"
           ? "flex items-start gap-0 overflow-x-auto"
-          : "flex flex-col gap-0.5",
+          : "flex flex-col gap-(--np-list-gap)",
         className
       )}
       {...props}
@@ -46,14 +46,15 @@ function Stepper({
         return (
           <li
             key={step.id}
+            data-state={step.state}
             aria-current={step.state === "current" ? "step" : undefined}
             className={cn(
               orientation === "horizontal"
-                ? "flex min-w-0 flex-1 flex-col gap-1.5"
-                : "flex items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-1.5",
+                ? "flex min-w-0 flex-1 flex-col gap-2"
+                : "flex items-center gap-3 rounded-(--np-radius-control) px-2.5 py-1.5",
               orientation === "vertical" &&
                 step.state === "current" &&
-                "border border-line bg-surface"
+                "bg-accent-tint"
             )}
           >
             <div
@@ -65,22 +66,26 @@ function Stepper({
               <span
                 aria-hidden
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-full text-caption font-semibold",
-                  step.state === "done" && "bg-primary text-primary-foreground",
-                  step.state === "current" &&
-                    "border-2 border-[var(--np-accent)] bg-accent-tint text-accent-ink",
-                  step.state === "todo" &&
-                    "border border-[var(--np-line-strong)] text-ink-muted"
+                  "flex size-6 shrink-0 items-center justify-center rounded-full text-caption font-semibold tabular-nums transition-colors duration-(--np-duration-fast) ease-spring-snappy",
+                  step.state === "done" && "bg-accent-tint text-accent-ink",
+                  step.state === "current" && "bg-primary text-primary-foreground",
+                  step.state === "todo" && "bg-fill text-ink-muted"
                 )}
               >
-                {step.state === "done" ? <Check className="size-3" /> : index + 1}
+                {step.state === "done" ? (
+                  <Check className="size-3.5" strokeWidth={2} />
+                ) : (
+                  index + 1
+                )}
               </span>
               {orientation === "horizontal" && !isLast ? (
                 <span
                   aria-hidden
                   className={cn(
-                    "mx-1.5 h-0.5 flex-1",
-                    step.state === "done" ? "bg-[var(--np-accent)]" : "bg-line"
+                    "mx-2 h-px flex-1",
+                    step.state === "done"
+                      ? "bg-(--np-accent-vivid)"
+                      : "bg-line-subtle"
                   )}
                 />
               ) : null}
@@ -88,7 +93,7 @@ function Stepper({
             <div className={cn("min-w-0", orientation === "vertical" && "flex-1")}>
               <p
                 className={cn(
-                  "truncate text-caption font-medium",
+                  "truncate text-ui font-medium",
                   step.state === "todo" ? "text-ink-muted" : "text-ink"
                 )}
               >

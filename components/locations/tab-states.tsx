@@ -1,5 +1,7 @@
 "use client"
 
+import { Unplug } from "lucide-react"
+
 import { Empty } from "@/components/ui/empty"
 import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { isNotLinkedError } from "@/lib/errors/action-errors"
@@ -16,11 +18,18 @@ export function TabLoading({ label }: { label?: string } = {}) {
   return <QueryPending label={label} />
 }
 
-export function TabError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+export function TabError({
+  error,
+  onRetry,
+}: {
+  error: unknown
+  onRetry: () => void
+}) {
   // No Google link is a distinct state the tab can act on, not a failure.
   if (isNotLinkedError(error)) {
     return (
       <Empty
+        icon={<Unplug aria-hidden />}
         title="This location isn’t linked to Google yet"
         description="Link it to Google Business Profile to manage its details, hours, photos and more here."
       />

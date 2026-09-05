@@ -60,9 +60,9 @@ describe("PolicyForm", () => {
   it("blocks turning off approval unless an owner confirms consent", () => {
     useSettingsMock.mockReturnValue({ data: makeSettings(), isPending: false, isError: false, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: false } })
-    // Admin turns approval off -> consent checkbox is owner-only, save stays blocked.
+    // Admin turns approval off -> the consent switch is owner-only, save stays blocked.
     renderForm("admin")
-    fireEvent.click(screen.getByRole("checkbox", { name: "Require approval before replies publish" }))
+    fireEvent.click(screen.getByRole("switch", { name: "Require approval before replies publish" }))
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled()
     expect(
       screen.getByText("Only an owner can turn off approval before replies publish.")

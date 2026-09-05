@@ -20,7 +20,7 @@ class DetailErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="p-6">
+        <div className="p-(--np-card-pad)">
           <Alert variant="destructive">
             <AlertTitle>This review could not be shown.</AlertTitle>
             <AlertDescription className="flex flex-col items-start gap-2">
@@ -28,7 +28,7 @@ class DetailErrorBoundary extends Component<Props, State> {
                 The rest of your inbox is unaffected. Try again, or pick another
                 review.
               </span>
-              <Button variant="outline" size="sm" onClick={this.reset}>
+              <Button variant="secondary" size="sm" pill onClick={this.reset}>
                 Try again
               </Button>
             </AlertDescription>

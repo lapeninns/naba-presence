@@ -1,5 +1,7 @@
 "use client"
 
+import { Megaphone } from "lucide-react"
+
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
@@ -60,15 +62,18 @@ export function PostsTab({ locationId }: { locationId: string }) {
 
           {state.posts.length === 0 ? (
             <Empty
+              icon={<Megaphone aria-hidden />}
               title="No posts yet"
               description="A post is a short update, event or offer that shows on the listing for a week or so."
             />
           ) : (
-            <ul className="flex flex-col gap-3">
+            // One white card, one row per post, hairlines between: the
+            // Mac-list shape, so ten posts read as a list and not ten boxes.
+            <ul className="divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface">
               {state.posts.map((post) => (
                 <li
                   key={post.id}
-                  className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line p-4"
+                  className="flex flex-col gap-2 px-(--np-card-pad) py-3"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <StatusPill tone={STATUS[post.status].tone}>
@@ -78,7 +83,11 @@ export function PostsTab({ locationId }: { locationId: string }) {
                       {TOPIC[post.topicType] ?? post.topicType}
                     </span>
                   </div>
-                  <p className="text-ui" lang={post.languageCode} dir="auto">
+                  <p
+                    className="text-body text-ink"
+                    lang={post.languageCode}
+                    dir="auto"
+                  >
                     {post.summary || "—"}
                   </p>
                   <PostsActionBar

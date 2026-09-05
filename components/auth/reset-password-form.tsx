@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import {
   useEffect,
   useRef,
@@ -10,6 +9,7 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { AuthLink } from "@/components/auth/auth-link"
 import { PasswordField } from "@/components/auth/password-field"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { Button } from "@/components/ui/button"
@@ -118,14 +118,12 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   if (!isUsableToken(tokenHash)) {
     return (
-      <div className="flex flex-col gap-5">
-        <p className="text-body text-muted-foreground">
+      <div className="flex flex-col items-start gap-5">
+        <p className="text-body text-ink-muted">
           This password reset link is missing or incomplete. Request a new one
           to continue.
         </p>
-        <Link href="/forgot-password" className="underline underline-offset-4">
-          Request another link
-        </Link>
+        <AuthLink href="/forgot-password">Request another link</AuthLink>
       </div>
     )
   }
@@ -164,7 +162,13 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         error={fieldErrors.confirmPassword}
       />
 
-      <Button type="submit" disabled={pending}>
+      <Button
+        type="submit"
+        size="lg"
+        pill
+        className="w-full"
+        disabled={pending}
+      >
         {pending ? "Updating…" : "Update password"}
       </Button>
     </form>

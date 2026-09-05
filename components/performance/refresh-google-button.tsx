@@ -1,5 +1,6 @@
 "use client"
 
+import { RefreshCwIcon } from "lucide-react"
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -53,15 +54,24 @@ export function RefreshGoogleButton({
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
-        variant="outline"
+        variant="secondary"
         size="sm"
         onClick={() => void run()}
         disabled={pending}
       >
+        <RefreshCwIcon
+          aria-hidden
+          strokeWidth={1.75}
+          className={
+            pending ? "animate-spin motion-reduce:animate-none" : undefined
+          }
+        />
         {pending ? "Refreshing…" : "Refresh Google data"}
       </Button>
       {error ? (
-        <span className="text-caption text-destructive">{error}</span>
+        <span role="alert" className="text-caption text-danger-ink">
+          {error}
+        </span>
       ) : null}
     </div>
   )

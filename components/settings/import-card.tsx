@@ -1,13 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { MapPin } from "lucide-react"
+import { useId, useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
@@ -21,6 +22,11 @@ import type { DiscoveredLocation } from "@/lib/api/google-locations"
 
 type RowState = "idle" | "pending" | "imported" | { error: string }
 
+/**
+ * The locations Google knows about under the working account, one row each:
+ * name, address, whether it is linked here yet, and an Import action for the
+ * ones that are not.
+ */
 export function ImportCard({ clientId }: { clientId?: string } = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
@@ -33,7 +39,10 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
   const accounts = useGoogleAccounts(connectionId)
   const accountName = deriveAutoSelection({
     connections: connections.map((c) => ({ id: c.id, status: c.status })),
-    accounts: (accounts.query.data?.accounts ?? []).map((a) => ({ googleAccountName: a.googleAccountName, isActive: a.isActive })),
+    accounts: (accounts.query.data?.accounts ?? []).map((a) => ({
+      googleAccountName: a.googleAccountName,
+      isActive: a.isActive,
+    })),
     selectedConnectionId: connectionId,
     selectedAccountName: null,
   }).accountName
@@ -45,9 +54,12 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
   // win.
   const managed = useLocationDirectory(useSessionRole())
   const { link } = useLocationImport()
+  const headingId = useId()
 
   const [rowState, setRowState] = useState<Record<string, RowState>>({})
-  const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(null)
+  const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(
+    null
+  )
 
   const linkedExternalIds = new Set(
     (managed.data ?? [])
@@ -55,7 +67,10 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
       .filter((id): id is string => Boolean(id))
   )
 
-  const importOne = async (location: DiscoveredLocation, confirmRelink: boolean) => {
+  const importOne = async (
+    location: DiscoveredLocation,
+    confirmRelink: boolean
+  ) => {
     setRowState((prev) => ({ ...prev, [location.id]: "pending" }))
     try {
       await link.mutateAsync({
@@ -65,84 +80,115 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
       })
       setRowState((prev) => ({ ...prev, [location.id]: "imported" }))
     } catch (error) {
-      if (error instanceof ApiClientError && error.code === "relink_confirmation_required") {
+      if (
+        error instanceof ApiClientError &&
+        error.code === "relink_confirmation_required"
+      ) {
         setRowState((prev) => ({ ...prev, [location.id]: "idle" }))
         setRelinkTarget(location)
         return
       }
-      setRowState((prev) => ({ ...prev, [location.id]: { error: describeActionError(error) } }))
+      setRowState((prev) => ({
+        ...prev,
+        [location.id]: { error: describeActionError(error) },
+      }))
     }
   }
 
+  const heading = (
+    <h2 id={headingId} className="text-title font-semibold text-ink">
+      Import locations
+    </h2>
+  )
+
   if (!accountName) {
     return (
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title">Import locations</h2>
-        <Empty title="Choose a Google account" description="Activate a Google account above to discover its locations." />
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <Empty
+          title="Choose a Google account"
+          description="Activate a Google account above to discover its locations."
+        />
       </section>
     )
   }
   if (discovery.isPending) {
-    return <Skeleton className="h-32 w-full" />
+    return (
+      <div className="flex flex-col gap-3" aria-busy="true">
+        <Skeleton className="h-5 w-36" />
+        <Skeleton className="h-[calc(var(--np-row-h)*3)] w-full rounded-(--np-radius-card)" />
+      </div>
+    )
   }
   if (discovery.isError) {
     return (
       <Empty
         title="We couldn’t discover locations"
         description={describeActionError(discovery.error)}
-        action={<Button variant="outline" onClick={() => discovery.refetch()}>Try again</Button>}
+        action={
+          <Button variant="outline" onClick={() => discovery.refetch()}>
+            Try again
+          </Button>
+        }
       />
     )
   }
   if (discovery.data.locations.length === 0) {
     return (
-      <section className="flex flex-col gap-3">
-        <h2 className="text-title">Import locations</h2>
-        <Empty title="No locations to import" description="This account has no Business Profile locations." />
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <Empty
+          icon={<MapPin />}
+          title="No locations to import"
+          description="This account has no Business Profile locations."
+        />
       </section>
     )
   }
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-title">Import locations</h2>
-      <Table className="min-w-[720px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Location</TableHead>
-            <TableHead>Address</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Import</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {discovery.data.locations.map((location) => {
-            const alreadyLinked = linkedExternalIds.has(location.id)
-            const state = rowState[location.id] ?? "idle"
-            return (
-              <TableRow key={location.id}>
-                <TableCell className="font-medium">
-                  <span className="flex items-center gap-2">
-                    {location.title}
-                    {location.verified ? <Badge variant="success">Verified</Badge> : null}
-                  </span>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{location.address || "—"}</TableCell>
-                <TableCell>
-                  {alreadyLinked || state === "imported" ? (
-                    <Badge variant="secondary">Linked</Badge>
-                  ) : typeof state === "object" ? (
-                    <span className="text-caption text-destructive">{state.error}</span>
-                  ) : (
-                    <Badge variant="outline">Not linked</Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {alreadyLinked || state === "imported" ? (
-                    <span className="text-caption text-muted-foreground">Done</span>
-                  ) : (
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      {heading}
+      <GroupedList aria-label="Locations found on Google">
+        {discovery.data.locations.map((location) => {
+          const alreadyLinked = linkedExternalIds.has(location.id)
+          const state = rowState[location.id] ?? "idle"
+          const done = alreadyLinked || state === "imported"
+          return (
+            <GroupedListItem
+              key={location.id}
+              icon={<MapPin />}
+              label={
+                <span className="flex items-center gap-2">
+                  <span className="truncate">{location.title}</span>
+                  {location.verified ? (
+                    <Badge variant="success" shape="tag">
+                      Verified
+                    </Badge>
+                  ) : null}
+                </span>
+              }
+              description={
+                <>
+                  {location.address || "No address on Google"}
+                  {typeof state === "object" ? (
+                    <>
+                      {" · "}
+                      <span role="alert" className="text-danger-ink">
+                        {state.error}
+                      </span>
+                    </>
+                  ) : null}
+                </>
+              }
+              trailing={
+                done ? (
+                  <Badge variant="tinted">Linked</Badge>
+                ) : (
+                  <>
+                    <Badge variant="secondary">Not linked</Badge>
                     <Button
-                      variant="outline"
+                      variant="secondary"
                       size="sm"
                       disabled={state === "pending"}
                       aria-label={`Import ${location.title}`}
@@ -150,20 +196,20 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
                     >
                       {state === "pending" ? "Importing…" : "Import"}
                     </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+                  </>
+                )
+              }
+            />
+          )
+        })}
+      </GroupedList>
 
       <OverwriteConfirmDialog
         open={relinkTarget !== null}
         onOpenChange={(open) => {
           if (!open) setRelinkTarget(null)
         }}
-        title="Move this location’s history?"
+        title={`Move ${relinkTarget?.title ?? "this location"}’s history?`}
         description="This Google location was linked before. Confirming re-links it here and moves its historical reviews to this location."
         confirmLabel="Confirm and import"
         requireAcknowledgement

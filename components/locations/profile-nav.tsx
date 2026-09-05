@@ -24,14 +24,24 @@ const AREAS = [
   { href: "/profile/industry", label: "Industry", consoleGated: true },
 ]
 
+/**
+ * One segmented control of links (see LocationTabNav for why links and not
+ * ARIA tabs): a grey track with a white thumb on the current area from `md`,
+ * and a scrolling capsule strip below it.
+ */
 export function ProfileNav({ role }: { role: string | null }) {
   const pathname = usePathname()
   const canManageConsoles = role === "owner" || role === "admin"
-  const visible = AREAS.filter((area) => !area.consoleGated || canManageConsoles)
+  const visible = AREAS.filter(
+    (area) => !area.consoleGated || canManageConsoles
+  )
 
   return (
-    <nav aria-label="Business profile sections" className="overflow-x-auto">
-      <ul className="flex min-w-max gap-1 border-b border-border">
+    <nav
+      aria-label="Business profile sections"
+      className="-mx-5 overflow-x-auto px-5 md:mx-0 md:px-0"
+    >
+      <ul className="flex min-w-max items-center gap-1 md:inline-flex md:h-(--np-control-h) md:min-w-0 md:gap-0.5 md:rounded-(--np-radius-control) md:bg-fill md:p-0.5">
         {visible.map((area) => {
           // Exact match for the index route, prefix for the rest — otherwise
           // /profile would light up on every sub-route.
@@ -40,16 +50,18 @@ export function ProfileNav({ role }: { role: string | null }) {
               ? pathname === "/profile"
               : pathname === area.href || pathname.startsWith(`${area.href}/`)
           return (
-            <li key={area.href}>
+            <li key={area.href} className="flex md:h-full">
               <Link
                 href={area.href}
                 prefetch
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "inline-flex shrink-0 items-center border-b-2 px-3 py-2 text-ui font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
-                  isActive
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                  "inline-flex h-7 shrink-0 items-center rounded-(--np-radius-pill) bg-fill px-3 text-ui font-medium whitespace-nowrap text-ink-muted focus-halo select-none",
+                  "transition-[color,background-color,transform,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
+                  "hover:text-ink active:scale-[0.98]",
+                  "md:h-full md:rounded-[calc(var(--np-radius-control)-2px)] md:bg-transparent",
+                  isActive &&
+                    "bg-accent-tint text-accent-ink md:bg-surface md:text-ink md:shadow-(--np-shadow-raised)"
                 )}
               >
                 {area.label}

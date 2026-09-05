@@ -54,6 +54,17 @@ function initialsFor(name: string) {
   return letters || "?"
 }
 
+/**
+ * A rounded square, not a circle: circles are for people, and a client is a
+ * business. The radius grows with the size so the corners stay concentric
+ * with whatever card the mark sits in.
+ */
+const SIZES = {
+  sm: "size-8 rounded-(--np-radius-control) text-ui",
+  lg: "size-12 rounded-(--np-radius-card) text-title",
+  xl: "size-16 rounded-(--np-radius-panel) text-section",
+} as const
+
 function ClientAvatar({
   name,
   colour = null,
@@ -62,17 +73,19 @@ function ClientAvatar({
 }: {
   name: string
   colour?: string | null
-  size?: "sm" | "lg"
+  size?: keyof typeof SIZES
   className?: string
 }) {
   const background = colourFor(name, colour)
   return (
     <span
       aria-hidden
+      data-slot="client-avatar"
+      data-size={size}
       style={{ backgroundColor: background, color: inkFor(background) }}
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-(--np-radius-control) font-display",
-        size === "sm" ? "size-8 text-ui" : "size-12 text-title",
+        "flex shrink-0 items-center justify-center font-semibold select-none",
+        SIZES[size],
         className
       )}
     >

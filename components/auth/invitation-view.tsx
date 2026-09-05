@@ -1,14 +1,16 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import Link from "next/link"
+import { Building2, Mail, UserRound } from "lucide-react"
 
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { AuthLink } from "@/components/auth/auth-link"
 import { InvitationActions } from "@/components/auth/invitation-actions"
 import { SignInForm } from "@/components/auth/sign-in-form"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
@@ -18,10 +20,44 @@ import { queryKeys } from "@/lib/queries/keys"
 // Shared across the three dead-end branches below (not-found, already
 // accepted, expired) so the copy/href can't drift out of sync between them.
 function GoToSignInLink() {
+  return <AuthLink href="/sign-in">Go to sign in</AuthLink>
+}
+
+/**
+ * Who is inviting whom: the organisation and the address the invitation
+ * was sent to, plus the account the visitor is currently signed in with
+ * when there is one. A grouped list because these are facts to read, not
+ * fields to fill. Only what the lookup actually returns is shown — the
+ * response carries no inviter name, so none is invented.
+ *
+ * The list sits on the white card, so it takes the hairline edge that a
+ * white surface on another white surface needs to be seen.
+ */
+function InvitationDetails({
+  organisationName,
+  email,
+  viewerEmail,
+}: {
+  organisationName: string
+  email: string
+  viewerEmail?: string
+}) {
   return (
-    <Link href="/sign-in" className="underline underline-offset-4">
-      Go to sign in
-    </Link>
+    <GroupedList header="Invitation details" className="[&>ul]:hairline">
+      <GroupedListItem
+        icon={<Building2 />}
+        label={organisationName}
+        description="Organisation"
+      />
+      <GroupedListItem icon={<Mail />} label={email} description="Sent to" />
+      {viewerEmail ? (
+        <GroupedListItem
+          icon={<UserRound />}
+          label={viewerEmail}
+          description="Signed in as"
+        />
+      ) : null}
+    </GroupedList>
   )
 }
 
@@ -44,10 +80,16 @@ function InvitationView({
   if (query.isPending) {
     return (
       <AuthCard eyebrow="Invitation" title="Checking your invitation">
-        <div aria-busy="true" className="flex flex-col gap-4">
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-9 w-full" />
-          <Skeleton className="h-9 w-full" />
+        {/* The skeleton takes the shape of what arrives: the details list,
+            then the form's two fields and its button. */}
+        <div aria-busy="true" className="flex flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
+            <Skeleton className="mx-(--np-card-pad) h-4 w-28" />
+            <Skeleton className="h-22 w-full rounded-(--np-radius-card)" />
+          </div>
+          <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-field)" />
+          <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-field)" />
+          <Skeleton className="h-9 w-full rounded-(--np-radius-pill)" />
         </div>
       </AuthCard>
     )
@@ -66,7 +108,13 @@ function InvitationView({
         {notFound ? (
           <GoToSignInLink />
         ) : (
-          <Button type="button" onClick={() => query.refetch()}>
+          <Button
+            type="button"
+            size="lg"
+            pill
+            className="w-full"
+            onClick={() => query.refetch()}
+          >
             Try again
           </Button>
         )}
@@ -103,6 +151,10 @@ function InvitationView({
         title={`Join ${data.organisationName}`}
         description="Set a password and you will be able to work on the clients this agency has given you."
       >
+        <InvitationDetails
+          organisationName={data.organisationName}
+          email={data.email}
+        />
         <SignInForm
           initialMode="create-account"
           inviteToken={token}
@@ -118,6 +170,11 @@ function InvitationView({
       title={`Join ${data.organisationName}`}
       description="Accepting adds this agency to the account you are already signed in with."
     >
+      <InvitationDetails
+        organisationName={data.organisationName}
+        email={data.email}
+        viewerEmail={viewer.email}
+      />
       <InvitationActions
         viewer={viewer}
         invitedEmail={data.email}

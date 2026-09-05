@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { apiFetch } from "@/lib/api/client"
 import { signOut } from "@/lib/api/auth"
+import { cn } from "@/lib/utils"
 import { z } from "zod"
 
 import type { ShellSession } from "./app-shell"
@@ -63,7 +64,13 @@ async function handleSignOut() {
  * the organisation, not separate organisations, so this is a rare
  * account-level action rather than product navigation.
  */
-function AccountMenu({ session }: { session: ShellSession | null }) {
+function AccountMenu({
+  session,
+  className,
+}: {
+  session: ShellSession | null
+  className?: string
+}) {
   const displayName = session?.displayName ?? "Account"
   const role = session?.role
 
@@ -102,30 +109,43 @@ function AccountMenu({ session }: { session: ShellSession | null }) {
         render={
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 rounded-(--np-radius-control) px-2 py-1.5 text-left transition-colors duration-(--np-duration-fast) hover:bg-[var(--np-hover-bg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className={cn(
+              "flex h-11 w-full items-center gap-2.5 rounded-(--np-radius-control) px-2 text-left",
+              "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill-tertiary active:scale-[0.98] aria-expanded:bg-fill-tertiary",
+              "focus-halo focus-visible:outline-none",
+              className
+            )}
           />
         }
       >
         <span
           aria-hidden
-          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-line bg-surface-sunken text-caption font-semibold"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-semibold text-ink"
         >
           {initialsFor(displayName)}
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-ui font-medium">{displayName}</span>
+          <span className="truncate text-ui font-medium text-ink">
+            {displayName}
+          </span>
           {role ? (
             <span className="truncate text-caption text-ink-muted capitalize">
               {role}
             </span>
           ) : null}
         </span>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
+        <ChevronsUpDown
+          className="size-4 shrink-0 text-ink-muted"
+          strokeWidth={1.75}
+          aria-hidden
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="min-w-64">
-        <div className="px-3 py-2">
-          <p className="truncate text-ui font-medium">{displayName}</p>
-          <p className="truncate text-caption text-ink-muted">{session?.email}</p>
+        <div className="px-2 py-1.5">
+          <p className="truncate text-ui font-medium text-ink">{displayName}</p>
+          <p className="truncate text-caption text-ink-muted">
+            {session?.email}
+          </p>
           {role ? (
             <p className="mt-1.5 text-caption text-ink-muted">
               <span className="font-medium capitalize">{role}</span>
@@ -135,8 +155,8 @@ function AccountMenu({ session }: { session: ShellSession | null }) {
         </div>
         {others.length > 0 ? (
           <>
-            <div className="my-1 h-px bg-line-subtle" />
-            <p className="px-3 py-1 text-caption font-medium text-ink-muted">
+            <div className="mx-2 my-1 h-px bg-line-subtle" />
+            <p className="px-2 py-1 text-caption font-medium text-ink-muted">
               Switch organisation
             </p>
             {others.map((organisation) => (
@@ -150,9 +170,9 @@ function AccountMenu({ session }: { session: ShellSession | null }) {
             ))}
           </>
         ) : null}
-        <div className="my-1 h-px bg-line-subtle" />
+        <div className="mx-2 my-1 h-px bg-line-subtle" />
         <DropdownMenuItem onClick={() => void handleSignOut()}>
-          <LogOut className="size-4" aria-hidden />
+          <LogOut className="size-4" strokeWidth={1.75} aria-hidden />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

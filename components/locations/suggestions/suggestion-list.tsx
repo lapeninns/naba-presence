@@ -6,7 +6,14 @@ import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm
 import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { DiffView, type DiffRow } from "@/components/ui/diff-view"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import type { ImportProposal } from "@/lib/api/location-import-review"
@@ -38,9 +45,10 @@ const FIELD_LABELS: Record<string, string> = {
   website: "Website",
 }
 
+/** A value as one line; empty when there is nothing, so the diff can say "Not set". */
 function valueSummary(value: unknown): string {
-  if (value === null || value === undefined) return "—"
-  if (typeof value === "string") return value || "—"
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string") return value
   if (typeof value === "object") {
     const node = value as Record<string, unknown>
     const parts: string[] = []
@@ -98,6 +106,14 @@ function proposalTitle(proposal: ImportProposal): string {
   return proposal.sectionLabel ?? "Menu"
 }
 
+/** The diff table's first column: what kind of thing changed, in the customer's words. */
+function proposalFieldLabel(proposal: ImportProposal): string {
+  if (proposal.resourceType === "profile") return proposalTitle(proposal)
+  if (proposal.kind === "structure_changed") return "Menu"
+  if (proposal.itemLabel) return "Item"
+  return "Section"
+}
+
 /**
  * One resource's worth of pending suggestions from Google.
  *
@@ -152,7 +168,7 @@ export function SuggestionList({
           toasts.add({
             title:
               action === "apply"
-                ? "Suggestion applied"
+                ? "Suggestion accepted"
                 : action === "delete_local"
                   ? "Removed here"
                   : "Suggestion dismissed",
@@ -196,139 +212,147 @@ export function SuggestionList({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
-        <div className="flex items-center gap-2">
-          <CardTitle as="h2" className="text-base">
-            {resourceType === "profile"
-              ? "Business profile"
-              : "Food menu"}
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle as="h2">
+            {resourceType === "profile" ? "Business profile" : "Food menu"}
           </CardTitle>
           {pending.length > 0 ? (
             <Badge variant="warning">{pending.length}</Badge>
           ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refresh.mutate(resourceType)}
-          disabled={refresh.isPending}
-        >
-          {refresh.isPending ? "Checking…" : "Refresh from Google"}
-        </Button>
+        <CardAction>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => refresh.mutate(resourceType)}
+            disabled={refresh.isPending}
+          >
+            {refresh.isPending ? "Checking…" : "Refresh from Google"}
+          </Button>
+        </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-col gap-4">
         {pending.length === 0 ? (
-          <p className="text-caption text-muted-foreground">
+          <p className="text-caption text-ink-muted">
             No pending suggestions. Changes made on Google appear here for
             review.
           </p>
         ) : (
-          pending.map((proposal) => {
-            const missing =
-              proposal.kind === "item_missing_from_google" ||
-              proposal.kind === "section_missing_from_google"
-            return (
-              <div
-                key={proposal.id}
-                className="flex flex-col gap-2 rounded-md border p-3"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{proposalTitle(proposal)}</span>
-                  <Badge variant={missing ? "info" : "warning"}>
-                    {isAmbiguous(proposal)
-                      ? "Can't match automatically"
-                      : KIND_LABELS[proposal.kind]}
-                  </Badge>
-                  {proposal.warnings.includes("canonical_also_changed") ? (
-                    <Badge variant="warning">Also edited here</Badge>
-                  ) : null}
-                </div>
-                {isAmbiguous(proposal) ? (
-                  // The two-column Here/Google summary would be meaningless:
-                  // the row stands for several items that cannot be told apart.
-                  <p className="text-caption text-muted-foreground">
-                    {ambiguousLabels(proposal).length
-                      ? `${ambiguousLabels(proposal)
-                          .map((label) => `“${label}”`)
-                          .join(
-                            ", "
-                          )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or apply Google's menu as a whole.`
-                      : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or apply Google's menu as a whole."}
-                  </p>
-                ) : (
-                  <div className="grid gap-1 text-caption text-muted-foreground sm:grid-cols-2">
-                    <div>
-                      <span className="font-medium text-foreground">
-                        Here:{" "}
-                      </span>
-                      {valueSummary(proposal.canonicalValue)}
-                    </div>
-                    <div>
-                      <span className="font-medium text-foreground">
-                        Google:{" "}
-                      </span>
-                      {valueSummary(proposal.googleValue)}
-                    </div>
+          <ul className="flex flex-col divide-y divide-line-subtle">
+            {pending.map((proposal) => {
+              const missing =
+                proposal.kind === "item_missing_from_google" ||
+                proposal.kind === "section_missing_from_google"
+              const alsoEditedHere = proposal.warnings.includes(
+                "canonical_also_changed"
+              )
+              const diffRows: DiffRow[] = [
+                {
+                  field: proposalFieldLabel(proposal),
+                  before: valueSummary(proposal.canonicalValue),
+                  after: valueSummary(proposal.googleValue),
+                  state: alsoEditedHere ? "conflict" : "changed",
+                },
+              ]
+              return (
+                <li
+                  key={proposal.id}
+                  className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-body font-semibold text-ink">
+                      {proposalTitle(proposal)}
+                    </span>
+                    <Badge variant={missing ? "info" : "warning"}>
+                      {isAmbiguous(proposal)
+                        ? "Can't match automatically"
+                        : KIND_LABELS[proposal.kind]}
+                    </Badge>
+                    {alsoEditedHere ? (
+                      <Badge variant="warning">Also edited here</Badge>
+                    ) : null}
                   </div>
-                )}
-                {proposal.warnings
-                  .filter(
-                    (warning) =>
-                      warning !== "canonical_also_changed" &&
-                      warning !== "no_baseline" &&
-                      warning !== AMBIGUOUS_LABELS_WARNING
-                  )
-                  .map((warning) => (
-                    <p
-                      key={warning}
-                      className="text-caption text-muted-foreground"
-                    >
-                      {warning}
+                  {isAmbiguous(proposal) ? (
+                    // The two-column Here/Google summary would be meaningless:
+                    // the row stands for several items that cannot be told apart.
+                    <p className="text-caption text-ink-muted">
+                      {ambiguousLabels(proposal).length
+                        ? `${ambiguousLabels(proposal)
+                            .map((label) => `“${label}”`)
+                            .join(
+                              ", "
+                            )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or accept Google's menu as a whole.`
+                        : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or accept Google's menu as a whole."}
                     </p>
-                  ))}
-                <div className="flex flex-wrap gap-2">
-                  {missing ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={disabled}
-                        onClick={() => startDecision(proposal, "keep_local")}
-                      >
-                        Keep here
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={disabled}
-                        onClick={() => startDecision(proposal, "delete_local")}
-                      >
-                        Remove here
-                      </Button>
-                    </>
                   ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        disabled={disabled}
-                        onClick={() => startDecision(proposal, "apply")}
-                      >
-                        Apply
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={disabled}
-                        onClick={() => startDecision(proposal, "ignore")}
-                      >
-                        Ignore
-                      </Button>
-                    </>
+                    <DiffView
+                      className="hairline"
+                      caption={`${proposalTitle(proposal)}: what NabaPresence holds against what Google shows`}
+                      beforeLabel="Here now"
+                      afterLabel="On Google"
+                      rows={diffRows}
+                    />
                   )}
-                </div>
-              </div>
-            )
-          })
+                  {proposal.warnings
+                    .filter(
+                      (warning) =>
+                        warning !== "canonical_also_changed" &&
+                        warning !== "no_baseline" &&
+                        warning !== AMBIGUOUS_LABELS_WARNING
+                    )
+                    .map((warning) => (
+                      <p key={warning} className="text-caption text-ink-muted">
+                        {warning}
+                      </p>
+                    ))}
+                  <div className="flex flex-wrap gap-2">
+                    {missing ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={disabled}
+                          onClick={() => startDecision(proposal, "keep_local")}
+                        >
+                          Keep here
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={disabled}
+                          onClick={() =>
+                            startDecision(proposal, "delete_local")
+                          }
+                        >
+                          Remove here
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="tinted"
+                          disabled={disabled}
+                          onClick={() => startDecision(proposal, "apply")}
+                        >
+                          Accept
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={disabled}
+                          onClick={() => startDecision(proposal, "ignore")}
+                        >
+                          Dismiss
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
         {/* Deliberately not an echo of `editDisabledReason`. That prop
             carries the sentence the host tab already shows beside its own
@@ -340,7 +364,7 @@ export function SuggestionList({
         <GateNote
           reason={
             editDisabledReason
-              ? "Only owners and admins can accept or ignore suggestions."
+              ? "Only owners and admins can accept or dismiss suggestions."
               : null
           }
         />
@@ -361,10 +385,10 @@ export function SuggestionList({
             ? "This replaces your entire local menu with the menu currently on Google."
             : confirming?.action === "delete_local"
               ? "This removes the item here to match Google. You can add it back later."
-              : "This was also edited here since the last sync. Applying keeps Google's version."
+              : "This was also edited here since the last sync. Accepting keeps Google's version."
         }
         confirmLabel={
-          confirming?.action === "delete_local" ? "Remove" : "Apply"
+          confirming?.action === "delete_local" ? "Remove" : "Accept"
         }
         requireAcknowledgement
         acknowledgementLabel="I understand this changes my local data."

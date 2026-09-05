@@ -33,14 +33,16 @@ export function ContactSection({
   const addressId = useId()
 
   return (
-    <section className="flex max-w-xl flex-col gap-4">
-      <h3 className="text-title font-medium">Contact</h3>
+    <section className="flex max-w-2xl flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+      <h3 className="text-title font-semibold text-ink">Contact</h3>
 
       <Field error={errors.phone}>
         <FieldLabel>Phone</FieldLabel>
         <Input
           value={values.phone}
           disabled={disabled}
+          inputMode="tel"
+          autoComplete="tel"
           onChange={(event) =>
             setValues((v) => ({ ...v, phone: event.target.value }))
           }
@@ -84,27 +86,31 @@ export function ContactSection({
             <FieldError />
           </Field>
 
-          <Field>
-            <FieldLabel>Town or city</FieldLabel>
-            <Input
-              value={draft.locality}
-              disabled={disabled}
-              onChange={(event) =>
-                setDraft((d) => ({ ...d, locality: event.target.value }))
-              }
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Town or city</FieldLabel>
+              <Input
+                value={draft.locality}
+                disabled={disabled}
+                autoComplete="address-level2"
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, locality: event.target.value }))
+                }
+              />
+            </Field>
 
-          <Field>
-            <FieldLabel>Postcode</FieldLabel>
-            <Input
-              value={draft.postalCode}
-              disabled={disabled}
-              onChange={(event) =>
-                setDraft((d) => ({ ...d, postalCode: event.target.value }))
-              }
-            />
-          </Field>
+            <Field>
+              <FieldLabel>Postcode</FieldLabel>
+              <Input
+                value={draft.postalCode}
+                disabled={disabled}
+                autoComplete="postal-code"
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, postalCode: event.target.value }))
+                }
+              />
+            </Field>
+          </div>
         </>
       ) : null}
     </section>

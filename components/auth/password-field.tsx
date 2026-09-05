@@ -54,10 +54,16 @@ function PasswordField({
             type="button"
             variant="ghost"
             size="icon-sm"
+            pill
+            className="text-ink-muted hover:text-ink"
             accessibleNameFromChildren
             onClick={() => setVisible((current) => !current)}
           >
-            {visible ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+            {visible ? (
+              <EyeOff strokeWidth={1.75} aria-hidden />
+            ) : (
+              <Eye strokeWidth={1.75} aria-hidden />
+            )}
             {/* Accessible name comes from this visually-hidden text, not
                 aria-label: Playwright's getByLabel() (and some other
                 label-locator tooling) treats any element's own aria-label

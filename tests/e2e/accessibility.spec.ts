@@ -48,15 +48,45 @@ async function expectAccessible(page: Page, surface: string) {
   // really there rather than waiting blindly, so a genuinely untitled surface
   // still fails -- it just fails deterministically.
   await expect(page).toHaveTitle(/.+/)
+  // Overlays enter on a spring. Axe read mid-transition blends a half-faded
+  // dialog with the scrim and reports colours nothing paints at rest, so let
+  // every Base UI enter/exit state clear and every CSS transition finish.
+  // Only transitions: a spinner's infinite animation never "finishes".
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll("[data-starting-style], [data-ending-style]")
+        .length === 0
+  )
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined))
+    )
+  )
   const results = await new AxeBuilder({ page })
     .withTags(accessibilityTags)
     .analyze()
   expect(
     results.violations,
+    // Name every offending node with the colours axe measured, so a failure
+    // says which element on which surface, not just how many.
     `${surface} accessibility violations:\n${results.violations
       .map(
         (violation) =>
-          `${violation.id}: ${violation.help} (${violation.nodes.length} nodes)`
+          `${violation.id}: ${violation.help} (${violation.nodes.length} nodes)\n` +
+          violation.nodes
+            .map((node) => {
+              const data = node.any[0]?.data as
+                | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+                | undefined
+              const colours = data?.fgColor
+                ? ` fg=${data.fgColor} bg=${data.bgColor} ratio=${data.contrastRatio}`
+                : ""
+              return `  - ${node.target.join(" ")}${colours}\n    ${node.html.replace(/\s+/g, " ").slice(0, 160)}`
+            })
+            .join("\n")
       )
       .join("\n")}`
   ).toEqual([])
@@ -798,9 +828,20 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Reviews", level: 1 })
         ).toBeVisible()
-        await expect(
-          page.getByRole("button", { name: /More filters/ })
-        ).toBeVisible()
+        // Below lg the rail lives in the Queues sheet, so open it to reach
+        // the filters and close it again before touching the list.
+        if (viewport.name === "mobile") {
+          await page.getByRole("button", { name: "Queues" }).click()
+          await expect(
+            page.getByRole("button", { name: /More filters/ })
+          ).toBeVisible()
+          await page.keyboard.press("Escape")
+          await expect(page.getByRole("dialog")).toBeHidden()
+        } else {
+          await expect(
+            page.getByRole("button", { name: /More filters/ })
+          ).toBeVisible()
+        }
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
         const row = reviewList.getByRole("button", { name: /Jordan Lee/ })

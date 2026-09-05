@@ -1,12 +1,13 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState, useSyncExternalStore } from "react"
+import { FileText } from "lucide-react"
+import { useId, useState, useSyncExternalStore } from "react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -16,14 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { StatusPill } from "@/components/ui/status-pill"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
@@ -41,6 +35,7 @@ import {
   requestTypeLabel,
   type PrivacyRequestType,
 } from "@/lib/settings/forms/privacy-request"
+import type { StatusTone } from "@/lib/ui/status-tone"
 
 const OPEN_STATUSES = new Set(["pending", "in_progress"])
 
@@ -70,6 +65,12 @@ function slaLabel(sla: Sla) {
   return sla.overdue ? `Overdue by ${days}` : `Due in ${days}`
 }
 
+function statusTone(status: string): StatusTone {
+  if (status === "completed") return "healthy"
+  if (status === "rejected") return "neutral"
+  return "pending"
+}
+
 // The wall clock, subscribed to like any other external source: `Date.now()`
 // cannot be read during render, and the deadline is clock-derived. Refreshed
 // hourly, which is ample for a day-granular display and enough that a console
@@ -97,10 +98,16 @@ function readClock() {
   return clockSnapshot
 }
 
+/**
+ * Data-subject requests: a form to log one, and the list of every request
+ * with its type, status and the statutory deadline. Fulfil and Reject sit on
+ * the row for an owner; everyone else sees who the request is waiting on.
+ */
 export function PrivacyRequestsCard({ canManage }: { canManage: boolean }) {
   const query = usePrivacyRequests()
   const client = useQueryClient()
   const toast = useToastManager()
+  const headingId = useId()
   const [requestType, setRequestType] = useState<PrivacyRequestType>("access")
   const [subjectReference, setSubjectReference] = useState("")
   const [reason, setReason] = useState("")
@@ -186,52 +193,67 @@ export function PrivacyRequestsCard({ canManage }: { canManage: boolean }) {
   const overdueCount = rows.filter(({ sla }) => sla?.overdue).length
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-title">Privacy requests</h2>
-      <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit}>
-        <Select
-          value={requestType}
-          onValueChange={(value: string | null) => {
-            if (value) setRequestType(value as PrivacyRequestType)
-          }}
-        >
-          <SelectTrigger aria-label="Request type" className="w-40">
-            <SelectValue>{requestTypeLabel(requestType)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {REQUEST_TYPE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Field error={subjectError ?? undefined} className="min-w-56 flex-1">
-          <FieldLabel>Subject reference</FieldLabel>
-          <Input
-            value={subjectReference}
-            aria-label="Subject reference"
-            placeholder="e.g. guest-4821"
-            onChange={(event) => setSubjectReference(event.target.value)}
-          />
-          <FieldError>{subjectError}</FieldError>
-        </Field>
-        <Field className="min-w-56 flex-1">
-          <FieldLabel>Reason (optional)</FieldLabel>
-          <Textarea
-            value={reason}
-            aria-label="Reason"
-            rows={1}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Field>
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? "Logging…" : "Log request"}
-        </Button>
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <h2 id={headingId} className="text-title font-semibold text-ink">
+        Privacy requests
+      </h2>
+      <form
+        className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)"
+        onSubmit={onSubmit}
+      >
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-ui font-medium text-ink" aria-hidden>
+              Request type
+            </span>
+            <Select
+              value={requestType}
+              onValueChange={(value: string | null) => {
+                if (value) setRequestType(value as PrivacyRequestType)
+              }}
+            >
+              <SelectTrigger aria-label="Request type" className="w-40">
+                <SelectValue>{requestTypeLabel(requestType)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {REQUEST_TYPE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Field error={subjectError ?? undefined} className="min-w-56 flex-1">
+            <FieldLabel>Subject reference</FieldLabel>
+            <Input
+              value={subjectReference}
+              aria-label="Subject reference"
+              placeholder="e.g. guest-4821"
+              onChange={(event) => setSubjectReference(event.target.value)}
+            />
+            <FieldError>{subjectError}</FieldError>
+          </Field>
+          <Field className="min-w-56 flex-1">
+            <FieldLabel>Reason (optional)</FieldLabel>
+            <Textarea
+              value={reason}
+              aria-label="Reason"
+              rows={1}
+              className="min-h-(--np-field-h)"
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" disabled={create.isPending}>
+            {create.isPending ? "Logging…" : "Log request"}
+          </Button>
+        </div>
       </form>
 
       {query.isPending ? (
-        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
       ) : query.isError ? (
         <Empty
           title="We couldn’t load privacy requests"
@@ -239,66 +261,45 @@ export function PrivacyRequestsCard({ canManage }: { canManage: boolean }) {
         />
       ) : rows.length === 0 ? (
         <Empty
+          icon={<FileText />}
           title="No privacy requests"
           description="Logged data-subject requests appear here."
         />
       ) : (
-        <>
-          <p className="text-caption text-muted-foreground">
-            {openCount} open, {overdueCount} past the {RESPONSE_WINDOW_DAYS}-day
-            response window.
-          </p>
-          <Table className="min-w-[820px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Subject</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Deadline</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map(({ row, sla }) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">
-                    {row.subjectReference}
-                  </TableCell>
-                  <TableCell>{requestTypeLabel(row.requestType)}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        row.status === "completed"
-                          ? "success"
-                          : row.status === "rejected"
-                            ? "outline"
-                            : "secondary"
-                      }
-                    >
+        <GroupedList
+          header={`${openCount} open, ${overdueCount} past the ${RESPONSE_WINDOW_DAYS}-day response window.`}
+        >
+          {rows.map(({ row, sla }) => {
+            const open = OPEN_STATUSES.has(row.status)
+            return (
+              <GroupedListItem
+                key={row.id}
+                icon={<FileText />}
+                label={row.subjectReference}
+                description={
+                  <>
+                    <span>{requestTypeLabel(row.requestType)}</span>
+                    {sla && !sla.overdue ? (
+                      <span>{` · ${slaLabel(sla)}`}</span>
+                    ) : null}
+                  </>
+                }
+                trailing={
+                  <>
+                    {sla?.overdue ? (
+                      <StatusPill tone="at-risk">{slaLabel(sla)}</StatusPill>
+                    ) : null}
+                    <StatusPill tone={statusTone(row.status)}>
                       {requestStatusLabel(row.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {!sla ? (
-                      <span className="text-caption text-muted-foreground">
-                        —
-                      </span>
-                    ) : sla.overdue ? (
-                      <Badge variant="destructive">{slaLabel(sla)}</Badge>
-                    ) : (
-                      <span className="text-caption text-muted-foreground">
-                        {slaLabel(sla)}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {OPEN_STATUSES.has(row.status) ? (
+                    </StatusPill>
+                    {open ? (
                       canManage ? (
-                        <span className="flex gap-2">
+                        <>
                           <Button
-                            variant="outline"
+                            variant="secondary"
                             size="sm"
                             disabled={resolve.isPending}
+                            aria-label={`Fulfil request for ${row.subjectReference}`}
                             onClick={() => resolve.mutate(row.id)}
                           >
                             Fulfil
@@ -306,28 +307,24 @@ export function PrivacyRequestsCard({ canManage }: { canManage: boolean }) {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-danger-ink"
                             disabled={reject.isPending}
+                            aria-label={`Reject request for ${row.subjectReference}`}
                             onClick={() => reject.mutate(row.id)}
                           >
                             Reject
                           </Button>
-                        </span>
+                        </>
                       ) : (
-                        <span className="text-caption text-muted-foreground">
-                          Awaiting an owner
-                        </span>
+                        <span className="text-caption">Awaiting an owner</span>
                       )
-                    ) : (
-                      <span className="text-caption text-muted-foreground">
-                        Resolved
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </>
+                    ) : null}
+                  </>
+                }
+              />
+            )
+          })}
+        </GroupedList>
       )}
     </section>
   )

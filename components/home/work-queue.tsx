@@ -1,14 +1,15 @@
 "use client"
 
+import { CheckCircle2Icon, ChevronRightIcon } from "lucide-react"
 import Link from "next/link"
-import {
-  CheckCircle2Icon,
-  ClipboardCheckIcon,
-  MessageSquareReplyIcon,
-  StarIcon,
-} from "lucide-react"
 
-import { Skeleton } from "@/components/ui/skeleton"
+import {
+  HomeSection,
+  ListRowsSkeleton,
+  listCardClassName,
+  listRowClassName,
+} from "@/components/home/home-section"
+import { StatusPill } from "@/components/ui/status-pill"
 import type { ReviewCounts } from "@/lib/contracts/reviews"
 import {
   buildWorkItems,
@@ -16,52 +17,54 @@ import {
   type WorkItem,
 } from "@/lib/home/work-queues"
 import { formatNumber } from "@/lib/format"
+import type { StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 const HEADING_ID = "your-work-heading"
 
-const ICONS: Record<string, typeof MessageSquareReplyIcon> = {
-  needs_reply: MessageSquareReplyIcon,
-  awaiting_approval: ClipboardCheckIcon,
-  unresolved_low: StarIcon,
+// The tone a queue takes once it has something in it. An empty queue is
+// neutral whatever its kind: the dot says "there is work here", not "this
+// queue exists".
+const TONES: Record<string, StatusTone> = {
+  needs_reply: "attention",
+  awaiting_approval: "pending",
+  unresolved_low: "at-risk",
 }
 
-function WorkCard({ item }: { item: WorkItem }) {
-  const Icon = ICONS[item.id] ?? MessageSquareReplyIcon
+function WorkRow({ item }: { item: WorkItem }) {
   const hasWork = item.count > 0
   return (
-    <Link
-      href={item.href}
-      prefetch={false}
-      className={cn(
-        "flex flex-col gap-3 rounded-(--np-radius-card) border border-border bg-card p-4 transition-colors duration-(--np-duration-fast)",
-        "hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
-        hasWork ? "border-border" : "opacity-90"
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span className="flex size-9 items-center justify-center rounded-(--np-radius-control) bg-muted text-muted-foreground">
-          <Icon aria-hidden className="size-4" />
+    <li>
+      <Link href={item.href} prefetch={false} className={listRowClassName}>
+        <StatusPill
+          variant="dot"
+          tone={hasWork ? (TONES[item.id] ?? "neutral") : "neutral"}
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-body font-medium text-ink">
+            {item.label}
+          </span>
+          <span className="truncate text-caption text-ink-muted">
+            {item.description}
+            {" · "}
+            {item.window === "live" ? "Open now" : "Last 30 days"}
+          </span>
         </span>
         <span
           className={cn(
-            "text-page-title font-semibold tracking-tight tabular-nums",
-            hasWork ? "text-foreground" : "text-muted-foreground"
+            "shrink-0 text-body font-semibold tabular-nums",
+            hasWork ? "text-ink" : "text-ink-muted"
           )}
         >
           {formatNumber(item.count)}
         </span>
-      </div>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-ui font-semibold">{item.label}</span>
-        <span className="text-caption text-muted-foreground">
-          {item.description}
-        </span>
-        <span className="text-caption text-muted-foreground">
-          {item.window === "live" ? "Open now" : "Last 30 days"}
-        </span>
-      </div>
-    </Link>
+        <ChevronRightIcon
+          aria-hidden
+          strokeWidth={1.75}
+          className="size-4 shrink-0 text-ink-faint"
+        />
+      </Link>
+    </li>
   )
 }
 
@@ -79,19 +82,13 @@ function WorkQueue({
 }) {
   if (isPending) {
     return (
-      <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-        <h2 id={HEADING_ID} className="text-title font-semibold tracking-tight">
-          Your work
-        </h2>
-        <div
-          aria-busy="true"
-          className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4"
-        >
-          {[0, 1, 2, 3].map((index) => (
-            <Skeleton key={index} className="h-32 rounded-(--np-radius-card)" />
-          ))}
-        </div>
-      </section>
+      <HomeSection
+        id={HEADING_ID}
+        title="Your work"
+        description="Live inbox queues, plus low ratings from the last 30 days."
+      >
+        <ListRowsSkeleton rows={3} />
+      </HomeSection>
     )
   }
 
@@ -99,29 +96,29 @@ function WorkQueue({
   const open = totalOpenWork(items)
 
   return (
-    <section aria-labelledby={HEADING_ID} className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-col gap-0.5">
-          <h2 id={HEADING_ID} className="text-title font-semibold tracking-tight">
-            Your work
-          </h2>
-          <p className="text-caption text-muted-foreground">
-            Live inbox queues, plus low ratings from the last 30 days.
-          </p>
-        </div>
-        {open === 0 ? (
-          <p className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
-            <CheckCircle2Icon aria-hidden className="size-3.5 text-success" />
+    <HomeSection
+      id={HEADING_ID}
+      title="Your work"
+      description="Live inbox queues, plus low ratings from the last 30 days."
+      aside={
+        open === 0 ? (
+          <p className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
+            <CheckCircle2Icon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 text-success-ink"
+            />
             You’re caught up
           </p>
-        ) : null}
-      </div>
-      <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+        ) : null
+      }
+    >
+      <ul className={listCardClassName}>
         {items.map((item) => (
-          <WorkCard key={item.id} item={item} />
+          <WorkRow key={item.id} item={item} />
         ))}
-      </div>
-    </section>
+      </ul>
+    </HomeSection>
   )
 }
 

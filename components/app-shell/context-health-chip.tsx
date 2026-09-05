@@ -3,11 +3,11 @@
 import Link from "next/link"
 import * as React from "react"
 
-import { StatusPill } from "@/components/ui/status-pill"
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import { useClients, useOrgHealth } from "@/lib/queries/use-clients"
 
 import { useClientScope } from "./client-context"
+import { HealthCapsule } from "./status-chip"
 
 /**
  * Connection health for whatever the page is about.
@@ -51,16 +51,19 @@ function ContextHealthChip() {
       {isPending ? null : (
         <Link
           href={clientId ? `/clients/${clientId}` : "/clients"}
-          className="rounded-(--np-radius-pill) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+          className="group/health rounded-(--np-radius-pill) focus-halo transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none active:scale-[0.98]"
         >
-          <StatusPill tone={tone}>
+          <HealthCapsule
+            tone={tone}
+            className="transition-colors duration-(--np-duration-fast) group-hover/health:bg-fill group-hover/health:text-ink"
+          >
             {/* One element, not a visible copy plus a screen-reader copy:
                 two nodes carrying the same accessible text make the chip
                 ambiguous to "next item" navigation and to getByText. Below
                 `sm` the dot alone shows and the label stays in the
                 accessibility tree. */}
             <span className="sr-only sm:not-sr-only">{label}</span>
-          </StatusPill>
+          </HealthCapsule>
         </Link>
       )}
     </>

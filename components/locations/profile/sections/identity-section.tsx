@@ -4,6 +4,7 @@ import { useId, type Dispatch, type SetStateAction } from "react"
 
 import { CategorySearch } from "@/components/locations/business-information/category-search"
 import { Badge } from "@/components/ui/badge"
+import { RemovableChip } from "@/components/ui/chip"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -53,10 +54,11 @@ export function IdentitySection({
   googleReady: boolean
 }) {
   const labelsId = useId()
+  const openStatusLabelId = useId()
 
   return (
-    <section className="flex max-w-xl flex-col gap-4">
-      <h3 className="text-title font-medium">Identity</h3>
+    <section className="flex max-w-2xl flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
+      <h3 className="text-title font-semibold text-ink">Identity</h3>
 
       <Field error={errors.name}>
         <FieldLabel>Business name</FieldLabel>
@@ -86,14 +88,16 @@ export function IdentitySection({
       {googleReady ? (
         <>
           <div className="flex flex-col gap-2">
-            <span className="text-ui font-medium">Primary category</span>
+            <span className="text-ui font-medium text-ink">
+              Primary category
+            </span>
             <div className="flex flex-wrap items-center gap-2">
               {draft.primaryCategory ? (
-                <Badge variant="secondary">
+                <Badge variant="tinted">
                   {categoryLabel(draft.primaryCategory)}
                 </Badge>
               ) : (
-                <span className="text-caption text-muted-foreground">
+                <span className="text-caption text-ink-muted">
                   No primary category set.
                 </span>
               )}
@@ -109,21 +113,23 @@ export function IdentitySection({
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-ui font-medium">Additional categories</span>
+            <span className="text-ui font-medium text-ink">
+              Additional categories
+            </span>
             <div className="flex flex-wrap items-center gap-2">
               {draft.additionalCategories.length === 0 ? (
-                <span className="text-caption text-muted-foreground">
-                  None set.
-                </span>
+                <span className="text-caption text-ink-muted">None set.</span>
               ) : (
-                draft.additionalCategories.map((category) => (
-                  <Badge key={category.name} variant="outline">
-                    {categoryLabel(category)}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${categoryLabel(category)}`}
-                      disabled={disabled}
-                      onClick={() =>
+                draft.additionalCategories.map((category) =>
+                  disabled ? (
+                    <Badge key={category.name} variant="secondary">
+                      {categoryLabel(category)}
+                    </Badge>
+                  ) : (
+                    <RemovableChip
+                      key={category.name}
+                      removeLabel={`Remove ${categoryLabel(category)}`}
+                      onRemove={() =>
                         setDraft((d) => ({
                           ...d,
                           additionalCategories: d.additionalCategories.filter(
@@ -132,10 +138,10 @@ export function IdentitySection({
                         }))
                       }
                     >
-                      ×
-                    </button>
-                  </Badge>
-                ))
+                      {categoryLabel(category)}
+                    </RemovableChip>
+                  )
+                )
               )}
             </div>
             <CategorySearch
@@ -190,8 +196,13 @@ export function IdentitySection({
             />
           </Field>
 
-          <div className="flex flex-col gap-1">
-            <span className="text-ui font-medium">Open status</span>
+          <div className="flex flex-col gap-1.5">
+            <span
+              id={openStatusLabelId}
+              className="text-ui font-medium text-ink"
+            >
+              Open status
+            </span>
             <Select
               value={draft.openStatus}
               onValueChange={(value: string | null) =>
@@ -199,7 +210,12 @@ export function IdentitySection({
               }
               disabled={disabled}
             >
-              <SelectTrigger aria-label="Open status">
+              <SelectTrigger
+                className="w-full sm:w-64"
+                aria-label="Open status"
+                aria-describedby={openStatusLabelId}
+                aria-invalid={issues.title ? true : undefined}
+              >
                 {/* Render function so the trigger reads the humanised label on
                 first paint, before the popup's items have registered (§7). */}
                 <SelectValue>
@@ -217,7 +233,9 @@ export function IdentitySection({
               </SelectContent>
             </Select>
             {issues.title ? (
-              <p className="text-caption text-danger-ink">{issues.title}</p>
+              <p role="alert" className="text-caption text-danger-ink">
+                {issues.title}
+              </p>
             ) : null}
           </div>
         </>

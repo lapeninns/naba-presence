@@ -6,13 +6,18 @@ import {
   ArrowLeftIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ListFilterIcon,
   MessagesSquareIcon,
 } from "lucide-react"
 
+import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
 import { InboxRail } from "@/components/inbox/inbox-rail"
-import { ReviewFilters } from "@/components/inbox/review-filters"
+import {
+  ReviewFilters,
+  ReviewSearchBar,
+} from "@/components/inbox/review-filters"
 import {
   SelectionProvider,
   useSelection,
@@ -28,7 +33,10 @@ import {
   useDirtyGate,
   useReadIsDirty,
 } from "@/components/inbox/dirty-context"
+import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Empty } from "@/components/ui/empty"
 import {
   Sheet,
   SheetContent,
@@ -39,6 +47,17 @@ import {
 } from "@/components/ui/sheet"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  SplitPane,
+  SplitPaneHandle,
+  SplitPanePanel,
+} from "@/components/ui/split-pane"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { applySavedView, savedView } from "@/lib/inbox/saved-views"
 import { useClients } from "@/lib/queries/use-clients"
@@ -46,19 +65,14 @@ import {
   autoSelectId,
   DESKTOP_MEDIA_QUERY,
   hasActiveFilters,
-  mobilePaneFor,
   parseInboxState,
   serializeInboxState,
   toReviewsFilters,
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
-import {
-  adjacentReviewId,
-  type AdjacentDirection,
-} from "@/lib/inbox/queue-nav"
+import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
-import { cn } from "@/lib/utils"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
@@ -100,6 +114,7 @@ function InboxViewInner({
   // and writing the raw `{locations: […]}` envelope here while the hook writes
   // a mapped array meant whichever mounted last corrupted the other.
   const locationsQuery = useLocationDirectory(useSessionRole())
+  const isDesktop = useDesktopLayout()
 
   const reviews = flattenReviews(reviewsQuery.data)
 
@@ -353,19 +368,25 @@ function InboxViewInner({
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
 
+  // Rows in the exact shape of a list row: a small avatar, a name line, a
+  // meta line and two lines of snippet, divided by the same hairline.
   function renderListSkeleton() {
     return (
       <div aria-busy="true" className="flex flex-col">
-        {[0, 1, 2, 3, 4].map((index) => (
+        {[0, 1, 2, 3, 4, 5].map((index) => (
           <div
             key={index}
-            className="flex items-start gap-3 border-b border-border/40 px-4 py-3"
+            className="flex items-start gap-2.5 border-b border-line-subtle px-3 py-2.5"
           >
-            <Skeleton className="size-8 shrink-0 rounded-full" />
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Skeleton className="h-3.5 w-28 rounded-(--np-radius-tag)" />
-              <Skeleton className="h-3 w-40 rounded-(--np-radius-tag)" />
-              <Skeleton className="h-3 w-full max-w-56 rounded-(--np-radius-tag)" />
+            <Skeleton className="mt-0.5 size-6 shrink-0 rounded-(--np-radius-pill)" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+              <Skeleton className="h-3 w-40" />
+              <Skeleton className="h-3 w-full max-w-64" />
+              <Skeleton className="h-3 w-3/4 max-w-48" />
             </div>
           </div>
         ))}
@@ -391,7 +412,7 @@ function InboxViewInner({
         error={{
           title: "We could not load your reviews.",
           cause: reviewsQuery.error,
-          className: "p-6",
+          className: "p-(--np-card-pad)",
         }}
         onRetry={() => void reviewsQuery.refetch()}
       >
@@ -417,7 +438,7 @@ function InboxViewInner({
         clients: scopedClients,
       }
       return (
-        <div className="p-6">
+        <div className="flex min-h-0 flex-1 flex-col justify-center">
           <EmptyState
             reason={emptyReason(facts)}
             counts={emptyCounts(facts)}
@@ -440,23 +461,22 @@ function InboxViewInner({
         selection={{
           selected: selection.selected,
           toggle: (id) => selection.toggle(id),
-          extendTo: (id) => selection.extendTo(id, reviews.map((r) => r.id)),
+          extendTo: (id) =>
+            selection.extendTo(
+              id,
+              reviews.map((r) => r.id)
+            ),
         }}
       />
     )
   }
 
-  // Below lg, show one pane: the list, or the detail when a review is selected
-  // (spec §6). At lg both panes are always visible (two-pane split).
-  const mobilePane = mobilePaneFor(state.selected)
-
-  // Below lg, selecting a review swaps the visible pane from the list to the
-  // detail view — move focus to the pane's own "Back to reviews" control so
-  // keyboard/screen-reader users land somewhere meaningful in the new pane
-  // instead of losing their place (mirrors the same button re-focusing the
-  // originating row on the way back, below). `.focus()` on the `lg:hidden`
-  // button is a silent no-op at the lg breakpoint (it is `display: none`
-  // there), so this is harmless on desktop.
+  // Below lg the detail opens as a sheet over the list. Its "Back to reviews"
+  // control takes focus so keyboard and screen-reader users land somewhere
+  // meaningful in the new surface instead of losing their place (ReviewList
+  // re-focuses the originating row on the way back). `.focus()` on the
+  // `lg:hidden` button is a silent no-op in the inspector column, where it is
+  // `display: none`, so this is harmless on desktop.
   const backButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (state.selected) backButtonRef.current?.focus()
@@ -475,14 +495,22 @@ function InboxViewInner({
       },
       "extend-selection": () => {
         if (state.selected)
-          selection.extendTo(state.selected, reviews.map((review) => review.id))
+          selection.extendTo(
+            state.selected,
+            reviews.map((review) => review.id)
+          )
       },
       "clear-selection": () => selection.clear(),
     }),
     [onAdjacentReview, reviews, selection, state.selected]
   )
 
-  const rail = (
+  const clientName = state.clientId
+    ? clientsQuery.data?.items.find((client) => client.id === state.clientId)
+        ?.name
+    : undefined
+
+  const queues = (
     <InboxRail
       state={state}
       counts={countsQuery.data}
@@ -497,153 +525,287 @@ function InboxViewInner({
       onSelectClientQueue={onSelectClientQueue}
     />
   )
+  // Search and sort head the list; everything else narrows it from the rail,
+  // and the chips of what is applied sit next to the rows they narrow.
+  const railFilters = (
+    <ReviewFilters
+      state={state}
+      locations={locationsQuery.data ?? []}
+      showLocationFilter={showLocationFilter}
+      showSearch={false}
+      showChips={false}
+      onChange={onFilterChange}
+      onClear={onClearFilters}
+    />
+  )
 
-  return (
-    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[232px_minmax(340px,0.9fr)_minmax(0,1.5fr)]">
-      <InboxHotkeys handlers={hotkeyHandlers} />
-      {/* The rail is desktop-only furniture; below lg it opens as a sheet from
-          the list header, because three panes on a phone is none of them. */}
-      <div
-        className={cn(
-          "min-h-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
-          "hidden lg:flex lg:flex-col"
-        )}
-      >
-        {rail}
-      </div>
-      {/* Queue pane: solid card (design-system hierarchy: lists stay solid,
-          not glass), shadow elevates it off the tinted page background. */}
-      <div
-        className={cn(
-          "min-h-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-border bg-card",
-          mobilePane === "detail" ? "hidden lg:flex" : "flex"
-        )}
-      >
-        <div className="flex flex-col gap-2 border-b border-line-subtle px-3 py-3">
-          <div className="flex items-center gap-2 lg:hidden">
-            <Sheet open={railOpen} onOpenChange={setRailOpen}>
-              <SheetTrigger
-                render={<Button variant="outline" size="sm" />}
-              >
-                Queues
-              </SheetTrigger>
-              <SheetContent side="left" className="data-[side=left]:w-80">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Review queues</SheetTitle>
-                  <SheetDescription>
-                    Filter the inbox by queue, client or saved view.
-                  </SheetDescription>
-                </SheetHeader>
-                <div onClick={() => setRailOpen(false)}>{rail}</div>
-              </SheetContent>
-            </Sheet>
-          </div>
-          <ReviewFilters
+  const listPane = (
+    <div
+      data-slot="inbox-list-pane"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+    >
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line-subtle px-3 py-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* The rail is desktop furniture; below lg it opens as a sheet from
+              the list header, because three panes on a phone is none of them.
+              Queue rows close the sheet on choice; the filters stay open so an
+              operator can tick several before looking at the list. */}
+          <Sheet open={railOpen} onOpenChange={setRailOpen}>
+            <SheetTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  pill
+                  className="shrink-0 lg:hidden"
+                />
+              }
+            >
+              <ListFilterIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+              Queues
+            </SheetTrigger>
+            <SheetContent side="left" className="md:max-w-xs">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Queues and filters</SheetTitle>
+                <SheetDescription>
+                  Choose a queue, a client or a saved view, and narrow the list.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-2 pb-6 md:pt-6">
+                <div onClick={() => setRailOpen(false)}>{queues}</div>
+                {railFilters}
+              </div>
+            </SheetContent>
+          </Sheet>
+          <ReviewSearchBar
             state={state}
-            locations={locationsQuery.data ?? []}
-            showLocationFilter={showLocationFilter}
             onChange={onFilterChange}
-            onClear={onClearFilters}
+            className="min-w-0 flex-1 max-sm:basis-full"
           />
         </div>
-        {renderList()}
-        {!reviewsQuery.isPending && !reviewsQuery.isError && reviews.length > 0 ? (
-          <div className="flex items-center justify-between gap-2 border-t border-line-subtle px-4 py-2">
-            {/* Announced politely rather than as a page number, because the
-                count changes as rows load rather than jumping between pages. */}
-            <span
-              aria-live="polite"
-              className="text-caption text-ink-muted tabular-nums"
+        <ActiveFilterChips
+          state={state}
+          locations={locationsQuery.data ?? []}
+          clientName={clientName}
+          onChange={onFilterChange}
+          onClear={onClearFilters}
+        />
+      </div>
+      {renderList()}
+      {!reviewsQuery.isPending &&
+      !reviewsQuery.isError &&
+      reviews.length > 0 ? (
+        <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-t border-line-subtle px-3">
+          {/* Announced politely rather than as a page number, because the
+              count changes as rows load rather than jumping between pages. */}
+          <span
+            aria-live="polite"
+            className="text-caption text-ink-muted tabular-nums"
+          >
+            Showing {reviews.length}
+            {reviewsQuery.hasNextPage ? " so far" : ""}
+          </span>
+          {reviewsQuery.hasNextPage ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={reviewsQuery.isFetchingNextPage}
+              onClick={loadMore}
             >
-              Showing {reviews.length}
-              {reviewsQuery.hasNextPage ? " so far" : ""}
-            </span>
-            {reviewsQuery.hasNextPage ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={reviewsQuery.isFetchingNextPage}
-                onClick={loadMore}
-              >
-                {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-              </Button>
-            ) : null}
+              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+
+  const navigation = (
+    <div className="flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              pill
+              aria-label="Previous review"
+              disabled={!hasPrevReview}
+              onClick={() => void onAdjacentReview("prev")}
+            />
+          }
+        >
+          <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
+        </TooltipTrigger>
+        <TooltipContent>Previous review</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              pill
+              aria-label="Next review"
+              disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
+              onClick={() => void onAdjacentReview("next")}
+            />
+          }
+        >
+          <ChevronRightIcon aria-hidden strokeWidth={1.75} />
+        </TooltipTrigger>
+        <TooltipContent>Next review</TooltipContent>
+      </Tooltip>
+    </div>
+  )
+
+  // The detail is mounted in exactly one place — the inspector column or the
+  // sheet — so the composer's dirty guard is registered once.
+  const detail = state.selected ? (
+    <DetailErrorBoundary key={state.selected}>
+      <div
+        key={state.selected}
+        className="flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) ease-standard starting:opacity-0"
+      >
+        <ReviewDetail
+          reviewId={state.selected}
+          leading={
+            // Mobile-only return-to-list affordance, pinned in the pane
+            // header; Back also works because selection was pushed (spec §6).
+            <Button
+              ref={backButtonRef}
+              variant="ghost"
+              size="sm"
+              onClick={onBackToList}
+              className="lg:hidden"
+            >
+              <ArrowLeftIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+              Back to reviews
+            </Button>
+          }
+          navigation={navigation}
+          composer={<ReplyComposer reviewId={state.selected} />}
+          actions={<ActionBar reviewId={state.selected} />}
+        />
+      </div>
+    </DetailErrorBoundary>
+  ) : null
+
+  const inspector = (
+    <section
+      aria-label="Selected review"
+      data-slot="inbox-inspector"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+    >
+      {detail ?? (
+        <Empty
+          icon={<MessagesSquareIcon aria-hidden />}
+          title="No review selected"
+          description="Choose a review from the list to read it and reply."
+          className="my-auto"
+        />
+      )}
+    </section>
+  )
+
+  return (
+    <TooltipProvider>
+      <div className="relative flex min-h-0 flex-1 gap-(--np-gap-card)">
+        <InboxHotkeys handlers={hotkeyHandlers} />
+        {/* The rail sits on the canvas, not on a card: queues and filters are
+            navigation, and Mail draws its mailboxes the same way. */}
+        <div className="hidden min-h-0 w-60 shrink-0 flex-col gap-6 overflow-y-auto pr-1 lg:flex">
+          {queues}
+          {railFilters}
+        </div>
+
+        {isDesktop ? (
+          // The list and the inspector share a resizable split. The two
+          // `max-lg` guards only matter for the one frame between the server's
+          // desktop guess and the client's measurement on a narrow screen.
+          <SplitPane orientation="horizontal" className="min-h-0 flex-1 gap-0">
+            <SplitPanePanel
+              defaultSize="42"
+              minSize={320}
+              className="min-h-0 max-lg:flex-1!"
+            >
+              {listPane}
+            </SplitPanePanel>
+            <SplitPaneHandle
+              label="Resize the review list"
+              className="mx-1.5 bg-transparent max-lg:hidden"
+            />
+            <SplitPanePanel minSize={360} className="min-h-0 max-lg:hidden">
+              {inspector}
+            </SplitPanePanel>
+          </SplitPane>
+        ) : (
+          // While the detail sheet is up the list beneath it is parked: kept
+          // in the tree so the selected row keeps its aria-current, but
+          // invisible and inert so neither a swipe nor a screen reader lands
+          // on a row the sheet is covering.
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col",
+              state.selected && "invisible"
+            )}
+            inert={state.selected ? true : undefined}
+          >
+            {listPane}
           </div>
+        )}
+
+        {/* Below lg the detail is a bottom sheet over the list. It is
+            deliberately non-modal and never dismissed by an outside press: the
+            discard-confirm AlertDialog lives outside it in the React tree, and
+            a modal sheet would either hide the rest of the page from assistive
+            tech or treat "Keep editing" as a tap on the scrim. The only ways
+            out are "Back to reviews" and Escape, both dirty-gated. */}
+        {!isDesktop ? (
+          <Sheet
+            open={Boolean(state.selected)}
+            modal={false}
+            disablePointerDismissal
+            onOpenChange={(open) => {
+              if (!open) onBackToList()
+            }}
+          >
+            <SheetContent
+              side="bottom"
+              showCloseButton={false}
+              initialFocus={backButtonRef}
+              className="h-[calc(100dvh-1.5rem)]"
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>Selected review</SheetTitle>
+                <SheetDescription>
+                  The review, where its reply has got to, and your reply.
+                </SheetDescription>
+              </SheetHeader>
+              {/* The same landmark the desktop inspector carries, so "Selected
+                  review" is reachable by region on every width. */}
+              <section
+                aria-label="Selected review"
+                data-slot="inbox-inspector"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                {detail}
+              </section>
+            </SheetContent>
+          </Sheet>
         ) : null}
+
         <BulkActionBar rows={reviews} />
       </div>
-
-      <section
-        aria-label="Selected review"
-        className={cn(
-          "min-h-0 rounded-(--np-radius-card) border border-border bg-card lg:flex lg:flex-col",
-          mobilePane === "detail" ? "flex flex-col" : "hidden lg:flex"
-        )}
-      >
-        {state.selected ? (
-          <DetailErrorBoundary key={state.selected}>
-            <div
-              key={state.selected}
-              className="flex min-h-0 flex-1 animate-in flex-col duration-(--np-duration-fast) fade-in-0"
-            >
-              <ReviewDetail
-                reviewId={state.selected}
-                leading={
-                  // Mobile-only return-to-list affordance, pinned in the pane
-                  // header; Back also works because selection was pushed
-                  // (spec §6).
-                  <Button
-                    ref={backButtonRef}
-                    variant="ghost"
-                    size="sm"
-                    onClick={onBackToList}
-                    className="-ml-2 lg:hidden"
-                  >
-                    <ArrowLeftIcon aria-hidden />
-                    Back to reviews
-                  </Button>
-                }
-                navigation={
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Previous review"
-                      disabled={!hasPrevReview}
-                      onClick={() => void onAdjacentReview("prev")}
-                    >
-                      <ChevronLeftIcon aria-hidden />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Next review"
-                      disabled={
-                        !hasNextReview || reviewsQuery.isFetchingNextPage
-                      }
-                      onClick={() => void onAdjacentReview("next")}
-                    >
-                      <ChevronRightIcon aria-hidden />
-                    </Button>
-                  </div>
-                }
-                composer={<ReplyComposer reviewId={state.selected} />}
-                actions={<ActionBar reviewId={state.selected} />}
-              />
-            </div>
-          </DetailErrorBoundary>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-            <span className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <MessagesSquareIcon aria-hidden className="size-5" />
-            </span>
-            <p className="text-ui text-muted-foreground">
-              Select a review to see the full conversation.
-            </p>
-          </div>
-        )}
-      </section>
-    </div>
+    </TooltipProvider>
   )
 }
 

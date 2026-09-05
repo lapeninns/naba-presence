@@ -37,8 +37,8 @@ export function CategorySearch({
   const categories = extractCategories(metadataQuery.data?.result)
 
   return (
-    <div className="flex max-w-xs flex-col gap-1">
-      <label htmlFor={inputId} className="text-caption text-muted-foreground">
+    <div className="flex max-w-xs flex-col gap-1.5">
+      <label htmlFor={inputId} className="text-ui font-medium text-ink">
         {label}
       </label>
       <Combobox
@@ -58,9 +58,7 @@ export function CategorySearch({
         <ComboboxInput id={inputId} placeholder="Search Google categories…" />
         <ComboboxContent>
           {metadataQuery.isFetching ? (
-            <div className="px-3 py-2 text-ui text-muted-foreground">
-              Searching…
-            </div>
+            <div className="px-2 py-2 text-ui text-ink-muted">Searching…</div>
           ) : (
             categories.map((category) => (
               <ComboboxItem key={category.name} value={category}>
