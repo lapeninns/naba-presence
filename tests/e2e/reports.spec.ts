@@ -49,10 +49,15 @@ test.describe("reports", () => {
     // the strict-mode ambiguity deterministically rather than guessing.
     await expect(page.getByText("Reviews", { exact: true }).first()).toBeVisible()
     await expect(page.getByText("Response rate").first()).toBeVisible()
-    // Non-colour delta cue: an arrow glyph accompanies the signed magnitude.
-    // The journey org has 2 reviews in the current 30-day window and 0 in
-    // the prior window, so the Reviews KPI renders a real "▲ +2" delta.
-    await expect(page.getByText(/[▲▼▬]\s*[+±−]/).first()).toBeVisible()
+    // Non-colour delta cue: an arrow glyph (an SVG, aria-hidden) sits beside
+    // the signed magnitude, and the direction is spoken through a
+    // visually-hidden word so a screen reader hears "Up +2" rather than a
+    // bare number. The journey org has 2 reviews in the current 30-day
+    // window and 0 in the prior window, so the Reviews KPI renders a real
+    // delta; match the spoken form, which includes the hidden word.
+    const delta = page.getByText(/(Up|Down|No change)\s*[+±−]/).first()
+    await expect(delta).toBeVisible()
+    await expect(delta.locator("svg")).toHaveCount(1)
     await expect(page.getByRole("columnheader", { name: "Location" })).toBeVisible()
   })
 
