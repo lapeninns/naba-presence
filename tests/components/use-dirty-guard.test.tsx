@@ -25,6 +25,38 @@ describe("useDirtyGuard", () => {
     expect(takeStashedDraft("inbox:reply:rev-1")).toBe("hello")
   })
 
+  it("stashes a dirty draft on unmount so a remount can restore it", () => {
+    // The inbox moves the composer between the split pane and the bottom
+    // sheet when the viewport crosses its breakpoint; the remount must find
+    // the unsaved reply waiting.
+    const { unmount } = renderHook(() =>
+      useDirtyGuard({ key: "inbox:reply:rev-2", isDirty: true, snapshot: () => "draft" })
+    )
+    unmount()
+    expect(takeStashedDraft("inbox:reply:rev-2")).toBe("draft")
+  })
+
+  it("does not stash on unmount when clean or after a confirmed discard", async () => {
+    const clean = renderHook(() =>
+      useDirtyGuard({ key: "inbox:reply:rev-3", isDirty: false, snapshot: () => "" })
+    )
+    clean.unmount()
+    expect(takeStashedDraft("inbox:reply:rev-3")).toBeNull()
+
+    const askConfirm = vi.fn().mockResolvedValue(true)
+    const dirty = renderHook(() =>
+      useDirtyGuard({
+        key: "inbox:reply:rev-4",
+        isDirty: true,
+        snapshot: () => "draft",
+        askConfirm,
+      })
+    )
+    await expect(dirty.result.current.confirmDiscard()).resolves.toBe(true)
+    dirty.unmount()
+    expect(takeStashedDraft("inbox:reply:rev-4")).toBeNull()
+  })
+
   it("confirmDiscard is true when clean and asks when dirty", async () => {
     const askConfirm = vi.fn().mockResolvedValue(false)
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)

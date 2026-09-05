@@ -9,11 +9,13 @@ import { cn } from "@/lib/utils"
  * The platform switch. A pill track on the fill grey that turns the vivid
  * accent when on, and a white thumb (`primary-foreground`, white in both
  * themes) that springs across. Default is the 26×16 desktop size; `lg` is
- * the 51×31 touch size.
+ * the 51×31 touch size. The visible track stays that small, but a
+ * transparent box around the root gives every size at least a 24px target.
  */
 const switchVariants = cva(
   cn(
     "group/switch relative inline-flex shrink-0 cursor-default items-center rounded-(--np-radius-pill) bg-fill p-0.5 focus-halo select-none",
+    "before:absolute before:-inset-x-1 before:-inset-y-1 before:content-['']",
     "transition-[background-color] duration-(--np-duration-fast) ease-spring-snappy",
     "data-checked:bg-(--np-accent-vivid)",
     "data-disabled:pointer-events-none data-disabled:opacity-50"

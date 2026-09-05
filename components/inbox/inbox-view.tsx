@@ -546,8 +546,11 @@ function InboxViewInner({
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-line-subtle px-3 py-2.5">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* The rail is desktop furniture; below lg it opens as a sheet from
-              the list header, because three panes on a phone is none of them.
+          {/* The rail is wide-desktop furniture; below xl it opens as a sheet
+              from the list header. Between lg and xl the two-pane split
+              already needs its whole width (at 1024px the app sidebar, the
+              page gutters and the panels' minimums leave no room for a 240px
+              rail), and on a phone three panes is none of them.
               Queue rows close the sheet on choice; the filters stay open so an
               operator can tick several before looking at the list. */}
           <Sheet open={railOpen} onOpenChange={setRailOpen}>
@@ -557,7 +560,7 @@ function InboxViewInner({
                   variant="secondary"
                   size="sm"
                   pill
-                  className="shrink-0 lg:hidden"
+                  className="shrink-0 xl:hidden"
                 />
               }
             >
@@ -722,7 +725,7 @@ function InboxViewInner({
         <InboxHotkeys handlers={hotkeyHandlers} />
         {/* The rail sits on the canvas, not on a card: queues and filters are
             navigation, and Mail draws its mailboxes the same way. */}
-        <div className="hidden min-h-0 w-60 shrink-0 flex-col gap-6 overflow-y-auto pr-1 lg:flex">
+        <div className="hidden min-h-0 w-60 shrink-0 flex-col gap-6 overflow-y-auto pr-1 xl:flex">
           {queues}
           {railFilters}
         </div>

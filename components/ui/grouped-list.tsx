@@ -120,7 +120,7 @@ function GroupedListItem({
           {icon}
         </span>
       ) : null}
-      <span className="flex min-w-0 flex-1 flex-col">
+      <span className="flex min-w-0 flex-1 flex-col max-sm:basis-40">
         <span
           className={cn(
             "truncate text-body",
@@ -134,7 +134,10 @@ function GroupedListItem({
         ) : null}
       </span>
       {trailing ? (
-        <span className="flex shrink-0 items-center gap-2 text-body text-ink-muted tabular-nums">
+        // Wraps rather than clips: a row with two pills and two buttons
+        // falls onto a second line on a phone instead of losing its
+        // rightmost action past the card's edge.
+        <span className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-body text-ink-muted tabular-nums max-sm:ml-auto">
           {trailing}
         </span>
       ) : null}
@@ -149,7 +152,7 @@ function GroupedListItem({
   )
 
   const rowClass = cn(
-    "flex w-full min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 text-left",
+    "flex w-full min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
       "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:bg-(--np-hover-bg) active:bg-fill-tertiary focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
     disabled && "pointer-events-none opacity-50",
