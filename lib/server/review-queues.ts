@@ -41,6 +41,14 @@ export function queuePredicate(
         and r.triaged_at is null
       )`
 
+    // The presentation aggregate behind the Inbox's "Approval" control: every
+    // reply parked for approval, whoever it is waiting on. Deliberately the
+    // plain status test rather than `my OR others`, because those two are
+    // defined as a partition of exactly this set — one predicate, so the
+    // count, the list and the two narrower queues can never disagree.
+    case "approval":
+      return sql`r.workflow_status = 'awaiting_approval'`
+
     // Waiting on THIS user. Two-person approval means the person who asked
     // for approval cannot also give it, so their own requests move to
     // "awaiting others" for them and stay actionable for everyone else.

@@ -36,7 +36,7 @@ export function ClientSelect({
         onChange(next && next !== ALL ? next : undefined)
       }
     >
-      <SelectTrigger className="w-56" aria-label="Client">
+      <SelectTrigger className="w-full sm:w-56" aria-label="Client">
         <SelectValue>
           {(selected: string | null) =>
             selected && selected !== ALL

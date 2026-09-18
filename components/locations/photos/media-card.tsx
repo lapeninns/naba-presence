@@ -84,7 +84,7 @@ export function MediaCard({
         type="button"
         onClick={onOpen}
         aria-label={`Preview ${categoryLabel} ${mediaKind}`}
-        className="relative block aspect-[4/3] w-full overflow-hidden bg-fill text-left focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]"
+        className="relative block aspect-[4/3] w-full overflow-hidden bg-fill text-left focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none"
       >
         {item.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -108,10 +108,7 @@ export function MediaCard({
           className="absolute inset-0 bg-linear-to-t from-ink/70 via-transparent to-transparent"
         />
         <span className="absolute top-2 left-2">
-          <Badge
-            variant="secondary"
-            className="bg-ink/70 text-ink-inverse"
-          >
+          <Badge variant="secondary" className="bg-ink/70 text-ink-inverse">
             {customer ? (
               <UserRoundIcon
                 aria-hidden
@@ -163,8 +160,11 @@ export function MediaCard({
           </div>
         ) : (
           <div className="flex w-full items-center gap-2">
-            <label className="min-w-0 flex-1 text-ui">
-              <span className="sr-only">Change category</span>
+            {/* A span, not a label: the Select's trigger is a `button`,
+                which label-wrapping cannot name. The trigger's own aria-label
+                already says which photo it moves, so a second hidden
+                "Change category" here only added a second name to reconcile. */}
+            <span className="min-w-0 flex-1 text-ui">
               <Select
                 value={patchable ? item.category : null}
                 onValueChange={(next) => {
@@ -187,7 +187,7 @@ export function MediaCard({
                   ))}
                 </SelectContent>
               </Select>
-            </label>
+            </span>
             {item.category === "LOGO" ? (
               <Badge variant="tinted">Logo</Badge>
             ) : (

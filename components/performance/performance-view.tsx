@@ -9,9 +9,9 @@ import { GooglePerformanceTab } from "@/components/performance/google-performanc
 import { KeywordsTab } from "@/components/performance/keywords-tab"
 
 const TABS = [
-  { value: "reply", label: "Reply performance" },
-  { value: "google", label: "Google performance" },
-  { value: "keywords", label: "Keywords" },
+  { value: "reply", label: "Reply performance", compactLabel: "Replies" },
+  { value: "google", label: "Google performance", compactLabel: "Google" },
+  { value: "keywords", label: "Keywords", compactLabel: "Keywords" },
 ] as const
 
 type TabValue = (typeof TABS)[number]["value"]
@@ -47,11 +47,17 @@ export function PerformanceView() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-(--np-gap-section)">
       {/* The client scope belongs above the tabs: it applies to all three, and
           picking it per tab would let two of them disagree about whose numbers
           are on screen. */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad) sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p className="text-ui font-medium text-ink">Reporting scope</p>
+          <p className="text-caption text-ink-muted">
+            Choose the client whose performance you want to review.
+          </p>
+        </div>
         <ClientSelect
           value={clientId}
           onChange={(next) =>
@@ -63,10 +69,14 @@ export function PerformanceView() {
         />
       </div>
       <Tabs value={active} onValueChange={selectTab}>
-        <TabsList>
+        {/* `fill`: three equal columns on a phone, the ordinary row from
+            `sm`. The rule now lives on TabsList, so any short tab row gets
+            the same narrow-screen behaviour without restating it. */}
+        <TabsList fill>
           {TABS.map((tab) => (
-            <TabsTab key={tab.value} value={tab.value}>
-              {tab.label}
+            <TabsTab key={tab.value} value={tab.value} aria-label={tab.label}>
+              <span className="sm:hidden">{tab.compactLabel}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
             </TabsTab>
           ))}
         </TabsList>

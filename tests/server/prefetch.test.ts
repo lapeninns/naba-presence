@@ -113,6 +113,7 @@ describe("review counts hydration", () => {
       byStatus: { new: 3, published: 2 },
       byQueue: {
         needs_reply: 3,
+        approval: 0,
         awaiting_my_approval: 0,
         awaiting_others: 0,
         publishing: 0,
@@ -130,7 +131,7 @@ describe("readSettingsCapabilities", () => {
   it("parses with settingsCapabilitiesSchema", () => {
     const caps = readSettingsCapabilities(session)
     expect(settingsCapabilitiesSchema.safeParse(caps).success).toBe(true)
-    expect(caps.canManageCompliance).toBe(true)
+    expect(caps.canEditSettings).toBe(true)
   })
 })
 
@@ -175,6 +176,7 @@ describe("prefetch", () => {
             byStatus: {},
             byQueue: {
               needs_reply: 0,
+              approval: 0,
               awaiting_my_approval: 0,
               awaiting_others: 0,
               publishing: 0,

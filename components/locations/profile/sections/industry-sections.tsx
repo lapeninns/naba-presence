@@ -157,7 +157,11 @@ function IndustryEditor({
         </SectionPanel>
       </section>
 
-      <section className="flex max-w-sm flex-col gap-4">
+      {/* Same column width as its neighbours. A narrower panel here left the
+          page with three sections whose right edges all stopped in different
+          places; the control inside it is bounded instead, the way the Open
+          status pop-up on the Identity panel is. */}
+      <section className="flex max-w-2xl flex-col gap-4">
         <h3 className="text-title font-semibold text-ink">Business calls</h3>
         <SectionPanel title="Business calls" result={state.calls}>
           {(data) => (
@@ -599,7 +603,10 @@ function BusinessCallsSection({
           disabled={disabled}
         >
           <SelectTrigger
-            className="w-full"
+            className="w-full sm:w-64"
+            // `aria-label`, not the Field's label wiring: "Calls" is the name
+            // the console's own tests and the e2e walk read off this control,
+            // and aria-labelledby would quietly replace it.
             aria-label="Calls"
             aria-describedby={labelId}
           >

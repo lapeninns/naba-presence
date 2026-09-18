@@ -41,8 +41,9 @@ type DataTableProps<Row> = {
   stickyHeader?: boolean
   empty?: React.ReactNode
   /**
-   * Draws the table on its own white card. Leave off when the table already
-   * sits inside a Card or an inset group.
+   * Draws the table on its own white card — `Table`'s own `surface`, so a
+   * DataTable and a hand-composed table land on exactly the same ground.
+   * Leave off when the table already sits inside a panel or an inset group.
    */
   surface?: boolean
   className?: string
@@ -100,15 +101,11 @@ function DataTable<Row>({
   }
 
   return (
-    <div
-      data-density={density}
-      className={cn(
-        "min-w-0",
-        surface && "overflow-hidden rounded-(--np-radius-card) bg-surface",
-        className
-      )}
-    >
-      <Table>
+    <div data-density={density} className={cn("min-w-0", className)}>
+      {/* The card ground belongs to Table's scroll container, not to a box
+          around it: a wide table then scrolls inside its own card instead of
+          sliding out from under one. */}
+      <Table surface={surface}>
         <caption className="sr-only">{caption}</caption>
         <TableHeader sticky={stickyHeader}>
           <TableRow>

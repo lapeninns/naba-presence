@@ -6,6 +6,10 @@ import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  overlayCloseButtonClassName,
+  overlayFooterClassName,
+} from "@/components/ui/dialog"
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -28,7 +32,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast)",
+        "fixed inset-0 z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
         className
       )}
       {...props}
@@ -73,7 +77,7 @@ function SheetContent({
           "fixed z-50 flex flex-col bg-popover text-body text-popover-foreground shadow-(--np-shadow-modal) outline-none",
           "transition-[translate,opacity] duration-(--np-duration-overlay) ease-spring data-ending-style:duration-(--np-duration-standard) data-ending-style:ease-standard",
           // The bottom sheet every side collapses to on a narrow screen.
-          "inset-x-0 bottom-0 mx-auto w-full max-h-[calc(100dvh-1.5rem)] rounded-t-(--np-radius-sheet) max-md:overflow-y-auto data-starting-style:translate-y-full data-ending-style:translate-y-full",
+          "inset-x-0 bottom-0 mx-auto max-h-[calc(100dvh-1.5rem)] w-full rounded-t-(--np-radius-sheet) data-ending-style:translate-y-full data-starting-style:translate-y-full max-md:overflow-y-auto",
           sheetSideClassName[side],
           className
         )}
@@ -94,7 +98,7 @@ function SheetContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-4 right-4 size-7 rounded-(--np-radius-pill) bg-fill text-ink-muted hover:bg-fill-secondary hover:text-ink [&_svg]:size-3.5 [&_svg]:[stroke-width:1.75]"
+                className={overlayCloseButtonClassName}
                 size="icon-sm"
                 aria-label="Close"
               />
@@ -119,11 +123,15 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * The sheet's action row: the same stack-then-row geometry as a dialog's, so
+ * "Cancel / Save" sits in the same place whichever overlay it is in.
+ */
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn("mt-auto flex flex-col gap-2 p-6", className)}
+      className={cn("mt-auto shrink-0 p-6", overlayFooterClassName, className)}
       {...props}
     />
   )

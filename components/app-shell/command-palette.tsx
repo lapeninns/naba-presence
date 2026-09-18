@@ -81,10 +81,23 @@ function CommandPalette({
   )
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Search clients, locations and actions…" />
+    // "Commands", not "Search": this looks for clients, locations and actions,
+    // and deliberately never looks inside review text. The Inbox's own
+    // "Search reviews" field is the one place to type a customer's words, and
+    // two fields that both look like search but answer different questions is
+    // how an operator ends up believing a review does not exist.
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Commands"
+      description="Jump to a client or a location, or run an action. To search review text, use Search reviews in the Inbox."
+    >
+      <CommandInput placeholder="Go to a client, a location or an action…" />
       <CommandList>
-        <CommandEmpty>Nothing matched that.</CommandEmpty>
+        <CommandEmpty>
+          Nothing matched that. To search review text, use Search reviews in
+          the Inbox.
+        </CommandEmpty>
 
         {clients.data?.items.length ? (
           <CommandGroup heading="Clients">
@@ -212,10 +225,14 @@ function useSyncPlatform() {
 }
 
 /**
- * The toolbar's search field. It looks like a capsule search field — a grey
- * pill with a magnifier, "Search" and the shortcut — but it is a button that
- * opens the palette, because the palette is where typing goes. Below `sm`
- * only the magnifier shows; the label stays in the accessible name.
+ * The toolbar's Commands trigger. It looks like a capsule field — a grey pill
+ * with a magnifier, a label and the shortcut — but it is a button that opens
+ * the palette, because the palette is where typing goes. Below `sm` only the
+ * magnifier shows; the label stays in the accessible name.
+ *
+ * Labelled "Commands" rather than "Search" so its scope is on the button
+ * itself: it goes to clients, locations and actions. Review text is searched
+ * in the Inbox, in one clearly labelled field.
  */
 function CommandPaletteButton({
   onClick,
@@ -229,6 +246,8 @@ function CommandPaletteButton({
     <button
       type="button"
       onClick={onClick}
+      aria-label="Commands: clients, locations and actions"
+      aria-haspopup="dialog"
       className={cn(
         "flex h-(--np-control-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-2.5 text-ui text-ink-muted sm:w-56 sm:px-3",
         "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink active:scale-[0.98]",
@@ -237,7 +256,7 @@ function CommandPaletteButton({
       )}
     >
       <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
-      <span className="sr-only flex-1 text-left sm:not-sr-only">Search</span>
+      <span className="sr-only flex-1 text-left sm:not-sr-only">Commands</span>
       <Kbd className="hidden border-0 bg-transparent px-0 text-ink-muted sm:inline-flex">
         {hint}
       </Kbd>

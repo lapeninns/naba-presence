@@ -1,16 +1,21 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { DirtyGuardProvider } from "@/components/inbox/dirty-context"
 import { ReplyComposer } from "@/components/inbox/reply-composer"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
+import { REPLY_FOCUS_EVENT } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 
-function reviewWith(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDetail {
+function reviewWith(
+  overrides: Partial<ReviewDetail["review"]> = {}
+): ReviewDetail {
   return {
     review: {
       id: "rev-1",
@@ -33,7 +38,11 @@ function reviewWith(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDeta
       drafts: [],
       reply: null,
       timeline: [],
-      capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+      capabilities: {
+        canPublish: true,
+        canEdit: true,
+        canRequestApproval: false,
+      },
       latestVerification: null,
       ...overrides,
     },
@@ -67,6 +76,18 @@ function mockMutation(mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)) {
   } as unknown as UseMutationResult<any, Error, any>
 }
 
+// The composer asks its host for the discard confirmation rather than owning
+// one, and outside a provider that host is `window.confirm` — which no test
+// can answer "keep editing" to. Mounting the real DirtyGuardProvider gives the
+// close-editor guard the same AlertDialog it has in the inbox.
+function Host({ children }: { children: ReactNode }) {
+  return (
+    <Toaster>
+      <DirtyGuardProvider>{children}</DirtyGuardProvider>
+    </Toaster>
+  )
+}
+
 beforeEach(() => {
   __resetDraftSources()
   sessionStorage.clear()
@@ -84,17 +105,45 @@ describe("ReplyComposer", () => {
     )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
-    expect(screen.getByRole("button", { name: "Generate draft" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Generate draft" })
+    ).toBeInTheDocument()
     expect(screen.getByLabelText("Reply tone")).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveAttribute(
       "placeholder",
       "Write a reply, or generate one to start."
     )
     expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  // Preview exists so a saved reply can be READ before anything asks the
+  // operator to change it. With no draft and no live reply there is nothing to
+  // read, so making them click Edit first would be a step that buys nothing.
+  it("opens straight into the editor when there is no reply to read yet", () => {
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+      </Host>
+    )
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue("")
+    expect(
+      screen.queryByRole("button", { name: "Edit reply" })
+    ).not.toBeInTheDocument()
+    // Nothing to go back to, so the editor offers no way out of itself.
+    expect(
+      screen.queryByRole("button", { name: "Close editor" })
+    ).not.toBeInTheDocument()
   })
 
   it("posts tone without a body when Generate draft is clicked", async () => {
@@ -111,9 +160,9 @@ describe("ReplyComposer", () => {
     )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
     await user.click(screen.getByRole("button", { name: "Generate draft" }))
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
@@ -151,20 +200,31 @@ describe("ReplyComposer", () => {
     )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
-    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
-    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " edits")
+    // Regenerate is offered from the preview as well, so the label is right
+    // before the operator has opened the editor at all.
+    expect(
+      screen.getByRole("button", { name: "Regenerate" })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Your reply" }),
+      " edits"
+    )
     await user.click(screen.getByRole("button", { name: "Regenerate" }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Discard and regenerate" }))
+    await user.click(
+      screen.getByRole("button", { name: "Discard and regenerate" })
+    )
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
   })
 
-  it("seeds the textbox from an existing draft", () => {
+  it("seeds the textbox from an existing draft", async () => {
+    const user = userEvent.setup()
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({
         workflowStatus: "drafted",
@@ -182,34 +242,54 @@ describe("ReplyComposer", () => {
         ],
       }),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Existing draft body"
     )
-    expect(screen.getByRole("button", { name: "Re-verify" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Re-verify" })
+    ).toBeInTheDocument()
   })
 
   it("enables Save draft only after an edit and posts the edited body", async () => {
     const user = userEvent.setup()
     const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
-      data: reviewWith({ workflowStatus: "drafted", drafts: [
-        { id: "d1", source: "human", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
-      ] }),
+      data: reviewWith({
+        workflowStatus: "drafted",
+        drafts: [
+          {
+            id: "d1",
+            source: "human",
+            body: "Seed",
+            bodyBytes: 4,
+            evidenceHash: "h",
+            modelName: null,
+            verificationStatus: "pass",
+            createdAt: "2026-07-30T10:05:00.000Z",
+          },
+        ],
+      }),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "Your reply" })
     await user.clear(textbox)
@@ -222,20 +302,36 @@ describe("ReplyComposer", () => {
     })
   })
 
-  it("disables Save draft when the edit is over the 4096-byte limit", () => {
+  it("disables Save draft when the edit is over the 4096-byte limit", async () => {
+    const user = userEvent.setup()
     const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
-      data: reviewWith({ workflowStatus: "drafted", drafts: [
-        { id: "d1", source: "human", body: "Seed", bodyBytes: 4, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
-      ] }),
+      data: reviewWith({
+        workflowStatus: "drafted",
+        drafts: [
+          {
+            id: "d1",
+            source: "human",
+            body: "Seed",
+            bodyBytes: 4,
+            evidenceHash: "h",
+            modelName: null,
+            verificationStatus: "pass",
+            createdAt: "2026-07-30T10:05:00.000Z",
+          },
+        ],
+      }),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation(mutateAsync))
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     const textbox = screen.getByRole("textbox", { name: "Your reply" })
     // fireEvent, not userEvent.type: 4097 keystrokes would be needlessly slow
     // for what is purely a byte-count boundary check.
@@ -243,9 +339,9 @@ describe("ReplyComposer", () => {
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
   })
 
-  // The old pane rendered the live reply and an identical draft as two full
-  // blocks of the same text. The composer now edits the live words directly,
-  // so there is only ever one copy on screen.
+  // A reply that is live on Google with no newer draft waiting for it. There
+  // is nothing left to write, so the pane's question is "is this reply right?"
+  // — which readable text answers and a textarea does not.
   const SETTLED = {
     workflowStatus: "published",
     reply: {
@@ -274,25 +370,35 @@ describe("ReplyComposer", () => {
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith({ ...SETTLED, ...overrides }),
     } as UseQueryResult<ReviewDetail>)
-    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
     vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
     render(
-      <Toaster>
+      <Host>
         <ReplyComposer reviewId="rev-1" />
-      </Toaster>
+      </Host>
     )
   }
 
-  it("edits the live reply in place, with nothing to save until it changes", async () => {
+  it("shows a settled reply as readable text, with the editor only a click away", async () => {
     const user = userEvent.setup()
     renderSettled()
+    expect(
+      screen.getByRole("heading", { name: "Published reply", level: 3 })
+    ).toBeInTheDocument()
     expect(screen.getByText("Thanks for the kind words!")).toBeInTheDocument()
-    expect(screen.queryByRole("textbox", { name: "Your reply" })).not.toBeInTheDocument()
-    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Regenerate" })
+    ).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "Thanks for the kind words!"
     )
+    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
   })
 
@@ -300,9 +406,79 @@ describe("ReplyComposer", () => {
     const user = userEvent.setup()
     renderSettled()
     await user.click(screen.getByRole("button", { name: "Edit reply" }))
-    await user.type(screen.getByRole("textbox", { name: "Your reply" }), " Really.")
+    await user.type(
+      screen.getByRole("textbox", { name: "Your reply" }),
+      " Really."
+    )
     expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
+  })
+
+  it("returns to the preview when the editor is closed with nothing unsaved", async () => {
+    const user = userEvent.setup()
+    renderSettled()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.click(screen.getByRole("button", { name: "Close editor" }))
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit reply" })
+    ).toBeInTheDocument()
+  })
+
+  // Closing the editor throws the unsaved words away, so it goes through the
+  // same guard as navigating away from them does.
+  it("asks before closing the editor on unsaved edits, and Keep editing keeps both", async () => {
+    const user = userEvent.setup()
+    renderSettled()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Your reply" }),
+      " Really."
+    )
+    await user.click(screen.getByRole("button", { name: "Close editor" }))
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Discard unsaved reply?"
+    )
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+        "Thanks for the kind words! Really."
+      )
+    })
+  })
+
+  // `r` asks the composer to open; the composer decides. The hotkey layer
+  // knows nothing about this review's permissions and must not be able to
+  // talk the editor open past them.
+  it("opens and focuses the editor when the focus-reply event asks", async () => {
+    renderSettled()
+    fireEvent(window, new Event(REPLY_FOCUS_EVENT))
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveFocus()
+    })
+  })
+
+  it("ignores the focus-reply event when the operator may not edit", async () => {
+    renderSettled({
+      capabilities: {
+        canPublish: false,
+        canEdit: false,
+        canRequestApproval: false,
+      },
+    })
+    fireEvent(window, new Event(REPLY_FOCUS_EVENT))
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "You can read this reply, but you do not have permission to edit it."
+        )
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
   })
 
   // Who wrote the words matters when they are about to go on a public profile
@@ -313,10 +489,13 @@ describe("ReplyComposer", () => {
     expect(screen.getByText("Drafted by AI")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Edit reply" }))
     await user.type(screen.getByRole("textbox", { name: "Your reply" }), "!")
-    expect(screen.getByText("Drafted by AI · unsaved edits")).toBeInTheDocument()
+    expect(
+      screen.getByText("Drafted by AI · unsaved edits")
+    ).toBeInTheDocument()
   })
 
-  it("labels a hand-written draft as written by you", () => {
+  it("labels a hand-written draft as written by you", async () => {
+    const user = userEvent.setup()
     renderSettled({
       drafts: [
         {
@@ -332,7 +511,12 @@ describe("ReplyComposer", () => {
       ],
     })
     expect(screen.getByText("Written by you")).toBeInTheDocument()
-    // The draft has moved on from what is live, so it is not in sync.
+    // The draft has moved on from what is live, so this is not the published
+    // reply — and once open, the editor does not claim to be in sync either.
+    expect(
+      screen.getByRole("heading", { name: "Your reply", level: 3 })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
   })
 })

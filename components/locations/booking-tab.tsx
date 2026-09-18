@@ -119,52 +119,50 @@ function BookingLinks({
             No booking links yet. Add one below and it appears on the listing.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-(--np-radius-card) bg-surface">
-            <Table className="min-w-140">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Link</TableHead>
-                  <TableHead>Preferred</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+          <Table surface className="min-w-140">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Type</TableHead>
+                <TableHead>Link</TableHead>
+                <TableHead>Preferred</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.links.map((link) => (
+                <TableRow key={link.id}>
+                  <TableCell className="font-medium text-ink">
+                    {humaniseActionType(link.placeActionType)}
+                  </TableCell>
+                  <TableCell className="max-w-60 truncate text-ink-muted">
+                    {link.uri}
+                  </TableCell>
+                  <TableCell>
+                    {link.isPreferred ? (
+                      <Badge variant="tinted">Preferred</Badge>
+                    ) : (
+                      <span className="text-ink-faint">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {link.isEditable ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(link)}
+                        disabled={disabled}
+                        aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}
+                      >
+                        Remove
+                      </Button>
+                    ) : (
+                      <Badge variant="secondary">Managed by Google</Badge>
+                    )}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {state.links.map((link) => (
-                  <TableRow key={link.id}>
-                    <TableCell className="font-medium text-ink">
-                      {humaniseActionType(link.placeActionType)}
-                    </TableCell>
-                    <TableCell className="max-w-60 truncate text-ink-muted">
-                      {link.uri}
-                    </TableCell>
-                    <TableCell>
-                      {link.isPreferred ? (
-                        <Badge variant="tinted">Preferred</Badge>
-                      ) : (
-                        <span className="text-ink-faint">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {link.isEditable ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTarget(link)}
-                          disabled={disabled}
-                          aria-label={`Remove the ${humaniseActionType(link.placeActionType)} link`}
-                        >
-                          Remove
-                        </Button>
-                      ) : (
-                        <Badge variant="secondary">Managed by Google</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </section>
 
@@ -172,14 +170,20 @@ function BookingLinks({
         <h3 className="text-title font-semibold text-ink">
           Add a booking link
         </h3>
-        <div className="flex flex-wrap items-end gap-3">
+        {/* Two fields on a column grid rather than a wrapping row: the type
+            and the URL then line up under each other on a phone and beside
+            each other from `sm`, instead of re-flowing into a different
+            arrangement at every width the fixed widths happened to break at.
+            The switch and the action sit on their own line, where they belong
+            to the whole form rather than to the field they landed next to. */}
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start">
           <Field>
             <FieldLabel>Type</FieldLabel>
             <Select
               value={type}
               onValueChange={(next) => setType(next as PlaceActionType)}
             >
-              <SelectTrigger className="w-56" aria-label="Booking link type">
+              <SelectTrigger className="w-full" aria-label="Booking link type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -198,11 +202,16 @@ function BookingLinks({
               onChange={(event) => setUri(event.target.value)}
               placeholder="https://…"
               inputMode="url"
-              className="w-72"
               disabled={disabled}
             />
           </Field>
-          <div className="flex h-(--np-field-h) items-center gap-2 text-ui text-ink">
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-subtle pt-4">
+          {/* A span, not a label: Base UI's Switch renders a `button`, which
+              `<label for>` and label-wrapping cannot reach. The switch carries
+              its own accessible name and the word beside it is the visible
+              one. */}
+          <span className="flex min-h-(--np-control-h) items-center gap-2 text-ui text-ink">
             <Switch
               checked={preferred}
               onCheckedChange={(value) => setPreferred(value === true)}
@@ -210,7 +219,7 @@ function BookingLinks({
               aria-label="Preferred link"
             />
             <span aria-hidden>Preferred</span>
-          </div>
+          </span>
           <Button
             variant="secondary"
             onClick={() => add.mutate()}

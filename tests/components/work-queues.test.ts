@@ -10,6 +10,7 @@ import type { ReviewCounts } from "@/lib/contracts/reviews"
 const counts: Pick<ReviewCounts, "byQueue"> = {
   byQueue: {
     needs_reply: 9,
+    approval: 0,
     awaiting_my_approval: 4,
     awaiting_others: 2,
     publishing: 1,

@@ -165,6 +165,7 @@ describeDatabase("review queue counts", () => {
       // settled.
       byQueue: {
         needs_reply: 2,
+        approval: 0,
         awaiting_my_approval: 0,
         awaiting_others: 0,
         publishing: 0,
@@ -216,5 +217,70 @@ describeDatabase("review queue counts", () => {
   it("requires a session", async () => {
     const response = await fetch(`${server.baseUrl}/api/reviews/counts`)
     expect(response.status).toBe(401)
+  })
+
+  /**
+   * The Inbox shows one "Approval" control standing for both approval queues.
+   * It is a presentation aggregate only — `awaiting_my_approval` and
+   * `awaiting_others` keep their own, narrower server scopes, and the two must
+   * partition the aggregate exactly. If they ever stop doing so, an operator
+   * reading the Approval tab is looking at a count that promises rows neither
+   * narrow queue will hand them.
+   *
+   * Asserted as a relationship rather than against fixed totals, so it holds
+   * whatever else the suite has seeded by the time it runs.
+   */
+  describe("the Approval aggregate", () => {
+    let parked: Awaited<ReturnType<typeof seedReview>>
+
+    beforeAll(async () => {
+      parked = await seedReview(admin, { organisationId })
+      // `enforce_review_workflow_transition` has no edge from `new`, so the
+      // review walks the real path a submitted reply takes.
+      for (const status of ["drafted", "verified", "awaiting_approval"]) {
+        await admin`
+          update review
+          set workflow_status = ${status}
+          where id = ${parked.reviewId}
+        `
+      }
+    })
+
+    async function queueIds(queue: string): Promise<string[]> {
+      const response = await fetch(
+        `${server.baseUrl}/api/reviews?queue=${queue}&page_size=100`,
+        { headers: { cookie: ownerCookie } }
+      )
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { items: { id: string }[] }
+      return body.items.map((item) => item.id).sort()
+    }
+
+    it("counts exactly what the two narrow approval queues count", async () => {
+      const response = await fetch(`${server.baseUrl}/api/reviews/counts`, {
+        headers: { cookie: ownerCookie },
+      })
+      expect(response.status).toBe(200)
+      const { byQueue } = (await response.json()) as {
+        byQueue: Record<string, number>
+      }
+      expect(byQueue.approval).toBeGreaterThan(0)
+      expect(byQueue.approval).toBe(
+        byQueue.awaiting_my_approval + byQueue.awaiting_others
+      )
+    })
+
+    it("lists exactly the union of the two narrow approval queues", async () => {
+      const [aggregate, mine, others] = await Promise.all([
+        queueIds("approval"),
+        queueIds("awaiting_my_approval"),
+        queueIds("awaiting_others"),
+      ])
+      expect(aggregate).toContain(parked.reviewId)
+      expect(aggregate).toEqual([...mine, ...others].sort())
+      // A partition, not merely a cover: no review may appear on both sides,
+      // or the aggregate would double-count it.
+      expect(mine.filter((id) => others.includes(id))).toEqual([])
+    })
   })
 })

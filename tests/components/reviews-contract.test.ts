@@ -64,9 +64,6 @@ describe("reviews contract: wire codec", () => {
       ratings: [4, 5],
       statuses: ["new", "drafted"],
       replyState: "unreplied",
-      verification: ["pass", "warn"],
-      publishStatus: ["published"],
-      syncStatus: ["succeeded"],
       dateFrom: "2026-07-01T00:00:00.000Z",
       dateTo: "2026-07-31T00:00:00.000Z",
       search: "lovely",
@@ -79,9 +76,6 @@ describe("reviews contract: wire codec", () => {
       rating: "4,5",
       status: "new,drafted",
       reply_state: "unreplied",
-      verification: "pass,warn",
-      publish_status: "published",
-      sync_status: "succeeded",
       date_from: "2026-07-01T00:00:00.000Z",
       date_to: "2026-07-31T00:00:00.000Z",
       search: "lovely",
@@ -100,9 +94,6 @@ describe("reviews contract: wire codec", () => {
       ratings: [4, 5],
       statuses: ["new", "drafted"],
       replyState: "unreplied",
-      verification: ["pass", "warn"],
-      publishStatus: ["published"],
-      syncStatus: ["succeeded"],
       dateFrom: "2026-07-01T00:00:00.000Z",
       dateTo: "2026-07-31T00:00:00.000Z",
       search: "lovely",
@@ -177,8 +168,20 @@ describe("reviews contract: wire codec", () => {
       decodeReviewsQuery(new URLSearchParams("status=archived"))
     ).toThrow()
     expect(() =>
-      decodeReviewsQuery(new URLSearchParams("publish_status=maybe"))
+      decodeReviewsQuery(new URLSearchParams("reply_state=maybe"))
     ).toThrow()
+  })
+
+  it("ignores the retired pipeline-state params rather than rejecting them", () => {
+    // `verification` / `publish_status` / `sync_status` filtered on a record's
+    // place in the publish pipeline. They are gone, but a stale bookmark must
+    // still load the inbox — unrecognised, not invalid.
+    const query = decodeReviewsQuery(
+      new URLSearchParams("verification=pass&publish_status=failed&sync_status=failed")
+    )
+    expect(query).not.toHaveProperty("verification")
+    expect(query).not.toHaveProperty("publishStatus")
+    expect(query).not.toHaveProperty("syncStatus")
   })
 
   it("requires a rating on rating-sort cursors", () => {

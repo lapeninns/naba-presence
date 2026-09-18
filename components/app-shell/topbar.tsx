@@ -51,10 +51,15 @@ function Toolbar({
         className
       )}
     >
+      {/* The one control in the toolbar that exists only below `md`, which
+          is to say only where a finger is likely to be the pointer. It takes
+          the 44px comfortable target there rather than the 32px control
+          height the rest of the toolbar is built on — the same rule the
+          location tab strip applies to its capsules. */}
       <Button
         variant="secondary"
         size="icon"
-        className="md:hidden"
+        className="md:hidden pointer-coarse:size-11"
         aria-label="Open navigation"
         onClick={onOpenNav}
       >

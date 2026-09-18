@@ -21,7 +21,7 @@ describe("fetchReviewCounts", () => {
       jsonResponse({
         total: 5,
         byStatus: { new: 2, drafted: 1, escalated: 1, failed: 1 },
-        byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 },
+        byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 },
       })
     )
     vi.stubGlobal("fetch", fetchMock)
@@ -38,7 +38,7 @@ describe("fetchReviewCounts", () => {
   it("throws malformed_response when the shape is wrong", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ total: "five", byStatus: {}, byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } }))
+      vi.fn(async () => jsonResponse({ total: "five", byStatus: {}, byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } }))
     )
     await expect(fetchReviewCounts()).rejects.toMatchObject({
       code: "malformed_response",

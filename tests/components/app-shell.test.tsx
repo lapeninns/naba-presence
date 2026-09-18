@@ -143,9 +143,9 @@ describe("AppShell", () => {
   it("offers a command palette from the topbar", async () => {
     const user = userEvent.setup()
     renderShell()
-    await user.click(screen.getByRole("button", { name: /Search/ }))
+    await user.click(screen.getByRole("button", { name: /Commands/ }))
     expect(
-      await screen.findByPlaceholderText("Search clients, locations and actions…")
+      await screen.findByPlaceholderText("Go to a client, a location or an action…")
     ).toBeInTheDocument()
   })
 

@@ -4,6 +4,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Chrome that spends vertical space — a stack of segmented controls, a
+   multi-row toolbar — is only affordable when the viewport is both wide and
+   tall. `controls` is that condition; `capsules` is its exact negation, for
+   the compact one-line drawing a phone gets. 34rem (544px) is the floor: a
+   landscape phone is 390-430px tall, so four stacked controls (272px) would
+   leave it nothing, while every tablet and laptop clears it comfortably. */
+@custom-variant controls (@media (min-width: 48rem) and (min-height: 34rem));
+@custom-variant capsules (
+  @media not all and (min-width: 48rem) and (min-height: 34rem)
+);
+
 /* ---------------------------------------------------------------------------
    NabaPresence design system — Apple-grade, platform-native, light-first.
 
@@ -542,6 +553,17 @@
   --np-list-gap: 0px;
   --np-field-h: 30px;
   --np-menu-item-h: 26px;
+}
+
+/* The page gutter below `md`, where PageFrame draws `px-5`. The token held
+   only the wide value, so anything bleeding to the screen edge on a phone —
+   the location tab strip, the workspace pane — had to repeat `20px` by hand
+   and drift from the frame. Declared after the base block so the token
+   parser in tests/design-system-contract still reads 32px as the value. */
+@media (width < 48rem) {
+  :root {
+    --np-page-pad-x: 20px;
+  }
 }
 
 [data-density="comfortable"] {

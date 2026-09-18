@@ -45,7 +45,7 @@ afterEach(() => {
 const counts = {
   total: 1,
   byStatus: { new: 1, escalated: 0, failed: 0, published: 0 },
-  byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 },
+  byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 },
 }
 
 describe("requestOptions", () => {

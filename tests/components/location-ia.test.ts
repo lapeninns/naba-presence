@@ -39,7 +39,6 @@ describe("location IA", () => {
     expect(sections.map((s) => s.id)).toEqual([
       "profile",
       "content",
-      "customers",
       "access",
       "insights",
     ])
@@ -52,20 +51,23 @@ describe("location IA", () => {
     expect(sections[0].tabs.map((t) => t.segment)).toEqual([
       "",
       "hours",
+      "booking",
       "suggestions",
     ])
+  })
+
+  it("keeps Booking with the profile instead of a section of its own", () => {
+    // Booking / ordering / reservation links are place actions on the listing,
+    // so "Customers" was a group label standing over exactly one tab.
+    const ids = visibleLocationSections(true).map((s) => s.id)
+    expect(ids).not.toContain("customers")
   })
 
   it("hides the console tabs from members, section and all", () => {
     const member = visibleLocationSections(false)
     // Access holds only console-gated tabs, so the whole section disappears
     // rather than rendering an empty heading.
-    expect(member.map((s) => s.id)).toEqual([
-      "profile",
-      "content",
-      "customers",
-      "insights",
-    ])
+    expect(member.map((s) => s.id)).toEqual(["profile", "content", "insights"])
     const labels = member.flatMap((s) => s.tabs.map((t) => t.label))
     expect(labels).not.toContain("Access")
   })

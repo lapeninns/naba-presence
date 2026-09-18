@@ -8,6 +8,10 @@
  *
  * Administration is relabelled "Access", which is what it actually contains:
  * who may edit the listing on Google, and whether it is verified.
+ *
+ * "Customers" is gone the same way "Overview" went: a section label standing
+ * over a single Booking tab. Booking links are listing facts, so they sit with
+ * the hours and the rest of the profile.
  */
 export type LocationTabSegment =
   | ""
@@ -44,6 +48,10 @@ export const LOCATION_IA_SECTIONS: LocationIaSection[] = [
       // sections of this editor, and their old paths redirect here.
       { segment: "", label: "Business profile" },
       { segment: "hours", label: "Hours" },
+      // Booking, ordering and reservation links: Google "place actions", which
+      // are listing facts like the hours beside them. They had a "Customers"
+      // section to themselves, which was a group label standing over one tab.
+      { segment: "booking", label: "Booking" },
       // Its own segment, not a card above two editors' fields: accepting what
       // Google changed is a different job from editing the listing.
       { segment: "suggestions", label: "Suggested updates" },
@@ -57,11 +65,6 @@ export const LOCATION_IA_SECTIONS: LocationIaSection[] = [
       { segment: "posts", label: "Posts" },
       { segment: "menu", label: "Menu" },
     ],
-  },
-  {
-    id: "customers",
-    label: "Customers",
-    tabs: [{ segment: "booking", label: "Booking" }],
   },
   {
     id: "access",

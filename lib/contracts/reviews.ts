@@ -52,6 +52,12 @@ export function isRatingSort(sort: string | null | undefined): boolean {
  */
 export const REVIEW_QUEUES = [
   "needs_reply",
+  // The aggregate the Inbox's five queue controls present as "Approval": every
+  // reply parked at `awaiting_approval`, whoever it is waiting on. It is a
+  // presentation union, not a new record state — `awaiting_my_approval` and
+  // `awaiting_others` partition it and keep their own, narrower scopes, so
+  // every existing deep link still means exactly what it always meant.
+  "approval",
   "awaiting_my_approval",
   "awaiting_others",
   "publishing",
@@ -65,6 +71,7 @@ export const DEFAULT_REVIEW_QUEUE = "needs_reply" satisfies ReviewQueue
 
 export const REVIEW_QUEUE_LABELS: Record<ReviewQueue, string> = {
   needs_reply: "Needs reply",
+  approval: "Approval",
   awaiting_my_approval: "Awaiting my approval",
   awaiting_others: "Awaiting others",
   publishing: "Publishing",
@@ -79,47 +86,6 @@ export const reviewWorkflowStateSchema = z.enum(REVIEW_WORKFLOW_STATES)
 export const REVIEW_REPLY_STATES = ["replied", "unreplied"] as const
 export type ReviewReplyState = (typeof REVIEW_REPLY_STATES)[number]
 export const reviewReplyStateSchema = z.enum(REVIEW_REPLY_STATES)
-
-/** `draft.verification_status` filter vocabulary (`pending` = no result yet). */
-export const REVIEW_VERIFICATION_STATUSES = [
-  "pass",
-  "warn",
-  "fail",
-  "pending",
-] as const
-export type ReviewVerificationStatus =
-  (typeof REVIEW_VERIFICATION_STATUSES)[number]
-export const reviewVerificationStatusSchema = z.enum(
-  REVIEW_VERIFICATION_STATUSES
-)
-
-/**
- * `review_reply.publish_status` CHECK constraint vocabulary (mirrors
- * `ReplyPublishStatus` in lib/server/publishing/types.ts, which cannot be
- * imported here).
- */
-export const REVIEW_PUBLISH_STATUSES = [
-  "not_published",
-  "awaiting_approval",
-  "accepted",
-  "published",
-  "rejected",
-  "failed",
-  "deleted",
-] as const
-export type ReviewPublishStatus = (typeof REVIEW_PUBLISH_STATUSES)[number]
-export const reviewPublishStatusSchema = z.enum(REVIEW_PUBLISH_STATUSES)
-
-/** `sync_checkpoint.status` vocabulary. */
-export const REVIEW_SYNC_STATUSES = [
-  "pending",
-  "running",
-  "succeeded",
-  "failed",
-  "cancelled",
-] as const
-export type ReviewSyncStatus = (typeof REVIEW_SYNC_STATUSES)[number]
-export const reviewSyncStatusSchema = z.enum(REVIEW_SYNC_STATUSES)
 
 /**
  * `verification_result.verdict`. `pending` is the fourth member: a draft whose
@@ -145,9 +111,6 @@ function includes<const T extends readonly string[]>(
 export const isReviewSort = includes(REVIEW_SORTS)
 export const isReviewWorkflowState = includes(REVIEW_WORKFLOW_STATES)
 export const isReviewReplyState = includes(REVIEW_REPLY_STATES)
-export const isReviewVerificationStatus = includes(REVIEW_VERIFICATION_STATUSES)
-export const isReviewPublishStatus = includes(REVIEW_PUBLISH_STATUSES)
-export const isReviewSyncStatus = includes(REVIEW_SYNC_STATUSES)
 
 // ---------------------------------------------------------------------------
 // Capabilities / verification
@@ -215,9 +178,6 @@ export const reviewsQuerySchema = z.object({
     .array(reviewReplyStateSchema)
     .optional()
     .transform((values) => (values?.length === 1 ? values[0] : undefined)),
-  verification: z.array(reviewVerificationStatusSchema).optional(),
-  publishStatus: z.array(reviewPublishStatusSchema).optional(),
-  syncStatus: z.array(reviewSyncStatusSchema).optional(),
   dateFrom: z.iso.datetime().optional(),
   dateTo: z.iso.datetime().optional(),
   search: z.string().trim().max(200).optional(),
@@ -244,9 +204,6 @@ export type ReviewsFilters = Partial<
     | "ratings"
     | "statuses"
     | "replyState"
-    | "verification"
-    | "publishStatus"
-    | "syncStatus"
     | "dateFrom"
     | "dateTo"
     | "search"
@@ -264,9 +221,6 @@ const WIRE = {
   ratings: "rating",
   statuses: "status",
   replyState: "reply_state",
-  verification: "verification",
-  publishStatus: "publish_status",
-  syncStatus: "sync_status",
   dateFrom: "date_from",
   dateTo: "date_to",
   search: "search",
@@ -346,9 +300,6 @@ export function encodeReviewsQuery(
   set(WIRE.ratings, csv(filters.ratings))
   set(WIRE.statuses, csv(filters.statuses))
   set(WIRE.replyState, filters.replyState)
-  set(WIRE.verification, csv(filters.verification))
-  set(WIRE.publishStatus, csv(filters.publishStatus))
-  set(WIRE.syncStatus, csv(filters.syncStatus))
   set(WIRE.dateFrom, filters.dateFrom)
   set(WIRE.dateTo, filters.dateTo)
   set(WIRE.search, filters.search)
@@ -401,9 +352,6 @@ export function decodeReviewsQuery(params: URLSearchParams): ReviewsQuery {
     ratings: commaNumbers(params.get(WIRE.ratings)),
     statuses: commaStrings(params.get(WIRE.statuses)),
     replyState: commaStrings(params.get(WIRE.replyState)),
-    verification: commaStrings(params.get(WIRE.verification)),
-    publishStatus: commaStrings(params.get(WIRE.publishStatus)),
-    syncStatus: commaStrings(params.get(WIRE.syncStatus)),
     dateFrom: params.get(WIRE.dateFrom) ?? undefined,
     dateTo: params.get(WIRE.dateTo) ?? undefined,
     search: params.get(WIRE.search) ?? undefined,

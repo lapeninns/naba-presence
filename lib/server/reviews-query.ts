@@ -214,23 +214,6 @@ export function buildInboxQuery(
             : sql``
       }
       ${
-        filters.verification?.length
-          ? sql`and coalesce(d.verification_status, 'pending')
-              in ${sql(filters.verification)}`
-          : sql``
-      }
-      ${
-        filters.publishStatus?.length
-          ? sql`and coalesce(rr.publish_status, 'not_published')
-              in ${sql(filters.publishStatus)}`
-          : sql``
-      }
-      ${
-        filters.syncStatus?.length
-          ? sql`and sc.status in ${sql(filters.syncStatus)}`
-          : sql``
-      }
-      ${
         filters.dateFrom
           ? sql`and r.update_time >= ${filters.dateFrom}`
           : sql``

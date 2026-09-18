@@ -30,9 +30,20 @@ export default async function DashboardLayout({
 
   const queryClient = makeQueryClient()
   if (session) {
-    queryClient.setQueryData(queryKeys.connections, {
-      connections: await listConnections(session),
-    })
+    // Each of these opens its own short read transaction and none reads the
+    // others' output, so awaiting them one after another only stacked three
+    // round trips onto every full load of every dashboard page. Issued
+    // together they cost the slowest one instead of the sum, and three
+    // concurrent checkouts sit well inside DATABASE_POOL_MAX (10 by default).
+    const [connections, clients, rows] = await Promise.all([
+      listConnections(session),
+      withTenant(session.organisationId, (sql) =>
+        listClientSummaries(sql, session)
+      ),
+      listLocationDirectoryRows(session),
+    ])
+
+    queryClient.setQueryData(queryKeys.connections, { connections })
 
     // Hydrating the session is what makes the directory hydration below
     // actually land: useLocationDirectory picks its query key from the role,
@@ -48,14 +59,8 @@ export default async function DashboardLayout({
     // The sidebar pins recent clients and the topbar chip reports their
     // health, so the client list is shell furniture: hydrating it here is
     // what keeps the first paint from showing an empty nav that fills in.
-    queryClient.setQueryData(
-      queryKeys.clients,
-      await withTenant(session.organisationId, (sql) =>
-        listClientSummaries(sql, session)
-      )
-    )
+    queryClient.setQueryData(queryKeys.clients, clients)
 
-    const rows = await listLocationDirectoryRows(session)
     const management = session.role === "owner" || session.role === "admin"
     queryClient.setQueryData(
       management ? queryKeys.locationsManagement : queryKeys.locations,

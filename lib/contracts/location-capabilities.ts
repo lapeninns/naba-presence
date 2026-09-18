@@ -76,16 +76,17 @@ export type LocationCapabilitiesResponse = z.infer<
 
 /**
  * Org/settings capabilities for the Settings workspace (spec §3):
- *   canManageTeam/canManageConnections/canEditSettings/canViewCompliance
- *     === role in {owner, admin}
- *   canManageCompliance === role === "owner"
+ *   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
+ *
+ * The two compliance capabilities are gone with the console they gated. The
+ * privacy and legal-hold routes never read them — they assert `roles:
+ * ["owner"]` / `["owner", "admin"]` themselves — so nothing server-side
+ * loosened when they went.
  */
 export const settingsCapabilitiesSchema = z.object({
   canManageTeam: z.boolean(),
   canManageConnections: z.boolean(),
   canEditSettings: z.boolean(),
-  canViewCompliance: z.boolean(),
-  canManageCompliance: z.boolean(),
 })
 export type SettingsCapabilities = z.infer<typeof settingsCapabilitiesSchema>
 

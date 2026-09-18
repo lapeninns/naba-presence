@@ -1,6 +1,6 @@
 "use client"
 
-import { Activity, Link2, Scale, ShieldCheck } from "lucide-react"
+import { Link2, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type { ComponentType, SVGProps } from "react"
@@ -13,6 +13,13 @@ import { cn } from "@/lib/utils"
 // administered a location from a page nowhere near it, and that now lives in
 // the location's own Access section.
 //
+// Compliance and Operations are gone too. Data-subject requests, legal holds
+// and record export are still served by `app/api/privacy/**` and
+// `app/api/legal-holds`, and sync health by `app/api/operations/health` —
+// owner/admin-gated on the server, where they were always authorised. What
+// they no longer have is a console in a product whose job is replying to
+// reviews.
+//
 // Each area carries the System Settings glyph square: a small tinted tile in
 // one of the status solids (or the accent), with the glyph in that solid's
 // measured on-colour. The colour is a landmark for the eye, never the only
@@ -20,7 +27,7 @@ import { cn } from "@/lib/utils"
 const AREAS: {
   href: string
   label: string
-  capability: "always" | "canViewCompliance" | "canManageConnections"
+  capability: "always" | "canManageConnections"
   icon: ComponentType<SVGProps<SVGSVGElement>>
   tile: string
 }[] = [
@@ -32,25 +39,11 @@ const AREAS: {
     tile: "bg-primary text-primary-foreground",
   },
   {
-    href: "/settings/compliance",
-    label: "Compliance",
-    capability: "canViewCompliance",
-    icon: Scale,
-    tile: "bg-[var(--np-info-solid)] text-[var(--np-info-on-solid)]",
-  },
-  {
     href: "/settings/connections",
     label: "Connections",
     capability: "canManageConnections",
     icon: Link2,
     tile: "bg-[var(--np-success-solid)] text-[var(--np-success-on-solid)]",
-  },
-  {
-    href: "/settings/ops",
-    label: "Operations",
-    capability: "canManageConnections",
-    icon: Activity,
-    tile: "bg-[var(--np-warning-solid)] text-[var(--np-warning-on-solid)]",
   },
 ]
 

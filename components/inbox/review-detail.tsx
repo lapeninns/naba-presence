@@ -4,14 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
-  ClockIcon,
   GlobeIcon,
-  MapPinIcon,
   PlayIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
@@ -21,35 +18,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { LifecycleStrip } from "@/components/inbox/detail/lifecycle-strip"
 import { Skeleton } from "@/components/ui/skeleton"
-import { deriveLifecycle } from "@/lib/inbox/lifecycle"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
+import { ReplyException } from "@/components/inbox/detail/reply-exception"
+import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
+import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { StarRating } from "@/components/inbox/star-rating"
-import {
-  SITUATION_TONE_CHIP,
-  SITUATION_TONE_ICON,
-  SITUATION_TONE_STRIP,
-} from "@/components/inbox/situation-tone"
-import { formatDateTime } from "@/lib/format"
+import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
+import { useIsDirty } from "@/components/inbox/dirty-context"
+import { formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
-  describeReplyState,
-  describeSituation,
-  replyWork,
-} from "@/lib/inbox/review-situation"
+  derivePrimaryAction,
+  deriveReplyStatus,
+  type ReplyPendingKind,
+  type ReplyStateInput,
+} from "@/lib/inbox/reply-state"
+import { describeReplyState, replyWork } from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
+import { useReplyPending } from "@/lib/queries/use-reply-pending"
 import { cn } from "@/lib/utils"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 type Review = ReviewDetailData["review"]
-
-function initials(name: string | null): string {
-  if (!name) return "?"
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?"
-}
 
 // "it" -> "Italian", so the translation line names the language rather than
 // showing operators a bare BCP-47 tag. Unknown or malformed codes fall back to
@@ -65,155 +57,65 @@ function languageName(code: string | null): string | null {
 }
 
 /**
- * The inspector's pinned head: a slim toolbar row for the return-to-list and
- * previous/next controls, the reviewer's identity, then the lifecycle and
- * situation. Hairlines, no fills — the card is the surface.
+ * The review as the status ladder sees it.
+ *
+ * `approvalScope` follows `canPublish` here and nowhere else: this pane offers
+ * a specific action, `evaluateApproval` gates that action on `canPublish`, and
+ * the status must describe the action actually on screen. A list row has no
+ * action and therefore does not guess — see `replyStateFromRow`.
  */
-function PaneHeader({
-  leading,
-  navigation,
-  children,
-  strip,
-}: {
-  leading?: ReactNode
-  navigation?: ReactNode
-  children?: ReactNode
-  strip?: ReactNode
-}) {
-  return (
-    <header className="flex shrink-0 flex-col border-b border-line-subtle">
-      {leading || navigation ? (
-        <div className="flex h-11 items-center gap-2 border-b border-line-subtle px-2">
-          {leading ? <div className="min-w-0 lg:hidden">{leading}</div> : null}
-          {navigation ? (
-            <div className="ml-auto flex shrink-0 items-center">
-              {navigation}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="@container/review-identity flex items-center gap-3 px-(--np-card-pad) py-3">
-        {children}
-      </div>
-      {strip}
-    </header>
-  )
+function replyStateFor(
+  review: Review,
+  isDirty: boolean,
+  pending: ReplyPendingKind | null
+): ReplyStateInput {
+  return {
+    workflowStatus: review.workflowStatus,
+    capabilities: review.capabilities,
+    reply: review.reply
+      ? { body: review.reply.body, publishStatus: review.reply.publishStatus }
+      : null,
+    drafts: review.drafts,
+    verification: review.latestVerification,
+    isDirty,
+    pending,
+    approvalScope: review.capabilities.canPublish ? "me" : "others",
+  }
 }
 
 /**
- * The pane's single status surface. It replaces the old header badge, and it
- * says what to do next rather than naming an internal workflow state.
+ * Reviewer · rating · venue · age, and everything else behind an info control.
+ *
+ * Four facts, one line. The old header spent three rows and a 48px avatar on
+ * the same four, which pushed the customer's actual words below the fold on a
+ * 1280px screen — in a pane whose entire job is reading them.
  */
-function SituationStrip({ review }: { review: Review }) {
-  const [pulse, setPulse] = useState(false)
-  const work = replyWork(review)
-  const situation = describeSituation({
-    workflowStatus: review.workflowStatus,
-    verification: review.latestVerification,
-    hasLiveReply: work.liveBody !== null,
-    hasUnpublishedChanges: work.hasUnpublishedChanges,
-    hasDraft: work.draftBody !== null,
-    hasVerifiedDraft: review.drafts.some(
-      (draft) =>
-        draft.verificationStatus === "pass" ||
-        draft.verificationStatus === "warn"
-    ),
-    canPublish: review.capabilities.canPublish,
-    canRequestApproval: review.capabilities.canRequestApproval,
-  })
-  const Icon = SITUATION_TONE_ICON[situation.tone]
-
-  // The ring stays up for PUBLISH_PULSE_MS — the same constant InboxView waits
-  // on before advancing — so the pulse is visible before this strip unmounts.
-  const pulseTimer = useRef<number | undefined>(undefined)
-  useEffect(() => {
-    function onPublished(event: Event) {
-      const detail = (event as CustomEvent<{ reviewId?: string }>).detail
-      if (detail?.reviewId !== review.id) return
-      setPulse(true)
-      window.clearTimeout(pulseTimer.current)
-      pulseTimer.current = window.setTimeout(() => {
-        pulseTimer.current = undefined
-        setPulse(false)
-      }, PUBLISH_PULSE_MS)
-    }
-    window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
-    return () => {
-      window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
-      window.clearTimeout(pulseTimer.current)
-      pulseTimer.current = undefined
-    }
-  }, [review.id])
-
-  return (
-    <div
-      role="status"
-      className={cn(
-        "flex items-start gap-2 rounded-(--np-radius-control) px-3 py-2 text-ui transition-[box-shadow,background-color] duration-(--np-duration-deliberate) ease-spring",
-        SITUATION_TONE_STRIP[situation.tone],
-        pulse && "ring-2 ring-(--np-success-line) ring-inset"
-      )}
-    >
-      <Icon aria-hidden strokeWidth={1.75} className="mt-px size-4 shrink-0" />
-      <p className="min-w-0">
-        <span className="font-semibold">{situation.headline}</span>
-        <span className="hidden sm:inline" aria-hidden>
-          {" "}
-          ·{" "}
-        </span>
-        <span className="mt-0.5 block sm:mt-0 sm:inline">
-          {situation.detail}
-        </span>
-      </p>
-    </div>
-  )
-}
-
-function ReviewerIdentity({ review }: { review: Review }) {
+function ReviewIdentity({ review }: { review: Review }) {
   const displayName = review.reviewerIsAnonymous
     ? "Anonymous"
     : (review.reviewerDisplayName ?? "Anonymous")
-  const photoUrl =
-    !review.reviewerIsAnonymous && review.reviewerProfilePhotoUrl
-      ? review.reviewerProfilePhotoUrl
-      : null
+
   return (
-    <div className="flex min-w-0 flex-1 items-start gap-3">
-      <Avatar size="lg">
-        {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-        <AvatarFallback>{initials(displayName)}</AvatarFallback>
-      </Avatar>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 @min-[32rem]/review-identity:flex-row @min-[32rem]/review-identity:items-start @min-[32rem]/review-identity:justify-between @min-[32rem]/review-identity:gap-6">
-        <div className="min-w-0">
-          <h2 className="truncate text-title font-semibold text-ink">
-            {displayName}
-          </h2>
-          <div className="mt-0.5">
-            <StarRating rating={review.rating} size="md" />
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-col gap-0.5 text-caption text-ink-muted @min-[32rem]/review-identity:shrink-0 @min-[32rem]/review-identity:items-end">
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            <MapPinIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0"
-            />
-            <span className="truncate">{review.locationName}</span>
-          </span>
+    <div className="flex items-start gap-2 border-b border-line-subtle px-(--np-card-pad) pt-2 pb-3">
+      <div className="min-w-0 flex-1">
+        <h2 className="truncate text-section font-semibold tracking-tight text-ink">
+          {displayName}
+        </h2>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted">
+          <StarRating rating={review.rating} size="md" tone="neutral" />
+          <span aria-hidden>·</span>
+          <span className="break-words">{review.locationName}</span>
+          <span aria-hidden>·</span>
           <time
             dateTime={review.createTime}
-            className="inline-flex items-center gap-1.5 tabular-nums"
+            title={formatDateTime(review.createTime, review.timezone)}
+            className="whitespace-nowrap tabular-nums"
           >
-            <ClockIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0"
-            />
-            {formatDateTime(review.createTime, review.timezone)}
+            {formatRelativeTime(review.createTime)}
           </time>
         </div>
       </div>
+      <ReviewMetadata review={review} />
     </div>
   )
 }
@@ -229,7 +131,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="rounded-(--np-radius-control) bg-surface-sunken px-4 py-3 text-body text-ink-muted italic">
+      <p className="text-body text-ink-muted italic">
         A rating with no written review.
       </p>
     )
@@ -239,11 +141,11 @@ function ReviewBody({ review }: { review: Review }) {
   const originalLanguage = languageName(parsed.originalLang)
 
   return (
-    <div className="flex flex-col gap-2 rounded-(--np-radius-control) bg-surface-sunken px-4 py-3">
+    <div className="flex flex-col gap-2">
       <blockquote
         lang={parsed.bodyLang ?? undefined}
         dir="auto"
-        className="text-body whitespace-pre-line text-ink"
+        className="text-body leading-relaxed whitespace-pre-line text-ink"
       >
         {parsed.body}
       </blockquote>
@@ -480,12 +382,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
               open && "rotate-90"
             )}
           />
-          <span
-            className={cn(
-              "inline-flex h-(--np-pill-h) items-center gap-1.5 rounded-(--np-radius-pill) px-2 font-medium",
-              SITUATION_TONE_CHIP[state.tone]
-            )}
-          >
+          <span className="inline-flex items-center gap-1.5 font-medium text-ink">
             <Icon aria-hidden strokeWidth={1.75} className="size-3.5" />
             {state.label}
           </span>
@@ -518,10 +415,91 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   )
 }
 
+/**
+ * The one status line, above the reply it describes.
+ *
+ * It is a `role="status"` so a change announces itself, and it is the only
+ * status surface in the pane. It comes out of the same ladder the footer's
+ * button obeys, so "Ready to publish" and a live Publish button are the same
+ * fact stated twice, never two facts.
+ */
+function ReplyStatusStrip({ review }: { review: Review }) {
+  const [pulse, setPulse] = useState(false)
+  const isDirty = useIsDirty()
+  const mutating = useReplyPending(review.id)
+  const action = derivePrimaryAction(replyStateFor(review, isDirty, null))
+  const pending: ReplyPendingKind | null =
+    mutating === "publish"
+      ? action.kind === "submit"
+        ? "submit"
+        : "publish"
+      : mutating === "approval"
+        ? "approve"
+        : mutating === "draft"
+          ? "save"
+          : null
+  const status = deriveReplyStatus(replyStateFor(review, isDirty, pending))
+
+  // The ring stays up for PUBLISH_PULSE_MS — the same constant InboxView waits
+  // on before advancing — so the pulse is actually on screen before this
+  // unmounts.
+  const pulseTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    function onPublished(event: Event) {
+      const detail = (event as CustomEvent<{ reviewId?: string }>).detail
+      if (detail?.reviewId !== review.id) return
+      setPulse(true)
+      window.clearTimeout(pulseTimer.current)
+      pulseTimer.current = window.setTimeout(() => {
+        pulseTimer.current = undefined
+        setPulse(false)
+      }, PUBLISH_PULSE_MS)
+    }
+    window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
+    return () => {
+      window.removeEventListener(PUBLISH_PULSE_EVENT, onPublished)
+      window.clearTimeout(pulseTimer.current)
+      pulseTimer.current = undefined
+    }
+  }, [review.id])
+
+  return (
+    <div
+      role="status"
+      data-slot="reply-status-strip"
+      data-pulse={pulse ? "true" : undefined}
+      className={cn(
+        "flex min-h-6 items-center rounded-(--np-radius-tag) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring",
+        pulse && "px-1.5 ring-2 ring-(--np-success-line) ring-inset"
+      )}
+    >
+      <ReplyStatusLine status={status} />
+    </div>
+  )
+}
+
 function ActionFooterSkeleton() {
   return (
     <div className="flex justify-end gap-2" aria-hidden>
       <Skeleton className="h-(--np-control-h) w-28 rounded-(--np-radius-pill)" />
+    </div>
+  )
+}
+
+function PaneHeader({
+  leading,
+  navigation,
+}: {
+  leading?: ReactNode
+  navigation?: ReactNode
+}) {
+  if (!leading && !navigation) return null
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 px-2">
+      {leading ? <div className="min-w-0 lg:hidden">{leading}</div> : null}
+      {navigation ? (
+        <div className="ml-auto flex shrink-0 items-center">{navigation}</div>
+      ) : null}
     </div>
   )
 }
@@ -538,9 +516,9 @@ function ReviewDetail({
   leading?: ReactNode
   /** Previous / next review controls, pinned in the pane chrome. */
   navigation?: ReactNode
-  /** Reply workspace, pinned above the actions so the field never scrolls away. */
+  /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
-  /** Lifecycle actions, pinned at the foot of the pane so the CTA never scrolls away. */
+  /** The applicable primary action, pinned at the foot so it never scrolls away. */
   actions?: ReactNode
 }) {
   const query = useReviewDetail(reviewId)
@@ -548,31 +526,20 @@ function ReviewDetail({
   if (query.isPending) {
     return (
       <div aria-busy="true" className="flex min-h-0 flex-1 flex-col">
-        <PaneHeader leading={leading} navigation={navigation}>
-          <Skeleton className="size-12 rounded-(--np-radius-pill)" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="h-3 w-52" />
-          </div>
-        </PaneHeader>
+        <PaneHeader leading={leading} navigation={navigation} />
+        <div className="flex flex-col gap-2 border-b border-line-subtle px-(--np-card-pad) pt-2 pb-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3 w-56" />
+        </div>
         <div className="flex min-h-0 flex-1 flex-col gap-4 p-(--np-card-pad)">
           <Skeleton className="h-24 w-full rounded-(--np-radius-control)" />
-          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-28 w-full rounded-(--np-radius-control)" />
         </div>
-        {composer || actions ? (
-          <div className="flex shrink-0 flex-col border-t border-line-subtle">
-            {composer ? (
-              <div className="flex flex-col gap-2 px-(--np-card-pad) py-3">
-                <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-28 w-full rounded-(--np-radius-field)" />
-              </div>
-            ) : null}
-            {actions ? (
-              <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
-                <ActionFooterSkeleton />
-              </footer>
-            ) : null}
-          </div>
+        {actions ? (
+          <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
+            <ActionFooterSkeleton />
+          </footer>
         ) : null}
       </div>
     )
@@ -595,55 +562,62 @@ function ReviewDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PaneHeader
-        leading={leading}
-        navigation={navigation}
-        strip={
-          <div className="flex flex-col gap-3 px-(--np-card-pad) pb-3">
-            {/* The pipeline first, then the one-line situation. Publishing is
-                the only irreversible thing this product does, so where a reply
-                has got to — and who moved it — belongs on screen rather than
-                being assembled by the reader from a status word, a badge and
-                an activity list. */}
-            <LifecycleStrip steps={deriveLifecycle(review)} />
-            <SituationStrip review={review} />
-          </div>
-        }
-      >
-        <ReviewerIdentity review={review} />
-      </PaneHeader>
+      <PaneHeader leading={leading} navigation={navigation} />
+      <ReviewIdentity review={review} />
 
-      {/* One scroll region for reading: what they said, then what is on
-          Google if it disagrees with the draft, then the audit trail last and
-          collapsed. Writing happens in the pinned area beneath, so the field
-          and the Publish button are always in reach. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-(--np-card-pad)">
-        <ReviewBody review={review} />
-        <ReviewMedia media={review.media} />
-        <LiveReplyDisclosure review={review} />
-        <ActivityTimeline
-          timeline={review.timeline}
-          timezone={review.timezone}
-          collapsible
-        />
+      {/* One reading order, one scroll region: what the customer said, then
+          the reply, then anything that is in the way of sending it, then the
+          history last and collapsed. The five-stage tracker that used to sit
+          above all of this is now inside the exception's disclosure — it was
+          permanent chrome answering a question most reviews never raise. */}
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        data-slot="inbox-detail-scroll"
+      >
+        {/* A measure, not a column width. Past about 70 characters the eye
+            loses the start of the next line, and the pane is now wide enough
+            at 1440px to run well past that. */}
+        <div className="flex w-full max-w-[72ch] flex-col gap-5 self-center p-(--np-card-pad)">
+          <section aria-label="Customer review" className="flex flex-col gap-3">
+            <h3 className="text-caption font-medium text-ink-muted">
+              Customer review
+            </h3>
+            <ReviewBody review={review} />
+            <ReviewMedia media={review.media} />
+          </section>
+
+          <section
+            aria-label="Your reply"
+            className="flex flex-col gap-3 border-t border-line-subtle pt-5"
+          >
+            <ReplyStatusStrip review={review} />
+            <LiveReplyDisclosure review={review} />
+            {composer}
+            <ReplyExceptionSlot review={review} />
+          </section>
+
+          <ActivityTimeline
+            timeline={review.timeline}
+            timezone={review.timezone}
+            collapsible
+          />
+        </div>
       </div>
 
-      {composer || actions ? (
-        <div className="flex shrink-0 flex-col border-t border-line-subtle bg-surface">
-          {composer ? (
-            <div className="max-h-[45dvh] overflow-y-auto px-(--np-card-pad) py-3">
-              {composer}
-            </div>
-          ) : null}
-          {actions ? (
-            <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
-              {actions}
-            </footer>
-          ) : null}
-        </div>
+      {actions ? (
+        <footer className="shrink-0 border-t border-line-subtle bg-surface px-(--np-card-pad) py-2.5">
+          {actions}
+        </footer>
       ) : null}
     </div>
   )
+}
+
+/** The exception needs the same dirty state the status and the footer read. */
+function ReplyExceptionSlot({ review }: { review: Review }) {
+  const isDirty = useIsDirty()
+  const action = derivePrimaryAction(replyStateFor(review, isDirty, null))
+  return <ReplyException review={review} action={action} />
 }
 
 export { ReviewDetail }

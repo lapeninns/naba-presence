@@ -3,7 +3,11 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
 
-import { fieldChromeClassName } from "@/components/ui/field"
+import {
+  fieldControlProps,
+  fieldChromeClassName,
+  useFieldContext,
+} from "@/components/ui/field"
 import { menuItemClassName, menuPopupClassName } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
@@ -22,6 +26,10 @@ function ComboboxInput({
   wrapperClassName,
   ...props
 }: ComboboxPrimitive.Input.Props & { wrapperClassName?: string }) {
+  // A real `<input>`, so the ordinary control wiring applies: a `FieldLabel`
+  // above it keeps its `htmlFor` and labels this directly. Caller props are
+  // spread last, so an explicit id or aria-label still wins.
+  const field = useFieldContext()
   return (
     <div
       data-slot="combobox-field"
@@ -34,6 +42,7 @@ function ComboboxInput({
           "h-(--np-field-h) w-full pr-8 pl-3",
           className
         )}
+        {...fieldControlProps(field)}
         {...props}
       />
       <ComboboxPrimitive.Trigger

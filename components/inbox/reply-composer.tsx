@@ -37,6 +37,7 @@ import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { REPLY_FOCUS_EVENT } from "@/lib/inbox/events"
 import { replyWork } from "@/lib/inbox/review-situation"
 import {
   useGenerateOrSaveDraft,
@@ -76,6 +77,14 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
+/**
+ * Reading the reply and editing it are two shapes of one thing, so the line
+ * that names it is set once. It used to be the title role in the preview and
+ * the smaller UI role in the editor, which made the pane's heading shrink the
+ * moment Edit was pressed and everything under it jump up.
+ */
+const REPLY_HEADING_CLASS = "text-title font-semibold text-ink"
+
 function saveShortcutLabel(): string {
   if (typeof navigator === "undefined") return "Ctrl+Enter"
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ||
@@ -103,7 +112,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>("warm_professional")
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [editingSettled, setEditingSettled] = useState(false)
+  // The composer opens closed. A saved reply is something to READ first — the
+  // pane's job is "is this reply right?", and a textarea answers a different
+  // question. Editing is entered deliberately, by Edit or by `r`.
+  const [editing, setEditing] = useState(false)
   // Verification produced by THIS session's latest save/verify/generate;
   // null until the user acts, then the persisted review.latestVerification (D3)
   // shows verdict AND reasons on load.
@@ -135,7 +147,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       seededBodyRef.current = next
       setBody(next)
       setMutationVerification(null)
-      setEditingSettled(false)
+      setEditing(false)
       return
     }
     // A newer draft for the review already on screen: someone else saved one,
@@ -150,6 +162,33 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       setBody(seededBody)
     }
   }, [body, review, reviewId, restore, seededBody])
+
+  // `r` asks; this decides. The hotkey layer has no idea whether editing is
+  // permitted for this review, and it must not: permission lives with the
+  // review, not with the keyboard.
+  const canOpenEditorRef = useRef(false)
+  const editableNow =
+    Boolean(review?.capabilities.canEdit) &&
+    (!review ||
+      !isReviewWorkflowState(review.workflowStatus) ||
+      isAllowedReviewTransition(review.workflowStatus, "drafted"))
+  useEffect(() => {
+    canOpenEditorRef.current = editableNow
+  }, [editableNow])
+  useEffect(() => {
+    function onFocusReply() {
+      if (!canOpenEditorRef.current) return
+      setEditing(true)
+      requestAnimationFrame(() => {
+        const field = textareaRef.current
+        field?.focus()
+        const length = field?.value.length ?? 0
+        field?.setSelectionRange(length, length)
+      })
+    }
+    window.addEventListener(REPLY_FOCUS_EVENT, onFocusReply)
+    return () => window.removeEventListener(REPLY_FOCUS_EVENT, onFocusReply)
+  }, [])
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const verify = useVerifyDraft(reviewId)
@@ -172,11 +211,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         description: "A fresh reply was generated and verified.",
         type: "success",
       })
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        const length = result.body.length
-        textareaRef.current?.setSelectionRange(length, length)
-      })
+      // A generated draft is saved and checked server-side, so it comes back
+      // as something to READ. Only keep the caret in the box if the operator
+      // was already editing; otherwise leave them in the preview.
+      if (editing) {
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus()
+          const length = result.body.length
+          textareaRef.current?.setSelectionRange(length, length)
+        })
+      }
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
@@ -225,8 +269,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const canDraft =
     !isReviewWorkflowState(review.workflowStatus) ||
     isAllowedReviewTransition(review.workflowStatus, "drafted")
-  const showSettledSummary =
-    settled && canEdit && !isDirty && !editingSettled && body.trim() !== ""
+  // Read first, edit on purpose. A saved reply shows as text whenever there is
+  // nothing unsaved to lose — including the ordinary "draft saved, not yet
+  // published" case the old pane always opened as a textarea.
+  const showPreview = !editing && !isDirty && body.trim() !== ""
   const bytes = byteLength(body)
   const overLimit = bytes > BYTE_LIMIT
   const nearLimit = !overLimit && bytes >= BYTE_WARN_AT
@@ -245,18 +291,23 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const provenance = latestDraft ? PROVENANCE[latestDraft.source] : null
   const shortcut = saveShortcutLabel()
 
-  if (showSettledSummary) {
+  // Leaving the editor drops unsaved text, so it goes through the same guard
+  // as every other navigation that would.
+  async function closeEditor() {
+    if (isDirty && !(await confirmDiscard())) return
+    setBody(seededBody)
+    setEditing(false)
+  }
+
+  if (showPreview) {
     return (
       <section
         aria-labelledby={`${fieldId}-heading`}
-        className="flex flex-col gap-2"
+        className="flex flex-col gap-3"
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3
-            id={`${fieldId}-heading`}
-            className="text-ui font-semibold text-ink"
-          >
-            Your reply
+          <h3 id={`${fieldId}-heading`} className={REPLY_HEADING_CLASS}>
+            {settled ? "Published reply" : "Your reply"}
           </h3>
           {provenance ? (
             <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
@@ -268,31 +319,83 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               {provenance}
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
-            <CircleCheckIcon
+        </div>
+
+        {/* The reply as words, at reading size, before any control asks the
+            operator to do something about it. */}
+        <p
+          dir="auto"
+          lang={review.detectedLanguageCode ?? undefined}
+          className="text-body leading-relaxed whitespace-pre-line text-ink"
+        >
+          {body}
+        </p>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!canGenerate}
+            onClick={onGenerateClick}
+          >
+            <SparklesIcon
               aria-hidden
               strokeWidth={1.75}
-              className="size-3.5 shrink-0 text-success-ink"
+              data-icon="inline-start"
             />
-            In sync with Google
-          </span>
-          <span aria-hidden className="flex-1" />
+            {generateOrSave.isPending ? "Working…" : generateLabel}
+          </Button>
           <Button
             variant="secondary"
             size="sm"
             pill
-            onClick={() => setEditingSettled(true)}
+            disabled={!canEdit || !canDraft}
+            onClick={() => setEditing(true)}
           >
             Edit reply
           </Button>
         </div>
-        <p
-          dir="auto"
-          lang={review.detectedLanguageCode ?? undefined}
-          className="rounded-(--np-radius-control) bg-surface-sunken px-4 py-3 text-body whitespace-pre-line text-ink"
-        >
-          {body}
-        </p>
+
+        {!canEdit ? (
+          <p className="text-caption text-ink-muted">
+            You can read this reply, but you do not have permission to edit it.
+          </p>
+        ) : !canDraft ? (
+          <p className="text-caption text-ink-muted">
+            A publish for this reply is under way. You can edit it again once
+            Google answers.
+          </p>
+        ) : null}
+
+        {reasons.length > 0 ? (
+          <VerificationPanel
+            verification={displayedVerification}
+            status={review.workflowStatus}
+          />
+        ) : null}
+
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent aria-label="Discard your edits?">
+            <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Regenerating replaces your unsaved changes with a new draft. This
+              cannot be undone.
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="secondary" />}>
+                Keep editing
+              </AlertDialogClose>
+              <Button
+                onClick={() => {
+                  setConfirmOpen(false)
+                  void runGenerate()
+                }}
+              >
+                Discard and regenerate
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </section>
     )
   }
@@ -306,7 +409,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         <label
           id={`${fieldId}-heading`}
           htmlFor={fieldId}
-          className="text-ui font-semibold text-ink"
+          className={REPLY_HEADING_CLASS}
         >
           Your reply
         </label>
@@ -508,6 +611,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         ) : (
           <span id={`${fieldId}-hint`} className="sr-only" />
         )}
+
+        {latestDraft || liveBody !== null ? (
+          <Button variant="ghost" size="sm" onClick={() => void closeEditor()}>
+            Close editor
+          </Button>
+        ) : null}
 
         <Button
           variant="secondary"

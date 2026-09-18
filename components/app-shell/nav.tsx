@@ -115,7 +115,11 @@ function Nav({
                       onClick={onNavigate}
                       className={cn(
                         NAV_ROW_CLASS,
-                        "h-8",
+                        // 32px where a cursor drives the persistent sidebar,
+                        // the 44px comfortable target wherever the pointer is
+                        // a finger — which is the same rows, reached through
+                        // the mobile navigation sheet.
+                        "h-8 pointer-coarse:h-11",
                         active
                           ? "bg-accent-tint text-accent-ink"
                           : "text-ink hover:bg-fill-tertiary"
@@ -146,7 +150,7 @@ function Nav({
                           onClick={onNavigate}
                           className={cn(
                             NAV_ROW_CLASS,
-                            "h-7 gap-2 pl-9 font-normal",
+                            "h-7 gap-2 pl-9 font-normal pointer-coarse:h-10",
                             active
                               ? "bg-accent-tint font-medium text-accent-ink"
                               : "text-ink-muted hover:bg-fill-tertiary hover:text-ink"

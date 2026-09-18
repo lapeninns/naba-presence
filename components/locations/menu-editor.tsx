@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { FoodMenu } from "@/lib/api/location-menu"
+import { cn } from "@/lib/utils"
 
 type Json = Record<string, unknown>
 
@@ -85,9 +86,20 @@ function withPrice(item: Json, value: string): Json {
 }
 
 /**
+ * The item row's column track. Fixed widths on each control gave a wrapping
+ * row whose columns lined up in no two rows at once; one grid, declared here
+ * and reused by the header caption, makes a section of twelve items read
+ * down its columns the way a menu does. One column on a phone, so nothing is
+ * squeezed to reach a column that isn't there.
+ */
+const ITEM_GRID_CLASS =
+  "grid grid-cols-1 gap-2 px-(--np-card-pad) sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_7.5rem_auto] sm:items-start sm:gap-3"
+
+/**
  * Each menu section is a white card: its name in the header row over a
- * hairline, then one hairline-divided row per item (name, description,
- * price), then the add-item action in the card's footer.
+ * hairline, a caption naming the columns, then one hairline-divided row per
+ * item (name, description, price), then the add-item action in the card's
+ * footer.
  */
 export function MenuEditor({
   menus,
@@ -158,99 +170,123 @@ export function MenuEditor({
               ) : null}
             </div>
             {items.length > 0 ? (
-              <ul className="divide-y divide-line-subtle">
-                {items.map((item, itemIndex) => {
-                  const itemLabel = label(item)
-                  return (
-                    <li
-                      key={itemIndex}
-                      className="flex flex-wrap items-start gap-2 px-(--np-card-pad) py-3"
-                    >
-                      <Input
-                        aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                        placeholder="Item"
-                        value={itemLabel.displayName}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          setItems(
-                            sectionIndex,
-                            items.map((it, i) =>
-                              i === itemIndex
-                                ? withLabel(
-                                    it,
-                                    event.target.value,
-                                    itemLabel.description
-                                  )
-                                : it
-                            )
-                          )
-                        }
-                        className="w-48"
-                      />
-                      <Textarea
-                        aria-label={`Item description — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                        placeholder="Description"
-                        value={itemLabel.description}
-                        disabled={disabled}
-                        rows={1}
-                        onChange={(event) =>
-                          setItems(
-                            sectionIndex,
-                            items.map((it, i) =>
-                              i === itemIndex
-                                ? withLabel(
-                                    it,
-                                    itemLabel.displayName,
-                                    event.target.value
-                                  )
-                                : it
-                            )
-                          )
-                        }
-                        className="min-h-(--np-field-h) w-56"
-                      />
-                      <span className="flex items-center gap-1.5">
-                        <span className="text-ui text-ink-muted tabular-nums">
-                          {currencySymbol(currencyOf(item))}
-                        </span>
+              <>
+                {/* The column names, once per section rather than repeated
+                    into every control's placeholder. Hidden from assistive
+                    tech because each field already carries its own label —
+                    this is the sighted reader's column rhythm, not a second
+                    set of names to reconcile. */}
+                <div
+                  aria-hidden
+                  className={cn(
+                    ITEM_GRID_CLASS,
+                    "hidden border-b border-line-subtle py-2 text-caption font-medium text-ink-muted sm:grid"
+                  )}
+                >
+                  <span>Item</span>
+                  <span>Description</span>
+                  <span>Price</span>
+                  <span />
+                </div>
+                <ul className="divide-y divide-line-subtle">
+                  {items.map((item, itemIndex) => {
+                    const itemLabel = label(item)
+                    return (
+                      <li
+                        key={itemIndex}
+                        className={cn(ITEM_GRID_CLASS, "py-3")}
+                      >
                         <Input
-                          aria-label={`Item price — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                          inputMode="decimal"
-                          placeholder="0.00"
-                          value={readPrice(item)}
+                          aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                          placeholder="Item"
+                          value={itemLabel.displayName}
                           disabled={disabled}
                           onChange={(event) =>
                             setItems(
                               sectionIndex,
                               items.map((it, i) =>
                                 i === itemIndex
-                                  ? withPrice(it, event.target.value)
+                                  ? withLabel(
+                                      it,
+                                      event.target.value,
+                                      itemLabel.description
+                                    )
                                   : it
                               )
                             )
                           }
-                          className="w-24 text-right tabular-nums"
                         />
-                      </span>
-                      {!disabled ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="ml-auto"
-                          onClick={() =>
+                        <Textarea
+                          aria-label={`Item description — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                          placeholder="Description"
+                          value={itemLabel.description}
+                          disabled={disabled}
+                          rows={1}
+                          onChange={(event) =>
                             setItems(
                               sectionIndex,
-                              items.filter((_, i) => i !== itemIndex)
+                              items.map((it, i) =>
+                                i === itemIndex
+                                  ? withLabel(
+                                      it,
+                                      itemLabel.displayName,
+                                      event.target.value
+                                    )
+                                  : it
+                              )
                             )
                           }
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </li>
-                  )
-                })}
-              </ul>
+                          // Grows with its content where the browser can
+                          // (`field-sizing`), so a two-line description is
+                          // read rather than half-shown behind a scrollbar in
+                          // a 34px box. Elsewhere it stays exactly as before:
+                          // one row, the field height, resizable by hand.
+                          className="field-sizing-content min-h-(--np-field-h)"
+                        />
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="shrink-0 text-ui text-ink-muted tabular-nums">
+                            {currencySymbol(currencyOf(item))}
+                          </span>
+                          <Input
+                            aria-label={`Item price — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={readPrice(item)}
+                            disabled={disabled}
+                            onChange={(event) =>
+                              setItems(
+                                sectionIndex,
+                                items.map((it, i) =>
+                                  i === itemIndex
+                                    ? withPrice(it, event.target.value)
+                                    : it
+                                )
+                              )
+                            }
+                            className="min-w-0 text-right tabular-nums"
+                          />
+                        </span>
+                        {!disabled ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="justify-self-start sm:justify-self-end"
+                            aria-label={`Remove item ${itemIndex + 1} from section ${sectionIndex + 1}`}
+                            onClick={() =>
+                              setItems(
+                                sectionIndex,
+                                items.filter((_, i) => i !== itemIndex)
+                              )
+                            }
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
             ) : (
               <p className="px-(--np-card-pad) py-3 text-ui text-ink-muted">
                 No items in this section yet.

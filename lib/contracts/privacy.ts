@@ -2,8 +2,11 @@
  * Wire contract for `/api/privacy/**`.
  *
  * Client-safe: no `server-only`, no `lib/server` imports. The routes parse
- * bodies with the request schemas; `lib/api/privacy.ts` parses responses
- * with the response schemas.
+ * bodies with the request schemas and shape replies with the response ones.
+ *
+ * The routes are now the only consumer. The browser-side wrapper this file
+ * used to name went with the compliance console; data-subject requests are
+ * served over the API, owner/admin-gated as they always were.
  */
 import { z } from "zod"
 

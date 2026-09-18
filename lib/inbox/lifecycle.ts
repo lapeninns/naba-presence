@@ -1,4 +1,5 @@
 import type { ReviewDetail } from "@/lib/contracts/reviews"
+import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
 
 /**
  * The reply's journey, as five states.
@@ -36,11 +37,12 @@ export type LifecycleStep = {
 
 type Review = ReviewDetail["review"]
 
-function actorFor(review: Review, actions: string[]): string | null {
-  // Latest first: the timeline arrives oldest-first and the interesting actor
-  // is whoever moved it most recently.
-  for (let index = review.timeline.length - 1; index >= 0; index -= 1) {
-    const entry = review.timeline[index]
+export function actorFor(review: Review, actions: string[]): string | null {
+  // The route orders audit rows `created_at desc`, so the array arrives
+  // NEWEST-first and the first match is the most recent actor. This used to
+  // walk from the end, which returned the oldest — naming the wrong person on
+  // any review that had been re-drafted or approved more than once.
+  for (const entry of review.timeline) {
     if (actions.includes(entry.action)) return entry.actorName ?? null
   }
   return null
@@ -51,7 +53,12 @@ export function deriveLifecycle(review: Review): LifecycleStep[] {
   const latestDraft = review.drafts.at(0) ?? null
   const verification = review.latestVerification
   const reply = review.reply
-  const isPublished = status === "published" || Boolean(reply?.body)
+  // `published`, never "there is a reply body": a failed or rejected publish
+  // leaves a body behind, and `settle()` below would then back-fill every
+  // earlier step to done — a completed pipeline drawn over a reply that never
+  // went live. Publication is claimed only when the provider confirmed it.
+  const isPublished =
+    status === "published" || isLiveOnGoogle(reply?.publishStatus)
   const failed = status === "failed"
 
   const drafter = actorFor(review, ["review.draft.created", "review.draft.saved"])

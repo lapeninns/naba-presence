@@ -9,7 +9,7 @@ describe("SettingsNav", () => {
   it("shows every area to an owner and marks the active one", () => {
     render(<SettingsNav role="owner" />)
     const nav = screen.getByRole("navigation", { name: "Settings sections" })
-    for (const label of ["Policy", "Compliance", "Connections", "Operations"]) {
+    for (const label of ["Policy", "Connections"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
     expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute(
@@ -27,9 +27,19 @@ describe("SettingsNav", () => {
     expect(screen.queryByRole("link", { name: "Listing" })).not.toBeInTheDocument()
   })
 
-  it("shows every area to an admin too (admins can view Compliance)", () => {
+  it("no longer offers Compliance or Operations consoles", () => {
+    // Data-subject requests, legal holds and sync health are still served by
+    // their owner/admin-gated API routes; what they lost is a console in a
+    // product whose job is replying to reviews.
+    render(<SettingsNav role="owner" />)
+    for (const gone of ["Compliance", "Operations"]) {
+      expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
+    }
+  })
+
+  it("shows every area to an admin too", () => {
     render(<SettingsNav role="admin" />)
-    for (const label of ["Policy", "Compliance", "Connections", "Operations"]) {
+    for (const label of ["Policy", "Connections"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
   })
@@ -37,7 +47,7 @@ describe("SettingsNav", () => {
   it("shows a member only the Policy area", () => {
     render(<SettingsNav role="member" />)
     expect(screen.getByRole("link", { name: "Policy" })).toBeInTheDocument()
-    for (const gone of ["Compliance", "Connections", "Operations"]) {
+    for (const gone of ["Connections"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
   })

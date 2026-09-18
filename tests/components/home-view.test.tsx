@@ -140,6 +140,7 @@ describe("HomeView", () => {
         byStatus: fullByStatus,
         byQueue: {
           needs_reply: 8,
+          approval: 0,
           awaiting_my_approval: 4,
           awaiting_others: 0,
           publishing: 0,
@@ -232,6 +233,7 @@ describe("HomeView", () => {
         },
         byQueue: {
           needs_reply: 0,
+          approval: 0,
           awaiting_my_approval: 0,
           awaiting_others: 0,
           publishing: 0,

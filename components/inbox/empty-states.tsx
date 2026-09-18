@@ -39,6 +39,13 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
         title: "No reviews match these filters",
         description: "Try widening or clearing your filters.",
       }
+    case "queue_empty":
+      return {
+        icon: InboxIcon,
+        title: "Nothing in this queue",
+        description:
+          "Every review here has been dealt with. Choose another queue above to keep working.",
+      }
     // This state carries the whole message, headline and action included. It
     // used to defer to the shell's ReconnectBanner, but that banner is now
     // client-scoped and the inbox is organisation-wide, so on this screen

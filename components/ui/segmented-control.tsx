@@ -16,6 +16,24 @@ import { cn } from "@/lib/utils"
  * the snappy spring. Thumb and segment radii are the track radius minus the
  * padding, so the corners stay concentric.
  */
+/**
+ * The three recipes the control is made of, exported so a surface that needs
+ * different SEMANTICS — sign-in's two `aria-pressed` buttons, which are one
+ * form in two shapes rather than two panels — can still be the same OBJECT.
+ * Copying the strings instead is how a track on one screen quietly stops
+ * matching the track on the next.
+ */
+const segmentedThumbClassName = cn(
+  "rounded-[calc(var(--np-radius-control)-2px)] bg-surface shadow-(--np-shadow-raised)"
+)
+
+const segmentedItemClassName = cn(
+  "relative z-10 inline-flex h-full min-w-0 flex-1 shrink-0 items-center justify-center gap-1.5 rounded-[calc(var(--np-radius-control)-2px)] px-3 text-ui font-medium whitespace-nowrap text-ink-muted focus-halo select-none",
+  "transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy",
+  "hover:text-ink active:scale-[0.98]",
+  "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+)
+
 const trackVariants = cva(
   "relative isolate flex w-full min-w-0 items-center gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5",
   {
@@ -79,7 +97,7 @@ function SegmentedControl({
           aria-hidden
           className={cn(
             "absolute top-0 left-0 z-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) translate-y-(--active-tab-top)",
-            "rounded-[calc(var(--np-radius-control)-2px)] bg-surface shadow-(--np-shadow-raised)",
+            segmentedThumbClassName,
             "transition-[transform,width,height] duration-(--np-duration-standard) ease-spring-snappy"
           )}
         />
@@ -103,11 +121,9 @@ function SegmentedControlItem({
     <TabsPrimitive.Tab
       data-slot="segmented-control-item"
       className={cn(
-        "relative z-10 inline-flex h-full min-w-0 flex-1 shrink-0 items-center justify-center gap-1.5 rounded-[calc(var(--np-radius-control)-2px)] px-3 text-ui font-medium whitespace-nowrap text-ink-muted focus-halo select-none",
-        "transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy",
-        "hover:text-ink active:scale-[0.98] data-selected:text-ink",
+        segmentedItemClassName,
+        "data-selected:text-ink",
         "data-disabled:pointer-events-none data-disabled:opacity-50",
-        "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -115,4 +131,13 @@ function SegmentedControlItem({
   )
 }
 
-export { SegmentedControl, SegmentedControlItem }
+/** The visible track: the fill grey with 2px of padding. */
+const segmentedTrackClassName = trackVariants({ size: "default" })
+
+export {
+  SegmentedControl,
+  SegmentedControlItem,
+  segmentedItemClassName,
+  segmentedThumbClassName,
+  segmentedTrackClassName,
+}

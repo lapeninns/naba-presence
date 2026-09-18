@@ -28,22 +28,19 @@ import {
 import { useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsDirty } from "@/components/inbox/dirty-context"
+import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
 import {
-  describeOutcomeToast,
-  evaluateApproval,
-  evaluateDelete,
-  evaluatePublish,
-  evaluateRequestApproval,
-} from "@/lib/inbox/actions"
+  derivePrimaryAction,
+  publishableDraft,
+} from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
-import { isLiveOnGoogle, replyWork } from "@/lib/inbox/review-situation"
+import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
 import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
-const VERIFIED = new Set(["pass", "warn"])
 const REJECT_NOTE_LIMIT = 2000
 
 /**
@@ -70,33 +67,26 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const review = detail.data?.review
   if (!review) return null
 
-  // `replyWork` centralises the "is anything actually pending?" question that
-  // the composer, the status strip and this bar all have to agree on — the
-  // same `publish_status === 'published'` test that used to live here as a
-  // local Set (see supabase/migrations/0001_initial.sql for the full enum;
-  // 'accepted' is in-flight, not a confirmed live reply — fix-round-1
-  // IMPORTANT #4).
-  const work = replyWork(review)
 
-  const verifiedDraft = review.drafts.find(
-    (draft) =>
-      draft.verificationStatus && VERIFIED.has(draft.verificationStatus)
-  )
-  const publishState = evaluatePublish({
-    status: review.workflowStatus,
-    canPublish: review.capabilities.canPublish,
-    hasVerifiedDraft: Boolean(verifiedDraft),
+  // The NEWEST draft, and only when it is verified. The old `drafts.find(…)`
+  // took the first verified draft anywhere in the list, so a review whose
+  // newest draft was unverified could enable Publish and then send the OLDER
+  // text — which is not what the composer above was showing. See
+  // lib/inbox/reply-state.ts.
+  const verifiedDraft = publishableDraft(review.drafts)
+  // ONE derivation, shared with the status line above the reply, so the two
+  // can never contradict each other (requirement: status and action
+  // eligibility stay consistent).
+  const primary = derivePrimaryAction({
+    workflowStatus: review.workflowStatus,
+    capabilities: review.capabilities,
+    reply: review.reply
+      ? { body: review.reply.body, publishStatus: review.reply.publishStatus }
+      : null,
+    drafts: review.drafts,
+    verification: review.latestVerification,
     isDirty,
-  })
-  const requestApprovalState = evaluateRequestApproval({
-    status: review.workflowStatus,
-    canRequestApproval: review.capabilities.canRequestApproval,
-    hasVerifiedDraft: Boolean(verifiedDraft),
-    isDirty,
-  })
-  const approvalState = evaluateApproval({
-    status: review.workflowStatus,
-    canPublish: review.capabilities.canPublish,
+    approvalScope: review.capabilities.canPublish ? "me" : "others",
   })
   const deleteState = evaluateDelete({
     // Status, not body: a live reply is deletable even in the (anomalous) case
@@ -163,38 +153,16 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     }
   }
 
-  const awaitingApproval = review.workflowStatus === "awaiting_approval"
+  const awaitingApproval = primary.kind === "approve"
   // D2: a non-publisher in an approval-required org sees "Submit for
   // approval" in place of the (otherwise disabled-for-them) Publish button.
   // It reuses the same publish mutation -- the server routes a
   // non-publisher's publish to `awaiting_approval` (lib/server/publishing.ts)
   // -- so onPublish/describeOutcomeToast are shared unchanged.
-  const offerRequestApproval =
-    !review.capabilities.canPublish && review.capabilities.canRequestApproval
-
-  // Nothing new to send: the live reply and the newest draft are the same
-  // words. The button stays in place (the composer edits the live text
-  // directly, so it becomes available the moment that text changes) but it is
-  // off, because re-sending identical words is a pointless round-trip the
-  // domain does not even allow a transition for.
-  // `work` is server state, so it still reads "settled" while the composer
-  // holds unsaved edits — without the dirty check the footer would tell you to
-  // edit a reply you are in the middle of editing.
-  const nothingToPublish = work.settled && !isDirty && !awaitingApproval
-  // "Publish" is the wrong verb once something is already on Google.
-  const publishLabel = work.liveBody !== null ? "Update reply" : "Publish reply"
-  const primaryState = awaitingApproval
-    ? approvalState
-    : offerRequestApproval
-      ? requestApprovalState
-      : publishState
+  const offerRequestApproval = primary.kind === "submit"
   // The reason a button is off was previously only in `title` — invisible on
   // touch, and to most keyboard and screen-reader users. It is now text.
-  const blockedReason = nothingToPublish
-    ? "Edit the reply above to publish a change."
-    : !primaryState.enabled
-      ? primaryState.reason
-      : undefined
+  const blockedReason = primary.reason
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -210,8 +178,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <Button
               variant="secondary"
               pill
-              disabled={!approvalState.enabled || approval.isPending}
-              title={approvalState.reason}
+              disabled={!primary.enabled || approval.isPending}
+              title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
               onClick={() => setRejectOpen(true)}
             >
@@ -220,8 +188,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             </Button>
             <Button
               pill
-              disabled={!approvalState.enabled || approval.isPending}
-              title={approvalState.reason}
+              disabled={!primary.enabled || approval.isPending}
+              title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
               onClick={() => void onDecision("approve")}
             >
@@ -236,12 +204,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : offerRequestApproval ? (
           <Button
             pill
-            disabled={
-              nothingToPublish ||
-              !requestApprovalState.enabled ||
-              publish.isPending
-            }
-            title={blockedReason ?? requestApprovalState.reason}
+            disabled={!primary.enabled || publish.isPending}
+            title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
             onClick={() => void onPublish()}
           >
@@ -255,10 +219,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : (
           <Button
             pill
-            disabled={
-              nothingToPublish || !publishState.enabled || publish.isPending
-            }
-            title={blockedReason ?? publishState.reason}
+            disabled={!primary.enabled || publish.isPending}
+            title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
             onClick={() => void onPublish()}
           >
@@ -267,7 +229,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               strokeWidth={1.75}
               data-icon="inline-start"
             />
-            {publish.isPending ? "Publishing…" : publishLabel}
+            {publish.isPending ? "Publishing…" : primary.label}
           </Button>
         )}
 

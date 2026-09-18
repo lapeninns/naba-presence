@@ -20,15 +20,37 @@ function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   )
 }
 
-function TabsList({ className, children, ...props }: TabsPrimitive.List.Props) {
+/**
+ * `fill` is the phone drawing of a short tab row: equal columns that divide
+ * the width, rather than a scrolling strip whose last tab is hidden off the
+ * edge. From `sm` it returns to the ordinary row. A three-tab report page was
+ * writing this out as a grid override plus a per-tab alignment override at
+ * the call site; it is one decision about how tabs behave on a narrow screen,
+ * so it belongs here.
+ */
+const FILL_CLASS = cn(
+  "grid auto-cols-fr grid-flow-col gap-0 overflow-visible",
+  "[&_[data-slot=tabs-tab]]:justify-center [&_[data-slot=tabs-tab]]:px-2",
+  "sm:flex sm:gap-5 sm:overflow-x-auto",
+  "sm:[&_[data-slot=tabs-tab]]:justify-start sm:[&_[data-slot=tabs-tab]]:px-1"
+)
+
+function TabsList({
+  className,
+  children,
+  fill = false,
+  ...props
+}: TabsPrimitive.List.Props & { fill?: boolean }) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
+      data-fill={fill || undefined}
       className={cn(
         // Horizontal padding matches the tabs' own inset so the focus halo is
         // not clipped by the scroll container; the row's bottom hairline is
         // the underline's track.
         "relative -mx-1 flex items-end gap-5 overflow-x-auto border-b border-line-subtle px-1 pt-1",
+        fill && FILL_CLASS,
         className
       )}
       {...props}
@@ -47,7 +69,7 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        "focus-halo mb-1.5 inline-flex h-(--np-control-h) shrink-0 items-center gap-1.5 rounded-(--np-radius-tag) px-1 text-ui font-medium whitespace-nowrap text-ink-muted transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink disabled:pointer-events-none disabled:text-ink-faint data-active:text-ink [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
+        "mb-1.5 inline-flex h-(--np-control-h) shrink-0 items-center gap-1.5 rounded-(--np-radius-tag) px-1 text-ui font-medium whitespace-nowrap text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink disabled:pointer-events-none disabled:text-ink-faint data-active:text-ink [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

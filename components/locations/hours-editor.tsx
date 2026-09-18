@@ -122,9 +122,15 @@ export function HoursEditor({
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       <section className="flex flex-col gap-2">
-        <h3 className="px-(--np-card-pad) text-title font-semibold text-ink">
-          Regular hours
-        </h3>
+        {/* Flush with the panel's edge. The console has two kinds of line
+            above a list and they are drawn differently: a grouped-list
+            CAPTION (small, grey, `text-caption`) is inset to the card padding
+            so it sits over the row content, the way iOS draws one; a section
+            HEADING in the title role, like this one, sits flush, the way
+            Industry, Visibility on Google and every Home section do. These
+            were headings wearing the caption's inset, which left the Hours
+            tab the one screen whose titles started on their own margin. */}
+        <h3 className="text-title font-semibold text-ink">Regular hours</h3>
         <ul className="divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface">
           {value.regular.map((day, index) => {
             const dayLabel = DAY_LABELS[day.dayOfWeek]
@@ -242,9 +248,7 @@ export function HoursEditor({
       </section>
 
       <section className="flex flex-col gap-2">
-        <h3 className="px-(--np-card-pad) text-title font-semibold text-ink">
-          Special hours
-        </h3>
+        <h3 className="text-title font-semibold text-ink">Special hours</h3>
         {value.special.length > 0 ? (
           <ul className="divide-y divide-line-subtle rounded-(--np-radius-card) bg-surface">
             {value.special.map((entry, index) => (
@@ -350,7 +354,7 @@ export function HoursEditor({
             ))}
           </ul>
         ) : (
-          <p className="px-(--np-card-pad) text-ui text-ink-muted">
+          <p className="text-ui text-ink-muted">
             No special days yet. Holidays and one-off closures go here.
           </p>
         )}
@@ -359,7 +363,7 @@ export function HoursEditor({
             type="button"
             variant="secondary"
             size="sm"
-            className="ml-(--np-card-pad) self-start"
+            className="self-start"
             onClick={addSpecial}
           >
             <Plus strokeWidth={1.75} aria-hidden />

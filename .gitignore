@@ -51,3 +51,6 @@ next-env.d.ts
 # local git worktrees
 /.worktrees/
 .vercel
+
+# Cursor/OMO codegraph symlink (dangling targets break `next build`)
+.codegraph

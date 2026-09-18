@@ -178,9 +178,15 @@ against PostgreSQL 17, creates a non-superuser runtime login with
 `pnpm db:runtime-role`, builds the standalone server, and runs the integration
 and browser suites through that runtime role.
 
-Development and production builds intentionally use Next.js 16’s supported
-webpack path because Turbopack can spawn runaway PostCSS workers in this
-project.
+Development runs on Turbopack, the default bundler in Next.js 16. This note
+previously pinned both dev and build to the webpack path because Turbopack
+was spawning runaway PostCSS workers here. That no longer reproduces on
+16.2.6: a cold Turbopack server compiled every dashboard route in
+0.17–0.52s against webpack’s 1–3.6s, holding one PostCSS worker throughout.
+
+Production builds stay on webpack (`next build --webpack`). That is the path
+CI validates end to end, through `scripts/prepare-standalone.mjs` and the
+standalone server, and dev-server speed is no argument for moving it.
 
 ## Email and password authentication
 

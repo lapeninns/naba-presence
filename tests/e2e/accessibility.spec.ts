@@ -6,7 +6,7 @@ import { readJourneyState } from "./helpers/stub-bridge"
 // Several authenticated surfaces below are gated server-side by the REAL
 // session cookie (`getSession()` reading a request cookie), not by the
 // client-side `/api/session` route mocked per-test — e.g.
-// `/settings/connections`, `/settings/team` and `/settings/compliance` each
+// `/settings/connections` and `/settings/team` each
 // `redirect("/settings")` for a null-or-non-owner-admin session, and
 // `PolicyForm` fetches `/api/settings/capabilities` for real (never mocked
 // below). A real cookie from the shared journey tenant (an owner, seeded by
@@ -154,6 +154,7 @@ async function mockReviewWorkspace(
         },
         byQueue: {
           needs_reply: 0,
+          approval: 0,
           awaiting_my_approval: 0,
           awaiting_others: 0,
           publishing: 0,
@@ -175,14 +176,18 @@ async function mockReviewWorkspace(
           : [
               {
                 id: "review-state-a11y",
-                reviewer: { displayName: "Jordan Lee", isAnonymous: false, profilePhotoUrl: null },
+                reviewer: {
+                  displayName: "Jordan Lee",
+                  isAnonymous: false,
+                  profilePhotoUrl: null,
+                },
                 rating: 5,
                 location: {
-              id: "location-state-a11y",
-              name: "Camden",
-              clientId: "client-state-a11y",
-              clientName: "Camden Group",
-            },
+                  id: "location-state-a11y",
+                  name: "Camden",
+                  clientId: "client-state-a11y",
+                  clientName: "Camden Group",
+                },
                 text: "A thoughtful and accessible review.",
                 createTime: "2026-07-28T10:00:00.000Z",
                 updateTime: "2026-07-28T10:00:00.000Z",
@@ -513,9 +518,7 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Home", level: 1 })
         ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Pulse" })
-        ).toBeVisible()
+        await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} home`)
       })
 
@@ -631,7 +634,12 @@ for (const theme of themes) {
                   health: "healthy",
                   connections: [],
                   openWork: { needsReply: 1, awaitingApproval: 0, failed: 0 },
-                  backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 },
+                  backfill: {
+                    running: 0,
+                    failed: 0,
+                    succeeded: 1,
+                    notStarted: 0,
+                  },
                   lastSyncAt: "2026-07-31T09:00:00.000Z",
                 },
               ],
@@ -681,6 +689,7 @@ for (const theme of themes) {
               },
               byQueue: {
                 needs_reply: 0,
+                approval: 0,
                 awaiting_my_approval: 0,
                 awaiting_others: 0,
                 publishing: 0,
@@ -741,11 +750,11 @@ for (const theme of themes) {
                   },
                   rating: 5,
                   location: {
-              id: "location-a11y",
-              name: "Camden",
-              clientId: "client-reviews-a11y",
-              clientName: "Camden Group",
-            },
+                    id: "location-a11y",
+                    name: "Camden",
+                    clientId: "client-reviews-a11y",
+                    clientName: "Camden Group",
+                  },
                   text: "A thoughtful and accessible review.",
                   createTime: "2026-07-28T10:00:00.000Z",
                   updateTime: "2026-07-28T10:00:00.000Z",
@@ -828,20 +837,41 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Reviews", level: 1 })
         ).toBeVisible()
-        // Below lg the rail lives in the Queues sheet, so open it to reach
-        // the filters and close it again before touching the list.
-        if (viewport.name === "mobile") {
-          await page.getByRole("button", { name: "Queues" }).click()
-          await expect(
-            page.getByRole("button", { name: /More filters/ })
-          ).toBeVisible()
-          await page.keyboard.press("Escape")
-          await expect(page.getByRole("dialog")).toBeHidden()
-        } else {
-          await expect(
-            page.getByRole("button", { name: /More filters/ })
-          ).toBeVisible()
-        }
+        // The permanent rail — and the "Queues" sheet it hid inside below lg —
+        // are both gone. The five queue controls and the filter toolbar sit
+        // above the two panes at every width, so nothing has to be opened to
+        // reach them, on a phone or otherwise.
+        const queues = page.getByRole("navigation", { name: "Review queues" })
+        await expect(
+          queues.getByRole("button", { name: /^Needs reply/ })
+        ).toBeVisible()
+        await expect(
+          queues.getByRole("button", { name: /^Approval/ })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("group", { name: "Filter reviews" })
+        ).toBeVisible()
+        // Rating stayed inline rather than folding into a menu: it is the
+        // filter operators reach for most.
+        await expect(
+          page.getByRole("checkbox", { name: "5 stars" })
+        ).toBeVisible()
+        // The advanced filters the rail used to hold now open from this
+        // button, and Escape still dismisses them — the behaviour the old
+        // Queues-sheet branch was exercising, against the panel that replaced
+        // it.
+        const moreFilters = page.getByRole("button", { name: /More filters/ })
+        await expect(moreFilters).toBeVisible()
+        await moreFilters.click()
+        const moreFiltersPanel = page.getByRole("dialog", {
+          name: "More filters",
+        })
+        await expect(moreFiltersPanel).toBeVisible()
+        await expect(
+          moreFiltersPanel.getByRole("group", { name: "Verification" })
+        ).toBeVisible()
+        await page.keyboard.press("Escape")
+        await expect(moreFiltersPanel).toBeHidden()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
         const row = reviewList.getByRole("button", { name: /Jordan Lee/ })
@@ -856,6 +886,13 @@ for (const theme of themes) {
           )
           await row.click()
           await expect(reviewList).toBeHidden()
+          // Below lg the sheet now parks the workspace controls as well as
+          // the list: the queue tabs and the filter toolbar sit above the
+          // panes, and leaving them tabbable behind an open review would put
+          // focus on controls the sheet covers.
+          await expect(
+            page.locator('[data-slot="inbox-workspace-controls"]')
+          ).toBeHidden()
           await expect(
             page
               .locator('section[aria-label="Review list"] button')
@@ -874,32 +911,49 @@ for (const theme of themes) {
           name: "Selected review",
         })
         await expect(selectedReview).toBeVisible()
-        await expect(selectedReview.getByRole("heading").first()).toBeVisible()
-
-        // This fixture's draft and live reply are the same words. The composer
-        // collapses to a read-only summary until the operator chooses to edit.
+        // The pane leads with the reviewer, then the customer's words, then
+        // the reply — one reading order, with no five-stage tracker above it.
         await expect(
-          selectedReview.getByText("Thank you for your thoughtful review, Jordan.")
+          selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
         ).toBeVisible()
-        await expect(selectedReview.getByText("In sync with Google")).toBeVisible()
-        // A published reply IS reported here, as the situation strip's
-        // sentence (`describeSituation` in lib/inbox/review-situation.ts), so
-        // the words "live on Google" belong on this screen.
         await expect(
-          selectedReview.getByText("Your reply is live on Google.", {
-            exact: true,
+          selectedReview.getByRole("heading", {
+            name: "Customer review",
+            level: 3,
           })
+        ).toBeVisible()
+
+        // One status surface, from lib/inbox/reply-state.ts: a confirmed
+        // `published` reply with nothing newer in the composer is the only
+        // state that reads "Reply published". The old situation strip and its
+        // "Your reply is live on Google." sentence are gone, and so is
+        // `describeSituation` — asserting the strip by its slot keeps this
+        // pointed at the one place the pane is allowed to answer the question.
+        await expect(
+          selectedReview.locator('[data-slot="reply-status-strip"]')
+        ).toHaveText("Reply published")
+
+        // This fixture's draft and live reply are the same words, so the
+        // composer opens as a read-only summary: the reply as text, who wrote
+        // it, and no textarea until the operator chooses to edit.
+        await expect(
+          selectedReview.getByRole("heading", {
+            name: "Published reply",
+            level: 3,
+          })
+        ).toBeVisible()
+        await expect(
+          selectedReview.getByText(
+            "Thank you for your thoughtful review, Jordan."
+          )
         ).toBeVisible()
         // What must stay absent is LiveReplyDisclosure's toggle: that section
         // shows Google's copy only when it disagrees with what the composer
         // holds, and this fixture's draft and reply are the same words.
-        //
-        // Asserted on the toggle rather than the words "Live on Google",
-        // which the lifecycle strip now also uses as the published step's meta
-        // line — a different claim (where the reply got to) about the same
-        // reply.
         await expect(
-          selectedReview.getByRole("button", { name: /differs from the reply below/ })
+          selectedReview.getByRole("button", {
+            name: /differs from the reply below/,
+          })
         ).toBeHidden()
         await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
         await expect(
@@ -910,6 +964,17 @@ for (const theme of themes) {
         await expect(
           selectedReview.getByRole("textbox", { name: "Your reply" })
         ).toHaveValue("Thank you for your thoughtful review, Jordan.")
+        // "In sync with Google" belongs to the editor, not the summary: it
+        // answers "does what I am typing still match Google?", which is only
+        // a question once the box is open.
+        await expect(
+          selectedReview.getByText("In sync with Google")
+        ).toBeVisible()
+        // The way back out of the editor is now an explicit control rather
+        // than an implicit collapse, so it has to be reachable.
+        await expect(
+          selectedReview.getByRole("button", { name: "Close editor" })
+        ).toBeVisible()
 
         // AI generate is manual: Regenerate (draft already exists) + tone are
         // available, but nothing calls the LLM until the operator clicks.
@@ -951,6 +1016,9 @@ for (const theme of themes) {
           await page.getByRole("button", { name: "Back to reviews" }).click()
           await expect(reviewList).toBeVisible()
           await expect(selectedReview).toBeHidden()
+          await expect(
+            page.locator('[data-slot="inbox-workspace-controls"]')
+          ).toBeVisible()
           await expect(row).toBeFocused()
         }
       })
@@ -1208,7 +1276,10 @@ for (const theme of themes) {
         // What is left here is the account-level view: what is connected, who
         // depends on it, and how to start a client.
         await expect(
-          page.getByRole("heading", { name: "Who depends on each account", level: 2 })
+          page.getByRole("heading", {
+            name: "Who depends on each account",
+            level: 2,
+          })
         ).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Google notifications", level: 2 })
@@ -1219,15 +1290,14 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} connections`)
       })
 
-      test("settings policy, compliance, and the team page", async ({
+      test("settings policy and the team page", async ({
         baseURL,
         page,
       }) => {
         // Real journey tenant/cookie: /settings' PolicyForm fetches
         // `/api/settings/capabilities` for real (never mocked below), and
-        // /team and /settings/compliance both gate on an owner/admin session
-        // server-side, which the client-side `/api/session` mock alone cannot
-        // satisfy.
+        // /team gates on an owner/admin session server-side, which the
+        // client-side `/api/session` mock alone cannot satisfy.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
@@ -1333,29 +1403,6 @@ for (const theme of themes) {
           })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} team`)
-
-        await page.goto("/settings/compliance")
-        await expect(
-          page.getByRole("heading", {
-            name: "Data and compliance",
-            level: 1,
-          })
-        ).toBeVisible()
-        // Current cards (components/settings/*-card.tsx) — there's no
-        // "Data retention" copy on this page any more.
-        await expect(
-          page.getByRole("heading", { name: "Privacy requests" })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Legal holds" })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Export a subject’s records" })
-        ).toBeVisible()
-        await expectAccessible(
-          page,
-          `${viewport.name} ${theme} compliance settings`
-        )
       })
     })
   }

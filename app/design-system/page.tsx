@@ -305,7 +305,7 @@ const METRICS = [
   ["--np-gap-section", "24px", "Between sections of a page"],
   ["--np-card-pad", "16px", "Inside a card; the grouped-list inset"],
   ["--np-panel-pad", "20px", "Inside a panel or inspector"],
-  ["--np-page-pad-x / -y", "32px / 24px", "Page gutters from md"],
+  ["--np-page-pad-x / -y", "32px / 24px", "Page gutters; -x is 20px below md"],
   ["--np-toolbar-h", "52px", "The toolbar"],
   ["--np-sidebar-width", "244px", "The sidebar"],
 ] as const
@@ -632,9 +632,7 @@ export default function Page() {
                     "flex items-end rounded-(--np-radius-control) p-2 text-caption font-semibold text-primary-foreground",
                     CHART_FILLS[tile]
                   )}
-                >
-                  
-                </div>
+                ></div>
               ))}
             </div>
 

@@ -29,9 +29,7 @@ const TOP_LEVEL: Record<string, string> = {
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
-  compliance: "Compliance",
   connections: "Connections",
-  ops: "Operations",
 }
 
 /**

@@ -54,9 +54,6 @@ describe("fetchReviews", () => {
         ratings: [4, 5],
         statuses: ["new", "drafted"],
         replyState: "unreplied",
-        verification: ["pass", "warn"],
-        publishStatus: ["published"],
-        syncStatus: ["succeeded"],
         dateFrom: "2026-07-01T00:00:00.000Z",
         dateTo: "2026-07-31T00:00:00.000Z",
         search: "lovely",
@@ -72,9 +69,6 @@ describe("fetchReviews", () => {
     expect(url.searchParams.get("rating")).toBe("4,5")
     expect(url.searchParams.get("status")).toBe("new,drafted")
     expect(url.searchParams.get("reply_state")).toBe("unreplied")
-    expect(url.searchParams.get("verification")).toBe("pass,warn")
-    expect(url.searchParams.get("publish_status")).toBe("published")
-    expect(url.searchParams.get("sync_status")).toBe("succeeded")
     expect(url.searchParams.get("date_from")).toBe("2026-07-01T00:00:00.000Z")
     expect(url.searchParams.get("date_to")).toBe("2026-07-31T00:00:00.000Z")
     expect(url.searchParams.get("search")).toBe("lovely")

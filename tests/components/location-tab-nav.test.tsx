@@ -18,7 +18,7 @@ describe("LocationTabNav", () => {
     render(<LocationTabNav locationId="loc-1" canManageConsoles />)
     // No "Overview" section: it held a single Profile tab, so the heading
     // only ever repeated the tab beneath it.
-    for (const label of ["Profile", "Content", "Customers", "Access", "Insights"]) {
+    for (const label of ["Profile", "Content", "Access", "Insights"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0)
     }
     for (const label of [

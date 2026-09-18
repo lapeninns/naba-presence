@@ -6,13 +6,6 @@ import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm
 import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { DiffView, type DiffRow } from "@/components/ui/diff-view"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -211,30 +204,42 @@ export function SuggestionList({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle as="h2">
-            {resourceType === "profile" ? "Business profile" : "Food menu"}
-          </CardTitle>
-          {pending.length > 0 ? (
-            <Badge variant="warning">{pending.length}</Badge>
-          ) : null}
-        </div>
-        <CardAction>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => refresh.mutate(resourceType)}
-            disabled={refresh.isPending}
-          >
-            {refresh.isPending ? "Checking…" : "Refresh from Google"}
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    // A panel with a header band and a list body, not a Card: the queue is a
+    // list of decisions, and every other list in the console — members,
+    // admins, hours, menu sections — is drawn this way. The rows reach the
+    // panel's edges so their hairlines run its full width, the way a grouped
+    // list divides.
+    <section
+      aria-labelledby={`suggestions-${resourceType}`}
+      // `overflow-hidden`, as every hairline-divided panel here carries: the
+      // header band's rule would otherwise run straight through the card's
+      // rounded corners.
+      className="flex flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-subtle px-(--np-card-pad) py-3">
+        <h2
+          id={`suggestions-${resourceType}`}
+          className="text-title font-semibold text-ink"
+        >
+          {resourceType === "profile" ? "Business profile" : "Food menu"}
+        </h2>
+        {pending.length > 0 ? (
+          <Badge variant="warning">{pending.length}</Badge>
+        ) : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-auto"
+          onClick={() => refresh.mutate(resourceType)}
+          disabled={refresh.isPending}
+        >
+          {refresh.isPending ? "Checking…" : "Refresh from Google"}
+        </Button>
+      </div>
+
+      <div className="flex flex-col">
         {pending.length === 0 ? (
-          <p className="text-caption text-ink-muted">
+          <p className="px-(--np-card-pad) py-4 text-caption text-ink-muted">
             No pending suggestions. Changes made on Google appear here for
             review.
           </p>
@@ -258,7 +263,7 @@ export function SuggestionList({
               return (
                 <li
                   key={proposal.id}
-                  className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0"
+                  className="flex flex-col gap-3 px-(--np-card-pad) py-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-body font-semibold text-ink">
@@ -361,14 +366,12 @@ export function SuggestionList({
             different sets of controls. This one names what these buttons do.
             (`editDisabledReason` is non-null only for the canEditCanonical
             gate, so owners/admins is the accurate reason -- lib/locations/gating.ts.) */}
-        <GateNote
-          reason={
-            editDisabledReason
-              ? "Only owners and admins can accept or dismiss suggestions."
-              : null
-          }
-        />
-      </CardContent>
+        {editDisabledReason ? (
+          <div className="border-t border-line-subtle px-(--np-card-pad) py-3">
+            <GateNote reason="Only owners and admins can accept or dismiss suggestions." />
+          </div>
+        ) : null}
+      </div>
 
       <OverwriteConfirmDialog
         open={confirming !== null}
@@ -397,6 +400,6 @@ export function SuggestionList({
           if (confirming) run(confirming.proposal, confirming.action, true)
         }}
       />
-    </Card>
+    </section>
   )
 }

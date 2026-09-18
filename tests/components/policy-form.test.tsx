@@ -39,7 +39,7 @@ afterEach(() => vi.clearAllMocks())
 describe("PolicyForm", () => {
   it("renders the current policy and enables save once an owner edits", () => {
     useSettingsMock.mockReturnValue({ data: makeSettings(), isPending: false, isError: false, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: true } })
+    useCapsMock.mockReturnValue({ data: { canManageTeam: true, canManageConnections: true, canEditSettings: true } })
     renderForm("owner")
     const retention = screen.getByRole("spinbutton", { name: "Days to keep raw review content" })
     expect(retention).toHaveValue(14)
@@ -50,7 +50,7 @@ describe("PolicyForm", () => {
 
   it("disables everything with a reason for a member (read-only)", () => {
     useSettingsMock.mockReturnValue({ data: makeSettings(), isPending: false, isError: false, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canManageTeam: false, canManageConnections: false, canEditSettings: false, canManageCompliance: false } })
+    useCapsMock.mockReturnValue({ data: { canManageTeam: false, canManageConnections: false, canEditSettings: false } })
     renderForm("member")
     expect(screen.getByRole("spinbutton", { name: "Days to keep raw review content" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled()
@@ -59,7 +59,7 @@ describe("PolicyForm", () => {
 
   it("blocks turning off approval unless an owner confirms consent", () => {
     useSettingsMock.mockReturnValue({ data: makeSettings(), isPending: false, isError: false, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canManageCompliance: false } })
+    useCapsMock.mockReturnValue({ data: { canManageTeam: true, canManageConnections: true, canEditSettings: true } })
     // Admin turns approval off -> the consent switch is owner-only, save stays blocked.
     renderForm("admin")
     fireEvent.click(screen.getByRole("switch", { name: "Require approval before replies publish" }))

@@ -7,17 +7,24 @@ function ratingLabel(rating: number): string {
 }
 
 /**
- * Five stars, the filled ones in the rating amber. The group is one image
- * with a spoken label ("4 stars"); the empty stars are drawn in the
- * quaternary ink because they are ornament, not information.
+ * Five stars as one image with a spoken label ("4 stars"); the empty stars are
+ * ornament, not information.
+ *
+ * `tone="neutral"` draws them in ink rather than the rating amber. In a queue
+ * of forty rows the amber was the loudest thing on screen, competing with the
+ * one control that should be shouting — the primary action — and with the
+ * exceptions that genuinely need a colour. The rating is still the second word
+ * of every row's accessible name, so nothing is lost by letting it be quiet.
  */
 function StarRating({
   rating,
   size = "sm",
+  tone = "rating",
   className,
 }: {
   rating: number | null
   size?: "sm" | "md"
+  tone?: "rating" | "neutral"
   className?: string
 }) {
   if (rating === null) {
@@ -44,8 +51,12 @@ function StarRating({
           className={cn(
             size === "sm" ? "size-3" : "size-3.5",
             index < rating
-              ? "fill-(--np-rating) stroke-(--np-rating)"
-              : "fill-transparent stroke-ink-quaternary"
+              ? tone === "neutral"
+                ? "fill-current stroke-current text-ink-muted"
+                : "fill-(--np-rating) stroke-(--np-rating)"
+              : tone === "neutral"
+                ? "fill-transparent stroke-(--np-line-strong)"
+                : "fill-transparent stroke-ink-quaternary"
           )}
         />
       ))}

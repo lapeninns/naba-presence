@@ -1,6 +1,26 @@
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+/**
+ * `surface` draws the table on the grouped background's white card: the
+ * same `overflow-hidden rounded bg-surface` wrapper four screens were each
+ * writing by hand around their own `<Table>`, which is also the ground
+ * `DataTable surface` puts under its table. The scroll container and the
+ * card are then one box, so a table that overflows scrolls *inside* its
+ * card instead of out from under a separate one.
+ *
+ * `containerClassName` reaches that box, for the rare caller that needs to
+ * bound the scroll port (a max height, a min width) without touching the
+ * `<table>` itself.
+ */
+function Table({
+  className,
+  surface = false,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & {
+  surface?: boolean
+  containerClassName?: string
+}) {
   return (
     // `tabIndex={0}` (WCAG 2.1.1/2.1.3, axe `scrollable-region-focusable`):
     // this wrapper is the horizontal-scroll container on narrow viewports,
@@ -8,7 +28,15 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     // overflows — whether that's true is a runtime layout fact this shared
     // primitive can't know ahead of time, so it's applied unconditionally
     // (a focusable non-scrolling wrapper on wider viewports is harmless).
-    <div className="focus-halo w-full overflow-x-auto" tabIndex={0}>
+    <div
+      data-slot="table-container"
+      className={cn(
+        "w-full overflow-x-auto focus-halo",
+        surface && "rounded-(--np-radius-card) bg-surface",
+        containerClassName
+      )}
+      tabIndex={0}
+    >
       <table
         data-slot="table"
         className={cn(
@@ -73,7 +101,7 @@ function TableRow({
         // changes height would make a checkbox column jitter as rows toggle.
         "data-[selected=true]:bg-accent-tint",
         interactive &&
-          "cursor-pointer active:bg-fill-tertiary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--np-focus-ring)",
+          "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--np-focus-ring) active:bg-fill-tertiary",
         className
       )}
       {...props}

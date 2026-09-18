@@ -3,6 +3,8 @@ import type { ClientSummary } from "@/lib/contracts/clients"
 export type EmptyReason =
   /** Filters exclude everything; rows exist behind them. */
   | "filtered"
+  /** The queue itself is empty; nothing is filtered out. */
+  | "queue_empty"
   /** A connection exists but needs reconnecting. */
   | "disconnected"
   /** No Google account is connected at all. */
@@ -21,6 +23,8 @@ export type EmptyReason =
 export type EmptyFacts = {
   /** Rows are hidden by the current filters rather than absent. */
   hasActiveFilters: boolean
+  /** The queue on screen, when it is not the default. */
+  queue?: string
   /** Rows exist somewhere outside the current filters. */
   totalOutsideFilters: number
   /** The shell's connection health for the current scope. */
@@ -60,7 +64,14 @@ function sum(
  * data loaded, the honest thing is to describe the list rather than Google.
  */
 export function emptyReason(facts: EmptyFacts): EmptyReason {
-  if (facts.hasActiveFilters || facts.totalOutsideFilters > 0) return "filtered"
+  if (facts.hasActiveFilters) return "filtered"
+  // Reviews exist, and no filter is hiding them: this queue is simply clear.
+  // "No reviews match these filters" sent operators hunting for a filter that
+  // was never applied — an empty Failed queue is the best possible news, and it
+  // should read like it.
+  if (facts.totalOutsideFilters > 0) {
+    return facts.queue && facts.queue !== "all" ? "queue_empty" : "filtered"
+  }
   if (facts.connection === "disconnected") return "disconnected"
   if (facts.clients.length === 0) return "unknown"
 

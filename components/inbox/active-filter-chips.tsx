@@ -4,11 +4,8 @@ import { Button } from "@/components/ui/button"
 import { RemovableChip } from "@/components/ui/chip"
 import {
   formatDateRangeChip,
-  formatPublishStatusChip,
   formatRatingsChip,
   formatSortChip,
-  formatSyncStatusChip,
-  formatVerificationChip,
 } from "@/lib/inbox/filter-labels"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
 
@@ -79,27 +76,6 @@ function buildChips(
       label: `Reply: ${state.replyState === "replied" ? "Replied" : "Unreplied"}`,
       removeLabel: "Remove reply-state filter",
       clear: { replyState: undefined },
-    })
-  }
-  if (state.verification.length) {
-    chips.push({
-      label: formatVerificationChip(state.verification),
-      removeLabel: "Remove verification filter",
-      clear: { verification: [] },
-    })
-  }
-  if (state.publishStatus.length) {
-    chips.push({
-      label: formatPublishStatusChip(state.publishStatus),
-      removeLabel: "Remove publish-status filter",
-      clear: { publishStatus: [] },
-    })
-  }
-  if (state.syncStatus.length) {
-    chips.push({
-      label: formatSyncStatusChip(state.syncStatus),
-      removeLabel: "Remove sync-status filter",
-      clear: { syncStatus: [] },
     })
   }
   if (state.dateFrom || state.dateTo) {

@@ -3,6 +3,7 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
 
+import { useFieldTriggerProps } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 /**
@@ -25,15 +26,27 @@ export const selectTriggerClassName = cn(
   "[&_[data-slot=select-value][data-placeholder]]:text-ink-muted"
 )
 
+/**
+ * Inside a `Field` the trigger takes the Field's id, its invalid state, its
+ * description/error wiring and — unless the caller names it itself — the
+ * Field's label. A pop-up button is not a labelable element, so this is the
+ * only way a `FieldLabel` can reach it; see `useFieldTriggerProps`.
+ */
 function SelectTrigger({
   className,
   children,
   ...props
 }: SelectPrimitive.Trigger.Props) {
+  const fieldProps = useFieldTriggerProps({
+    hasOwnName:
+      props["aria-label"] !== undefined ||
+      props["aria-labelledby"] !== undefined,
+  })
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(selectTriggerClassName, className)}
+      {...fieldProps}
       {...props}
     >
       {children}
@@ -76,11 +89,27 @@ export const menuItemClassName = cn(
 function SelectContent({
   className,
   children,
+  alignItemWithTrigger = true,
   ...props
-}: SelectPrimitive.Popup.Props) {
+}: SelectPrimitive.Popup.Props & {
+  /**
+   * Base UI's default puts the popup ON the trigger, with the chosen item over
+   * it — the platform behaviour, and right for a select standing on its own.
+   *
+   * Pass `false` for a control in a toolbar that sits directly above content:
+   * an overlaying menu covers the thing the operator is filtering, and while
+   * that content is still laying out the menu lands somewhere neither of them
+   * agreed on. Dropping it below the control keeps it clear of both.
+   */
+  alignItemWithTrigger?: boolean
+}) {
   return (
     <SelectPrimitive.Portal>
-      <SelectPrimitive.Positioner sideOffset={6} className="z-50">
+      <SelectPrimitive.Positioner
+        sideOffset={6}
+        alignItemWithTrigger={alignItemWithTrigger}
+        className="z-50"
+      >
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(

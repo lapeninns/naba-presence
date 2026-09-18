@@ -15,6 +15,11 @@ import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-
 import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import {
+  segmentedItemClassName,
+  segmentedThumbClassName,
+  segmentedTrackClassName,
+} from "@/components/ui/segmented-control"
 import * as authApi from "@/lib/api/auth"
 import {
   authErrorMessage,
@@ -209,15 +214,20 @@ function SignInForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-      {/* Drawn as a segmented control: a grey track with a white raised
-          thumb on the selected segment. It stays a group of two pressed
-          buttons rather than a tablist because the two modes are one form
-          with two shapes, not two panels, and `aria-pressed` is what tests
-          and assistive tech read. */}
+      {/* The segmented control's own track, thumb and segment recipes,
+          imported rather than retyped: this used to be a copy of those class
+          strings, which is how the auth screen's track drifts from the one on
+          Home the first time either is tuned.
+
+          Only the SEMANTICS differ. It stays a group of two pressed buttons
+          rather than a tablist because the two modes are one form with two
+          shapes, not two panels, and `aria-pressed` is what tests and
+          assistive tech read — so the thumb is drawn on the selected button
+          itself instead of by Tabs.Indicator. */}
       <div
         role="group"
         aria-label="Account action"
-        className="flex h-(--np-control-h) gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5"
+        className={segmentedTrackClassName}
       >
         {(
           [
@@ -232,10 +242,8 @@ function SignInForm({
             aria-label={name}
             onClick={() => switchMode(value)}
             className={cn(
-              "flex h-full min-w-0 flex-1 items-center justify-center rounded-[calc(var(--np-radius-control)-2px)] px-3 text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none active:scale-[0.98]",
-              mode === value
-                ? "bg-surface text-ink shadow-(--np-shadow-raised)"
-                : "text-ink-muted hover:text-ink"
+              segmentedItemClassName,
+              mode === value && cn(segmentedThumbClassName, "text-ink")
             )}
           >
             {label}

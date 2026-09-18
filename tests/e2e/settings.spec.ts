@@ -7,10 +7,11 @@ const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = ["landmark-no-duplicate-main", "landmark-main-is-top-level", "heading-order", "page-has-heading-one"]
 // Team left Settings for its own destination, and Listing is gone: it
 // administered a location from a page nowhere near it, and that now lives in
-// the location's own Access section.
+// the location's own Access section. Compliance and Operations are gone too —
+// their routes are still served under `/api/privacy/**`, `/api/legal-holds`
+// and `/api/operations/health`, owner/admin-gated as they always were.
 const AREAS = [
   { path: "/settings", heading: "Reply policy" },
-  { path: "/settings/compliance", heading: "Data and compliance" },
   { path: "/settings/connections", heading: "Google Business Profile" },
 ] as const
 
@@ -72,7 +73,7 @@ test.describe("settings", () => {
       await page.goto("/settings")
       const nav = page.getByRole("navigation", { name: "Settings sections" })
       await expect(nav.getByRole("link", { name: "Policy" })).toBeVisible()
-      for (const gone of ["Team", "Compliance", "Connections", "Listing"]) {
+      for (const gone of ["Team", "Compliance", "Connections", "Listing", "Operations"]) {
         await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
       }
       // The read-only Policy form shows the gate reason, not an editable control.
@@ -81,7 +82,7 @@ test.describe("settings", () => {
       // Following a colleague's link to a privileged route explains the
       // refusal instead of silently landing somewhere else, which is
       // indistinguishable from a bug.
-      for (const privileged of ["/settings/connections", "/settings/compliance"]) {
+      for (const privileged of ["/settings/connections"]) {
         await page.goto(privileged)
         expect(new URL(page.url()).pathname).toBe(privileged)
         await expect(
@@ -93,23 +94,19 @@ test.describe("settings", () => {
     }
   })
 
-  test("an admin sees Compliance and its list/create, but not the owner-only controls", async ({ baseURL, page }) => {
+  test("an admin keeps Policy and Connections, and Team as a primary destination", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.adminCookie)
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
-    await expect(nav.getByRole("link", { name: "Compliance" })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Connections" })).toBeVisible()
     // Team is a primary destination now, not a settings tab.
     await expect(
       page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Team" })
     ).toBeVisible()
-    // The page renders for admins (no redirect) with the privacy-request create form…
-    await page.goto("/settings/compliance")
-    await expect(page).toHaveURL(/\/settings\/compliance$/)
-    await expect(page.getByRole("heading", { name: "Data and compliance", level: 1 })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Log request" })).toBeVisible()
-    // …but the owner-only export card and legal-holds card are absent.
-    await expect(page.getByRole("button", { name: "Download export" })).toHaveCount(0)
-    await expect(page.getByRole("heading", { name: "Legal holds" })).toHaveCount(0)
+    // The compliance console is gone for every role, admin included.
+    for (const gone of ["Compliance", "Operations"]) {
+      await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
+    }
   })
 })

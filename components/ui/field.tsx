@@ -13,12 +13,19 @@ import { cn } from "@/lib/utils"
 
 type FieldContextValue = {
   id: string
+  labelId: string
   errorId: string
   descriptionId: string
   invalid: boolean
   error?: string
   hasDescription: boolean
   registerDescription: (present: boolean) => void
+  /**
+   * False once a control that `<label for>` cannot reach (a pop-up button, a
+   * segmented track) has claimed the Field. See `useFieldTriggerProps`.
+   */
+  controlLabelable: boolean
+  registerControl: (labelable: boolean) => void
 }
 
 const FieldContext = createContext<FieldContextValue | null>(null)
@@ -41,16 +48,20 @@ function Field({
 }: React.ComponentProps<"div"> & { error?: string }) {
   const id = useId()
   const [hasDescription, setHasDescription] = useState(false)
+  const [controlLabelable, setControlLabelable] = useState(true)
   return (
     <FieldContext.Provider
       value={{
         id,
+        labelId: `${id}-label`,
         errorId: `${id}-error`,
         descriptionId: `${id}-description`,
         invalid: Boolean(error),
         error,
         hasDescription,
         registerDescription: setHasDescription,
+        controlLabelable,
+        registerControl: setControlLabelable,
       }}
     >
       <div
@@ -65,6 +76,16 @@ function Field({
   )
 }
 
+/**
+ * The Field's visible label.
+ *
+ * `htmlFor` is dropped once the Field holds a control `<label for>` cannot
+ * reach — a Select's pop-up button is a `<button>`, which is not a labelable
+ * element, so pointing at it produced a label that named nothing and did
+ * nothing when clicked. Those controls take the label by `aria-labelledby`
+ * instead (`useFieldTriggerProps`), which is why the label always carries an
+ * id of its own.
+ */
 function FieldLabel({
   className,
   ...props
@@ -72,7 +93,8 @@ function FieldLabel({
   const field = useFieldContext()
   return (
     <Label
-      htmlFor={field?.id}
+      id={field?.labelId}
+      htmlFor={field && !field.controlLabelable ? undefined : field?.id}
       className={cn("text-ui font-medium text-ink", className)}
       {...props}
     />
@@ -156,6 +178,37 @@ export function fieldControlProps(field: FieldContextValue | null) {
     id: field.id,
     "aria-invalid": field.invalid || undefined,
     "aria-describedby": describedBy.length ? describedBy.join(" ") : undefined,
+  }
+}
+
+/**
+ * The same wiring as `fieldControlProps`, for a control `<label for>` cannot
+ * reach: a Select or Combobox trigger, a segmented track, any pop-up button.
+ *
+ * Registering tells the Field to stop emitting `htmlFor`, and the label is
+ * handed over by `aria-labelledby` instead — but only when the caller has not
+ * already named the control. A trigger with its own `aria-label` keeps that
+ * name: `aria-labelledby` wins the name computation, so adding it silently
+ * would rewrite accessible names that tests, tooling and operators rely on.
+ */
+export function useFieldTriggerProps({
+  hasOwnName = false,
+}: { hasOwnName?: boolean } = {}) {
+  const field = useFieldContext()
+  const registerControl = field?.registerControl
+
+  // Layout effect, and the same reasoning as FieldDescription's: the label
+  // must have dropped its `htmlFor` before the browser paints, and the
+  // cleanup puts it back when the trigger unmounts.
+  useLayoutEffect(() => {
+    registerControl?.(false)
+    return () => registerControl?.(true)
+  }, [registerControl])
+
+  if (!field) return {}
+  return {
+    ...fieldControlProps(field),
+    "aria-labelledby": hasOwnName ? undefined : field.labelId,
   }
 }
 

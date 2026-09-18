@@ -49,11 +49,18 @@ const buttonVariants = cva(
           "h-(--np-control-h) gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
         xs: "h-6 gap-1 px-2 text-caption has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         sm: "h-7 gap-1 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        lg: "h-9 gap-2 px-4 text-body has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        // `lg` is the deliberately prominent action — the auth screens' full
+        // width submit, an invitation's accept. It is the one size a finger
+        // is expected to be the primary pointer for, so where the pointer IS
+        // coarse it grows to the 44px comfortable target rather than staying
+        // at the 36px a mouse is well served by. The narrower sizes keep
+        // their height: they live in toolbars and table rows whose whole
+        // rhythm is built on the control token.
+        lg: "h-9 gap-2 px-4 text-body has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3 pointer-coarse:h-11",
         icon: "size-(--np-control-h)",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
         "icon-sm": "size-7",
-        "icon-lg": "size-9",
+        "icon-lg": "size-9 pointer-coarse:size-11",
       },
       // A capsule for prominent calls to action and toolbar buttons. Icon
       // sizes become perfect circles.

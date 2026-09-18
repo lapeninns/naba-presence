@@ -5,7 +5,8 @@ import { Spinner } from "@/components/ui/spinner"
 /**
  * The workspace in outline while the route loads: the rail's groups, a
  * list of rows and an empty inspector, in the same places the real ones
- * take. Says it is loading in words, not only in grey blocks.
+ * take. Breakpoints match inbox-view (rail at xl, inspector column at lg).
+ * Says it is loading in words, not only in grey blocks.
  */
 export default function InboxLoading() {
   return (
@@ -17,7 +18,7 @@ export default function InboxLoading() {
         className="flex min-h-0 flex-1 gap-(--np-gap-card)"
       >
         <div
-          className="hidden w-60 shrink-0 flex-col gap-6 lg:flex"
+          className="hidden w-60 shrink-0 flex-col gap-5 pt-0.5 pr-1 xl:flex"
           aria-hidden
         >
           {[0, 1].map((group) => (
@@ -33,10 +34,10 @@ export default function InboxLoading() {
           ))}
         </div>
         <div
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface lg:max-w-[42%]"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
           aria-hidden
         >
-          <div className="flex items-center gap-2 border-b border-line-subtle px-3 py-2.5">
+          <div className="flex min-h-11 items-center gap-2 border-b border-line-subtle px-3 py-2.5">
             <Skeleton className="h-(--np-field-h) flex-1 rounded-(--np-radius-pill)" />
             <Skeleton className="h-(--np-control-h) w-28 rounded-(--np-radius-control)" />
           </div>

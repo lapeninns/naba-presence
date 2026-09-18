@@ -2,8 +2,11 @@
  * Wire contract for `/api/legal-holds`.
  *
  * Client-safe: no `server-only`, no `lib/server` imports. The route parses
- * POST/DELETE bodies with the request schemas; `lib/api/legal-holds.ts`
- * parses responses with the response schemas.
+ * POST/DELETE bodies with the request schemas and shapes replies with the
+ * response ones.
+ *
+ * The route is now the only consumer: its browser-side wrapper went with the
+ * compliance console.
  */
 import { z } from "zod"
 

@@ -8,3 +8,13 @@ export const PUBLISH_PULSE_EVENT = "inbox:reply-published"
  * id) unmounts it.
  */
 export const PUBLISH_PULSE_MS = 1600
+
+/**
+ * Asks the selected review's composer to open and take focus — what `r` does.
+ *
+ * An event rather than a ref threaded down from InboxView: the composer is
+ * mounted by ReviewDetail (in the inspector column or the mobile sheet, never
+ * both) and knows on its own whether editing is permitted. The hotkey layer
+ * must not decide that; it only asks.
+ */
+export const REPLY_FOCUS_EVENT = "inbox:focus-reply"

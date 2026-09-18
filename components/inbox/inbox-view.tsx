@@ -1,23 +1,20 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import {
   ArrowLeftIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ListFilterIcon,
   MessagesSquareIcon,
 } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
+import { FilterToolbar } from "@/components/inbox/filter-toolbar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
-import { InboxRail } from "@/components/inbox/inbox-rail"
-import {
-  ReviewFilters,
-  ReviewSearchBar,
-} from "@/components/inbox/review-filters"
+import { QueueTabs } from "@/components/inbox/queue-tabs"
+import { ReviewSearchBar } from "@/components/inbox/review-filters"
 import {
   SelectionProvider,
   useSelection,
@@ -43,7 +40,6 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -59,7 +55,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
-import { applySavedView, savedView } from "@/lib/inbox/saved-views"
 import { useClients } from "@/lib/queries/use-clients"
 import {
   autoSelectId,
@@ -72,7 +67,11 @@ import {
   type Queue,
 } from "@/lib/inbox/url-state"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
-import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
+import {
+  PUBLISH_PULSE_EVENT,
+  PUBLISH_PULSE_MS,
+  REPLY_FOCUS_EVENT,
+} from "@/lib/inbox/events"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
@@ -87,11 +86,7 @@ function InboxViewInner({
   const router = useRouter()
   const searchParams = useSearchParams()
   const state = useMemo(() => {
-    const params = new URLSearchParams(searchParams.toString())
-    // A saved view expands into filters, but anything the URL states
-    // explicitly wins: an operator who opens a view and then narrows it by
-    // rating meant the narrowing.
-    return applySavedView(parseInboxState(params), params)
+    return parseInboxState(new URLSearchParams(searchParams.toString()))
   }, [searchParams])
   const filters = useMemo(() => toReviewsFilters(state), [state])
   const dirtyGate = useDirtyGate()
@@ -107,7 +102,6 @@ function InboxViewInner({
     (client) => !state.clientId || client.id === state.clientId
   )
   const selection = useSelection()
-  const [railOpen, setRailOpen] = useState(false)
   const health = useConnectionHealth()
   // Via the shared directory hook, not a bare useQuery on the same key: this
   // view and LocationsIndex share one QueryClient across client navigation,
@@ -160,7 +154,7 @@ function InboxViewInner({
         // Choosing a queue under "Everything" clears the client scope — the
         // heading says everything, so it has to mean it.
         updateState(
-          { queue, clientId: undefined, selected: undefined, view: undefined },
+          { queue, clientId: undefined, selected: undefined },
           "replace"
         )
       })()
@@ -180,45 +174,6 @@ function InboxViewInner({
     },
     [dirtyGate, updateState]
   )
-  const onSelectView = useCallback(
-    (slug: string) => {
-      void (async () => {
-        if (!(await dirtyGate())) return
-        // A view REPLACES the filter set rather than layering on top: half of
-        // the previous view's filters silently surviving is how an operator
-        // ends up staring at an empty list they cannot explain.
-        const view = savedView(slug)
-        if (!view) return
-        router.replace(
-          `/inbox?${serializeInboxState({
-            queue: view.state.queue ?? "needs_reply",
-            locationIds: [],
-            ratings: [],
-            search: "",
-            sort: "updated_desc",
-            verification: [],
-            publishStatus: [],
-            syncStatus: [],
-            ...view.state,
-            view: slug,
-          } as InboxState).toString()}`
-        )
-      })()
-    },
-    [dirtyGate, router]
-  )
-  const onSelectClientQueue = useCallback(
-    (clientId: string, queue: Queue) => {
-      void (async () => {
-        if (!(await dirtyGate())) return
-        updateState(
-          { clientId, queue, selected: undefined, view: undefined },
-          "replace"
-        )
-      })()
-    },
-    [dirtyGate, updateState]
-  )
   const onClearFilters = useCallback(() => {
     void (async () => {
       if (!(await dirtyGate())) return
@@ -229,9 +184,6 @@ function InboxViewInner({
           ratings: [],
           search: "",
           sort: "updated_desc",
-          verification: [],
-          publishStatus: [],
-          syncStatus: [],
         }).toString()}`
       )
     })()
@@ -282,7 +234,15 @@ function InboxViewInner({
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
   // the first row (replace, so it adds no history). Reads live dirtiness
   // imperatively via `useReadIsDirty()` for the (rare) cleared-while-dirty edge.
-  const reviewsReady = !reviewsQuery.isPending && !reviewsQuery.isError
+  // `keepPreviousData` keeps the OLD queue's rows on screen while the new
+  // one loads. Auto-selecting from them re-adds a `selected` id that does not
+  // belong to the queue the operator just chose — it reappeared in the URL
+  // moments after the handler cleared it, and the pane showed a review the
+  // list no longer contained.
+  const reviewsReady =
+    !reviewsQuery.isPending &&
+    !reviewsQuery.isError &&
+    !reviewsQuery.isPlaceholderData
   useEffect(() => {
     if (!reviewsReady) return
     const id = autoSelectId({
@@ -368,25 +328,27 @@ function InboxViewInner({
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
 
-  // Rows in the exact shape of a list row: a small avatar, a name line, a
-  // meta line and two lines of snippet, divided by the same hairline.
+  // The same four lines a real row draws: a name and a date, a venue and a
+  // rating, one line of review, and the status.
   function renderListSkeleton() {
     return (
       <div aria-busy="true" className="flex flex-col">
         {[0, 1, 2, 3, 4, 5].map((index) => (
           <div
             key={index}
-            className="flex items-start gap-2.5 border-b border-line-subtle px-3 py-2.5"
+            className="flex flex-col gap-2 border-b border-line-subtle px-3 py-2.5"
           >
-            <Skeleton className="mt-0.5 size-6 shrink-0 rounded-(--np-radius-pill)" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Skeleton className="h-3.5 w-28" />
-                <Skeleton className="h-3 w-12" />
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-3 w-10" />
+            </div>
+            <div className="flex items-center justify-between gap-2">
               <Skeleton className="h-3 w-40" />
-              <Skeleton className="h-3 w-full max-w-64" />
-              <Skeleton className="h-3 w-3/4 max-w-48" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+            <Skeleton className="h-3 w-full max-w-64" />
+            <div className="flex justify-end">
+              <Skeleton className="h-3 w-20" />
             </div>
           </div>
         ))}
@@ -428,6 +390,7 @@ function InboxViewInner({
       // guessing the reassuring one.
       const facts = {
         hasActiveFilters: hasActiveFilters(state),
+        queue: state.queue,
         totalOutsideFilters: countsQuery.data?.total ?? 0,
         connection:
           health.status === "disconnected"
@@ -451,6 +414,7 @@ function InboxViewInner({
       <ReviewList
         reviews={reviews}
         selectedId={state.selected}
+        queue={state.queue}
         onSelect={onSelect}
         onMovePastEnd={(direction) => {
           void onAdjacentReview(direction)
@@ -501,6 +465,14 @@ function InboxViewInner({
           )
       },
       "clear-selection": () => selection.clear(),
+      // `r` asks the composer to open and take focus. It does not decide
+      // whether editing is allowed — the composer knows the review's
+      // capabilities and its workflow status, and the hotkey layer must not
+      // second-guess either.
+      reply: () => {
+        if (!state.selected) return
+        window.dispatchEvent(new Event(REPLY_FOCUS_EVENT))
+      },
     }),
     [onAdjacentReview, reviews, selection, state.selected]
   )
@@ -510,33 +482,39 @@ function InboxViewInner({
         ?.name
     : undefined
 
-  const queues = (
-    <InboxRail
-      state={state}
-      counts={countsQuery.data}
-      countsPending={countsQuery.isPending}
-      clients={(clientsQuery.data?.items ?? []).map((client) => ({
-        id: client.id,
-        name: client.name,
-        health: client.health,
-      }))}
-      onQueueChange={onQueueChange}
-      onSelectView={onSelectView}
-      onSelectClientQueue={onSelectClientQueue}
-    />
-  )
-  // Search and sort head the list; everything else narrows it from the rail,
-  // and the chips of what is applied sit next to the rows they narrow.
-  const railFilters = (
-    <ReviewFilters
-      state={state}
-      locations={locationsQuery.data ?? []}
-      showLocationFilter={showLocationFilter}
-      showSearch={false}
-      showChips={false}
-      onChange={onFilterChange}
-      onClear={onClearFilters}
-    />
+  // Queue tabs, then the compact filter toolbar, then the chips of what is
+  // applied — one block above the two panes, in place of the permanent rail.
+  const workspaceControls = (
+    <div
+      data-slot="inbox-workspace-controls"
+      className="flex shrink-0 flex-col gap-3"
+    >
+      <QueueTabs
+        queue={state.queue}
+        counts={countsQuery.data}
+        countsPending={countsQuery.isPending}
+        onQueueChange={onQueueChange}
+      />
+      <FilterToolbar
+        state={state}
+        locations={locationsQuery.data ?? []}
+        clients={(clientsQuery.data?.items ?? []).map((client) => ({
+          id: client.id,
+          name: client.name,
+        }))}
+        showLocationFilter={showLocationFilter}
+        onChange={onFilterChange}
+        onQueueChange={onQueueChange}
+        onClear={onClearFilters}
+      />
+      <ActiveFilterChips
+        state={state}
+        locations={locationsQuery.data ?? []}
+        clientName={clientName}
+        onChange={onFilterChange}
+        onClear={onClearFilters}
+      />
+    </div>
   )
 
   const listPane = (
@@ -545,57 +523,14 @@ function InboxViewInner({
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-line-subtle px-3 py-2.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* The rail is wide-desktop furniture; below xl it opens as a sheet
-              from the list header. Between lg and xl the two-pane split
-              already needs its whole width (at 1024px the app sidebar, the
-              page gutters and the panels' minimums leave no room for a 240px
-              rail), and on a phone three panes is none of them.
-              Queue rows close the sheet on choice; the filters stay open so an
-              operator can tick several before looking at the list. */}
-          <Sheet open={railOpen} onOpenChange={setRailOpen}>
-            <SheetTrigger
-              render={
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  pill
-                  className="shrink-0 xl:hidden"
-                />
-              }
-            >
-              <ListFilterIcon
-                aria-hidden
-                strokeWidth={1.75}
-                data-icon="inline-start"
-              />
-              Queues
-            </SheetTrigger>
-            <SheetContent side="left" className="md:max-w-xs">
-              <SheetHeader className="sr-only">
-                <SheetTitle>Queues and filters</SheetTitle>
-                <SheetDescription>
-                  Choose a queue, a client or a saved view, and narrow the list.
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-2 pb-6 md:pt-6">
-                <div onClick={() => setRailOpen(false)}>{queues}</div>
-                {railFilters}
-              </div>
-            </SheetContent>
-          </Sheet>
-          <ReviewSearchBar
-            state={state}
-            onChange={onFilterChange}
-            className="min-w-0 flex-1 max-sm:basis-full"
-          />
-        </div>
-        <ActiveFilterChips
+        {/* One review search, at the head of the rows it searches. The shell's
+            ⌘K launcher is Commands — clients, venues and actions — and
+            deliberately does not look inside review text, so there is exactly
+            one place to type words a customer wrote. */}
+        <ReviewSearchBar
           state={state}
-          locations={locationsQuery.data ?? []}
-          clientName={clientName}
           onChange={onFilterChange}
-          onClear={onClearFilters}
+          className="min-w-0"
         />
       </div>
       {renderList()}
@@ -719,25 +654,35 @@ function InboxViewInner({
     </section>
   )
 
+  // Below lg, everything the sheet covers is parked together: the list AND the
+  // workspace controls above it. Parking only the list used to leave the queue
+  // tabs and the filter toolbar tabbable behind an open review.
+  const parked = !isDesktop && Boolean(state.selected)
+
   return (
     <TooltipProvider>
-      <div className="relative flex min-h-0 flex-1 gap-(--np-gap-card)">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-(--np-gap-card)">
         <InboxHotkeys handlers={hotkeyHandlers} />
-        {/* The rail sits on the canvas, not on a card: queues and filters are
-            navigation, and Mail draws its mailboxes the same way. */}
-        <div className="hidden min-h-0 w-60 shrink-0 flex-col gap-6 overflow-y-auto pr-1 xl:flex">
-          {queues}
-          {railFilters}
+
+        <div
+          className={cn("flex shrink-0 flex-col", parked && "invisible")}
+          inert={parked ? true : undefined}
+        >
+          {workspaceControls}
         </div>
 
         {isDesktop ? (
-          // The list and the inspector share a resizable split. The two
-          // `max-lg` guards only matter for the one frame between the server's
-          // desktop guess and the client's measurement on a narrow screen.
+          // Three permanent regions: the application sidebar (owned by the
+          // shell), this list, and the detail. The split starts at 40% — the
+          // width the rail used to take now belongs to the reply — and both
+          // panels keep a minimum that stays usable at 1024px.
+          // The two `max-lg` guards only matter for the one frame between the
+          // server's desktop guess and the client's measurement on a narrow
+          // screen.
           <SplitPane orientation="horizontal" className="min-h-0 flex-1 gap-0">
             <SplitPanePanel
-              defaultSize="42"
-              minSize={320}
+              defaultSize="40"
+              minSize={300}
               className="min-h-0 max-lg:flex-1!"
             >
               {listPane}
@@ -746,7 +691,7 @@ function InboxViewInner({
               label="Resize the review list"
               className="mx-1.5 bg-transparent max-lg:hidden"
             />
-            <SplitPanePanel minSize={360} className="min-h-0 max-lg:hidden">
+            <SplitPanePanel minSize={420} className="min-h-0 max-lg:hidden">
               {inspector}
             </SplitPanePanel>
           </SplitPane>
@@ -758,9 +703,9 @@ function InboxViewInner({
           <div
             className={cn(
               "flex min-h-0 flex-1 flex-col",
-              state.selected && "invisible"
+              parked && "invisible"
             )}
-            inert={state.selected ? true : undefined}
+            inert={parked ? true : undefined}
           >
             {listPane}
           </div>

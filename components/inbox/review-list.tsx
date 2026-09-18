@@ -1,26 +1,18 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { GlobeIcon, ImageIcon, ReplyIcon } from "lucide-react"
+import { ChevronRightIcon, GlobeIcon, ImageIcon } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
-import { StatusPill } from "@/components/ui/status-pill"
+import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { StarRating } from "@/components/inbox/star-rating"
-import { SITUATION_TONE_STATUS } from "@/components/inbox/situation-tone"
 import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
-import { situationFromReviewRow } from "@/lib/inbox/review-situation"
+import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { cn } from "@/lib/utils"
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
-
-function initials(name: string | null): string {
-  if (!name) return "?"
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?"
-}
 
 /**
  * The way Mail dates a row: a gap for today ("4 min ago"), a date for
@@ -36,6 +28,7 @@ function listTime(iso: string, timezone: string): string {
 function ReviewList({
   reviews,
   selectedId,
+  queue,
   onSelect,
   onMovePastEnd,
   timezone = "Europe/London",
@@ -46,6 +39,11 @@ function ReviewList({
 }: {
   reviews: ReviewRow[]
   selectedId: string | undefined
+  /**
+   * The queue these rows were fetched under. Only used to say who an approval
+   * is waiting on, and only when the server scoped it — see `replyStateFromRow`.
+   */
+  queue?: string
   // Returns whether the selection actually changed: `false` means the
   // dirty guard blocked it (the user cancelled the discard confirm). Arrow
   // navigation below relies on this so a blocked selection change never
@@ -188,16 +186,14 @@ function ReviewList({
           const displayName = review.reviewer.isAnonymous
             ? "Anonymous"
             : (review.reviewer.displayName ?? "Anonymous")
-          const photoUrl =
-            !review.reviewer.isAnonymous && review.reviewer.profilePhotoUrl
-              ? review.reviewer.profilePhotoUrl
-              : null
-          const situation = situationFromReviewRow(review)
+          const status = deriveReplyStatus(replyStateFromRow(review, queue))
           const parsed = parseReviewText(
             review.text,
             review.detectedLanguageCode
           )
-          const hasIcons = review.hasMedia || review.replyStatus === "published"
+          const venue = review.location.clientName
+            ? `${review.location.clientName} · ${review.location.name}`
+            : review.location.name
 
           return (
             <li
@@ -207,7 +203,7 @@ function ReviewList({
               {selection ? (
                 <span
                   className={cn(
-                    "absolute top-2.5 left-3 z-10 flex transition-opacity duration-(--np-duration-fast)",
+                    "absolute top-3 left-2.5 z-10 flex transition-opacity duration-(--np-duration-fast)",
                     // Visible once ticked or on hover/focus, so an untouched
                     // list is not a wall of empty boxes — but never hidden
                     // from keyboards, which have no hover.
@@ -238,24 +234,35 @@ function ReviewList({
                   void onSelect(review.id)
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
+                // Four lines, one voice: who and when, where and how many
+                // stars, a line of what they said, and the one status. The
+                // avatar is gone — a monogram of the reviewer's initials is
+                // the least useful thing in a queue where every row is a
+                // different stranger, and its 28px bought a longer venue name.
                 className={cn(
                   // The halo is inset because the list clips at the card's
                   // corners; an outer halo would be cut off on the edge rows.
-                  "relative flex w-full items-start gap-2.5 py-2 pr-3 text-left transition-[background-color] duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none",
-                  selection ? "pl-9" : "pl-3",
+                  "relative block w-full rounded-(--np-radius-control) border px-2.5 py-2.5 text-left transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none",
+                  selection ? "pl-8" : "pl-2.5",
                   selected
-                    ? "bg-accent-tint"
-                    : "hover:bg-(--np-hover-bg) active:bg-fill-tertiary"
+                    ? // A neutral fill and a real edge rather than the accent
+                      // tint: in a list of forty, colour is how an exception
+                      // gets noticed, and spending it on "this is the one you
+                      // are reading" leaves nothing for the rows that need it.
+                      // The chevron at the end carries the same meaning
+                      // without relying on either.
+                      "border-(--np-line-strong) bg-fill-secondary"
+                    : "border-transparent hover:bg-(--np-hover-bg) active:bg-fill-tertiary"
                 )}
               >
-                <Avatar size="sm" className="mt-0.5">
-                  {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-                  <AvatarFallback>{initials(displayName)}</AvatarFallback>
-                </Avatar>
-
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex min-w-0 flex-col gap-2">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-ui font-semibold text-ink">
+                    <span
+                      className={cn(
+                        "truncate text-body text-ink",
+                        selected ? "font-semibold" : "font-medium"
+                      )}
+                    >
                       {displayName}
                     </span>
                     <time
@@ -267,69 +274,67 @@ function ReviewList({
                     </time>
                   </span>
 
-                  <span className="flex items-center gap-1.5 text-caption text-ink-muted">
-                    <StarRating rating={review.rating} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {/* Client first: in an agency inbox the location name
-                          alone ("High Street") does not say whose business
-                          this is, and replying in the wrong voice is the
-                          mistake this line exists to prevent. */}
-                      {review.location.clientName
-                        ? `${review.location.clientName} · ${review.location.name}`
-                        : review.location.name}
-                    </span>
-                    {hasIcons ? (
-                      <span className="flex shrink-0 items-center gap-1">
-                        {review.hasMedia ? (
-                          <ImageIcon
-                            role="img"
-                            aria-label="Has photos"
-                            strokeWidth={1.75}
-                            className="size-3.5"
-                          />
-                        ) : null}
-                        {review.replyStatus === "published" ? (
-                          <ReplyIcon
-                            role="img"
-                            aria-label="Reply published"
-                            strokeWidth={1.75}
-                            className="size-3.5 text-success-ink"
-                          />
-                        ) : null}
-                      </span>
-                    ) : null}
-                    {/* The situation as the product's status dot plus its
-                        short word; the headline is the accessible name so a
-                        reader hears "Ready to publish", not "Ready". */}
-                    <StatusPill
-                      tone={SITUATION_TONE_STATUS[situation.tone]}
-                      variant="inline"
-                      title={situation.headline}
-                      aria-label={situation.headline}
-                      className="shrink-0 text-caption"
-                    >
-                      {situation.chip}
-                    </StatusPill>
-                  </span>
-
-                  <span
-                    lang={parsed?.bodyLang ?? undefined}
-                    dir="auto"
-                    className="line-clamp-2 text-ui text-ink-muted"
-                  >
-                    {parsed?.body ?? "No review text"}
-                  </span>
-
-                  {parsed?.original ? (
-                    <span className="flex items-center gap-1.5 text-caption text-ink-muted">
-                      <GlobeIcon
-                        aria-hidden
+                  <span className="flex items-center justify-between gap-2 text-caption text-ink-muted">
+                    {/* Client first: in an agency inbox the location name
+                        alone ("High Street") does not say whose business this
+                        is, and replying in the wrong voice is the mistake this
+                        line exists to prevent. */}
+                    <span className="min-w-8 flex-1 truncate">{venue}</span>
+                    {review.hasMedia ? (
+                      <ImageIcon
+                        role="img"
+                        aria-label="Has photos"
                         strokeWidth={1.75}
                         className="size-3.5 shrink-0"
                       />
-                      Translated
-                    </span>
-                  ) : null}
+                    ) : null}
+                    <StarRating rating={review.rating} tone="neutral" />
+                  </span>
+
+                  {/* One line, not two. The full text is in the pane a click
+                      away, and a queue that a person scans is better served by
+                      forty first lines than twenty first paragraphs. */}
+                  <span
+                    lang={parsed?.bodyLang ?? undefined}
+                    dir="auto"
+                    className={cn(
+                      // The `text-ui` role already carries its own line
+                      // height; the `--leading-ui` token it used to name here
+                      // does not exist, so the utility resolved to nothing.
+                      "truncate text-ui",
+                      selected ? "text-ink" : "text-ink-muted"
+                    )}
+                  >
+                    {parsed?.body ?? "A rating with no written review."}
+                  </span>
+
+                  <span className="flex items-center justify-end gap-1.5">
+                    {parsed?.original ? (
+                      <span className="mr-auto flex items-center gap-1.5 text-caption text-ink-muted">
+                        <GlobeIcon
+                          aria-hidden
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0"
+                        />
+                        Translated
+                      </span>
+                    ) : null}
+                    <ReplyStatusLine status={status} variant="row" />
+                    {/* The non-colour half of the selection cue: a selected row
+                        is the only one with a chevron, so it is still
+                        identifiable in greyscale, in forced colours, and to
+                        anyone who cannot separate the fill from the surface. */}
+                    {selected ? (
+                      <>
+                        <ChevronRightIcon
+                          aria-hidden
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink"
+                        />
+                        <span className="sr-only">Selected review</span>
+                      </>
+                    ) : null}
+                  </span>
                 </span>
               </button>
             </li>

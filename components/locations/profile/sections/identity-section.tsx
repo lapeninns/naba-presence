@@ -54,7 +54,6 @@ export function IdentitySection({
   googleReady: boolean
 }) {
   const labelsId = useId()
-  const openStatusLabelId = useId()
 
   return (
     <section className="flex max-w-2xl flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
@@ -196,13 +195,14 @@ export function IdentitySection({
             />
           </Field>
 
-          <div className="flex flex-col gap-1.5">
-            <span
-              id={openStatusLabelId}
-              className="text-ui font-medium text-ink"
-            >
-              Open status
-            </span>
+          {/* A Field like every other control on this page, now that a
+              Select's trigger can take the Field's label, invalid state and
+              error wiring. It used to hand the label over as
+              `aria-describedby`, which made "Open status" the trigger's
+              DESCRIPTION as well as its name, and carried its own hand-rolled
+              alert instead of the one FieldError draws. */}
+          <Field error={issues.title}>
+            <FieldLabel>Open status</FieldLabel>
             <Select
               value={draft.openStatus}
               onValueChange={(value: string | null) =>
@@ -210,12 +210,7 @@ export function IdentitySection({
               }
               disabled={disabled}
             >
-              <SelectTrigger
-                className="w-full sm:w-64"
-                aria-label="Open status"
-                aria-describedby={openStatusLabelId}
-                aria-invalid={issues.title ? true : undefined}
-              >
+              <SelectTrigger className="w-full sm:w-64">
                 {/* Render function so the trigger reads the humanised label on
                 first paint, before the popup's items have registered (§7). */}
                 <SelectValue>
@@ -232,12 +227,8 @@ export function IdentitySection({
                 ))}
               </SelectContent>
             </Select>
-            {issues.title ? (
-              <p role="alert" className="text-caption text-danger-ink">
-                {issues.title}
-              </p>
-            ) : null}
-          </div>
+            <FieldError />
+          </Field>
         </>
       ) : null}
     </section>

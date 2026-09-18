@@ -2,20 +2,8 @@
 
 import { useEffect, useId, useState } from "react"
 
-import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
-import {
-  AdvancedFilters,
-  MoreFiltersToggle,
-  RatingFilter,
-  ReplyFilter,
-  advancedFilterCount,
-} from "@/components/inbox/filter-controls"
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxItem,
-} from "@/components/ui/combobox"
+import { cn } from "@/lib/utils"
+
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -24,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import {
   DEFAULT_REVIEW_SORT,
   REVIEW_SORT_LABELS,
@@ -32,7 +19,6 @@ import {
   isReviewSort,
 } from "@/lib/contracts/reviews"
 import type { InboxState } from "@/lib/inbox/url-state"
-import { cn } from "@/lib/utils"
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map
 // (a plain `{ value: label }` record) rather than from the rendered
@@ -114,139 +100,4 @@ function ReviewSearchBar({
   )
 }
 
-/**
- * Every filter the inbox has. By default it is the whole set — search and
- * sort at the top, the chips of what is applied at the bottom — so it can
- * stand alone. The workspace splits it: `showSearch={false}` puts the rest
- * in the rail while `ReviewSearchBar` heads the list, and `showChips={false}`
- * lets the list show the applied chips next to the rows they narrow.
- */
-function ReviewFilters({
-  state,
-  locations,
-  showLocationFilter = true,
-  showSearch = true,
-  showChips = true,
-  onChange,
-  onClear,
-  className,
-}: {
-  state: InboxState
-  locations: LocationOption[]
-  // Server-resolved; see the note on InboxView in inbox-view.tsx for why this
-  // is not derived from `locations.length` here.
-  showLocationFilter?: boolean
-  /** Render the search-and-sort strip at the top. */
-  showSearch?: boolean
-  /** Render the applied-filter chips at the bottom. */
-  showChips?: boolean
-  onChange: (partial: Partial<InboxState>) => void
-  onClear: () => void
-  className?: string
-}) {
-  const locationId = useId()
-  // One location at a time in this control; the multi-select lives behind
-  // "More filters", and the chip row shows when several are applied.
-  const selectedLocation =
-    locations.find((location) => location.id === state.locationIds[0]) ?? null
-  const advancedCount = advancedFilterCount(state)
-
-  // Start expanded when the URL already carries advanced filters (deep link /
-  // restored state). Operators can collapse it; we do not auto-reopen on every
-  // chip clear, which would fight intentional collapse.
-  const [moreOpen, setMoreOpen] = useState(() => advancedFilterCount(state) > 0)
-
-  return (
-    <div className={cn("flex flex-col gap-3", className)}>
-      {showSearch ? (
-        <ReviewSearchBar state={state} onChange={onChange} />
-      ) : null}
-
-      <div className="flex flex-col gap-2">
-        <ReplyFilter
-          replyState={state.replyState}
-          onChange={(replyState) => onChange({ replyState })}
-        />
-        <div className="flex flex-wrap items-center gap-1.5">
-          <RatingFilter
-            ratings={state.ratings}
-            onChange={(ratings) => onChange({ ratings })}
-          />
-          <MoreFiltersToggle
-            open={moreOpen}
-            count={advancedCount}
-            onOpenChange={setMoreOpen}
-          />
-        </div>
-      </div>
-
-      <div
-        id="inbox-advanced-filters"
-        className={cn(
-          "grid transition-[grid-template-rows] duration-(--np-duration-standard) ease-spring",
-          moreOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          {moreOpen || advancedCount > 0 ? (
-            <div
-              className={cn(
-                "pt-0.5 transition-opacity duration-(--np-duration-fast)",
-                moreOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              )}
-              inert={!moreOpen || undefined}
-            >
-              <AdvancedFilters state={state} onChange={onChange} />
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Only the combobox is hidden for a single-location org — never the
-          ActiveFilterChips below. A `?locationId=` can still arrive in the
-          URL (components/home/attention-list.tsx links there unconditionally),
-          and the chip's "Remove location filter" button is the only thing
-          left that can clear it. Hiding the chip too would strand the user
-          in a filtered view with no way out. */}
-      {showLocationFilter ? (
-        <div className="min-w-0">
-          <label htmlFor={locationId} className="sr-only">
-            Filter by location
-          </label>
-          <Combobox
-            items={locations}
-            value={selectedLocation}
-            onValueChange={(location: LocationOption | null) =>
-              onChange({ locationIds: location ? [location.id] : [] })
-            }
-            itemToStringLabel={(location: LocationOption) => location.name}
-          >
-            <ComboboxInput
-              id={locationId}
-              placeholder="All locations"
-              aria-label="Filter by location"
-            />
-            <ComboboxContent>
-              {locations.map((location) => (
-                <ComboboxItem key={location.id} value={location}>
-                  {location.name}
-                </ComboboxItem>
-              ))}
-            </ComboboxContent>
-          </Combobox>
-        </div>
-      ) : null}
-
-      {showChips ? (
-        <ActiveFilterChips
-          state={state}
-          locations={locations}
-          onChange={onChange}
-          onClear={onClear}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-export { ReviewFilters, ReviewSearchBar }
+export { ReviewSearchBar }

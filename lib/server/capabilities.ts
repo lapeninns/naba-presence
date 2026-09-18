@@ -223,8 +223,7 @@ export async function locationCapabilities(
 }
 
 // Org/settings capabilities for the Settings workspace (spec §3):
-//   canManageTeam/canManageConnections/canEditSettings/canViewCompliance === role in {owner, admin}
-//   canManageCompliance === role === "owner"
+//   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
 // Pure role predicates that mirror the route guards; no SQL.
 export function settingsCapabilities(session: Session): SettingsCapabilities {
   const managerial = isManagerialRole(session.role)
@@ -232,7 +231,5 @@ export function settingsCapabilities(session: Session): SettingsCapabilities {
     canManageTeam: managerial,
     canManageConnections: managerial,
     canEditSettings: managerial,
-    canViewCompliance: managerial,
-    canManageCompliance: session.role === "owner",
   }
 }

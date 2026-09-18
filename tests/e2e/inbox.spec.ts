@@ -18,7 +18,11 @@ const ONE_PX_PNG = Buffer.from(
   "base64"
 )
 
-async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
+async function applyCookie(
+  page: Page,
+  baseURL: string | undefined,
+  cookie: string
+) {
   const [name, value] = cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
@@ -33,6 +37,41 @@ test.describe("inbox", () => {
     await expect(
       page.getByRole("searchbox", { name: "Search reviews" })
     ).toBeVisible()
+    // The permanent left rail is gone: five queue controls and a compact
+    // filter toolbar sit above the list and the detail. Located by slot rather
+    // than by name, because each control's accessible name also carries its
+    // count ("Needs reply, 12 reviews").
+    await expect(
+      page.getByRole("navigation", { name: "Review queues" })
+    ).toBeVisible()
+    await expect(page.locator('[data-slot="queue-tab"]')).toHaveCount(5)
+    for (const queue of [
+      "needs_reply",
+      "approval",
+      "publishing",
+      "failed",
+      "done",
+    ]) {
+      await expect(
+        page.locator(`[data-slot="queue-tab"][data-queue="${queue}"]`)
+      ).toBeVisible()
+    }
+    // Approval is one control standing in for both `awaiting_approval`
+    // queues, so neither of the old per-owner tabs is drawn — the ownership
+    // question is asked by the "Waiting on" filter instead, and only inside
+    // Approval. This is the default Needs reply queue, so it is absent here.
+    await expect(
+      page.locator('[data-slot="queue-tab"][data-queue="awaiting_my_approval"]')
+    ).toHaveCount(0)
+    await expect(
+      page.locator('[data-slot="queue-tab"][data-queue="needs_reply"]')
+    ).toHaveAttribute("aria-current", "true")
+    await expect(
+      page.getByRole("group", { name: "Filter reviews" })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("combobox", { name: "Approval waiting on" })
+    ).toBeHidden()
   })
 
   test("offers a location filter only when the org has several locations", async ({
@@ -58,7 +97,9 @@ test.describe("inbox", () => {
     ).toBeVisible()
   })
 
-  test("reviews redirects to inbox and forwards the query string", async ({ page }) => {
+  test("reviews redirects to inbox and forwards the query string", async ({
+    page,
+  }) => {
     // /reviews -> /inbox forwards the query string (app/reviews/page.tsx). The
     // shared local LOCAL_BOOTSTRAP org carries many reviews, so the inbox's
     // desktop auto-selection (components/inbox/inbox-view.tsx) picks the
@@ -109,7 +150,9 @@ test.describe("inbox", () => {
       await page.waitForLoadState("networkidle")
       const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
       expect(wcag.violations, `${theme} wcag`).toEqual([])
-      const best = await new AxeBuilder({ page }).withTags(["best-practice"]).analyze()
+      const best = await new AxeBuilder({ page })
+        .withTags(["best-practice"])
+        .analyze()
       expect(
         best.violations.filter((v) => STRUCTURE_RULES.includes(v.id)),
         `${theme} structure`
@@ -147,7 +190,8 @@ test.describe("inbox", () => {
       .first()
       .click()
     await expect(
-      page.getByRole("region", { name: "Selected review" })
+      page
+        .getByRole("region", { name: "Selected review" })
         .getByText(state.directReview.text, { exact: true })
     ).toBeVisible()
 

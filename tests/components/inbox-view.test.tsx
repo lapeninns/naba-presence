@@ -133,6 +133,7 @@ beforeEach(() => {
   vi.spyOn(countsHook, "useReviewCounts").mockReturnValue({
     data: { total: 1, byStatus: {}, byQueue: {
         needs_reply: 0,
+        approval: 0,
         awaiting_my_approval: 0,
         awaiting_others: 0,
         publishing: 0,
@@ -172,7 +173,11 @@ function renderInbox() {
   )
 }
 
+// The pane now opens a saved reply as readable text; the composer is entered
+// deliberately. Every dirty-guard case below still needs a dirty composer, so
+// they all go through Edit reply first.
 async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Edit reply" }))
   const textbox = screen.getByRole("textbox", { name: "Your reply" })
   await user.type(textbox, " extra")
   return textbox
@@ -202,20 +207,21 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
   })
 
   it("gates a queue change", async () => {
-    // The queue tab strip became a rail: an agency's first question is not
-    // "how many are awaiting approval" but "which client is behind".
+    // The rail became a tab strip above the workspace, but it keeps the
+    // "Review queues" navigation landmark — the queues are still the inbox's
+    // primary navigation, wherever they are drawn.
     const user = userEvent.setup()
     renderInbox()
     const textbox = await dirtyComposer(user)
-    const rail = screen.getByRole("navigation", { name: "Review queues" })
+    const queues = screen.getByRole("navigation", { name: "Review queues" })
 
-    await user.click(within(rail).getByRole("button", { name: /^Done/ }))
+    await user.click(within(queues).getByRole("button", { name: /^Done/ }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(within(rail).getByRole("button", { name: /^Done/ }))
+    await user.click(within(queues).getByRole("button", { name: /^Done/ }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")

@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/chart"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { KpiTile } from "@/components/ui/kpi-tile"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import { DivergenceBanner } from "@/components/home/divergence-banner"
 import { kpiDelta } from "@/components/reporting/delta-badge"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
@@ -28,6 +30,49 @@ import {
   formatPercent,
 } from "@/lib/format"
 
+function ReplyPerformanceLoading() {
+  return (
+    <div
+      aria-busy="true"
+      role="status"
+      className="flex flex-col gap-(--np-gap-section)"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="flex items-center gap-2 text-ui text-ink-muted">
+          <Spinner decorative size="sm" className="shrink-0" />
+          Loading reply performance…
+        </p>
+        <Skeleton className="h-(--np-field-h) w-36 rounded-(--np-radius-control)" />
+      </div>
+
+      <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className="flex min-h-28 flex-col gap-2 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)"
+          >
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="mt-auto h-3 w-28" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-(--np-gap-card) lg:grid-cols-2">
+        {[0, 1].map((item) => (
+          <div
+            key={item}
+            className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)"
+          >
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-52 w-full rounded-(--np-radius-control)" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const [rangeId, setRangeId] = useState<ReplyRangeId>("30d")
   // Memoise the range: resolveReplyRange defaults `now` to `new Date()`, so
@@ -42,10 +87,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
 
-  if (now.isPending)
-    return (
-      <ReportingPanel variant="loading" title="Loading reply performance…" />
-    )
+  if (now.isPending) return <ReplyPerformanceLoading />
   if (now.isError)
     return <ReportingPanel variant="error" onRetry={() => void now.refetch()} />
 

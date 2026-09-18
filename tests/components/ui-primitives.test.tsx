@@ -69,14 +69,21 @@ describe("StatusPill", () => {
 describe("Stepper", () => {
   const steps = [
     { id: "a", label: "Agency", state: "done" as const },
-    { id: "b", label: "Client", state: "current" as const, meta: "In progress" },
+    {
+      id: "b",
+      label: "Client",
+      state: "current" as const,
+      meta: "In progress",
+    },
     { id: "c", label: "Connect", state: "todo" as const },
   ]
 
   it("marks the active step and nothing else", () => {
     render(<Stepper steps={steps} />)
     const items = screen.getAllByRole("listitem")
-    expect(items.filter((item) => item.getAttribute("aria-current") === "step")).toHaveLength(1)
+    expect(
+      items.filter((item) => item.getAttribute("aria-current") === "step")
+    ).toHaveLength(1)
     expect(items[1]).toHaveAttribute("aria-current", "step")
   })
 
@@ -136,7 +143,9 @@ describe("chips", () => {
         1–2 stars
       </RemovableChip>
     )
-    await user.click(screen.getByRole("button", { name: "Remove the rating filter" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove the rating filter" })
+    )
     expect(onRemove).toHaveBeenCalled()
   })
 })
@@ -153,9 +162,16 @@ describe("DataTable", () => {
 
   it("names the table so several on one page are distinguishable", () => {
     render(
-      <DataTable caption="Locations in this client" columns={columns} rows={rows} rowId={(row) => row.id} />
+      <DataTable
+        caption="Locations in this client"
+        columns={columns}
+        rows={rows}
+        rowId={(row) => row.id}
+      />
     )
-    expect(screen.getByRole("table", { name: "Locations in this client" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("table", { name: "Locations in this client" })
+    ).toBeInTheDocument()
   })
 
   it("selects one row without touching the others", async () => {
@@ -174,7 +190,9 @@ describe("DataTable", () => {
         }}
       />
     )
-    await user.click(screen.getByRole("checkbox", { name: "Select Old Crown Girton" }))
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select Old Crown Girton" })
+    )
     expect(onChange).toHaveBeenCalledWith(new Set(["1"]))
   })
 
@@ -195,7 +213,9 @@ describe("DataTable", () => {
         }}
       />
     )
-    await user.click(screen.getByRole("checkbox", { name: "Select all 1 rows" }))
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all 1 rows" })
+    )
     expect(onChange).toHaveBeenCalledWith(new Set(["1"]))
   })
 
@@ -212,6 +232,24 @@ describe("DataTable", () => {
     expect(screen.getByText("No locations yet")).toBeInTheDocument()
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
   })
+
+  // The card ground is Table's own `surface`, so a DataTable and a
+  // hand-composed table land on exactly the same box — and a wide table
+  // scrolls inside its card rather than out from under a separate one.
+  it("puts the card ground on the scroll container, not a box around it", () => {
+    const { container } = render(
+      <DataTable
+        caption="Locations"
+        columns={columns}
+        rows={rows}
+        rowId={(row) => row.id}
+        surface
+      />
+    )
+    const scrollPort = container.querySelector('[data-slot="table-container"]')!
+    expect(scrollPort.className).toContain("overflow-x-auto")
+    expect(scrollPort.className).toContain("bg-surface")
+  })
 })
 
 describe("DiffView", () => {
@@ -220,7 +258,12 @@ describe("DiffView", () => {
       <DiffView
         caption="Changes to Old Crown Girton"
         rows={[
-          { field: "Phone", before: "01223 277 217", after: "01223 277 218", state: "conflict" },
+          {
+            field: "Phone",
+            before: "01223 277 217",
+            after: "01223 277 218",
+            state: "conflict",
+          },
         ]}
       />
     )
@@ -236,7 +279,9 @@ describe("DiffView", () => {
     render(
       <DiffView
         caption="Changes"
-        rows={[{ field: "Secondary category", before: null, after: "Gastropub" }]}
+        rows={[
+          { field: "Secondary category", before: null, after: "Gastropub" },
+        ]}
       />
     )
     expect(screen.getByText("Not set")).toBeInTheDocument()

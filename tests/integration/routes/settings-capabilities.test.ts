@@ -51,8 +51,6 @@ describeDatabase("settings capabilities route", () => {
         canManageTeam: boolean
         canManageConnections: boolean
         canEditSettings: boolean
-        canViewCompliance: boolean
-        canManageCompliance: boolean
       }
     }
   }
@@ -68,19 +66,17 @@ describeDatabase("settings capabilities route", () => {
     await admin.end()
   })
 
-  it("owner can manage everything including compliance", async () => {
+  it("owner can manage everything", async () => {
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
     expect((await caps(tenant.cookie)).capabilities).toEqual({
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
-      canViewCompliance: true,
-      canManageCompliance: true,
     })
   })
 
-  it("admin manages team/connections/settings and views compliance but can't manage it", async () => {
+  it("admin manages team, connections and settings", async () => {
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
     const adminUser = await seedMemberUser(admin, tenant.organisationId, "admin", true)
@@ -88,8 +84,6 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
-      canViewCompliance: true,
-      canManageCompliance: false,
     })
   })
 
@@ -102,8 +96,6 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: false,
       canManageConnections: false,
       canEditSettings: false,
-      canViewCompliance: false,
-      canManageCompliance: false,
     }
     expect((await caps(member.cookie)).capabilities).toEqual(allFalse)
     expect((await caps(viewer.cookie)).capabilities).toEqual(allFalse)

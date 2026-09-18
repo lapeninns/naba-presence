@@ -19,9 +19,7 @@ export default async function InboxPage() {
       <PageHeader
         title="Reviews"
         description={
-          <span className="max-lg:hidden">
-            Every Google review for your business, in one queue.
-          </span>
+          <span className="max-lg:hidden">Read reviews. Reply with care.</span>
         }
       />
       <InboxView showLocationFilter={locationCount > 1} />

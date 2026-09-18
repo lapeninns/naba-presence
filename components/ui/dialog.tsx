@@ -36,7 +36,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast)",
+        "fixed inset-0 isolate z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
         className
       )}
       {...props}
@@ -45,11 +45,20 @@ function DialogOverlay({
 }
 
 /**
- * The small grey circle in the top-right corner. Shared with Sheet so the two
- * overlays close the same way.
+ * The small grey circle in the top-right corner. Exported because Sheet draws
+ * the same one — it was a second copy of this string, which is exactly how
+ * two overlays start closing differently.
  */
-const closeButtonClassName =
+export const overlayCloseButtonClassName =
   "absolute top-4 right-4 size-7 rounded-(--np-radius-pill) bg-fill text-ink-muted hover:bg-fill-secondary hover:text-ink [&_svg]:size-3.5 [&_svg]:[stroke-width:1.75]"
+
+/**
+ * The action row both overlays end on: stacked on a phone with the primary
+ * on top where the thumb reaches it, a right-aligned row from `sm` up.
+ * Exported for the same reason as the close button.
+ */
+export const overlayFooterClassName =
+  "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
 
 function DialogContent({
   className,
@@ -70,7 +79,7 @@ function DialogContent({
           // immediate. Position uses translate; scale is a separate property
           // in Tailwind v4, so the two never fight.
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 rounded-(--np-radius-modal) bg-popover p-6 text-body text-popover-foreground shadow-(--np-shadow-modal) outline-none sm:max-w-md",
-          "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
+          "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:scale-96 data-starting-style:opacity-0",
           className
         )}
         {...props}
@@ -82,7 +91,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className={closeButtonClassName}
+                className={overlayCloseButtonClassName}
                 size="icon-sm"
                 aria-label="Close"
               />
@@ -123,10 +132,7 @@ function DialogFooter({
   return (
     <div
       data-slot="dialog-footer"
-      className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-        className
-      )}
+      className={cn(overlayFooterClassName, className)}
       {...props}
     >
       {showCloseButton && (

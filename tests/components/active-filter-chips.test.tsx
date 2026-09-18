@@ -11,9 +11,6 @@ const state: InboxState = {
   ratings: [5],
   search: "slow",
   sort: "updated_desc",
-  verification: ["fail"],
-  publishStatus: [],
-  syncStatus: [],
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -33,31 +30,20 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText("Location: Riverside")).toBeInTheDocument()
     expect(screen.getByText("Rating: 5 stars")).toBeInTheDocument()
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
-    expect(screen.getByText("Verification: Failed")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove location filter" }))
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
-  it("humanizes multi-value publish and sync chips", () => {
+  it("humanizes a multi-value rating chip", () => {
     render(
       <ActiveFilterChips
-        state={{
-          ...state,
-          locationIds: [],
-          ratings: [1, 2],
-          search: "",
-          verification: [],
-          publishStatus: ["not_published", "failed"],
-          syncStatus: ["pending"],
-        }}
+        state={{ ...state, locationIds: [], ratings: [1, 2], search: "" }}
         locations={[]}
         onChange={() => {}}
         onClear={() => {}}
       />
     )
     expect(screen.getByText("Rating: 1, 2 stars")).toBeInTheDocument()
-    expect(screen.getByText("Publish: Not published, Failed")).toBeInTheDocument()
-    expect(screen.getByText("Sync: Pending")).toBeInTheDocument()
   })
 
   it("offers Clear all when any filter is active", async () => {
@@ -78,7 +64,7 @@ describe("ActiveFilterChips", () => {
   it("renders nothing when no filters are active", () => {
     const { container } = render(
       <ActiveFilterChips
-        state={{ ...state, locationIds: [], ratings: [], search: "", verification: [] }}
+        state={{ ...state, locationIds: [], ratings: [], search: "" }}
         locations={[]}
         onChange={() => {}}
         onClear={() => {}}
@@ -95,7 +81,6 @@ describe("ActiveFilterChips", () => {
           locationIds: [],
           ratings: [],
           search: "",
-          verification: [],
           dateFrom: "2026-07-09T00:00:00.000Z",
           dateTo: "2026-07-15T00:00:00.000Z",
           sort: "rating_asc",

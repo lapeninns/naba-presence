@@ -117,38 +117,30 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
         description="Google has not reported any search keywords for this window."
       />
     ) : (
-      <div className="overflow-hidden rounded-(--np-radius-card) bg-surface">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead numeric className="w-12">
-                #
-              </TableHead>
-              <TableHead>Search term</TableHead>
-              <TableHead numeric>Impressions</TableHead>
+      <Table surface>
+        <TableHeader>
+          <TableRow>
+            <TableHead numeric className="w-12">
+              #
+            </TableHead>
+            <TableHead>Search term</TableHead>
+            <TableHead numeric>Impressions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.keywords.map((keyword) => (
+            <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
+              <TableCell numeric className="text-ink-muted">
+                {keyword.rank}
+              </TableCell>
+              <TableCell className="font-medium text-ink" lang="und" dir="auto">
+                {keyword.keyword}
+              </TableCell>
+              <TableCell numeric>{formatKeywordImpressions(keyword)}</TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.keywords.map((keyword) => (
-              <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
-                <TableCell numeric className="text-ink-muted">
-                  {keyword.rank}
-                </TableCell>
-                <TableCell
-                  className="font-medium text-ink"
-                  lang="und"
-                  dir="auto"
-                >
-                  {keyword.keyword}
-                </TableCell>
-                <TableCell numeric>
-                  {formatKeywordImpressions(keyword)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+          ))}
+        </TableBody>
+      </Table>
     )
 
   return (
