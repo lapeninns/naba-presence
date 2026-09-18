@@ -160,7 +160,10 @@ test.describe("locations", () => {
       const page = await context.newPage()
       await applyCookie(page, baseURL, cookie)
       await page.goto(`/locations/${state.primaryLocationId}`)
-      const review = page.getByRole("button", { name: "Review changes" })
+      // Scoped to the profile section: every Listing editor ends with its
+      // own "Review changes", and the hours editor's sits further down.
+      const profile = page.locator("#profile")
+      const review = profile.getByRole("button", { name: "Review changes" })
       await expect(review).toBeVisible()
       const gate = page.getByText(
         "Only owners and admins can edit this location."
@@ -184,6 +187,9 @@ test.describe("locations", () => {
     baseURL,
     browser,
   }) => {
+    // Five roles, each loading the Listing — four editors' worth of paced
+    // Google reads before networkidle — so the default budget is too tight.
+    test.setTimeout(120_000)
     const state = await readJourneyState()
     const cases: Array<[string, boolean]> = [
       [state.cookie, true],
@@ -237,15 +243,18 @@ test.describe("locations", () => {
 
       const nav = page.getByRole("navigation", { name: "Location sections" })
       if (canManage) {
-        await expect(nav.getByRole("link", { name: "People" })).toBeVisible()
+        // The Access job is offered, and opening it lists both consoles.
+        await nav.getByRole("link", { name: "Access" }).click()
+        await expect(nav.getByRole("link", { name: "People" })).toHaveAttribute(
+          "aria-current",
+          "page"
+        )
         await expect(
           nav.getByRole("link", { name: "Verification" })
         ).toBeVisible()
       } else {
+        await expect(nav.getByRole("link", { name: "Access" })).toHaveCount(0)
         await expect(nav.getByRole("link", { name: "People" })).toHaveCount(0)
-        await expect(
-          nav.getByRole("link", { name: "Verification" })
-        ).toHaveCount(0)
 
         const administrationResponses: number[] = []
         page.on("response", (response) => {
@@ -283,8 +292,12 @@ test.describe("locations", () => {
     await name.fill("Riverside Rooms & Spa")
 
     // Nothing reaches Google until the diff has been seen: the review sheet
-    // names the field and what it will become.
-    await page.getByRole("button", { name: "Review changes" }).click()
+    // names the field and what it will become. Scoped to the profile
+    // section, because the hours editor further down has its own button.
+    await page
+      .locator("#profile")
+      .getByRole("button", { name: "Review changes" })
+      .click()
     const sheet = page.getByRole("dialog")
     await expect(sheet.getByText("Business name")).toBeVisible()
     await expect(sheet.getByText("Riverside Rooms & Spa")).toBeVisible()
@@ -372,7 +385,10 @@ test.describe("locations", () => {
     const storeCode = page.getByRole("textbox", { name: "Store code" })
     await expect(storeCode).toBeVisible()
     await storeCode.fill("RIVERSIDE-2")
-    await page.getByRole("button", { name: "Review changes" }).click()
+    await page
+      .locator("#profile")
+      .getByRole("button", { name: "Review changes" })
+      .click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
     // load, and the route 409s (business_information_stale) if Google's
     // current state no longer hashes to match — a live optimistic-concurrency

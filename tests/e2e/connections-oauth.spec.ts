@@ -47,7 +47,13 @@ test.describe("connections OAuth return", () => {
     const disconnect = page.getByRole("button", { name: /^Disconnect/ })
     await expect(disconnect.first()).toBeVisible()
     await disconnect.first().click()
-    await expect(page.getByRole("alertdialog")).toBeVisible()
+    const dialog = page.getByRole("alertdialog")
+    await expect(dialog).toBeVisible()
+    // The popup fades and scales in (components/ui/alert-dialog.tsx). Axe
+    // samples computed colours, so mid-transition it reads the buttons at
+    // partial opacity and reports a contrast failure that no one can see.
+    await expect(dialog).not.toHaveAttribute("data-starting-style", /.*/)
+    await page.waitForTimeout(400)
     const wcag = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze()
