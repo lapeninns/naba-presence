@@ -220,7 +220,7 @@ test.describe("inbox critical journeys", () => {
     // (lib/inbox/url-state.ts).
     await page.goto("/inbox?queue=awaiting_my_approval")
     await expect(
-      page.getByRole("heading", { name: "Reviews", level: 1 })
+      page.getByRole("heading", { name: "Inbox", level: 1 })
     ).toBeVisible()
     await expect(
       page

@@ -20,6 +20,7 @@ import {
   useSelection,
 } from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
+import { TodayStrip } from "@/components/inbox/today/today-strip"
 import { EmptyState } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
@@ -482,13 +483,19 @@ function InboxViewInner({
         ?.name
     : undefined
 
-  // Queue tabs, then the compact filter toolbar, then the chips of what is
-  // applied — one block above the two panes, in place of the permanent rail.
+  // What Home used to say, then the queue tabs, then the compact filter
+  // toolbar, then the chips of what is applied — one block above the two
+  // panes, in place of the permanent rail. Pressing a client chip is a
+  // filter like any other, so it goes through the same dirty-gated handler.
   const workspaceControls = (
     <div
       data-slot="inbox-workspace-controls"
       className="flex shrink-0 flex-col gap-3"
     >
+      <TodayStrip
+        clientId={state.clientId}
+        onClientChange={(clientId) => onFilterChange({ clientId })}
+      />
       <QueueTabs
         queue={state.queue}
         counts={countsQuery.data}

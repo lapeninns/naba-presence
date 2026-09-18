@@ -506,20 +506,23 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} invitation`)
       })
 
-      test("home", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie (see the module comment above): Home
-        // reads live counts, the client list and analytics (Your work / Work
-        // by client / Health / Pulse). A real cookie makes those calls resolve
-        // against the real backend instead of 401-ing and hard-redirecting to
-        // /sign-in.
+      test("inbox landing with the Today strip", async ({ baseURL, page }) => {
+        // Real journey tenant/cookie (see the module comment above): the
+        // landing inbox reads live counts, the client list and the analytics
+        // overview for its Today strip. A real cookie makes those calls
+        // resolve against the real backend instead of 401-ing and
+        // hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/home")
+        await page.goto("/inbox")
         await expect(
-          page.getByRole("heading", { name: "Home", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
-        await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible()
-        await expectAccessible(page, `${viewport.name} ${theme} home`)
+        await expect(
+          page.getByRole("navigation", { name: "Review queues" })
+        ).toBeVisible()
+        await page.waitForLoadState("networkidle")
+        await expectAccessible(page, `${viewport.name} ${theme} inbox landing`)
       })
 
       test("reports", async ({ baseURL, page }) => {
@@ -603,7 +606,7 @@ for (const theme of themes) {
         await expect(
           page
             .getByRole("navigation", { name: "Location sections" })
-            .getByRole("link", { name: "Business profile" })
+            .getByRole("link", { name: "Listing" })
         ).toHaveAttribute("aria-current", "page")
         await expectAccessible(
           page,
@@ -835,7 +838,7 @@ for (const theme of themes) {
         })
         await page.goto("/inbox?queue=all")
         await expect(
-          page.getByRole("heading", { name: "Reviews", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
         // The permanent rail — and the "Queues" sheet it hid inside below lg —
         // are both gone. The five queue controls and the filter toolbar sit

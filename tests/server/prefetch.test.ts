@@ -9,7 +9,7 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
-  homePrefetch,
+  inboxPrefetch,
   locationTabPrefetch,
   prefetch,
   readSettingsCapabilities,
@@ -199,8 +199,8 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("homePrefetch targets the counts and analytics keys HomeView reads", () => {
-    expect(homePrefetch()(session).map((entry) => entry.queryKey)).toEqual([
+  it("inboxPrefetch targets the counts and analytics keys the Today strip reads", () => {
+    expect(inboxPrefetch()(session).map((entry) => entry.queryKey)).toEqual([
       queryKeys.reviewCounts("organisation"),
       queryKeys.analytics("overview", { window: "last-30-days" }),
     ])
