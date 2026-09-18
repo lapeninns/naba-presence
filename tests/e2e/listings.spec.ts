@@ -62,8 +62,9 @@ test.describe("listings", () => {
       page.getByRole("heading", { name: state.directReview.locationName, level: 1 })
     ).toBeVisible()
     // The health strip and one card per area, each with its own way in.
-    await expect(page.getByText("Google connection")).toBeVisible()
-    await expect(page.getByText("Verification", { exact: true })).toBeVisible()
+    const health = page.getByRole("region", { name: "Health" })
+    await expect(health.getByText("Google connection")).toBeVisible()
+    await expect(health.getByText("Verification", { exact: true })).toBeVisible()
     const areas = page.getByRole("region", { name: "Areas" })
     for (const area of ["Business profile", "Opening hours", "Booking links", "Photos", "Posts", "Food menu", "People with access"]) {
       await expect(areas.getByRole("heading", { name: area, level: 3 })).toBeVisible()
@@ -439,8 +440,10 @@ test.describe("listings", () => {
     await page.waitForLoadState("networkidle")
     // exact: true — "Verification" (unqualified) would otherwise strict-mode
     // match "Verification history" and "Start a new verification" too.
+    // Level 2: the area page's h1 is also "Verification"; the editor's own
+    // section heading is the one that proves the console loaded.
     await expect(
-      page.getByRole("heading", { name: "Verification", exact: true })
+      page.getByRole("heading", { name: "Verification", exact: true, level: 2 })
     ).toBeVisible()
     const published = page.waitForResponse(
       (r) =>
