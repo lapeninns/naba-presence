@@ -1,93 +1,101 @@
 /**
- * The location workspace's sections.
+ * The location workspace's three jobs.
  *
- * "Overview" is gone: it held a single tab labelled Profile, which meant the
- * first thing a user saw was a section heading duplicating the tab beneath it.
- * The profile IS the overview of a location, so it opens the Profile section
- * directly.
+ * Ten peer tabs under four captions was a list to scan, not a choice to make.
+ * An operator opening a location is doing one of three things: keeping the
+ * listing right, keeping its content fresh, or deciding who may touch it.
  *
- * Administration is relabelled "Access", which is what it actually contains:
- * who may edit the listing on Google, and whether it is verified.
+ * - **Listing** is one scroll — business profile, hours, booking links,
+ *   suggested updates — because they are facts about the same listing and an
+ *   operator checking one is checking them all. The row under the switcher
+ *   holds in-page anchors, not routes.
+ * - **Content** and **Access** keep their sub-views as real routes (photos
+ *   carry URL state, the consoles gate their own GET), drawn as a segmented
+ *   control under the switcher.
  *
- * "Customers" is gone the same way "Overview" went: a section label standing
- * over a single Booking tab. Booking links are listing facts, so they sit with
- * the hours and the rest of the profile.
+ * Performance is not a job of the workspace: it is a report, and lives on
+ * Reports scoped to the location.
  */
-export type LocationTabSegment =
-  | ""
-  | "hours"
-  | "suggestions"
-  | "photos"
-  | "posts"
-  | "booking"
-  | "menu"
-  | "performance"
-  | "access"
-  | "verification"
+export type LocationJobId = "listing" | "content" | "access"
 
-export type LocationTabDef = {
-  segment: LocationTabSegment
+export type LocationSegment =
+  "" | "photos" | "posts" | "menu" | "access" | "verification"
+
+export type ListingAnchor = "profile" | "hours" | "booking" | "suggestions"
+
+export type LocationView = { segment: LocationSegment; label: string }
+
+export type LocationJob = {
+  id: LocationJobId
   label: string
+  /** The segment the job opens on. */
+  segment: LocationSegment
   /** Owner/admin-only consoles (GET 403 for other roles). */
   consoleGated?: boolean
+  /** Sub-views drawn as a segmented control under the switcher. */
+  views: LocationView[]
+  /** In-page anchors for a one-scroll job. */
+  anchors: { id: ListingAnchor; label: string }[]
 }
 
-export type LocationIaSection = {
-  id: string
-  label: string
-  tabs: LocationTabDef[]
-}
+export const LISTING_ANCHORS: LocationJob["anchors"] = [
+  { id: "profile", label: "Business profile" },
+  { id: "hours", label: "Hours" },
+  // Booking, ordering and reservation links: Google "place actions", which
+  // are listing facts like the hours beside them.
+  { id: "booking", label: "Booking" },
+  // Accepting what Google changed is a different job from editing the
+  // listing, so it keeps its own section at the end of the scroll.
+  { id: "suggestions", label: "Suggested updates" },
+]
 
-export const LOCATION_IA_SECTIONS: LocationIaSection[] = [
+export const LOCATION_JOBS: LocationJob[] = [
   {
-    id: "profile",
-    label: "Profile",
-    tabs: [
-      // One tab, one listing. "Business info" and "Industry" were separate tabs
-      // editing the same profile through different Google APIs; they are now
-      // sections of this editor, and their old paths redirect here.
-      { segment: "", label: "Business profile" },
-      { segment: "hours", label: "Hours" },
-      // Booking, ordering and reservation links: Google "place actions", which
-      // are listing facts like the hours beside them. They had a "Customers"
-      // section to themselves, which was a group label standing over one tab.
-      { segment: "booking", label: "Booking" },
-      // Its own segment, not a card above two editors' fields: accepting what
-      // Google changed is a different job from editing the listing.
-      { segment: "suggestions", label: "Suggested updates" },
-    ],
+    id: "listing",
+    label: "Listing",
+    segment: "",
+    views: [],
+    anchors: LISTING_ANCHORS,
   },
   {
     id: "content",
     label: "Content",
-    tabs: [
+    segment: "photos",
+    views: [
       { segment: "photos", label: "Photos" },
       { segment: "posts", label: "Posts" },
       { segment: "menu", label: "Menu" },
     ],
+    anchors: [],
   },
   {
     id: "access",
     label: "Access",
-    tabs: [
-      { segment: "access", label: "People", consoleGated: true },
-      { segment: "verification", label: "Verification", consoleGated: true },
+    segment: "access",
+    consoleGated: true,
+    views: [
+      { segment: "access", label: "People" },
+      { segment: "verification", label: "Verification" },
     ],
-  },
-  {
-    id: "insights",
-    label: "Insights",
-    tabs: [{ segment: "performance", label: "Performance" }],
+    anchors: [],
   },
 ]
 
-export function visibleLocationSections(
-  canManageConsoles: boolean
-): LocationIaSection[] {
-  return LOCATION_IA_SECTIONS.map((section) => ({
-    ...section,
-    tabs: section.tabs.filter(
-      (tab) => !tab.consoleGated || canManageConsoles
-    ),
-  })).filter((section) => section.tabs.length > 0)
+export function visibleLocationJobs(canManageConsoles: boolean): LocationJob[] {
+  return LOCATION_JOBS.filter((job) => !job.consoleGated || canManageConsoles)
+}
+
+/** The job a workspace path segment belongs to; `""` is the Listing. */
+export function jobForSegment(segment: string): LocationJob | undefined {
+  return LOCATION_JOBS.find(
+    (job) =>
+      job.segment === segment ||
+      job.views.some((view) => view.segment === segment)
+  )
+}
+
+/** The path for a segment under a location, `""` being the location root. */
+export function segmentHref(locationId: string, segment: string): string {
+  const base = `/locations/${locationId}`
+  return segment ? `${base}/${segment}` : base
 }

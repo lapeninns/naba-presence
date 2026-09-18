@@ -507,7 +507,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           >
             <span
               aria-hidden
-              className="shrink-0 text-caption font-medium text-ink-muted"
+              className="shrink-0 text-caption font-medium text-ink"
             >
               Tone
             </span>

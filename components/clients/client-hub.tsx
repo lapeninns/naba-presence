@@ -27,12 +27,13 @@ import type { ClientResponse } from "@/lib/contracts/clients"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
 import { useClient } from "@/lib/queries/use-clients"
 
+// The three jobs of the workspace, with Content opening on photos, plus the
+// location's report, which lives on Reports rather than in the workspace.
 const SECTIONS = [
-  { segment: "", label: "Profile" },
-  { segment: "hours", label: "Hours" },
-  { segment: "photos", label: "Photos" },
-  { segment: "posts", label: "Posts" },
-  { segment: "performance", label: "Performance" },
+  { href: (id: string) => `/locations/${id}`, label: "Listing" },
+  { href: (id: string) => `/locations/${id}/photos`, label: "Photos" },
+  { href: (id: string) => `/locations/${id}/posts`, label: "Posts" },
+  { href: (id: string) => `/reports?locationId=${id}`, label: "Reports" },
 ]
 
 /**
@@ -221,7 +222,7 @@ function ClientHub({
                         {SECTIONS.map((section) => (
                           <Link
                             key={section.label}
-                            href={`/locations/${location.locationId}${section.segment ? `/${section.segment}` : ""}`}
+                            href={section.href(location.locationId)}
                             className={buttonVariants({
                               variant: "secondary",
                               size: "xs",

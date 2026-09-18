@@ -97,7 +97,7 @@ function AccountMenu({
       })
       // A full reload, not a router push: switching mints a new session and
       // every cached query in memory belongs to the previous organisation.
-      window.location.assign("/home")
+      window.location.assign("/inbox")
     } catch {
       setSwitching(false)
     }

@@ -92,7 +92,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     startTransition(async () => {
       try {
         await authApi.completePasswordReset({ tokenHash, password })
-        window.location.assign("/home")
+        window.location.assign("/inbox")
         // Deliberately never resolve: the page is navigating away, and
         // letting the transition "finish" here would flip the submit
         // button back to enabled during that window - reopening the

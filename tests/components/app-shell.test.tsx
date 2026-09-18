@@ -100,7 +100,7 @@ describe("AppShell", () => {
       "aria-current",
       "page"
     )
-    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
       "aria-current"
     )
   })

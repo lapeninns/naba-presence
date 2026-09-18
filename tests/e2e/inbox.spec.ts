@@ -32,7 +32,7 @@ test.describe("inbox", () => {
     await page.goto("/inbox")
     expect(new URL(page.url()).pathname).toBe("/inbox")
     await expect(
-      page.getByRole("heading", { name: "Reviews", level: 1 })
+      page.getByRole("heading", { name: "Inbox", level: 1 })
     ).toBeVisible()
     await expect(
       page.getByRole("searchbox", { name: "Search reviews" })

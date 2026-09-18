@@ -29,8 +29,8 @@ export default function NotFound() {
           // template literal) matters: buttonVariants' base string and its
           // variant string can target the same utility and only twMerge's
           // dedupe picks the right one.
-          <Link href="/home" className={cn(buttonVariants())}>
-            Go to Home
+          <Link href="/inbox" className={cn(buttonVariants())}>
+            Go to Inbox
           </Link>
         }
       />

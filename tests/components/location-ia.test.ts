@@ -5,7 +5,12 @@ import {
   lodgingUpdatedPaths,
   timeOfDayToInput,
 } from "@/lib/locations/forms/industry"
-import { visibleLocationSections } from "@/lib/locations/location-ia"
+import {
+  jobForSegment,
+  LOCATION_JOBS,
+  segmentHref,
+  visibleLocationJobs,
+} from "@/lib/locations/location-ia"
 
 describe("lodging form helpers", () => {
   it("round-trips TimeOfDay for policy inputs", () => {
@@ -31,44 +36,55 @@ describe("lodging form helpers", () => {
 })
 
 describe("location IA", () => {
-  it("opens on Profile rather than a section holding one Profile tab", () => {
-    // The old "Overview" section contained a single tab labelled Profile, so
-    // the first thing a user saw was a section heading duplicating the tab
-    // under it. The profile IS a location's overview.
-    const sections = visibleLocationSections(true)
-    expect(sections.map((s) => s.id)).toEqual([
+  it("offers three jobs, opening on the Listing", () => {
+    const jobs = visibleLocationJobs(true)
+    expect(jobs.map((job) => job.id)).toEqual(["listing", "content", "access"])
+    expect(jobs[0]).toMatchObject({ label: "Listing", segment: "" })
+    // The Listing is one scroll: its parts are anchors, not routes.
+    expect(jobs[0].views).toEqual([])
+    expect(jobs[0].anchors.map((anchor) => anchor.id)).toEqual([
       "profile",
-      "content",
-      "access",
-      "insights",
-    ])
-    expect(sections[0].tabs[0]).toMatchObject({
-      segment: "",
-      label: "Business profile",
-    })
-    // "Business info" and "Industry" were separate tabs editing the same
-    // listing; they are sections of the profile editor now.
-    expect(sections[0].tabs.map((t) => t.segment)).toEqual([
-      "",
       "hours",
       "booking",
       "suggestions",
     ])
   })
 
-  it("keeps Booking with the profile instead of a section of its own", () => {
-    // Booking / ordering / reservation links are place actions on the listing,
-    // so "Customers" was a group label standing over exactly one tab.
-    const ids = visibleLocationSections(true).map((s) => s.id)
-    expect(ids).not.toContain("customers")
+  it("keeps Content and Access sub-views as routes under a segmented control", () => {
+    const [, content, access] = visibleLocationJobs(true)
+    expect(content.views.map((view) => view.segment)).toEqual([
+      "photos",
+      "posts",
+      "menu",
+    ])
+    expect(content.segment).toBe("photos")
+    expect(access.views.map((view) => view.segment)).toEqual([
+      "access",
+      "verification",
+    ])
   })
 
-  it("hides the console tabs from members, section and all", () => {
-    const member = visibleLocationSections(false)
-    // Access holds only console-gated tabs, so the whole section disappears
-    // rather than rendering an empty heading.
-    expect(member.map((s) => s.id)).toEqual(["profile", "content", "insights"])
-    const labels = member.flatMap((s) => s.tabs.map((t) => t.label))
-    expect(labels).not.toContain("Access")
+  it("has no Performance job: that is a report, on Reports", () => {
+    const segments = LOCATION_JOBS.flatMap((job) => [
+      job.segment,
+      ...job.views.map((view) => view.segment),
+    ])
+    expect(segments).not.toContain("performance")
+  })
+
+  it("hides the console job from members", () => {
+    expect(visibleLocationJobs(false).map((job) => job.id)).toEqual([
+      "listing",
+      "content",
+    ])
+  })
+
+  it("resolves a path segment to its job", () => {
+    expect(jobForSegment("")?.id).toBe("listing")
+    expect(jobForSegment("posts")?.id).toBe("content")
+    expect(jobForSegment("verification")?.id).toBe("access")
+    expect(jobForSegment("performance")).toBeUndefined()
+    expect(segmentHref("loc-1", "")).toBe("/locations/loc-1")
+    expect(segmentHref("loc-1", "menu")).toBe("/locations/loc-1/menu")
   })
 })

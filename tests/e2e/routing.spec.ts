@@ -11,14 +11,17 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
-// The six agency destinations. The flat business routes (/profile, /photos,
-// /posts) are gone: they acted on a silently chosen "primary location", which
-// means nothing once an organisation looks after several businesses.
+// The agency destinations: three primary items and the two behind More.
+// The flat business routes (/profile, /photos, /posts) are gone: they acted
+// on a silently chosen "primary location", which means nothing once an
+// organisation looks after several businesses. Home is gone too: the Inbox
+// is where the work is, so it is where a session starts.
 const dashboardRoutes = [
-  { path: "/home", label: "Home", heading: /^Home$/ },
-  { path: "/inbox", label: "Inbox", heading: /^Reviews$/ },
+  { path: "/inbox", label: "Inbox", heading: /^Inbox$/ },
   { path: "/clients", label: "Clients", heading: /^Clients$/ },
   { path: "/reports", label: "Reports", heading: /^Reports$/ },
+  // More opens itself while Team or Settings is the current page, so the
+  // link is in the tree and marked current without a click.
   { path: "/team", label: "Team", heading: /^Team$/ },
   { path: "/settings", label: "Settings", heading: /^Reply policy$/ },
 ]
@@ -45,22 +48,24 @@ test("dashboard pages have direct URLs", async ({ page }) => {
   }
 })
 
-test("root redirects to home", async ({ page }) => {
-  await page.goto("/")
-
-  await expect(page).toHaveURL("/home")
-  await expect(
-    page.getByRole("heading", { name: "Home", level: 1 })
-  ).toBeVisible()
+test("root and the retired home land on the inbox", async ({ page }) => {
+  for (const path of ["/", "/home", "/overview"]) {
+    await page.goto(path)
+    // Pathname only: the inbox's desktop auto-selection appends
+    // `?selected=<id>` shortly after landing.
+    expect(new URL(page.url()).pathname).toBe("/inbox")
+    await expect(
+      page.getByRole("heading", { name: "Inbox", level: 1 })
+    ).toBeVisible()
+  }
 })
 
 test("legacy routes redirect to their replacements", async ({ page }) => {
   for (const [from, to] of [
     // Keep the anonymous auth alias first. Visiting any dashboard alias below
     // provisions the local test session, after which /sign-in correctly sends
-    // the already-authenticated browser to /home.
+    // the already-authenticated browser to /inbox.
     ["/login", "/sign-in"],
-    ["/overview", "/home"],
     ["/analytics", "/reports"],
     ["/performance", "/reports"],
     ["/settings/team", "/team"],
@@ -110,14 +115,16 @@ test("sidebar links update browser history", async ({ page }) => {
 
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
 
-  await primaryNav.getByRole("link", { name: "Home", exact: true }).click()
-  await expect(page).toHaveURL("/home")
+  await primaryNav.getByRole("link", { name: "Clients", exact: true }).click()
+  await expect(page).toHaveURL("/clients")
 
+  // Settings sits behind More; the disclosure is a button, the row a link.
+  await primaryNav.getByRole("button", { name: "More" }).click()
   await primaryNav.getByRole("link", { name: "Settings", exact: true }).click()
   await expect(page).toHaveURL("/settings")
 
   await page.goBack()
-  await expect(page).toHaveURL("/home")
+  await expect(page).toHaveURL("/clients")
 })
 
 test("nested location routes stay reachable and unclaimed by the primary nav", async ({

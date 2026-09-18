@@ -88,7 +88,7 @@ describe("ClientHub", () => {
     const sections = await screen.findByRole("navigation", {
       name: "Old Crown Girton sections",
     })
-    expect(sections.querySelector('a[href="/locations/l1/hours"]')).toBeTruthy()
+    expect(sections.querySelector('a[href="/locations/l1"]')).toBeTruthy()
     expect(sections.querySelector('a[href="/locations/l1/photos"]')).toBeTruthy()
   })
 

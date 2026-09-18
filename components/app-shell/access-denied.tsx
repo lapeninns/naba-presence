@@ -33,10 +33,10 @@ function AccessDenied({
       description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your agency if you need it.`}
       action={
         <Link
-          href="/home"
+          href="/inbox"
           className={cn(buttonVariants({ variant: "secondary" }))}
         >
-          Back to Home
+          Back to Inbox
         </Link>
       }
     />

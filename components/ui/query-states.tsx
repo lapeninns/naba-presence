@@ -162,7 +162,7 @@ export function RouteErrorState({
   title,
   description,
   onReset,
-  homeHref = "/home",
+  homeHref = "/inbox",
   className,
 }: {
   title: string
@@ -191,7 +191,7 @@ export function RouteErrorState({
           href={homeHref}
           className={cn(buttonVariants({ variant: "outline" }))}
         >
-          Go to Home
+          Go to Inbox
         </Link>
       </div>
     </div>

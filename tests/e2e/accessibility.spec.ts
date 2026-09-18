@@ -506,20 +506,23 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} invitation`)
       })
 
-      test("home", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie (see the module comment above): Home
-        // reads live counts, the client list and analytics (Your work / Work
-        // by client / Health / Pulse). A real cookie makes those calls resolve
-        // against the real backend instead of 401-ing and hard-redirecting to
-        // /sign-in.
+      test("inbox landing with the Today strip", async ({ baseURL, page }) => {
+        // Real journey tenant/cookie (see the module comment above): the
+        // landing inbox reads live counts, the client list and the analytics
+        // overview for its Today strip. A real cookie makes those calls
+        // resolve against the real backend instead of 401-ing and
+        // hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/home")
+        await page.goto("/inbox")
         await expect(
-          page.getByRole("heading", { name: "Home", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
-        await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible()
-        await expectAccessible(page, `${viewport.name} ${theme} home`)
+        await expect(
+          page.getByRole("navigation", { name: "Review queues" })
+        ).toBeVisible()
+        await page.waitForLoadState("networkidle")
+        await expectAccessible(page, `${viewport.name} ${theme} inbox landing`)
       })
 
       test("reports", async ({ baseURL, page }) => {
@@ -597,13 +600,15 @@ for (const theme of themes) {
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto(`/locations/${state.primaryLocationId}`)
+        // Scoped: the Suggested updates section further down the Listing
+        // scroll groups its proposals under a heading of the same name.
         await expect(
-          page.getByRole("heading", { name: "Business profile" })
+          page.locator("#profile").getByRole("heading", { name: "Business profile" })
         ).toBeVisible()
         await expect(
           page
             .getByRole("navigation", { name: "Location sections" })
-            .getByRole("link", { name: "Business profile" })
+            .getByRole("link", { name: "Listing" })
         ).toHaveAttribute("aria-current", "page")
         await expectAccessible(
           page,
@@ -696,6 +701,40 @@ for (const theme of themes) {
                 failed: 0,
                 done: 1,
                 all: 1,
+              },
+            },
+          })
+        })
+        // The Today strip above the queues reads the first client's setup
+        // state and the analytics overview (locations needing attention).
+        // Unstubbed, both answer 401 and lib/api/client.ts navigates away.
+        await page.route(/\/api\/clients\/[^/]+\/setup(?:\?.*)?$/, async (route) => {
+          await route.fulfill({ json: { setup: { nextStep: "done", steps: [] } } })
+        })
+        await page.route(/\/api\/analytics\/overview(?:\?.*)?$/, async (route) => {
+          await route.fulfill({
+            json: {
+              from: "2026-06-28T00:00:00.000Z",
+              to: "2026-07-28T00:00:00.000Z",
+              timezone: "UTC",
+              summary: {
+                reviewVolume: 1,
+                averageRating: 5,
+                responseRate: 100,
+                unresolvedComplaints: 0,
+                verificationFailures: 0,
+                verificationRejectionRate: null,
+                medianFirstResponseSeconds: null,
+                p95FirstResponseSeconds: null,
+                medianLatestEditSeconds: null,
+              },
+              series: [],
+              locations: [],
+              providerTotals: {
+                averageRating: null,
+                totalReviewCount: null,
+                localReviewCount: 1,
+                divergence: false,
               },
             },
           })
@@ -835,7 +874,7 @@ for (const theme of themes) {
         })
         await page.goto("/inbox?queue=all")
         await expect(
-          page.getByRole("heading", { name: "Reviews", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
         // The permanent rail — and the "Queues" sheet it hid inside below lg —
         // are both gone. The five queue controls and the filter toolbar sit
@@ -867,8 +906,11 @@ for (const theme of themes) {
           name: "More filters",
         })
         await expect(moreFiltersPanel).toBeVisible()
+        // The verification / publish / sync checkbox groups are gone from
+        // this panel (components/inbox/more-filters.tsx); reply status is
+        // the first narrowing it still holds.
         await expect(
-          moreFiltersPanel.getByRole("group", { name: "Verification" })
+          moreFiltersPanel.getByRole("region", { name: "Reply status" })
         ).toBeVisible()
         await page.keyboard.press("Escape")
         await expect(moreFiltersPanel).toBeHidden()

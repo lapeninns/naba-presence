@@ -172,8 +172,8 @@ export function readSettingsCapabilities(
 // Page composers
 // ---------------------------------------------------------------------------
 
-/** /home: organisation-wide counts and the 30-day analytics overview. */
-export function homePrefetch(): (session: Session) => PrefetchEntry[] {
+/** /inbox Today strip: organisation-wide counts and the 30-day analytics overview. */
+export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.reviewCounts("organisation"),

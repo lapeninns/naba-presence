@@ -2,7 +2,6 @@
 
 import {
   Building2,
-  Home,
   Inbox,
   MapPin,
   Plus,
@@ -32,7 +31,6 @@ import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
 const GO_TO = [
-  { href: "/home", label: "Home", icon: Home },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/reports", label: "Reports", icon: TrendingUp },

@@ -54,6 +54,13 @@ async function mockShell(page: Page) {
   // Tests below register their own narrower stubs afterwards, which win.
   await page.route(/\/api\/locations\/location-management\/profile(?:\?.*)?$/, (route) => route.fulfill({ json: { profile: { location: { id: "location-management", name: "Camden Hotel", googleLocationName: "locations/camden" }, canonicalResource: { revision: "1", updatedAt: "2026-08-01T00:00:00.000Z" }, canonicalHash: "c".repeat(64), googleHash: "d".repeat(64), canPublish: true, googleWritesEnabled: true, fields: [{ key: "name", policy: "bidirectional", status: "in_sync", canonicalValue: "Camden Hotel", googleValue: "Camden Hotel", canonicalHash: "c", googleHash: "g", lastReconciledAt: null }], googleDetails: { primaryCategory: "Hotel", additionalCategories: [] }, latestAttempt: null } } }))
   await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: { data: null, error: null }, lodgingUpdated: { data: null, error: null }, calls: { data: null, error: null }, callInsights: { data: null, error: null }, healthcareServices: { data: null, error: null }, providerAttributes: { data: null, error: null }, insuranceNetworks: { data: null, error: null }, canManage: true, writesEnabled: true } } }))
+  // The Listing is one scroll: the hours, booking links and suggested updates
+  // editors mount beside the profile, so their GETs fire too. Answering with
+  // a Google error keeps each in its own honest retry state without the 401
+  // hard-navigation the unstubbed routes would cause.
+  for (const resource of ["hours", "place-actions", "import-review"]) {
+    await page.route(new RegExp(`/api/locations/location-management/${resource}(?:[/?].*)?$`), (route) => route.fulfill({ status: 502, json: { error: { code: "google_unavailable", message: "Google request failed." } } }))
+  }
 }
 
 test("Business profile editor renders live Google data with humanised fields", async ({ page }) => {

@@ -88,7 +88,7 @@ test.describe("settings", () => {
         await expect(
           page.getByRole("heading", { name: /You don.t have access to this page/, level: 1 })
         ).toBeVisible()
-        await expect(page.getByRole("link", { name: "Back to Home" })).toBeVisible()
+        await expect(page.getByRole("link", { name: "Back to Inbox" })).toBeVisible()
       }
       await context.close()
     }

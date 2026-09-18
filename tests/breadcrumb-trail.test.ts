@@ -13,11 +13,11 @@ const trail = (pathname: string) =>
 
 describe("breadcrumbTrail", () => {
   it("names the client a location belongs to", () => {
-    expect(trail("/locations/l1/hours")).toEqual([
+    expect(trail("/locations/l1/photos")).toEqual([
       "Clients",
       "Old Crown Group",
       "Old Crown Girton",
-      "Hours",
+      "Photos",
     ])
   })
 

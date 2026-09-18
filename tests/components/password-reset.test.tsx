@@ -74,14 +74,14 @@ describe("ResetPasswordForm", () => {
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
   })
 
-  it("updates the password and lands on /home", async () => {
+  it("updates the password and lands on /inbox", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "completePasswordReset").mockResolvedValue(undefined)
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.type(screen.getByLabelText("Confirm new password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Update password" }))
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/home"))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/inbox"))
   })
 
   it("replaces the dead form with a recovery CTA when the token is rejected", async () => {

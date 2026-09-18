@@ -10,20 +10,20 @@ const STRUCTURE_RULES = [
   "heading-order",
   "page-has-heading-one",
 ]
-const TABS = [
-  { segment: "", label: "Business profile" },
-  { segment: "hours", label: "Hours" },
-  { segment: "suggestions", label: "Suggested updates" },
-  { segment: "photos", label: "Photos" },
-  { segment: "posts", label: "Posts" },
-  { segment: "booking", label: "Booking" },
-  { segment: "menu", label: "Menu" },
+// The three jobs and their routes. The Listing is one scroll (business
+// profile, hours, booking, suggested updates) so it is one route; Content
+// and Access keep a route per view.
+const ROUTES = [
+  { segment: "", job: "Listing", view: undefined },
+  { segment: "photos", job: "Content", view: "Photos" },
+  { segment: "posts", job: "Content", view: "Posts" },
+  { segment: "menu", job: "Content", view: "Menu" },
   // Owner-scoped entries: both gate their own GET on canEditCanonical and are
   // hidden for non-owner/admin (see the console role walk below), so their
   // clean-load + axe iterations only render under the owner cookie this whole
   // loop already uses.
-  { segment: "access", label: "People" },
-  { segment: "verification", label: "Verification" },
+  { segment: "access", job: "Access", view: "People" },
+  { segment: "verification", job: "Access", view: "Verification" },
 ] as const
 
 async function applyCookie(
@@ -36,7 +36,7 @@ async function applyCookie(
 }
 
 test.describe("locations", () => {
-  test("index lists locations and the workspace exposes every section tab", async ({
+  test("index lists locations and the workspace offers three jobs", async ({
     baseURL,
     page,
   }) => {
@@ -55,15 +55,34 @@ test.describe("locations", () => {
 
     await page.goto(`/locations/${state.primaryLocationId}`)
     const nav = page.getByRole("navigation", { name: "Location sections" })
-    for (const tab of TABS) {
-      await expect(nav.getByRole("link", { name: tab.label })).toBeVisible()
+    for (const job of ["Listing", "Content", "Access"]) {
+      await expect(nav.getByRole("link", { name: job })).toBeVisible()
     }
+    await expect(nav.getByRole("link", { name: "Listing" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    // The Listing's parts are anchors into one scroll, not routes.
+    for (const anchor of ["Business profile", "Hours", "Booking", "Suggested updates"]) {
+      await expect(nav.getByRole("link", { name: anchor })).toBeVisible()
+    }
+    await expect(
+      page.getByRole("region", { name: "Hours" }).getByRole("heading", { name: "Opening hours" })
+    ).toBeVisible()
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+
+    // Content opens on photos and lists its views beneath the switcher.
+    await nav.getByRole("link", { name: "Content" }).click()
+    await expect(page).toHaveURL(new RegExp(`/locations/${state.primaryLocationId}/photos$`))
+    for (const view of ["Photos", "Posts", "Menu"]) {
+      await expect(nav.getByRole("link", { name: view })).toBeVisible()
+    }
+    await expect(nav.getByRole("link", { name: "Performance" })).toHaveCount(0)
   })
 
   for (const theme of ["light", "dark"] as const) {
-    for (const tab of TABS) {
-      test(`${tab.label} tab loads clean (${theme})`, async ({
+    for (const tab of ROUTES) {
+      test(`${tab.view ?? tab.job} loads clean (${theme})`, async ({
         baseURL,
         page,
       }) => {
@@ -79,22 +98,31 @@ test.describe("locations", () => {
         await page.goto(
           `/locations/${state.primaryLocationId}${tab.segment ? `/${tab.segment}` : ""}`
         )
-        await expect(
-          page.getByRole("navigation", { name: "Location sections" })
-        ).toBeVisible()
+        const nav = page.getByRole("navigation", { name: "Location sections" })
+        await expect(nav).toBeVisible()
+        await expect(nav.getByRole("link", { name: tab.job })).toHaveAttribute(
+          "aria-current",
+          "page"
+        )
+        if (tab.view) {
+          await expect(
+            nav.getByRole("link", { name: tab.view })
+          ).toHaveAttribute("aria-current", "page")
+        }
         await page.waitForLoadState("networkidle")
-        expect(consoleErrors, `${theme} ${tab.label} console`).toEqual([])
-        expect(pageErrors, `${theme} ${tab.label} pageerror`).toEqual([])
+        const label = tab.view ?? tab.job
+        expect(consoleErrors, `${theme} ${label} console`).toEqual([])
+        expect(pageErrors, `${theme} ${label} pageerror`).toEqual([])
         const wcag = await new AxeBuilder({ page })
           .withTags(WCAG_TAGS)
           .analyze()
-        expect(wcag.violations, `${theme} ${tab.label} wcag`).toEqual([])
+        expect(wcag.violations, `${theme} ${label} wcag`).toEqual([])
         const best = await new AxeBuilder({ page })
           .withTags(["best-practice"])
           .analyze()
         expect(
           best.violations.filter((v) => STRUCTURE_RULES.includes(v.id)),
-          `${theme} ${tab.label} structure`
+          `${theme} ${label} structure`
         ).toEqual([])
       })
     }
@@ -132,7 +160,10 @@ test.describe("locations", () => {
       const page = await context.newPage()
       await applyCookie(page, baseURL, cookie)
       await page.goto(`/locations/${state.primaryLocationId}`)
-      const review = page.getByRole("button", { name: "Review changes" })
+      // Scoped to the profile section: every Listing editor ends with its
+      // own "Review changes", and the hours editor's sits further down.
+      const profile = page.locator("#profile")
+      const review = profile.getByRole("button", { name: "Review changes" })
       await expect(review).toBeVisible()
       const gate = page.getByText(
         "Only owners and admins can edit this location."
@@ -156,6 +187,9 @@ test.describe("locations", () => {
     baseURL,
     browser,
   }) => {
+    // Five roles, each loading the Listing — four editors' worth of paced
+    // Google reads before networkidle — so the default budget is too tight.
+    test.setTimeout(120_000)
     const state = await readJourneyState()
     const cases: Array<[string, boolean]> = [
       [state.cookie, true],
@@ -209,15 +243,18 @@ test.describe("locations", () => {
 
       const nav = page.getByRole("navigation", { name: "Location sections" })
       if (canManage) {
-        await expect(nav.getByRole("link", { name: "People" })).toBeVisible()
+        // The Access job is offered, and opening it lists both consoles.
+        await nav.getByRole("link", { name: "Access" }).click()
+        await expect(nav.getByRole("link", { name: "People" })).toHaveAttribute(
+          "aria-current",
+          "page"
+        )
         await expect(
           nav.getByRole("link", { name: "Verification" })
         ).toBeVisible()
       } else {
+        await expect(nav.getByRole("link", { name: "Access" })).toHaveCount(0)
         await expect(nav.getByRole("link", { name: "People" })).toHaveCount(0)
-        await expect(
-          nav.getByRole("link", { name: "Verification" })
-        ).toHaveCount(0)
 
         const administrationResponses: number[] = []
         page.on("response", (response) => {
@@ -255,8 +292,12 @@ test.describe("locations", () => {
     await name.fill("Riverside Rooms & Spa")
 
     // Nothing reaches Google until the diff has been seen: the review sheet
-    // names the field and what it will become.
-    await page.getByRole("button", { name: "Review changes" }).click()
+    // names the field and what it will become. Scoped to the profile
+    // section, because the hours editor further down has its own button.
+    await page
+      .locator("#profile")
+      .getByRole("button", { name: "Review changes" })
+      .click()
     const sheet = page.getByRole("dialog")
     await expect(sheet.getByText("Business name")).toBeVisible()
     await expect(sheet.getByText("Riverside Rooms & Spa")).toBeVisible()
@@ -271,20 +312,22 @@ test.describe("locations", () => {
     expect((await saved).status()).toBe(200)
   })
 
-  test("location workspace exposes a Performance tab with review metrics", async ({
+  test("the retired Performance segment lands on Reports scoped to the location", async ({
     baseURL,
     page,
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
-    await page.goto(`/locations/${state.primaryLocationId}`)
-    await page
-      .getByRole("navigation", { name: "Location sections" })
-      .getByRole("link", { name: "Performance" })
-      .click()
+    await page.goto(`/locations/${state.primaryLocationId}/performance`)
     await expect(page).toHaveURL(
-      new RegExp(`/locations/${state.primaryLocationId}/performance$`)
+      new RegExp(`/reports\\?locationId=${state.primaryLocationId}$`)
     )
+    await expect(
+      page.getByRole("heading", { name: "Reports", level: 1 })
+    ).toBeVisible()
+    await expect(
+      page.getByText(`Reporting on ${state.directReview.locationName}`)
+    ).toBeVisible()
     // The section headings are "Review activity" / "Visibility on Google";
     // "Reviews" itself is a StatTile label inside "Review activity", not a
     // heading (see components/performance/location-performance.tsx).
@@ -302,7 +345,11 @@ test.describe("locations", () => {
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
+    // The retired /booking segment forwards to the Listing's booking anchor.
     await page.goto(`/locations/${state.primaryLocationId}/booking`)
+    await expect(page).toHaveURL(
+      new RegExp(`/locations/${state.primaryLocationId}#booking$`)
+    )
     // Not getByLabel("Link"): the Booking type <Select>'s trigger carries
     // aria-label="Booking link type", which contains "Link" as a substring
     // and makes the plain label lookup ambiguous (strict-mode violation).
@@ -338,7 +385,10 @@ test.describe("locations", () => {
     const storeCode = page.getByRole("textbox", { name: "Store code" })
     await expect(storeCode).toBeVisible()
     await storeCode.fill("RIVERSIDE-2")
-    await page.getByRole("button", { name: "Review changes" }).click()
+    await page
+      .locator("#profile")
+      .getByRole("button", { name: "Review changes" })
+      .click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
     // load, and the route 409s (business_information_stale) if Google's
     // current state no longer hashes to match — a live optimistic-concurrency

@@ -24,14 +24,14 @@ afterEach(() => {
 })
 
 describe("sign-in mode", () => {
-  it("submits credentials and lands on /home", async () => {
+  it("submits credentials and lands on /inbox", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "signIn").mockResolvedValue(undefined)
     render(<SignInForm />)
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/home"))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/inbox"))
     expect(authApi.signIn).toHaveBeenCalledWith({
       email: "a@example.test",
       password: "correct-horse-9",
