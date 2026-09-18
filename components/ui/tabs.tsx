@@ -49,7 +49,7 @@ function TabsList({
         // Horizontal padding matches the tabs' own inset so the focus halo is
         // not clipped by the scroll container; the row's bottom hairline is
         // the underline's track.
-        "relative -mx-1 flex items-end gap-5 overflow-x-auto border-b border-line-subtle px-1 pt-1",
+        "relative mx-0 flex items-end gap-5 overflow-x-auto border-b border-line-subtle px-1 pt-1",
         fill && FILL_CLASS,
         className
       )}

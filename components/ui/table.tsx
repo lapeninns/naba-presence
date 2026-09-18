@@ -31,7 +31,7 @@ function Table({
     <div
       data-slot="table-container"
       className={cn(
-        "w-full overflow-x-auto focus-halo",
+        "w-full min-w-0 overflow-x-auto focus-halo",
         surface && "rounded-(--np-radius-card) bg-surface",
         containerClassName
       )}

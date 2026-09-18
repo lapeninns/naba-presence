@@ -52,9 +52,7 @@ export function AdminsTable({
           <TableHead>Role</TableHead>
           <TableHead>Status</TableHead>
           {renderActions ? (
-            <TableHead className="text-right">
-              <span className="sr-only">Actions</span>
-            </TableHead>
+            <TableHead className="text-right" aria-label="Actions" />
           ) : null}
         </TableRow>
       </TableHeader>
