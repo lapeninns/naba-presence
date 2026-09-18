@@ -282,19 +282,22 @@ function ListingsBoard({ role }: { role: string | null }) {
             onClear={() => setSearch("")}
             className="w-full sm:w-64"
           />
-          <SegmentedControl
-            aria-label="Filter by health"
-            size="sm"
-            value={health}
-            onValueChange={(next) => setHealth(next as HealthFilter)}
-            className="-mx-5 max-w-[calc(100%+2.5rem)] overflow-x-auto px-5 sm:mx-0 sm:max-w-none sm:px-0"
-          >
-            {HEALTH_FILTERS.map((filter) => (
-              <SegmentedControlItem key={filter.value} value={filter.value}>
-                {filter.label}
-              </SegmentedControlItem>
-            ))}
-          </SegmentedControl>
+          {/* Five segments outgrow a phone; the wrapper scrolls them to the
+              screen's edge instead of squashing the labels. */}
+          <div className="-mx-5 max-w-[calc(100%+2.5rem)] overflow-x-auto px-5 py-0.5 sm:mx-0 sm:max-w-none sm:px-0">
+            <SegmentedControl
+              aria-label="Filter by health"
+              size="sm"
+              value={health}
+              onValueChange={(next) => setHealth(next as HealthFilter)}
+            >
+              {HEALTH_FILTERS.map((filter) => (
+                <SegmentedControlItem key={filter.value} value={filter.value}>
+                  {filter.label}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
+          </div>
         </div>
         {clientChips.length > 1 ? (
           <div
