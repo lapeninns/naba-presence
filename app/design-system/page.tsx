@@ -429,6 +429,16 @@ export default function Page() {
           and motion come from app/globals.css; the contrast pairs below are
           measured from that file, not asserted in a comment.
         </p>
+        <p className="text-ui text-ink-muted">
+          <a
+            href="/design-system/inbox-prototype"
+            className="text-accent-ink underline underline-offset-4"
+          >
+            Reviews inbox prototype
+          </a>{" "}
+          — the triage-and-reply workspace rebuilt on these tokens, on sample
+          reviews.
+        </p>
       </header>
 
       <Section
