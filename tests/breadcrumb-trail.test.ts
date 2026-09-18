@@ -12,9 +12,9 @@ const trail = (pathname: string) =>
   breadcrumbTrail({ pathname, clients, locations }).map((crumb) => crumb.label)
 
 describe("breadcrumbTrail", () => {
-  it("names the client a location belongs to", () => {
-    expect(trail("/locations/l1/photos")).toEqual([
-      "Clients",
+  it("names the client a listing belongs to", () => {
+    expect(trail("/listings/l1/photos")).toEqual([
+      "Listings",
       "Old Crown Group",
       "Old Crown Girton",
       "Photos",
@@ -24,16 +24,16 @@ describe("breadcrumbTrail", () => {
   it("says when a location is filed under no client", () => {
     // Arriving here from a search, "this listing belongs to nobody yet" is
     // exactly the thing the operator needs to know.
-    expect(trail("/locations/l2")).toEqual([
-      "Clients",
-      "Unassigned",
+    expect(trail("/listings/l2")).toEqual([
+      "Listings",
+      "Unfiled",
       "Riverside Cafe",
     ])
   })
 
   it("links every crumb except the current page", () => {
     const crumbs = breadcrumbTrail({
-      pathname: "/locations/l1/photos",
+      pathname: "/listings/l1/photos",
       clients,
       locations,
     })
@@ -43,7 +43,7 @@ describe("breadcrumbTrail", () => {
 
   it("falls back to the location list when the id is unknown", () => {
     // A stale link to a deleted location still gets a way back.
-    expect(trail("/locations/gone")).toEqual(["All locations"])
+    expect(trail("/listings/gone")).toEqual(["Listings"])
   })
 
   it("handles the client surfaces", () => {

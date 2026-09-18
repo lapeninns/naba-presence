@@ -13,6 +13,10 @@ import {
   type AnalyticsOverview,
 } from "@/lib/contracts/analytics"
 import {
+  listingSummarySchema,
+  type ListingSummary,
+} from "@/lib/contracts/location-summary"
+import {
   locationCapabilitiesResponseSchema,
   settingsCapabilitiesResponseSchema,
   type LocationCapabilities,
@@ -32,6 +36,7 @@ import {
   settingsCapabilities,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
+import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
 import type { Session } from "@/lib/server/session"
@@ -158,6 +163,17 @@ export async function readLocationCapabilities(
   return throughWire(locationCapabilitiesResponseSchema, payload).capabilities
 }
 
+/** What `useListingSummary(id)` fetches: the DB-only listing state. */
+export async function readListingSummary(
+  session: Session,
+  locationId: string
+): Promise<ListingSummary | null> {
+  const [summary] = await withTenant(session.organisationId, (sql) =>
+    readListingSummaries(sql, session, [locationId])
+  )
+  return summary ? throughWire(listingSummarySchema, summary) : null
+}
+
 /** What `useSettingsCapabilities()` fetches. Pure role projection. */
 export function readSettingsCapabilities(
   session: Session
@@ -171,6 +187,24 @@ export function readSettingsCapabilities(
 // ---------------------------------------------------------------------------
 // Page composers
 // ---------------------------------------------------------------------------
+
+/**
+ * A listing page: its capabilities and its DB-only summary. Both are pure
+ * SQL, so the overview's health strip and cards, and an area page's status
+ * pill, paint on the first render. The editors' own resources are NOT
+ * prefetched: they read Google live (see `locationTabPrefetch`).
+ */
+export function listingPagePrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => [
+    ...locationTabPrefetch(locationId)(session),
+    {
+      queryKey: queryKeys.listingSummary(locationId),
+      load: () => readListingSummary(session, locationId),
+    },
+  ]
+}
 
 /** /inbox Today strip: organisation-wide counts and the 30-day analytics overview. */
 export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {

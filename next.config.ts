@@ -59,17 +59,18 @@ export const RETIRED_ROUTES: { source: string; destination: string }[] = [
   // Team became a primary destination; Listing administration lives with
   // the location it administers.
   { source: "/settings/team", destination: "/team" },
-  // The location workspace's retired segments. Administration became
-  // Access; Business info and Industry are sections of the profile editor;
-  // Hours, Booking and Suggested updates are sections of the Listing scroll;
+  // The location workspace is the listing now. Its retired segments map
+  // onto the listing's areas: Administration and Access became People;
+  // Business info and Industry are sections of the profile editor;
   // Performance is a report, on Reports.
-  { source: "/locations/:id/administration", destination: "/locations/:id/access" },
-  { source: "/locations/:id/business-information", destination: "/locations/:id" },
-  { source: "/locations/:id/industry", destination: "/locations/:id" },
-  { source: "/locations/:id/hours", destination: "/locations/:id#hours" },
-  { source: "/locations/:id/booking", destination: "/locations/:id#booking" },
-  { source: "/locations/:id/suggestions", destination: "/locations/:id#suggestions" },
+  { source: "/locations", destination: "/listings" },
+  { source: "/locations/:id/administration", destination: "/listings/:id/people" },
+  { source: "/locations/:id/access", destination: "/listings/:id/people" },
+  { source: "/locations/:id/business-information", destination: "/listings/:id/profile" },
+  { source: "/locations/:id/industry", destination: "/listings/:id/profile" },
   { source: "/locations/:id/performance", destination: "/reports?locationId=:id" },
+  { source: "/locations/:id/:area", destination: "/listings/:id/:area" },
+  { source: "/locations/:id", destination: "/listings/:id" },
 ]
 
 const nextConfig: NextConfig = {

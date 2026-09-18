@@ -547,28 +547,26 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} reports`)
       })
 
-      test("locations index", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie: an owner sees the management view
-        // (Location/Address/Status columns) built from the real seeded
-        // location — no mock needed, and it sidesteps the plain-vs-management
-        // shape split in `useLocationDirectory` (the server-side `role` a
-        // route-mocked, cookie-less session would otherwise always resolve to
-        // `null`).
+      test("listings board", async ({ baseURL, page }) => {
+        // Real journey tenant/cookie: the board reads the directory and the
+        // DB-only summary for real, and an owner sees the address and health
+        // the management view carries.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/locations")
+        await page.goto("/listings")
         await expect(
-          page.getByRole("heading", { name: "Locations", level: 1 })
+          page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
         await expect(
-          page.getByRole("columnheader", { name: "Location" })
+          page.getByRole("columnheader", { name: "Listing" })
         ).toBeVisible()
         await expect(
-          page.getByText(state.directReview.locationName)
+          page.getByRole("link", { name: state.directReview.locationName })
         ).toBeVisible()
+        await page.waitForLoadState("networkidle")
         await expectAccessible(
           page,
-          `${viewport.name} ${theme} locations index`
+          `${viewport.name} ${theme} listings board`
         )
       })
 
@@ -592,27 +590,35 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} client hub`)
       })
 
-      test("location profile workspace", async ({ baseURL, page }) => {
+      test("listing overview and the profile editor", async ({ baseURL, page }) => {
         // Real journey tenant/cookie + the real seeded `primaryLocationId`.
-        // The workspace opens on the merged business profile editor: one
-        // heading, one set of fields, no second tab holding Google's copy of
-        // the same listing.
+        // The overview paints from DB-only reads; the profile editor is the
+        // merged business profile: one heading, one set of fields.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto(`/locations/${state.primaryLocationId}`)
-        // Scoped: the Suggested updates section further down the Listing
-        // scroll groups its proposals under a heading of the same name.
+        await page.goto(`/listings/${state.primaryLocationId}`)
         await expect(
-          page.locator("#profile").getByRole("heading", { name: "Business profile" })
+          page.getByRole("heading", { name: state.directReview.locationName, level: 1 })
         ).toBeVisible()
         await expect(
-          page
-            .getByRole("navigation", { name: "Location sections" })
-            .getByRole("link", { name: "Listing" })
-        ).toHaveAttribute("aria-current", "page")
+          page.getByRole("region", { name: "Areas" }).getByRole("heading", { name: "Business profile", level: 3 })
+        ).toBeVisible()
+        await page.waitForLoadState("networkidle")
         await expectAccessible(
           page,
-          `${viewport.name} ${theme} location profile`
+          `${viewport.name} ${theme} listing overview`
+        )
+
+        await page.goto(`/listings/${state.primaryLocationId}/profile`)
+        await expect(
+          page.getByRole("heading", { name: "Business profile", level: 1 })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("textbox", { name: "Business name" })
+        ).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} listing profile`
         )
       })
 

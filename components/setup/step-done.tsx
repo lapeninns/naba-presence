@@ -33,9 +33,17 @@ function StepDone({
         </Link>
         <Link
           href={`/clients/${clientId}`}
-          className={buttonVariants({ pill: true })}
+          className={buttonVariants({ variant: "secondary", pill: true })}
         >
           Go to {clientName}
+        </Link>
+        {/* The listings are what was just linked, and the board is where
+            each one's health and verification show from the first visit. */}
+        <Link
+          href={`/listings?clientId=${clientId}`}
+          className={buttonVariants({ pill: true })}
+        >
+          Open its listings
         </Link>
       </div>
     </div>

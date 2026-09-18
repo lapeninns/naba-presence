@@ -18,6 +18,7 @@ async function applyCookie(
 // is where the work is, so it is where a session starts.
 const dashboardRoutes = [
   { path: "/inbox", label: "Inbox", heading: /^Inbox$/ },
+  { path: "/listings", label: "Listings", heading: /^Listings$/ },
   { path: "/clients", label: "Clients", heading: /^Clients$/ },
   { path: "/reports", label: "Reports", heading: /^Reports$/ },
   // More opens itself while Team or Settings is the current page, so the
@@ -66,6 +67,7 @@ test("legacy routes redirect to their replacements", async ({ page }) => {
     // provisions the local test session, after which /sign-in correctly sends
     // the already-authenticated browser to /inbox.
     ["/login", "/sign-in"],
+    ["/locations", "/listings"],
     ["/analytics", "/reports"],
     ["/performance", "/reports"],
     ["/settings/team", "/team"],
@@ -127,31 +129,29 @@ test("sidebar links update browser history", async ({ page }) => {
   await expect(page).toHaveURL("/clients")
 })
 
-test("nested location routes stay reachable and unclaimed by the primary nav", async ({
+test("old location routes land on the listing, owned by Listings in the nav", async ({
   baseURL,
   page,
 }) => {
-  // The flat IA delists /locations/[id]/* from the sidebar but deliberately
-  // does NOT redirect it: for a tenant with more than one location, sending
-  // /locations/<id>/photos to /photos would silently show a DIFFERENT
-  // business's photos than the bookmark asked for.
+  // A bookmark to the retired workspace keeps its listing and its area: for
+  // a tenant with more than one location, sending /locations/<id>/photos to
+  // /photos would silently show a DIFFERENT business's photos.
   const state = await readJourneyState()
   await applyCookie(page, baseURL, state.cookie)
   await page.goto(`/locations/${state.primaryLocationId}/photos`)
 
   expect(new URL(page.url()).pathname).toBe(
-    `/locations/${state.primaryLocationId}/photos`
+    `/listings/${state.primaryLocationId}/photos`
   )
   await expect(
-    page.getByRole("navigation", { name: "Location sections" })
+    page.getByRole("heading", { name: "Photos", level: 1 })
   ).toBeVisible()
 
-  // Clients owns this page: a location is reached through its client, and the
-  // breadcrumb says so, so leaving the sidebar with nothing selected would
-  // strand the user.
+  // Listings owns this page: a listing is reached from the board, and the
+  // breadcrumb says so.
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
   await expect(
-    primaryNav.getByRole("link", { name: "Clients", exact: true })
+    primaryNav.getByRole("link", { name: "Listings", exact: true })
   ).toHaveAttribute("aria-current", "page")
 
   // And the trail names the whole path back out.
@@ -179,7 +179,7 @@ test("retired flat routes forward to a real location or to Clients", async ({
     await page.goto(path)
     const landed = new URL(page.url()).pathname
     expect(landed).not.toBe(path)
-    expect(landed === "/clients" || landed.startsWith("/locations/")).toBe(true)
+    expect(landed === "/clients" || landed.startsWith("/listings/")).toBe(true)
   }
 })
 
@@ -205,10 +205,13 @@ test("a client hub names its locations and trails back to Clients", async ({
     page.getByRole("heading", { name: "Locations", level: 2 })
   ).toBeVisible()
 
-  // The trail is what makes the depth navigable: from a location three levels
-  // in, the client and the client list are both one click away.
-  await page.goto(`/locations/${state.primaryLocationId}/hours`)
+  // The trail is what makes the depth navigable: from an area three levels
+  // in, the board, the client and the listing are each one click away.
+  await page.goto(`/listings/${state.primaryLocationId}/hours`)
   const trail = page.getByRole("navigation", { name: "Breadcrumb" })
-  await expect(trail.getByRole("link", { name: "Clients" })).toBeVisible()
+  await expect(trail.getByRole("link", { name: "Listings" })).toBeVisible()
   await expect(trail.getByRole("link", { name: state.clientName })).toBeVisible()
+  await expect(
+    trail.getByRole("link", { name: state.directReview.locationName })
+  ).toBeVisible()
 })

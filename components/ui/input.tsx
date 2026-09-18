@@ -163,4 +163,4 @@ function SearchInput({
   )
 }
 
-export { Input }
+export { Input, SearchInput }

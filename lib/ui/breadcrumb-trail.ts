@@ -6,18 +6,23 @@ export type TrailInput = {
   locations: { id: string; name: string; clientId?: string | null; clientName?: string | null }[]
 }
 
-const LOCATION_SECTIONS: Record<string, string> = {
+const LISTING_AREAS: Record<string, string> = {
+  profile: "Business profile",
+  hours: "Opening hours",
+  booking: "Booking links",
   photos: "Photos",
   posts: "Posts",
-  menu: "Menu",
-  access: "People",
+  menu: "Food menu",
+  people: "People",
   verification: "Verification",
+  suggestions: "Suggested updates",
+  changes: "Review & publish",
 }
 
 const TOP_LEVEL: Record<string, string> = {
   inbox: "Inbox",
+  listings: "Listings",
   clients: "Clients",
-  locations: "All locations",
   reports: "Reports",
   team: "Team",
   settings: "Settings",
@@ -44,19 +49,21 @@ export function breadcrumbTrail({ pathname, clients, locations }: TrailInput): C
   if (segments.length === 0) return []
   const [first, second, third] = segments
 
-  if (first === "locations" && second) {
+  if (first === "listings" && second) {
     const location = locations.find((entry) => entry.id === second)
-    if (!location) return [{ label: "All locations", href: "/locations" }]
-    const section = third ? LOCATION_SECTIONS[third] : undefined
+    if (!location) return [{ label: "Listings", href: "/listings" }]
+    const area = third ? LISTING_AREAS[third] : undefined
     return [
-      { label: "Clients", href: "/clients" },
-      location.clientId && location.clientName
-        ? { label: location.clientName, href: `/clients/${location.clientId}` }
+      { label: "Listings", href: "/listings" },
+      ...(location.clientId && location.clientName
+        ? [{ label: location.clientName, href: `/clients/${location.clientId}` }]
         : // A listing nobody has filed yet says so, which is what the operator
           // needs to know when they arrive here from a search.
-          { label: "Unassigned", href: "/locations" },
-      { label: location.name, href: `/locations/${location.id}` },
-      ...(section ? [{ label: section }] : []),
+          [{ label: "Unfiled", href: "/listings" }]),
+      area
+        ? { label: location.name, href: `/listings/${location.id}` }
+        : { label: location.name },
+      ...(area ? [{ label: area }] : []),
     ]
   }
 

@@ -27,12 +27,12 @@ import type { ClientResponse } from "@/lib/contracts/clients"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
 import { useClient } from "@/lib/queries/use-clients"
 
-// The three jobs of the workspace, with Content opening on photos, plus the
-// location's report, which lives on Reports rather than in the workspace.
+// The listing's overview and its busiest areas, plus its report on Reports.
 const SECTIONS = [
-  { href: (id: string) => `/locations/${id}`, label: "Listing" },
-  { href: (id: string) => `/locations/${id}/photos`, label: "Photos" },
-  { href: (id: string) => `/locations/${id}/posts`, label: "Posts" },
+  { href: (id: string) => `/listings/${id}`, label: "Overview" },
+  { href: (id: string) => `/listings/${id}/profile`, label: "Profile" },
+  { href: (id: string) => `/listings/${id}/photos`, label: "Photos" },
+  { href: (id: string) => `/listings/${id}/posts`, label: "Posts" },
   { href: (id: string) => `/reports?locationId=${id}`, label: "Reports" },
 ]
 
@@ -201,7 +201,7 @@ function ClientHub({
                         />
                         <div className="min-w-0 flex-1">
                           <Link
-                            href={`/locations/${location.locationId}`}
+                            href={`/listings/${location.locationId}`}
                             className="rounded-(--np-radius-tag) text-body font-medium text-ink underline-offset-4 focus-halo hover:underline"
                           >
                             {location.name}
