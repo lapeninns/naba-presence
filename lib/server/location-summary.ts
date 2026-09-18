@@ -47,16 +47,17 @@ type LinkRow = {
   googleEmail: string | null
 }
 
-type CanonicalRow = {
+export type CanonicalRow = {
   locationId: string
   resourceType: "profile" | "hours" | "food_menus"
+  revision: number
   payload: unknown
   baselineCanonicalHash: string | null
   baselineGoogleHash: string | null
   lastReconciledAt: Date | null
 }
 
-type ProfileFieldRow = {
+export type ProfileFieldRow = {
   locationId: string
   fieldKey: string
   googleHash: string
@@ -65,7 +66,7 @@ type ProfileFieldRow = {
   observedAt: Date
 }
 
-type MenuStateRow = {
+export type MenuStateRow = {
   locationId: string
   eligible: boolean
   canonicalHash: string
@@ -94,13 +95,17 @@ function iso(value: Date | null | undefined): string | null {
  * "matches the last publish"; a Google-side change surfaces when the hours
  * editor next reads, or through a suggested update.
  */
-function hoursArea(row: CanonicalRow | undefined): SyncedArea {
+export function hoursArea(row: CanonicalRow | undefined): SyncedArea {
   if (!row) return { status: "unknown", dirtyCount: 0, observedAt: null }
   const canonicalHash = hashHours(row.payload as NormalizedHours)
   if (!row.baselineCanonicalHash) {
+    // Never published from here. Revision 1 is the copy taken from Google
+    // when the editor first opened, so it matches Google by construction;
+    // any later revision is a local edit nothing has sent yet.
+    const edited = row.revision > 1
     return {
-      status: "unknown",
-      dirtyCount: 0,
+      status: edited ? "core_dirty" : "unknown",
+      dirtyCount: edited ? 1 : 0,
       observedAt: iso(row.lastReconciledAt),
     }
   }
@@ -117,7 +122,7 @@ function hoursArea(row: CanonicalRow | undefined): SyncedArea {
  * last observed, and the baselines the last publish pinned — the same
  * classification the editor runs, minus the live read.
  */
-function profileArea(
+export function profileArea(
   canonical: CanonicalRow | undefined,
   fields: ProfileFieldRow[]
 ): SyncedArea {
@@ -146,7 +151,7 @@ function profileArea(
   return { status: worst, dirtyCount, observedAt: iso(observedAt) }
 }
 
-function menuArea(
+export function menuArea(
   canonical: CanonicalRow | undefined,
   state: MenuStateRow | undefined
 ): SyncedArea & { eligible: boolean | null } {
@@ -264,6 +269,7 @@ export async function readListingSummaries(
         select
           location_id::text as "locationId",
           resource_type as "resourceType",
+          revision::int as revision,
           payload,
           baseline_canonical_hash as "baselineCanonicalHash",
           baseline_google_hash as "baselineGoogleHash",

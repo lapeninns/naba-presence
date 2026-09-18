@@ -6,6 +6,13 @@ spec, and the whole of the Apple identity spec
 (`docs/specs/2026-09-04-apple-identity.md`), stands. This is a change to what
 is where, not to how it looks: no new tokens, type or primitives.
 
+> **Amended 2026-09-19** by
+> `docs/superpowers/specs/2026-09-19-listings.md`: §1 (Listings is a fifth
+> nav item, active for `/listings/*`), §3 (the location workspace is now a
+> listing overview with focused area pages at `/listings/[id]/…`) and §4
+> (`/locations/*` redirects to `/listings/*`). Where the two disagree, the
+> amendment wins.
+
 ## Why
 
 Operators live in `/inbox`. Home existed to say "go to Inbox" with numbers
