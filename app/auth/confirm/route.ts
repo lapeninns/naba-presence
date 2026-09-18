@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       requestId: rid.id,
       clientRequestId: rid.clientId,
     })
-    return NextResponse.redirect(new URL("/home", baseUrl))
+    return NextResponse.redirect(new URL("/inbox", baseUrl))
   } catch (error) {
     const signInUrl = new URL("/sign-in", baseUrl)
     signInUrl.searchParams.set("email", "error")

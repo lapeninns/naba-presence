@@ -23,9 +23,9 @@ describe("AccessDenied", () => {
     expect(
       screen.getByText(/Google connections is limited to an owner or admin/)
     ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Back to Inbox" })).toHaveAttribute(
       "href",
-      "/home"
+      "/inbox"
     )
   })
 

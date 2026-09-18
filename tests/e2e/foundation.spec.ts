@@ -5,8 +5,8 @@ const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 
 test.describe("rebuild foundation", () => {
   test("boots to the shell with sound structure", async ({ page }) => {
-    await page.goto("/home")
-    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible()
+    await page.goto("/inbox")
+    await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible()
     expect(await page.getByRole("main").count()).toBe(1)
     // Skip link is the first tab stop and works
     await page.keyboard.press("Tab")
@@ -20,7 +20,7 @@ test.describe("rebuild foundation", () => {
     // The old chip collapsed every connection in the organisation to
     // connected/disconnected, which hid one client's broken login behind
     // another client's working one. It now reports a count.
-    await page.goto("/home")
+    await page.goto("/inbox")
     // The chip is the toolbar's link to /clients; the home page's own
     // "Work by client" empty state can say "No clients yet" too, so match
     // the link rather than any text on the page.
@@ -33,7 +33,7 @@ test.describe("rebuild foundation", () => {
 
   test("mobile nav opens as a dialog", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto("/home")
+    await page.goto("/inbox")
     await page.getByRole("button", { name: "Open navigation" }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await expect(
@@ -45,7 +45,7 @@ test.describe("rebuild foundation", () => {
   })
 
   test("responses carry conservative security headers", async ({ page }) => {
-    const response = await page.goto("/home")
+    const response = await page.goto("/inbox")
     const headers = response!.headers()
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin")
     expect(headers["x-content-type-options"]).toBe("nosniff")
@@ -58,9 +58,9 @@ test.describe("rebuild foundation", () => {
   })
 
   for (const theme of ["light", "dark"] as const) {
-    test(`axe clean on /home and /design-system (${theme})`, async ({ page }) => {
+    test(`axe clean on /inbox and /design-system (${theme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
-      for (const path of ["/home", "/design-system"]) {
+      for (const path of ["/inbox", "/design-system"]) {
         await page.goto(path)
         await page.waitForLoadState("networkidle")
         const wcag = await new AxeBuilder({ page })

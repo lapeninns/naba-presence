@@ -7,18 +7,14 @@ export type TrailInput = {
 }
 
 const LOCATION_SECTIONS: Record<string, string> = {
-  hours: "Hours",
   photos: "Photos",
   posts: "Posts",
   menu: "Menu",
-  booking: "Booking",
-  performance: "Performance",
   access: "People",
   verification: "Verification",
 }
 
 const TOP_LEVEL: Record<string, string> = {
-  home: "Home",
   inbox: "Inbox",
   clients: "Clients",
   locations: "All locations",

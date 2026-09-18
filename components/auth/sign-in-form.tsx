@@ -129,7 +129,7 @@ function SignInForm({
       startTransition(async () => {
         try {
           await authApi.signIn(parsed.data)
-          window.location.assign(nextPath ?? "/home")
+          window.location.assign(nextPath ?? "/inbox")
           // Deliberately never resolve: the page is navigating away, and
           // letting the transition "finish" here would flip the submit
           // button back to enabled during that window - reopening the
@@ -172,7 +172,7 @@ function SignInForm({
       try {
         const result = await authApi.register(parsed.data)
         if (result.authenticated) {
-          window.location.assign(nextPath ?? "/home")
+          window.location.assign(nextPath ?? "/inbox")
           await new Promise<void>(() => {})
         } else {
           setStage("confirm-sent")
