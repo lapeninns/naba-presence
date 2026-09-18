@@ -29,3 +29,53 @@ describe("Next security headers", () => {
     await expect(contentSecurityPolicy()).resolves.not.toContain("'unsafe-eval'")
   })
 })
+
+describe("retired routes", () => {
+  async function redirects() {
+    const { default: nextConfig } = await import("../next.config")
+    return (await nextConfig.redirects?.()) ?? []
+  }
+
+  it("sends the retired Home, Overview and Reviews to the Inbox", async () => {
+    const table = await redirects()
+    for (const source of ["/home", "/overview", "/reviews"]) {
+      expect(table.find((r) => r.source === source)?.destination).toBe("/inbox")
+    }
+  })
+
+  it("reaches Reports from /analytics in one hop", async () => {
+    const table = await redirects()
+    expect(table.find((r) => r.source === "/analytics")?.destination).toBe(
+      "/reports"
+    )
+    expect(table.find((r) => r.source === "/performance")?.destination).toBe(
+      "/reports"
+    )
+  })
+
+  it("keeps the location workspace's retired segments inside the location", async () => {
+    const table = await redirects()
+    const to = (source: string) =>
+      table.find((r) => r.source === source)?.destination
+    expect(to("/locations/:id/administration")).toBe("/locations/:id/access")
+    expect(to("/locations/:id/business-information")).toBe("/locations/:id")
+    expect(to("/locations/:id/industry")).toBe("/locations/:id")
+    expect(to("/locations/:id/hours")).toBe("/locations/:id#hours")
+    expect(to("/locations/:id/booking")).toBe("/locations/:id#booking")
+    expect(to("/locations/:id/suggestions")).toBe("/locations/:id#suggestions")
+    expect(to("/locations/:id/performance")).toBe("/reports?locationId=:id")
+  })
+
+  it("marks every hop temporary, so a bookmark can be re-pointed again", async () => {
+    const table = await redirects()
+    expect(table.length).toBeGreaterThan(0)
+    expect(table.every((r) => r.permanent === false)).toBe(true)
+  })
+
+  it("leaves the session-dependent flat routes to their server pages", async () => {
+    const table = await redirects()
+    for (const source of ["/profile", "/photos", "/posts", "/settings/listing"]) {
+      expect(table.find((r) => r.source === source)).toBeUndefined()
+    }
+  })
+})

@@ -32,9 +32,52 @@ const csp = [
   "connect-src 'self'",
 ].join("; ")
 
+/**
+ * Retired routes whose destination is fixed. Bookmarks and old links exist,
+ * and silently 404-ing them would be a worse answer than landing somewhere
+ * sensible. Every entry here used to be a one-line `page.tsx` that threw a
+ * `redirect()`; as config they cost no render and forward the query string
+ * by default, which `/login`, `/reviews`, `/performance` and `/connections`
+ * relied on.
+ *
+ * The flat single-business routes (`/profile`, `/photos`, `/posts`,
+ * `/settings/listing`) are NOT here: where they land depends on how many
+ * locations the session can see, so they stay as server pages at the app
+ * root (see lib/server/flat-route-redirect.ts).
+ */
+export const RETIRED_ROUTES: { source: string; destination: string }[] = [
+  // Home is gone: the Inbox is where the work is, so it is where a session
+  // starts.
+  { source: "/home", destination: "/inbox" },
+  { source: "/overview", destination: "/inbox" },
+  { source: "/reviews", destination: "/inbox" },
+  // One hop, not two: /analytics used to bounce through /performance.
+  { source: "/analytics", destination: "/reports" },
+  { source: "/performance", destination: "/reports" },
+  { source: "/login", destination: "/sign-in" },
+  { source: "/connections", destination: "/settings/connections" },
+  // Team became a primary destination; Listing administration lives with
+  // the location it administers.
+  { source: "/settings/team", destination: "/team" },
+  // The location workspace's retired segments. Administration became
+  // Access; Business info and Industry are sections of the profile editor;
+  // Hours, Booking and Suggested updates are sections of the Listing scroll;
+  // Performance is a report, on Reports.
+  { source: "/locations/:id/administration", destination: "/locations/:id/access" },
+  { source: "/locations/:id/business-information", destination: "/locations/:id" },
+  { source: "/locations/:id/industry", destination: "/locations/:id" },
+  { source: "/locations/:id/hours", destination: "/locations/:id#hours" },
+  { source: "/locations/:id/booking", destination: "/locations/:id#booking" },
+  { source: "/locations/:id/suggestions", destination: "/locations/:id#suggestions" },
+  { source: "/locations/:id/performance", destination: "/reports?locationId=:id" },
+]
+
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: process.cwd(),
+  async redirects() {
+    return RETIRED_ROUTES.map((route) => ({ ...route, permanent: false }))
+  },
   async headers() {
     return [
       {
