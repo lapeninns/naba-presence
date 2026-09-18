@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { ClientSelect } from "@/components/performance/client-select"
+import { LocationReport } from "@/components/performance/location-report"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 import { ReplyPerformanceTab } from "@/components/performance/reply-performance-tab"
 import { GooglePerformanceTab } from "@/components/performance/google-performance-tab"
@@ -31,6 +32,7 @@ export function PerformanceView() {
   const param = searchParams.get("tab")
   const active: TabValue = isTab(param) ? param : "reply"
   const clientId = searchParams.get("clientId") ?? undefined
+  const locationId = searchParams.get("locationId")
 
   function replaceParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
@@ -45,6 +47,10 @@ export function PerformanceView() {
       else params.set("tab", next)
     })
   }
+
+  // One location is a different report — its own figures, no client tabs —
+  // reached from the workspace and the hub rather than picked here.
+  if (locationId) return <LocationReport locationId={locationId} />
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
