@@ -288,6 +288,8 @@ function ListingsBoard({ role }: { role: string | null }) {
             <SegmentedControl
               aria-label="Filter by health"
               size="sm"
+              className="max-w-none"
+              trackClassName="w-max"
               value={health}
               onValueChange={(next) => setHealth(next as HealthFilter)}
             >
