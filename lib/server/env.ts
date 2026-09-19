@@ -125,6 +125,15 @@ export const serverEnvSchema = z.object({
   RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
+  // The /design-system route is internal evidence, not a product surface: it
+  // renders the contrast pairs and the component hierarchy the accessibility
+  // sweep walks. Off in production by construction, on in development, and
+  // switched on explicitly by the e2e harness (playwright.config.ts), which
+  // serves a production build and so would otherwise 404 the very page the
+  // sweep measures.
+  DESIGN_SYSTEM_EVIDENCE_ENABLED: featureFlag(
+    process.env.NODE_ENV !== "production"
+  ),
   GBP_PERFORMANCE_ENABLED: featureFlag(true),
   GBP_KEYWORDS_ENABLED: featureFlag(true),
   GBP_POSTS_ENABLED: featureFlag(true),

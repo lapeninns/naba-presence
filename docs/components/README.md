@@ -15,7 +15,7 @@ control.
 
 | Question | Answer |
 |---|---|
-| What does this look like, in both themes? | `/design-system` in the running app |
+| What does this look like, in both themes? | `/design-system` in a development build — internal evidence, gated by `DESIGN_SYSTEM_EVIDENCE_ENABLED` and not served in production |
 | Which colour, size or radius should I use? | `app/globals.css`, layer 2 (the `--np-*` roles) |
 | Is this pair readable? | `pnpm check:contrast`, and `lib/design/contrast-pairs.ts` for the manifest |
 | Why is it built this way? | `docs/specs/2026-09-03-visual-identity.md` |

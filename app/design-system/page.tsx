@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation"
+
 import {
   Archive,
   Bell,
@@ -143,6 +145,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getServerEnv } from "@/lib/server/env"
 import { STATUS_TONES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
@@ -409,7 +412,18 @@ function Swatch({
 
 export const metadata = { title: "Design system · NabaPresence" }
 
+// Rendered per request, never prerendered. DESIGN_SYSTEM_EVIDENCE_ENABLED is a
+// serve-time control, so a build-time decision would freeze whichever value
+// happened to be set when `next build` ran - in CI the flag is absent at build
+// and present only on the test step, which would ship this page as a baked 404
+// and take the accessibility evidence with it. Forcing dynamic also moves
+// ContrastEvidence's cwd-relative read of app/globals.css onto the request
+// path; that resolves both under `pnpm start` at the repo root and from the
+// standalone output, which carries its own .next/standalone/app/globals.css.
+export const dynamic = "force-dynamic"
+
 export default function Page() {
+  if (!getServerEnv().DESIGN_SYSTEM_EVIDENCE_ENABLED) notFound()
   return (
     <main
       id="main"
@@ -428,16 +442,6 @@ export default function Page() {
           does, so a role that drifts shows up here first. Colour, type, shape
           and motion come from app/globals.css; the contrast pairs below are
           measured from that file, not asserted in a comment.
-        </p>
-        <p className="text-ui text-ink-muted">
-          <a
-            href="/design-system/inbox-prototype"
-            className="text-accent-ink underline underline-offset-4"
-          >
-            Reviews inbox prototype
-          </a>{" "}
-          — the triage-and-reply workspace rebuilt on these tokens, on sample
-          reviews.
         </p>
       </header>
 

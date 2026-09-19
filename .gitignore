@@ -54,3 +54,9 @@ next-env.d.ts
 
 # Cursor/OMO codegraph symlink (dangling targets break `next build`)
 .codegraph
+
+# local Supabase CLI state (start-secrets holds local service keys)
+/supabase/.temp/
+
+# design-tool provenance (machine-local, not a build input)
+/.taste/

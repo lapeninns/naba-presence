@@ -3,18 +3,19 @@
 Status: superseded, 2026-09-04, by
 `docs/specs/2026-09-04-apple-identity.md`. Was accepted 2026-09-03. Superseded
 `docs/specs/2026-07-28-design-system.md` and
-`docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md`.
-Amends §7 of `docs/superpowers/specs/2026-07-31-frontend-rebuild-design.md`.
+`docs/archive/2026-07-frontend-rebuild/specs/2026-07-29-full-design-system-replacement-design.md`.
+Amends §7 of
+`docs/archive/2026-07-frontend-rebuild/specs/2026-07-31-frontend-rebuild-design.md`.
 
 ## Why this changed
 
 The previous identity was Google's own Material palette converted to oklch,
 on the reasoning that a Google Business Profile tool should look like Google.
 That reasoning does not survive the shift to the agency persona
-(`docs/superpowers/specs/2026-09-03-agency-ux.md`): an agency shows these
-screens to its clients, and a product wearing Google's blue reads as Google's
-product rather than the agency's tool. It also made the interface loud in a
-job that is mostly long stretches of reading review text.
+(`docs/specs/2026-09-03-agency-ux.md`): an agency shows these screens to its
+clients, and a product wearing Google's blue reads as Google's product rather
+than the agency's tool. It also made the interface loud in a job that is mostly
+long stretches of reading review text.
 
 The new direction is calm and editorial: warm paper neutrals, one restrained
 accent, borders instead of shadows, and a serif reserved for titles and
