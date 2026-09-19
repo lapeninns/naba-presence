@@ -60,3 +60,7 @@ next-env.d.ts
 
 # design-tool provenance (machine-local, not a build input)
 /.taste/
+
+# superpowers brainstorm scratch state (session logs and a local tool token;
+# never a build input, and it put a key into history once already)
+/.superpowers/
