@@ -11,19 +11,22 @@ Next.js version.
 ## Bundler
 
 `pnpm dev` runs Turbopack; `pnpm build` runs webpack (`--webpack`). The
-milestone plans under `docs/superpowers/` repeat a rule to never change the
-`--webpack` flags. That rule was written against an older Next.js, where
-Turbopack spawned runaway PostCSS workers in this project; it no longer holds
-for dev on 16.2.6 and the dev script has moved. Leave `build` on webpack: it
-is the path CI validates through `scripts/prepare-standalone.mjs`.
+archived milestone plans under `docs/archive/2026-07-frontend-rebuild/` repeat
+a rule to never change the `--webpack` flags. That rule was written against an
+older Next.js, where Turbopack spawned runaway PostCSS workers in this project;
+it no longer holds for dev on 16.2.6 and the dev script has moved. Leave
+`build` on webpack: it is the path CI validates through
+`scripts/prepare-standalone.mjs`.
 
 ## Historical plans
 
-Documents under `docs/superpowers/` describe their named milestones. Apply their
-branch, protected-path, workflow, testing, and commit instructions only when
-implementing that milestone. Reconcile stale guidance with the user's current
-task, this file, and the current project configuration. Attribute commits only
-to actual contributors; historical model trailers are not reusable defaults.
+`docs/archive/2026-07-frontend-rebuild/` is a historical record of the 2026-07
+frontend rebuild, and its branch, protected-path, workflow, testing, and commit
+instructions are not active project rules. Read those documents for background
+on how and why a milestone was built; take your actual instructions from this
+file, the current project configuration, and the user's task. Attribute commits
+only to actual contributors; historical model trailers are not reusable
+defaults. See `docs/archive/2026-07-frontend-rebuild/README.md` for the index.
 
 ## Skill selection and scope
 

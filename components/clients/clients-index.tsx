@@ -174,13 +174,14 @@ function ClientsIndex({ role }: { role: string | null }) {
           <AlertDescription className="flex flex-col items-start gap-3">
             <span>
               Imported from Google but not yet filed under a client. They stay
-              out of client filters and reports until you assign them.
+              out of client filters and reports until you file them, which
+              you can do from the Listings board.
             </span>
             <Link
-              href="/locations"
+              href="/listings"
               className={buttonVariants({ variant: "outline", size: "sm" })}
             >
-              Review locations
+              Open Listings
             </Link>
           </AlertDescription>
         </Alert>

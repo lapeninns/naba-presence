@@ -19,8 +19,8 @@ export async function flatRouteTarget(segment: string): Promise<string> {
   const primary = await resolvePrimaryLocation()
   if (primary.locationCount === 1 && primary.locationId) {
     return segment
-      ? `/locations/${primary.locationId}/${segment}`
-      : `/locations/${primary.locationId}`
+      ? `/listings/${primary.locationId}/${segment}`
+      : `/listings/${primary.locationId}`
   }
   return "/clients"
 }
@@ -33,6 +33,6 @@ export const FLAT_SEGMENT_MAP: Record<string, string> = {
   booking: "booking",
   // "Business details" was the flat name for Business Information, which the
   // rebuilt profile editor absorbs as sections.
-  details: "",
-  industry: "",
+  details: "profile",
+  industry: "profile",
 }

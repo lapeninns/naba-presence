@@ -11,7 +11,7 @@ component structure stay stock.
 
 > **Ownership:** This document's palette rationale remains authoritative. The full
 > production system lives in
-> [NabaPresence full design-system replacement](../superpowers/specs/2026-07-29-full-design-system-replacement-design.md).
+> [NabaPresence full design-system replacement](../archive/2026-07-frontend-rebuild/specs/2026-07-29-full-design-system-replacement-design.md).
 
 ## Why this shape
 
@@ -167,9 +167,15 @@ owner of the family names.
   oklch to three decimals). The probe was validated against known hex literals first.
 - The shipped hover `color-mix` resolves in-browser to `#1F69CE`, matching the predicted
   value used for the 5.29:1 calculation.
-- `app/design-system/page.tsx`, served at `/design-system`, is the production proof for
-  the system's foundations and production compositions, checked in both themes. Keep it
-  working — it is the regression surface for this palette and its component hierarchy.
+- `app/design-system/page.tsx` proves the system's foundations and its production
+  compositions, checked in both themes. It is internal evidence, not a product surface:
+  the route is gated on the `DESIGN_SYSTEM_EVIDENCE_ENABLED` flag, which defaults on
+  outside production and off in it, so `/design-system` returns 404 on a production
+  deployment. It is served in development, and in the e2e harness, which sets the flag
+  explicitly (`playwright.config.ts`) because `pnpm start` serves a production build —
+  that harness is where the accessibility and contrast evidence comes from. Keep the page
+  working behind that flag; it is the regression surface for this palette and its
+  component hierarchy.
 
 ## Accepted limitations
 

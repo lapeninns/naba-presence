@@ -1,4 +1,0 @@
-{"type":"server-started","port":59621,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:59621/?key=b9abc97da968bc5b3d432cfee6078a51d6b3d3fdfe2f590d50659e31021aa0f7","screen_dir":"/Users/amankumarshrestha/LapenInns Project/NabaReview/.superpowers/brainstorm/8133-1785323857/content","state_dir":"/Users/amankumarshrestha/LapenInns Project/NabaReview/.superpowers/brainstorm/8133-1785323857/state","idle_timeout_ms":14400000}
-{"type":"screen-added","file":"/Users/amankumarshrestha/LapenInns Project/NabaReview/.superpowers/brainstorm/8133-1785323857/content/mobile-inbox-layouts.html"}
-{"type":"screen-added","file":"/Users/amankumarshrestha/LapenInns Project/NabaReview/.superpowers/brainstorm/8133-1785323857/content/waiting-comparison.html"}
-{"type":"server-stopped","reason":"idle timeout"}

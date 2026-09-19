@@ -39,15 +39,17 @@ beforeEach(() => {
 })
 
 describe("primary navigation", () => {
-  it("offers three destinations and a More disclosure, and no Home", () => {
+  it("offers four destinations and a More disclosure, and no Home", () => {
     render(<Nav />)
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       "Inbox",
+      "Listings",
       "Clients",
       "Reports",
     ])
     for (const [label, href] of [
       ["Inbox", "/inbox"],
+      ["Listings", "/listings"],
       ["Clients", "/clients"],
       ["Reports", "/reports"],
     ]) {
@@ -111,10 +113,17 @@ describe("primary navigation", () => {
     expect(active[0]).toHaveAccessibleName("Inbox")
   })
 
-  it("keeps Clients selected inside a location workspace", () => {
-    expect(isClientsActive("/locations/abc/photos")).toBe(true)
+  it("lights Listings, not Clients, inside a listing", () => {
+    // A listing is reached from the board; the breadcrumb leads back there.
+    expect(isClientsActive("/listings/abc/photos")).toBe(false)
     expect(isClientsActive("/clients/c1")).toBe(true)
     expect(isClientsActive("/inbox")).toBe(false)
+    pathname.current = "/listings/abc/photos"
+    render(<Nav />)
+    expect(screen.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
   })
 
   it("pins recent clients with their health under Clients", () => {

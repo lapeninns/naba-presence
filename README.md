@@ -70,8 +70,9 @@ database is unavailable.
     a jobs tick that drains due webhook, checkpoint, and publish-recovery work
     through `/api/jobs/run` — run as Vercel Cron entries (`vercel.json`)
     firing the cron-authenticated GET handlers on those routes. `CRON_SECRET`
-    must be set on the Vercel project or every tick answers 401. Any other
-    host runs the web process and one scheduler process:
+    must be set on the Vercel project or every tick answers 401. Outside
+    Vercel — a local production build, for instance — the same loops need the
+    web process and one scheduler process:
 
     ```bash
     pnpm start
@@ -111,27 +112,18 @@ review with `pnpm supabase db push --dry-run`, and then use
 `pnpm supabase db push`. The existing `pnpm db:migrate` command remains
 available for deployments to a direct PostgreSQL URL.
 
-### Production-style Docker Compose
+### Production
 
-Run the complete local production stack without changing `.env`:
-
-```bash
-docker compose up --build
-```
-
-This separate stack starts a plain PostgreSQL 17 container, applies migrations
-once, starts the standalone web image, and starts the reconciliation/retention
-scheduler with its jobs worker tick. Use it to exercise the production
-container topology; normal local
-development uses Supabase CLI above. PostgreSQL is exposed only on
-`127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
-session, so it does not require hosted Supabase or Google OAuth.
-`NABAPRESENCE_NODE_IMAGE` can override the default `node:22-alpine` build image.
-Remove this disposable Compose database with:
-
-```bash
-docker compose down --volumes
-```
+Production runs on Vercel, and only on Vercel. The deployment is the web
+process; the seven background loops are the Vercel Cron entries in
+`vercel.json`; the database is a managed PostgreSQL 17 instance reached through
+`DATABASE_URL` (the non-superuser runtime role) and `DIRECT_DATABASE_URL`
+(migrations only). There is no container image and no self-hosted stack to
+run: the repository used to carry a production-topology Docker Compose file and
+a Dockerfile, nothing in CI ever built or booted them, and both have been
+deleted rather than left standing as untested infrastructure. The Supabase CLI
+loop above is the supported local environment, and `docs/runbook.md` covers the
+deployment gate, the kill switches and the rollback unit.
 
 ## Code map
 
@@ -241,7 +233,16 @@ must be approved before general availability.
 - [Requirement traceability matrix](docs/requirements-matrix.md)
 - [Backend, API, and frontend feature map](docs/frontend-backend-feature-map.md)
 - [Design-system palette specification](docs/specs/2026-07-28-design-system.md)
-- [Full design-system replacement specification](docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md)
-- [Full design-system replacement plan](docs/superpowers/plans/2026-07-29-full-design-system-replacement.md)
-- Production design-system proof surface: [`/design-system`](/design-system)
-- [UI DS-idiom rebuild design](docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)
+- Design-system evidence surface: `/design-system` — the rendered contrast
+  pairs and component hierarchy the accessibility sweep walks. Internal
+  evidence, not a product surface: `DESIGN_SYSTEM_EVIDENCE_ENABLED` defaults
+  off in production, so it is not served there.
+
+The 2026-07 frontend rebuild is archived under
+[`docs/archive/2026-07-frontend-rebuild/`](docs/archive/2026-07-frontend-rebuild/README.md).
+Those documents are a historical record: their branch, workflow, testing, and
+commit instructions no longer apply.
+
+- [Full design-system replacement specification](docs/archive/2026-07-frontend-rebuild/specs/2026-07-29-full-design-system-replacement-design.md)
+- [Full design-system replacement plan](docs/archive/2026-07-frontend-rebuild/plans/2026-07-29-full-design-system-replacement.md)
+- [UI DS-idiom rebuild design](docs/archive/2026-07-frontend-rebuild/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)

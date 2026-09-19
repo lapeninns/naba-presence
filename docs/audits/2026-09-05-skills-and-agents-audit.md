@@ -64,11 +64,13 @@ The trace skill is narrower and comparatively proportionate. The component-testi
 
 ### 5. Historical plan instructions need an explicit scope boundary
 
-**Priority: low; contextual documents, not automatically active root rules.** The root bundler section correctly supersedes old webpack-only development guidance. However, plans such as `docs/superpowers/plans/2026-07-31-frontend-rebuild-m1-foundation.md` still contain milestone-specific mandatory subskills (line 3), a fixed branch and protected paths (line 14), repeated test gates (line 19), and a fixed model attribution trailer (line 20).
+**Priority: low; contextual documents, not automatically active root rules.** The root bundler section correctly supersedes old webpack-only development guidance. However, plans such as `docs/archive/2026-07-frontend-rebuild/plans/2026-07-31-frontend-rebuild-m1-foundation.md` still contain milestone-specific mandatory subskills (line 3), a fixed branch and protected paths (line 14), repeated test gates (line 19), and a fixed model attribution trailer (line 20).
 
 These can misdirect an agent if a historical plan is treated as general current policy. Keep the history, and add a short scope clarification if this has caused confusion:
 
 > Documents under `docs/superpowers/` describe their named milestones. Apply their branch, workflow, testing, and commit instructions only when implementing that milestone; reconcile stale guidance with current project configuration and the user's task.
+
+[Editorial note, 2026-09-19: `docs/superpowers/` moved to `docs/archive/2026-07-frontend-rebuild/` on that date. The quotation above is reproduced verbatim as written on 2026-09-05; the plan path cited earlier in this section was updated to its current location so the link still resolves.]
 
 Do not import old milestone restrictions or mandatory attribution into the general project instructions.
 

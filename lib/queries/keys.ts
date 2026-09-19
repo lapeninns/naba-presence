@@ -15,6 +15,10 @@ export const queryKeys = {
   locations: ["location-directory"] as const,
   locationsManagement: ["location-directory", "management"] as const,
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
+  // The DB-only listing state. Rooted apart from the resource keys so an
+  // editor's invalidation of ["locations", id, …] refreshes it explicitly.
+  listingSummary: (id: string) => ["listing-summary", id] as const,
+  listingSummaries: ["listing-summary", "all"] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
   // Prefix of every `locationMedia(id, …)` key: the photos tab invalidates all

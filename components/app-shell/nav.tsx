@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Inbox,
   Settings,
+  Store,
   TrendingUp,
   Users,
 } from "lucide-react"
@@ -18,13 +19,16 @@ import type { ClientHealth } from "@/lib/clients/health"
 import { cn } from "@/lib/utils"
 
 /**
- * The three places an operator works, in the order they are visited.
+ * The four places an operator works, in the order they are visited.
  *
  * Home is gone: it was a page of numbers whose every link led to the Inbox,
  * so the Inbox is the landing page and the numbers live in its Today strip.
+ * Listings is the Google Business Profiles themselves, health first; Clients
+ * is who they belong to.
  */
 const NAV_ITEMS = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/listings", label: "Listings", icon: Store },
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/reports", label: "Reports", icon: TrendingUp },
 ] as const
@@ -52,15 +56,9 @@ function isActivePath(pathname: string | null, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-/**
- * `Clients` also lights up on `/locations/*`: the location workspace is
- * reached through a client and its breadcrumb says so, so leaving the sidebar
- * with nothing selected there would strand the user.
- */
+/** `Clients` is the client pages only; a listing belongs to Listings. */
 function isClientsActive(pathname: string | null) {
-  return (
-    isActivePath(pathname, "/clients") || isActivePath(pathname, "/locations")
-  )
+  return isActivePath(pathname, "/clients")
 }
 
 function isMoreActive(pathname: string | null) {

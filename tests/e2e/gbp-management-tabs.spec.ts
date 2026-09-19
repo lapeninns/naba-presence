@@ -35,9 +35,10 @@ async function mockShell(page: Page) {
   // All three consoles gate their editors on this capability (owner/admin
   // only); Business info also reads it for the field-level disabled state.
   await page.route(/\/api\/locations\/location-management\/capabilities(?:\?.*)?$/, (route) => route.fulfill({ json: { capabilities: { canEditCanonical: true, canPublish: true } } }))
-  // Two more workspace-level GETs that fire on every location tab: the tab
-  // nav's pending-proposal badges (components/locations/location-tab-nav.tsx)
-  // and the Recent activity panel below.
+  // Every listing page reads the DB-only summary for its status pill
+  // (components/listings/area-frame.tsx); unstubbed it 401s and the client
+  // hard-navigates to /sign-in mid-assertion.
+  await page.route(/\/api\/locations\/location-management\/summary(?:\?.*)?$/, (route) => route.fulfill({ json: { summary: { locationId: "location-management", linked: true, verified: true, connection: { status: "active", reconnectRequired: false, googleEmail: "owner@example.com" }, profile: { status: "in_sync", dirtyCount: 0, observedAt: null }, hours: { status: "unknown", dirtyCount: 0, observedAt: null }, menu: { status: "unknown", dirtyCount: 0, observedAt: null, eligible: null }, booking: { count: 0, observedAt: null }, photos: { count: 0, observedAt: null }, posts: { drafts: 0, awaitingApproval: 0, failed: 0, published: 0 }, suggestions: { profile: 0, foodMenus: 0 }, lastPublish: null } } }))
   await page.route(/\/api\/import-review\/counts(?:\?.*)?$/, (route) => route.fulfill({ json: { counts: [] } }))
   // The activity drawer only fetches once opened, but the route stays stubbed:
   // leaving it unstubbed would be fatal rather than cosmetic if anything did
@@ -66,7 +67,7 @@ async function mockShell(page: Page) {
 test("Business profile editor renders live Google data with humanised fields", async ({ page }) => {
   await mockShell(page)
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", storeCode: "CAMDEN-1", labels: ["hotel"], openInfo: { status: "OPEN" }, categories: { primaryCategory: { name: "categories/gcid:hotel" } }, serviceItems: [{ foo: 1 }] }, attributes: { name: "locations/camden/attributes", attributes: [{ name: "attributes/wifi", values: [true] }] }, attributeMetadata: [{ parent: "attributes/wifi", displayName: "Wi-Fi", groupDisplayName: "Amenities", valueType: "BOOL" }], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
-  await page.goto("/locations/location-management")
+  await page.goto("/listings/location-management/profile")
   // The raw title, editable in place — never a read-only "approved payload".
   await expect(page.getByRole("textbox", { name: "Business name" })).toHaveValue("Camden Hotel")
   // The primary category humanises from the gcid (categories/gcid:hotel ->
@@ -91,7 +92,7 @@ test("Industry sections humanise Business Calls state and surface a failing sect
   await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), calls: available({ callsState: "ENABLED" }), callInsights: available({ businessCallsInsights: [] }), healthcareServices: { data: null, error: "Google request failed." }, providerAttributes: available({ attributes: [] }), insuranceNetworks: available({ networks: [] }), canManage: true, writesEnabled: true } } }))
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   // Lodging and calls are sections of the business profile now.
-  await page.goto("/locations/location-management")
+  await page.goto("/listings/location-management/profile")
   // The status badge already humanises correctly ("Currently On", never
   // "Currently ENABLED").
   await expect(page.getByText("Currently On")).toBeVisible()
@@ -111,7 +112,7 @@ test("Access tab humanises admin roles and gates delete behind a typed name", as
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
   await page.route(/\/api\/locations\/location-management\/administration(?:\?.*)?$/, (route) => route.fulfill({ json: { administration: { voice: available({ hasVoiceOfMerchant: true }), verifications: available({ verifications: [] }), verificationOptions: available({ options: [{ verificationMethod: "EMAIL" }] }), googleUpdated: available({ diffMask: "title" }), locationAdmins: available({ admins: [{ admin: "Owner", role: "PRIMARY_OWNER" }] }), accountAdmins: available({ admins: [] }), invitations: available({ invitations: [] }), accountName: "accounts/1", googleLocationName: "locations/camden", canManage: true, writesEnabled: true } } }))
-  await page.goto("/locations/location-management/access")
+  await page.goto("/listings/location-management/people")
   // "PRIMARY_OWNER" (the raw Google role) never reaches the page.
   await expect(page.getByText("Primary owner", { exact: true })).toBeVisible()
   await expect(page.getByText("PRIMARY_OWNER")).toHaveCount(0)

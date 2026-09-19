@@ -20,10 +20,10 @@ value fails environment validation at startup, because the database kills a
 connection left idle in a transaction for 60 seconds and the caller would see an
 opaque 500 rather than a provider timeout.
 Database migrations are roll-forward-only. Before a migration rollout, capture
-a restorable database snapshot and retain the currently deployed application
-image. If the migration or post-migration verification fails, restore the
-snapshot and redeploy that exact previous image as one rollback unit; do not
-run ad-hoc down migrations.
+a restorable database snapshot and note the currently deployed Vercel
+deployment. If the migration or post-migration verification fails, restore the
+snapshot and promote that exact previous deployment as one rollback unit; do
+not run ad-hoc down migrations.
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
@@ -310,9 +310,9 @@ Start it with `pnpm supabase:start`; the CLI applies the committed
 `127.0.0.1:54322`, the local API on `127.0.0.1:54321`, and Studio on
 `127.0.0.1:54323`. `pnpm supabase:reset` is destructive to local data.
 
-The separate production-style stack remains available through
-`docker compose up --build`; its plain PostgreSQL database is available only on
-`127.0.0.1:54329`.
+There is no second, production-topology stack to fall back on. The Docker
+Compose stack that once served that purpose has been deleted: production runs
+on Vercel, so the Supabase CLI stack above is the only local environment.
 
 ## Production database (deferred — read before provisioning)
 
@@ -323,8 +323,8 @@ production request fails, and the "28 applied migrations" premise is void.
 The only live dataset is the local Supabase database, snapshotted to
 `../NabaPresence-backups/local-snapshot-20260903.dump` (custom format, schema
 plus data, verified with `pg_restore -l`). When production provisioning is
-back on the table, follow this order — it was rehearsed end to end against
-the compose PostgreSQL 17 stack in September 2026:
+back on the table, follow this order — it was rehearsed end to end against a
+local PostgreSQL 17 stack in September 2026:
 
 1. Provision a DEDICATED PostgreSQL 17 database (the local Supabase database
    is shared with sibling projects — see step 3). Before pointing anything at

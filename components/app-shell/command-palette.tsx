@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
   Settings,
+  Store,
   TrendingUp,
   UserPlus,
   Users,
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils"
 
 const GO_TO = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/listings", label: "Listings", icon: Store },
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/reports", label: "Reports", icon: TrendingUp },
   { href: "/team", label: "Team", icon: Users },
@@ -118,12 +120,12 @@ function CommandPalette({
         ) : null}
 
         {locations.data?.length ? (
-          <CommandGroup heading="Locations">
+          <CommandGroup heading="Listings">
             {locations.data.map((location) => (
               <CommandItem
                 key={location.id}
-                value={`location ${location.name}`}
-                onSelect={() => go(`/locations/${location.id}`)}
+                value={`listing ${location.name}`}
+                onSelect={() => go(`/listings/${location.id}`)}
               >
                 <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
