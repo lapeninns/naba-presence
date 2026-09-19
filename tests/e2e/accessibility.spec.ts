@@ -421,6 +421,12 @@ for (const theme of themes) {
       })
 
       test("application shell", async ({ page }) => {
+        // Scoped to this test on purpose. axe samples painted colour, and the
+        // inbox is the one measured surface that animates, so it is the one
+        // that needs motion settled. Applying reduced motion suite-wide broke
+        // focus restoration on mobile (see the reply-editor test below), which
+        // is its own defect and not something to mask here.
+        await page.emulateMedia({ reducedMotion: "reduce" })
         await page.goto("/inbox")
         if (viewport.name === "desktop") {
           // No `data-variant="floating"` attribute exists on the current
@@ -437,6 +443,15 @@ for (const theme of themes) {
         if (viewport.name === "mobile") {
           await page.waitForTimeout(350)
         }
+        // The review list carries `opacity-80` behind a `transition-opacity`
+        // for as long as it is refreshing (components/inbox/review-list.tsx).
+        // Sampling mid-transition lightens every colour inside it by the same
+        // factor, which axe reports as a contrast failure against tokens that
+        // are in fact correct. Wait for the list to stop declaring itself
+        // busy rather than for a fixed interval.
+        await expect(
+          page.locator('[aria-label="Review list"][aria-busy="true"]')
+        ).toHaveCount(0)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} application shell`
@@ -564,10 +579,7 @@ for (const theme of themes) {
           page.getByRole("link", { name: state.directReview.locationName })
         ).toBeVisible()
         await page.waitForLoadState("networkidle")
-        await expectAccessible(
-          page,
-          `${viewport.name} ${theme} listings board`
-        )
+        await expectAccessible(page, `${viewport.name} ${theme} listings board`)
       })
 
       test("clients index and hub", async ({ baseURL, page }) => {
@@ -590,7 +602,10 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} client hub`)
       })
 
-      test("listing overview and the profile editor", async ({ baseURL, page }) => {
+      test("listing overview and the profile editor", async ({
+        baseURL,
+        page,
+      }) => {
         // Real journey tenant/cookie + the real seeded `primaryLocationId`.
         // The overview paints from DB-only reads; the profile editor is the
         // merged business profile: one heading, one set of fields.
@@ -598,10 +613,15 @@ for (const theme of themes) {
         await applyCookie(page, baseURL, state.cookie)
         await page.goto(`/listings/${state.primaryLocationId}`)
         await expect(
-          page.getByRole("heading", { name: state.directReview.locationName, level: 1 })
+          page.getByRole("heading", {
+            name: state.directReview.locationName,
+            level: 1,
+          })
         ).toBeVisible()
         await expect(
-          page.getByRole("region", { name: "Areas" }).getByRole("heading", { name: "Business profile", level: 3 })
+          page
+            .getByRole("region", { name: "Areas" })
+            .getByRole("heading", { name: "Business profile", level: 3 })
         ).toBeVisible()
         await page.waitForLoadState("networkidle")
         await expectAccessible(
@@ -714,37 +734,45 @@ for (const theme of themes) {
         // The Today strip above the queues reads the first client's setup
         // state and the analytics overview (locations needing attention).
         // Unstubbed, both answer 401 and lib/api/client.ts navigates away.
-        await page.route(/\/api\/clients\/[^/]+\/setup(?:\?.*)?$/, async (route) => {
-          await route.fulfill({ json: { setup: { nextStep: "done", steps: [] } } })
-        })
-        await page.route(/\/api\/analytics\/overview(?:\?.*)?$/, async (route) => {
-          await route.fulfill({
-            json: {
-              from: "2026-06-28T00:00:00.000Z",
-              to: "2026-07-28T00:00:00.000Z",
-              timezone: "UTC",
-              summary: {
-                reviewVolume: 1,
-                averageRating: 5,
-                responseRate: 100,
-                unresolvedComplaints: 0,
-                verificationFailures: 0,
-                verificationRejectionRate: null,
-                medianFirstResponseSeconds: null,
-                p95FirstResponseSeconds: null,
-                medianLatestEditSeconds: null,
+        await page.route(
+          /\/api\/clients\/[^/]+\/setup(?:\?.*)?$/,
+          async (route) => {
+            await route.fulfill({
+              json: { setup: { nextStep: "done", steps: [] } },
+            })
+          }
+        )
+        await page.route(
+          /\/api\/analytics\/overview(?:\?.*)?$/,
+          async (route) => {
+            await route.fulfill({
+              json: {
+                from: "2026-06-28T00:00:00.000Z",
+                to: "2026-07-28T00:00:00.000Z",
+                timezone: "UTC",
+                summary: {
+                  reviewVolume: 1,
+                  averageRating: 5,
+                  responseRate: 100,
+                  unresolvedComplaints: 0,
+                  verificationFailures: 0,
+                  verificationRejectionRate: null,
+                  medianFirstResponseSeconds: null,
+                  p95FirstResponseSeconds: null,
+                  medianLatestEditSeconds: null,
+                },
+                series: [],
+                locations: [],
+                providerTotals: {
+                  averageRating: null,
+                  totalReviewCount: null,
+                  localReviewCount: 1,
+                  divergence: false,
+                },
               },
-              series: [],
-              locations: [],
-              providerTotals: {
-                averageRating: null,
-                totalReviewCount: null,
-                localReviewCount: 1,
-                divergence: false,
-              },
-            },
-          })
-        })
+            })
+          }
+        )
         await page.route(
           /\/api\/google\/connections(?:\?.*)?$/,
           async (route) => {
@@ -1338,10 +1366,7 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} connections`)
       })
 
-      test("settings policy and the team page", async ({
-        baseURL,
-        page,
-      }) => {
+      test("settings policy and the team page", async ({ baseURL, page }) => {
         // Real journey tenant/cookie: /settings' PolicyForm fetches
         // `/api/settings/capabilities` for real (never mocked below), and
         // /team gates on an owner/admin session server-side, which the
