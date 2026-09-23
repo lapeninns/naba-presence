@@ -1,8 +1,12 @@
+import type { TransactionSql } from "postgres"
+
 import { accountSelectionSchema } from "@/lib/contracts/google"
 import { writeAudit } from "@/lib/server/audit"
+import { belongsToClient } from "@/lib/server/clients"
 import { getDatabase } from "@/lib/server/db"
 import { connectionAccessToken, googleAccounts } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
+import { requireClientAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -29,6 +33,36 @@ async function discoverAccounts(accessToken: string, connectionId: string) {
     }
   } while (pageToken)
   return discovered
+}
+
+function accountRows(sql: TransactionSql) {
+  return sql`
+    select
+      id::text as id,
+      google_account_name as "googleAccountName",
+      account_name as "accountName",
+      account_type as type,
+      role,
+      permission_level as "permissionLevel",
+      is_active as "isActive",
+      google_connection_id::text as "googleConnectionId"
+    from google_account
+    order by account_name, google_account_name
+  `
+}
+
+/** Which `google_account ga` rows a selection may switch on or off. */
+function accountScope(
+  sql: TransactionSql,
+  body: { clientId?: string; connectionId?: string }
+) {
+  const client = body.clientId
+    ? belongsToClient(sql, sql`${body.clientId}::uuid`, sql`ga.google_connection_id`)
+    : sql`true`
+  const connection = body.connectionId
+    ? sql`ga.google_connection_id = ${body.connectionId}`
+    : sql`true`
+  return sql`(${client} and ${connection})`
 }
 
 export const GET = route({
@@ -99,6 +133,10 @@ export const GET = route({
           )
           on conflict (organisation_id, google_account_name) do update
           set
+            -- This login just proved it can reach the account. Keeping the
+            -- login that first found it left the account outside every
+            -- client's scope once that login was disconnected.
+            google_connection_id = excluded.google_connection_id,
             account_name = excluded.account_name,
             account_type = excluded.account_type,
             role = excluded.role,
@@ -107,18 +145,7 @@ export const GET = route({
             raw_content_expires_at = excluded.raw_content_expires_at
         `
       }
-      return sql`
-        select
-          id::text as id,
-          google_account_name as "googleAccountName",
-          account_name as "accountName",
-          account_type as type,
-          role,
-          permission_level as "permissionLevel",
-          is_active as "isActive"
-        from google_account
-        order by account_name, google_account_name
-      `
+      return accountRows(sql)
     })
     return { accounts }
   },
@@ -129,36 +156,49 @@ export const PATCH = route({
   body: accountSelectionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     const accounts = await tenant(async (sql) => {
-      await sql`
-        update google_account
-        set is_active = ${
-          body.accountIds.length ? sql`id in ${sql(body.accountIds)}` : false
+      if (body.clientId) {
+        await requireClientAccess(sql, session, body.clientId)
+      }
+      const scope = accountScope(sql, body)
+      if (body.accountIds.length > 0) {
+        const [outside] = await sql<{ count: number }[]>`
+          select count(*)::int as count
+          from unnest(${sql.array(body.accountIds)}::uuid[]) as chosen(id)
+          where not exists (
+            select 1 from google_account ga
+            where ga.id = chosen.id and ${scope}
+          )
+        `
+        if ((outside?.count ?? 0) > 0) {
+          throw new ApiError(
+            400,
+            "account_out_of_scope",
+            "One or more of those accounts is not reached by this Google login."
+          )
         }
+      }
+      await sql`
+        update google_account ga
+        set is_active = ${
+          body.accountIds.length ? sql`ga.id in ${sql(body.accountIds)}` : false
+        }
+        where ${scope}
       `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
         action: "google.accounts.activated",
-        subjectType: "organisation",
-        subjectId: session.organisationId,
+        subjectType: body.clientId ? "client" : "organisation",
+        subjectId: body.clientId ?? session.organisationId,
         requestId,
         metadata: {
           accountIds: body.accountIds,
+          clientId: body.clientId ?? null,
+          connectionId: body.connectionId ?? null,
           clientRequestId,
         },
       })
-      return sql`
-        select
-          id::text as id,
-          google_account_name as "googleAccountName",
-          account_name as "accountName",
-          account_type as type,
-          role,
-          permission_level as "permissionLevel",
-          is_active as "isActive"
-        from google_account
-        order by account_name, google_account_name
-      `
+      return accountRows(sql)
     })
     return { accounts }
   },
