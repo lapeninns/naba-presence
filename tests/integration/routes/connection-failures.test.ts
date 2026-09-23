@@ -539,4 +539,171 @@ describeDatabase("google connection failure handling", () => {
     expect((await connectionState(denied.connectionId))[0].status).toBe("active")
     expect(await reconnectTasks(denied.connectionId)).toHaveLength(0)
   })
+
+  async function waitForTokenCall() {
+    const deadline = Date.now() + 5_000
+    while (!stub.calls.some((call) => call.path.endsWith("/token"))) {
+      if (Date.now() > deadline) throw new Error("No token request reached the stub")
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  function storedTokens(connectionId: string) {
+    return admin<
+      {
+        status: string
+        accessToken: Buffer | null
+        refreshToken: Buffer | null
+        refreshTokenExpiresAt: Date | null
+      }[]
+    >`
+      select
+        status,
+        access_token_ciphertext as "accessToken",
+        refresh_token_ciphertext as "refreshToken",
+        refresh_token_expires_at as "refreshTokenExpiresAt"
+      from google_connection
+      where id = ${connectionId}
+    `
+  }
+
+  function disconnect(cookie: string, connectionId: string) {
+    return fetch(
+      `${server.baseUrl}/api/google/connections/${connectionId}/disconnect`,
+      { method: "POST", headers: { cookie } }
+    )
+  }
+
+  it("stays disconnected when a refresh succeeds after the disconnect", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      delayMs: 1_000,
+      json: {
+        access_token: "late-access-token",
+        expires_in: 3600,
+        refresh_token: "late-refresh-token",
+        scope: "business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 200,
+      json: { accounts: [] },
+    }))
+
+    // A request that needs a refresh is waiting on Google...
+    const inFlight = fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    await waitForTokenCall()
+    // ...when the owner disconnects.
+    const disconnected = await disconnect(owner.cookie, connectionId)
+    expect(disconnected.status, await disconnected.clone().text()).toBe(200)
+
+    const late = await inFlight
+    expect(late.status, await late.clone().text()).toBe(404)
+    const [row] = await storedTokens(connectionId)
+    expect(row).toMatchObject({
+      status: "disconnected",
+      accessToken: null,
+      refreshToken: null,
+    })
+    expect(
+      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+    ).toHaveLength(0)
+  })
+
+  it("stays disconnected when a refresh is rejected after the disconnect", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 400,
+      delayMs: 1_000,
+      json: { error: "invalid_grant" },
+    }))
+
+    const inFlight = fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    await waitForTokenCall()
+    const disconnected = await disconnect(owner.cookie, connectionId)
+    expect(disconnected.status, await disconnected.clone().text()).toBe(200)
+    await inFlight
+
+    const [row] = await storedTokens(connectionId)
+    expect(row).toMatchObject({
+      status: "disconnected",
+      accessToken: null,
+      refreshToken: null,
+    })
+    // No reconnect banner for a connection the owner removed on purpose.
+    expect(
+      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+    ).toHaveLength(0)
+    const [audit] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from audit_log
+      where subject_id = ${connectionId}
+        and action = 'google.connection.reconnect_required'
+    `
+    expect(audit.count).toBe(0)
+  })
+
+  it("refreshes an expired token once for 20 concurrent requests across two servers", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    const [before] = await storedTokens(connectionId)
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      // Slow enough that every request arrives while the refresh is running.
+      delayMs: 500,
+      json: {
+        access_token: "single-flight-access-token",
+        expires_in: 3600,
+        refresh_token: "rotated-refresh-token",
+        refresh_token_expires_in: 604_800,
+        scope: "business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 200,
+      json: { accounts: [] },
+    }))
+    // A second process: the in-process guard alone cannot see its requests,
+    // so only the database lock keeps this to one refresh.
+    const second = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      GOOGLE_CLIENT_ID: "connection-failure-client",
+      GOOGLE_CLIENT_SECRET: "connection-failure-secret",
+      GOOGLE_REQUESTS_PER_SECOND: "100",
+      GOOGLE_TIMEOUT_MS: "5000",
+    })
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          fetch(
+            `${(index % 2 === 0 ? server : second).baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+            { headers: { cookie: owner.cookie } }
+          )
+        )
+      )
+      for (const response of responses) {
+        expect(response.status, await response.clone().text()).toBe(200)
+      }
+    } finally {
+      await second.stop()
+    }
+
+    expect(stub.calls.filter((call) => call.path.endsWith("/token"))).toHaveLength(1)
+    // Google rotated the refresh token; the new one is kept, with its expiry.
+    const [after] = await storedTokens(connectionId)
+    expect(after.status).toBe("active")
+    expect(Buffer.compare(after.refreshToken!, before.refreshToken!)).not.toBe(0)
+    expect(after.refreshTokenExpiresAt).toBeInstanceOf(Date)
+  }, 60_000)
 })

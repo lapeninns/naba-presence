@@ -92,13 +92,20 @@ async function recordConnectionFailure(
   connection: FailedConnection,
   errorCode: string
 ) {
-  await sql`
+  // A disconnect that committed while the refresh was in flight wins: it
+  // cancelled the connection's tasks and nulled its tokens, and flipping it
+  // to revoked or expired would bring a removed connection back into the
+  // banner and the loadable set.
+  const updated = await sql`
     update google_connection
     set
       status = ${REVOKING_FAILURES.has(errorCode) ? "revoked" : "expired"},
       last_error_code = ${errorCode}
     where id = ${connection.id}
+      and status <> 'disconnected'
+    returning id
   `
+  if (updated.length === 0) return
   await sql`
     insert into connection_task (
       organisation_id,
@@ -169,6 +176,7 @@ export async function noteConnectionError(
       update google_connection
       set last_error_code = ${errorCode}
       where id = ${connection.id}
+        and status <> 'disconnected'
     `
   )
 }
