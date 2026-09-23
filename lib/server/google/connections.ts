@@ -5,7 +5,7 @@ import type { Sql, TransactionSql } from "postgres"
 import { isRetryableGoogleStatus, retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
-import { withTenant } from "@/lib/server/db"
+import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -56,9 +56,17 @@ function parseTokenBody(text: string): TokenBody {
  * form-encoded body), and before this it had no retry at all: a single 503
  * from the token endpoint was enough to take the connection out of service.
  */
+type RefreshedToken = {
+  accessToken: string
+  expiresIn: number
+  /** Present when Google rotates the refresh token. */
+  refreshToken?: string
+  refreshTokenExpiresIn?: number
+}
+
 async function requestRefreshedToken(
   refreshToken: string
-): Promise<{ accessToken: string; expiresIn: number }> {
+): Promise<RefreshedToken> {
   const env = getServerEnv()
   const deadline = Date.now() + env.GOOGLE_TIMEOUT_MS
   for (let attempt = 1; attempt <= TOKEN_REFRESH_ATTEMPTS; attempt += 1) {
@@ -91,7 +99,18 @@ async function requestRefreshedToken(
       ) {
         throw new TokenEndpointError("invalid_token_response", response.status)
       }
-      return { accessToken: body.access_token, expiresIn: body.expires_in }
+      return {
+        accessToken: body.access_token,
+        expiresIn: body.expires_in,
+        refreshToken:
+          typeof body.refresh_token === "string" && body.refresh_token
+            ? body.refresh_token
+            : undefined,
+        refreshTokenExpiresIn:
+          typeof body.refresh_token_expires_in === "number"
+            ? body.refresh_token_expires_in
+            : undefined,
+      }
     }
     if (
       isRetryableGoogleStatus(response.status) &&
@@ -125,7 +144,7 @@ async function refreshAccessToken(
     await persistConnectionFailure(connection, "refresh_token_missing")
     throw reconnectRequiredError()
   }
-  let token: { accessToken: string; expiresIn: number }
+  let token: RefreshedToken
   try {
     token = await requestRefreshedToken(
       decryptSecret(connection.refresh_token_ciphertext)
@@ -158,17 +177,34 @@ async function refreshAccessToken(
     throw googleTokenUnavailableError()
   }
   await withTenant(connection.organisation_id, async (transaction) => {
-    await transaction`
+    // `status <> 'disconnected'`: a disconnect that committed while Google
+    // was answering has already nulled the tokens, and writing the fresh ones
+    // back would resurrect a connection the user removed.
+    const updated = await transaction`
       update google_connection
       set
         access_token_ciphertext = ${encryptSecret(token.accessToken)},
         access_token_expires_at =
           now() + (${token.expiresIn} * interval '1 second'),
+        ${
+          token.refreshToken
+            ? transaction`refresh_token_ciphertext = ${encryptSecret(token.refreshToken)},`
+            : transaction``
+        }
+        ${
+          token.refreshToken && token.refreshTokenExpiresIn
+            ? transaction`refresh_token_expires_at =
+                now() + (${token.refreshTokenExpiresIn} * interval '1 second'),`
+            : transaction``
+        }
         last_refresh_at = now(),
         status = 'active',
         last_error_code = null
       where id = ${connection.id}
+        and status <> 'disconnected'
+      returning id
     `
+    if (updated.length === 0) throw connectionNotFoundError()
     // Google just honoured the stored refresh token, so an open reconnect
     // task for this row is stale: the credential it says a person must
     // replace is the one that worked. Before this, only a full OAuth
@@ -219,14 +255,109 @@ async function loadConnection(
       and status in ('active', 'expired')
     limit 1
   `
-  if (!connection) {
-    throw new ApiError(
-      404,
-      "connection_not_found",
-      "Google connection not found."
-    )
-  }
+  if (!connection) throw connectionNotFoundError()
   return connection
+}
+
+function connectionNotFoundError() {
+  return new ApiError(404, "connection_not_found", "Google connection not found.")
+}
+
+function needsRefresh(connection: GoogleConnectionRow): boolean {
+  return (
+    connection.status !== "active" ||
+    !connection.access_token_expires_at ||
+    connection.access_token_expires_at.getTime() <= Date.now() + 60_000
+  )
+}
+
+function loadFromTenant(organisationId: string, connectionId: string) {
+  return withTenant(organisationId, (transaction) =>
+    loadConnection(transaction, connectionId)
+  )
+}
+
+/** How often a caller that lost the refresh lock looks for the winner's token. */
+const REFRESH_WAIT_POLL_MS = 150
+
+/**
+ * Refreshes already running in this process, so concurrent callers share one
+ * instead of each queueing on the database lock with a pooled connection.
+ */
+const refreshesInFlight = new Map<string, Promise<string>>()
+
+/**
+ * One refresh per connection at a time, across every process.
+ *
+ * Without this, twenty requests that found the same expired token each
+ * called Google's token endpoint. Besides the wasted calls, that races the
+ * writes: Google may rotate the refresh token, and the last writer can store
+ * one that an earlier answer already superseded.
+ *
+ * The in-process map folds concurrent callers in one server into a single
+ * promise. The session advisory lock does the same across servers: the
+ * holder re-reads the row after taking it, because the previous holder has
+ * usually just refreshed, and everyone else polls the row until a fresh token
+ * appears. The lock is session-level on a reserved connection, not held in a
+ * transaction, so the Google round trip cannot trip
+ * `idle_in_transaction_session_timeout`.
+ */
+function refreshOnce(connection: GoogleConnectionRow): Promise<string> {
+  const key = `${connection.organisation_id}:${connection.id}`
+  const running = refreshesInFlight.get(key)
+  if (running) return running
+  const refresh = refreshUnderLock(connection).finally(() => {
+    refreshesInFlight.delete(key)
+  })
+  refreshesInFlight.set(key, refresh)
+  return refresh
+}
+
+async function refreshUnderLock(
+  connection: GoogleConnectionRow
+): Promise<string> {
+  const lockKey = `naba:google-refresh:${connection.id}`
+  // Long enough for the holder's full retried refresh to finish.
+  const deadline = Date.now() + getServerEnv().GOOGLE_TIMEOUT_MS + 5_000
+  for (;;) {
+    const reserved = await getDatabase().reserve()
+    let acquired = false
+    try {
+      const [lock] = await reserved<{ acquired: boolean }[]>`
+        select pg_try_advisory_lock(hashtext(${lockKey})) as acquired
+      `
+      acquired = lock?.acquired ?? false
+      if (acquired) {
+        const current = await loadFromTenant(
+          connection.organisation_id,
+          connection.id
+        )
+        if (!needsRefresh(current)) {
+          return decryptSecret(current.access_token_ciphertext)
+        }
+        return await refreshAccessToken(current)
+      }
+    } finally {
+      try {
+        if (acquired) {
+          await reserved`select pg_advisory_unlock(hashtext(${lockKey}))`
+        }
+      } finally {
+        reserved.release()
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, REFRESH_WAIT_POLL_MS))
+    // A disconnect or revocation while waiting surfaces here as
+    // connection_not_found, the same as for any caller arriving after it.
+    const current = await loadFromTenant(
+      connection.organisation_id,
+      connection.id
+    )
+    if (!needsRefresh(current)) {
+      return decryptSecret(current.access_token_ciphertext)
+    }
+    if (Date.now() >= deadline) throw googleTokenUnavailableError()
+  }
 }
 
 /**
@@ -245,15 +376,7 @@ export async function connectionAccessToken(
   organisationId: string,
   connectionId: string
 ): Promise<string> {
-  const connection = await withTenant(organisationId, (transaction) =>
-    loadConnection(transaction, connectionId)
-  )
-  if (
-    connection.status !== "active" ||
-    !connection.access_token_expires_at ||
-    connection.access_token_expires_at.getTime() <= Date.now() + 60_000
-  ) {
-    return refreshAccessToken(connection)
-  }
+  const connection = await loadFromTenant(organisationId, connectionId)
+  if (needsRefresh(connection)) return refreshOnce(connection)
   return decryptSecret(connection.access_token_ciphertext)
 }
