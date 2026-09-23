@@ -64,7 +64,8 @@ describe("PostsActionBar", () => {
     api.publishPost.mockResolvedValue({ status: "awaiting_approval" })
     renderBar({ post: post({ status: "failed" }) })
 
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+    // A failed post's publish reads as a retry; it is the same mutation.
+    await userEvent.click(screen.getByRole("button", { name: "Retry publish" }))
 
     expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
   })
@@ -160,6 +161,23 @@ describe("PostsActionBar", () => {
   it("keeps the pause switch over Request approval", () => {
     renderBar({ caps: MEMBER, writesEnabled: false })
     expect(screen.getByRole("button", { name: "Request approval" })).toBeDisabled()
+  })
+
+  it("never tells the operator to use Check Google on a post that is still publishing", async () => {
+    renderBar({ post: post({ status: "publishing" }) })
+    expect(screen.queryByRole("button", { name: "Check Google" })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText("This deletes the post from NabaPresence.")).toBeInTheDocument()
+    expect(within(dialog).getByText(/This post is still being sent/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Check Google/)).not.toBeInTheDocument()
+  })
+
+  it("points an ambiguous post's delete at Check Google, because Google may hold it", async () => {
+    renderBar({ post: post({ status: "ambiguous" }) })
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText(/use Check Google first to find out/)).toBeInTheDocument()
   })
 
   // An ambiguous post's Google name is unknown, so a republish would be a blind

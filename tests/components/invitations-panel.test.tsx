@@ -44,10 +44,11 @@ describe("InvitationsPanel", () => {
     expect(screen.getByRole("button", { name: "Revoke invitation for chef@test" })).toBeInTheDocument()
   })
 
-  it("shows the create form with a role select and an email field", () => {
+  it("shows the create form with role cards and an email field", () => {
     renderPanel([])
     expect(screen.getByRole("textbox", { name: "Email address" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Send invitation" })).toBeInTheDocument()
+    expect(screen.getByRole("radiogroup", { name: "Role" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Create invite link" })).toBeInTheDocument()
   })
 
   it("submits canPublish: false for a Viewer invitation even after the switch was turned on first", async () => {
@@ -68,12 +69,24 @@ describe("InvitationsPanel", () => {
 
     await user.type(screen.getByRole("textbox", { name: "Email address" }), "new@test.com")
     await user.click(screen.getByRole("switch", { name: "Can publish" }))
-    await user.click(screen.getByRole("combobox", { name: "Invitation role" }))
-    await user.click(await screen.findByRole("option", { name: "Viewer" }))
-    await user.click(screen.getByRole("button", { name: "Send invitation" }))
+    await user.click(screen.getByRole("radio", { name: /^Viewer/ }))
+    expect(screen.getByRole("switch", { name: "Can publish" })).not.toBeChecked()
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
 
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith({ email: "new@test.com", role: "viewer", canPublish: false })
     )
+  })
+
+  it("keeps the address and says why when the email is invalid", async () => {
+    const user = userEvent.setup()
+    const create = vi.spyOn(invitationsApi, "createInvitation")
+    renderPanel([])
+    await user.type(screen.getByRole("textbox", { name: "Email address" }), "not-an-email")
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(create).not.toHaveBeenCalled()
+    const email = screen.getByRole("textbox", { name: "Email address" })
+    expect(email).toHaveValue("not-an-email")
+    expect(email).toHaveAttribute("aria-invalid", "true")
   })
 })

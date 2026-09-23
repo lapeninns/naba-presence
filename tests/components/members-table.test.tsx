@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { MembersTable } from "@/components/settings/members-table"
@@ -37,21 +38,62 @@ function renderTable(actorRole: Member["role"], actorUserId: string, members: Me
 afterEach(() => vi.clearAllMocks())
 
 describe("MembersTable", () => {
-  it("marks the current user, disables self-removal and last-owner demotion", () => {
+  it("marks the current user, disables self-removal and last-owner demotion", async () => {
+    const user = userEvent.setup()
     renderTable("owner", "owner-1", [
       member({ userId: "owner-1", displayName: "Ana Owner", email: "ana@test", role: "owner", canPublish: true }),
       member({ userId: "m-1", displayName: "Ben Member", email: "ben@test", role: "member" }),
     ])
     expect(screen.getByText("You")).toBeInTheDocument()
-    const removeAna = screen.getByRole("button", { name: "Remove Ana Owner" })
-    expect(removeAna).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Actions for Ana Owner" }))
+    const remove = await screen.findByRole("menuitem", { name: /Remove from team/ })
+    expect(remove).toHaveAttribute("aria-disabled", "true")
+    expect(remove).toHaveAccessibleDescription("You can’t remove your own access.")
+    const changeRole = screen.getByRole("menuitem", { name: /Change role/ })
+    expect(changeRole).toHaveAttribute("aria-disabled", "true")
+    expect(changeRole).toHaveAccessibleDescription(
+      "Make someone else an owner before changing the last owner’s role."
+    )
   })
 
-  it("stops an admin from editing an owner row", () => {
+  it("stops an admin from editing an owner row", async () => {
+    const user = userEvent.setup()
     renderTable("admin", "admin-1", [
       member({ userId: "owner-1", displayName: "Ana Owner", email: "ana@test", role: "owner", canPublish: true }),
+      member({ userId: "owner-2", displayName: "Omar Owner", email: "omar@test", role: "owner", canPublish: true }),
       member({ userId: "admin-1", displayName: "Al Admin", email: "al@test", role: "admin", canPublish: true }),
     ])
-    expect(screen.getByRole("button", { name: "Remove Ana Owner" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Actions for Ana Owner" }))
+    const remove = await screen.findByRole("menuitem", { name: /Remove from team/ })
+    expect(remove).toHaveAttribute("aria-disabled", "true")
+    expect(remove).toHaveAccessibleDescription("Only an owner can remove an owner.")
+  })
+
+  it("never offers Owner to an admin changing a member's role", async () => {
+    const user = userEvent.setup()
+    renderTable("admin", "admin-1", [
+      member({ userId: "admin-1", displayName: "Al Admin", email: "al@test", role: "admin", canPublish: true }),
+      member({ userId: "m-1", displayName: "Ben Member", email: "ben@test", role: "member" }),
+    ])
+    await user.click(screen.getByRole("button", { name: "Actions for Ben Member" }))
+    await user.click(await screen.findByRole("menuitem", { name: /Change role/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Change role" })
+    expect(dialog).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: /^Admin/ })).toBeInTheDocument()
+    expect(screen.queryByRole("radio", { name: /^Owner/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: /^Member/ })).toBeChecked()
+  })
+
+  it("keeps viewers off publishing and says why", async () => {
+    const user = userEvent.setup()
+    renderTable("owner", "owner-1", [
+      member({ userId: "owner-1", displayName: "Ana Owner", email: "ana@test", role: "owner", canPublish: true }),
+      member({ userId: "v-1", displayName: "Val Viewer", email: "val@test", role: "viewer" }),
+    ])
+    expect(screen.getByText("View only")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Actions for Val Viewer" }))
+    const publish = await screen.findByRole("menuitem", { name: /Allow publishing/ })
+    expect(publish).toHaveAttribute("aria-disabled", "true")
+    expect(publish).toHaveAccessibleDescription("Viewers can’t publish.")
   })
 })

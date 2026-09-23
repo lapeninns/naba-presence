@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest"
 
 import { nextIncompleteStep } from "@/lib/contracts/clients"
-import { canVisit, stepperState, stepIndex } from "@/lib/setup/steps"
+import {
+  canVisit,
+  furthestReachable,
+  resolveStep,
+  stepBlocker,
+  stepIndex,
+  stepperState,
+} from "@/lib/setup/steps"
 
 const base = {
   connection: { id: "gc1", status: "active" as const },
@@ -19,9 +26,15 @@ describe("nextIncompleteStep", () => {
     // tomorrow lands in the same place.
     expect(nextIncompleteStep({ ...base, connection: null })).toBe("connect")
     expect(nextIncompleteStep({ ...base, accountsActive: 0 })).toBe("account")
-    expect(nextIncompleteStep({ ...base, locationsLinked: 0 })).toBe("locations")
-    expect(nextIncompleteStep({ ...base, backfill: "not_started" })).toBe("backfill")
-    expect(nextIncompleteStep({ ...base, notificationsEnabled: false })).toBe("notifications")
+    expect(nextIncompleteStep({ ...base, locationsLinked: 0 })).toBe(
+      "locations"
+    )
+    expect(nextIncompleteStep({ ...base, backfill: "not_started" })).toBe(
+      "backfill"
+    )
+    expect(nextIncompleteStep({ ...base, notificationsEnabled: false })).toBe(
+      "notifications"
+    )
     expect(nextIncompleteStep({ ...base, teamInvited: false })).toBe("team")
     expect(nextIncompleteStep(base)).toBe("done")
   })
@@ -30,7 +43,10 @@ describe("nextIncompleteStep", () => {
     // A step undone elsewhere correctly moves the flow backwards: a client
     // whose Google login expired is not "connected" just because it once was.
     expect(
-      nextIncompleteStep({ ...base, connection: { id: "gc1", status: "expired" } })
+      nextIncompleteStep({
+        ...base,
+        connection: { id: "gc1", status: "expired" },
+      })
     ).toBe("connect")
   })
 
@@ -48,20 +64,110 @@ describe("nextIncompleteStep", () => {
   })
 })
 
+const facts = {
+  connection: null,
+  accountsActive: 0,
+  locationsLinked: 0,
+  backfill: "not_started" as const,
+  notificationsEnabled: false,
+  teamInvited: false,
+  usableLogin: false,
+}
+
 describe("stepperState", () => {
   it("keeps earlier work marked done when the operator steps back", () => {
     // Stepping back to re-read an answer must not look like the work was
     // undone.
-    const state = stepperState("client", "locations")
+    const state = stepperState("client", {
+      ...facts,
+      connection: base.connection,
+      accountsActive: 1,
+    })
     const byId = Object.fromEntries(state.map((s) => [s.id, s.state]))
     expect(byId.agency).toBe("done")
     expect(byId.client).toBe("current")
     expect(byId.connect).toBe("done")
+    expect(byId.account).toBe("done")
     expect(byId.locations).toBe("todo")
   })
 
-  it("omits the terminal step from the rail", () => {
-    expect(stepperState("agency", "agency").some((s) => s.id === "done")).toBe(false)
+  it("shows all nine steps, and links only the reachable ones", () => {
+    const state = stepperState("connect", facts)
+    expect(state).toHaveLength(9)
+    expect(state.at(-1)?.id).toBe("done")
+    const reachable = state.filter((s) => s.reachable).map((s) => s.id)
+    expect(reachable).toEqual(["agency", "client", "connect"])
+  })
+})
+
+describe("furthestReachable", () => {
+  it("stops at the first required step whose work is missing", () => {
+    expect(furthestReachable(facts)).toBe("connect")
+    expect(furthestReachable({ ...facts, usableLogin: true })).toBe("account")
+    expect(
+      furthestReachable({ ...facts, usableLogin: true, accountsActive: 1 })
+    ).toBe("locations")
+    expect(
+      furthestReachable({
+        ...facts,
+        ...base,
+        backfill: "not_started",
+        usableLogin: false,
+      })
+    ).toBe("backfill")
+  })
+
+  it("never blocks on the optional steps", () => {
+    // Without real-time notifications reviews still arrive on the scheduled
+    // sync, and a one-person agency has no one to invite.
+    expect(
+      furthestReachable({
+        ...base,
+        backfill: "running",
+        notificationsEnabled: false,
+        teamInvited: false,
+        usableLogin: false,
+      })
+    ).toBe("done")
+  })
+
+  it("lets an agency login carry a client that has nothing linked yet", () => {
+    // The server only ties a login to a client through a linked listing, so a
+    // new client reads as unconnected until the listings step has run.
+    expect(stepBlocker("connect", { ...facts, usableLogin: true })).toBeNull()
+    expect(stepBlocker("connect", facts)).toMatch(/Connect a Google account/)
+  })
+
+  it("treats a failed import as blocking, with a way forward", () => {
+    expect(stepBlocker("backfill", { ...facts, backfill: "failed" })).toMatch(
+      /Retry it/
+    )
+    expect(
+      stepBlocker("backfill", { ...facts, backfill: "running" })
+    ).toBeNull()
+  })
+})
+
+describe("resolveStep", () => {
+  it("honours a reachable ?step= deep link", () => {
+    expect(resolveStep("agency", "connect", facts)).toEqual({
+      step: "agency",
+      redirected: null,
+    })
+  })
+
+  it("falls back to the resume step, and says which step was refused", () => {
+    expect(resolveStep("done", "connect", facts)).toEqual({
+      step: "connect",
+      redirected: "done",
+    })
+  })
+
+  it("ignores an unknown step name", () => {
+    expect(resolveStep("nonsense", "connect", facts)).toEqual({
+      step: "connect",
+      redirected: null,
+    })
   })
 })
 

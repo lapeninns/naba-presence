@@ -28,7 +28,7 @@ describe("RefreshGoogleButton", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))
     vi.stubGlobal("fetch", fetchMock)
     renderButton(true)
-    await userEvent.click(screen.getByRole("button", { name: /refresh google data/i }))
+    await userEvent.click(screen.getByRole("button", { name: /refresh from google/i }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST")

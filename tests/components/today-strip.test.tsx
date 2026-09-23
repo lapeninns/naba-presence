@@ -200,9 +200,11 @@ describe("TodayStrip", () => {
     })
     render(<TodayStrip onClientChange={vi.fn()} />)
     expect(screen.getByRole("region", { name: "Today" })).toBeInTheDocument()
-    expect(screen.getByText("Finish setting up Airport")).toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: "Continue setup" })
+      screen.getByRole("link", { name: /Finish setup for Airport/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: /Finish setup for Airport/ })
     ).toHaveAttribute("href", "/setup?client=a&step=locations")
   })
 

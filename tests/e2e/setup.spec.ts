@@ -17,7 +17,9 @@ test.describe("client setup", () => {
     await applyCookie(page, baseURL, state.cookie)
   })
 
-  test("resumes at the step the data has actually reached", async ({ page }) => {
+  test("resumes at the step the data has actually reached", async ({
+    page,
+  }) => {
     // Nothing about the operator's progress is stored: every answer is derived
     // from what exists, so a bare /setup?client=… lands where the work is.
     const state = await readJourneyState()
@@ -26,11 +28,10 @@ test.describe("client setup", () => {
       page.getByRole("heading", { name: "Client setup", level: 1 })
     ).toBeVisible()
     const stepper = page.getByRole("list", { name: "Setup steps" })
-    await expect(stepper.getByRole("listitem")).toHaveCount(8)
+    // All nine steps, Done included (the reference stepper).
+    await expect(stepper.getByRole("listitem")).toHaveCount(9)
     // Exactly one step is current, whichever the data resolved to.
-    await expect(
-      stepper.locator("[aria-current='step']")
-    ).toHaveCount(1)
+    await expect(stepper.locator("[aria-current='step']")).toHaveCount(1)
   })
 
   test("lets an operator step back without losing completed work", async ({

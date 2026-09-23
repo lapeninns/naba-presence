@@ -179,8 +179,8 @@ describe("ReviewList", () => {
     expect(screen.getByRole("button", { name: /First/ })).not.toHaveTextContent(
       "Selected review"
     )
-    expect(second.className).toContain("bg-fill-secondary")
-    expect(second.className).not.toContain("bg-accent-tint")
+    expect(second.className).toContain("bg-accent-tint")
+    expect(second.className).not.toContain("bg-surface-alt")
 
     // And it follows the selection rather than being painted on once.
     rerender(
@@ -349,7 +349,7 @@ describe("ReviewList", () => {
     expect(button).not.toHaveTextContent("Si mangia benissimo")
     expect(button).not.toHaveTextContent("(Translated by Google)")
     expect(button).not.toHaveTextContent("(Original)")
-    expect(screen.getByText("Translated")).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "Translated" })).toBeInTheDocument()
   })
 
   // One derivation, two renderings: the row shows the short form and speaks

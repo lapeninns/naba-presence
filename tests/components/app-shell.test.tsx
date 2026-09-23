@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell/app-shell"
+import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { QueryProvider } from "@/lib/queries/provider"
 
@@ -54,7 +55,11 @@ function stubApi(overrides: { clients?: unknown[] } = {}) {
     const body = url.includes("/api/clients")
       ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
       : url.includes("/api/organisations")
-        ? { items: [{ organisationId: "o", name: "Lapen Inns Agency", role: "owner" }] }
+        ? {
+            items: [
+              { organisationId: "o", name: "Lapen Inns Agency", role: "owner" },
+            ],
+          }
         : url.includes("/api/session")
           ? { session }
           : { locations: [] }
@@ -122,7 +127,12 @@ describe("AppShell", () => {
     stubApi({
       clients: [
         client,
-        { ...client, id: "c2", name: "Harbour Kitchen", health: "disconnected" },
+        {
+          ...client,
+          id: "c2",
+          name: "Harbour Kitchen",
+          health: "disconnected",
+        },
         { ...client, id: "c3", name: "Bella Vita", health: "attention" },
       ],
     })
@@ -137,15 +147,62 @@ describe("AppShell", () => {
     )
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
-    expect(await screen.findByText("2 clients need attention")).toBeInTheDocument()
+    expect(
+      await screen.findByText("2 clients need attention")
+    ).toBeInTheDocument()
   })
 
-  it("offers a command palette from the topbar", async () => {
+  it("scopes the toolbar chip and the reconnect banner to the page's client", async () => {
+    // The chip and banner are drawn by the shell, above the routed page, so
+    // the page's ClientScopeProvider has to reach up to them.
+    stubApi({
+      clients: [
+        {
+          ...client,
+          health: "disconnected",
+          connections: [
+            {
+              id: "g1",
+              googleEmail: "login@example.test",
+              status: "revoked",
+              reconnectRequired: true,
+              lastRefreshAt: null,
+            },
+          ],
+        },
+      ],
+    })
+    render(
+      <QueryProvider>
+        <AppShell session={session}>
+          <ClientScopeProvider clientId="c1">
+            <PageFrame>
+              <PageHeader title="Old Crown Group" />
+            </PageFrame>
+          </ClientScopeProvider>
+        </AppShell>
+      </QueryProvider>
+    )
+    expect(
+      await screen.findByText("Old Crown Group: Google needs reconnecting.")
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole("link", { name: /^Old Crown Group: / })
+    ).toHaveAttribute("href", "/clients/c1")
+  })
+
+  it("offers a command palette from the toolbar's search button", async () => {
     const user = userEvent.setup()
     renderShell()
-    await user.click(screen.getByRole("button", { name: /Commands/ }))
+    await user.click(
+      screen.getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
+    )
     expect(
-      await screen.findByPlaceholderText("Go to a client, a location or an action…")
+      await screen.findByPlaceholderText(
+        "Go to a client, a location or an action…"
+      )
     ).toBeInTheDocument()
   })
 
@@ -154,11 +211,17 @@ describe("AppShell", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: "Open navigation" }))
     const dialog = await screen.findByRole("dialog", { name: "Navigation" })
-    // The Sheet variant ships `data-[side=left]:w-3/4`, and twMerge cannot
-    // dedupe that against a bare `w-72` override — different variant scope, so
-    // both land in the output and the data-attribute selector wins. The
-    // override must carry the same prefix to actually replace it.
-    expect(dialog).toHaveClass("data-[side=left]:w-72")
+    // A left drawer, not the shared Sheet's phone bottom sheet: navigation
+    // slides in from the edge the sidebar lives on (reference: min(300px,
+    // 86vw)), and the toggle reports it is open.
+    expect(dialog).toHaveClass("left-0", "w-[min(300px,86vw)]")
+    expect(dialog).toHaveAttribute("id", "mobile-navigation")
+    expect(
+      within(dialog).getByRole("navigation", { name: "Primary" })
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole("button", { name: "Close navigation" })
+    ).toBeInTheDocument()
   })
 })
 

@@ -129,7 +129,7 @@ describe("ListingOverview", () => {
     }
     expect(within(areas).getByText("27 of your photos")).toBeInTheDocument()
     expect(
-      within(areas).getByRole("link", { name: "Open Opening hours" })
+      within(areas).getByRole("link", { name: "Edit Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
     // Nothing to publish: no call to action in the header.
     expect(
@@ -183,7 +183,7 @@ describe("ListingOverview", () => {
       })
     ).not.toBeInTheDocument()
     expect(
-      within(areas).queryByRole("link", { name: "Open Food menu" })
+      within(areas).queryByRole("link", { name: "Edit Food menu" })
     ).not.toBeInTheDocument()
     const menu = within(areas).getByRole("heading", { level: 3, name: "Food menu" }).closest('[data-area="menu"]')
     expect(menu).not.toBeNull()

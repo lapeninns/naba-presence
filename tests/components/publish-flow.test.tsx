@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
-import { usePublishFlow, type PublishStep } from "@/lib/editors/use-publish-flow"
+import {
+  NOTHING_TO_SEND,
+  usePublishFlow,
+  type PublishStep,
+} from "@/lib/editors/use-publish-flow"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toast"
 
@@ -104,6 +108,26 @@ describe("usePublishFlow", () => {
   })
 })
 
+describe("usePublishFlow no-op steps", () => {
+  it("marks a step that found nothing to send, instead of calling it sent", async () => {
+    const steps: PublishStep[] = [
+      { key: "profile", label: "Profile", run: async () => NOTHING_TO_SEND },
+      { key: "listing", label: "Listing", run: async () => ({ ok: true }) },
+    ]
+    const { result } = renderHook(
+      () => usePublishFlow({ steps: () => steps }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    expect(result.current.results.map((step) => step.noop)).toEqual([
+      true,
+      false,
+    ])
+  })
+})
+
 describe("ReviewChangesSheet", () => {
   const conflictRows = [
     {
@@ -136,6 +160,32 @@ describe("ReviewChangesSheet", () => {
     await waitFor(() => expect(button).toBeEnabled())
     await user.click(button)
     expect(publish).toHaveBeenCalledTimes(1)
+  })
+
+  it("words each step by what actually happened", async () => {
+    renderWithProviders(
+      <ReviewChangesSheet
+        open
+        onOpenChange={() => {}}
+        rows={[{ field: "Store code", before: "", after: "RIVER-2" }]}
+        locationName="Old Crown"
+        onPublish={vi.fn()}
+        error="Google or our service is temporarily unavailable."
+        results={[
+          { key: "profile", label: "Publish name", status: "done", kind: "google", noop: true },
+          { key: "listing", label: "Publish categories", status: "failed", kind: "google", message: "Google or our service is temporarily unavailable.", code: "google_unavailable" },
+          { key: "attributes", label: "Publish attributes", status: "pending", kind: "google" },
+        ]}
+      />
+    )
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByText("Nothing to send")).toBeInTheDocument()
+    expect(within(sheet).queryByText("Sent to Google")).toBeNull()
+    expect(within(sheet).getByText("google_unavailable")).toBeInTheDocument()
+    expect(
+      within(sheet).getByText("Not sent — an earlier step failed")
+    ).toBeInTheDocument()
+    expect(within(sheet).getByRole("button", { name: "Try again" })).toBeEnabled()
   })
 
   it("publishes a plain change without asking for anything", async () => {

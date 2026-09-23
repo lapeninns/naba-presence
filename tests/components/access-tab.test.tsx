@@ -203,11 +203,11 @@ describe("AccessTab (danger zone)", () => {
     })
   })
 
-  it("renders the danger zone as an <h3>, not a second page heading", async () => {
+  it("renders the danger zone as a section <h2> under the area's h1, never a second page heading", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     const heading = await screen.findByRole("heading", { name: /danger zone/i })
-    expect(heading.tagName).toBe("H3")
+    expect(heading.tagName).toBe("H2")
     expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0)
   })
 })
@@ -219,7 +219,7 @@ describe("VerificationTab", () => {
       <VerificationTab locationId="loc-1" locationName="Camden Hotel" />
     )
     expect(
-      await screen.findByRole("heading", { name: "Verification" })
+      await screen.findByRole("heading", { name: "How Google sees this listing" })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("heading", { name: "Start a new verification" })

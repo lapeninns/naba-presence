@@ -256,7 +256,7 @@ describe("ReplyComposer", () => {
       "Existing draft body"
     )
     expect(
-      screen.getByRole("button", { name: "Re-verify" })
+      screen.getByRole("button", { name: "Re-run checks" })
     ).toBeInTheDocument()
   })
 
