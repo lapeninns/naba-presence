@@ -64,3 +64,6 @@ next-env.d.ts
 # superpowers brainstorm scratch state (session logs and a local tool token;
 # never a build input, and it put a key into history once already)
 /.superpowers/
+
+# A package-manager cache written into the repo when HOME points here.
+/Library/
