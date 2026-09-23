@@ -6,15 +6,31 @@ import { fetchGoogleAccounts, saveActiveAccounts } from "@/lib/api/google-accoun
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
-export function useGoogleAccounts(connectionId: string | null) {
+/**
+ * `clientId` scopes a save to that client's logins (setup); without it a save
+ * is scoped to `connectionId` alone.
+ */
+export function useGoogleAccounts(
+  connectionId: string | null,
+  options: { clientId?: string } = {}
+) {
   const client = useQueryClient()
   const query = useQuery({
     queryKey: queryKeys.googleAccounts(connectionId),
     queryFn: (ctx) => fetchGoogleAccounts(connectionId, requestOptions(ctx)),
   })
   const save = useMutation({
-    mutationFn: (accountIds: string[]) => saveActiveAccounts(accountIds),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.googleAccounts(connectionId) }),
+    mutationFn: (accountIds: string[]) =>
+      saveActiveAccounts(accountIds, {
+        clientId: options.clientId,
+        connectionId: connectionId ?? undefined,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.googleAccounts(connectionId) })
+      if (options.clientId) {
+        void client.invalidateQueries({ queryKey: queryKeys.clientSetup(options.clientId) })
+      }
+    },
   })
   return { query, save }
 }

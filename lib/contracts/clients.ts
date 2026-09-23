@@ -117,6 +117,18 @@ export type ClientAssignLocationsInput = z.infer<typeof clientAssignLocationsSch
 
 export const clientIdParamsSchema = z.object({ clientId: z.uuid() })
 
+/**
+ * "Use an account already connected" in setup: files an existing Google login
+ * under the client without sending the operator through Google's consent
+ * screen again.
+ */
+export const clientAttachConnectionSchema = z.object({
+  connectionId: z.uuid(),
+})
+export type ClientAttachConnectionInput = z.infer<
+  typeof clientAttachConnectionSchema
+>
+
 // ---------------------------------------------------------------------------
 // Setup state
 // ---------------------------------------------------------------------------

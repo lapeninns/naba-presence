@@ -146,7 +146,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 step={current}
                 clientId={clientId}
                 clientName={clientName ?? "this client"}
+                connectionId={setupQuery.data?.setup.connection?.id ?? null}
                 onAdvance={advance}
+                onConnected={() => goTo("account")}
               />
             </div>
 
@@ -180,12 +182,16 @@ function StepBody({
   step,
   clientId,
   clientName,
+  connectionId,
   onAdvance,
+  onConnected,
 }: {
   step: SetupStep
   clientId: string
   clientName: string
+  connectionId: string | null
   onAdvance: () => void
+  onConnected: () => void
 }) {
   switch (step) {
     case "agency":
@@ -193,9 +199,15 @@ function StepBody({
     case "client":
       return <StepClientSummary clientId={clientId} clientName={clientName} />
     case "connect":
-      return <StepConnect clientId={clientId} clientName={clientName} />
+      return (
+        <StepConnect
+          clientId={clientId}
+          clientName={clientName}
+          onConnected={onConnected}
+        />
+      )
     case "account":
-      return <StepAccount />
+      return <StepAccount clientId={clientId} connectionId={connectionId} />
     case "locations":
       return <StepLocations clientId={clientId} clientName={clientName} />
     case "backfill":

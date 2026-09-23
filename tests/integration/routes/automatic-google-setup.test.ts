@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto"
+import { createHmac, randomUUID } from "node:crypto"
 
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -254,12 +254,15 @@ describeDatabase("automatic Google review setup", () => {
     }))
   }
 
-  async function beginConnect(cookie: string) {
+  async function beginConnect(
+    cookie: string,
+    body: Record<string, unknown> = {}
+  ) {
     if (!server) throw new Error("Integration server did not start")
     const start = await fetch(`${server.baseUrl}/api/google/connect/start`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(body),
     })
     expect(start.status, await start.clone().text()).toBe(200)
     const { authorizationUrl } = z
@@ -281,9 +284,13 @@ describeDatabase("automatic Google review setup", () => {
   }
 
   /** Start and finish one consent for `cookie`, carrying the state cookie. */
-  async function completeConsent(cookie: string, code: string) {
+  async function completeConsent(
+    cookie: string,
+    code: string,
+    startBody: Record<string, unknown> = {}
+  ) {
     const jar = new Map<string, StoredCookie>()
-    const { start, nonce } = await beginConnect(cookie)
+    const { start, nonce } = await beginConnect(cookie, startBody)
     acceptCookies(jar, start)
     return postCallback(cookieHeader(jar, CALLBACK_PATH, cookie), {
       code,
@@ -557,5 +564,126 @@ describeDatabase("automatic Google review setup", () => {
       where organisation_id = ${broken.organisationId}
     `
     expect(stored.count).toBe(0)
+  }, 60_000)
+
+  it("moves setup past Connect for a login with several accounts and locations", async () => {
+    // Given: an operator setting up a client whose Google login manages
+    // two Business Profile accounts, so nothing can be linked automatically.
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const [client] = await admin<{ id: string }[]>`
+      insert into client (organisation_id, name, slug)
+      values (${owner.organisationId}, 'Lapen Inns', 'lapen-inns')
+      returning id::text as id
+    `
+    // Another client's login and account in the same organisation, already
+    // chosen. Setting up this client must not switch it off.
+    const otherConnection = randomUUID()
+    const [otherAccount] = await admin<{ id: string }[]>`
+      with connection as (
+        insert into google_connection (id, organisation_id, google_subject, status, scope)
+        values (${otherConnection}, ${owner.organisationId}, ${`other-${otherConnection}`},
+          'active', 'business.manage')
+        returning id
+      )
+      insert into google_account (
+        organisation_id, google_connection_id, google_account_name, account_name, is_active
+      )
+      select ${owner.organisationId}, id, 'accounts/other-client', 'Other client', true
+      from connection
+      returning id::text as id
+    `
+    respondToConsent(`several-${owner.organisationId}`)
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 200,
+      json: {
+        accounts: [
+          manageableAccount("accounts/pubs"),
+          manageableAccount("accounts/restaurants"),
+        ],
+      },
+    }))
+
+    // When: Google returns to the callback for this client.
+    const callback = await completeConsent(owner.cookie, "several-code", {
+      clientId: client!.id,
+      returnTo: `/setup?client=${client!.id}&step=account`,
+    })
+    expect(callback.status, await callback.clone().text()).toBe(200)
+    expect(await callback.json()).toMatchObject({
+      setup: { kind: "manual_accounts", accountCount: 2 },
+    })
+
+    // Then: the wizard moves on to choosing accounts instead of looping back
+    // to Connect, although no location is linked yet.
+    if (!server) throw new Error("Integration server did not start")
+    const readSetup = async () => {
+      const response = await fetch(
+        `${server!.baseUrl}/api/clients/${client!.id}/setup`,
+        { headers: { cookie: owner.cookie } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (
+        (await response.json()) as {
+          setup: {
+            nextStep: string
+            connection: { id: string; status: string } | null
+            accountsActive: number
+          }
+        }
+      ).setup
+    }
+    const afterConnect = await readSetup()
+    expect(afterConnect.connection?.status).toBe("active")
+    expect(afterConnect.nextStep).toBe("account")
+    // The other client's active account is not this client's.
+    expect(afterConnect.accountsActive).toBe(0)
+    const connectionId = afterConnect.connection!.id
+
+    // Discover the accounts, then choose one for this client.
+    const discovered = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(discovered.status, await discovered.clone().text()).toBe(200)
+    const { accounts } = (await discovered.json()) as {
+      accounts: {
+        id: string
+        googleAccountName: string
+        googleConnectionId: string | null
+      }[]
+    }
+    const pubs = accounts.find((row) => row.googleAccountName === "accounts/pubs")
+    expect(pubs?.googleConnectionId).toBe(connectionId)
+
+    const patch = (accountIds: string[]) =>
+      fetch(`${server!.baseUrl}/api/google/accounts`, {
+        method: "PATCH",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ accountIds, clientId: client!.id, connectionId }),
+      })
+
+    // An account this login does not reach is refused, not silently kept.
+    const outside = await patch([pubs!.id, otherAccount!.id])
+    expect(outside.status).toBe(400)
+    expect(await outside.json()).toMatchObject({
+      error: "account_out_of_scope",
+    })
+
+    const chosen = await patch([pubs!.id])
+    expect(chosen.status, await chosen.clone().text()).toBe(200)
+
+    const states = await admin<{ name: string; active: boolean }[]>`
+      select google_account_name as name, is_active as active
+      from google_account
+      where organisation_id = ${owner.organisationId}
+      order by google_account_name
+    `
+    expect(states).toEqual([
+      { name: "accounts/other-client", active: true },
+      { name: "accounts/pubs", active: true },
+      { name: "accounts/restaurants", active: false },
+    ])
+    expect((await readSetup()).nextStep).toBe("locations")
   }, 60_000)
 })

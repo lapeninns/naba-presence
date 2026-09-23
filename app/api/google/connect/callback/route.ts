@@ -7,6 +7,7 @@ import {
   prepareAutomaticGoogleReviewSetup,
   type AutomaticGoogleSetup,
 } from "@/lib/server/automatic-google-setup"
+import { attachConnectionToClient } from "@/lib/server/clients"
 import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -206,6 +207,20 @@ async function completeOAuth({
         and status = 'open'
       returning id
     `
+    // The setup wizard counts this login as the client's from here on, even
+    // when Google shows it several accounts or locations and nothing below
+    // can be linked automatically. The clientId came through the signed
+    // state, so Google's redirect cannot pick which client this lands on.
+    const attachedClientId =
+      state.clientId &&
+      (await attachConnectionToClient(sql, {
+        organisationId: session.organisationId,
+        clientId: state.clientId,
+        connectionId: row.id,
+        userId: session.userId,
+      }))
+        ? state.clientId
+        : null
     await writeAudit(sql, {
       organisationId: session.organisationId,
       actorUserId: session.userId,
@@ -219,6 +234,7 @@ async function completeOAuth({
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
         supersededReconnectTasks: superseded.length,
+        clientId: attachedClientId,
         clientRequestId,
       },
     })

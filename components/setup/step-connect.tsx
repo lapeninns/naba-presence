@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
 
@@ -22,11 +23,15 @@ import { cn } from "@/lib/utils"
 function StepConnect({
   clientId,
   clientName,
+  onConnected,
 }: {
   clientId: string
   clientName: string
+  /** Called once an existing login is filed under the client. */
+  onConnected: () => void
 }) {
   const workspace = useConnectionWorkspace()
+  const { attachConnection } = useClientMutations()
   const toast = useToastManager()
   const [starting, setStarting] = React.useState(false)
 
@@ -53,6 +58,20 @@ function StepConnect({
         description: describeActionError(error),
       })
     }
+  }
+
+  const pickExisting = (connectionId: string) => {
+    attachConnection.mutate(
+      { clientId, connectionId },
+      {
+        onSuccess: onConnected,
+        onError: (error) =>
+          toast.add({
+            title: "Could not use that account",
+            description: describeActionError(error),
+          }),
+      }
+    )
   }
 
   return (
@@ -121,7 +140,22 @@ function StepConnect({
                     connection.status !== "active" ? (
                       <StatusPill tone="at-risk">Needs reconnecting</StatusPill>
                     ) : (
-                      <StatusPill tone="healthy">Connected</StatusPill>
+                      <>
+                        <StatusPill tone="healthy">Connected</StatusPill>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={attachConnection.isPending}
+                          onClick={() => pickExisting(connection.id)}
+                          aria-label={`Use ${connection.googleEmail ?? "this Google account"}`}
+                        >
+                          {attachConnection.isPending &&
+                          attachConnection.variables?.connectionId ===
+                            connection.id
+                            ? "Using…"
+                            : "Use this account"}
+                        </Button>
+                      </>
                     )}
                   </li>
                 ))}
