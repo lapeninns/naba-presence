@@ -1,91 +1,189 @@
 "use client"
 
-import { Unlink } from "lucide-react"
+import { KeyRound, Unlink } from "lucide-react"
 import Link from "next/link"
 
-import { buttonVariants } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { formatRelativeTime } from "@/lib/format"
 import { useClients } from "@/lib/queries/use-clients"
+import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  useConnectionsQuery,
+  useStartGoogleConnect,
+} from "@/lib/queries/use-connection-workspace"
+import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
 
-function formatWhen(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return null
-  return date.toLocaleString("en-GB")
-}
+const CAN_RECONNECT = new Set(["owner", "admin"])
 
 /**
- * A reconnect prompt for the client the page is about.
+ * The organisation-wide "action needed" banner.
  *
- * Client-scoped rather than shell-wide. The old banner sat on every page of
- * the app whenever ANY connection was unhealthy, which for an agency means a
- * permanent red bar naming no one: it neither said which client was affected
- * nor gave an action that helped the client actually in front of you.
+ * Shown on every page whenever any Google login needs reconnecting --
+ * including a login whose locations have since been unlinked, which the old
+ * client-scoped banner lost track of. One sentence says what happened; for
+ * owners and admins one button goes straight to Google with that login
+ * pre-selected (login_hint) and comes back to this page, so a reconnect is
+ * one click plus Google's own consent. Everyone else is told who can fix it
+ * and gets no reconnect control.
  *
- * On org-wide pages this renders nothing; the Inbox's Today strip and the
- * clients list carry those clients, each with its own fix.
- *
- * Drawn as the reference's full-bleed banner directly under the toolbar: a
- * danger tint across the content column, inside the page gutters, with the
- * one action as a secondary button.
+ * Inside a client whose listing lost manager access (not a login problem),
+ * it says so instead: reconnecting would not help, the business has to
+ * restore access.
  */
 export function ReconnectBanner({ className }: { className?: string }) {
   const clientId = useClientScope()
   const clients = useClients()
+  const role = useSessionRole()
+  const query = useConnectionsQuery()
+  const connect = useStartGoogleConnect()
 
-  if (!clientId) return null
-  const client = clients.data?.items.find((entry) => entry.id === clientId)
-  if (!client) return null
-  if (client.health !== "disconnected" && client.health !== "not_connected") {
-    return null
+  const broken = (query.data?.connections ?? []).filter(
+    (connection) =>
+      connection.reconnectRequired && connection.status !== "disconnected"
+  )
+  const scoped = clientId
+    ? clients.data?.items.find((entry) => entry.id === clientId)
+    : undefined
+
+  if (broken.length === 0) {
+    if (scoped?.freshness?.reason !== "listing_access_lost") return null
+    const lost = scoped.checks?.accessLost ?? 0
+    return (
+      <Banner
+        className={className}
+        icon="access"
+        message={
+          <>
+            <strong className="font-semibold">
+              {scoped.name}: a listing can’t be reached.
+            </strong>{" "}
+            <span className="text-ink-secondary">
+              The connected Google login lost manager access to{" "}
+              {lost === 1
+                ? "one of this client’s listings"
+                : `${lost} of this client’s listings`}
+              . Ask the business to add it back as a manager on Google; its
+              other listings keep syncing.
+            </span>
+          </>
+        }
+      />
+    )
   }
-  // A client with nothing linked yet is mid-setup, not broken. The fix is to
-  // finish the wizard, and a destructive alert would misdescribe it.
-  if (client.health === "not_connected" && client.linkedCount === 0) return null
 
-  const broken =
-    client.connections.find((connection) => connection.reconnectRequired) ??
-    client.connections.find((connection) => connection.status !== "active") ??
-    null
-  const lastRefresh = formatWhen(broken?.lastRefreshAt)
+  const first = broken[0]
+  const email = first.googleEmail ?? "a Google login"
+  const others = broken.length - 1
+  const canReconnect = role !== null && CAN_RECONNECT.has(role)
+  const superseded = first.reconnectReason === "superseded_by_reconnect"
+  const lastChecked = scoped?.freshness?.lastSuccessfulCheckAt
 
   return (
+    <Banner
+      className={className}
+      icon="login"
+      message={
+        <>
+          <strong className="font-semibold [overflow-wrap:anywhere]">
+            {superseded
+              ? `${email} still needs reconnecting.`
+              : `Google stopped accepting ${email}.`}
+          </strong>{" "}
+          <span className="text-ink-secondary">
+            {superseded
+              ? "A different Google account was used last time, so this login is still paused. Reconnect it, or disconnect it in Settings."
+              : "Reviews and profile changes it covers are paused until it is reconnected."}
+            {lastChecked
+              ? ` Last successful check ${formatRelativeTime(lastChecked)}.`
+              : ""}
+            {others > 0
+              ? ` ${others} other Google ${others === 1 ? "login needs" : "logins need"} reconnecting too.`
+              : ""}
+            {canReconnect ? "" : " Ask an owner or admin to reconnect it."}
+          </span>
+          {connect.isError ? (
+            <span className="block text-danger-ink">
+              {describeActionError(connect.error)}
+            </span>
+          ) : null}
+        </>
+      }
+      actions={
+        canReconnect ? (
+          <span className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="max-w-full pointer-coarse:min-h-11"
+              pending={connect.isPending}
+              pendingLabel="Opening Google…"
+              // Straight to Google: the login is pre-selected and the
+              // callback brings the person back to this page.
+              onClick={() =>
+                connect.mutate({
+                  reconnectConnectionId: first.id,
+                  returnTo: `${window.location.pathname}${window.location.search}`,
+                })
+              }
+            >
+              <span className="min-w-0 truncate">
+                Reconnect {first.googleEmail ?? "Google"}
+              </span>
+            </Button>
+            {others > 0 ? (
+              <Link
+                href="/settings/connections"
+                prefetch={false}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "sm" }),
+                  "pointer-coarse:min-h-11"
+                )}
+              >
+                See all
+              </Link>
+            ) : null}
+          </span>
+        ) : null
+      }
+    />
+  )
+}
+
+function Banner({
+  className,
+  icon,
+  message,
+  actions,
+}: {
+  className?: string
+  icon: "login" | "access"
+  message: React.ReactNode
+  actions?: React.ReactNode
+}) {
+  const Icon = icon === "login" ? Unlink : KeyRound
+  return (
     <div
-      role="alert"
+      // A standing condition, not an interruption: announced politely once,
+      // not re-read as an alert on every page it persists across.
+      role="status"
       data-slot="reconnect-banner"
       className={cn(
         "flex shrink-0 flex-wrap items-start gap-3 bg-danger-tint px-5 py-2.5 text-ui text-ink sm:items-center md:px-(--np-page-pad-x)",
         className
       )}
     >
-      <Unlink
+      <Icon
         className="mt-0.5 size-4 shrink-0 text-danger-ink sm:mt-0"
         strokeWidth={1.75}
         aria-hidden
       />
       <p className="min-w-0 flex-[1_1_16rem] text-pretty [overflow-wrap:anywhere]">
-        <strong className="font-semibold">
-          {client.name}: Google needs reconnecting.
-        </strong>{" "}
-        <span className="text-ink-secondary">
-          {broken?.googleEmail
-            ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
-            : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
-          {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
-        </span>
+        {message}
       </p>
-      <Link
-        href={`/clients/${client.id}`}
-        prefetch={false}
-        className={cn(
-          buttonVariants({ variant: "outline", size: "sm" }),
-          "shrink-0 pointer-coarse:min-h-11"
-        )}
-      >
-        Reconnect Google
-      </Link>
+      {actions}
     </div>
   )
 }

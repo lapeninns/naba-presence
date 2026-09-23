@@ -137,7 +137,7 @@ describe("ClientChips", () => {
     const { rerender } = render(<ClientChips rows={rows} onSelect={onSelect} />)
     const bridge = screen.getByRole("button", { name: /Bridge/ })
     expect(bridge).toHaveAttribute("aria-pressed", "false")
-    expect(bridge).toHaveAccessibleName(/Disconnected/)
+    expect(bridge).toHaveAccessibleName(/Action needed/)
     await userEvent.click(bridge)
     expect(onSelect).toHaveBeenCalledWith("b")
 

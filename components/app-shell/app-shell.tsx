@@ -19,6 +19,7 @@ import { AccountMenu } from "./account-menu"
 import { ClientScopeRoot } from "./client-context"
 import { Nav } from "./nav"
 import { ReconnectBanner } from "./reconnect-banner"
+import { ShellOAuthReturn } from "./shell-oauth-return"
 import { Topbar } from "./topbar"
 
 // `Session` (lib/server/session) lives behind a `server-only` import gate, so
@@ -338,6 +339,7 @@ function AppShell({
             />
 
             {sessionReady ? <ReconnectBanner /> : null}
+            {sessionReady ? <ShellOAuthReturn /> : null}
 
             <div className="flex min-h-0 flex-1 flex-col">
               {sessionReady ? children : null}

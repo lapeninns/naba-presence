@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AppShell } from "@/components/app-shell/app-shell"
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
+import { Toaster } from "@/components/ui/toast"
 import { QueryProvider } from "@/lib/queries/provider"
 
 const push = vi.fn()
 vi.mock("next/navigation", () => ({
   usePathname: () => "/inbox",
   useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
+  // The shell reads a Google connect result from the address on any page.
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 afterEach(() => {
@@ -49,10 +52,14 @@ const client = {
   lastSyncAt: "2026-09-03T10:00:00.000Z",
 }
 
-function stubApi(overrides: { clients?: unknown[] } = {}) {
+function stubApi(
+  overrides: { clients?: unknown[]; connections?: unknown[]; role?: string } = {}
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
-    const body = url.includes("/api/clients")
+    const body = url.includes("/api/google/connections")
+      ? { connections: overrides.connections ?? [] }
+      : url.includes("/api/clients")
       ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
       : url.includes("/api/organisations")
         ? {
@@ -61,7 +68,7 @@ function stubApi(overrides: { clients?: unknown[] } = {}) {
             ],
           }
         : url.includes("/api/session")
-          ? { session }
+          ? { session: { ...session, role: overrides.role ?? session.role } }
           : { locations: [] }
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -72,16 +79,34 @@ function stubApi(overrides: { clients?: unknown[] } = {}) {
   return fetchMock
 }
 
+/** The shell over an already-stubbed API. */
+function renderStubbedShell() {
+  return render(
+    <Toaster>
+      <QueryProvider>
+        <AppShell session={session}>
+          <PageFrame>
+            <PageHeader title="Inbox" description="Every review" />
+          </PageFrame>
+        </AppShell>
+      </QueryProvider>
+    </Toaster>
+  )
+}
+
 function renderShell() {
   stubApi()
   return render(
-    <QueryProvider>
-      <AppShell session={session}>
-        <PageFrame>
-          <PageHeader title="Inbox" description="Every review" />
-        </PageFrame>
-      </AppShell>
-    </QueryProvider>
+    // The root layout's Toaster wraps the shell in the app.
+    <Toaster>
+      <QueryProvider>
+        <AppShell session={session}>
+          <PageFrame>
+            <PageHeader title="Inbox" description="Every review" />
+          </PageFrame>
+        </AppShell>
+      </QueryProvider>
+    </Toaster>
   )
 }
 
@@ -137,6 +162,7 @@ describe("AppShell", () => {
       ],
     })
     render(
+      <Toaster>
       <QueryProvider>
         <AppShell session={session}>
           <PageFrame>
@@ -144,51 +170,122 @@ describe("AppShell", () => {
           </PageFrame>
         </AppShell>
       </QueryProvider>
+      </Toaster>
     )
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
+    // Action needed outranks delayed data: the count names the clients a
+    // person has to do something for.
     expect(
-      await screen.findByText("2 clients need attention")
+      await screen.findByText("1 client needs action")
     ).toBeInTheDocument()
   })
 
-  it("scopes the toolbar chip and the reconnect banner to the page's client", async () => {
-    // The chip and banner are drawn by the shell, above the routed page, so
-    // the page's ClientScopeProvider has to reach up to them.
-    stubApi({
-      clients: [
-        {
-          ...client,
-          health: "disconnected",
-          connections: [
-            {
-              id: "g1",
-              googleEmail: "login@example.test",
-              status: "revoked",
-              reconnectRequired: true,
-              lastRefreshAt: null,
-            },
-          ],
-        },
-      ],
-    })
+  const brokenLogin = {
+    id: "g1",
+    googleEmail: "login@example.test",
+    status: "revoked",
+    notificationsEnabled: false,
+    lastRefreshAt: null,
+    lastErrorCode: "invalid_grant",
+    reconnectRequired: true,
+    reconnectReason: "invalid_grant",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }
+
+  it("scopes the toolbar chip to the page's client", async () => {
+    // The chip is drawn by the shell, above the routed page, so the page's
+    // ClientScopeProvider has to reach up to it.
+    stubApi({ clients: [{ ...client, health: "disconnected" }] })
     render(
-      <QueryProvider>
-        <AppShell session={session}>
-          <ClientScopeProvider clientId="c1">
-            <PageFrame>
-              <PageHeader title="Old Crown Group" />
-            </PageFrame>
-          </ClientScopeProvider>
-        </AppShell>
-      </QueryProvider>
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session}>
+            <ClientScopeProvider clientId="c1">
+              <PageFrame>
+                <PageHeader title="Old Crown Group" />
+              </PageFrame>
+            </ClientScopeProvider>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
     )
-    expect(
-      await screen.findByText("Old Crown Group: Google needs reconnecting.")
-    ).toBeInTheDocument()
     expect(
       await screen.findByRole("link", { name: /^Old Crown Group: / })
     ).toHaveAttribute("href", "/clients/c1")
+  })
+
+  it("shows a broken login on every page, with a one-click reconnect for admins", async () => {
+    // Org-wide: this page belongs to no client, and the login has no linked
+    // locations left -- the old client-scoped banner showed nothing here.
+    const fetchMock = stubApi({ connections: [brokenLogin] })
+    const user = userEvent.setup()
+    renderStubbedShell()
+    expect(
+      await screen.findByText("Google stopped accepting login@example.test.")
+    ).toBeInTheDocument()
+    const reconnect = screen.getByRole("button", {
+      name: "Reconnect login@example.test",
+    })
+    await user.click(reconnect)
+    const start = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/api/google/connect/start")
+    )
+    expect(start).toBeDefined()
+    // The login is targeted (so Google pre-selects it) and the person comes
+    // back to the page they clicked on.
+    expect(JSON.parse(String(start![1]!.body))).toEqual({
+      reconnectConnectionId: "g1",
+      returnTo: "/",
+    })
+  })
+
+  it("tells other roles who can fix it, without a reconnect control", async () => {
+    stubApi({ connections: [{ ...brokenLogin, googleEmail: "l***@example.test" }], role: "member" })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={{ ...session, role: "member" }}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      await screen.findByText(/Ask an owner or admin to reconnect it\./)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Reconnect/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("counts the other broken logins and links to them all", async () => {
+    stubApi({
+      connections: [
+        brokenLogin,
+        { ...brokenLogin, id: "g2", googleEmail: "a-very-long-shared-venue-manager-address@some-long-domain.example" },
+      ],
+    })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      await screen.findByText(/1 other Google login needs reconnecting too\./)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "See all" })).toHaveAttribute(
+      "href",
+      "/settings/connections"
+    )
   })
 
   it("offers a command palette from the toolbar's search button", async () => {
@@ -232,11 +329,13 @@ describe("session-ready children gate", () => {
     // page's own queries cannot 401 and hard-navigate to /sign-in.
     stubApi()
     render(
+      <Toaster>
       <QueryProvider>
         <AppShell session={null}>
           <div>gated-child</div>
         </AppShell>
       </QueryProvider>
+      </Toaster>
     )
     expect(screen.queryByText("gated-child")).not.toBeInTheDocument()
     await waitFor(() =>
@@ -247,9 +346,11 @@ describe("session-ready children gate", () => {
   it("bootstraps the session with an abortable request", async () => {
     const fetchMock = stubApi()
     render(
+      <Toaster>
       <QueryProvider>
         <AppShell session={null}>content</AppShell>
       </QueryProvider>
+      </Toaster>
     )
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     const init = fetchMock.mock.calls[0][1] as RequestInit

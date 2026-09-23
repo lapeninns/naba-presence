@@ -37,8 +37,27 @@ export const clientConnectionSchema = z.object({
   status: z.enum(["active", "expired", "revoked", "error", "disconnected"]),
   reconnectRequired: z.boolean(),
   lastRefreshAt: z.string().nullable(),
+  /** A transient failure the platform is retrying; null once it recovers. */
+  lastErrorCode: z.string().nullable().optional(),
+  /** Why a reconnect was asked for, e.g. "superseded_by_reconnect". */
+  reconnectReason: z.string().nullable().optional(),
 })
 export type ClientConnection = z.infer<typeof clientConnectionSchema>
+
+export const clientFreshnessSchema = z.object({
+  state: z.enum(["up_to_date", "data_delayed", "action_needed"]),
+  reason: z
+    .enum([
+      "reconnect_required",
+      "permission_missing",
+      "listing_access_lost",
+      "import_failed",
+      "google_unavailable",
+      "sync_delayed",
+    ])
+    .nullable(),
+  lastSuccessfulCheckAt: z.string().nullable(),
+})
 
 export const clientSummarySchema = clientSchema.extend({
   locationCount: z.number().int().nonnegative(),
@@ -58,6 +77,19 @@ export const clientSummarySchema = clientSchema.extend({
     notStarted: z.number().int().nonnegative(),
   }),
   lastSyncAt: z.string().nullable(),
+  /**
+   * Up to date / Data delayed / Action needed, from successful checks.
+   * Always sent by the server; optional so a client built against an older
+   * response degrades to the health word instead of failing to parse.
+   */
+  freshness: clientFreshnessSchema.optional(),
+  checks: z
+    .object({
+      stalestCheckAt: z.string().nullable(),
+      lastSuccessfulCheckAt: z.string().nullable(),
+      accessLost: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 export type ClientSummary = z.infer<typeof clientSummarySchema>
 

@@ -58,6 +58,8 @@ export const connectionSummarySchema = z.object({
    */
   refreshTokenExpiresAt: z.string().nullable().optional(),
   reconnectRequired: z.boolean(),
+  /** Why the open reconnect task was raised, e.g. "superseded_by_reconnect". */
+  reconnectReason: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 export type ConnectionSummary = z.infer<typeof connectionSummarySchema>

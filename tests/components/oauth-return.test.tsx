@@ -57,3 +57,20 @@ describe("OAuthReturn", () => {
     expect(connectMutate).toHaveBeenCalledWith(input)
   })
 })
+
+describe("connectedMessage", () => {
+  it("reports how many listings are catching up, never a review count", async () => {
+    const { connectedMessage } = await import("@/components/settings/oauth-return")
+    const message = connectedMessage({ reconnected: true, mismatch: false, catchUp: 9 })
+    expect(message.title).toBe("Reconnected")
+    expect(message.description).toContain("9 listings")
+    expect(message.description).not.toMatch(/\d+ (new )?reviews/)
+  })
+
+  it("says plainly when a different Google account came back", async () => {
+    const { connectedMessage } = await import("@/components/settings/oauth-return")
+    expect(
+      connectedMessage({ reconnected: false, mismatch: true, catchUp: 0 }).title
+    ).toBe("Connected a different Google account")
+  })
+})

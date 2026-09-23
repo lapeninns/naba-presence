@@ -20,6 +20,7 @@ type ConnectionRow = {
   lastErrorCode: string | null
   refreshTokenExpiresAt: string | Date | null
   reconnectRequired: boolean
+  reconnectReason: string | null
   createdAt: string | Date
 }
 
@@ -51,6 +52,14 @@ export async function listConnections(
             and ct.task_type = 'reconnect'
             and ct.status = 'open'
         ) as "reconnectRequired",
+        (
+          select ct.reason_code
+          from connection_task ct
+          where ct.google_connection_id = google_connection.id
+            and ct.task_type = 'reconnect'
+            and ct.status = 'open'
+          limit 1
+        ) as "reconnectReason",
         created_at as "createdAt"
       from google_connection
       order by created_at desc

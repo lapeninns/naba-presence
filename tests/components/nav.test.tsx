@@ -164,7 +164,7 @@ describe("primary navigation", () => {
   it("names each pinned client's health in words, not only a dot", () => {
     render(<Nav clients={clients} />)
     expect(
-      screen.getByRole("link", { name: /Harbour Kitchen, Disconnected/i })
+      screen.getByRole("link", { name: /Harbour Kitchen, Action needed/i })
     ).toBeInTheDocument()
   })
 
