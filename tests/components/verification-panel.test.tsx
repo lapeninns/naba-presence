@@ -1,52 +1,74 @@
 import { render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { VerificationPanel } from "@/components/inbox/verification-panel"
+import { VerificationChecks } from "@/components/inbox/verification-panel"
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("VerificationPanel", () => {
-  it("shows a quiet clean line without a verdict badge", () => {
+describe("VerificationChecks", () => {
+  it("shows four passing cards and a ready verdict for a clean verification", () => {
     render(
-      <VerificationPanel
+      <VerificationChecks
         status="verified"
         verification={{ verdict: "pass", reasons: [] }}
       />
     )
-    expect(screen.getByRole("heading", { name: "Verification" })).toBeInTheDocument()
-    expect(screen.getByText("No issues found in this reply.")).toBeInTheDocument()
-    expect(screen.queryByText("Passed")).not.toBeInTheDocument()
-    expect(screen.queryByRole("listitem")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Verification" })
+    ).toBeInTheDocument()
+    // Four cards, each saying its result in a word, not only a colour.
+    expect(screen.getAllByText("Pass")).toHaveLength(4)
+    expect(
+      screen.getByText(
+        "Ready to publish · every check passed on the latest draft"
+      )
+    ).toBeInTheDocument()
   })
 
-  it("lists every verification reason with its message for a failed verdict", () => {
+  it("groups reasons into the four checks and names the blocking one in the verdict", () => {
     render(
-      <VerificationPanel
+      <VerificationChecks
         status="drafted"
         verification={{
           verdict: "fail",
           reasons: [
-            { code: "personal_contact_data", severity: "fail", message: "The reply contains an email address or phone number." },
-            { code: "tone_length", severity: "warn", message: "The reply may be too long for the selected tone." },
+            {
+              code: "personal_contact_data",
+              severity: "fail",
+              message: "The reply contains an email address or phone number.",
+            },
+            {
+              code: "tone_length",
+              severity: "warn",
+              message: "The reply may be too long for the selected tone.",
+            },
           ],
         }}
       />
     )
-    expect(screen.queryByText("Failed")).not.toBeInTheDocument()
-    expect(screen.getByText("Blocking")).toBeInTheDocument()
-    expect(screen.getByText("Warning")).toBeInTheDocument()
     expect(
-      screen.getByText("The reply contains an email address or phone number.")
+      screen.getByText("Blocked · fix the failed checks to continue")
     ).toBeInTheDocument()
+    expect(
+      screen.getByText("This reply can’t be published yet")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Fail")).toBeInTheDocument()
+    expect(screen.getByText("Check")).toBeInTheDocument()
+    expect(
+      screen.getAllByText(
+        "The reply contains an email address or phone number."
+      ).length
+    ).toBeGreaterThan(0)
     expect(
       screen.getByText("The reply may be too long for the selected tone.")
     ).toBeInTheDocument()
   })
 
   it("explains that verification has not run yet", () => {
-    render(<VerificationPanel status="new" verification={null} />)
-    expect(screen.getByRole("heading", { name: "Verification" })).toBeInTheDocument()
-    expect(screen.getByText("Runs as soon as you save a draft.")).toBeInTheDocument()
-    expect(screen.queryByText("Pending")).not.toBeInTheDocument()
+    render(<VerificationChecks status="new" verification={null} />)
+    expect(screen.getAllByText("Not run yet")).toHaveLength(4)
+    expect(
+      screen.getAllByText("Runs when you save a draft.").length
+    ).toBeGreaterThan(0)
   })
 })

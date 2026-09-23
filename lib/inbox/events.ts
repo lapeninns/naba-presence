@@ -18,3 +18,10 @@ export const PUBLISH_PULSE_MS = 1600
  * must not decide that; it only asks.
  */
 export const REPLY_FOCUS_EVENT = "inbox:focus-reply"
+
+/**
+ * Opens the keyboard-shortcuts dialog — what `?` does, and what the page
+ * header's Shortcuts button asks for. The header is rendered by the server
+ * page, outside the client tree that owns the dialog, so it asks by event.
+ */
+export const SHORTCUTS_OPEN_EVENT = "inbox:open-shortcuts"

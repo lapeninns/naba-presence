@@ -1,9 +1,9 @@
 "use client"
 
-import { ListChecksIcon } from "lucide-react"
+import { ClockIcon } from "lucide-react"
 import Link from "next/link"
 
-import { buttonVariants } from "@/components/ui/button"
+import { ChipCount, chipClassName } from "@/components/ui/chip"
 import { SETUP_STEPS, type SetupStep } from "@/lib/contracts/clients"
 import { useClients, useClientSetup } from "@/lib/queries/use-clients"
 import { stepDefinition, stepIndex } from "@/lib/setup/steps"
@@ -49,39 +49,32 @@ function useSetupNudge(role: string | null): SetupNudge | null {
   }
 }
 
-/** The nudge itself: one tinted row with the next step and a way into it. */
-function SetupNudgeCard({ nudge }: { nudge: SetupNudge }) {
+function setupHref(nudge: SetupNudge): string {
+  return `/setup?client=${nudge.clientId}&step=${nudge.nextStep}`
+}
+
+/**
+ * The nudge as a chip beside the attention chip (reference "Finish setting up
+ * …"): what is left, and how far through the wizard the client is, in mono.
+ */
+function SetupNudgeChip({ nudge }: { nudge: SetupNudge }) {
   return (
-    <div
+    <Link
+      href={setupHref(nudge)}
       data-slot="setup-nudge"
-      className="flex flex-col gap-3 rounded-(--np-radius-card) bg-accent-tint p-(--np-card-pad) sm:flex-row sm:items-center sm:gap-4"
+      className={chipClassName({ className: "max-w-full" })}
     >
-      <span
-        aria-hidden
-        className="flex size-9 shrink-0 items-center justify-center rounded-(--np-radius-pill) bg-surface text-accent-ink"
-      >
-        <ListChecksIcon className="size-4" strokeWidth={1.75} />
+      <ClockIcon aria-hidden strokeWidth={1.75} />
+      <span className="truncate">Finish setup for {nudge.clientName}</span>
+      <ChipCount aria-hidden>
+        {nudge.done}/{nudge.total}
+      </ChipCount>
+      <span className="sr-only">
+        : {nudge.nextTitle.toLowerCase()} next, {nudge.done} of {nudge.total}{" "}
+        steps done
       </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-body font-semibold text-ink">
-          Finish setting up {nudge.clientName}
-        </p>
-        <p className="text-ui text-accent-ink">
-          Next: {nudge.nextTitle.toLowerCase()}.
-          <span className="tabular-nums">
-            {" "}
-            {nudge.done} of {nudge.total} steps done.
-          </span>
-        </p>
-      </div>
-      <Link
-        href={`/setup?client=${nudge.clientId}&step=${nudge.nextStep}`}
-        className={buttonVariants({ pill: true })}
-      >
-        Continue setup
-      </Link>
-    </div>
+    </Link>
   )
 }
 
-export { SetupNudgeCard, useSetupNudge }
+export { SetupNudgeChip, useSetupNudge }

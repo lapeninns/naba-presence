@@ -1,13 +1,31 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { TriangleAlert } from "lucide-react"
+import { CircleCheck, Eye, Info, PenLine, RefreshCw } from "lucide-react"
 import { useId, useMemo, useState } from "react"
 
-import { GateNote } from "@/components/locations/publish-gate"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -56,21 +74,111 @@ function toState(settings: OrgSettings): FormState {
   }
 }
 
-/** A field's validation message, in the row's description slot. */
-function RowError({ children }: { children: string | undefined }) {
-  if (!children) return null
+/** The words the save bar uses to list what changed. */
+const CHANGE_LABELS: Record<keyof FormState, string> = {
+  approvalRequired: "Approval",
+  directPublishConsent: "Approval",
+  requireTwoPersonApproval: "Two-person rule",
+  rawContentRetentionDays: "Retention",
+  defaultLanguageCode: "Language",
+  defaultTimezone: "Timezone",
+}
+
+const RETENTION_MESSAGE = "Enter a whole number of days from 1 to 30."
+
+/** Client-side field problems, in the words the field shows. */
+function localErrors(
+  state: FormState
+): Partial<Record<keyof FormState, string>> {
+  const errors: Partial<Record<keyof FormState, string>> = {}
+  const days = state.rawContentRetentionDays.trim()
+  if (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > 30) {
+    errors.rawContentRetentionDays = RETENTION_MESSAGE
+  }
+  const language = settingsPolicyFormSchema.shape.defaultLanguageCode.safeParse(
+    state.defaultLanguageCode
+  )
+  if (!language.success) {
+    errors.defaultLanguageCode =
+      language.error.issues[0]?.message ?? "Use a language code such as en-GB."
+  }
+  return errors
+}
+
+/** One labelled on/off rule: words on the left, the switch on the right. */
+function SwitchRow({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string
+  label: string
+  hint?: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
-    <span role="alert" className="text-danger-ink">
-      {children}
-    </span>
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span id={id} className="text-ui font-semibold text-ink">
+          {label}
+        </span>
+        {hint ? (
+          <span className="text-caption text-ink-muted">{hint}</span>
+        ) : null}
+      </div>
+      <div className="shrink-0 pt-0.5">{children}</div>
+    </div>
+  )
+}
+
+/** A sunken note spelling out what the current choice means. */
+function Consequence({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="status"
+      className="flex items-start gap-2.5 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5 text-ui text-ink-secondary"
+    >
+      <Info
+        className="mt-0.5 size-4 shrink-0 text-ink-muted"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <span>{children}</span>
+    </p>
+  )
+}
+
+function PolicySkeleton() {
+  return (
+    <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
+      <span className="sr-only" role="status">
+        Loading your policy
+      </span>
+      {[3, 1, 2].map((rows, index) => (
+        <div
+          key={index}
+          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+        >
+          <Skeleton className="h-4 w-1/3" />
+          {Array.from({ length: rows }, (_, row) => (
+            <Skeleton key={row} className="h-9 w-full" />
+          ))}
+        </div>
+      ))}
+    </div>
   )
 }
 
 /**
- * The reply policy, as grouped lists: a switch per on/off rule, a value on
- * the right for each figure, and one Save at the end. Nothing saves on
- * toggle — the server takes the whole policy at once, and the dirty guard
- * below keeps an unsaved change from being lost to a stray click.
+ * The reply policy (reference `settings.html`): one card per concern —
+ * approval, raw review content retention, defaults — and a save bar at the
+ * foot that says what is unsaved. Nothing saves on toggle: the server takes
+ * the whole policy at once, and the dirty guard keeps an unsaved change from
+ * being lost to a stray reload. Values survive a refused save.
+ *
+ * Turning approval off needs an owner and an explicit confirmation, the
+ * same rule the server enforces.
  */
 export function PolicyForm({ role }: { role: string | null }) {
   const query = useSettings()
@@ -80,19 +188,24 @@ export function PolicyForm({ role }: { role: string | null }) {
   const ids = useId()
   const isOwner = role === "owner"
   const canEdit = caps.data?.canEditSettings ?? false
+  const readOnly = caps.data !== undefined && !canEdit
 
   const initial = query.data ? toState(query.data) : null
   const [form, setForm] = useState<FormState | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<
+  const [serverErrors, setServerErrors] = useState<
     Partial<Record<keyof FormState, string>>
   >({})
   const [formError, setFormError] = useState<string | null>(null)
   const current = form ?? initial
 
-  const isDirty = useMemo(() => {
-    if (!current || !initial) return false
-    return JSON.stringify(current) !== JSON.stringify(initial)
+  const changed = useMemo(() => {
+    if (!current || !initial) return []
+    const keys = (Object.keys(current) as (keyof FormState)[]).filter(
+      (key) => current[key] !== initial[key]
+    )
+    return [...new Set(keys.map((key) => CHANGE_LABELS[key]))]
   }, [current, initial])
+  const isDirty = changed.length > 0
 
   // Called for its effects only — arms beforeunload while dirty (spec §6). Do NOT
   // bind the return value; the repo lints unused vars as errors.
@@ -106,7 +219,7 @@ export function PolicyForm({ role }: { role: string | null }) {
     mutationFn: (input: SettingsPatchInput) => saveSettings(input),
     onSuccess: async (settings) => {
       setForm(toState(settings))
-      setFieldErrors({})
+      setServerErrors({})
       setFormError(null)
       await client.invalidateQueries({ queryKey: queryKeys.settings })
       toast.add({ title: "Settings saved", type: "success" })
@@ -119,59 +232,45 @@ export function PolicyForm({ role }: { role: string | null }) {
           message?: string
         }>) {
           const key = issue.path?.[0]
-          if (typeof key === "string" && key in ({} as FormState)) {
+          if (typeof key === "string" && key in CHANGE_LABELS) {
             next[key as keyof FormState] = issue.message ?? "Invalid value."
           }
         }
-        setFieldErrors(next)
+        setServerErrors(next)
       }
       setFormError(describeActionError(error))
     },
   })
 
-  if (query.isPending) {
-    return (
-      <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
-        <div className="flex flex-col gap-1.5">
-          <Skeleton className="ml-(--np-card-pad) h-3 w-20" />
-          <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Skeleton className="ml-(--np-card-pad) h-3 w-24" />
-          <Skeleton className="h-(--np-row-h) w-full rounded-(--np-radius-card)" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Skeleton className="ml-(--np-card-pad) h-3 w-20" />
-          <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
-        </div>
-      </div>
-    )
-  }
+  if (query.isPending) return <PolicySkeleton />
   if (query.isError || !current) {
     return (
       <Alert variant="destructive">
         <AlertTitle>We couldn’t load your settings</AlertTitle>
         <AlertDescription>
-          {describeActionError(query.error)}{" "}
-          <Button variant="link" size="sm" onClick={() => query.refetch()}>
+          {describeActionError(query.error)} Your current policy is still in
+          force; nothing was changed.
+        </AlertDescription>
+        <AlertActions>
+          <Button variant="secondary" size="sm" onClick={() => query.refetch()}>
+            <RefreshCw aria-hidden />
             Try again
           </Button>
-        </AlertDescription>
+        </AlertActions>
       </Alert>
     )
   }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm({ ...current, [key]: value })
+    if (serverErrors[key]) {
+      setServerErrors((previous) => ({ ...previous, [key]: undefined }))
+    }
   }
 
   // Mirror the server rule: turning approval off needs an owner + explicit consent.
   const consentBlocked =
     !current.approvalRequired && (!isOwner || !current.directPublishConsent)
-  const consentReason =
-    !current.approvalRequired && !isOwner
-      ? "Only an owner can turn off approval before replies publish."
-      : null
   const editReason = editSettingsDisabledReason(caps.data)
   const parsed = settingsPolicyFormSchema.safeParse({
     approvalRequired: current.approvalRequired,
@@ -181,12 +280,28 @@ export function PolicyForm({ role }: { role: string | null }) {
     defaultTimezone: current.defaultTimezone,
     directPublishConsent: current.directPublishConsent,
   })
+  const local = localErrors(current)
+  // A field's own problem shows once it has been changed; the server's
+  // answer shows until the field is edited again.
+  const fieldError = (key: keyof FormState) =>
+    serverErrors[key] ??
+    (initial && current[key] !== initial[key] ? local[key] : undefined)
   const canSave =
     canEdit &&
     isDirty &&
     parsed.success &&
     !consentBlocked &&
     !mutation.isPending
+
+  const saveBlockedReason = !isDirty
+    ? null
+    : !parsed.success
+      ? "Fix the marked fields to save."
+      : consentBlocked
+        ? isOwner
+          ? "Tick the confirmation to publish without approval."
+          : "Turning approval off needs an owner."
+        : null
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -201,43 +316,96 @@ export function PolicyForm({ role }: { role: string | null }) {
     })
   }
 
+  const discard = () => {
+    setForm(null)
+    setServerErrors({})
+    setFormError(null)
+  }
+
   const approvalId = `${ids}-approval`
   const twoPersonId = `${ids}-two-person`
-  const consentId = `${ids}-consent`
   const consentedOn = query.data?.directPublishConsentAt
-    ? new Date(query.data.directPublishConsentAt).toLocaleDateString("en-GB")
+    ? new Date(query.data.directPublishConsentAt).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
     : null
 
+  // Mirrors lib/server/publishing/approval.ts `requiresApproval`: approval
+  // parks replies from people who can't publish; the two-person rule parks
+  // every reply, publisher or not, until someone else approves it.
+  const consequence = current.requireTwoPersonApproval
+    ? current.approvalRequired
+      ? "Every reply, including one from someone who can publish, waits for a second person to approve it before it reaches Google. Nobody can approve their own reply."
+      : "People who can’t publish can’t send replies. The two-person rule is still on, so every other reply waits for a second person to approve it."
+    : current.approvalRequired
+      ? "Replies from people who can’t publish wait in the Approval queue for someone who can. People who can publish send their replies straight to Google."
+      : "People who can publish send their replies straight to Google, with no approval step. People who can’t publish can’t send replies."
+
   return (
-    <form className="flex flex-col gap-(--np-gap-section)" onSubmit={onSubmit}>
-      {formError ? (
-        <Alert variant="destructive">
-          <AlertDescription>{formError}</AlertDescription>
+    <form
+      className="flex flex-col gap-(--np-gap-section)"
+      onSubmit={onSubmit}
+      noValidate
+    >
+      {readOnly ? (
+        <Alert variant="info" icon={<Eye strokeWidth={1.75} aria-hidden />}>
+          <AlertTitle>You can look, but not change this</AlertTitle>
+          <AlertDescription>
+            Only owners and admins can change the reply policy. Ask one of them
+            if something here needs to change.
+          </AlertDescription>
         </Alert>
       ) : null}
 
-      <GroupedList header="Approval">
-        <GroupedListItem
-          label={
-            <span id={approvalId}>Require approval before replies publish</span>
-          }
-          trailing={
+      {formError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Your changes weren’t saved</AlertTitle>
+          <AlertDescription>
+            {formError} Your edits are still here, so you can fix them and save
+            again.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <Card flush>
+        <CardHeader divided>
+          <CardTitle as="h2">Approval</CardTitle>
+          <CardDescription>
+            Who has to look at a reply before it goes to Google.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 py-(--np-card-pad)">
+          <SwitchRow
+            id={approvalId}
+            label="Require approval before replies publish"
+            hint="Replies from people who can’t publish wait in the Approval queue for someone who can."
+          >
             <Switch
               aria-labelledby={approvalId}
               checked={current.approvalRequired}
               disabled={!canEdit}
-              onCheckedChange={(value) => set("approvalRequired", value)}
+              onCheckedChange={(value) =>
+                setForm({
+                  ...current,
+                  approvalRequired: value,
+                  directPublishConsent: value
+                    ? false
+                    : current.directPublishConsent,
+                })
+              }
             />
-          }
-        />
-        {current.approvalRequired ? (
-          <GroupedListItem
-            label={
-              <span id={twoPersonId}>
-                Require a second person to approve each reply
-              </span>
-            }
-            trailing={
+          </SwitchRow>
+
+          <Consequence>{consequence}</Consequence>
+
+          {current.approvalRequired ? (
+            <SwitchRow
+              id={twoPersonId}
+              label="Require a second person to approve each reply"
+              hint="The person who asked for approval can’t approve their own reply."
+            >
               <Switch
                 aria-labelledby={twoPersonId}
                 checked={current.requireTwoPersonApproval}
@@ -246,89 +414,97 @@ export function PolicyForm({ role }: { role: string | null }) {
                   set("requireTwoPersonApproval", value)
                 }
               />
-            }
-          />
-        ) : (
-          <>
-            <GroupedListItem
-              icon={<TriangleAlert className="text-warning-ink" aria-hidden />}
-              label="Replies will publish without approval"
-              description={
-                consentedOn
-                  ? `Direct publishing was confirmed on ${consentedOn}.`
-                  : undefined
-              }
-            />
-            <GroupedListItem
-              label={
-                <span id={consentId}>
-                  I confirm replies may publish to Google without approval
+            </SwitchRow>
+          ) : (
+            <Alert variant="warning">
+              <AlertTitle>Replies will publish without approval</AlertTitle>
+              <AlertDescription className="flex flex-col gap-2.5">
+                <span>
+                  {isOwner
+                    ? "Only an owner can confirm this."
+                    : "Only an owner can turn off approval before replies publish."}
+                  {consentedOn
+                    ? ` Direct publishing was confirmed on ${consentedOn}.`
+                    : ""}
                 </span>
-              }
-              description={consentReason ?? undefined}
-              trailing={
-                <Switch
-                  aria-labelledby={consentId}
+                <Checkbox
                   checked={current.directPublishConsent}
                   disabled={!isOwner || !canEdit}
                   onCheckedChange={(value) =>
-                    set("directPublishConsent", value)
+                    set("directPublishConsent", value === true)
                   }
+                  label="I confirm replies may publish to Google without approval"
                 />
-              }
-            />
-          </>
-        )}
-      </GroupedList>
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
-      <GroupedList header="Retention">
-        <GroupedListItem
-          label="Days to keep raw review content"
-          description={
-            <RowError>{fieldErrors.rawContentRetentionDays}</RowError>
-          }
-          trailing={
+      <Card flush>
+        <CardHeader divided>
+          <CardTitle as="h2">Raw review content retention</CardTitle>
+          <CardDescription>
+            How long we keep the customer’s review text after it arrives.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="py-(--np-card-pad)">
+          <Field
+            error={fieldError("rawContentRetentionDays")}
+            className="grid grid-cols-1 gap-x-4 gap-y-1.5 @[32rem]:grid-cols-[minmax(0,1fr)_auto] @[32rem]:items-center"
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <FieldLabel>Days to keep raw review content</FieldLabel>
+              <FieldDescription>
+                1 to 30 days. After this, the text is deleted here; it stays on
+                Google.
+              </FieldDescription>
+            </div>
             <Input
               type="number"
+              inputMode="numeric"
               min={1}
               max={30}
               value={current.rawContentRetentionDays}
               disabled={!canEdit}
-              aria-label="Days to keep raw review content"
-              aria-invalid={
-                fieldErrors.rawContentRetentionDays ? true : undefined
-              }
-              className="w-20 text-right"
+              className="w-24 text-right font-mono tabular-nums"
               onChange={(event) =>
                 set("rawContentRetentionDays", event.target.value)
               }
             />
-          }
-        />
-      </GroupedList>
+            <FieldError className="@[32rem]:col-span-2">
+              {fieldError("rawContentRetentionDays")}
+            </FieldError>
+          </Field>
+        </CardContent>
+      </Card>
 
-      <GroupedList header="Defaults">
-        <GroupedListItem
-          label="Default language"
-          description={<RowError>{fieldErrors.defaultLanguageCode}</RowError>}
-          trailing={
+      <Card flush>
+        <CardHeader divided>
+          <CardTitle as="h2">Defaults</CardTitle>
+          <CardDescription>
+            What new replies and schedules start from.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 py-(--np-card-pad) @[36rem]:grid-cols-2">
+          <Field error={fieldError("defaultLanguageCode")}>
+            <FieldLabel>Default language</FieldLabel>
             <Input
               value={current.defaultLanguageCode}
               disabled={!canEdit}
-              aria-label="Default language"
-              aria-invalid={fieldErrors.defaultLanguageCode ? true : undefined}
               placeholder="en-GB"
-              className="w-28"
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono"
               onChange={(event) =>
                 set("defaultLanguageCode", event.target.value)
               }
             />
-          }
-        />
-        <GroupedListItem
-          label="Default timezone"
-          description={<RowError>{fieldErrors.defaultTimezone}</RowError>}
-          trailing={
+            <FieldDescription>A language code, such as en-GB.</FieldDescription>
+            <FieldError>{fieldError("defaultLanguageCode")}</FieldError>
+          </Field>
+          <Field error={fieldError("defaultTimezone")}>
+            <FieldLabel>Default timezone</FieldLabel>
             <Select
               value={current.defaultTimezone}
               disabled={!canEdit}
@@ -336,7 +512,7 @@ export function PolicyForm({ role }: { role: string | null }) {
                 set("defaultTimezone", value ?? current.defaultTimezone)
               }
             >
-              <SelectTrigger aria-label="Default timezone" className="max-w-56">
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -347,16 +523,70 @@ export function PolicyForm({ role }: { role: string | null }) {
                 ))}
               </SelectContent>
             </Select>
-          }
-        />
-      </GroupedList>
+            <FieldError>{fieldError("defaultTimezone")}</FieldError>
+          </Field>
+        </CardContent>
+      </Card>
 
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <GateNote reason={editReason} />
-        <Button type="submit" disabled={!canSave}>
-          {mutation.isPending ? "Saving…" : "Save changes"}
-        </Button>
-      </div>
+      <ActionBar
+        label="Save reply policy"
+        offset="bottom-3"
+        status={
+          readOnly ? (
+            <>
+              <Eye aria-hidden />
+              <span>
+                View only · <ActionBarMuted>{editReason}</ActionBarMuted>
+              </span>
+            </>
+          ) : isDirty ? (
+            <>
+              <PenLine aria-hidden />
+              <span>
+                <strong className="font-semibold">
+                  {changed.length} unsaved{" "}
+                  {changed.length === 1 ? "change" : "changes"}
+                </strong>{" "}
+                ·{" "}
+                <ActionBarMuted>
+                  {saveBlockedReason ?? changed.join(", ")}
+                </ActionBarMuted>
+              </span>
+            </>
+          ) : (
+            <>
+              <CircleCheck aria-hidden />
+              <span>All changes saved</span>
+            </>
+          )
+        }
+        actions={
+          readOnly ? (
+            <Button type="submit" disabled>
+              Save changes
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost-dark"
+                disabled={!isDirty || mutation.isPending}
+                onClick={discard}
+              >
+                Discard
+              </Button>
+              <Button
+                type="submit"
+                disabled={!canSave && !mutation.isPending}
+                pending={mutation.isPending}
+                pendingLabel="Saving…"
+              >
+                Save changes
+              </Button>
+            </>
+          )
+        }
+      />
     </form>
   )
 }

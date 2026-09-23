@@ -1,6 +1,9 @@
 "use client"
 
-import { Checkbox } from "@/components/ui/checkbox"
+import { useId } from "react"
+
+import { ChangedMark } from "@/components/locations/profile/section-card"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -9,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { StatusPill } from "@/components/ui/status-pill"
+import { Switch } from "@/components/ui/switch"
 import type {
   AttributeMetadata,
   GoogleAttribute,
@@ -16,51 +21,93 @@ import type {
 import { attributeControlKind } from "@/lib/locations/console-labels"
 import { enumOptionsFor } from "@/lib/locations/google-values"
 
-// Renders a single typed Google attribute control from its metadata. Only the
-// well-understood value types get an editor; anything else is read-only with the
-// §12 pressure-valve note — never a JSON escape hatch (§8).
-//
-// A BOOL attribute stays a checkbox rather than a switch: these are facts
-// about the business ("Wi-Fi", "Wheelchair access") ticked in a long form, not
-// settings that take effect on their own, and a column of them is a checklist.
+/**
+ * One typed Google attribute as a row (reference `.attr-row`): the label at
+ * the leading edge, the control at the trailing edge, wrapping under each
+ * other on a narrow row. Only the well-understood value types get an editor;
+ * anything else is read-only with the pressure-valve note, never a JSON
+ * escape hatch.
+ *
+ * A BOOL attribute is a switch with its state in words ("Yes" / "No"). "Not
+ * set" is a real third state on Google — the attribute simply isn't there —
+ * so the row says "Not set" until a value is chosen, and `onClear` (when
+ * given) offers "Clear" to take a value back off Google.
+ */
 export function TypedAttributeControl({
   metadata,
   attribute,
   disabled,
   onChange,
+  onClear,
+  changed = false,
 }: {
   metadata: AttributeMetadata
   attribute: GoogleAttribute | undefined
   disabled: boolean
   onChange: (next: GoogleAttribute) => void
+  /** Remove the value, so Google holds no answer for this attribute. */
+  onClear?: (name: string) => void
+  /** The draft differs from Google for this attribute. */
+  changed?: boolean
 }) {
+  const labelId = useId()
   const name = metadata.parent
   const label = metadata.displayName ?? name
   const kind = attributeControlKind(metadata.valueType)
   const enumOptions = enumOptionsFor(metadata)
 
+  const labelBlock = (
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
+      <span id={labelId} className="text-ui font-semibold text-ink">
+        {label}
+      </span>
+      {changed ? <ChangedMark /> : null}
+    </span>
+  )
+
+  const rowClass =
+    "flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2"
+
   if (kind === "bool") {
-    const checked = attribute?.values?.[0] === true
+    const value = attribute?.values?.[0]
+    const set = typeof value === "boolean"
+    const checked = value === true
     return (
-      // Base UI's Checkbox auto-wires aria-labelledby to a wrapping native
-      // <label> — no separate aria-label needed here (see components/ui/checkbox.tsx).
-      <label className="flex min-h-6 items-center gap-2 text-ui text-ink">
-        <Checkbox
-          checked={checked}
-          disabled={disabled}
-          onCheckedChange={(next) =>
-            onChange({ name, values: [next === true] })
-          }
-        />
-        <span>{label}</span>
-      </label>
+      <div className={rowClass}>
+        {labelBlock}
+        <span className="flex items-center gap-2">
+          {set && onClear && !disabled ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-label={`Clear ${label}`}
+              onClick={() => onClear(name)}
+            >
+              Clear
+            </Button>
+          ) : null}
+          <span aria-hidden className="w-14 text-right text-ui text-ink-muted">
+            {set ? (checked ? "Yes" : "No") : "Not set"}
+          </span>
+          <Switch
+            checked={checked}
+            disabled={disabled}
+            aria-labelledby={labelId}
+            aria-description={set ? undefined : "Not set on Google"}
+            onCheckedChange={(next) =>
+              onChange({ name, values: [next === true] })
+            }
+          />
+        </span>
+      </div>
     )
   }
   if (kind === "enum" && enumOptions.length > 0) {
     const current = attribute?.repeatedEnumValue?.setValues?.[0] ?? ""
     return (
-      <label className="flex flex-col gap-1.5 text-ui font-medium text-ink">
-        <span>{label}</span>
+      <div className={rowClass}>
+        {labelBlock}
         <Select
           value={current}
           onValueChange={(value: string | null) =>
@@ -71,7 +118,7 @@ export function TypedAttributeControl({
           }
           disabled={disabled}
         >
-          <SelectTrigger aria-label={label} className="w-full font-normal">
+          <SelectTrigger aria-label={label} className="w-full sm:w-70">
             <SelectValue placeholder="Not set" />
           </SelectTrigger>
           <SelectContent>
@@ -82,20 +129,22 @@ export function TypedAttributeControl({
             ))}
           </SelectContent>
         </Select>
-      </label>
+      </div>
     )
   }
   if (kind === "url") {
     const uri = attribute?.uriValues?.[0]?.uri ?? ""
     return (
-      <label className="flex flex-col gap-1.5 text-ui font-medium text-ink">
-        <span>{label}</span>
+      <div className={rowClass}>
+        {labelBlock}
         <Input
+          type="url"
           value={uri}
           disabled={disabled}
           inputMode="url"
+          placeholder="https://…"
           aria-label={label}
-          className="font-normal"
+          className="w-full sm:w-70"
           onChange={(event) =>
             onChange({
               name,
@@ -105,15 +154,20 @@ export function TypedAttributeControl({
             })
           }
         />
-      </label>
+      </div>
     )
   }
   return (
-    <div className="flex flex-col gap-0.5 text-ui">
-      <span className="font-medium text-ink">{label}</span>
-      <span className="text-caption text-ink-muted">
-        Not editable here yet.
+    <div className={rowClass}>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-ui font-semibold text-ink">{label}</span>
+        <span className="text-caption text-ink-muted">
+          Not editable here yet. Change it in Google directly.
+        </span>
       </span>
+      <StatusPill tone="outline" plain>
+        Read only
+      </StatusPill>
     </div>
   )
 }

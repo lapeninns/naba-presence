@@ -201,8 +201,10 @@ test("a client hub names its locations and trails back to Clients", async ({
   await expect(
     page.getByRole("heading", { name: state.clientName, level: 1 })
   ).toBeVisible()
+  // The hub's section is "Listings" (the reference's word for a Google
+  // Business Profile), not "Locations".
   await expect(
-    page.getByRole("heading", { name: "Locations", level: 2 })
+    page.getByRole("heading", { name: "Listings", level: 2 })
   ).toBeVisible()
 
   // The trail is what makes the depth navigable: from an area three levels

@@ -1,6 +1,19 @@
 "use client"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  ClockIcon,
+  PauseCircleIcon,
+  PowerOffIcon,
+  RefreshCwIcon,
+} from "lucide-react"
+import type * as React from "react"
+
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,8 +40,9 @@ const COPY: Record<
       "Google has not sent any figures for this window. They appear here once it does.",
   },
   error: {
-    title: "We could not load this",
-    description: "Check your connection, then try again.",
+    title: "We could not load this report",
+    description:
+      "The reporting service didn’t answer, so nothing is shown rather than a guess. Nothing was changed.",
   },
   paused: {
     title: "Reporting is paused",
@@ -40,23 +54,49 @@ const COPY: Record<
   },
 }
 
+const ICONS: Record<
+  Exclude<PanelVariant, "loading" | "error">,
+  React.ReactNode
+> = {
+  empty: <ClockIcon />,
+  collecting: <ClockIcon />,
+  paused: <PauseCircleIcon />,
+  off: <PowerOffIcon />,
+}
+
+/**
+ * One report's non-figure states (reference `loadingPanel`, `errorPanel`,
+ * `emptyPanel`). Loading is a named spinner over the shapes that will
+ * arrive; an error is the danger alert with a retry; the rest are the
+ * `Empty` pattern, drawn on a bordered card when `framed` (a panel standing
+ * on the page) and bare inside a card that already has an edge.
+ */
 export function ReportingPanel({
   variant,
   title,
   description,
   onRetry,
+  framed = false,
+  icon,
+  action,
 }: {
   variant: PanelVariant
   title?: string
   description?: string
   onRetry?: () => void
+  /** Draw the empty state on its own bordered card. */
+  framed?: boolean
+  /** Overrides the empty state's glyph (a lucide icon). */
+  icon?: React.ReactNode
+  /** A next step under an empty state. */
+  action?: React.ReactNode
 }) {
   if (variant === "loading") {
     return (
       <div
         aria-busy="true"
         role={title ? "status" : undefined}
-        className="flex flex-col gap-2"
+        className="flex flex-col gap-3"
       >
         {title ? (
           <p className="flex items-center gap-2 text-ui text-ink-muted">
@@ -74,23 +114,32 @@ export function ReportingPanel({
     return (
       <Alert variant="destructive">
         <AlertTitle>{title ?? COPY.error.title}</AlertTitle>
-        <AlertDescription className="flex flex-col items-start gap-2">
-          <span>{description ?? COPY.error.description}</span>
-          {onRetry ? (
-            <Button variant="outline" size="sm" onClick={onRetry}>
+        <AlertDescription>{description ?? COPY.error.description}</AlertDescription>
+        {onRetry ? (
+          <AlertActions>
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              <RefreshCwIcon aria-hidden strokeWidth={1.75} />
               Try again
             </Button>
-          ) : null}
-        </AlertDescription>
+          </AlertActions>
+        ) : null}
       </Alert>
     )
   }
   const copy = COPY[variant]
-  return (
+  const empty = (
     <Empty
+      icon={icon ?? ICONS[variant]}
       title={title ?? copy.title}
       description={description ?? copy.description}
+      action={action}
     />
+  )
+  if (!framed) return empty
+  return (
+    <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      {empty}
+    </div>
   )
 }
 

@@ -120,7 +120,7 @@ describe("ReviewDetail", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
     renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(screen.getByText("Slow service at breakfast.")).toBeInTheDocument()
-    expect(screen.getByText("Riverside")).toBeInTheDocument()
+    expect(screen.getAllByText("Riverside").length).toBeGreaterThan(0)
   })
 
   it("reads a one-star rating as singular, not '1 stars'", () => {
@@ -130,34 +130,40 @@ describe("ReviewDetail", () => {
       data: reviewWith({ rating: 1 }),
     })
     renderPane(<ReviewDetail reviewId="rev-1" />)
-    expect(screen.getByLabelText("1 star")).toBeInTheDocument()
+    expect(screen.getAllByLabelText("1 star").length).toBeGreaterThan(0)
     expect(screen.queryByLabelText("1 stars")).not.toBeInTheDocument()
   })
 
   // The pane used to answer "where has this reply got to" three times over: a
-  // five-stage <ol> across the header, a situation strip under it and the
-  // footer button, each derived separately and each able to contradict the
-  // others. There is now one derivation and one place it is spoken. The
-  // composer is a slot this test does not supply, so the only status left in
-  // the pane is the strip's.
-  it("keeps one status surface and no permanent lifecycle tracker", () => {
+  // five-stage tracker, a situation strip and the footer button, each derived
+  // separately and each able to contradict the others. The lifecycle is back
+  // as a permanent strip (reference `.lifecycle`), but it is drawn from
+  // `deriveLifecycle` and is not a live region: the one spoken status is still
+  // the strip on the action bar.
+  it("keeps one status surface beside a lifecycle drawn from the review", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
     const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(
       container.querySelector('ol[aria-label="Reply progress"]')
     ).toBeNull()
+    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
+    expect(within(lifecycle).getAllByRole("listitem")).toHaveLength(5)
     expect(screen.getAllByRole("status")).toHaveLength(1)
   })
 
-  // The status belongs beside the reply it describes, not in the header: the
-  // header answers "whose review is this", and the sentence here is the same
+  // The status belongs on the action bar beside the action it explains
+  // (reference `.actionbar .ab-status`), not in the header: the header answers
+  // "whose review is this", and the sentence here is the same
   // `deriveReplyStatus` wording the list row shows in its short form.
-  it("states the reply's status inside the reply section, not the header", () => {
+  it("states the reply's status on the action bar, not in the header", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
 
-    const replySection = screen.getByRole("region", { name: "Your reply" })
-    const strip = within(replySection).getByRole("status")
+    const footer = container.querySelector<HTMLElement>(
+      '[data-slot="composer-footer"]'
+    )
+    expect(footer).not.toBeNull()
+    const strip = within(footer!).getByRole("status")
     expect(strip).toHaveTextContent("Draft checked · Ready to publish")
     expect(strip).toHaveAttribute("data-slot", "reply-status-strip")
 
@@ -251,22 +257,22 @@ describe("ReviewDetail", () => {
     })
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
-    // The lifecycle strip used to repeat "Live on Google" as its own meta
-    // line, so this could only ever be a "one or more" count. With the strip
-    // gone the disclosure's label is the single claim in the pane.
-    expect(screen.getByText("Live on Google")).toBeInTheDocument()
-    expect(screen.getByText("30 Jul, 12:00")).toBeInTheDocument()
-    // Collapsed until asked for.
+    // The lifecycle strip's Published stage says "Live on Google" as its own
+    // meta line as well, so this is a "one or more" count.
+    expect(screen.getAllByText("Live on Google").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("30 Jul, 12:00").length).toBeGreaterThan(0)
+    // The live-reply card shows what Google displays; the disclosure beside
+    // the composer stays collapsed until asked for.
     expect(
-      screen.queryByText("The words that are on Google today.")
-    ).not.toBeInTheDocument()
+      screen.getAllByText("The words that are on Google today.")
+    ).toHaveLength(1)
 
     await user.click(
       screen.getByRole("button", { name: /differs from the reply below/ })
     )
     expect(
-      screen.getByText("The words that are on Google today.")
-    ).toBeInTheDocument()
+      screen.getAllByText("The words that are on Google today.")
+    ).toHaveLength(2)
   })
 
   // "Your published reply" was the label for every publish_status, including
@@ -290,10 +296,10 @@ describe("ReviewDetail", () => {
     })
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
-    const replySection = screen.getByRole("region", { name: "Your reply" })
-    expect(within(replySection).getByRole("status")).toHaveTextContent(
-      "Approval required"
-    )
+    // Named "Reply", not "Your reply": the composer inside it is its own
+    // region named by its heading, and two landmarks may not share a name.
+    const replySection = screen.getByRole("region", { name: "Reply" })
+    expect(screen.getByRole("status")).toHaveTextContent("Approval required")
     expect(
       within(replySection).getByRole("button", {
         name: /differs from the reply below/,
@@ -452,8 +458,7 @@ describe("ReviewDetail", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("explains a failed publish and offers the lifecycle behind a disclosure", async () => {
-    const user = userEvent.setup()
+  it("explains a failed publish and marks the stage that failed", () => {
     fakeDetail({
       isPending: false,
       isError: false,
@@ -479,16 +484,17 @@ describe("ReviewDetail", () => {
     expect(within(exception!).getByText("Publish failed")).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("Publish failed")
 
-    // The lifecycle stays mounted for aria-controls, so it is the accessible
-    // tree — not the DOM — that must show it arriving only when asked for.
+    // The lifecycle is on screen for every review now, so a failed publish
+    // is visible where it happened: the Published stage, as failed.
+    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
+    const stages = within(lifecycle).getAllByRole("listitem")
+    expect(stages).toHaveLength(5)
+    expect(stages[4]).toHaveAttribute("data-state", "failed")
+    expect(stages[4]).toHaveTextContent("Google rejected it")
+    // And no second copy of the stages behind a disclosure.
     expect(
-      screen.queryByRole("list", { name: "Reply lifecycle details" })
+      screen.queryByRole("button", { name: "Workflow details" })
     ).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Workflow details" }))
-    const lifecycle = screen.getByRole("list", {
-      name: "Reply lifecycle details",
-    })
-    expect(within(lifecycle).getAllByRole("listitem")).toHaveLength(5)
   })
 
   it("keeps a footer action skeleton while the detail is loading", () => {

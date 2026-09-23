@@ -1,22 +1,23 @@
 "use client"
 
+import { CheckIcon, RefreshCwIcon } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { GateNote } from "@/components/locations/publish-gate"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { DiffView, type DiffRow } from "@/components/ui/diff-view"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { DiffView } from "@/components/ui/diff-view"
+import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import type { ImportProposal } from "@/lib/api/location-import-review"
 import { AMBIGUOUS_LABELS_WARNING } from "@/lib/domain/food-menu-import"
 import { describeActionError } from "@/lib/errors/action-errors"
-import {
-  useDecideImportProposal,
-  useImportReview,
-  useRefreshImportReview,
-} from "@/lib/queries/use-import-review"
+import { queryKeys } from "@/lib/queries/keys"
+import { useDecideImportProposal } from "@/lib/queries/use-import-review"
+import { useQueryClient } from "@tanstack/react-query"
+import { cn } from "@/lib/utils"
 
 const KIND_LABELS: Record<ImportProposal["kind"], string> = {
   field_changed: "Changed on Google",
@@ -66,7 +67,7 @@ function valueSummary(value: unknown): string {
   return String(value)
 }
 
-function isAmbiguous(proposal: ImportProposal): boolean {
+export function isAmbiguous(proposal: ImportProposal): boolean {
   return proposal.warnings.includes(AMBIGUOUS_LABELS_WARNING)
 }
 
@@ -84,7 +85,7 @@ function ambiguousLabels(proposal: ImportProposal): string[] {
     : []
 }
 
-function proposalTitle(proposal: ImportProposal): string {
+export function proposalTitle(proposal: ImportProposal): string {
   if (proposal.resourceType === "profile") {
     return FIELD_LABELS[proposal.fieldKey ?? ""] ?? proposal.fieldKey ?? "Field"
   }
@@ -107,44 +108,85 @@ function proposalFieldLabel(proposal: ImportProposal): string {
   return "Section"
 }
 
+type Decision = "apply" | "ignore" | "delete_local" | "keep_local"
+
+const DECISION_TOAST: Record<Decision, { title: string; description: string }> =
+  {
+    apply: {
+      title: "Suggestion accepted",
+      description:
+        "NabaPresence now holds Google’s value. Nothing was sent to Google.",
+    },
+    ignore: {
+      title: "Suggestion ignored",
+      description:
+        "NabaPresence keeps its value. Publish it to replace Google’s.",
+    },
+    delete_local: {
+      title: "Removed here",
+      description:
+        "Removed from NabaPresence to match Google. Nothing was sent to Google.",
+    },
+    keep_local: {
+      title: "Kept here",
+      description:
+        "NabaPresence keeps it. Publish the menu to put it back on Google.",
+    },
+  }
+
 /**
- * One resource's worth of pending suggestions from Google.
+ * One resource's worth of pending suggestions from Google (reference
+ * `.sugg-list`): a card with the resource as its heading and its pending
+ * count, a link to the editor, and one row per decision.
  *
- * This used to be a card wedged above the fields of two different editors, so
- * an operator arriving to change the opening description first had to get past
- * a queue of unrelated decisions. It now lives on its own segment, and the tab
- * carries the count.
+ * Each row shows what NabaPresence holds ("Here now") against what Google
+ * shows ("On Google"), then Accept / Ignore. Accepting changes the local
+ * copy only; nothing is published. A decision that fails stays on its row
+ * with the reason and a Retry.
+ *
+ * The parent owns the query (for counts, loading and errors); this renders
+ * the pending proposals it is given.
  */
 export function SuggestionList({
   locationId,
   resourceType,
+  proposals,
   canonicalRevision,
   editDisabledReason,
+  editorHref,
 }: {
   locationId: string
   resourceType: "profile" | "food_menus"
+  /** Pending proposals only. */
+  proposals: ImportProposal[]
   canonicalRevision: string
   editDisabledReason: string | null
+  editorHref: string
 }) {
   const toasts = useToastManager()
-  const review = useImportReview(locationId, resourceType)
-  const refresh = useRefreshImportReview(locationId)
+  const queryClient = useQueryClient()
   const decide = useDecideImportProposal(locationId)
   const [confirming, setConfirming] = useState<{
     proposal: ImportProposal
     action: "apply" | "delete_local"
   } | null>(null)
+  const [failures, setFailures] = useState<
+    Record<string, { action: Decision; message: string }>
+  >({})
 
-  if (review.isPending || review.isError) return null
-  const { proposals, importReviewEnabled } = review.data
-  const pending = proposals.filter((proposal) => proposal.status === "pending")
-  if (!importReviewEnabled) return null
-
-  const disabled = Boolean(editDisabledReason) || decide.isPending
+  const label = resourceType === "profile" ? "Business profile" : "Food menu"
+  const headingId = `suggestions-${resourceType}`
+  // The page explains the gate once; each button also carries it, so a
+  // focused, disabled Accept says why instead of being silently dead.
+  const gateReason = editDisabledReason
+    ? "Only owners and admins can accept or ignore suggestions."
+    : undefined
+  const disabled = decide.isPending
+  const workingId = decide.isPending ? decide.variables?.proposalId : null
 
   const run = (
     proposal: ImportProposal,
-    action: "apply" | "ignore" | "delete_local" | "keep_local",
+    action: Decision,
     confirmOverwrite = false
   ) => {
     decide.mutate(
@@ -158,15 +200,19 @@ export function SuggestionList({
       {
         onSuccess: () => {
           setConfirming(null)
-          toasts.add({
-            title:
-              action === "apply"
-                ? "Suggestion accepted"
-                : action === "delete_local"
-                  ? "Removed here"
-                  : "Suggestion dismissed",
-            type: "success",
+          setFailures((current) => {
+            const next = { ...current }
+            delete next[proposal.id]
+            return next
           })
+          // The tab badge and the overview read the DB-only summary.
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.listingSummary(locationId),
+          })
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.listingSummaries,
+          })
+          toasts.add({ ...DECISION_TOAST[action], type: "success" })
         },
         onError: (error) => {
           // The server compares the proposal's own pinned value against the
@@ -182,16 +228,18 @@ export function SuggestionList({
             return
           }
           setConfirming(null)
-          toasts.add({ title: describeActionError(error), type: "error" })
+          const message = describeActionError(error)
+          setFailures((current) => ({
+            ...current,
+            [proposal.id]: { action, message },
+          }))
+          toasts.add({ title: message, type: "error" })
         },
       }
     )
   }
 
-  const startDecision = (
-    proposal: ImportProposal,
-    action: "apply" | "ignore" | "delete_local" | "keep_local"
-  ) => {
+  const startDecision = (proposal: ImportProposal, action: Decision) => {
     const needsAck =
       (action === "apply" || action === "delete_local") &&
       (proposal.warnings.includes("canonical_also_changed") ||
@@ -204,174 +252,194 @@ export function SuggestionList({
   }
 
   return (
-    // A panel with a header band and a list body, not a Card: the queue is a
-    // list of decisions, and every other list in the console — members,
-    // admins, hours, menu sections — is drawn this way. The rows reach the
-    // panel's edges so their hairlines run its full width, the way a grouped
-    // list divides.
     <section
-      aria-labelledby={`suggestions-${resourceType}`}
-      // `overflow-hidden`, as every hairline-divided panel here carries: the
-      // header band's rule would otherwise run straight through the card's
-      // rounded corners.
-      className="flex flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+      aria-labelledby={headingId}
+      data-slot="suggestion-list"
+      className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-subtle px-(--np-card-pad) py-3">
-        <h2
-          id={`suggestions-${resourceType}`}
-          className="text-title font-semibold text-ink"
-        >
-          {resourceType === "profile" ? "Business profile" : "Food menu"}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3">
+        <h2 id={headingId} className="text-title font-semibold text-ink">
+          {label}
         </h2>
-        {pending.length > 0 ? (
-          <Badge variant="warning">{pending.length}</Badge>
-        ) : null}
-        <Button
-          variant="secondary"
-          size="sm"
-          className="ml-auto"
-          onClick={() => refresh.mutate(resourceType)}
-          disabled={refresh.isPending}
+        <Badge variant={proposals.length > 0 ? "warning" : "secondary"}>
+          <span aria-hidden>{proposals.length}</span>
+          <span className="sr-only">{proposals.length} waiting</span>
+        </Badge>
+        <Link
+          href={editorHref}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "ml-auto"
+          )}
         >
-          {refresh.isPending ? "Checking…" : "Refresh from Google"}
-        </Button>
+          Open {label.toLowerCase()}
+        </Link>
       </div>
 
-      <div className="flex flex-col">
-        {pending.length === 0 ? (
-          <p className="px-(--np-card-pad) py-4 text-caption text-ink-muted">
-            No pending suggestions. Changes made on Google appear here for
-            review.
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-line-subtle">
-            {pending.map((proposal) => {
-              const missing =
-                proposal.kind === "item_missing_from_google" ||
-                proposal.kind === "section_missing_from_google"
-              const alsoEditedHere = proposal.warnings.includes(
-                "canonical_also_changed"
-              )
-              const diffRows: DiffRow[] = [
-                {
-                  field: proposalFieldLabel(proposal),
-                  before: valueSummary(proposal.canonicalValue),
-                  after: valueSummary(proposal.googleValue),
-                  state: alsoEditedHere ? "conflict" : "changed",
-                },
-              ]
-              return (
-                <li
-                  key={proposal.id}
-                  className="flex flex-col gap-3 px-(--np-card-pad) py-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-body font-semibold text-ink">
-                      {proposalTitle(proposal)}
-                    </span>
-                    <Badge variant={missing ? "info" : "warning"}>
-                      {isAmbiguous(proposal)
-                        ? "Can't match automatically"
-                        : KIND_LABELS[proposal.kind]}
-                    </Badge>
-                    {alsoEditedHere ? (
-                      <Badge variant="warning">Also edited here</Badge>
-                    ) : null}
-                  </div>
-                  {isAmbiguous(proposal) ? (
-                    // The two-column Here/Google summary would be meaningless:
-                    // the row stands for several items that cannot be told apart.
-                    <p className="text-caption text-ink-muted">
-                      {ambiguousLabels(proposal).length
-                        ? `${ambiguousLabels(proposal)
-                            .map((label) => `“${label}”`)
-                            .join(
-                              ", "
-                            )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or accept Google's menu as a whole.`
-                        : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or accept Google's menu as a whole."}
+      {proposals.length === 0 ? (
+        <p className="px-4 py-4 text-ui text-ink-muted">
+          Nothing waiting here. Changes made on Google appear here for review.
+        </p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-line">
+          {proposals.map((proposal) => {
+            const missing =
+              proposal.kind === "item_missing_from_google" ||
+              proposal.kind === "section_missing_from_google"
+            const alsoEditedHere = proposal.warnings.includes(
+              "canonical_also_changed"
+            )
+            const failure = failures[proposal.id]
+            const working = workingId === proposal.id
+            return (
+              <li
+                key={proposal.id}
+                data-slot="suggestion"
+                className="@container/sugg flex flex-col gap-3 px-4 py-4"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-body font-semibold break-words text-ink">
+                    {proposalTitle(proposal)}
+                  </span>
+                  <Badge variant="secondary">
+                    {isAmbiguous(proposal)
+                      ? "Can't match automatically"
+                      : KIND_LABELS[proposal.kind]}
+                  </Badge>
+                  {alsoEditedHere ? (
+                    <StatusPill tone="attention">Also edited here</StatusPill>
+                  ) : null}
+                </div>
+                {isAmbiguous(proposal) ? (
+                  // The two-column Here/Google summary would be meaningless:
+                  // the row stands for several items that cannot be told apart.
+                  <p className="text-ui text-ink-secondary">
+                    {ambiguousLabels(proposal).length
+                      ? `${ambiguousLabels(proposal)
+                          .map((name) => `“${name}”`)
+                          .join(
+                            ", "
+                          )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or accept Google's menu as a whole.`
+                      : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or accept Google's menu as a whole."}
+                  </p>
+                ) : (
+                  <DiffView
+                    caption={`${proposalTitle(proposal)}: what NabaPresence holds against what Google shows`}
+                    beforeLabel="Here now"
+                    afterLabel="On Google"
+                    rows={[
+                      {
+                        field: proposalFieldLabel(proposal),
+                        before: valueSummary(proposal.canonicalValue),
+                        after: valueSummary(proposal.googleValue),
+                        state: "changed",
+                      },
+                    ]}
+                  />
+                )}
+                {proposal.warnings
+                  .filter(
+                    (warning) =>
+                      warning !== "canonical_also_changed" &&
+                      warning !== "no_baseline" &&
+                      warning !== AMBIGUOUS_LABELS_WARNING
+                  )
+                  .map((warning) => (
+                    <p key={warning} className="text-caption text-ink-muted">
+                      {warning}
                     </p>
-                  ) : (
-                    <DiffView
-                      className="hairline"
-                      caption={`${proposalTitle(proposal)}: what NabaPresence holds against what Google shows`}
-                      beforeLabel="Here now"
-                      afterLabel="On Google"
-                      rows={diffRows}
-                    />
-                  )}
-                  {proposal.warnings
-                    .filter(
-                      (warning) =>
-                        warning !== "canonical_also_changed" &&
-                        warning !== "no_baseline" &&
-                        warning !== AMBIGUOUS_LABELS_WARNING
-                    )
-                    .map((warning) => (
-                      <p key={warning} className="text-caption text-ink-muted">
-                        {warning}
-                      </p>
-                    ))}
-                  <div className="flex flex-wrap gap-2">
-                    {missing ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={disabled}
-                          onClick={() => startDecision(proposal, "keep_local")}
-                        >
-                          Keep here
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={disabled}
-                          onClick={() =>
-                            startDecision(proposal, "delete_local")
-                          }
-                        >
-                          Remove here
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="tinted"
-                          disabled={disabled}
-                          onClick={() => startDecision(proposal, "apply")}
-                        >
-                          Accept
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={disabled}
-                          onClick={() => startDecision(proposal, "ignore")}
-                        >
-                          Dismiss
-                        </Button>
-                      </>
-                    )}
+                  ))}
+                {failure ? (
+                  <div
+                    role="alert"
+                    className="flex flex-wrap items-center gap-2 text-ui"
+                  >
+                    <StatusPill tone="at-risk">Not applied</StatusPill>
+                    <span className="min-w-0 flex-[1_1_16rem] text-ink">
+                      {failure.message}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={disabled}
+                      disabledReason={gateReason}
+                      onClick={() => startDecision(proposal, failure.action)}
+                    >
+                      <RefreshCwIcon aria-hidden />
+                      Retry
+                    </Button>
                   </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-        {/* Deliberately not an echo of `editDisabledReason`. That prop
-            carries the sentence the host tab already shows beside its own
-            Save button, and repeating it verbatim put the identical note
-            twice on one screen -- read out twice by a screen reader, for two
-            different sets of controls. This one names what these buttons do.
-            (`editDisabledReason` is non-null only for the canEditCanonical
-            gate, so owners/admins is the accurate reason -- lib/locations/gating.ts.) */}
-        {editDisabledReason ? (
-          <div className="border-t border-line-subtle px-(--np-card-pad) py-3">
-            <GateNote reason="Only owners and admins can accept or dismiss suggestions." />
-          </div>
-        ) : null}
-      </div>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {missing ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={disabled}
+                        disabledReason={gateReason}
+                        pending={
+                          working && decide.variables?.action === "keep_local"
+                        }
+                        onClick={() => startDecision(proposal, "keep_local")}
+                      >
+                        Keep here
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger-outline"
+                        disabled={disabled}
+                        disabledReason={gateReason}
+                        pending={
+                          working && decide.variables?.action === "delete_local"
+                        }
+                        onClick={() => startDecision(proposal, "delete_local")}
+                      >
+                        Remove here
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={disabled}
+                        disabledReason={gateReason}
+                        pending={
+                          working && decide.variables?.action === "apply"
+                        }
+                        pendingLabel="Accepting…"
+                        onClick={() => startDecision(proposal, "apply")}
+                      >
+                        <CheckIcon aria-hidden />
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={disabled}
+                        disabledReason={gateReason}
+                        pending={
+                          working && decide.variables?.action === "ignore"
+                        }
+                        pendingLabel="Ignoring…"
+                        onClick={() => startDecision(proposal, "ignore")}
+                      >
+                        Ignore
+                      </Button>
+                    </>
+                  )}
+                  <span className="text-caption text-ink-muted">
+                    {missing
+                      ? "Only changes NabaPresence’s copy."
+                      : "Accepting changes NabaPresence’s copy only."}
+                  </span>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
       <OverwriteConfirmDialog
         open={confirming !== null}
@@ -381,17 +449,17 @@ export function SuggestionList({
         title={
           confirming?.action === "delete_local"
             ? "Remove this from NabaPresence?"
-            : "Overwrite your local changes?"
+            : "Overwrite your local change?"
         }
         description={
           confirming?.proposal.kind === "structure_changed"
-            ? "This replaces your entire local menu with the menu currently on Google."
+            ? "This replaces your entire local menu with the menu currently on Google. Nothing is sent to Google."
             : confirming?.action === "delete_local"
-              ? "This removes the item here to match Google. You can add it back later."
-              : "This was also edited here since the last sync. Accepting keeps Google's version."
+              ? "This removes the item here to match Google. Nothing is deleted on Google, and you can add it back later."
+              : "This was also edited here since the last sync. Accepting keeps Google's version and replaces yours here. Nothing is sent to Google."
         }
         confirmLabel={
-          confirming?.action === "delete_local" ? "Remove" : "Accept"
+          confirming?.action === "delete_local" ? "Remove here" : "Accept"
         }
         requireAcknowledgement
         acknowledgementLabel="I understand this changes my local data."

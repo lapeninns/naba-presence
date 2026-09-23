@@ -25,13 +25,13 @@ function AlertDialogContent({ className, children, ...props }: AlertDialogPrimit
     <AlertDialogPrimitive.Portal>
       <AlertDialogPrimitive.Backdrop
         data-slot="alert-dialog-overlay"
-        className="fixed inset-0 isolate z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast)"
+        className="fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-(--np-duration-standard) ease-standard data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast)"
       />
       <AlertDialogPrimitive.Popup
         data-slot="alert-dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-(--np-radius-modal) bg-popover p-6 text-body text-popover-foreground shadow-(--np-shadow-modal) outline-none sm:max-w-sm",
-          "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[min(86dvh,760px)] w-full max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] sm:max-w-[520px]",
+          "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-starting-style:translate-y-[calc(-50%+8px)] data-starting-style:scale-[0.985] data-starting-style:opacity-0 data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
           className
         )}
         {...props}
@@ -55,23 +55,24 @@ function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.De
   return (
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
-      className={cn("text-body text-ink-muted", className)}
+      className={cn("text-ui text-ink-muted", className)}
       {...props}
     />
   )
 }
 
 /**
- * Stacked full-width buttons on small screens (primary on top, because it is
- * last in source order and the column is reversed); a right-aligned row from
- * `sm` up with the primary on the right.
+ * The reference `.dialog-foot` bar: sunken surface under a hairline, pulled
+ * to the panel's edges. Stacked full-width buttons on small screens (primary
+ * on top, because it is last in source order and the column is reversed); a
+ * right-aligned row from `sm` up with the primary on the right.
  */
 function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "mt-2 flex flex-col-reverse gap-2 *:w-full sm:flex-row sm:justify-end sm:*:w-auto",
+        "-mx-(--dlg-pad) mt-2 -mb-(--dlg-pad) flex flex-col-reverse gap-2 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) py-3 *:w-full sm:flex-row sm:flex-wrap sm:justify-end sm:*:w-auto",
         className
       )}
       {...props}

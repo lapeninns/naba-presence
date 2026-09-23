@@ -16,7 +16,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
         fieldChromeClassName,
         // Same chrome as Input; the minimum height is a few lines rather than
         // the field height, and it stays user-resizable vertically.
-        "min-h-24 w-full resize-y px-3 py-2",
+        "min-h-24 w-full resize-y px-[11px] py-[7px] leading-[22px]",
         className
       )}
       {...fieldControlProps(field)}

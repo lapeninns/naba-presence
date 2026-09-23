@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -27,12 +27,13 @@ import type { InboxState } from "@/lib/inbox/url-state"
 // the rendered items come from the contract's sort vocabulary.
 
 /**
- * Search and sort: the strip that belongs at the head of the list, the way
- * Mail keeps its search field above the messages rather than in the sidebar.
- * Search is debounced into the URL; the local draft follows the URL when it
- * is cleared from elsewhere ("Clear filters", the chip's remove button).
+ * The review search: one field, debounced into the URL. The local draft
+ * follows the URL when it is cleared from elsewhere ("Clear filters", the
+ * chip's remove button). The shell's ⌘K launcher is Commands — clients,
+ * venues and actions — and deliberately does not look inside review text, so
+ * this is the one place to type words a customer wrote.
  */
-function ReviewSearchBar({
+function ReviewSearchField({
   state,
   onChange,
   className,
@@ -60,44 +61,77 @@ function ReviewSearchBar({
   const searchPending = searchDraft !== state.search
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <>
       <label htmlFor={searchId} className="sr-only">
         Search reviews
       </label>
-      <Input
+      <SearchInput
         id={searchId}
-        type="search"
         role="searchbox"
         aria-label="Search reviews"
         aria-busy={searchPending || undefined}
         value={searchDraft}
-        placeholder="Search reviews"
+        placeholder="Search review text or reviewer"
         onChange={(event) => setSearchDraft(event.target.value)}
-        className="min-w-0 flex-1"
+        className={className}
       />
+    </>
+  )
+}
 
-      <Select
-        value={state.sort}
-        onValueChange={(value: string | null) =>
-          onChange({
-            sort: value && isReviewSort(value) ? value : DEFAULT_REVIEW_SORT,
-          })
-        }
-        items={REVIEW_SORT_LABELS}
-      >
-        <SelectTrigger aria-label="Sort reviews" className="shrink-0">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {REVIEW_SORTS.map((sort) => (
-            <SelectItem key={sort} value={sort}>
-              {REVIEW_SORT_LABELS[sort]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+function ReviewSortSelect({
+  state,
+  onChange,
+  className,
+}: {
+  state: InboxState
+  onChange: (partial: Partial<InboxState>) => void
+  className?: string
+}) {
+  return (
+    <Select
+      value={state.sort}
+      onValueChange={(value: string | null) =>
+        onChange({
+          sort: value && isReviewSort(value) ? value : DEFAULT_REVIEW_SORT,
+        })
+      }
+      items={REVIEW_SORT_LABELS}
+    >
+      <SelectTrigger aria-label="Sort reviews" className={className}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false}>
+        {REVIEW_SORTS.map((sort) => (
+          <SelectItem key={sort} value={sort}>
+            {REVIEW_SORT_LABELS[sort]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/** Search and sort side by side, for a surface that wants them as one strip. */
+function ReviewSearchBar({
+  state,
+  onChange,
+  className,
+}: {
+  state: InboxState
+  onChange: (partial: Partial<InboxState>) => void
+  className?: string
+}) {
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      <ReviewSearchField state={state} onChange={onChange} className="flex-1" />
+      <ReviewSortSelect
+        state={state}
+        onChange={onChange}
+        className="shrink-0"
+      />
     </div>
   )
 }
 
-export { ReviewSearchBar }
+export { ReviewSearchBar, ReviewSearchField, ReviewSortSelect }

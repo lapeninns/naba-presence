@@ -151,6 +151,6 @@ export function modelNote(model: ListingAreaModel): string {
     case "lifecycle":
       return "Each post is drafted, approved if your policy asks, then published."
     case "inbound":
-      return "Google's changes wait here until you accept or dismiss them."
+      return "Google's changes wait here until you accept or ignore them. Accepting changes NabaPresence's copy only."
   }
 }

@@ -19,6 +19,7 @@ export function OverwriteConfirmDialog({
   title,
   description,
   confirmLabel,
+  confirmVariant = "default",
   requireAcknowledgement,
   acknowledgementLabel,
   pending,
@@ -30,6 +31,8 @@ export function OverwriteConfirmDialog({
   title: string
   description: string
   confirmLabel: string
+  /** `danger` for a removal; the default accent for anything else. */
+  confirmVariant?: "default" | "danger"
   requireAcknowledgement: boolean
   acknowledgementLabel?: string
   pending: boolean
@@ -51,27 +54,25 @@ export function OverwriteConfirmDialog({
         <AlertDialogDescription>{description}</AlertDialogDescription>
         {children}
         {requireAcknowledgement ? (
-          <label className="flex items-start gap-2.5 text-ui text-ink">
-            {/* Base UI's Checkbox auto-wires aria-labelledby to a wrapping
-                native <label> — no separate aria-label needed here (mirrors
-                typed-attribute-control.tsx). */}
-            <Checkbox
-              className="mt-px"
-              checked={ack}
-              onCheckedChange={(value) => setAck(value === true)}
-            />
-            <span>{acknowledgementLabel}</span>
-          </label>
+          <Checkbox
+            checked={ack}
+            onCheckedChange={(value) => setAck(value === true)}
+            label={acknowledgementLabel}
+            labelClassName="text-ui"
+          />
         ) : null}
         <AlertDialogFooter>
-          <AlertDialogClose
-            render={<Button variant="secondary">Cancel</Button>}
-          />
+          <AlertDialogClose render={<Button variant="ghost" />}>
+            Cancel
+          </AlertDialogClose>
           <Button
+            variant={confirmVariant}
             onClick={onConfirm}
-            disabled={pending || (requireAcknowledgement && !ack)}
+            disabled={requireAcknowledgement && !ack}
+            pending={pending}
+            pendingLabel="Sending to Google…"
           >
-            {pending ? "Working…" : confirmLabel}
+            {confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

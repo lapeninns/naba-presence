@@ -1,5 +1,6 @@
 "use client"
 
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -13,10 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToastManager } from "@/components/ui/toast"
-import { describeActionError } from "@/lib/errors/action-errors"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-
 import { saveSettings } from "@/lib/api/settings"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { useSession } from "@/lib/queries/use-session"
 import { useSettings } from "@/lib/queries/use-settings"
@@ -40,13 +39,21 @@ const TIMEZONES = [
  * account action, not part of onboarding a client. The timezone is not — it
  * decides how opening hours and report windows are interpreted, and getting it
  * wrong is invisible until a report looks wrong.
+ *
+ * `onDirtyChange` tells the wizard a changed timezone has not been saved, so
+ * Continue can say so instead of dropping the change.
  */
-function StepAgency() {
+function StepAgency({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void
+}) {
   const session = useSession()
   const settings = useSettings()
   const queryClient = useQueryClient()
   const toast = useToastManager()
   const [timezone, setTimezone] = React.useState<string | null>(null)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
 
   // The settings PATCH takes the whole policy object, so the current values
   // ride along unchanged; sending only the timezone would clear the rest.
@@ -59,17 +66,26 @@ function StepAgency() {
         defaultLanguageCode: existing?.defaultLanguageCode ?? "en",
         defaultTimezone,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
   })
 
   const saved = settings.data?.defaultTimezone
   const current = timezone ?? saved ?? "Europe/London"
   const dirty = saved !== undefined && current !== saved
 
+  React.useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+  // Leaving the step clears the wizard's flag with it.
+  React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
   return (
-    <div className="flex max-w-md flex-col gap-4">
+    <div className="flex max-w-[27.5rem] flex-col gap-5">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="setup-agency-name">Agency</Label>
+        <Label htmlFor="setup-agency-name" className="font-semibold">
+          Agency name
+        </Label>
         <Input
           id="setup-agency-name"
           value={session.data?.session?.organisationName ?? ""}
@@ -77,9 +93,20 @@ function StepAgency() {
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="setup-agency-timezone">Default timezone</Label>
-        <Select value={current} onValueChange={(value) => setTimezone(String(value))}>
-          <SelectTrigger id="setup-agency-timezone">
+        <Label htmlFor="setup-agency-timezone" className="font-semibold">
+          Default timezone
+        </Label>
+        <Select
+          value={current}
+          onValueChange={(value) => {
+            setSaveError(null)
+            setTimezone(String(value))
+          }}
+        >
+          <SelectTrigger
+            id="setup-agency-timezone"
+            aria-describedby="setup-agency-timezone-hint"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -90,28 +117,41 @@ function StepAgency() {
             ))}
           </SelectContent>
         </Select>
-        <p className="text-caption text-ink-muted">
+        <p
+          id="setup-agency-timezone-hint"
+          className="text-caption text-ink-muted"
+        >
           Opening hours and report windows are read in this timezone unless a
-          location sets its own.
+          listing sets its own.
         </p>
       </div>
-      <div>
+      {saveError ? (
+        <p role="alert" className="text-ui font-medium text-danger-ink">
+          The timezone wasn’t saved. {saveError}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
         <Button
-          disabled={!dirty || save.isPending}
+          id="setup-agency-save"
+          variant="secondary"
+          disabled={!dirty}
+          pending={save.isPending}
+          pendingLabel="Saving…"
           onClick={async () => {
+            setSaveError(null)
             try {
               await save.mutateAsync(current)
               toast.add({ title: "Timezone saved" })
             } catch (error) {
-              toast.add({
-                title: "Could not save",
-                description: describeActionError(error),
-              })
+              setSaveError(describeActionError(error))
             }
           }}
         >
-          {save.isPending ? "Saving…" : "Save timezone"}
+          Save timezone
         </Button>
+        <span className="text-caption text-ink-muted" role="status">
+          {saved === undefined ? "" : dirty ? "Unsaved change" : "Saved"}
+        </span>
       </div>
     </div>
   )

@@ -1,16 +1,27 @@
 "use client"
 
+import { RefreshCw } from "lucide-react"
+import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
 import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
+import { cn } from "@/lib/utils"
 
 /** The parameters the OAuth callback appends; everything else is the page's. */
 const OAUTH_PARAMS = ["google", "status", "rid", "reason"]
+
+/** Where a successful connection gets its own confirmation panel. */
+const CONNECTIONS_PATH = "/settings/connections"
 
 function describeOAuthStatus(
   status: string | null,
@@ -33,11 +44,16 @@ function describeOAuthStatus(
   }
 }
 
+type Outcome =
+  { kind: "connected" } | { kind: "error"; title: string; message: string }
+
 /**
- * The outcome of a Google OAuth round trip, on whichever page the flow
- * returned to (the callback now sends failures back to where they started,
- * such as a setup step, rather than always to Settings). `connectInput` is
- * what "Try again" restarts with, so a retry from setup stays in setup.
+ * The outcome of a Google OAuth round trip (`?google=connected|error&status=
+ * &reason=`), on whichever page the flow returned to: the callback sends
+ * failures back to where they started, such as a setup step, rather than
+ * always to Settings. `connectInput` is what "Try again" restarts with, so a
+ * retry from setup stays in setup. Only the callback's own parameters are
+ * stripped, and the message stays until the page is left.
  */
 export function OAuthReturn({
   connectInput = {},
@@ -50,47 +66,38 @@ export function OAuthReturn({
   const google = params.get("google")
   const status = params.get("status")
   const reason = params.get("reason")
-  const [error, setError] = useState<{ title: string; description: string } | null>(null)
+  const [outcome, setOutcome] = useState<Outcome | null>(null)
 
-  // Deviation from the brief's reference impl (a bare `setState` in the effect
-  // body): react-hooks/set-state-in-effect flags a synchronous setState call
-  // inside an effect. Same ref-guard shape as lib/locations/use-reset-on-revision.ts
-  // — only handle a given `google`/`status` pair once, not on every incidental
-  // re-render. `useResetOnRevision` itself does not fit here: this effect must
-  // fire on mount for a fresh `?google=` pair, and must NOT reset `error` when
-  // router.replace strips the query (identity changes, but the alert stays).
+  // Same ref-guard shape as lib/locations/use-reset-on-revision.ts — only
+  // handle a given callback result once, not on every incidental re-render;
+  // and never reset when router.replace strips the query (the identity
+  // changes, but the message stays).
   const identity = `${google ?? ""}:${status ?? ""}:${reason ?? ""}`
   const identityRef = useRef<string | null>(null)
-  const errorMessage =
-    google === "error"
-      ? {
-          title:
-            reason === "google_scope_missing"
-              ? "Permission not granted"
-              : "We couldn’t connect Google",
-          description: describeOAuthStatus(status, reason),
-        }
-      : null
+  const onConnectionsPage = pathname === CONNECTIONS_PATH
+  const next: Outcome | null =
+    google === "connected"
+      ? { kind: "connected" }
+      : google === "error"
+        ? {
+            kind: "error",
+            title:
+              reason === "google_scope_missing"
+                ? "Permission not granted"
+                : "We couldn’t connect Google",
+            message: describeOAuthStatus(status, reason),
+          }
+        : null
   useEffect(() => {
-    // Nothing to process on the settled pass (router.replace below strips the
-    // ?google= query, which re-renders with google === null) or for any other
-    // unrecognised value — no-op, so a previously-shown error stays visible
-    // until unmount / Try again.
     if (google !== "connected" && google !== "error") return
     if (identityRef.current === identity) return
     identityRef.current = identity
-    // Single unconditional setState call, directly gated by the ref-guard
-    // above (react-hooks/set-state-in-effect only recognises a setState call
-    // as ref-guarded when it's the immediate, unconditional statement after
-    // the ref check — the same shape as lib/locations/use-reset-on-revision.ts —
-    // so the connected/error split is expressed as a value, not a nested `if`
-    // wrapping the call).
-    setError(google === "error" ? errorMessage : null)
-    if (google === "connected") {
+    // The connections page confirms with its own panel; anywhere else (a
+    // setup step) a toast, so the step's own content stays in charge.
+    setOutcome(next?.kind === "connected" && !onConnectionsPage ? null : next)
+    if (next?.kind === "connected" && !onConnectionsPage) {
       toast.add({ title: "Google Business Profile connected", type: "success" })
     }
-    // Strip only the callback's own parameters: a setup step keeps its
-    // `client` and `step`.
     const remaining = new URLSearchParams(params.toString())
     for (const key of OAUTH_PARAMS) remaining.delete(key)
     const query = remaining.toString()
@@ -98,16 +105,44 @@ export function OAuthReturn({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, google, status])
 
-  if (!error) return null
+  if (!outcome) return null
+  if (outcome.kind === "connected") {
+    return (
+      <Alert variant="success">
+        <AlertTitle>Google Business Profile connected</AlertTitle>
+        <AlertDescription>
+          Google confirmed access for this login. Link its locations to a client
+          from client setup.
+        </AlertDescription>
+        <AlertActions>
+          <Link
+            href="/clients/new"
+            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          >
+            Set up a client with it
+          </Link>
+        </AlertActions>
+      </Alert>
+    )
+  }
   return (
     <Alert variant="destructive">
-      <AlertTitle>{error.title}</AlertTitle>
-      <AlertDescription>{error.description}</AlertDescription>
-      <AlertAction>
-        <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate(connectInput)}>
+      <AlertTitle>{outcome.title}</AlertTitle>
+      <AlertDescription>
+        {outcome.message} Nothing was changed.
+      </AlertDescription>
+      <AlertActions>
+        <Button
+          variant="secondary"
+          size="sm"
+          pending={connect.isPending}
+          pendingLabel="Opening Google…"
+          onClick={() => connect.mutate(connectInput)}
+        >
+          <RefreshCw aria-hidden />
           Try again
         </Button>
-      </AlertAction>
+      </AlertActions>
     </Alert>
   )
 }

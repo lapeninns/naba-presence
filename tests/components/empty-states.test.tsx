@@ -29,18 +29,22 @@ describe("EmptyState", () => {
         }}
       />
     )
-    expect(screen.getByText("No reviews yet")).toBeInTheDocument()
+    expect(screen.getByText("No reviews yet.")).toBeInTheDocument()
 
     rerender(<EmptyState reason="filtered" onClear={() => {}} />)
-    expect(screen.getByText("No reviews match these filters")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
+    expect(
+      screen.getByText("No reviews match these filters.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear filters" })
+    ).toBeInTheDocument()
 
     // This state carries the whole message now. It used to defer the headline
     // and the link to the shell's ReconnectBanner, but that banner is
     // client-scoped and the inbox is organisation-wide, so on this screen
     // there is nothing else to defer to.
     rerender(<EmptyState reason="disconnected" />)
-    expect(screen.getByText("Google is not connected")).toBeInTheDocument()
+    expect(screen.getByText("Google is not connected.")).toBeInTheDocument()
     expect(
       screen.getByText("Reconnect Google to sync and reply to your reviews.")
     ).toBeInTheDocument()
@@ -65,10 +69,18 @@ describe("EmptyState", () => {
     render(
       <EmptyState
         reason="never_imported"
-        counts={{ running: 0, failed: 0, succeeded: 0, notStarted: 3, lastSyncAt: null }}
+        counts={{
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+          notStarted: 3,
+          lastSyncAt: null,
+        }}
       />
     )
-    expect(screen.getByText("No reviews have been imported yet")).toBeInTheDocument()
+    expect(
+      screen.getByText("No reviews have been imported yet.")
+    ).toBeInTheDocument()
     expect(screen.queryByText(/will appear here as they arrive/i)).toBeNull()
   })
 
@@ -79,11 +91,19 @@ describe("EmptyState", () => {
     render(
       <EmptyState
         reason="importing"
-        counts={{ running: 2, failed: 0, succeeded: 0, notStarted: 0, lastSyncAt: null }}
+        counts={{
+          running: 2,
+          failed: 0,
+          succeeded: 0,
+          notStarted: 0,
+          lastSyncAt: null,
+        }}
       />
     )
-    expect(screen.getByText("Reviews are still coming in")).toBeInTheDocument()
-    expect(screen.getByText(/2 locations are waiting on Google/)).toBeInTheDocument()
+    expect(screen.getByText("Reviews are still coming in.")).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 locations are waiting on Google/)
+    ).toBeInTheDocument()
   })
 
   it("dates the claim when it says Google has none", () => {
@@ -102,12 +122,18 @@ describe("EmptyState", () => {
     // Never a bare present-tense assertion about Google: it says when we last
     // asked, because that is the part the app can actually vouch for.
     expect(
-      screen.getByText(/Google had none for these locations when we last checked/)
+      screen.getByText(
+        /Google had none for these locations when we last checked/
+      )
     ).toBeInTheDocument()
   })
 
   it("offers a way out of every state the operator can act on", () => {
-    for (const reason of ["not_connected", "import_failed", "never_imported"] as const) {
+    for (const reason of [
+      "not_connected",
+      "import_failed",
+      "never_imported",
+    ] as const) {
       const { unmount } = render(<EmptyState reason={reason} />)
       expect(
         screen.getByRole("link", { name: "Manage connection" })

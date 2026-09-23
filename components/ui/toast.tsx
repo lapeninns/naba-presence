@@ -25,16 +25,18 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
 }
 
 /**
- * Bottom-centre on a phone, where the thumb is; top-right on a desktop, where
- * the eye goes. The stacking maths below follows the same switch through
- * `--dir`.
+ * Reference `.toasts`: bottom-right, 16px in, min(380px, 100vw - 32px) wide,
+ * stacking upward. Below 640px it spans the width at the TOP, under the
+ * safe area, stacking downward: a phone's bottom edge belongs to sticky
+ * action bars and bottom sheets (the review sheet's "Try again", the
+ * editor's Publish), and a bottom toast covered exactly those.
  */
 function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-4 z-50 mx-auto w-auto max-w-sm outline-none sm:top-4 sm:right-4 sm:bottom-auto sm:left-auto sm:mx-0 sm:w-full",
+        "pointer-events-none fixed top-[max(16px,env(safe-area-inset-top))] right-4 left-4 z-[120] w-auto outline-none sm:top-auto sm:bottom-[max(16px,env(safe-area-inset-bottom))] sm:left-auto sm:w-[min(380px,calc(100vw-32px))]",
         className
       )}
       {...props}
@@ -44,15 +46,15 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
 
 function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   // `--dir` is the stacking direction: -1 stacks upward from the bottom edge
-  // (mobile), +1 stacks downward from the top edge (desktop). Every offset
+  // (640px and up), +1 stacks downward from the top edge (phones). Every offset
   // below is multiplied by it so one set of transforms serves both anchors.
   // Enter and exit slide along the same axis on the spring.
   return (
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast material-popover pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-(--np-radius-card) text-ink shadow-(--np-shadow-pop) will-change-transform outline-none select-none focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-pop)] sm:top-0 sm:bottom-auto sm:origin-top",
-        "[--dir:-1] [--gap:0.75rem] [--peek:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] sm:[--dir:1]",
+        "group/toast pointer-events-auto absolute top-0 right-0 z-[calc(1000-var(--toast-index))] w-full origin-top sm:top-auto sm:bottom-0 sm:origin-bottom rounded-(--np-radius-card) bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
+        "[--dir:1] [--gap:0.5rem] [--peek:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] sm:[--dir:-1]",
         "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+var(--dir)*(var(--toast-index)*var(--peek)+var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_var(--np-duration-overlay)_var(--np-ease-spring),opacity_var(--np-duration-standard)_var(--np-ease-standard),height_var(--np-duration-fast)_var(--np-ease-standard)]",
         // A hover bridge across the gap to the next toast, on whichever side
         // the next toast sits, so an expanded stack does not collapse while
@@ -81,7 +83,7 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot="toast-content"
       className={cn(
-        "flex h-full items-center gap-3 overflow-hidden p-4 transition-opacity duration-(--np-duration-standard) ease-standard data-behind:opacity-0 data-expanded:opacity-100",
+        "flex h-full items-start gap-2.5 overflow-hidden px-3.5 py-3 text-ui transition-opacity duration-(--np-duration-standard) ease-standard data-behind:opacity-0 data-expanded:opacity-100",
         className
       )}
       {...props}
@@ -93,7 +95,7 @@ function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
   return (
     <ToastPrimitive.Title
       data-slot="toast-title"
-      className={cn("text-body font-semibold text-ink", className)}
+      className={cn("text-ui font-semibold text-ink-on-charcoal", className)}
       {...props}
     />
   )
@@ -106,26 +108,29 @@ function ToastDescription({
   return (
     <ToastPrimitive.Description
       data-slot="toast-description"
-      className={cn("text-body text-ink-muted", className)}
+      className={cn("text-ui text-ink-muted-on-charcoal", className)}
       {...props}
     />
   )
 }
 
 /**
- * A plain (borderless) action in accent ink. One action per toast: a toast
- * that needs a menu is a dialog.
+ * An underlined text action in the on-charcoal ink (reference `.toast
+ * button`). One action per toast: a toast that needs a menu is a dialog.
  */
 function ToastAction({
   className,
-  render = <Button variant="ghost" size="sm" />,
+  render = <button type="button" />,
   ...props
 }: ToastPrimitive.Action.Props) {
   return (
     <ToastPrimitive.Action
       data-slot="toast-action"
       render={render}
-      className={cn("shrink-0 text-accent-ink", className)}
+      className={cn(
+        "relative shrink-0 self-center rounded-(--np-radius-tag) text-ui font-semibold text-ink-on-charcoal underline underline-offset-3 after:absolute after:-inset-2 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-on-charcoal",
+        className
+      )}
       {...props}
     />
   )
@@ -143,7 +148,7 @@ function ToastClose({
       aria-label="Close toast"
       render={render}
       className={cn(
-        "relative shrink-0 text-ink-muted after:absolute after:-inset-2 after:content-[''] hover:text-ink [&_svg]:[stroke-width:1.75]",
+        "relative -my-1 -mr-1.5 size-7 shrink-0 text-ink-muted-on-charcoal after:absolute after:-inset-2 after:content-[''] hover:bg-ink-on-charcoal/10 hover:text-ink-on-charcoal focus-visible:shadow-none focus-visible:outline-2 focus-visible:outline-ink-on-charcoal pointer-coarse:size-7 [&_svg]:[stroke-width:1.75]",
         className
       )}
       {...props}
@@ -154,32 +159,32 @@ function ToastClose({
 }
 
 /**
- * The leading status glyph, in the status family's ink so it reads against
- * the material in both themes. Loading uses a spinner in muted ink: it is
- * not a status, it is the absence of one.
+ * The leading status glyph in the family's SOLID step, which reads on the
+ * charcoal in both themes (reference `.toast-icon`). Loading uses a spinner
+ * in the muted on-charcoal ink: it is not a status, it is the absence of one.
  */
 function ToastIcon({ type }: { type: string | undefined }) {
   let icon: React.ReactNode = null
 
   if (type === "success") {
-    icon = <CircleCheckIcon className="text-success-ink" aria-hidden="true" />
+    icon = <CircleCheckIcon className="text-success-solid" aria-hidden="true" />
   }
 
   if (type === "info") {
-    icon = <InfoIcon className="text-info-ink" aria-hidden="true" />
+    icon = <InfoIcon className="text-info-solid" aria-hidden="true" />
   }
 
   if (type === "warning") {
-    icon = <TriangleAlertIcon className="text-warning-ink" aria-hidden="true" />
+    icon = <TriangleAlertIcon className="text-warning-solid" aria-hidden="true" />
   }
 
   if (type === "error") {
-    icon = <OctagonXIcon className="text-danger-ink" aria-hidden="true" />
+    icon = <OctagonXIcon className="text-danger-solid" aria-hidden="true" />
   }
 
   if (type === "loading") {
     icon = (
-      <Loader2Icon className="animate-spin text-ink-muted" aria-hidden="true" />
+      <Loader2Icon className="animate-spin text-ink-muted-on-charcoal" aria-hidden="true" />
     )
   }
 
@@ -190,7 +195,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   return (
     <span
       data-slot="toast-icon"
-      className="shrink-0 [&_svg]:pointer-events-none [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
+      className="mt-0.5 shrink-0 [&_svg]:pointer-events-none [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
     >
       {icon}
     </span>
@@ -201,7 +206,12 @@ function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager()
 
   return toasts.map((toastItem) => (
-    <Toast key={toastItem.id} toast={toastItem}>
+    // Up dismisses a phone's top toast, down a desktop's bottom one.
+    <Toast
+      key={toastItem.id}
+      toast={toastItem}
+      swipeDirection={["up", "down", "right"]}
+    >
       <ToastContent>
         <ToastIcon type={toastItem.type} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -552,13 +552,24 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Reports", level: 1 })
         ).toBeVisible()
-        await expect(
-          page.getByRole("columnheader", { name: "Response rate" })
-        ).toBeVisible()
+        // Below 720px of container width the table is a responsive one
+        // (components/ui/table.tsx): the header row hides and every cell
+        // carries its column name as a label, so the column header is only
+        // asserted where it is drawn.
+        if (viewport.name === "desktop") {
+          await expect(
+            page.getByRole("columnheader", { name: "Response rate" })
+          ).toBeVisible()
+        }
         const locationRow = page
           .getByRole("row")
           .filter({ hasText: state.directReview.locationName })
         await expect(locationRow).toBeVisible()
+        if (viewport.name === "mobile") {
+          await expect(
+            locationRow.locator('td[data-label="Response rate"]')
+          ).toBeVisible()
+        }
         await expectAccessible(page, `${viewport.name} ${theme} reports`)
       })
 
@@ -572,9 +583,18 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
-        await expect(
-          page.getByRole("columnheader", { name: "Listing" })
-        ).toBeVisible()
+        // The board's table is responsive (components/ui/table.tsx): below
+        // 720px of container width the header row hides and each cell is
+        // labelled with its column name instead.
+        if (viewport.name === "desktop") {
+          await expect(
+            page.getByRole("columnheader", { name: "Listing" })
+          ).toBeVisible()
+        } else {
+          await expect(
+            page.locator('td[data-label="Listing"]').first()
+          ).toBeVisible()
+        }
         await expect(
           page.getByRole("link", { name: state.directReview.locationName })
         ).toBeVisible()
@@ -992,10 +1012,10 @@ for (const theme of themes) {
         await expect(
           selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
         ).toBeVisible()
+        // The customer's words are a quote card beside the live reply.
         await expect(
-          selectedReview.getByRole("heading", {
-            name: "Customer review",
-            level: 3,
+          selectedReview.getByRole("article", {
+            name: "Review from Jordan Lee",
           })
         ).toBeVisible()
 
@@ -1018,10 +1038,12 @@ for (const theme of themes) {
             level: 3,
           })
         ).toBeVisible()
+        // The live-reply card and the composer summary both show the words;
+        // the composer's copy is the one this asserts on.
         await expect(
-          selectedReview.getByText(
-            "Thank you for your thoughtful review, Jordan."
-          )
+          selectedReview
+            .getByRole("region", { name: "Published reply" })
+            .getByText("Thank you for your thoughtful review, Jordan.")
         ).toBeVisible()
         // What must stay absent is LiveReplyDisclosure's toggle: that section
         // shows Google's copy only when it disagrees with what the composer
@@ -1058,13 +1080,18 @@ for (const theme of themes) {
           selectedReview.getByRole("button", { name: "Regenerate" })
         ).toBeVisible()
         await expect(
-          selectedReview.getByRole("combobox", { name: "Reply tone" })
+          selectedReview.getByRole("radiogroup", { name: "Reply tone" })
         ).toBeVisible()
-        // A clean pass is one line in the label row, not a bordered card, so
-        // there is no Verification heading unless something is wrong.
+        // Verification is four check cards and a verdict line, always on the
+        // page, so "can I publish?" is answered before the composer. The h3
+        // is the bare word; the verdict is the caption beside it.
         await expect(
-          selectedReview.getByRole("heading", { name: "Verification" })
-        ).toBeHidden()
+          selectedReview.getByRole("heading", {
+            name: "Verification",
+            level: 3,
+            exact: true,
+          })
+        ).toBeVisible()
 
         // "Publish" is the wrong verb once a reply is live, and re-sending
         // identical text is a no-op the domain has no transition for — so the
@@ -1081,7 +1108,7 @@ for (const theme of themes) {
           selectedReview.getByRole("button", { name: "Review actions" })
         ).toBeVisible()
         await expect(
-          selectedReview.getByRole("heading", { name: "Activity" })
+          selectedReview.getByRole("heading", { name: /^Activity/ })
         ).toBeVisible()
         await page.waitForTimeout(500)
         await expectAccessible(
@@ -1132,7 +1159,7 @@ for (const theme of themes) {
         await mockReviewWorkspace(page, { disconnected: true })
         await page.goto("/inbox")
         await expect(
-          page.getByText("Google is not connected", { exact: true })
+          page.getByText("Google is not connected.", { exact: true })
         ).toBeVisible()
         await expect(
           page.getByText(
@@ -1342,7 +1369,7 @@ for (const theme of themes) {
         // guidance") don't exist on any current card.
         await expect(
           page.getByRole("heading", {
-            name: "Google account",
+            name: "Google accounts",
             level: 2,
             exact: true,
           })
@@ -1350,15 +1377,13 @@ for (const theme of themes) {
         // Choosing accounts, importing locations and backfilling history all
         // moved to /setup, where they run in order against a named client.
         // What is left here is the account-level view: what is connected, who
-        // depends on it, and how to start a client.
+        // depends on it (a "Clients it serves" column, which becomes a row
+        // label on a phone), and how to start a client.
         await expect(
           page.getByRole("heading", {
-            name: "Who depends on each account",
+            name: "Real-time notifications",
             level: 2,
           })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Google notifications", level: 2 })
         ).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Setting up a client", level: 2 })
@@ -1467,8 +1492,10 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
+        // Role changes moved into the row's actions menu (a dialog with
+        // role cards), so the row carries one menu button per member.
         await expect(
-          page.getByRole("combobox", { name: "Role for Alex Morgan" })
+          page.getByRole("button", { name: "Actions for Alex Morgan" })
         ).toBeVisible()
         await expect(
           page.getByRole("button", {

@@ -21,6 +21,13 @@ export type DataTableColumn<Row> = {
   className?: string
   /** Right-aligned with tabular figures: counts, ratings, money. */
   numeric?: boolean
+  /**
+   * The column name shown above each value in responsive labelled rows.
+   * Defaults to `header` when that is a string. Pass `""` for none.
+   */
+  label?: string
+  /** Take the whole row in responsive labelled rows. */
+  span?: boolean
 }
 
 type DataTableProps<Row> = {
@@ -46,6 +53,11 @@ type DataTableProps<Row> = {
    * Leave off when the table already sits inside a panel or an inset group.
    */
   surface?: boolean
+  /**
+   * Become labelled rows below 720px of the table's own width (reference
+   * `.table.responsive`). See `Table`.
+   */
+  responsive?: boolean
   className?: string
 }
 
@@ -72,6 +84,7 @@ function DataTable<Row>({
   stickyHeader = false,
   empty,
   surface = false,
+  responsive = false,
   className,
 }: DataTableProps<Row>) {
   const ids = rows.map(rowId)
@@ -105,12 +118,12 @@ function DataTable<Row>({
       {/* The card ground belongs to Table's scroll container, not to a box
           around it: a wide table then scrolls inside its own card instead of
           sliding out from under one. */}
-      <Table surface={surface}>
+      <Table surface={surface} responsive={responsive}>
         <caption className="sr-only">{caption}</caption>
         <TableHeader sticky={stickyHeader}>
           <TableRow>
             {selection ? (
-              <TableHead className="w-10 pr-0">
+              <TableHead className="w-11 pr-0">
                 <Checkbox
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
@@ -161,7 +174,7 @@ function DataTable<Row>({
               >
                 {selection ? (
                   <TableCell
-                    className="w-10 pr-0"
+                    className="w-11 pr-0"
                     // Stops a checkbox click from also triggering the row's
                     // own navigation.
                     onClick={(event) => event.stopPropagation()}
@@ -177,6 +190,13 @@ function DataTable<Row>({
                   <TableCell
                     key={column.id}
                     numeric={column.numeric}
+                    label={
+                      column.label ??
+                      (typeof column.header === "string"
+                        ? column.header
+                        : undefined)
+                    }
+                    span={column.span}
                     className={column.className}
                   >
                     {column.cell(row)}

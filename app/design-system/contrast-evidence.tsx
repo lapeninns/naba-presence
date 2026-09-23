@@ -123,7 +123,7 @@ export async function ContrastEvidence() {
       {THEMES.map((theme) => (
         <details
           key={theme}
-          className="rounded-(--np-radius-card) bg-surface"
+          className="rounded-(--np-radius-card) border border-line bg-surface"
           open={report.failures.some((row) => row.theme === theme)}
         >
           <summary className="cursor-default rounded-(--np-radius-card) px-(--np-card-pad) py-3 text-ui font-medium text-ink focus-halo select-none">

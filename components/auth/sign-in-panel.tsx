@@ -3,8 +3,8 @@
 import { useState } from "react"
 
 import { AuthCard } from "@/components/auth/auth-card"
-import { AuthLink } from "@/components/auth/auth-link"
 import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { AuthMessage } from "@/lib/api/auth-errors"
 
 const COPY = {
@@ -43,10 +43,19 @@ function SignInPanel({
       eyebrow={copy.eyebrow}
       title={copy.title}
       description={copy.description}
-      footer={
-        <AuthLink href="/forgot-password">Forgot your password?</AuthLink>
-      }
+      footer={<p>Access is by invitation or a new agency account.</p>}
     >
+      {/* Signing in with an invitation token accepts it, so say so, but only
+          when no confirmation-link status is already explaining the page. */}
+      {inviteToken && !statusMessage ? (
+        <Alert variant="info">
+          <AlertTitle>Sign in to accept your invitation</AlertTitle>
+          <AlertDescription>
+            Use the email address the invitation was sent to. You’ll join the
+            agency straight after.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <SignInForm
         mode={mode}
         onModeChange={setMode}

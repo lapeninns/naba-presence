@@ -129,7 +129,12 @@ describe("ListingsBoard", () => {
       summaries: entries.map((entry) => summary({ locationId: entry.id })),
     })
     render(<ListingsBoard role="owner" />)
-    const rows = screen.getAllByRole("row").slice(1)
+    // Row 0 is the header; group rows ("Not filed under a client · 1") carry
+    // no link, so skip them to reach the first listing.
+    const rows = screen
+      .getAllByRole("row")
+      .slice(1)
+      .filter((row) => !row.hasAttribute("data-group"))
     expect(
       within(rows[0]).getByRole("link", { name: "Pier Cafe" })
     ).toBeInTheDocument()
@@ -193,7 +198,7 @@ describe("ListingsBoard", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Harbour Kitchen/ })
     )
-    await userEvent.click(screen.getByRole("tab", { name: "To publish" }))
+    await userEvent.click(screen.getByRole("tab", { name: /^To publish/ }))
     expect(
       screen.getByRole("link", { name: "Old Crown Girton" })
     ).toBeInTheDocument()
@@ -218,5 +223,42 @@ describe("ListingsBoard", () => {
     expect(
       screen.getByRole("link", { name: /Add listings from Google/ })
     ).toHaveAttribute("href", "/setup")
+  })
+
+  it("says the board failed to load and offers a retry, rather than a partial board", async () => {
+    const refetch = vi.fn()
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      refetch,
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    vi.spyOn(clientsHook, "useClients").mockReturnValue({
+      data: { items: [], unassignedLocationCount: 0 },
+      isPending: false,
+    } as unknown as ReturnType<typeof clientsHook.useClients>)
+    vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as UseQueryResult<ListingSummary[]>)
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("heading", { name: "We couldn’t load your listings" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("table")).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: /Try again/ }))
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  it("keeps each row's health while the summaries are still loading", () => {
+    stub({ entries, summaries: [] })
+    vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as UseQueryResult<ListingSummary[]>)
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByText("Checking each listing…")).toBeInTheDocument()
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    expect(within(crown).getByText("In sync")).toBeInTheDocument()
   })
 })

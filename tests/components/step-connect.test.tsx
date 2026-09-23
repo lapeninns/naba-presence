@@ -10,6 +10,10 @@ const attachMock = vi.fn()
 vi.mock("@/lib/queries/use-connection-workspace", () => ({
   useConnectionWorkspace: () => workspaceMock(),
 }))
+// The step also reads the OAuth callback's `?google=` result from the URL.
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+}))
 vi.mock("@/lib/queries/use-clients", () => ({
   useClientMutations: () => ({
     attachConnection: { mutate: attachMock, isPending: false, variables: undefined },

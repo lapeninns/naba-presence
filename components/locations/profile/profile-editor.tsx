@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
@@ -11,8 +12,26 @@ import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import type { ChangeRow } from "@/components/editors/change-diff"
 import { LocationTab } from "@/components/locations/location-tab"
 import { AttributesSection } from "@/components/locations/profile/sections/attributes-section"
-import { ContactSection } from "@/components/locations/profile/sections/contact-section"
-import { IdentitySection } from "@/components/locations/profile/sections/identity-section"
+import {
+  AddressSection,
+  ContactSection,
+  DescriptionSection,
+  OpeningSection,
+} from "@/components/locations/profile/sections/contact-section"
+import {
+  CategoriesSection,
+  IdentitySection,
+  PROFILE_FIELD_IDS,
+} from "@/components/locations/profile/sections/identity-section"
+import { Field, FieldLabel } from "@/components/ui/field"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { ValidationSummary } from "@/components/ui/validation-summary"
 import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
 import { ApiClientError } from "@/lib/api/client"
 import {
@@ -30,8 +49,13 @@ import {
   type ProfileState,
 } from "@/lib/api/location-profile"
 import { businessInformationPayloadSchema } from "@/lib/domain/business-information"
+import { editorGate } from "@/lib/editors/gate"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
-import { usePublishFlow, type PublishStep } from "@/lib/editors/use-publish-flow"
+import {
+  NOTHING_TO_SEND,
+  usePublishFlow,
+  type PublishStep,
+} from "@/lib/editors/use-publish-flow"
 import {
   buildAttributesUpdate,
   buildLocationUpdate,
@@ -49,7 +73,9 @@ import {
   describeAttributeValue,
   locationDiffRows,
 } from "@/lib/locations/google-values"
+import type { LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import {
   useProfileEditor,
   type ProfileEditorState,
@@ -68,6 +94,14 @@ const FIELD_LABELS: Record<ProfileFieldKey, string> = {
 const EDITABLE: ProfileFieldKey[] = ["name", "description", "phone", "website"]
 
 type FieldErrors = Partial<Record<keyof ProfileFormValues, string>>
+
+/** The schema's messages are generic; say what to do instead. */
+const FIELD_MESSAGES: Partial<Record<keyof ProfileFormValues, string>> = {
+  name: "Keep the name under 255 characters.",
+  description: "Google allows 750 characters. Shorten the description.",
+  phone: "Keep the phone number under 50 characters.",
+  website: "Enter a full web address starting with https://",
+}
 
 // Server zod errors on the PUT body arrive under path ["values", <field>]; map
 // them back to form fields (mirrors lib/api/auth-errors.ts fieldErrorsFrom,
@@ -121,6 +155,7 @@ export function ProfileTab({ locationId }: { locationId: string }) {
           key={data.profile.canonicalResource.revision}
           locationId={locationId}
           state={data}
+          caps={caps}
           // Editors stay disabled (without a reason) until the role is known,
           // so a member never sees a briefly-enabled field.
           disabled={!caps || editReason !== null}
@@ -135,12 +170,14 @@ export function ProfileTab({ locationId }: { locationId: string }) {
 function ProfileEditor({
   locationId,
   state,
+  caps,
   disabled,
   editReason,
   publishReason,
 }: {
   locationId: string
   state: ProfileEditorState
+  caps: LocationCapabilities | undefined
   disabled: boolean
   editReason: string | null
   publishReason: string | null
@@ -292,6 +329,7 @@ function ProfileEditor({
     if (valuesDirty) {
       list.push({
         key: "save",
+        kind: "local",
         label: "Save the details in NabaPresence",
         run: async () => {
           const parsed = profileFormSchema.parse(values)
@@ -318,12 +356,13 @@ function ProfileEditor({
         const fresh = saved.current ?? profile
         const fields = fresh.fields
           .filter(
-            (field) => EDITABLE.includes(field.key) && field.status !== "in_sync"
+            (field) =>
+              EDITABLE.includes(field.key) && field.status !== "in_sync"
           )
           .map((field) => field.key)
         listingAfterProfile.current = null
         // Nothing drifted: the NabaPresence copy already matches Google.
-        if (fields.length === 0) return
+        if (fields.length === 0) return NOTHING_TO_SEND
         await runProfileOperation(locationId, {
           direction: "to_google",
           confirmation: "publish_nabapresence_profile_to_google",
@@ -389,19 +428,62 @@ function ProfileEditor({
     onSuccess: () => setReviewOpen(false),
   })
 
-  function review() {
+  const [discardOpen, setDiscardOpen] = useState(false)
+  // Validation shows after the first save or review attempt, then follows
+  // every edit so a fixed field clears its message straight away.
+  const [attempts, setAttempts] = useState(0)
+
+  const save = useResourceMutation({
+    mutationFn: () =>
+      saveProfile(locationId, {
+        expectedCanonicalRevision: revision,
+        values: toProfileValues(profileFormSchema.parse(values)),
+      }),
+    invalidate: [queryKeys.locationProfile(locationId)],
+    successToast: "Saved here. Not on Google until you publish.",
+    onError: (cause) => {
+      const fields = serverFieldErrors(cause)
+      if (Object.keys(fields).length > 0) setErrors(fields)
+    },
+  })
+
+  /** Every problem in the draft, in page order, each tied to a field. */
+  const issues = useMemo(() => {
+    const out: { fieldId: string; message: string }[] = []
     const parsed = profileFormSchema.safeParse(values)
+    const clientErrors: FieldErrors = {}
     if (!parsed.success) {
-      const next: FieldErrors = {}
       for (const issue of parsed.error.issues) {
         const key = issue.path[0]
-        if (typeof key === "string")
-          next[key as keyof ProfileFormValues] = issue.message
+        if (typeof key === "string" && !(key in clientErrors))
+          clientErrors[key as keyof ProfileFormValues] =
+            FIELD_MESSAGES[key as keyof ProfileFormValues] ?? issue.message
       }
-      setErrors(next)
-      return
     }
-    setErrors({})
+    for (const key of ["name", "phone", "website", "description"] as const) {
+      const message = clientErrors[key]
+      if (message)
+        out.push({
+          fieldId: PROFILE_FIELD_IDS[key],
+          message: `${FIELD_LABELS[key]}: ${message}`,
+        })
+    }
+    if (listingIssues.addressLines)
+      out.push({
+        fieldId: PROFILE_FIELD_IDS.address,
+        message: `Address: ${listingIssues.addressLines}`,
+      })
+    return { list: out, clientErrors }
+  }, [values, listingIssues])
+
+  function check() {
+    setAttempts((count) => count + 1)
+    setErrors(issues.clientErrors)
+    return issues.list.length === 0
+  }
+
+  function review() {
+    if (!check()) return
     flow.reset()
     setReviewOpen(true)
   }
@@ -410,8 +492,7 @@ function ProfileEditor({
   // Until Google's half of the listing is in, `rows` can only hold the four
   // NabaPresence fields, so an empty `rows` does NOT mean the listing matches:
   // categories, address, open status and every attribute are simply unfetched.
-  // Claiming "in sync" here is worse than saying nothing — the page asserts
-  // everything is fine and then silently grows by seven controls.
+  // Claiming "in sync" here is worse than saying nothing.
   const googleReady = business !== null
   const settled = googleReady && rows.length === 0
   const blocked =
@@ -431,29 +512,123 @@ function ProfileEditor({
     ? presentUnsupportedLeaves(business.location)
     : []
   const industry = industryCapability(business?.location)
+  const gate = editorGate({
+    caps,
+    resource: "businessInformation",
+    editReason,
+    publishReason: editReason ? null : publishReason,
+    noun: "this profile",
+    savesHere: true,
+  })
+
+  // Per-field "Changed" marks: what differs from Google right now.
+  const googleOf = (key: ProfileFieldKey) =>
+    profile.fields.find((field) => field.key === key)?.googleValue ?? ""
+  const differs = (a: unknown, b: unknown) =>
+    JSON.stringify(a) !== JSON.stringify(b)
+  const changed = {
+    name: values.name !== googleOf("name"),
+    description: values.description !== googleOf("description"),
+    phone: values.phone !== googleOf("phone"),
+    website: values.website !== googleOf("website"),
+    storeCode: googleReady && listing.storeCode !== initialListing.storeCode,
+    labels: googleReady && differs(listing.labels, initialListing.labels),
+    primary:
+      googleReady &&
+      differs(
+        listing.primaryCategory?.name,
+        initialListing.primaryCategory?.name
+      ),
+    additional:
+      googleReady &&
+      differs(
+        listing.additionalCategories.map((c) => c.name),
+        initialListing.additionalCategories.map((c) => c.name)
+      ),
+    lines:
+      googleReady && differs(listing.addressLines, initialListing.addressLines),
+    locality: googleReady && listing.locality !== initialListing.locality,
+    postalCode: googleReady && listing.postalCode !== initialListing.postalCode,
+    opening: googleReady && listing.openStatus !== initialListing.openStatus,
+    attributes: attributesUpdate.attributeMask.length > 0,
+  }
+  const sections = [
+    {
+      id: "section-identity",
+      label: "Identity",
+      changed: changed.name || changed.storeCode || changed.labels,
+      show: true,
+    },
+    {
+      id: "section-categories",
+      label: "Categories",
+      changed: changed.primary || changed.additional,
+      show: googleReady,
+    },
+    {
+      id: "section-contact",
+      label: "Contact",
+      changed: changed.phone || changed.website,
+      show: true,
+    },
+    {
+      id: "section-address",
+      label: "Address",
+      changed: changed.lines || changed.locality || changed.postalCode,
+      show: googleReady,
+    },
+    {
+      id: "section-description",
+      label: "Description",
+      changed: changed.description,
+      show: true,
+    },
+    {
+      id: "section-opening",
+      label: "Opening state",
+      changed: changed.opening,
+      show: googleReady,
+    },
+    {
+      id: "section-attributes",
+      label: "Attributes",
+      changed: changed.attributes,
+      show: (business?.attributeMetadata.length ?? 0) > 0,
+    },
+  ].filter((section) => section.show)
+
+  const saveReason =
+    editReason ??
+    (listingDirty || attributesDirty
+      ? "Categories, address, status and attributes can’t be saved here. Publish or discard them first."
+      : null)
 
   return (
     <EditorFrame
       title="Business profile"
-      description="The name, categories, contact details and attributes customers see on Google."
-      statusLabel={settled ? "In sync with Google" : undefined}
-      tone="healthy"
-      gateReason={editReason}
+      titleHidden
+      // The frame is a container so the footer can follow the same 900px
+      // switch as the section index below: from there the dark bar starts
+      // at the form column (12.5rem index + gap-6), as in the reference.
+      className="@container/profile-frame"
       footer={
         <EditorFooter
-          status={
-            settled ? "in_sync" : needsAck ? "conflict" : "edited"
-          }
+          className="@[900px]/profile-frame:ml-[calc(12.5rem+1.5rem)]"
+          status={settled ? "in_sync" : needsAck ? "conflict" : "edited"}
           isDirty={rows.length > 0}
           canDiscard={isDirty}
+          changeCount={rows.length}
           onReview={review}
-          onDiscard={() => {
-            discardValues()
-            discardListing()
-            discardAttributes()
-            setErrors({})
+          onDiscard={() => setDiscardOpen(true)}
+          onSave={() => {
+            if (check()) save.mutate()
           }}
+          saving={save.isPending}
+          saveDisabledReason={saveReason}
           disabledReason={blocked}
+          // A role that can't edit gets the one view-only bar, not a row
+          // of disabled buttons.
+          readOnlyReason={editReason}
           hint={
             googleReady
               ? "Everything on this page matches Google."
@@ -462,82 +637,167 @@ function ProfileEditor({
         />
       }
     >
-      <IdentitySection
-        locationId={locationId}
-        values={values}
-        setValues={setValues}
-        draft={listing}
-        setDraft={setListing}
-        errors={errors}
-        issues={listingIssues}
-        disabled={disabled}
-        googleReady={googleReady}
-      />
-
-      <ContactSection
-        values={values}
-        setValues={setValues}
-        draft={listing}
-        setDraft={setListing}
-        errors={errors}
-        issues={listingIssues}
-        disabled={disabled}
-        googleReady={googleReady}
-      />
-
-      {state.businessPending ? (
-        // Named, not just "loading": the fields below are about to appear and
-        // push the footer down the page, so the operator should know that is
-        // coming rather than watch the page move under them.
-        <p
-          role="status"
-          className="flex items-center gap-2 text-ui text-ink-muted"
-        >
-          <Spinner decorative size="sm" className="shrink-0" />
-          Reading categories, address and attributes from Google…
-        </p>
-      ) : null}
-
-      {state.businessError ? (
+      {gate ? (
         <CapabilityBanner
-          tone="info"
-          title="We couldn't read this listing from Google"
-          description="The name, description, phone and website above are what NabaPresence holds, and you can still edit them. Categories, address and attributes need Google, so they're hidden until it answers."
+          tone={gate.tone}
+          title={gate.title}
+          description={gate.description}
+          code={gate.code}
         />
       ) : null}
 
-      {/* Lodging, calls and healthcare publish through their own Google APIs
-          with their own hashes, so they keep their own controls rather than
-          pretending to be part of the listing write above.
-
-          Mounted only when Google says this listing can actually have that
-          data: the group costs seven paced Google calls, and for an ordinary
-          business every one of them fails and it renders nothing. */}
-      {industry.any ? (
-        <IndustrySections locationId={locationId} enabled={googleReady} />
+      {!gate && needsAck ? (
+        <CapabilityBanner
+          tone="warning"
+          title="Google changed this profile since NabaPresence last saved it"
+          description="Review changes shows both versions of each field; publishing replaces Google’s."
+        />
       ) : null}
 
-      <AttributesSection
-        metadata={business?.attributeMetadata ?? []}
-        draft={attributes}
-        onChange={(next) =>
-          setAttributes((prev) => ({ ...prev, [next.name]: next }))
-        }
-        disabled={disabled}
+      <div className="@container/profile">
+        <div className="grid grid-cols-1 items-start gap-6 @[900px]/profile:grid-cols-[12.5rem_minmax(0,1fr)]">
+          <SectionIndex sections={sections} />
+
+          <div className="@container/profile-body flex min-w-0 flex-col gap-5">
+            <SectionJump sections={sections} />
+
+            <ValidationSummary
+              errors={attempts > 0 ? issues.list : []}
+              focusKey={attempts}
+            />
+
+            <IdentitySection
+              values={values}
+              setValues={setValues}
+              draft={listing}
+              setDraft={setListing}
+              errors={errors}
+              disabled={disabled}
+              googleReady={googleReady}
+              changed={changed}
+            />
+
+            {googleReady ? (
+              <CategoriesSection
+                locationId={locationId}
+                draft={listing}
+                setDraft={setListing}
+                disabled={disabled}
+                changed={changed}
+              />
+            ) : null}
+
+            <ContactSection
+              values={values}
+              setValues={setValues}
+              errors={errors}
+              disabled={disabled}
+              changed={changed}
+            />
+
+            {googleReady ? (
+              <AddressSection
+                draft={listing}
+                setDraft={setListing}
+                issues={listingIssues}
+                disabled={disabled}
+                changed={changed}
+              />
+            ) : null}
+
+            <DescriptionSection
+              values={values}
+              setValues={setValues}
+              errors={errors}
+              disabled={disabled}
+              changed={changed.description}
+            />
+
+            {state.businessPending ? (
+              // Named, not just "loading": the sections below are about to
+              // appear and push the footer down the page, so the operator
+              // should know that is coming rather than watch the page move.
+              <p
+                role="status"
+                className="flex items-center gap-2 text-ui text-ink-muted"
+              >
+                <Spinner decorative size="sm" className="shrink-0" />
+                Reading categories, address and attributes from Google…
+              </p>
+            ) : null}
+
+            {state.businessError ? (
+              <CapabilityBanner
+                tone="info"
+                title="We couldn't read this listing from Google"
+                description="The name, description, phone and website above are what NabaPresence holds, and you can still edit them. Categories, address and attributes need Google, so they're hidden until it answers."
+              />
+            ) : null}
+
+            {googleReady ? (
+              <OpeningSection
+                locationId={locationId}
+                draft={listing}
+                setDraft={setListing}
+                issues={listingIssues}
+                disabled={disabled}
+                changed={changed.opening}
+              />
+            ) : null}
+
+            <AttributesSection
+              metadata={business?.attributeMetadata ?? []}
+              draft={attributes}
+              initial={initialAttributes}
+              onChange={(next) =>
+                setAttributes((prev) => ({ ...prev, [next.name]: next }))
+              }
+              onClear={(name) =>
+                setAttributes((prev) => {
+                  const next = { ...prev }
+                  delete next[name]
+                  return next
+                })
+              }
+              disabled={disabled}
+            />
+
+            {/* Lodging, calls and healthcare publish through their own Google
+                APIs with their own hashes, so they keep their own controls
+                (Business calls publishes on its own) rather than pretending to
+                be part of the listing write above. Mounted only when Google
+                says this listing can have that data. */}
+            {industry.any ? (
+              <IndustrySections locationId={locationId} enabled={googleReady} />
+            ) : null}
+
+            {unsupported.length > 0 ? (
+              <section className="flex flex-col gap-1 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
+                <h3 className="text-ui font-semibold text-ink">
+                  Other Google details
+                </h3>
+                <p className="text-ui text-ink-muted">
+                  Google holds more on this listing than NabaPresence can edit
+                  yet: {unsupported.map(({ label }) => label).join(", ")}.
+                  Change those in Google directly.
+                </p>
+              </section>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <DiscardDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        onConfirm={() => {
+          discardValues()
+          discardListing()
+          discardAttributes()
+          setErrors({})
+          setAttempts(0)
+        }}
       />
-
-      {unsupported.length > 0 ? (
-        <section className="flex max-w-2xl flex-col gap-1 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-          <h3 className="text-title font-semibold text-ink">
-            Other Google details
-          </h3>
-          <p className="text-ui text-ink-muted">
-            Google holds more on this listing than NabaPresence can edit yet:{" "}
-            {unsupported.map(({ label }) => label).join(", ")}. Change those in
-            Google directly.
-          </p>
-        </section>
-      ) : null}
 
       <ReviewChangesSheet
         open={reviewOpen}
@@ -548,7 +808,95 @@ function ProfileEditor({
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
+        publishDisabledReason={publishReason}
       />
     </EditorFrame>
+  )
+}
+
+type IndexSection = { id: string; label: string; changed: boolean }
+
+function jumpTo(id: string) {
+  const section = document.getElementById(id)
+  if (!section) return
+  section.scrollIntoView({ block: "start" })
+  document.getElementById(`${id}-heading`)?.focus({ preventScroll: true })
+}
+
+/** The sticky section index beside the form on a wide container. */
+function SectionIndex({ sections }: { sections: IndexSection[] }) {
+  const [current, setCurrent] = useState<string | null>(null)
+  return (
+    <nav
+      aria-label="Profile sections"
+      className="sticky top-0 hidden @[900px]/profile:block"
+    >
+      <ol className="flex flex-col gap-0.5">
+        {sections.map((section) => (
+          <li key={section.id}>
+            <a
+              href={`#${section.id}`}
+              aria-current={current === section.id ? "true" : undefined}
+              onClick={(event) => {
+                event.preventDefault()
+                setCurrent(section.id)
+                jumpTo(section.id)
+              }}
+              className="relative flex min-h-8 items-center gap-2 rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill hover:text-ink aria-[current=true]:bg-accent-tint aria-[current=true]:font-semibold aria-[current=true]:text-accent-ink"
+            >
+              {section.label}
+              {section.changed ? (
+                <>
+                  <span
+                    aria-hidden
+                    className="ml-auto size-1.5 rounded-full bg-info-solid"
+                  />
+                  <span className="sr-only"> (changed)</span>
+                </>
+              ) : null}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
+/** "Jump to section" on a narrow container, where the index would crowd the form. */
+function SectionJump({ sections }: { sections: IndexSection[] }) {
+  // Jump once the list has closed: closing hands focus back to the trigger,
+  // which scrolled the page straight back up to this select and left focus
+  // on it instead of on the section's heading.
+  const pending = useRef<string | null>(null)
+  return (
+    <div className="@[900px]/profile:hidden">
+      <Field>
+        <FieldLabel>Jump to section</FieldLabel>
+        <Select
+          value={null}
+          onValueChange={(value: string | null) => {
+            pending.current = value
+          }}
+          onOpenChangeComplete={(open) => {
+            if (open || !pending.current) return
+            const id = pending.current
+            pending.current = null
+            jumpTo(id)
+          }}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Choose a section" />
+          </SelectTrigger>
+          <SelectContent>
+            {sections.map((section) => (
+              <SelectItem key={section.id} value={section.id}>
+                {section.label}
+                {section.changed ? " · changed" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+    </div>
   )
 }

@@ -1,21 +1,27 @@
 "use client"
 
 import {
+  BarChart3,
   Building2,
+  ChevronDown,
   ChevronRight,
   Inbox,
   Settings,
   Store,
-  TrendingUp,
   Users,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
-import { StatusPill } from "@/components/ui/status-pill"
-import { healthTone } from "@/lib/clients/health"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { healthLabel, healthTone } from "@/lib/clients/health"
 import type { ClientHealth } from "@/lib/clients/health"
+import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
@@ -30,13 +36,13 @@ const NAV_ITEMS = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/listings", label: "Listings", icon: Store },
   { href: "/clients", label: "Clients", icon: Building2 },
-  { href: "/reports", label: "Reports", icon: TrendingUp },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
 ] as const
 
 /**
  * Team and Settings are organisation admin, visited to change who may do
  * what rather than to do it. They sit behind one disclosure row so the
- * primary list stays three items long, and the disclosure opens itself
+ * primary list stays four items long, and the disclosure opens itself
  * whenever one of them is the current page.
  */
 const MORE_ITEMS = [
@@ -50,6 +56,13 @@ const MAX_PINNED_CLIENTS = 6
 const MORE_STORAGE_KEY = "np.nav.more"
 
 export type NavClient = { id: string; name: string; health: ClientHealth }
+
+/**
+ * `responsive` is the persistent column: a 240px sidebar above 1180px and a
+ * 64px icon rail from 768 to 1180, drawn by the same markup so the two never
+ * disagree. `full` always shows labels; the mobile sheet uses it.
+ */
+type NavLayout = "full" | "responsive"
 
 function isActivePath(pathname: string | null, href: string) {
   if (!pathname) return false
@@ -66,19 +79,31 @@ function isMoreActive(pathname: string | null) {
 }
 
 /**
- * The sidebar row: a selection pill when current, a soft grey on hover, and a
- * spring on press. Shared by the destinations, the More disclosure and the
- * pinned clients so the three never drift apart in shape.
+ * The sidebar row: an accent tint and a 3px accent bar when current (so the
+ * current page reads in greyscale and forced colours too), a grey fill on
+ * hover. Shared by the destinations and the More disclosure so they never
+ * drift apart in shape. 34px where a cursor drives it, 44px on touch and in
+ * the phone sheet.
  */
-const NAV_ROW_CLASS = cn(
-  "flex w-full items-center gap-2.5 rounded-(--np-radius-control) px-2.5 text-ui font-medium",
-  "transition duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.98]",
-  "focus-halo focus-visible:outline-none",
-  // 32px where a cursor drives the persistent sidebar, the 44px comfortable
-  // target wherever the pointer is a finger — which is the same rows,
-  // reached through the mobile navigation sheet.
-  "h-8 pointer-coarse:h-11"
-)
+function rowClass(layout: NavLayout) {
+  return cn(
+    "relative flex min-h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui font-medium text-ink",
+    "transition-colors duration-(--np-duration-fast) ease-out-strong hover:bg-fill",
+    "focus-halo focus-visible:outline-none",
+    "max-md:min-h-11 pointer-coarse:min-h-11",
+    "aria-[current=page]:bg-accent-tint aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
+    "aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-[7px] aria-[current=page]:before:left-0 aria-[current=page]:before:w-[3px] aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-primary aria-[current=page]:before:content-['']",
+    // The icon rail band (768-1180px), written out in full so Tailwind's
+    // scanner sees every class.
+    layout === "responsive" &&
+      "md:max-[1181px]:min-h-10 md:max-[1181px]:justify-center md:max-[1181px]:px-0 md:max-[1181px]:aria-[current=page]:before:-left-2"
+  )
+}
+
+/** A label that the rail hides visually but keeps as the accessible name. */
+function railLabel(layout: NavLayout) {
+  return cn("truncate", layout === "responsive" && "md:max-[1181px]:sr-only")
+}
 
 /**
  * The operator's last choice for the More disclosure, kept for the session.
@@ -136,62 +161,123 @@ function useMoreOpen(pathname: string | null) {
   return { open, toggle }
 }
 
+/**
+ * In the icon rail the label is only an accessible name, so a sighted
+ * pointer user gets it back as a tooltip to the right of the icon. Outside
+ * the rail the element renders as it is.
+ */
+function RailTip({
+  rail,
+  label,
+  children,
+}: {
+  rail: boolean
+  label: string
+  children: React.ReactElement
+}) {
+  if (!rail) return children
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent side="right" sideOffset={10}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function NavRow({
   href,
   label,
   icon: Icon,
   active,
   onNavigate,
-  nested,
+  count,
+  countLabel,
+  layout,
+  rail,
 }: {
   href: string
   label: string
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
   active: boolean
   onNavigate?: () => void
-  nested?: boolean
+  count?: number
+  countLabel?: string
+  layout: NavLayout
+  rail: boolean
 }) {
+  const countId = React.useId()
+  const showCount = typeof count === "number" && count > 0
   return (
-    <Link
-      href={href}
-      prefetch
-      aria-current={active ? "page" : undefined}
-      onClick={onNavigate}
-      className={cn(
-        NAV_ROW_CLASS,
-        nested && "pl-9",
-        active
-          ? "bg-accent-tint text-accent-ink"
-          : "text-ink hover:bg-fill-tertiary"
-      )}
-    >
-      <Icon
-        className={cn(
-          "size-4 shrink-0",
-          active ? "text-accent-ink" : "text-ink-muted"
-        )}
-        strokeWidth={1.75}
-        aria-hidden
-      />
-      <span className="truncate">{label}</span>
-    </Link>
+    <>
+      <RailTip rail={rail} label={label}>
+        <Link
+          href={href}
+          prefetch
+          aria-current={active ? "page" : undefined}
+          // The count describes the row rather than naming it, so "Inbox"
+          // stays the link's name for every locator and screen-reader list.
+          // The description lives outside the link for the same reason.
+          aria-describedby={showCount ? countId : undefined}
+          onClick={onNavigate}
+          className={rowClass(layout)}
+        >
+          <Icon
+            className={cn(
+              "size-4 shrink-0",
+              active ? "text-accent-ink" : "text-ink-muted"
+            )}
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <span className={railLabel(layout)}>{label}</span>
+          {showCount ? (
+            <span
+              aria-hidden
+              className={cn(
+                "ml-auto font-mono text-[0.71875rem] tabular-nums",
+                active ? "text-accent-ink" : "text-ink-muted",
+                layout === "responsive" && "md:max-[1181px]:hidden"
+              )}
+            >
+              {count}
+            </span>
+          ) : null}
+        </Link>
+      </RailTip>
+      {showCount ? (
+        <span id={countId} hidden>
+          {countLabel ?? `${count}`}
+        </span>
+      ) : null}
+    </>
   )
 }
 
 function Nav({
   onNavigate,
   clients = [],
+  needsReply,
+  layout = "full",
+  rail = false,
 }: {
   onNavigate?: () => void
   clients?: NavClient[]
+  /** The Inbox's needs-reply count, when the app has it. */
+  needsReply?: number
+  layout?: NavLayout
+  /** True while the responsive nav is drawn as the icon rail. */
+  rail?: boolean
 }) {
   const pathname = usePathname()
   const pinned = clients.slice(0, MAX_PINNED_CLIENTS)
   const more = useMoreOpen(pathname)
   const moreListId = React.useId()
+  const MoreIcon = more.open ? ChevronDown : ChevronRight
 
   return (
-    <nav aria-label="Primary" className="flex flex-col gap-0.5">
+    <nav aria-label="Primary" className="flex flex-col">
       <ul className="flex flex-col gap-0.5">
         {NAV_ITEMS.map((item) => {
           const active =
@@ -207,6 +293,14 @@ function Nav({
                   icon={item.icon}
                   active={active}
                   onNavigate={onNavigate}
+                  layout={layout}
+                  rail={rail}
+                  count={item.href === "/inbox" ? needsReply : undefined}
+                  countLabel={
+                    item.href === "/inbox" && needsReply
+                      ? `${needsReply} ${needsReply === 1 ? "review needs" : "reviews need"} a reply`
+                      : undefined
+                  }
                 />
               </li>
               {item.href === "/clients" && pinned.length > 0
@@ -214,24 +308,32 @@ function Nav({
                     const href = `/clients/${client.id}`
                     const clientActive = pathname === href
                     return (
-                      <li key={client.id}>
+                      <li
+                        key={client.id}
+                        className={cn(
+                          layout === "responsive" && "md:max-[1181px]:hidden"
+                        )}
+                      >
                         <Link
                           href={href}
                           aria-current={clientActive ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                            NAV_ROW_CLASS,
-                            "h-7 gap-2 pl-9 font-normal pointer-coarse:h-10",
-                            clientActive
-                              ? "bg-accent-tint font-medium text-accent-ink"
-                              : "text-ink-muted hover:bg-fill-tertiary hover:text-ink"
+                            rowClass("full"),
+                            "min-h-[30px] gap-2 pl-9 font-normal text-ink-secondary"
                           )}
                         >
-                          <StatusPill
-                            tone={healthTone(client.health)}
-                            variant="dot"
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "size-2 shrink-0 rounded-full",
+                              TONE_CLASSES[healthTone(client.health)].dot
+                            )}
                           />
                           <span className="truncate">{client.name}</span>
+                          <span className="sr-only">
+                            , {healthLabel(client.health)}
+                          </span>
                         </Link>
                       </li>
                     )
@@ -242,23 +344,22 @@ function Nav({
         })}
 
         <li>
-          <button
-            type="button"
-            aria-expanded={more.open}
-            aria-controls={moreListId}
-            onClick={more.toggle}
-            className={cn(NAV_ROW_CLASS, "text-ink hover:bg-fill-tertiary")}
-          >
-            <ChevronRight
-              className={cn(
-                "size-4 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
-                more.open && "rotate-90"
-              )}
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            <span className="truncate">More</span>
-          </button>
+          <RailTip rail={rail} label="More">
+            <button
+              type="button"
+              aria-expanded={more.open}
+              aria-controls={moreListId}
+              onClick={more.toggle}
+              className={rowClass(layout)}
+            >
+              <MoreIcon
+                className="size-4 shrink-0 text-ink-muted"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className={railLabel(layout)}>More</span>
+            </button>
+          </RailTip>
           <ul
             id={moreListId}
             hidden={!more.open}
@@ -272,7 +373,8 @@ function Nav({
                   icon={item.icon}
                   active={isActivePath(pathname, item.href)}
                   onNavigate={onNavigate}
-                  nested
+                  layout={layout}
+                  rail={rail}
                 />
               </li>
             ))}

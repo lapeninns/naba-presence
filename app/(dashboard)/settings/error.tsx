@@ -2,8 +2,8 @@
 
 import { RouteErrorState } from "@/components/ui/query-states"
 
-// app/(dashboard)/settings/layout.tsx owns the <main> landmark and the
-// settings nav; this boundary only replaces the page inside it.
+// app/(dashboard)/settings/layout.tsx owns the <main> landmark; this boundary
+// only replaces the page (its header and tabs included) inside it.
 export default function SettingsError({
   reset,
 }: {

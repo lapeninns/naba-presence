@@ -28,7 +28,7 @@ export function FetchedAtCaption({
 }) {
   if (iso) {
     return (
-      <p className="text-caption text-ink-muted tabular-nums">
+      <p className="font-mono text-caption text-ink-muted tabular-nums">
         {`${prefix} ${formatDate(iso, timezone)}`}
       </p>
     )

@@ -20,7 +20,7 @@ function toneFor(status: string): TimelineEntry["tone"] {
     case "ambiguous":
       return "warning"
     default:
-      return "info"
+      return "neutral"
   }
 }
 
@@ -62,8 +62,9 @@ function RecentActivity({
   }
   if (activity.isError) {
     return (
-      <p className="text-ui text-ink-muted">
-        We couldn’t load recent activity.
+      <p className="text-ui text-ink-muted" role="status">
+        We couldn’t load recent activity. The drawer under Activity retries when
+        you open it.
       </p>
     )
   }
@@ -80,7 +81,20 @@ function RecentActivity({
       entries={items.map((item) => ({
         id: item.id,
         title: title(item),
-        meta: `${item.actorDisplayName ?? "Someone"} · ${formatRelativeTime(item.finishedAt ?? item.createdAt)}`,
+        when: formatRelativeTime(item.finishedAt ?? item.createdAt),
+        detail: (
+          <>
+            {item.actorDisplayName ?? "Someone"}
+            {item.lastErrorCode ? (
+              <>
+                {" · "}
+                <code className="inline-block max-w-full rounded-(--np-radius-tag) border border-line bg-surface-alt px-1 font-mono text-[11.5px] break-all text-ink-secondary">
+                  {item.lastErrorCode}
+                </code>
+              </>
+            ) : null}
+          </>
+        ),
         tone: toneFor(item.status),
       }))}
     />

@@ -2,6 +2,7 @@
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { StatusPill } from "@/components/ui/status-pill"
 import {
   Table,
   TableBody,
@@ -31,28 +32,32 @@ function initials(person: string): string {
 }
 
 /**
- * The people who may edit this listing on Google, as a list: hairline rows,
- * an initials avatar, the role, a state word, and the row's actions at the
- * trailing edge.
+ * The people who may edit this listing on Google (reference people table):
+ * an initials avatar and the Google account, the role as a mono tag, whether
+ * they have access yet, and the row's actions at the trailing edge. Below
+ * 720px of width each row becomes a labelled card.
  */
 export function AdminsTable({
   admins,
   invitations,
   renderActions,
+  caption = "People with access on Google",
 }: {
   admins: AdminRow[]
   invitations: Array<{ name?: string; role?: string; targetType?: string }>
   renderActions?: (admin: AdminRow) => React.ReactNode
+  caption?: string
 }) {
   return (
-    <Table surface className="min-w-[520px]">
+    <Table surface responsive>
+      <caption className="sr-only">{caption}</caption>
       <TableHeader>
         <TableRow>
           <TableHead>Person</TableHead>
           <TableHead>Role</TableHead>
           <TableHead>Status</TableHead>
           {renderActions ? (
-            <TableHead className="text-right" aria-label="Actions" />
+            <TableHead className="text-right">Actions</TableHead>
           ) : null}
         </TableRow>
       </TableHeader>
@@ -61,23 +66,34 @@ export function AdminsTable({
           const person = admin.admin ?? admin.name ?? "—"
           return (
             <TableRow key={admin.name ?? index}>
-              <TableCell className="font-medium text-ink">
-                <span className="flex items-center gap-2.5">
+              <TableCell label="Person" className="font-medium text-ink">
+                <span className="flex min-w-0 items-center gap-2.5">
                   <Avatar size="sm">
                     <AvatarFallback>{initials(person)}</AvatarFallback>
                   </Avatar>
-                  <span className="min-w-0 truncate">{person}</span>
+                  <span className="min-w-0 break-all">{person}</span>
                 </span>
               </TableCell>
-              <TableCell>
-                {admin.role ? adminRoleLabel(admin.role) : "—"}
+              <TableCell label="Role">
+                {admin.role ? (
+                  <Badge variant="role">{adminRoleLabel(admin.role)}</Badge>
+                ) : (
+                  "—"
+                )}
               </TableCell>
-              <TableCell>
-                <Badge variant="secondary">Active</Badge>
+              <TableCell label="Status">
+                {admin.pendingInvitation ? (
+                  <StatusPill tone="pending">Invitation pending</StatusPill>
+                ) : (
+                  <StatusPill tone="healthy">Has access</StatusPill>
+                )}
               </TableCell>
               {renderActions ? (
-                <TableCell className="text-right">
-                  <span className="flex items-center justify-end gap-2">
+                <TableCell
+                  data-actions
+                  className="text-right @max-[720px]/table:text-left"
+                >
+                  <span className="flex flex-wrap items-center justify-end gap-2 @max-[720px]/table:justify-start">
                     {renderActions(admin)}
                   </span>
                 </TableCell>
@@ -87,23 +103,27 @@ export function AdminsTable({
         })}
         {invitations.map((invitation, index) => (
           <TableRow key={invitation.name ?? `inv-${index}`}>
-            <TableCell className="font-medium text-ink">
-              <span className="flex items-center gap-2.5">
+            <TableCell label="Person" className="font-medium text-ink">
+              <span className="flex min-w-0 items-center gap-2.5">
                 <Avatar size="sm">
                   <AvatarFallback>
                     {initials(invitation.name ?? "?")}
                   </AvatarFallback>
                 </Avatar>
-                <span className="min-w-0 truncate">
+                <span className="min-w-0 break-all">
                   {invitation.name ?? "—"}
                 </span>
               </span>
             </TableCell>
-            <TableCell>
-              {invitation.role ? adminRoleLabel(invitation.role) : "—"}
+            <TableCell label="Role">
+              {invitation.role ? (
+                <Badge variant="role">{adminRoleLabel(invitation.role)}</Badge>
+              ) : (
+                "—"
+              )}
             </TableCell>
-            <TableCell>
-              <Badge variant="info">Invited</Badge>
+            <TableCell label="Status">
+              <StatusPill tone="pending">Invited</StatusPill>
             </TableCell>
             {renderActions ? <TableCell /> : null}
           </TableRow>

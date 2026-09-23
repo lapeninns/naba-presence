@@ -38,7 +38,7 @@ function PopoverArrow({ className, ...props }: PopoverPrimitive.Arrow.Props) {
         aria-hidden="true"
         className="block"
       >
-        <path d="M0 10 L10 0 L20 10 Z" className="fill-(--np-material-popover)" />
+        <path d="M0 10 L10 0 L20 10 Z" className="fill-surface" />
         <path
           d="M0 10 L10 0 L20 10"
           className="stroke-line"
@@ -63,11 +63,11 @@ function PopoverContent({
   sideOffset = 8,
   alignOffset,
   anchor,
-  showArrow = true,
+  showArrow = false,
   ...props
 }: PopoverPrimitive.Popup.Props &
   PositionProps & {
-    /** Draw the arrow pointing at the anchor. Off for menus-in-disguise. */
+    /** Draw an arrow pointing at the anchor. Off by default (reference `.popover` has none). */
     showArrow?: boolean
   }) {
   return (
@@ -83,8 +83,10 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            "material-popover w-72 origin-(--transform-origin) rounded-(--np-radius-card) p-4 text-body text-ink shadow-(--np-shadow-pop) outline-none",
-            "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
+            // Reference `.popover`: surface, hairline edge, card radius, pop
+            // shadow, 16px inside, min(360px, 100vw - 24px) wide.
+            "w-[min(360px,calc(100vw-24px))] origin-(--transform-origin) rounded-(--np-radius-card) border border-line bg-surface p-4 text-ui text-ink shadow-np-pop outline-none",
+            "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
             className
           )}
           {...props}
@@ -114,7 +116,7 @@ function PopoverDescription({
   return (
     <PopoverPrimitive.Description
       data-slot="popover-description"
-      className={cn("mt-1 text-body text-ink-muted", className)}
+      className={cn("mt-1 text-ui text-ink-muted", className)}
       {...props}
     />
   )

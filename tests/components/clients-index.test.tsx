@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -6,6 +6,7 @@ const push = vi.fn()
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn() }),
   usePathname: () => "/clients",
+  useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: ComponentProps<"a">) => (
@@ -41,11 +42,12 @@ const base: ClientSummary = {
 function stub(items: ClientSummary[], unassignedLocationCount = 0) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      new Response(JSON.stringify({ items, unassignedLocationCount }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ items, unassignedLocationCount }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
     )
   )
 }
@@ -67,8 +69,18 @@ describe("ClientsIndex", () => {
     // An agency opens this to answer "where do I go now". A name-sorted list
     // makes them read every row to find the two that matter.
     stub([
-      { ...base, id: "a", name: "Aardvark Cafe", openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 } },
-      { ...base, id: "z", name: "Zebra Bistro", openWork: { needsReply: 9, awaitingApproval: 1, failed: 0 } },
+      {
+        ...base,
+        id: "a",
+        name: "Aardvark Cafe",
+        openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+      },
+      {
+        ...base,
+        id: "z",
+        name: "Zebra Bistro",
+        openWork: { needsReply: 9, awaitingApproval: 1, failed: 0 },
+      },
     ])
     renderIndex()
     const links = await screen.findAllByRole("link", { name: /Cafe|Bistro/ })
@@ -78,19 +90,27 @@ describe("ClientsIndex", () => {
   it("shows health as a word beside every client", async () => {
     stub([{ ...base, health: "disconnected" }])
     renderIndex()
-    expect(await screen.findByText("Disconnected")).toBeInTheDocument()
+    // The word is in the row, not only in the filter and summary tiles.
+    const table = await screen.findByRole("table", {
+      name: "Clients, with their Google health and open review work",
+    })
+    expect(within(table).getByText("Disconnected")).toBeInTheDocument()
   })
 
   it("surfaces unassigned locations rather than hiding them", async () => {
     stub([base], 2)
     renderIndex()
-    expect(await screen.findByText("2 locations have no client")).toBeInTheDocument()
+    expect(
+      await screen.findByText("2 listings have no client")
+    ).toBeInTheDocument()
   })
 
   it("invites an owner to create the first client", async () => {
     stub([])
     renderIndex("owner")
-    expect(await screen.findByText("Set up your first client")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Set up your first client")
+    ).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "New client" })).toHaveAttribute(
       "href",
       "/clients/new"
@@ -100,8 +120,12 @@ describe("ClientsIndex", () => {
   it("tells a member who to ask instead of offering a button they cannot use", async () => {
     stub([])
     renderIndex("member")
-    expect(await screen.findByText("No clients yet")).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "New client" })).not.toBeInTheDocument()
+    expect(
+      await screen.findByText("No clients shared with you yet")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "New client" })
+    ).not.toBeInTheDocument()
   })
 
   it("names the table so several on a page stay distinguishable", async () => {

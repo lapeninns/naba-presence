@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import {
   Table,
   TableBody,
@@ -29,7 +31,7 @@ export function ReplyLocationsTable({
 }) {
   const rows = orderLocations(locations)
   return (
-    <Table>
+    <Table surface responsive>
       <TableHeader>
         <TableRow>
           <TableHead>Location</TableHead>
@@ -55,28 +57,39 @@ export function ReplyLocationsTable({
           return (
             <TableRow key={location.id}>
               <TableCell className="font-medium text-ink">
-                {location.name}
+                {/* The location's own report: same figures, one place. */}
+                <Link
+                  href={`/reports?locationId=${encodeURIComponent(location.id)}`}
+                  className="break-words underline decoration-line-strong underline-offset-3 hover:decoration-current"
+                >
+                  {location.name}
+                </Link>
               </TableCell>
-              <TableCell numeric>{formatNumber(location.reviews)}</TableCell>
+              <TableCell numeric label="Reviews">
+                {formatNumber(location.reviews)}
+              </TableCell>
               <TableCell
                 numeric
+                label="Avg rating"
                 className={cn(rating.isNull && "text-ink-muted")}
               >
                 {rating.text}
               </TableCell>
               <TableCell
                 numeric
+                label="Response rate"
                 className={cn(rate.isNull && "text-ink-muted")}
               >
                 {rate.text}
               </TableCell>
               <TableCell
                 numeric
+                label="Median response"
                 className={cn(median.isNull && "text-ink-muted")}
               >
                 {median.text}
               </TableCell>
-              <TableCell numeric>
+              <TableCell numeric label="Unresolved">
                 {formatNumber(location.unresolvedComplaints)}
               </TableCell>
             </TableRow>

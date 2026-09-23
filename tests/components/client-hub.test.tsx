@@ -50,11 +50,12 @@ const location = {
 function stub(response: Partial<ClientResponse> = {}) {
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async () =>
-      new Response(
-        JSON.stringify({ client, locations: [location], ...response }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
+    vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({ client, locations: [location], ...response }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
     )
   )
 }
@@ -78,6 +79,11 @@ describe("ClientHub", () => {
     expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(screen.getByText("Needs reply")).toBeInTheDocument()
     expect(screen.getByText("5")).toBeInTheDocument()
+    // Each work tile opens the inbox already filtered to this client.
+    expect(screen.getByRole("link", { name: /Needs reply/ })).toHaveAttribute(
+      "href",
+      "/inbox?clientId=c1&queue=needs_reply"
+    )
   })
 
   it("links each location straight into its sections", async () => {
@@ -93,22 +99,33 @@ describe("ClientHub", () => {
   })
 
   it("offers a way to add locations when the client has none", async () => {
-    stub({ client: { ...client, locationCount: 0, linkedCount: 0 }, locations: [] })
+    stub({
+      client: { ...client, locationCount: 0, linkedCount: 0 },
+      locations: [],
+    })
     renderHub()
-    expect(await screen.findByText("No locations yet")).toBeInTheDocument()
+    expect(await screen.findByText("No listings yet")).toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: "Add locations from Google" })
+      screen.getByRole("link", { name: "Add listings from Google" })
     ).toHaveAttribute("href", "/setup?client=c1&step=locations")
   })
 
   it("offers a member no management actions they cannot perform", async () => {
-    stub({ client: { ...client, locationCount: 0, linkedCount: 0 }, locations: [] })
+    stub({
+      client: { ...client, locationCount: 0, linkedCount: 0 },
+      locations: [],
+    })
     renderHub(false)
-    await screen.findByText("No locations yet")
+    await screen.findByText("No listings yet")
     expect(
-      screen.queryByRole("link", { name: "Add locations from Google" })
+      screen.queryByRole("link", { name: "Add listings from Google" })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Client settings" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Settings" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /Finish setup/ })
+    ).not.toBeInTheDocument()
   })
 
   it("names the broken login when Google needs reconnecting", async () => {
@@ -131,9 +148,8 @@ describe("ClientHub", () => {
     expect(
       await screen.findByText(/ops@lapeninns\.co\.uk can no longer reach/)
     ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Reconnect" })).toHaveAttribute(
-      "href",
-      "/setup?client=c1&step=connect"
-    )
+    expect(
+      screen.getByRole("link", { name: "Reconnect Google" })
+    ).toHaveAttribute("href", "/setup?client=c1&step=connect")
   })
 })

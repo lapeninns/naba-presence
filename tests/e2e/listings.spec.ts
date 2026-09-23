@@ -49,41 +49,73 @@ test.describe("listings", () => {
       page.getByRole("heading", { name: "Listings", level: 1 })
     ).toBeVisible()
     for (const column of ["Listing", "Client", "Health", "Waiting"]) {
-      await expect(page.getByRole("columnheader", { name: column })).toBeVisible()
+      await expect(
+        page.getByRole("columnheader", { name: column })
+      ).toBeVisible()
     }
-    const row = page.getByRole("row").filter({ hasText: state.directReview.locationName })
+    const row = page
+      .getByRole("row")
+      .filter({ hasText: state.directReview.locationName })
     await expect(row).toBeVisible()
     // The Waiting column is the DB-only summary: it settles without Google.
-    await expect(row.getByText(/Nothing waiting|to publish|Google change/)).toBeVisible()
-    await row.getByRole("link", { name: state.directReview.locationName }).click()
-
-    await expect(page).toHaveURL(new RegExp(`/listings/${state.primaryLocationId}$`))
     await expect(
-      page.getByRole("heading", { name: state.directReview.locationName, level: 1 })
+      row.getByText(/Nothing waiting|to publish|Google change/)
+    ).toBeVisible()
+    await row
+      .getByRole("link", { name: state.directReview.locationName })
+      .click()
+
+    await expect(page).toHaveURL(
+      new RegExp(`/listings/${state.primaryLocationId}$`)
+    )
+    await expect(
+      page.getByRole("heading", {
+        name: state.directReview.locationName,
+        level: 1,
+      })
     ).toBeVisible()
     // The health strip and one card per area, each with its own way in.
     const health = page.getByRole("region", { name: "Health" })
     await expect(health.getByText("Google connection")).toBeVisible()
-    await expect(health.getByText("Verification", { exact: true })).toBeVisible()
+    await expect(
+      health.getByText("Verification", { exact: true })
+    ).toBeVisible()
     const areas = page.getByRole("region", { name: "Areas" })
-    for (const area of ["Business profile", "Opening hours", "Booking links", "Photos", "Posts", "Food menu", "People with access"]) {
-      await expect(areas.getByRole("heading", { name: area, level: 3 })).toBeVisible()
+    for (const area of [
+      "Business profile",
+      "Opening hours",
+      "Booking links",
+      "Photos",
+      "Posts",
+      "Food menu",
+      "People with access",
+    ]) {
+      await expect(
+        areas.getByRole("heading", { name: area, level: 3 })
+      ).toBeVisible()
     }
-    await expect(areas.getByRole("link", { name: "Performance" })).toHaveCount(0)
+    await expect(areas.getByRole("link", { name: "Performance" })).toHaveCount(
+      0
+    )
 
     // Opening an area is a focused page with the way back in its header.
-    await areas.getByRole("link", { name: "Open Opening hours" }).click()
-    await expect(page).toHaveURL(new RegExp(`/listings/${state.primaryLocationId}/hours$`))
-    await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Back to listing" })).toBeVisible()
+    await areas.getByRole("link", { name: "Edit Opening hours" }).click()
+    await expect(page).toHaveURL(
+      new RegExp(`/listings/${state.primaryLocationId}/hours$`)
+    )
+    await expect(
+      page.getByRole("heading", { name: "Opening hours", level: 1 })
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole("navigation", { name: "Listing areas" })
+        .getByRole("link", { name: "Overview" })
+    ).toBeVisible()
   })
 
   for (const theme of ["light", "dark"] as const) {
     for (const tab of [{ segment: "", label: "Overview" }, ...AREAS]) {
-      test(`${tab.label} loads clean (${theme})`, async ({
-        baseURL,
-        page,
-      }) => {
+      test(`${tab.label} loads clean (${theme})`, async ({ baseURL, page }) => {
         const consoleErrors: string[] = []
         const pageErrors: string[] = []
         page.on("console", (message) => {
@@ -160,20 +192,29 @@ test.describe("listings", () => {
       await applyCookie(page, baseURL, cookie)
       await page.goto(`/listings/${state.primaryLocationId}/profile`)
       const review = page.getByRole("button", { name: "Review changes" })
-      await expect(review).toBeVisible()
       const gate = page.getByText(
         "Only owners and admins can edit this location."
       )
       if (canEdit) {
         // Review is enabled once there is something to publish; what matters
         // here is that nothing tells an owner they may not edit.
+        await expect(review).toBeVisible()
         await expect(gate).toHaveCount(0)
         await expect(
           page.getByRole("textbox", { name: "Business name" })
         ).toBeEnabled()
       } else {
-        await expect(review).toBeDisabled()
+        // A role that can't edit gets the one view-only bar: it says why and
+        // offers no actions, rather than a row of disabled buttons.
+        await expect(page.getByText(/View-only access\./)).toBeVisible()
+        await expect(review).toHaveCount(0)
+        await expect(
+          page.getByRole("button", { name: "Save here" })
+        ).toHaveCount(0)
         await expect(gate.first()).toBeVisible()
+        await expect(
+          page.getByRole("textbox", { name: "Business name" })
+        ).toBeDisabled()
       }
       await context.close()
     }
@@ -229,7 +270,9 @@ test.describe("listings", () => {
       } else {
         await expect(name).toBeDisabled()
         await expect(
-          page.getByText("Only owners and admins can edit this location.").first()
+          page
+            .getByText("Only owners and admins can edit this location.")
+            .first()
         ).toBeVisible()
         expect(
           industryResponses,
@@ -240,7 +283,9 @@ test.describe("listings", () => {
       // The overview offers the consoles only to owners and admins.
       await page.goto(`/listings/${state.primaryLocationId}`)
       const areas = page.getByRole("region", { name: "Areas" })
-      await expect(areas.getByRole("heading", { name: "Photos", level: 3 })).toBeVisible()
+      await expect(
+        areas.getByRole("heading", { name: "Photos", level: 3 })
+      ).toBeVisible()
       if (canManage) {
         await expect(
           areas.getByRole("heading", { name: "People with access", level: 3 })
@@ -438,12 +483,13 @@ test.describe("listings", () => {
     // rather than racing the default 5s expect timeout (same pattern as the
     // clean-load loop above).
     await page.waitForLoadState("networkidle")
-    // exact: true — "Verification" (unqualified) would otherwise strict-mode
-    // match "Verification history" and "Start a new verification" too.
-    // Level 2: the area page's h1 is also "Verification"; the editor's own
-    // section heading is the one that proves the console loaded.
+    // The area page's h1 is "Verification"; the console's first section
+    // heading is the one that proves Google's answer loaded.
     await expect(
-      page.getByRole("heading", { name: "Verification", exact: true, level: 2 })
+      page.getByRole("heading", {
+        name: "How Google sees this listing",
+        level: 2,
+      })
     ).toBeVisible()
     const published = page.waitForResponse(
       (r) =>

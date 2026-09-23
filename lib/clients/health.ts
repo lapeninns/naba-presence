@@ -57,10 +57,12 @@ export function clientHealth(input: ClientHealthInput): ClientHealth {
 
   // Nothing linked yet: not broken, just not set up. The distinction matters
   // because the fix is "finish setup", not "reconnect".
-  if (linkedLocationCount === 0 || connections.length === 0) return "not_connected"
+  if (linkedLocationCount === 0 || connections.length === 0)
+    return "not_connected"
 
   const active = connections.filter(
-    (connection) => connection.status === "active" && !connection.reconnectRequired
+    (connection) =>
+      connection.status === "active" && !connection.reconnectRequired
   )
   if (active.length === 0) return "disconnected"
 
@@ -70,7 +72,9 @@ export function clientHealth(input: ClientHealthInput): ClientHealth {
   const stale = active.some((connection) => {
     if (!connection.lastRefreshAt) return false
     const refreshed = Date.parse(connection.lastRefreshAt)
-    return Number.isFinite(refreshed) && now.getTime() - refreshed > STALE_REFRESH_MS
+    return (
+      Number.isFinite(refreshed) && now.getTime() - refreshed > STALE_REFRESH_MS
+    )
   })
   if (stale) return "attention"
 
@@ -79,7 +83,8 @@ export function clientHealth(input: ClientHealthInput): ClientHealth {
 }
 
 /** Visual tone for the status pill vocabulary. */
-export type HealthTone = "healthy" | "attention" | "at-risk" | "pending" | "neutral"
+export type HealthTone =
+  "healthy" | "attention" | "at-risk" | "pending" | "neutral"
 
 const TONES: Record<ClientHealth, HealthTone> = {
   healthy: "healthy",
@@ -121,7 +126,7 @@ export function healthDescription(health: ClientHealth): string {
     case "disconnected":
       return "Google needs reconnecting before reviews can sync."
     case "not_connected":
-      return "No Google locations are linked to this client yet."
+      return "No Google listings are linked to this client yet."
   }
 }
 
@@ -141,7 +146,10 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
   if (needing > 0) {
     return {
       tone: broken > 0 ? "at-risk" : "attention",
-      label: needing === 1 ? "1 client needs attention" : `${needing} clients need attention`,
+      label:
+        needing === 1
+          ? "1 client needs attention"
+          : `${needing} clients need attention`,
     }
   }
   if (healths.some((health) => health === "syncing")) {
@@ -151,4 +159,71 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
     return { tone: "neutral", label: "Not connected yet" }
   }
   return { tone: "healthy", label: "All clients connected" }
+}
+
+/**
+ * The Clients list's health filter (reference `clients.html`), kept in the
+ * address as `?health=`. "Needs attention" includes disconnected clients, so
+ * its count matches the shell chip's "N clients need attention".
+ */
+export const HEALTH_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "attention", label: "Needs attention" },
+  { value: "disconnected", label: "Disconnected" },
+  { value: "not_connected", label: "Not set up" },
+] as const
+
+export type HealthFilter = (typeof HEALTH_FILTERS)[number]["value"]
+
+export function isHealthFilter(
+  value: string | null | undefined
+): value is HealthFilter {
+  return HEALTH_FILTERS.some((filter) => filter.value === value)
+}
+
+export function healthFilterMatches(
+  filter: HealthFilter,
+  health: ClientHealth
+): boolean {
+  switch (filter) {
+    case "all":
+      return true
+    case "attention":
+      return health === "attention" || health === "disconnected"
+    case "disconnected":
+      return health === "disconnected"
+    case "not_connected":
+      return health === "not_connected"
+  }
+}
+
+/**
+ * A short reason under the health word in the Clients table, from the same
+ * inputs the health was derived from. Null when the word says it all.
+ */
+export function clientHealthNote(client: {
+  health: ClientHealth
+  connections: readonly ConnectionHealthInput[]
+  backfill: { running: number; failed: number }
+}): string | null {
+  switch (client.health) {
+    case "disconnected":
+      return "Google login needs reconnecting"
+    case "attention": {
+      if (client.backfill.failed > 0) return "Review import failed"
+      const broken = client.connections.some(
+        (connection) =>
+          connection.status !== "active" || connection.reconnectRequired
+      )
+      return broken
+        ? "A Google login needs reconnecting"
+        : "Google hasn’t refreshed in over a day"
+    }
+    case "syncing":
+      return "Importing review history"
+    case "not_connected":
+      return "Setup unfinished"
+    case "healthy":
+      return null
+  }
 }

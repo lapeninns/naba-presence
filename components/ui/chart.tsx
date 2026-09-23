@@ -34,20 +34,115 @@ function chartColor(colorVar: ColorVar): string {
   return `var(--np-chart-${colorVar})`
 }
 
-export function ChartLegend({ items }: { items: Array<{ label: string; colorVar: ColorVar }> }) {
+// Spelled out so Tailwind sees every class.
+const SWATCH_CLASS: Record<ColorVar, string> = {
+  1: "bg-chart-1",
+  2: "bg-chart-2",
+  3: "bg-chart-3",
+  4: "bg-chart-4",
+  5: "bg-chart-5",
+  6: "bg-chart-6",
+}
+
+/**
+ * The series key (reference `.legend`): a 10px rounded-square swatch per
+ * series and its name. Series separate by lightness first (chart-1 dark
+ * green, chart-2 light green, chart-3 grey baseline), and the legend always
+ * names them, so hue is never the only cue.
+ */
+export function ChartLegend({
+  items,
+  className,
+}: {
+  items: Array<{ label: string; colorVar: ColorVar }>
+  className?: string
+}) {
   return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1">
+    <ul className={cn("flex flex-wrap gap-x-3.5 gap-y-1", className)}>
       {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5 text-caption text-ink-muted">
+        <li
+          key={item.label}
+          className="flex items-center gap-1.5 text-caption text-ink-muted"
+        >
           <span
             aria-hidden
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: chartColor(item.colorVar) }}
+            className={cn(
+              "size-2.5 shrink-0 rounded-[3px]",
+              SWATCH_CLASS[item.colorVar]
+            )}
           />
           {item.label}
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * The accessible alternative to a chart: the same figures as a table.
+ * Visually hidden by default (the chart carries `aria-hidden` or a short
+ * label); `visible` shows it as a compact table for a "View as table"
+ * toggle. Figures are mono tabular and right-aligned.
+ */
+export function ChartDataTable({
+  caption,
+  columns,
+  rows,
+  visible = false,
+  className,
+}: {
+  caption: string
+  /** First column is the category (the date); the rest are series. */
+  columns: string[]
+  rows: Array<Array<React.ReactNode>>
+  visible?: boolean
+  className?: string
+}) {
+  return (
+    <table
+      data-slot="chart-data-table"
+      className={cn(
+        visible
+          ? "w-full border-collapse text-ui [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-line [&_th]:bg-surface-alt [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-caption [&_th]:font-semibold [&_th]:text-ink-muted"
+          : "sr-only",
+        className
+      )}
+    >
+      <caption className={visible ? "sr-only" : undefined}>{caption}</caption>
+      <thead>
+        <tr>
+          {columns.map((column, index) => (
+            <th
+              key={column}
+              scope="col"
+              className={index > 0 ? "text-right!" : undefined}
+            >
+              {column}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rowIndex) => (
+          <tr key={rowIndex}>
+            {row.map((cell, index) =>
+              index === 0 ? (
+                <th key={index} scope="row" className="font-normal">
+                  {cell}
+                </th>
+              ) : (
+                <td
+                  key={index}
+                  className="text-right font-mono whitespace-nowrap tabular-nums"
+                >
+                  {cell}
+                </td>
+              )
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
@@ -95,7 +190,7 @@ export function ChartCard({
 }
 
 /**
- * The tooltip, drawn as a popover: the popover material, the pop shadow and
+ * The tooltip, drawn as a popover: surface, hairline edge, pop shadow and
  * the control radius. Recharts hands it the hovered label and one payload
  * entry per series; figures are tabular and right-aligned so a stack of
  * series lines up.
@@ -113,7 +208,7 @@ export function ChartTooltipContent({
     <div
       data-slot="chart-tooltip"
       className={cn(
-        "material-popover min-w-32 rounded-(--np-radius-control) px-2.5 py-2 text-ui text-ink shadow-(--np-shadow-pop)",
+        "min-w-32 rounded-(--np-radius-control) border border-line bg-surface px-2.5 py-2 text-ui text-ink shadow-np-pop",
         className
       )}
     >
@@ -129,12 +224,16 @@ export function ChartTooltipContent({
             <span className="flex items-center gap-1.5 text-ink-muted">
               <span
                 aria-hidden
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: item.color ?? item.fill ?? item.stroke }}
+                className="size-2.5 shrink-0 rounded-[3px] bg-(--swatch)"
+                style={
+                  {
+                    "--swatch": item.color ?? item.fill ?? item.stroke,
+                  } as React.CSSProperties
+                }
               />
               {item.name}
             </span>
-            <span className="text-right font-medium text-ink tabular-nums">
+            <span className="text-right font-mono font-semibold text-ink tabular-nums">
               {item.value as React.ReactNode}
             </span>
           </li>
@@ -247,7 +346,7 @@ export function ReportingBarChart({
         <XAxis dataKey={xKey} tickFormatter={xTickFormatter} {...AXIS_PROPS} />
         <YAxis allowDecimals={false} width={40} {...AXIS_PROPS} />
         <Tooltip
-          cursor={{ fill: "var(--np-fill-tertiary)" }}
+          cursor={{ fill: "var(--np-fill)" }}
           content={<ChartTooltipContent />}
           labelFormatter={(value) => (xTickFormatter ? xTickFormatter(String(value)) : String(value))}
         />
@@ -257,7 +356,7 @@ export function ReportingBarChart({
             dataKey={s.key}
             name={s.label}
             fill={chartColor(s.colorVar)}
-            radius={[4, 4, 0, 0]}
+            radius={[3, 3, 0, 0]}
             maxBarSize={40}
           />
         ))}
@@ -267,9 +366,9 @@ export function ReportingBarChart({
 }
 
 /**
- * A line with a soft fill beneath it, fading from the series colour to
- * transparent. Same props as the line chart; use it when the area under the
- * curve is the story (volume over time), the line chart when it is the shape.
+ * A line with a flat, low-opacity fill of the series colour beneath it (no
+ * decorative gradient). Same props as the line chart; use it when the area
+ * under the curve is the story, the line chart when it is the shape.
  */
 export function ReportingAreaChart({
   data,
@@ -288,8 +387,8 @@ export function ReportingAreaChart({
         <defs>
           {series.map((s) => (
             <linearGradient key={s.key} id={fillId(s.key)} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chartColor(s.colorVar)} stopOpacity={0.28} />
-              <stop offset="100%" stopColor={chartColor(s.colorVar)} stopOpacity={0} />
+              <stop offset="0%" stopColor={chartColor(s.colorVar)} stopOpacity={0.16} />
+              <stop offset="100%" stopColor={chartColor(s.colorVar)} stopOpacity={0.16} />
             </linearGradient>
           ))}
         </defs>

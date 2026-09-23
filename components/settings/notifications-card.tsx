@@ -1,10 +1,29 @@
 "use client"
 
-import { useId, useState } from "react"
+import { RefreshCw } from "lucide-react"
+import { useId, useRef, useState } from "react"
 
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
@@ -21,9 +40,10 @@ const PUBSUB_TOPIC_RE =
   /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][\w.-]{2,254}$/
 
 /**
- * Google's real-time notifications for the working account: the Pub/Sub
- * topic Google should post to, and a switch per event kind. Nothing saves on
- * toggle — the setting is one object on Google's side, written once.
+ * Google's real-time notifications for the working account (reference
+ * `notifications-section`): the Pub/Sub topic Google should post to, and a
+ * switch per event kind. Nothing saves on toggle — the setting is one object
+ * on Google's side, written once from the card's footer.
  */
 export function NotificationsCard() {
   const workspace = useConnectionWorkspace()
@@ -55,46 +75,67 @@ export function NotificationsCard() {
   const [topic, setTopic] = useState<string | null>(null)
   const [types, setTypes] = useState<Set<string> | null>(null)
   const [topicError, setTopicError] = useState<string | null>(null)
+  const topicRef = useRef<HTMLInputElement>(null)
 
-  const heading = (
-    <h2 id={`${ids}-heading`} className="text-title font-semibold text-ink">
-      Google notifications
-    </h2>
+  const headingId = `${ids}-heading`
+  const header = (
+    <CardHeader divided>
+      <CardTitle as="h2" id={headingId}>
+        Real-time notifications
+      </CardTitle>
+      <CardDescription>
+        Google posts new reviews to a Pub/Sub topic, so they arrive within
+        minutes instead of waiting for the next sync.
+      </CardDescription>
+    </CardHeader>
   )
 
   if (!accountId) {
     return (
-      <section
-        aria-labelledby={`${ids}-heading`}
-        className="flex flex-col gap-3"
-      >
-        {heading}
+      <Card flush aria-labelledby={headingId} role="region">
+        {header}
         <Empty
           title="Choose a Google account"
-          description="Activate a Google account above to manage its notifications."
+          description="Activate one of this login’s Business Profile accounts while setting up a client, then manage its notifications here."
         />
-      </section>
+      </Card>
     )
   }
   if (setting.query.isPending) {
     return (
-      <div className="flex flex-col gap-3" aria-busy="true">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-[calc(var(--np-row-h)*3)] w-full rounded-(--np-radius-card)" />
-      </div>
+      <Card flush aria-busy="true" aria-labelledby={headingId} role="region">
+        {header}
+        <div className="flex flex-col gap-3 p-(--np-card-pad)">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-[calc(var(--np-row-h)*3)] w-full" />
+        </div>
+      </Card>
     )
   }
   if (setting.query.isError) {
     return (
-      <Empty
-        title="We couldn’t load notifications"
-        description={describeActionError(setting.query.error)}
-        action={
-          <Button variant="outline" onClick={() => setting.query.refetch()}>
-            Try again
-          </Button>
-        }
-      />
+      <Card flush aria-labelledby={headingId} role="region">
+        {header}
+        <div className="p-(--np-card-pad)">
+          <Alert variant="destructive">
+            <AlertTitle>We couldn’t load notifications</AlertTitle>
+            <AlertDescription>
+              {describeActionError(setting.query.error)} Nothing was changed on
+              Google.
+            </AlertDescription>
+            <AlertActions>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setting.query.refetch()}
+              >
+                <RefreshCw aria-hidden />
+                Try again
+              </Button>
+            </AlertActions>
+          </Alert>
+        </div>
+      </Card>
     )
   }
 
@@ -116,6 +157,7 @@ export function NotificationsCard() {
       setTopicError(
         "Enter a topic like projects/my-project/topics/reviews, or clear it to turn notifications off."
       )
+      topicRef.current?.focus()
       return
     }
     setTopicError(null)
@@ -139,63 +181,76 @@ export function NotificationsCard() {
     )
   }
 
-  const topicErrorId = `${ids}-topic-error`
+  const typesLabelId = `${ids}-types`
 
   return (
-    <section aria-labelledby={`${ids}-heading`} className="flex flex-col gap-3">
-      {heading}
-      <GroupedList
-        aria-label="Google notification settings"
-        footer="Clear the topic to turn Google notifications off."
-      >
-        <GroupedListItem
-          label={<span id={`${ids}-topic`}>Pub/Sub topic</span>}
-          className="flex-col items-stretch gap-1.5 py-3 sm:flex-row sm:items-center sm:gap-3"
-          trailing={
-            <span className="flex w-full flex-col gap-1 sm:w-80">
-              <Input
-                value={currentTopic}
-                aria-label="Pub/Sub topic"
-                aria-invalid={topicError ? true : undefined}
-                aria-describedby={topicError ? topicErrorId : undefined}
-                placeholder="projects/my-project/topics/reviews"
-                onChange={(event) => setTopic(event.target.value)}
-              />
-              {topicError ? (
-                <span
-                  id={topicErrorId}
-                  role="alert"
-                  className="text-caption text-danger-ink"
+    <Card flush aria-labelledby={headingId} role="region">
+      {header}
+      <div className="flex flex-col gap-5 p-(--np-card-pad)">
+        <Field error={topicError ?? undefined}>
+          <FieldLabel>Pub/Sub topic</FieldLabel>
+          <Input
+            ref={topicRef}
+            value={currentTopic}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="projects/my-project/topics/reviews"
+            className="font-mono"
+            onChange={(event) => {
+              setTopic(event.target.value)
+              if (topicError) setTopicError(null)
+            }}
+          />
+          <FieldDescription>
+            Clear the topic to turn Google notifications off.
+          </FieldDescription>
+          <FieldError>{topicError}</FieldError>
+        </Field>
+        <div
+          role="group"
+          aria-labelledby={typesLabelId}
+          className="flex flex-col gap-1.5"
+        >
+          <span id={typesLabelId} className="text-ui font-semibold text-ink">
+            What Google should tell us about
+          </span>
+          <ul className="flex flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
+            {GOOGLE_NOTIFICATION_TYPES.map((type) => {
+              const labelId = `${ids}-${type}`
+              return (
+                <li
+                  key={type}
+                  className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5"
                 >
-                  {topicError}
-                </span>
-              ) : null}
-            </span>
-          }
-        />
-        {GOOGLE_NOTIFICATION_TYPES.map((type) => {
-          const labelId = `${ids}-${type}`
-          return (
-            <GroupedListItem
-              key={type}
-              label={<span id={labelId}>{describeNotificationType(type)}</span>}
-              trailing={
-                <Switch
-                  aria-labelledby={labelId}
-                  checked={currentTypes.has(type)}
-                  disabled={topicEmpty}
-                  onCheckedChange={() => toggle(type)}
-                />
-              }
-            />
-          )
-        })}
-      </GroupedList>
-      <div className="flex justify-end">
-        <Button disabled={setting.save.isPending} onClick={onSave}>
-          {setting.save.isPending ? "Saving…" : "Save notifications"}
-        </Button>
+                  <span id={labelId} className="text-ui text-ink">
+                    {describeNotificationType(type)}
+                  </span>
+                  <Switch
+                    aria-labelledby={labelId}
+                    checked={currentTypes.has(type)}
+                    disabled={topicEmpty}
+                    onCheckedChange={() => toggle(type)}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+          {topicEmpty ? (
+            <p className="text-caption text-ink-muted">
+              Add a topic to choose what Google sends.
+            </p>
+          ) : null}
+        </div>
       </div>
-    </section>
+      <CardFooter bar className="justify-end">
+        <Button
+          pending={setting.save.isPending}
+          pendingLabel="Saving…"
+          onClick={onSave}
+        >
+          Save notifications
+        </Button>
+      </CardFooter>
+    </Card>
   )
 }

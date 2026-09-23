@@ -151,4 +151,26 @@ describe("primary navigation", () => {
     screen.getByRole("link", { name: /Old Crown Group/ }).click()
     expect(onNavigate).toHaveBeenCalledTimes(2)
   })
+
+  it("shows the needs-reply count without renaming the Inbox link", () => {
+    render(<Nav needsReply={5} />)
+    const inbox = screen.getByRole("link", { name: "Inbox" })
+    // The count describes the row; "Inbox" stays its exact name for every
+    // locator and screen-reader link list.
+    expect(inbox).toHaveAccessibleName("Inbox")
+    expect(inbox).toHaveAccessibleDescription("5 reviews need a reply")
+  })
+
+  it("names each pinned client's health in words, not only a dot", () => {
+    render(<Nav clients={clients} />)
+    expect(
+      screen.getByRole("link", { name: /Harbour Kitchen, Disconnected/i })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps rail labels as accessible names", () => {
+    render(<Nav layout="responsive" />)
+    expect(screen.getByRole("link", { name: "Listings" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument()
+  })
 })

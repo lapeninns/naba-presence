@@ -1,11 +1,12 @@
 "use client"
 
-import { ToggleChip } from "@/components/ui/chip"
+import { ChipCount, ChipRow, chipClassName } from "@/components/ui/chip"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { formatNumber } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 export type ClientChipRow = Pick<ClientSummary, "id" | "name" | "health"> & {
   open: number
@@ -27,11 +28,11 @@ function clientChipRows(clients: ClientSummary[] | undefined): ClientChipRow[] {
 }
 
 /**
- * Who needs you today, by client — as a row of filters.
- *
- * Home used to answer this with a table whose every count linked into the
- * Inbox. Here the Inbox IS the page, so the same row is a scope: press a
- * client and the list beneath narrows to it, press again to see everything.
+ * Who needs you today, by client (reference `.client-chip`): one chip per
+ * client, busiest first, each a scope for the list beneath. Press a client
+ * and the list narrows to it; press again to see everything. The chip is
+ * the client's health dot, its name and its open count in mono. Pressed
+ * fills with ink, like every chip.
  */
 function ClientChips({
   rows,
@@ -50,7 +51,7 @@ function ClientChips({
         {[0, 1, 2].map((index) => (
           <Skeleton
             key={index}
-            className="h-7 w-32 rounded-(--np-radius-pill)"
+            className="h-8 w-32 rounded-(--np-radius-pill) pointer-coarse:h-10"
           />
         ))}
       </div>
@@ -58,41 +59,33 @@ function ClientChips({
   }
 
   return (
-    <div
-      role="group"
-      aria-label="Work by client"
-      className="flex items-center gap-2"
-    >
+    <ChipRow role="group" aria-label="Work by client">
       {rows.map((row) => {
         const pressed = row.id === selectedId
         return (
-          <ToggleChip
+          <button
             key={row.id}
-            pressed={pressed}
+            type="button"
+            aria-pressed={pressed}
+            data-slot="chip"
+            data-pressed={pressed || undefined}
             aria-label={`${row.name}, ${healthLabel(row.health)}, ${
               row.open === 1 ? "1 open item" : `${row.open} open items`
             }`}
             onClick={() => onSelect(pressed ? undefined : row.id)}
+            className={chipClassName({ pressed })}
           >
             <StatusPill
               variant="dot"
               tone={healthTone(row.health)}
-              className={pressed ? "bg-primary-foreground!" : undefined}
+              className={cn("size-[7px]", pressed && "ring-1 ring-canvas")}
             />
-            <span className="truncate">{row.name}</span>
-            <span
-              className={
-                pressed
-                  ? "text-primary-foreground/80 tabular-nums"
-                  : "text-ink-muted tabular-nums"
-              }
-            >
-              {formatNumber(row.open)}
-            </span>
-          </ToggleChip>
+            <span className="max-w-[18ch] truncate">{row.name}</span>
+            <ChipCount>{formatNumber(row.open)}</ChipCount>
+          </button>
         )
       })}
-    </div>
+    </ChipRow>
   )
 }
 

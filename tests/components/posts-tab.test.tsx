@@ -72,7 +72,7 @@ describe("PostsTab", () => {
     // exists to remove.
     expect(
       screen.getByText(
-        "Publishing to Google is currently unavailable, so new posts cannot be composed."
+        "Publishing to Google is currently unavailable, so new posts cannot be composed. Publishing and deleting posts also wait until it’s back."
       )
     ).toBeInTheDocument()
   })
@@ -83,6 +83,7 @@ describe("PostsTab", () => {
     renderTab()
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument()
-    expect(screen.getByText("Awaiting approval")).toBeInTheDocument()
+    // The status filter chip carries the same words, so read the post's own pill.
+    expect(within(screen.getByRole("article")).getByText("Awaiting approval")).toBeInTheDocument()
   })
 })

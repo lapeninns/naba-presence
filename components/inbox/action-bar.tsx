@@ -5,6 +5,7 @@ import {
   CheckIcon,
   CloudUploadIcon,
   MoreHorizontalIcon,
+  RotateCwIcon,
   SendHorizonalIcon,
   Trash2Icon,
   XIcon,
@@ -29,10 +30,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsDirty } from "@/components/inbox/dirty-context"
 import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
-import {
-  derivePrimaryAction,
-  publishableDraft,
-} from "@/lib/inbox/reply-state"
+import { derivePrimaryAction, publishableDraft } from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
@@ -66,7 +64,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
 
   const review = detail.data?.review
   if (!review) return null
-
 
   // The NEWEST draft, and only when it is verified. The old `drafts.find(…)`
   // took the first verified draft anywhere in the list, so a review whose
@@ -162,22 +159,39 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const offerRequestApproval = primary.kind === "submit"
   // The reason a button is off was previously only in `title` — invisible on
   // touch, and to most keyboard and screen-reader users. It is now text.
-  const blockedReason = primary.reason
+  // A publish already with Google: nothing to press until it answers. Said
+  // as what is happening, from the review's own status — never "Live".
+  const inFlight = review.workflowStatus === "publish_requested"
+  const blockedReason = inFlight
+    ? "Sent to Google — waiting for Google to confirm."
+    : primary.reason
+
+  // A failed publish is retried with the same verified draft: the same
+  // mutation, named for what it does from here.
+  const retry =
+    review.workflowStatus === "failed" &&
+    (primary.kind === "publish" || primary.kind === "update")
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
       {blockedReason ? (
-        <p id={reasonId} className="min-w-0 flex-1 text-caption text-ink-muted">
+        <p
+          id={reasonId}
+          className="min-w-0 flex-[1_1_140px] text-caption text-ink-muted-on-charcoal @2xl/detail:text-right"
+        >
           {blockedReason}
         </p>
       ) : null}
 
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        {awaitingApproval ? (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {inFlight ? (
+          <Button variant="ghost-dark" pending pendingLabel="Publishing…">
+            Publishing…
+          </Button>
+        ) : awaitingApproval ? (
           <>
             <Button
-              variant="secondary"
-              pill
+              variant="ghost-dark"
               disabled={!primary.enabled || approval.isPending}
               title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
@@ -187,7 +201,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Reject reply
             </Button>
             <Button
-              pill
               disabled={!primary.enabled || approval.isPending}
               title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
@@ -203,7 +216,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </>
         ) : offerRequestApproval ? (
           <Button
-            pill
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
@@ -218,18 +230,29 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         ) : (
           <Button
-            pill
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
             onClick={() => void onPublish()}
           >
-            <CloudUploadIcon
-              aria-hidden
-              strokeWidth={1.75}
-              data-icon="inline-start"
-            />
-            {publish.isPending ? "Publishing…" : primary.label}
+            {retry ? (
+              <RotateCwIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+            ) : (
+              <CloudUploadIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+            )}
+            {publish.isPending
+              ? "Publishing…"
+              : retry
+                ? "Retry publish"
+                : primary.label}
           </Button>
         )}
 
@@ -238,9 +261,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <DropdownMenuTrigger
               render={
                 <Button
-                  variant="ghost"
+                  variant="ghost-dark"
                   size="icon"
-                  pill
                   aria-label="Review actions"
                 />
               }
@@ -272,7 +294,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Keep reply
             </AlertDialogClose>
             <Button
-              variant="destructive"
+              variant="danger"
               disabled={remove.isPending}
               onClick={() => void onDelete()}
             >
@@ -324,7 +346,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Cancel
             </AlertDialogClose>
             <Button
-              variant="destructive"
+              variant="danger"
               disabled={approval.isPending}
               onClick={() =>
                 void onDecision("reject", rejectNote.trim() || undefined)

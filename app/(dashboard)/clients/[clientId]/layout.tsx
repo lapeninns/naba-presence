@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
+import { clientIdParamsSchema } from "@/lib/contracts/clients"
 import { withTenant } from "@/lib/server/db"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { getSession } from "@/lib/server/session"
@@ -22,6 +23,9 @@ export default async function ClientLayout({
   children: React.ReactNode
 }) {
   const { clientId } = await params
+  // Not an id at all: a not-found, not a database error surfacing as the
+  // error page (the uuid column would reject the comparison).
+  if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
   const session = await getSession()
 
   if (session) {

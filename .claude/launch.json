@@ -4,9 +4,29 @@
     {
       "name": "nabareview-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": [
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "visual-fixtures",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VISUAL_APP_PORT=3200 PLAYWRIGHT_GOOGLE_STUB_PORT=3201 tests/visual/with-visual-db.sh node --experimental-strip-types --import ./tests/visual/ts-resolve-hook.mjs tests/visual/fixture-server.ts"
+      ],
+      "port": 3201
+    },
+    {
+      "name": "visual-app",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "LOCAL_BOOTSTRAP_ENABLED=false GOOGLE_API_PROXY_BASE=http://127.0.0.1:3201 NEXTAUTH_URL=http://localhost:3200 OPENAI_API_KEY= WEBHOOKS_ENABLED=false GBP_PROFILE_WRITES_ENABLED=true GBP_MEDIA_ENABLED=true GBP_POSTS_ENABLED=true GBP_FOOD_MENUS_ENABLED=true GBP_PLACE_ACTIONS_ENABLED=true GBP_PERFORMANCE_ENABLED=true GBP_KEYWORDS_ENABLED=true DESIGN_SYSTEM_EVIDENCE_ENABLED=true tests/visual/with-visual-db.sh pnpm exec next dev --turbopack --port 3200"
+      ],
+      "port": 3200
     }
   ]
 }

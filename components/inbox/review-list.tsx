@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { ChevronRightIcon, GlobeIcon, ImageIcon } from "lucide-react"
+import { GlobeIcon, ImageIcon } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
-import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
+import { StatusPill } from "@/components/ui/status-pill"
+import { replyStatusPill } from "@/components/inbox/situation-tone"
 import { StarRating } from "@/components/inbox/star-rating"
 import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
@@ -26,6 +27,7 @@ function listTime(iso: string, timezone: string): string {
 }
 
 function ReviewList({
+  ref,
   reviews,
   selectedId,
   queue,
@@ -37,6 +39,8 @@ function ReviewList({
   onReachEnd,
   isLoadingMore = false,
 }: {
+  /** The scrolling element, so the parent can keep its place. */
+  ref?: React.Ref<HTMLElement>
   reviews: ReviewRow[]
   selectedId: string | undefined
   /**
@@ -158,17 +162,20 @@ function ReviewList({
 
   return (
     <section
+      ref={ref}
       aria-label="Review list"
       aria-busy={isRefreshing || undefined}
       className={cn(
-        "relative flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity duration-(--np-duration-fast)",
+        // The rows scroll inside the card only where the workspace is locked
+        // to the window; on a phone or a short window the page scrolls.
+        "relative flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) md:[@media(min-height:620px)]:overflow-y-auto",
         isRefreshing && "opacity-80"
       )}
     >
       {isRefreshing ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-line-subtle"
+          className="pointer-events-none sticky inset-x-0 top-0 z-10 h-0.5 shrink-0 overflow-hidden bg-line"
         >
           <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
@@ -176,7 +183,7 @@ function ReviewList({
       {/* Native <ul>/<li> give the list/listitem roles; the row stays a real
           <button> (role button) so getByRole("button", { name }) works and the
           list satisfies aria-required-children. Roving tabindex lives on the
-          buttons. Compact density: a working queue is read, not browsed. */}
+          buttons. */}
       <ul ref={containerRef} data-density="compact" className="flex flex-col">
         {reviews.map((review, index) => {
           const selected = review.id === selectedId
@@ -187,6 +194,7 @@ function ReviewList({
             ? "Anonymous"
             : (review.reviewer.displayName ?? "Anonymous")
           const status = deriveReplyStatus(replyStateFromRow(review, queue))
+          const pill = replyStatusPill(status)
           const parsed = parseReviewText(
             review.text,
             review.detectedLanguageCode
@@ -198,20 +206,21 @@ function ReviewList({
           return (
             <li
               key={review.id}
-              className="group/row relative border-b border-line-subtle last:border-b-0"
+              className={cn(
+                "group/row relative flex border-b border-line transition-[background-color] duration-(--np-duration-fast) ease-out-strong",
+                selected ? "bg-accent-tint" : "hover-fine:hover:bg-surface-alt",
+                // The one accent in the list: a tint and a 3px bar down the
+                // selected row's leading edge (reference `.rv[aria-current]`).
+                selected &&
+                  "before:absolute before:inset-y-0 before:left-0 before:z-10 before:w-[3px] before:bg-primary before:content-['']"
+              )}
             >
               {selection ? (
-                <span
-                  className={cn(
-                    "absolute top-3 left-2.5 z-10 flex transition-opacity duration-(--np-duration-fast)",
-                    // Visible once ticked or on hover/focus, so an untouched
-                    // list is not a wall of empty boxes — but never hidden
-                    // from keyboards, which have no hover.
-                    selection.selected.has(review.id)
-                      ? "opacity-100"
-                      : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100"
-                  )}
-                >
+                // Always visible, never hover-only: a touch screen has no
+                // hover, and a keyboard user needs to see what they tick. Its
+                // own column, not laid over the row, so the box and the row
+                // are two targets with room between them.
+                <span className="flex w-11 shrink-0 justify-center pt-3.5">
                   <Checkbox
                     checked={selection.selected.has(review.id)}
                     aria-label={`Select the review from ${displayName}`}
@@ -234,105 +243,78 @@ function ReviewList({
                   void onSelect(review.id)
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
-                // Four lines, one voice: who and when, where and how many
-                // stars, a line of what they said, and the one status. The
-                // avatar is gone — a monogram of the reviewer's initials is
-                // the least useful thing in a queue where every row is a
-                // different stranger, and its 28px bought a longer venue name.
                 className={cn(
-                  // The halo is inset because the list clips at the card's
-                  // corners; an outer halo would be cut off on the edge rows.
-                  "relative block w-full rounded-(--np-radius-control) border px-2.5 py-2.5 text-left transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none",
-                  selection ? "pl-8" : "pl-2.5",
-                  selected
-                    ? // A neutral fill and a real edge rather than the accent
-                      // tint: in a list of forty, colour is how an exception
-                      // gets noticed, and spending it on "this is the one you
-                      // are reading" leaves nothing for the rows that need it.
-                      // The chevron at the end carries the same meaning
-                      // without relying on either.
-                      "border-(--np-line-strong) bg-fill-secondary"
-                    : "border-transparent hover:bg-(--np-hover-bg) active:bg-fill-tertiary"
+                  "relative block min-w-0 flex-1 py-3 pr-3.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  selection ? "pl-0" : "pl-4",
+                  selected ? "bg-accent-tint" : "active:bg-surface-alt"
                 )}
               >
-                <span className="flex min-w-0 flex-col gap-2">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span
-                      className={cn(
-                        "truncate text-body text-ink",
-                        selected ? "font-semibold" : "font-medium"
-                      )}
-                    >
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <StarRating rating={review.rating} size="md" />
+                    <span className="min-w-0 truncate text-ui font-semibold text-ink">
                       {displayName}
                     </span>
                     <time
                       dateTime={review.updateTime}
                       title={formatDateTime(review.updateTime, timezone)}
-                      className="shrink-0 text-caption text-ink-muted tabular-nums"
+                      className="ml-auto shrink-0 font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
                     >
                       {listTime(review.updateTime, timezone)}
                     </time>
                   </span>
 
-                  <span className="flex items-center justify-between gap-2 text-caption text-ink-muted">
-                    {/* Client first: in an agency inbox the location name
-                        alone ("High Street") does not say whose business this
-                        is, and replying in the wrong voice is the mistake this
-                        line exists to prevent. */}
-                    <span className="min-w-8 flex-1 truncate">{venue}</span>
-                    {review.hasMedia ? (
-                      <ImageIcon
-                        role="img"
-                        aria-label="Has photos"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0"
-                      />
-                    ) : null}
-                    <StarRating rating={review.rating} tone="neutral" />
-                  </span>
-
-                  {/* One line, not two. The full text is in the pane a click
-                      away, and a queue that a person scans is better served by
-                      forty first lines than twenty first paragraphs. */}
                   <span
                     lang={parsed?.bodyLang ?? undefined}
                     dir="auto"
                     className={cn(
-                      // The `text-ui` role already carries its own line
-                      // height; the `--leading-ui` token it used to name here
-                      // does not exist, so the utility resolved to nothing.
-                      "truncate text-ui",
-                      selected ? "text-ink" : "text-ink-muted"
+                      "mt-[3px] line-clamp-2 text-ui",
+                      parsed ? "text-ink-secondary" : "text-ink-muted italic"
                     )}
                   >
                     {parsed?.body ?? "A rating with no written review."}
                   </span>
 
-                  <span className="flex items-center justify-end gap-1.5">
-                    {parsed?.original ? (
-                      <span className="mr-auto flex items-center gap-1.5 text-caption text-ink-muted">
-                        <GlobeIcon
-                          aria-hidden
-                          strokeWidth={1.75}
-                          className="size-3.5 shrink-0"
-                        />
-                        Translated
-                      </span>
+                  <span className="mt-[7px] flex min-w-0 flex-wrap items-center gap-2">
+                    {/* Client first: in an agency inbox the location name
+                        alone ("High Street") does not say whose business this
+                        is, and replying in the wrong voice is the mistake this
+                        line exists to prevent. */}
+                    <span className="min-w-0 truncate text-caption text-ink-muted">
+                      {venue}
+                    </span>
+                    {review.hasMedia ? (
+                      <ImageIcon
+                        role="img"
+                        aria-label="Has photos"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
                     ) : null}
-                    <ReplyStatusLine status={status} variant="row" />
-                    {/* The non-colour half of the selection cue: a selected row
-                        is the only one with a chevron, so it is still
-                        identifiable in greyscale, in forced colours, and to
-                        anyone who cannot separate the fill from the surface. */}
+                    {parsed?.original ? (
+                      <GlobeIcon
+                        role="img"
+                        aria-label="Translated"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
+                    ) : null}
+                    <StatusPill
+                      tone={pill.tone}
+                      dashed={pill.dashed}
+                      // The full sentence is the accessible name, so a reader
+                      // hears "Draft checked · Ready to publish" rather than
+                      // the abbreviation the row has room for.
+                      data-slot="reply-status"
+                      data-tone={status.tone}
+                      aria-label={status.text}
+                    >
+                      {status.short}
+                    </StatusPill>
+                    {/* The non-colour half of the selection cue, for
+                        greyscale, forced colours and screen readers. */}
                     {selected ? (
-                      <>
-                        <ChevronRightIcon
-                          aria-hidden
-                          strokeWidth={1.75}
-                          className="size-3.5 shrink-0 text-ink"
-                        />
-                        <span className="sr-only">Selected review</span>
-                      </>
+                      <span className="sr-only">Selected review</span>
                     ) : null}
                   </span>
                 </span>

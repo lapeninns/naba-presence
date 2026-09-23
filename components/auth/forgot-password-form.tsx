@@ -9,7 +9,6 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
-import { AuthLink } from "@/components/auth/auth-link"
 import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -34,6 +33,7 @@ function ForgotPasswordForm() {
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [sentTo, setSentTo] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [resendNote, setResendNote] = useState("")
   const alertRef = useRef<HTMLDivElement>(null)
 
   // role="alert" is already an assertive live region, so this is a belt and
@@ -77,19 +77,65 @@ function ForgotPasswordForm() {
 
   if (sentTo) {
     return (
-      <div className="flex flex-col items-start gap-5">
-        <p role="status" className="text-body text-ink">
-          If an account exists for {sentTo}, a reset link is on its way.
-        </p>
-        <AuthLink href="/sign-in">Back to sign in</AuthLink>
+      <div className="flex flex-col items-start gap-4">
+        <div className="flex w-full flex-col gap-2.5 rounded-lg bg-surface-alt p-4">
+          <p
+            role="status"
+            className="text-ui [overflow-wrap:anywhere] text-ink"
+          >
+            If an account exists for {sentTo}, a reset link is on its way.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              disabled={pending}
+              aria-busy={pending || undefined}
+              onClick={() =>
+                startTransition(async () => {
+                  try {
+                    await authApi.requestPasswordReset(sentTo)
+                    // Neutral on purpose: never confirms whether the address
+                    // has an account.
+                    setResendNote(
+                      `Another link is on its way to ${sentTo} if it has an account.`
+                    )
+                  } catch (error) {
+                    setResendNote(authErrorMessage(error).title)
+                  }
+                })
+              }
+            >
+              {pending ? "Sending…" : "Send another link"}
+            </Button>
+            <span aria-live="polite" className="text-caption text-ink-muted">
+              {resendNote}
+            </span>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="pointer-coarse:min-h-11"
+          onClick={() => {
+            setSentTo(null)
+            setResendNote("")
+            setMessage(null)
+          }}
+        >
+          Use a different email
+        </Button>
       </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       {message ? (
-        <div ref={alertRef} tabIndex={-1}>
+        <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} email={email} />
         </div>
       ) : null}
@@ -112,9 +158,9 @@ function ForgotPasswordForm() {
       <Button
         type="submit"
         size="lg"
-        pill
-        className="w-full"
+        className="h-11 w-full"
         disabled={pending}
+        aria-busy={pending || undefined}
       >
         {pending ? "Sending…" : "Send reset link"}
       </Button>

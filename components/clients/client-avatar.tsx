@@ -44,10 +44,12 @@ function inkFor(background: string): string {
 }
 
 function initialsFor(name: string) {
-  const letters = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
+  // "The Bell" and "The Barley Mow" should not both read "TB": a leading
+  // article says nothing about which business it is.
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const meaningful =
+    words.length > 1 && /^the$/i.test(words[0]) ? words.slice(1) : words
+  const letters = meaningful
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("")

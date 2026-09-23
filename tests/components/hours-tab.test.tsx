@@ -84,9 +84,47 @@ describe("HoursTab", () => {
     useHoursMock.mockReturnValue({ data: makeHours({ writesEnabled: false }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()
+    // The footer becomes the view-only bar: it explains, and offers no
+    // actions at all rather than disabled ones.
+    expect(screen.getByText(/View-only access\./)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
     expect(
       screen.getAllByText("Only owners and admins can edit this location.").length
     ).toBeGreaterThan(0)
+  })
+
+  it("keeps saving here available while publishing is paused, and says why", () => {
+    useHoursMock.mockReturnValue({ data: makeHours(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({
+      data: {
+        canEditCanonical: true,
+        canPublish: true,
+        resources: { hours: { state: "readOnly", reasonCode: "publishing_paused" } },
+      },
+    })
+    renderTab()
+    expect(screen.getByText("Publishing to Google is paused for this listing")).toBeInTheDocument()
+    expect(screen.getByText("publishing_paused")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()
+    // Saving here is not publishing: it stays available for an owner.
+    expect(screen.getByRole("button", { name: "Save here" })).toBeInTheDocument()
+  })
+
+  it("points the validation summary at the field that needs fixing", async () => {
+    const user = userEvent.setup()
+    useHoursMock.mockReturnValue({ data: makeHours(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    const closes = screen.getByLabelText("Monday period 1 closes")
+    await user.clear(closes)
+    await user.type(closes, "09:00")
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const summary = await screen.findByRole("alert", { name: /problem to fix/i })
+    expect(summary).toHaveFocus()
+    expect(within(summary).getByRole("link", { name: /Monday: Opening and closing times are the same/ })).toHaveAttribute("href", "#hours-1-0-opens")
+    expect(screen.getByLabelText("Monday period 1 opens")).toHaveAttribute("aria-invalid", "true")
+    // No sheet: nothing is offered for publishing while the draft is invalid.
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 })

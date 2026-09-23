@@ -19,12 +19,11 @@ type PositionProps = Pick<
 >
 
 /**
- * The popup: on the popover material, scaling out of its anchor on the
- * spring. `--transform-origin` is set by the positioner from the resolved
- * side, so the menu grows from the trigger even after a collision flip.
+ * The popup (reference `.menu`): surface, hairline edge, 10px radius, pop
+ * shadow, 6px inset, at least 200px wide (never wider than the viewport).
  */
 const popupClassName =
-  "material-popover max-h-[min(var(--available-height),32rem)] min-w-48 origin-(--transform-origin) overflow-y-auto rounded-(--np-radius-card) p-1 text-ink shadow-(--np-shadow-pop) outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
+  "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
 
 function DropdownMenuContent({
   className,
@@ -57,16 +56,16 @@ function DropdownMenuContent({
 }
 
 /**
- * The Mac menu row: 30px tall, a reserved checkmark column on the left, the
- * label, and an optional shortcut on the right. Highlight is the accent fill
- * with white text — nothing else in the system highlights this way, which is
- * what makes a menu read as a menu.
+ * A menu row (reference `.menu [role=menuitem]`): 32px (44px on coarse
+ * pointers), the tag radius, label with an optional leading glyph and a
+ * trailing shortcut. Highlight is the hover fill. Disabled rows stay
+ * readable in muted ink so a reason under them can be read.
  */
 const itemClassName =
-  "group/item relative flex h-(--np-menu-item-h) cursor-default items-center gap-2 rounded-(--np-radius-tag) px-2 text-ui text-ink outline-none select-none data-highlighted:bg-primary data-highlighted:text-primary-foreground data-disabled:pointer-events-none data-disabled:text-ink-faint [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
+  "group/item relative flex min-h-(--np-menu-item-h) cursor-default items-center gap-2.5 rounded-(--np-radius-tag) px-2.5 py-1 text-ui text-ink outline-none select-none pointer-coarse:min-h-(--np-touch) data-highlighted:bg-fill data-disabled:cursor-not-allowed data-disabled:text-ink-muted [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-ink-muted [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 
 const destructiveItemClassName =
-  "text-danger-ink data-highlighted:bg-(--np-danger-solid) data-highlighted:text-(--np-danger-on-solid)"
+  "text-danger-ink data-highlighted:bg-danger-tint [&_svg]:text-danger-ink"
 
 function CheckColumn({ children }: { children?: React.ReactNode }) {
   return (
@@ -84,8 +83,18 @@ function DropdownMenuItem({
   className,
   children,
   variant = "default",
+  disabledReason,
   ...props
-}: MenuPrimitive.Item.Props & { variant?: "default" | "destructive" }) {
+}: MenuPrimitive.Item.Props & {
+  variant?: "default" | "destructive"
+  /**
+   * Why this action is unavailable. Disables the row (still focusable, so
+   * the reason can be reached) and shows the reason as a caption line.
+   */
+  disabledReason?: React.ReactNode
+}) {
+  const reasonId = React.useId()
+  const disabled = Boolean(props.disabled || disabledReason)
   return (
     <MenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -93,12 +102,23 @@ function DropdownMenuItem({
       className={cn(
         itemClassName,
         variant === "destructive" && destructiveItemClassName,
+        disabledReason && "items-start py-1.5",
         className
       )}
       {...props}
+      disabled={disabled}
+      aria-describedby={disabledReason ? reasonId : props["aria-describedby"]}
     >
-      <CheckColumn />
-      {children}
+      {disabledReason ? (
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="flex items-center gap-2.5">{children}</span>
+          <span id={reasonId} className="text-caption text-ink-muted">
+            {disabledReason}
+          </span>
+        </span>
+      ) : (
+        children
+      )}
     </MenuPrimitive.Item>
   )
 }
@@ -116,7 +136,7 @@ function DropdownMenuCheckboxItem({
     >
       <CheckColumn>
         <MenuPrimitive.CheckboxItemIndicator className="flex">
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-4 text-accent-ink!" />
         </MenuPrimitive.CheckboxItemIndicator>
       </CheckColumn>
       {children}
@@ -141,7 +161,7 @@ function DropdownMenuRadioItem({
     >
       <CheckColumn>
         <MenuPrimitive.RadioItemIndicator className="flex">
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-4 text-accent-ink!" />
         </MenuPrimitive.RadioItemIndicator>
       </CheckColumn>
       {children}
@@ -160,7 +180,7 @@ function DropdownMenuLabel({
   return (
     <MenuPrimitive.GroupLabel
       data-slot="dropdown-menu-label"
-      className={cn("px-2 py-1.5 text-caption font-medium text-ink-muted", className)}
+      className={cn("px-2.5 pt-1.5 pb-0.5 text-[11.5px] font-medium text-ink-muted", className)}
       {...props}
     />
   )
@@ -173,7 +193,7 @@ function DropdownMenuSeparator({
   return (
     <MenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("mx-2 my-1 border-t border-line-subtle", className)}
+      className={cn("mx-0.5 my-1 border-t border-line", className)}
       {...props}
     />
   )
@@ -191,7 +211,7 @@ function DropdownMenuShortcut({
     <kbd
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ml-auto pl-4 font-sans text-caption text-ink-muted group-data-highlighted/item:text-primary-foreground",
+        "ml-auto pl-4 font-mono text-[11px] text-ink-muted",
         className
       )}
       {...props}
@@ -214,9 +234,8 @@ function DropdownMenuSubTrigger({
       className={cn(itemClassName, "data-popup-open:bg-fill", className)}
       {...props}
     >
-      <CheckColumn />
       {children}
-      <ChevronRightIcon className="ml-auto size-4 text-ink-muted group-data-highlighted/item:text-primary-foreground" />
+      <ChevronRightIcon className="ml-auto size-4 text-ink-muted" />
     </MenuPrimitive.SubmenuTrigger>
   )
 }

@@ -228,6 +228,18 @@ describe("ProfileTab", () => {
   })
 })
 
+describe("ProfileTab address lines", () => {
+  it("lets an operator type spaces and new lines in the address", async () => {
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const address = await screen.findByRole("textbox", { name: "Address lines" })
+    await waitFor(() => expect(address).toBeEnabled())
+    await userEvent.type(address, "12 High Street{Enter}Old Town")
+    // The draft keeps clean lines; the textarea keeps what was typed.
+    expect(address).toHaveValue("12 High Street\nOld Town")
+  })
+})
+
 describe("ProfileTab while Google's half is still loading", () => {
   it("does not claim the listing is in sync before Google has answered", async () => {
     // The four NabaPresence fields match Google in this fixture, so `rows` is

@@ -229,7 +229,7 @@ test.describe("inbox critical journeys", () => {
     ).toHaveAttribute("aria-current", "true")
     await expect(
       page.getByRole("combobox", { name: "Approval waiting on" })
-    ).toHaveText("Me")
+    ).toHaveText(/(^|:)\s*Me$/)
     // Nothing rewrites the link into the aggregate: the queue the operator
     // arrived on is the queue the server is still being asked for. (Only
     // `selected` is appended, by the desktop auto-selection.)

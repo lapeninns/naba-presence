@@ -1,16 +1,21 @@
 "use client"
 
+import { CircleCheckIcon, Link2Icon } from "lucide-react"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import * as React from "react"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { formatRelativeTime } from "@/lib/format"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
-import { cn } from "@/lib/utils"
+import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -19,6 +24,10 @@ import { cn } from "@/lib/utils"
  * consent, and the tenth is usually on a login the agency already connected.
  * Offering only the first would send an operator through Google's consent
  * screen for an account already sitting in the list.
+ *
+ * Errors are the real ones: a refused `connect/start` (Google not configured,
+ * no permission) and, when the callback returns here, its `?google=error`
+ * status and request id. Nothing is invented for the error state.
  */
 function StepConnect({
   clientId,
@@ -30,10 +39,17 @@ function StepConnect({
   /** Called once an existing login is filed under the client. */
   onConnected: () => void
 }) {
+  const params = useSearchParams()
   const workspace = useConnectionWorkspace()
   const { attachConnection } = useClientMutations()
   const toast = useToastManager()
   const [starting, setStarting] = React.useState(false)
+  const [startError, setStartError] = React.useState<string | null>(null)
+
+  const returned = params.get("google")
+  const returnedStatus = params.get("status")
+  const requestId = params.get("rid")
+  const returnedReason = params.get("reason")
 
   const connections = workspace.query.data?.connections ?? []
   const usable = connections.filter(
@@ -43,6 +59,7 @@ function StepConnect({
 
   const connect = async () => {
     setStarting(true)
+    setStartError(null)
     try {
       const { authorizationUrl } = await startGoogleConnect({
         clientId,
@@ -53,10 +70,7 @@ function StepConnect({
       window.location.assign(authorizationUrl)
     } catch (error) {
       setStarting(false)
-      toast.add({
-        title: "Could not start the connection",
-        description: describeActionError(error),
-      })
+      setStartError(describeActionError(error))
     }
   }
 
@@ -83,89 +97,165 @@ function StepConnect({
             ? "error"
             : "ready"
       }
+      pendingLabel="Loading your Google connections"
       error="We couldn't load your Google connections"
       onRetry={() => void workspace.query.refetch()}
     >
       {() => (
-        <div className="grid gap-(--np-gap-card) lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-accent-tint p-(--np-card-pad)">
-            <div className="flex flex-col gap-1">
-              <h3 className="text-title font-semibold text-ink">
+        <div className="flex flex-col gap-4">
+          {startError || returned === "error" ? (
+            <Alert variant="destructive" data-testid="setup-connect-error">
+              <AlertTitle>
+                {!startError && returnedReason === "google_scope_missing"
+                  ? "Permission not granted"
+                  : "Google didn’t connect"}
+              </AlertTitle>
+              <AlertDescription className="flex flex-col gap-1">
+                <span>
+                  {startError ??
+                    describeGoogleConnectStatus(returnedStatus, returnedReason)}
+                </span>
+                {!startError && requestId ? (
+                  <span className="text-caption text-ink-muted">
+                    Reference{" "}
+                    <code className="rounded-(--np-radius-tag) bg-surface px-1 font-mono text-caption">
+                      {requestId}
+                    </code>
+                  </span>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {returned === "connected" && !startError ? (
+            <Alert variant="success" icon={<CircleCheckIcon aria-hidden />}>
+              <AlertTitle>Google account connected</AlertTitle>
+              <AlertDescription>
+                Continue to choose which Business Profile accounts belong to{" "}
+                {clientName}.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3.5 @min-[520px]/wiz:flex-row @min-[520px]/wiz:items-center">
+            <span
+              aria-hidden
+              className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ink-secondary [&_svg]:size-4"
+            >
+              <Link2Icon strokeWidth={1.75} />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <h3 className="text-body font-semibold text-ink">
                 Connect a Google account
               </h3>
               <p className="text-ui text-ink-muted">
-                Sign in to the Google account that manages {clientName}&rsquo;s
-                Business Profile. You&rsquo;ll be sent to Google and brought
-                straight back here.
+                Sign in to the Google account that manages {clientName}’s
+                Business Profile. You’ll sign in on Google’s own page and come
+                straight back to the next step.
               </p>
             </div>
             <Button
-              pill
+              id="setup-connect-google"
+              variant={usable.length === 0 ? "default" : "secondary"}
               onClick={connect}
-              disabled={starting}
-              className="self-start"
+              pending={starting}
+              pendingLabel="Opening Google…"
+              className="self-start @min-[520px]/wiz:self-center"
             >
-              {starting ? "Opening Google…" : "Continue with Google"}
+              Continue with Google
             </Button>
           </div>
 
-          <div
-            className={cn(
-              "flex flex-col gap-3 rounded-(--np-radius-card) bg-surface-sunken p-(--np-card-pad)",
-              usable.length === 0 && "opacity-60"
-            )}
+          <section
+            aria-labelledby="setup-connected-logins"
+            className="flex flex-col gap-2"
           >
-            <div className="flex flex-col gap-1">
-              <h3 className="text-title font-semibold text-ink">
-                Use an account already connected
-              </h3>
+            <h3
+              id="setup-connected-logins"
+              className="font-mono text-[0.71875rem] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase"
+            >
+              Use an account already connected
+            </h3>
+            {connections.length === 0 ? (
               <p className="text-ui text-ink-muted">
-                One Google login can manage several Business Profile accounts.
-                {usable.length === 0
-                  ? " You haven't connected one yet."
-                  : " Pick one to skip the Google sign-in."}
+                You haven’t connected a Google account yet.
               </p>
-            </div>
-            {connections.length > 0 ? (
-              <ul className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-tag) bg-surface">
-                {connections.map((connection) => (
-                  <li
-                    key={connection.id}
-                    className="flex min-h-(--np-row-h) items-center gap-3 px-3 py-2"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-ui text-ink">
-                      {connection.googleEmail ?? "Google account"}
-                    </span>
-                    {connection.reconnectRequired ||
-                    connection.status !== "active" ? (
-                      <StatusPill tone="at-risk">Needs reconnecting</StatusPill>
-                    ) : (
-                      <>
-                        <StatusPill tone="healthy">Connected</StatusPill>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={attachConnection.isPending}
-                          onClick={() => pickExisting(connection.id)}
-                          aria-label={`Use ${connection.googleEmail ?? "this Google account"}`}
-                        >
-                          {attachConnection.isPending &&
-                          attachConnection.variables?.connectionId ===
-                            connection.id
-                            ? "Using…"
-                            : "Use this account"}
-                        </Button>
-                      </>
-                    )}
-                  </li>
-                ))}
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {connections.map((connection) => {
+                  const broken =
+                    connection.reconnectRequired ||
+                    connection.status !== "active"
+                  return (
+                    <li
+                      key={connection.id}
+                      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-(--np-radius-card) border border-line bg-surface p-3.5"
+                    >
+                      <span
+                        aria-hidden
+                        className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ui font-semibold text-ink-secondary"
+                      >
+                        G
+                      </span>
+                      <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-0.5">
+                        <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink">
+                          {connection.googleEmail ?? "Google account"}
+                        </span>
+                        <span className="text-caption text-ink-muted">
+                          {connection.lastRefreshAt
+                            ? `Refreshed ${formatRelativeTime(connection.lastRefreshAt)}`
+                            : "Not refreshed yet"}
+                        </span>
+                        {broken ? (
+                          <span className="text-caption text-ink-muted">
+                            <Link
+                              href="/settings/connections"
+                              className="rounded-(--np-radius-tag) font-medium text-accent-ink underline underline-offset-3 focus-halo"
+                            >
+                              Reconnect it in Settings
+                            </Link>{" "}
+                            to use it here.
+                          </span>
+                        ) : null}
+                      </div>
+                      {broken ? (
+                        <StatusPill tone="bad">Needs reconnecting</StatusPill>
+                      ) : (
+                        <span className="flex flex-wrap items-center gap-2">
+                          <StatusPill tone="ok">Connected</StatusPill>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            pending={
+                              attachConnection.isPending &&
+                              attachConnection.variables?.connectionId ===
+                                connection.id
+                            }
+                            pendingLabel="Using…"
+                            disabled={attachConnection.isPending}
+                            onClick={() => pickExisting(connection.id)}
+                            aria-label={`Use ${connection.googleEmail ?? "this Google account"}`}
+                          >
+                            Use this account
+                          </Button>
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
+            )}
+            {usable.length > 0 ? (
+              <p className="text-caption text-ink-muted">
+                A connected account can be used for {clientName} as it is:
+                Continue to pick its Business Profile accounts.
+              </p>
             ) : null}
-          </div>
+          </section>
 
-          <p className="text-ui text-ink-muted lg:col-span-2">
-            NabaPresence only reads and replies to reviews and edits the profile
-            fields you approve. Nothing is published until a person approves it.
+          <p className="text-caption text-ink-muted">
+            NabaPresence reads reviews, replies to them and edits the profile
+            fields you approve. Nothing reaches Google until a person approves
+            it.
           </p>
         </div>
       )}

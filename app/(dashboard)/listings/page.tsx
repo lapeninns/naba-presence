@@ -5,6 +5,7 @@ import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { ListingsBoard } from "@/components/listings/listings-board"
 import { buttonVariants } from "@/components/ui/button"
 import { getSession } from "@/lib/server/session"
+import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Listings · NabaPresence" }
 
@@ -23,7 +24,7 @@ export default async function ListingsPage() {
         description="Every Google Business Profile you look after, and what each one is waiting on."
         actions={
           canManage ? (
-            <Link href="/setup" className={buttonVariants({ pill: true })}>
+            <Link href="/setup" className={cn(buttonVariants())}>
               <PlusIcon aria-hidden strokeWidth={1.75} />
               Add listings from Google
             </Link>

@@ -7,9 +7,10 @@ export const metadata = { title: "Reset your password · NabaPresence" }
 export default function ForgotPasswordPage() {
   return (
     <AuthCard
-      eyebrow="Account"
+      aside="recovery"
+      eyebrow="Account recovery"
       title="Reset your password"
-      description="If that email belongs to an account, a reset link is on its way. Your clients' Google connections are not affected."
+      description="Enter the email you sign in with. We’ll send a link to choose a new password. Your clients’ Google connections are not affected."
       footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
     >
       <ForgotPasswordForm />

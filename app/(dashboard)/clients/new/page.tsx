@@ -12,7 +12,7 @@ export default async function NewClientPage() {
   }
 
   return (
-    <PageFrame>
+    <PageFrame width="narrow">
       <PageHeader
         title="New client"
         eyebrow="Clients"

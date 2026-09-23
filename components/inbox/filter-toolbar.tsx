@@ -4,6 +4,10 @@ import { useId, useState } from "react"
 
 import { RatingFilter } from "@/components/inbox/filter-controls"
 import { MoreFiltersPanel } from "@/components/inbox/more-filters"
+import {
+  ReviewSearchField,
+  ReviewSortSelect,
+} from "@/components/inbox/review-filters"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import { Button } from "@/components/ui/button"
 import {
@@ -57,17 +61,11 @@ export function moreFilterCount(state: InboxState): number {
 }
 
 /**
- * A labelled slot in the toolbar: the caption over the control.
- *
- * A `<label>` only when there is a control for it to name. The Rating slot
- * holds five star checkboxes, each already labelled — a `<label>` with no
- * `for` there is an element that names nothing, and clicking it does nothing
- * either, so that slot gets a caption instead. `text-caption` already carries
- * its own line height (the `--leading-caption` token this used to name does
- * not exist, so that utility resolved to nothing).
+ * A slot in the filter row. Each control keeps its name in words, but the
+ * name is for assistive tech only (reference `.filters`): the row is a
+ * single line of self-describing controls, and a caption over each one
+ * doubled its height for words the control already shows.
  */
-const SLOT_LABEL_CLASS = "px-1 text-caption text-ink-muted"
-
 function Slot({
   label,
   htmlFor,
@@ -80,13 +78,13 @@ function Slot({
   children: React.ReactNode
 }) {
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+    <div className={cn("flex min-w-0", className)}>
       {htmlFor ? (
-        <label htmlFor={htmlFor} className={SLOT_LABEL_CLASS}>
+        <label htmlFor={htmlFor} className="sr-only">
           {label}
         </label>
       ) : (
-        <span className={SLOT_LABEL_CLASS}>{label}</span>
+        <span className="sr-only">{label}</span>
       )}
       {children}
     </div>
@@ -94,12 +92,14 @@ function Slot({
 }
 
 /**
- * Venue · Rating · Assigned · Age · More filters — one line above the panes.
+ * Search · Venue · Rating · Assigned · Age · Sort · More filters — one row
+ * above the panes that wraps rather than scrolls (reference `.filters`).
  *
- * The four on the left are what an operator changes while working a queue. The
- * rest (client scope, reply status, custom dates) live behind More filters,
- * which is a temporary panel rather than a permanent column: they are reached a
- * few times a day, and the width they used to occupy is worth more to the reply.
+ * The search leads and takes the room; the rest are what an operator changes
+ * while working a queue. Client scope, reply status and custom dates live
+ * behind More filters, which is a temporary sheet rather than a permanent
+ * column: they are reached a few times a day. On a phone the search takes a
+ * line of its own and the controls share the lines under it two by two.
  */
 function FilterToolbar({
   state,
@@ -128,14 +128,23 @@ function FilterToolbar({
     locations.find((location) => location.id === state.locationIds[0]) ?? null
   const isApproval = visibleQueue(state.queue) === "approval"
   const count = moreFilterCount(state)
+  // Selects share a line two by two on a phone, and size to their words on
+  // anything wider.
+  const selectSlot = "max-sm:flex-[1_1_120px] sm:flex-[0_1_auto]"
 
   return (
     <div
       data-slot="inbox-filter-toolbar"
       role="group"
       aria-label="Filter reviews"
-      className="flex min-w-0 flex-wrap items-end gap-2"
+      className="flex min-w-0 flex-wrap items-center gap-2"
     >
+      <ReviewSearchField
+        state={state}
+        onChange={onChange}
+        className="max-w-[340px] flex-[1_1_220px] max-sm:max-w-none max-sm:basis-full"
+      />
+
       {/* Only the control is hidden for a single-location org, never the chip
           that clears a stale `?locationId=` arriving from Home's attention
           list — hiding both strands the operator in a filtered view. */}
@@ -143,7 +152,7 @@ function FilterToolbar({
         <Slot
           label="Venue"
           htmlFor={venueId}
-          className="basis-54 max-xl:basis-48 max-md:flex-1 max-md:basis-auto"
+          className="flex-[0_1_200px] max-sm:flex-[1_1_120px]"
         >
           <Combobox
             items={locations}
@@ -169,19 +178,18 @@ function FilterToolbar({
         </Slot>
       ) : null}
 
-      {/* Kept as five visible star checkboxes rather than folded into a select:
-          rating is the filter operators reach for most, and one click is worth
-          more than the 90px a menu would save. */}
-      <Slot label="Rating">
-        <div className="flex h-(--np-control-h) items-center">
-          <RatingFilter
-            ratings={state.ratings}
-            onChange={(ratings) => onChange({ ratings })}
-          />
-        </div>
+      {/* Kept as five visible star toggles rather than folded into a select:
+          rating is the filter operators reach for most, several can be on at
+          once, and one click is worth more than the room a menu would save. */}
+      <Slot label="Rating" className="max-sm:basis-full">
+        <RatingFilter
+          ratings={state.ratings}
+          onChange={(ratings) => onChange({ ratings })}
+          className="max-sm:w-full"
+        />
       </Slot>
 
-      <Slot label="Assigned" htmlFor={assigneeId} className="basis-32">
+      <Slot label="Assigned" htmlFor={assigneeId} className={selectSlot}>
         <Select
           value={state.assignee ?? ""}
           items={ASSIGNEE_ITEMS}
@@ -189,7 +197,11 @@ function FilterToolbar({
             onChange({ assignee: value ? value : undefined })
           }
         >
-          <SelectTrigger id={assigneeId} aria-label="Filter by assignee">
+          <SelectTrigger
+            id={assigneeId}
+            aria-label="Filter by assignee"
+            className="w-full"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
@@ -202,7 +214,7 @@ function FilterToolbar({
         </Select>
       </Slot>
 
-      <Slot label="Age" htmlFor={ageId} className="basis-36">
+      <Slot label="Age" htmlFor={ageId} className={selectSlot}>
         <Select
           value={state.age ?? ""}
           items={AGE_ITEMS}
@@ -217,7 +229,11 @@ function FilterToolbar({
             })
           }
         >
-          <SelectTrigger id={ageId} aria-label="Filter by review age">
+          <SelectTrigger
+            id={ageId}
+            aria-label="Filter by review age"
+            className="w-full"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
@@ -235,7 +251,7 @@ function FilterToolbar({
           and `awaiting_others` already carry the exact ownership rule, so the
           control cannot drift from what the server decides. */}
       {isApproval ? (
-        <Slot label="Waiting on" htmlFor={ownerId} className="basis-32">
+        <Slot label="Waiting on" htmlFor={ownerId} className={selectSlot}>
           <Select
             value={approvalOwner(state.queue)}
             items={OWNER_ITEMS}
@@ -245,7 +261,12 @@ function FilterToolbar({
               )
             }
           >
-            <SelectTrigger id={ownerId} aria-label="Approval waiting on">
+            <SelectTrigger
+              id={ownerId}
+              aria-label="Approval waiting on"
+              className="w-full"
+            >
+              <span className="text-ink-muted">Waiting on:</span>
               <SelectValue />
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
@@ -259,30 +280,30 @@ function FilterToolbar({
         </Slot>
       ) : null}
 
-      <div className="ml-auto flex items-center gap-1 self-end max-xl:ml-0 max-md:w-full max-md:justify-end">
-        <Button
-          type="button"
-          variant={count > 0 ? "secondary" : "ghost"}
-          size="sm"
-          pill
-          aria-haspopup="dialog"
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen(true)}
-        >
-          <SlidersHorizontalIcon
-            aria-hidden
-            strokeWidth={1.75}
-            data-icon="inline-start"
-            className="size-3.5 text-ink-muted"
-          />
-          More filters
-          {count > 0 ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-(--np-radius-pill) bg-fill px-1 text-caption font-semibold text-ink tabular-nums">
-              {count}
-            </span>
-          ) : null}
-        </Button>
-      </div>
+      <Slot label="Sort" className={selectSlot}>
+        <ReviewSortSelect
+          state={state}
+          onChange={onChange}
+          className="w-full"
+        />
+      </Slot>
+
+      <Button
+        type="button"
+        variant="secondary"
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen}
+        onClick={() => setMoreOpen(true)}
+        className="max-sm:flex-[1_1_120px]"
+      >
+        <SlidersHorizontalIcon aria-hidden data-icon="inline-start" />
+        More filters
+        {count > 0 ? (
+          <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 font-mono text-[11px] leading-none font-semibold text-canvas tabular-nums">
+            {count}
+          </span>
+        ) : null}
+      </Button>
 
       <MoreFiltersPanel
         open={moreOpen}

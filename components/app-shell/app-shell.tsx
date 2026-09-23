@@ -1,19 +1,22 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Dialog } from "@base-ui/react/dialog"
+import { useQuery } from "@tanstack/react-query"
+import { XIcon } from "lucide-react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 
 import { BrandMark } from "@/components/app-shell/brand-mark"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { fetchReviewCounts } from "@/lib/api/review-counts"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { queryKeys } from "@/lib/queries/keys"
 import { useClients } from "@/lib/queries/use-clients"
+import { cn } from "@/lib/utils"
 
 import { AccountMenu } from "./account-menu"
+import { ClientScopeRoot } from "./client-context"
 import { Nav } from "./nav"
 import { ReconnectBanner } from "./reconnect-banner"
 import { Topbar } from "./topbar"
@@ -73,12 +76,43 @@ function useSessionReady(session: ShellSession | null) {
   return ready
 }
 
+/**
+ * The Inbox's needs-reply count for the sidebar badge.
+ *
+ * The same organisation-wide `/api/reviews/counts` read the Inbox's queue
+ * controls make, under the same key, so the badge and the Needs reply queue
+ * never disagree. Always a background request: a badge is not worth a
+ * sign-in redirect, so a 401 here just leaves the badge off.
+ */
+function useNeedsReplyCount() {
+  const counts = useQuery({
+    queryKey: queryKeys.reviewCounts("organisation"),
+    queryFn: ({ signal }) =>
+      fetchReviewCounts({}, { signal, background: true }),
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  return counts.data?.byQueue.needs_reply
+}
+
 /** Reads the client list the sidebar pins beneath Clients. */
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarNav({
+  onNavigate,
+  layout,
+  rail,
+}: {
+  onNavigate?: () => void
+  layout: "full" | "responsive"
+  rail: boolean
+}) {
   const clients = useClients()
+  const needsReply = useNeedsReplyCount()
   return (
     <Nav
       onNavigate={onNavigate}
+      layout={layout}
+      rail={rail}
+      needsReply={needsReply}
       clients={
         clients.data?.items.map((client) => ({
           id: client.id,
@@ -91,46 +125,131 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 /**
- * The sidebar's three parts — the organisation at the top, the navigation
- * that scrolls, the account row at the bottom — shared by the persistent
- * desktop column and the mobile sheet so the two never disagree.
+ * The sidebar's three parts (the organisation at the top, the navigation
+ * that scrolls, the account row at the bottom) shared by the persistent
+ * column and the phone sheet so the two never disagree.
+ *
+ * `responsive` draws the persistent column: the full 240px sidebar above
+ * 1180px, the 64px icon rail from 768 to 1180. `full` is the sheet.
  */
 function SidebarBody({
   session,
   sessionReady,
   organisationName,
   onNavigate,
+  layout,
+  rail = false,
+  closeButton,
 }: {
   session: ShellSession | null
   sessionReady: boolean
   organisationName: string
   onNavigate?: () => void
+  layout: "full" | "responsive"
+  rail?: boolean
+  closeButton?: React.ReactNode
 }) {
+  const responsive = layout === "responsive"
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center px-4 pt-4 pb-3">
-        <BrandMark size="sm" title={organisationName} subtitle="NabaPresence" />
+      <div className="flex shrink-0 items-center gap-2 pr-2">
+        <Link
+          href="/inbox"
+          onClick={onNavigate}
+          className={cn(
+            "m-1 flex min-w-0 flex-1 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none",
+            responsive && "md:max-[1181px]:justify-center md:max-[1181px]:px-0"
+          )}
+        >
+          <BrandMark
+            title={organisationName}
+            subtitle="NabaPresence"
+            textClassName={cn(responsive && "md:max-[1181px]:sr-only")}
+          />
+        </Link>
+        {closeButton}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
-        {sessionReady ? <SidebarNav onNavigate={onNavigate} /> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-3">
+        {sessionReady ? (
+          <SidebarNav onNavigate={onNavigate} layout={layout} rail={rail} />
+        ) : null}
       </div>
 
-      <div className="shrink-0 p-2">
-        <AccountMenu session={session} />
+      <div className="shrink-0 border-t border-line p-2">
+        <AccountMenu session={session} rail={responsive} />
       </div>
     </div>
   )
 }
 
 /**
- * The Mac-style three-part window: a translucent sidebar, a toolbar the
- * content scrolls beneath, and the content column.
+ * The phone navigation: a left drawer (min(300px, 86vw)) over a scrim.
+ *
+ * Built on the dialog primitive directly rather than the shared Sheet, which
+ * is a bottom sheet below 768px; navigation slides in from the edge the
+ * sidebar lives on. The primitive supplies the modal behaviour: focus is
+ * trapped inside, Escape and a scrim click close it, the page behind stops
+ * scrolling, and focus returns to the menu button.
+ */
+function NavigationSheet({
+  open,
+  onOpenChange,
+  toggleRef,
+  children,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  toggleRef: React.RefObject<HTMLButtonElement | null>
+  children: (closeButton: React.ReactNode) => React.ReactNode
+}) {
+  const popupRef = useRef<HTMLDivElement>(null)
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-(--np-duration-standard) data-ending-style:opacity-0 data-starting-style:opacity-0 md:hidden" />
+        <Dialog.Popup
+          ref={popupRef}
+          id="mobile-navigation"
+          aria-label="Navigation"
+          initialFocus={() =>
+            popupRef.current?.querySelector<HTMLElement>(
+              'nav a[aria-current="page"]'
+            ) ?? true
+          }
+          finalFocus={toggleRef}
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-[min(300px,86vw)] flex-col bg-surface text-ink shadow-np-pop outline-none md:hidden",
+            "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            "transition-transform duration-(--np-duration-standard) ease-out-strong data-ending-style:-translate-x-full data-starting-style:-translate-x-full"
+          )}
+        >
+          <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            Primary navigation for NabaPresence.
+          </Dialog.Description>
+          {children(
+            <Dialog.Close
+              aria-label="Close navigation"
+              className="grid size-11 shrink-0 place-items-center rounded-md text-ink-muted focus-halo transition-colors hover:bg-fill hover:text-ink focus-visible:outline-none"
+            >
+              <XIcon className="size-5" strokeWidth={1.75} aria-hidden />
+            </Dialog.Close>
+          )}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+/**
+ * The three-part window: the sidebar (or rail), a toolbar the content
+ * scrolls beneath, and the content column.
  *
  * The toolbar is sticky INSIDE the scroll column rather than a sibling above
- * it, which is what lets the page pass under its material. Ordinary pages
- * scroll the column; workspace frames (`h-full`) fill the box left beneath
- * the toolbar and scroll their own panes, so the sidebar never grows.
+ * it, which is what lets the page pass under it. Ordinary pages scroll the
+ * column; workspace frames lock to the viewport and scroll their own panes,
+ * so the sidebar never grows.
  */
 function AppShell({
   session,
@@ -140,69 +259,92 @@ function AppShell({
   children: React.ReactNode
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const navToggleRef = useRef<HTMLButtonElement>(null)
   const sessionReady = useSessionReady(session)
   const organisationName = session?.organisationName ?? "Your agency"
+  const pathname = usePathname()
+  const rail = useMediaQuery(
+    "(min-width: 768px) and (max-width: 1180.98px)",
+    false
+  )
+  const wide = useMediaQuery("(min-width: 768px)", false)
+
+  // Any route change closes the sheet, whether it came from a nav row, the
+  // command palette or the browser's back button. The previous path is held
+  // in state so the close happens during render, not in a follow-up effect.
+  const [lastPath, setLastPath] = useState(pathname)
+  if (lastPath !== pathname) {
+    setLastPath(pathname)
+    if (mobileNavOpen) setMobileNavOpen(false)
+  }
+  // Growing past 768px turns the sheet into the persistent rail; a sheet left
+  // open underneath would still hold focus and the scroll lock.
+  if (wide && mobileNavOpen) setMobileNavOpen(false)
 
   return (
-    // One provider for the whole shell so toolbar and row tooltips share a
+    // One provider for the whole shell so toolbar and rail tooltips share a
     // delay and open instantly when the pointer moves between neighbours.
     // `h-svh`, not `min-h-svh`: the shell is viewport-locked so expanding
-    // content scrolls inside its own pane instead of stretching the sidebar.
+    // content scrolls inside its own column instead of stretching the sidebar.
     <TooltipProvider>
-    <div className="flex h-svh bg-canvas text-ink">
-      <a
-        href="#main"
-        className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-3 focus-visible:left-3 focus-visible:z-50 focus-visible:flex focus-visible:h-(--np-control-h) focus-visible:items-center focus-visible:rounded-(--np-radius-pill) focus-visible:bg-primary focus-visible:px-4 focus-visible:text-ui focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-(--np-shadow-pop) focus-visible:outline-none"
-      >
-        Skip to content
-      </a>
+      <ClientScopeRoot>
+        <div className="flex h-svh bg-canvas text-ink">
+          <a
+            href="#main"
+            className="fixed top-[-60px] left-3 z-[100] rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground no-underline focus:top-3 focus:shadow-np-pop focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+          >
+            Skip to content
+          </a>
 
-      <aside className="hidden w-(--np-sidebar-width) shrink-0 material-sidebar [box-shadow:inset_-0.5px_0_0_var(--np-line)] md:flex md:flex-col md:overflow-hidden">
-        <SidebarBody
-          session={session}
-          sessionReady={sessionReady}
-          organisationName={organisationName}
-        />
-      </aside>
+          <aside
+            aria-label="Sidebar"
+            className="hidden w-(--np-rail-width) shrink-0 flex-col overflow-hidden bg-canvas shadow-[inset_-1px_0_0_var(--np-line)] min-[1181px]:w-(--np-sidebar-width) md:flex"
+          >
+            <SidebarBody
+              session={session}
+              sessionReady={sessionReady}
+              organisationName={organisationName}
+              layout="responsive"
+              rail={rail}
+            />
+          </aside>
 
-      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent
-          side="left"
-          className="material-sidebar text-ink data-[side=left]:w-72 data-[side=left]:border-r-0 data-[side=left]:[box-shadow:inset_-0.5px_0_0_var(--np-line)]"
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Navigation</SheetTitle>
-            <SheetDescription>
-              Primary navigation for NabaPresence.
-            </SheetDescription>
-          </SheetHeader>
-          <SidebarBody
-            session={session}
-            sessionReady={sessionReady}
-            organisationName={organisationName}
-            onNavigate={() => setMobileNavOpen(false)}
-          />
-        </SheetContent>
-      </Sheet>
+          <NavigationSheet
+            open={mobileNavOpen}
+            onOpenChange={setMobileNavOpen}
+            toggleRef={navToggleRef}
+          >
+            {(closeButton) => (
+              <SidebarBody
+                session={session}
+                sessionReady={sessionReady}
+                organisationName={organisationName}
+                layout="full"
+                onNavigate={() => setMobileNavOpen(false)}
+                closeButton={closeButton}
+              />
+            )}
+          </NavigationSheet>
 
-      {/* The scroll column. The toolbar sticks to its top and the page passes
-          beneath the material; a workspace frame fills the remainder. */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-        <Topbar
-          onOpenNav={() => setMobileNavOpen(true)}
-          sessionReady={sessionReady}
-          className="sticky top-0 z-20"
-        />
+          {/* The scroll column. The toolbar sticks to its top and the page
+            passes beneath it; a workspace frame fills the remainder. */}
+          <div className="flex min-h-0 min-w-0 flex-1 scroll-pt-[calc(var(--np-toolbar-h)+8px)] flex-col overflow-x-hidden overflow-y-auto">
+            <Topbar
+              onOpenNav={() => setMobileNavOpen(true)}
+              navOpen={mobileNavOpen}
+              navToggleRef={navToggleRef}
+              sessionReady={sessionReady}
+              className="sticky top-0 z-30"
+            />
 
-        {sessionReady ? (
-          <ReconnectBanner className="px-5 pt-5 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)" />
-        ) : null}
+            {sessionReady ? <ReconnectBanner /> : null}
 
-        <div className="flex min-h-0 flex-1 flex-col">
-          {sessionReady ? children : null}
+            <div className="flex min-h-0 flex-1 flex-col">
+              {sessionReady ? children : null}
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </ClientScopeRoot>
     </TooltipProvider>
   )
 }

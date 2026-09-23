@@ -117,9 +117,12 @@ beforeEach(() => {
 
   // jsdom does not implement matchMedia; the auto-select effect's isDesktop
   // check calls it unconditionally. `selected` is already set in every test
-  // here, so autoSelectId short-circuits before `isDesktop` matters — this
-  // just needs to exist, not resolve to any particular value.
-  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+  // here, so autoSelectId short-circuits before `isDesktop` matters. It does
+  // decide the layout, though: below lg an open review REPLACES the list and
+  // the controls above it (they are `hidden`), so these tests — which work
+  // the filters, queues and list while a review is open — run on the
+  // side-by-side desktop workspace.
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }))
 
   vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
     data: { pages: [{ items: [row()], nextCursor: null }] },
@@ -427,5 +430,57 @@ describe("InboxView — publish pulse, then advance", () => {
     )
     expect(subscriptions()).toBe(mounted)
     expect(unsubscriptions()).toBe(0)
+  })
+})
+
+// Below lg the list and the open review take turns (reference `data-view`):
+// the review replaces the list and the controls above it rather than sliding
+// a sheet over them, and the list stays mounted so its selected row and its
+// place survive the trip.
+describe("InboxView — narrow screens", () => {
+  it("shows the open review in place of the list and the controls", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    const { container } = renderInbox()
+
+    const inbox = container.querySelector('[data-slot="inbox"]')
+    expect(inbox).toHaveAttribute("data-view", "detail")
+    expect(
+      screen.queryByRole("navigation", { name: "Review queues" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "Review list" })
+    ).not.toBeInTheDocument()
+    // Hidden, not unmounted: the selected row keeps its aria-current.
+    expect(
+      container.querySelector('[data-slot="review-row"][aria-current="true"]')
+    ).not.toBeNull()
+    expect(
+      screen.getByRole("region", { name: "Selected review" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Back to reviews" })
+    ).toHaveFocus()
+  })
+})
+
+describe("InboxView — shortcuts dialog", () => {
+  it("lists only the keys that are bound in the inbox", async () => {
+    const user = userEvent.setup()
+    renderInbox()
+
+    await user.keyboard("?")
+    const dialog = await screen.findByRole("dialog", {
+      name: "Keyboard shortcuts",
+    })
+    expect(within(dialog).getByText("Next review")).toBeInTheDocument()
+    expect(within(dialog).getByText("Write a reply")).toBeInTheDocument()
+    // `a` and `e` have no binding in the inbox; listing them would promise
+    // a key that does nothing.
+    expect(
+      within(dialog).queryByText("Approve and publish")
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByText("Assign to a colleague")
+    ).not.toBeInTheDocument()
   })
 })

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { TypedAttributeControl } from "@/components/locations/typed-attribute-control"
 
 describe("TypedAttributeControl", () => {
-  it("renders a BOOL attribute as a checkbox and emits the toggled value", async () => {
+  it("renders a BOOL attribute as a switch and emits the toggled value", async () => {
     const onChange = vi.fn()
     render(
       <TypedAttributeControl
@@ -15,8 +15,34 @@ describe("TypedAttributeControl", () => {
         onChange={onChange}
       />
     )
-    await userEvent.click(screen.getByRole("checkbox", { name: "Wi-Fi" }))
+    expect(screen.getByText("No")).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("switch", { name: "Wi-Fi" }))
     expect(onChange).toHaveBeenCalledWith({ name: "attributes/wifi", values: [true] })
+  })
+  it("says when a BOOL attribute is not set, and offers Clear only once it is", async () => {
+    const onClear = vi.fn()
+    const { rerender } = render(
+      <TypedAttributeControl
+        metadata={{ parent: "attributes/wifi", displayName: "Wi-Fi", valueType: "BOOL" }}
+        attribute={undefined}
+        disabled={false}
+        onChange={() => {}}
+        onClear={onClear}
+      />
+    )
+    expect(screen.getByText("Not set")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Clear Wi-Fi" })).toBeNull()
+    rerender(
+      <TypedAttributeControl
+        metadata={{ parent: "attributes/wifi", displayName: "Wi-Fi", valueType: "BOOL" }}
+        attribute={{ name: "attributes/wifi", values: [true] }}
+        disabled={false}
+        onChange={() => {}}
+        onClear={onClear}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Clear Wi-Fi" }))
+    expect(onClear).toHaveBeenCalledWith("attributes/wifi")
   })
   it("renders an unsupported valueType read-only with the pressure-valve note (§12)", () => {
     render(
@@ -28,7 +54,7 @@ describe("TypedAttributeControl", () => {
       />
     )
     expect(screen.getByText(/not editable here yet/i)).toBeInTheDocument()
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
   it("renders an ENUM attribute as a select whose trigger shows the option's display name, never the raw value", async () => {
     const onChange = vi.fn()
