@@ -19,6 +19,7 @@ import {
   type GoogleConnectionRow,
 } from "./connection-failures"
 import { rememberAccessToken } from "./credentials"
+import { refreshTokenFingerprints } from "./risc-fingerprint"
 import {
   grantsBusinessManage,
   revokeGoogleToken,
@@ -266,7 +267,11 @@ async function refreshAccessToken(
           now() + (${token.expiresIn} * interval '1 second'),
         ${
           token.refreshToken
-            ? transaction`refresh_token_ciphertext = ${encryptSecret(token.refreshToken)},`
+            ? transaction`
+                refresh_token_ciphertext = ${encryptSecret(token.refreshToken)},
+                refresh_token_sha512x2 = ${refreshTokenFingerprints(token.refreshToken).sha512x2},
+                refresh_token_prefix_sha256 = ${refreshTokenFingerprints(token.refreshToken).prefixSha256},
+              `
             : transaction``
         }
         ${
@@ -596,6 +601,10 @@ export async function completeAuthorisation(input: {
 }): Promise<CompletedAuthorisation> {
   const { tokens, profile } = input
   if (!grantsBusinessManage(tokens.scope)) throw scopeMissingError()
+  // What a RISC token-revoked event will identify this token by.
+  const fingerprints = tokens.refresh_token
+    ? refreshTokenFingerprints(tokens.refresh_token)
+    : null
   const refreshTokenExpiresAt = tokens.refresh_token_expires_in
     ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
     : null
@@ -636,7 +645,9 @@ export async function completeAuthorisation(input: {
         purge_due_at,
         connected_by_user_id,
         google_revocation_status,
-        google_revocation_at
+        google_revocation_at,
+        refresh_token_sha512x2,
+        refresh_token_prefix_sha256
       )
       values (
         ${input.organisationId},
@@ -655,7 +666,9 @@ export async function completeAuthorisation(input: {
         null,
         ${input.userId},
         null,
-        null
+        null,
+        ${fingerprints?.sha512x2 ?? null},
+        ${fingerprints?.prefixSha256 ?? null}
       )
       on conflict (organisation_id, google_subject) do update
       set
@@ -681,6 +694,16 @@ export async function completeAuthorisation(input: {
         connected_by_user_id = excluded.connected_by_user_id,
         google_revocation_status = null,
         google_revocation_at = null,
+        refresh_token_sha512x2 = case
+          when excluded.refresh_token_ciphertext is not null
+            then excluded.refresh_token_sha512x2
+          else google_connection.refresh_token_sha512x2
+        end,
+        refresh_token_prefix_sha256 = case
+          when excluded.refresh_token_ciphertext is not null
+            then excluded.refresh_token_prefix_sha256
+          else google_connection.refresh_token_prefix_sha256
+        end,
         -- A new credential generation: anything still in flight on the old
         -- credential can no longer write to this row.
         credential_generation = google_connection.credential_generation + 1
@@ -871,6 +894,8 @@ export async function disconnect(input: {
         disconnected_at = now(),
         purge_due_at = now() + interval '7 days',
         credential_generation = credential_generation + 1,
+        refresh_token_sha512x2 = null,
+        refresh_token_prefix_sha256 = null,
         google_revocation_status = ${target.grantToken ? null : "not_attempted"}
       where id = ${connectionId}
         and status <> 'disconnected'

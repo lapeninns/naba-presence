@@ -53,8 +53,12 @@ export async function resendConfirmation(
   })
 }
 
-export async function signOut(): Promise<void> {
-  await apiFetch("/api/session", { method: "DELETE" })
+export async function signOut(
+  options: { everywhere?: boolean } = {}
+): Promise<void> {
+  await apiFetch(options.everywhere ? "/api/session?scope=all" : "/api/session", {
+    method: "DELETE",
+  })
 }
 
 export async function lookupInvitation(

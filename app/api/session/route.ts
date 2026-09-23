@@ -7,6 +7,7 @@ import {
   ensureDevelopmentSession,
   getSession,
   isLocalBootstrapEnabled,
+  revokeAllSessions,
 } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -25,10 +26,14 @@ export const GET = route({
 })
 
 // Public: signing out must succeed whether or not a valid session exists.
+// `?scope=all` signs the person out everywhere (every device, every
+// organisation); Google connections and background sync are untouched.
 export const DELETE = route({
   auth: "public",
-  handler: async () => {
-    await clearSession()
+  query: (searchParams) => ({ everywhere: searchParams.get("scope") === "all" }),
+  handler: async ({ query }) => {
+    if (query.everywhere) await revokeAllSessions()
+    else await clearSession()
     return new NextResponse(null, { status: 204 })
   },
 })

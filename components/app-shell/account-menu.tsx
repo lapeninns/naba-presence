@@ -60,9 +60,9 @@ function initialsFor(name: string) {
   return letters || "AC"
 }
 
-async function handleSignOut() {
+async function handleSignOut(everywhere = false) {
   try {
-    await signOut()
+    await signOut({ everywhere })
   } catch {
     // Best-effort: a failed clear is recoverable server-side, but a user
     // stranded on a dashboard they believe they have left is not.
@@ -260,6 +260,12 @@ function AccountMenu({
         <DropdownMenuItem onClick={() => void handleSignOut()}>
           <LogOut aria-hidden />
           Sign out
+        </DropdownMenuItem>
+        {/* Every device and organisation. Google connections and background
+            sync keep running: they never depended on anyone being signed in. */}
+        <DropdownMenuItem onClick={() => void handleSignOut(true)}>
+          <LogOut aria-hidden />
+          Sign out everywhere
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
