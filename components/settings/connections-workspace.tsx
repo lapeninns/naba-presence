@@ -1,29 +1,35 @@
 "use client"
 
+import { Plus } from "lucide-react"
 import Link from "next/link"
 
+import { PageHeader } from "@/components/app-shell/page-frame"
 import { ConnectionCard } from "@/components/settings/connection-card"
 import { NotificationsCard } from "@/components/settings/notifications-card"
 import { OAuthReturn } from "@/components/settings/oauth-return"
 import { ReconnectAlert } from "@/components/settings/reconnect-alert"
-import { buttonVariants } from "@/components/ui/button"
+import { SettingsNav } from "@/components/settings/settings-nav"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { SectionHeader } from "@/components/ui/section-header"
 import { useClients } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
+import { cn } from "@/lib/utils"
 
 /**
- * The Google logins this agency holds, and which clients each one serves.
+ * The Google logins this agency holds, and which clients each one serves
+ * (reference `settings-connections.html`).
  *
- * Deliberately no longer the whole setup flow. This page used to be a stack of
+ * Deliberately not the whole setup flow. This page used to be a stack of
  * cards — connect, pick accounts, discover locations, import history, enable
  * notifications — revealed one after another with no order, no progress and no
  * notion of which client any of it was for. Those steps moved to `/setup`,
  * where they run in sequence against a named client and can be resumed.
  *
  * What stays here is the account-level view: what is connected, what is
- * broken, and who depends on it — one grouped list, one row per account.
+ * broken, who depends on it, and how Google tells us about new reviews.
  */
-export function ConnectionsWorkspace() {
-  const { query } = useConnectionWorkspace()
+export function ConnectionsWorkspace({ role }: { role: string | null }) {
+  const { query, connect } = useConnectionWorkspace()
   const clients = useClients()
   const hasConnection = (query.data?.connections.length ?? 0) > 0
 
@@ -39,10 +45,40 @@ export function ConnectionsWorkspace() {
   }
 
   return (
-    <div className="flex flex-col gap-(--np-gap-section)">
+    <>
+      <PageHeader
+        title="Google Business Profile"
+        description="The Google accounts this agency has connected, which clients depend on each, and how Google tells us about new reviews."
+        actions={
+          hasConnection ? (
+            <Button
+              variant="secondary"
+              pending={connect.isPending}
+              pendingLabel="Opening Google…"
+              onClick={() => connect.mutate({})}
+            >
+              <Plus aria-hidden />
+              Connect another account
+            </Button>
+          ) : undefined
+        }
+        tabs={<SettingsNav role={role} />}
+      />
+
       <OAuthReturn />
-      <ReconnectAlert />
-      <ConnectionCard clientsByConnection={clientsByConnection} />
+      <ReconnectAlert clientsByConnection={clientsByConnection} />
+
+      <section
+        aria-labelledby="connection-logins"
+        className="flex flex-col gap-3"
+      >
+        <SectionHeader
+          id="connection-logins"
+          title="Google accounts"
+          description="Disconnecting an account stops reviews syncing for every client that uses it."
+        />
+        <ConnectionCard clientsByConnection={clientsByConnection} />
+      </section>
 
       {hasConnection ? <NotificationsCard /> : null}
 
@@ -50,28 +86,20 @@ export function ConnectionsWorkspace() {
         aria-labelledby="connection-setup"
         className="flex flex-col gap-3"
       >
-        <div className="flex flex-col gap-1">
-          <h2
-            id="connection-setup"
-            className="text-title font-semibold text-ink"
-          >
-            Setting up a client
-          </h2>
-          <p className="text-ui text-ink-muted">
-            Choosing Business Profile accounts, linking locations and importing
-            review history all happen per client, in order, where you can stop
-            and come back.
-          </p>
-        </div>
+        <SectionHeader
+          id="connection-setup"
+          title="Setting up a client"
+          description="Choosing Business Profile accounts, linking locations and importing review history all happen per client, in order, where you can stop and come back."
+        />
         <div>
           <Link
             href="/clients/new"
-            className={buttonVariants({ variant: "secondary", pill: true })}
+            className={cn(buttonVariants({ variant: "secondary" }))}
           >
             Set up a client
           </Link>
         </div>
       </section>
-    </div>
+    </>
   )
 }

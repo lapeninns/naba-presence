@@ -1,24 +1,43 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Mail } from "lucide-react"
-import { useId, useState } from "react"
+import { Copy, Mail, RefreshCw, UserPlus } from "lucide-react"
+import { useId, useRef, useState } from "react"
 
+import { RoleCards } from "@/components/settings/member-dialogs"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Switch } from "@/components/ui/switch"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useInvitations } from "@/lib/queries/use-invitations"
@@ -27,13 +46,15 @@ import {
   revokeInvitation,
   type Invitation,
 } from "@/lib/api/invitations"
+import { ApiClientError } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { roleOptionsFor } from "@/lib/settings/gating"
 import {
   invitationFormSchema,
   roleLabel,
   type MemberRole,
 } from "@/lib/settings/forms/invitation"
+import { formatDay } from "@/lib/settings/roles"
+import { cn } from "@/lib/utils"
 
 function isExpired(invitation: Invitation): boolean {
   return (
@@ -48,29 +69,58 @@ async function copyInviteLink(
 ) {
   try {
     await navigator.clipboard.writeText(url)
-    toast.add({ title: "Invite link copied", type: "success" })
+    toast.add({
+      title: "Invite link copied",
+      description: "Send it to them. It works once and expires after 7 days.",
+      type: "success",
+    })
   } catch {
     toast.add({
       title: "Couldn’t copy the link. Copy it manually.",
+      description: url,
       type: "error",
     })
   }
 }
 
+/** Server refusals that belong to the email field rather than the form. */
+const EMAIL_ERROR_CODES = new Set(["already_a_member", "invitation_pending"])
+
+function publishHint(role: MemberRole): string {
+  if (role === "viewer") return "Viewers can’t publish."
+  if (role === "owner" || role === "admin")
+    return "Owners and admins can always publish."
+  return "Without this, their replies wait for someone who can publish."
+}
+
 /**
- * Invite someone, and see who has not accepted yet. The form is one white
- * card; the pending invitations are a list beneath it, each with its status
- * and the two things you can do about it.
+ * Invite someone: an email, a role chosen from the role cards, and whether
+ * they may publish. Creating an invitation makes a link for you to share —
+ * NabaPresence does not email it — and nothing changes until they accept.
+ * Values survive a refused submit; a server refusal about the address is
+ * shown on the address.
+ *
+ * `layout="card"` draws the form as a white card with its own submit
+ * (setup); `layout="dialog"` lays it out as a dialog body and footer.
  */
-export function InvitationsPanel({ actorRole }: { actorRole: MemberRole }) {
-  const query = useInvitations()
+function InviteForm({
+  actorRole,
+  layout,
+  onCreated,
+}: {
+  actorRole: MemberRole
+  layout: "card" | "dialog"
+  onCreated?: () => void
+}) {
   const client = useQueryClient()
   const toast = useToastManager()
   const ids = useId()
+  const emailRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<MemberRole>("member")
   const [canPublish, setCanPublish] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const create = useMutation({
     mutationFn: (input: {
@@ -78,15 +128,17 @@ export function InvitationsPanel({ actorRole }: { actorRole: MemberRole }) {
       role: MemberRole
       canPublish: boolean
     }) => createInvitation(input),
-    onSuccess: async (result) => {
+    onSuccess: async (result, input) => {
       setEmail("")
       setRole("member")
       setCanPublish(false)
       setEmailError(null)
+      setFormError(null)
       await client.invalidateQueries({ queryKey: queryKeys.invitations })
+      onCreated?.()
       toast.add({
-        title: "Invitation sent",
-        description: "Copy the invite link to share it.",
+        title: "Invitation ready",
+        description: `${input.email} · ${roleLabel(input.role)}. Copy the invite link and send it to them.`,
         type: "success",
         actionProps: {
           children: "Copy link",
@@ -94,131 +146,309 @@ export function InvitationsPanel({ actorRole }: { actorRole: MemberRole }) {
         },
       })
     },
-    onError: (error) =>
-      toast.add({ title: describeActionError(error), type: "error" }),
-  })
-
-  const revoke = useMutation({
-    mutationFn: (id: string) => revokeInvitation(id),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: queryKeys.invitations })
-      toast.add({ title: "Invitation revoked", type: "success" })
+    onError: (error) => {
+      const message = describeActionError(error)
+      if (
+        error instanceof ApiClientError &&
+        EMAIL_ERROR_CODES.has(error.code)
+      ) {
+        setEmailError(message)
+        emailRef.current?.focus()
+      } else {
+        setFormError(message)
+      }
     },
-    onError: (error) =>
-      toast.add({ title: describeActionError(error), type: "error" }),
   })
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
+    setFormError(null)
     const parsed = invitationFormSchema.safeParse({
-      email,
+      email: email.trim(),
       role,
       canPublish: role === "viewer" ? false : canPublish,
     })
     if (!parsed.success) {
       setEmailError(
-        parsed.error.issues[0]?.message ?? "Enter a valid email address."
+        email.trim() === ""
+          ? "Enter an email address."
+          : (parsed.error.issues[0]?.message ?? "Enter a valid email address.")
       )
+      emailRef.current?.focus()
       return
     }
+    setEmailError(null)
     create.mutate(parsed.data)
   }
 
-  const options = roleOptionsFor(actorRole)
+  const roleLabelId = `${ids}-role`
   const publishLabelId = `${ids}-publish`
+  const publishHintId = `${ids}-publish-hint`
+
+  const fields = (
+    <>
+      <Field error={emailError ?? undefined}>
+        <FieldLabel>Email address</FieldLabel>
+        <Input
+          ref={emailRef}
+          type="email"
+          autoComplete="off"
+          value={email}
+          placeholder="name@example.com"
+          onChange={(event) => {
+            setEmail(event.target.value)
+            if (emailError) setEmailError(null)
+          }}
+        />
+        <FieldError>{emailError}</FieldError>
+      </Field>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <span id={roleLabelId} className="text-ui font-semibold text-ink">
+          Role
+        </span>
+        <RoleCards
+          actorRole={actorRole}
+          value={role}
+          onValueChange={setRole}
+          labelledBy={roleLabelId}
+          disabled={create.isPending}
+        />
+      </div>
+      <div className="flex items-start justify-between gap-4 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span id={publishLabelId} className="text-ui font-semibold text-ink">
+            Can publish
+          </span>
+          <span id={publishHintId} className="text-caption text-ink-muted">
+            {publishHint(role)}
+          </span>
+        </span>
+        <Switch
+          checked={role === "viewer" ? false : canPublish}
+          disabled={role === "viewer" || create.isPending}
+          aria-labelledby={publishLabelId}
+          aria-describedby={publishHintId}
+          onCheckedChange={(value) => setCanPublish(value)}
+        />
+      </div>
+      {formError ? (
+        <Alert variant="destructive">
+          <AlertTitle>The invitation wasn’t created</AlertTitle>
+          <AlertDescription>
+            {formError} Your entries are kept, so you can try again.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+    </>
+  )
+
+  const submit = (
+    <Button type="submit" pending={create.isPending} pendingLabel="Creating…">
+      Create invite link
+    </Button>
+  )
+
+  if (layout === "dialog") {
+    return (
+      <form noValidate onSubmit={onSubmit} className="contents">
+        <DialogBody>{fields}</DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost">Cancel</Button>} />
+          {submit}
+        </DialogFooter>
+      </form>
+    )
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <form
-        className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)"
-        onSubmit={onSubmit}
-      >
-        <div className="flex flex-wrap items-end gap-3">
-          <Field error={emailError ?? undefined} className="min-w-56 flex-1">
-            <FieldLabel>Email address</FieldLabel>
-            <Input
-              type="email"
-              value={email}
-              aria-label="Email address"
-              placeholder="name@example.com"
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <FieldError>{emailError}</FieldError>
-          </Field>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-ui font-medium text-ink" aria-hidden>
-              Role
-            </span>
-            <Select
-              value={role}
-              onValueChange={(value) => setRole(value as MemberRole)}
-            >
-              <SelectTrigger aria-label="Invitation role" className="w-36">
-                <SelectValue>{roleLabel(role)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-ui text-ink">
-            <span id={publishLabelId}>Can publish</span>
-            <Switch
-              checked={role === "viewer" ? false : canPublish}
-              disabled={role === "viewer"}
-              aria-labelledby={publishLabelId}
-              onCheckedChange={(value) => setCanPublish(value)}
-            />
-          </span>
-          <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? "Sending…" : "Send invitation"}
-          </Button>
-        </div>
-      </form>
+    <form
+      noValidate
+      onSubmit={onSubmit}
+      className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+    >
+      {fields}
+      <div className="flex justify-end">{submit}</div>
+    </form>
+  )
+}
 
-      {query.isPending ? (
-        <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
-      ) : query.isError ? (
-        <Empty
-          title="We couldn’t load invitations"
-          description={describeActionError(query.error)}
+/** "Invite a teammate", as a dialog (Team's header action and `#invite`). */
+export function InviteDialog({
+  actorRole,
+  open,
+  onOpenChange,
+}: {
+  actorRole: MemberRole
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
+        <DialogHeader>
+          <DialogTitle>Invite a teammate</DialogTitle>
+          <DialogDescription>
+            You get a link to send them; NabaPresence doesn’t email it. Nothing
+            changes until they accept, and the link expires after 7 days.
+          </DialogDescription>
+        </DialogHeader>
+        <InviteForm
+          actorRole={actorRole}
+          layout="dialog"
+          onCreated={() => onOpenChange(false)}
         />
-      ) : query.data.items.length === 0 ? (
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * The invitations nobody has accepted yet (reference `invites-table`):
+ * address and when it was created, role, publishing, whether the link still
+ * works, and Copy link / Revoke. Labelled rows under 720px.
+ */
+export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
+  const query = useInvitations()
+  const client = useQueryClient()
+  const toast = useToastManager()
+
+  const revoke = useMutation({
+    mutationFn: (id: string) => revokeInvitation(id),
+    onSuccess: async (_result, id) => {
+      const email = query.data?.items.find((item) => item.id === id)?.email
+      await client.invalidateQueries({ queryKey: queryKeys.invitations })
+      toast.add({
+        title: "Invitation revoked",
+        description: email
+          ? `The link for ${email} no longer works.`
+          : undefined,
+        type: "success",
+      })
+    },
+    onError: (error) =>
+      toast.add({ title: describeActionError(error), type: "error" }),
+  })
+
+  if (query.isPending) {
+    return (
+      <Skeleton
+        aria-busy="true"
+        className="h-24 w-full rounded-(--np-radius-card)"
+      />
+    )
+  }
+  if (query.isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>We couldn’t load invitations</AlertTitle>
+        <AlertDescription>{describeActionError(query.error)}</AlertDescription>
+        <AlertActions>
+          <Button variant="secondary" size="sm" onClick={() => query.refetch()}>
+            <RefreshCw aria-hidden />
+            Try again
+          </Button>
+        </AlertActions>
+      </Alert>
+    )
+  }
+  if (query.data.items.length === 0) {
+    return (
+      <Card flush>
         <Empty
           icon={<Mail />}
           title="No pending invitations"
-          description="Invite a teammate to give them access."
+          description="Invite a teammate to give them access. Accepted invitations move to Members."
+          action={
+            onInvite ? (
+              <Button variant="secondary" onClick={onInvite}>
+                <UserPlus aria-hidden />
+                Invite a teammate
+              </Button>
+            ) : undefined
+          }
         />
-      ) : (
-        <GroupedList aria-label="Pending invitations">
-          {query.data.items.map((invitation) => (
-            <GroupedListItem
-              key={invitation.id}
-              icon={<Mail />}
-              label={invitation.email}
-              description={roleLabel(invitation.role)}
-              trailing={
-                <>
-                  {isExpired(invitation) ? (
-                    <StatusPill tone="attention">Expired</StatusPill>
+      </Card>
+    )
+  }
+
+  return (
+    <Table surface responsive aria-label="Pending invitations">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Invited</TableHead>
+          <TableHead>Role</TableHead>
+          <TableHead>Publishing</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {query.data.items.map((invitation) => {
+          const expired = isExpired(invitation)
+          return (
+            <TableRow key={invitation.id}>
+              <TableCell label="Invited">
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-semibold [overflow-wrap:anywhere] text-ink">
+                    {invitation.email}
+                  </span>
+                  <span className="text-caption text-ink-muted">
+                    Created {formatDay(invitation.createdAt)}
+                  </span>
+                </span>
+              </TableCell>
+              <TableCell label="Role">
+                <Badge variant="role">{roleLabel(invitation.role)}</Badge>
+              </TableCell>
+              <TableCell label="Publishing">
+                {invitation.role === "viewer" ? (
+                  <StatusPill tone="neutral" plain>
+                    View only
+                  </StatusPill>
+                ) : invitation.canPublish ||
+                  invitation.role === "owner" ||
+                  invitation.role === "admin" ? (
+                  <StatusPill tone="ok">Can publish</StatusPill>
+                ) : (
+                  <StatusPill tone="neutral" dashed>
+                    Drafts only
+                  </StatusPill>
+                )}
+              </TableCell>
+              <TableCell label="Status">
+                <span className="flex flex-col gap-1">
+                  {expired ? (
+                    <StatusPill tone="warn">Expired</StatusPill>
                   ) : (
-                    <StatusPill tone="pending">Pending</StatusPill>
+                    <StatusPill tone="neutral" dashed>
+                      Pending
+                    </StatusPill>
                   )}
+                  <span className="text-caption text-ink-muted">
+                    {expired ? "Expired" : "Expires"}{" "}
+                    {formatDay(invitation.expiresAt)}
+                  </span>
+                </span>
+              </TableCell>
+              <TableCell data-actions="" className="text-right">
+                <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
                   {invitation.inviteUrl ? (
                     <Button
                       variant="secondary"
                       size="sm"
                       aria-label={`Copy invite link for ${invitation.email}`}
+                      disabledReason={
+                        expired
+                          ? "This link has expired. Revoke it and invite them again."
+                          : undefined
+                      }
                       onClick={() =>
                         copyInviteLink(invitation.inviteUrl!, toast)
                       }
                     >
+                      <Copy aria-hidden />
                       Copy link
                     </Button>
                   ) : null}
@@ -232,12 +462,31 @@ export function InvitationsPanel({ actorRole }: { actorRole: MemberRole }) {
                   >
                     Revoke
                   </Button>
-                </>
-              }
-            />
-          ))}
-        </GroupedList>
-      )}
+                </span>
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+/**
+ * The invite form and the pending invitations together, for a page that
+ * has no header action to hang a dialog on (setup's Team step).
+ */
+export function InvitationsPanel({
+  actorRole,
+  className,
+}: {
+  actorRole: MemberRole
+  className?: string
+}) {
+  return (
+    <div className={cn("flex flex-col gap-4", className)}>
+      <InviteForm actorRole={actorRole} layout="card" />
+      <InvitationsList />
     </div>
   )
 }
