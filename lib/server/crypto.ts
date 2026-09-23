@@ -53,13 +53,6 @@ function deriveKey(secret: string): EncryptionKey {
   return { id, key }
 }
 
-export function parseEncryptionKeyList(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-}
-
 type KeyRing = {
   active: EncryptionKey
   /** Every accepted key, active first. */
@@ -159,6 +152,20 @@ export function isOnActiveKey(value: Buffer): boolean {
     value[0] === KEYED_FORMAT &&
     value.subarray(1, 1 + KEY_ID_BYTES).equals(ring.active.id)
   )
+}
+
+/**
+ * What "on the active key" looks like in the stored bytes, so SQL can find
+ * the rows a rotation still has to move without decrypting anything: the
+ * format byte, and for the keyed format the 4-byte key id after it.
+ */
+export function activeKeyDescriptor():
+  | { format: typeof LEGACY_FORMAT }
+  | { format: typeof KEYED_FORMAT; keyId: Buffer } {
+  const ring = keyRing()
+  return ring.keyedWrites
+    ? { format: KEYED_FORMAT, keyId: ring.active.id }
+    : { format: LEGACY_FORMAT }
 }
 
 /** Decrypt with any accepted key and encrypt again with the active one. */
