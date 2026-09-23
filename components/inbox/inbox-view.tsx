@@ -272,8 +272,12 @@ function InboxViewInner({
         window.matchMedia(DESKTOP_MEDIA_QUERY).matches,
     })
     if (id) {
+      // Nobody asked for this navigation, so it must not move the page:
+      // Next's default scrolls to and focuses the segment, which slid the
+      // org-wide reconnect banner under the toolbar on every desktop load.
       router.replace(
-        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
+        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`,
+        { scroll: false }
       )
     }
   }, [reviewsReady, reviews, state, router, readIsDirty])

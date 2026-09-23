@@ -113,11 +113,13 @@ export function ReconnectBanner({ className }: { className?: string }) {
       }
       actions={
         canReconnect ? (
-          <span className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+          // Full width on a phone so a long address truncates inside the
+          // button instead of running off the edge.
+          <span className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[28rem]">
             <Button
               variant="outline"
               size="sm"
-              className="max-w-full pointer-coarse:min-h-11"
+              className="max-w-full min-w-0 justify-start overflow-hidden pointer-coarse:min-h-11"
               pending={connect.isPending}
               pendingLabel="Opening Google…"
               // Straight to Google: the login is pre-selected and the
@@ -129,7 +131,7 @@ export function ReconnectBanner({ className }: { className?: string }) {
                 })
               }
             >
-              <span className="min-w-0 truncate">
+              <span className="block min-w-0 truncate">
                 Reconnect {first.googleEmail ?? "Google"}
               </span>
             </Button>
@@ -180,7 +182,7 @@ function Banner({
         strokeWidth={1.75}
         aria-hidden
       />
-      <p className="min-w-0 flex-[1_1_16rem] text-pretty [overflow-wrap:anywhere]">
+      <p className="min-w-0 flex-[1_1_12rem] text-pretty [overflow-wrap:anywhere]">
         {message}
       </p>
       {actions}
