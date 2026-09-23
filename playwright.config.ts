@@ -15,7 +15,11 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  // GitHub annotates the PR with failures and flakes; the JUnit report goes
+  // to the CI artifacts so durations and retried passes are tracked.
+  reporter: process.env.CI
+    ? [["github"], ["junit", { outputFile: "test-results/e2e-junit.xml" }]]
+    : "list",
   use: {
     baseURL,
     screenshot: "only-on-failure",
