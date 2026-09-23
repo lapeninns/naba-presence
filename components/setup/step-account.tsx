@@ -1,6 +1,9 @@
 "use client"
 
+import { InfoIcon } from "lucide-react"
+
 import { AccountPickerCard } from "@/components/settings/account-picker-card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 /**
  * Which Business Profile accounts belong to this client.
@@ -9,8 +12,19 @@ import { AccountPickerCard } from "@/components/settings/account-picker-card"
  * rules (auto-derived connection, explicit save) are the same job, and two
  * copies would drift the moment one gained a fix.
  */
-function StepAccount() {
-  return <AccountPickerCard />
+function StepAccount({ clientName }: { clientName: string }) {
+  return (
+    <>
+      <Alert variant="info" icon={<InfoIcon aria-hidden />}>
+        <AlertTitle>One Google login can manage many accounts</AlertTitle>
+        <AlertDescription>
+          Tick only the ones that belong to {clientName}, then save. The rest
+          stay available for other clients.
+        </AlertDescription>
+      </Alert>
+      <AccountPickerCard />
+    </>
+  )
 }
 
 export { StepAccount }

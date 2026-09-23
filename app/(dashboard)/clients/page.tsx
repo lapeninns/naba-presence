@@ -1,3 +1,4 @@
+import { StoreIcon } from "lucide-react"
 import Link from "next/link"
 
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
@@ -7,6 +8,7 @@ import {
 } from "@/components/clients/clients-index"
 import { buttonVariants } from "@/components/ui/button"
 import { getSession } from "@/lib/server/session"
+import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Clients · NabaPresence" }
 
@@ -22,10 +24,11 @@ export default async function ClientsPage() {
         actions={
           <>
             <Link
-              href="/locations"
-              className={buttonVariants({ variant: "secondary" })}
+              href="/listings"
+              className={cn(buttonVariants({ variant: "secondary" }))}
             >
-              All locations
+              <StoreIcon aria-hidden strokeWidth={1.75} />
+              All listings
             </Link>
             {canManage ? <NewClientButton /> : null}
           </>

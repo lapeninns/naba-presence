@@ -13,13 +13,13 @@ import type { MemberRole } from "@/lib/settings/forms/invitation"
 function StepTeam({ clientName }: { clientName: string }) {
   const role = useSessionRole()
   return (
-    <div className="flex flex-col gap-3">
+    <>
       <p className="text-ui text-ink-muted">
-        Invited teammates can see every client by default. You can narrow that
-        to {clientName} alone from Team once they accept.
+        Optional. Invited teammates can see every client by default. You can
+        narrow that to {clientName} alone from Team once they accept.
       </p>
       <InvitationsPanel actorRole={(role ?? "owner") as MemberRole} />
-    </div>
+    </>
   )
 }
 
