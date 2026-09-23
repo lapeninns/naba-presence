@@ -40,7 +40,11 @@ function ReplyStatusLine({
   className,
 }: {
   status: ReplyStatus
-  variant?: "detail" | "row"
+  /**
+   * `bar` is the sentence on the charcoal action bar, where the tone inks
+   * would not hold contrast: the words and the glyph carry the state.
+   */
+  variant?: "detail" | "row" | "bar"
   className?: string
 }) {
   const Icon = ICONS[status.icon]
@@ -53,8 +57,10 @@ function ReplyStatusLine({
       // hears "Ready to publish" rather than the abbreviation.
       aria-label={variant === "row" ? status.text : undefined}
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 text-caption font-medium whitespace-nowrap",
-        SITUATION_TONE_INK[status.tone],
+        variant === "bar"
+          ? "inline-flex min-w-0 items-center gap-2.5 text-ui font-semibold text-ink-on-charcoal"
+          : "inline-flex min-w-0 items-center gap-1.5 text-caption font-medium whitespace-nowrap",
+        variant !== "bar" && SITUATION_TONE_INK[status.tone],
         className
       )}
     >
@@ -62,7 +68,7 @@ function ReplyStatusLine({
         aria-hidden
         strokeWidth={1.75}
         className={cn(
-          "size-3.5 shrink-0",
+          variant === "bar" ? "size-4 shrink-0" : "size-3.5 shrink-0",
           status.icon === "loader" && "animate-spin"
         )}
       />

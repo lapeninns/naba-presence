@@ -4,7 +4,7 @@ import { ChevronRightIcon, TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
+import { chipClassName } from "@/components/ui/chip"
 import {
   Popover,
   PopoverContent,
@@ -28,61 +28,64 @@ function attentionRows(
     .slice(0, MAX_ROWS)
 }
 
+function attentionLabel(total: number): string {
+  return total === 1
+    ? "1 location needs attention"
+    : `${formatNumber(total)} locations need attention`
+}
+
 /**
- * Locations needing attention, folded to one chip.
- *
- * Home gave this a whole list. In the Inbox the list would sit above the
- * reviews it points into, so it is a count that opens on demand, and each row
- * still lands on that location's low-rated reviews.
+ * Locations needing attention, folded to one chip that opens on demand
+ * (reference `attention-pop`). Each row of the popover lands on that
+ * location's unresolved 1–2 star reviews.
  */
 function AttentionChip({
   rows,
   total,
   onNavigate,
+  className,
 }: {
   rows: AnalyticsLocation[]
   /** How many locations qualify in all, which may exceed the rows shown. */
   total: number
   onNavigate?: () => void
+  className?: string
 }) {
   const [open, setOpen] = React.useState(false)
   if (rows.length === 0) return null
-  const label =
-    total === 1
-      ? "1 location needs attention"
-      : `${formatNumber(total)} locations need attention`
+  const label = attentionLabel(total)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button
-            variant="secondary"
-            size="sm"
-            pill
-            className="text-danger-ink"
+          <button
+            type="button"
+            data-slot="chip"
+            className={chipClassName({ className })}
           />
         }
       >
         <TriangleAlertIcon
           aria-hidden
           strokeWidth={1.75}
-          data-icon="inline-start"
+          className="text-warning-ink"
         />
         {label}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0" showArrow={false}>
-        <div className="flex flex-col gap-0.5 px-(--np-card-pad) pt-3 pb-2">
+      <PopoverContent align="end" className="w-[min(380px,calc(100vw-24px))]">
+        <div className="flex flex-col gap-1">
           <PopoverTitle className="text-ui font-semibold text-ink">
-            Needs attention
+            Unresolved low ratings
           </PopoverTitle>
           <PopoverDescription className="text-caption text-ink-muted">
-            1–2 star reviews with no published reply · last 30 days
+            1–2 star reviews with no published reply · last 30 days. Worst
+            first; each opens the inbox filtered to that location.
           </PopoverDescription>
         </div>
-        <ul className="divide-y divide-line-subtle border-t border-line-subtle">
+        <ul className="mt-3">
           {rows.map((location) => (
-            <li key={location.id}>
+            <li key={location.id} className="border-t border-line">
               <Link
                 href={`/inbox?locationId=${location.id}&rating=1,2`}
                 prefetch={false}
@@ -90,19 +93,19 @@ function AttentionChip({
                   setOpen(false)
                   onNavigate?.()
                 }}
-                className="flex min-h-(--np-row-h) w-full items-center gap-3 px-(--np-card-pad) py-2 text-left transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:bg-(--np-hover-bg) focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none"
+                className="-mx-2 flex min-h-11 items-center gap-2.5 rounded-(--np-radius-control) px-2 py-2 text-left focus-halo transition-colors duration-(--np-duration-fast) ease-out-strong hover:bg-surface-alt focus-visible:outline-none"
               >
                 <StatusPill variant="dot" tone="at-risk" />
-                <span className="min-w-0 flex-1 truncate text-ui font-medium text-ink">
+                <span className="min-w-0 flex-1 truncate text-ui font-medium text-ink underline decoration-line-strong underline-offset-2">
                   {location.name}
                 </span>
-                <span className="shrink-0 text-caption text-ink-muted tabular-nums">
+                <span className="shrink-0 font-mono text-caption text-ink-muted tabular-nums">
                   {`${formatNumber(location.unresolvedComplaints)} unresolved`}
                 </span>
                 <ChevronRightIcon
                   aria-hidden
                   strokeWidth={1.75}
-                  className="size-4 shrink-0 text-ink-faint"
+                  className="size-4 shrink-0 text-ink-muted"
                 />
               </Link>
             </li>
@@ -113,4 +116,4 @@ function AttentionChip({
   )
 }
 
-export { AttentionChip, attentionRows }
+export { AttentionChip, attentionLabel, attentionRows }

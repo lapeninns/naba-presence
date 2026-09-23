@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
+import { SHORTCUTS_OPEN_EVENT } from "@/lib/inbox/events"
 import { isTypingTarget, resolveAction, SHORTCUTS } from "@/lib/inbox/hotkeys"
 
 export type HotkeyHandlers = Partial<
@@ -59,36 +60,49 @@ function InboxHotkeys({ handlers }: { handlers: HotkeyHandlers }) {
       event.preventDefault()
       handler()
     }
+    function onOpen() {
+      setSheetOpen(true)
+    }
     document.addEventListener("keydown", onKeyDown)
-    return () => document.removeEventListener("keydown", onKeyDown)
+    window.addEventListener(SHORTCUTS_OPEN_EVENT, onOpen)
+    return () => {
+      document.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener(SHORTCUTS_OPEN_EVENT, onOpen)
+    }
   }, [])
 
   return (
     <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>
-            These work anywhere in the inbox, except while you are typing.
+            These work anywhere in the inbox, except while you are typing, so a
+            reply is never sent by accident.
           </DialogDescription>
         </DialogHeader>
-        {/* A menu-style list: the action at the leading edge, its keys as
-            keycaps at the trailing edge, rows at menu height. */}
-        <ul className="flex flex-col">
-          {SHORTCUTS.map((shortcut) => (
-            <li
-              key={shortcut.action}
-              className="flex h-(--np-menu-item-h) items-center justify-between gap-4 text-ui text-ink"
-            >
-              <span>{shortcut.label}</span>
-              <span className="flex gap-1">
+        {/* Reference `.dl`: the keys in a narrow first column, what they do
+            beside them. */}
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5 pb-1">
+          {SHORTCUTS.filter(
+            // Only keys that do something here: `a` and `e` have no binding
+            // in the inbox yet, and a listed key that does nothing reads as
+            // broken. `?` and ⌘K are owned by this dialog and the shell.
+            (shortcut) =>
+              shortcut.action === "shortcuts" ||
+              shortcut.action === "command" ||
+              shortcut.action in handlers
+          ).map((shortcut) => (
+            <React.Fragment key={shortcut.action}>
+              <dt className="flex gap-1">
                 {shortcut.keys.split(" ").map((key) => (
                   <Kbd key={key}>{key}</Kbd>
                 ))}
-              </span>
-            </li>
+              </dt>
+              <dd className="text-ui text-ink">{shortcut.label}</dd>
+            </React.Fragment>
           ))}
-        </ul>
+        </dl>
       </DialogContent>
     </Dialog>
   )

@@ -6,10 +6,12 @@ import {
   ChevronRightIcon,
   GlobeIcon,
   PlayIcon,
+  QuoteIcon,
   TriangleAlertIcon,
 } from "lucide-react"
+import Link from "next/link"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
@@ -18,8 +20,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Lifecycle } from "@/components/ui/lifecycle"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
+import { VerificationChecks } from "@/components/inbox/verification-panel"
+import { useReveals } from "@/lib/motion/use-reveals"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
@@ -27,6 +32,7 @@ import { StarRating } from "@/components/inbox/star-rating"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { useIsDirty } from "@/components/inbox/dirty-context"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { deriveLifecycle } from "@/lib/inbox/lifecycle"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
@@ -34,7 +40,11 @@ import {
   type ReplyPendingKind,
   type ReplyStateInput,
 } from "@/lib/inbox/reply-state"
-import { describeReplyState, replyWork } from "@/lib/inbox/review-situation"
+import {
+  describeReplyState,
+  isLiveOnGoogle,
+  replyWork,
+} from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { useReplyPending } from "@/lib/queries/use-reply-pending"
@@ -83,39 +93,115 @@ function replyStateFor(
   }
 }
 
+function initials(name: string): string {
+  const letters = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("")
+  return letters || "?"
+}
+
 /**
- * Reviewer · rating · venue · age, and everything else behind an info control.
- *
- * Four facts, one line. The old header spent three rows and a 48px avatar on
- * the same four, which pushed the customer's actual words below the fold on a
- * 1280px screen — in a pane whose entire job is reading them.
+ * The pane's head (reference `.detail-head`): on a narrow screen the way
+ * back to the list, then the reviewer's initials, their name and stars, and
+ * one caption line — client, listing, "Google review", age — with the link
+ * to the listing, the review's provenance and previous / next at the
+ * trailing edge. It says whose review this is and nothing about the reply;
+ * the reply's state is on the action bar.
  */
-function ReviewIdentity({ review }: { review: Review }) {
+function ReviewHead({
+  review,
+  clientName,
+  clientId,
+  navigation,
+}: {
+  review: Review
+  clientName?: string | null
+  clientId?: string | null
+  navigation?: ReactNode
+}) {
   const displayName = review.reviewerIsAnonymous
     ? "Anonymous"
     : (review.reviewerDisplayName ?? "Anonymous")
 
   return (
-    <div className="flex items-start gap-2 border-b border-line-subtle px-(--np-card-pad) pt-2 pb-3">
-      <div className="min-w-0 flex-1">
-        <h2 className="truncate text-section font-semibold tracking-tight text-ink">
-          {displayName}
-        </h2>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted">
-          <StarRating rating={review.rating} size="md" tone="neutral" />
-          <span aria-hidden>·</span>
-          <span className="break-words">{review.locationName}</span>
-          <span aria-hidden>·</span>
+    <>
+      <span
+        aria-hidden
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-caption font-semibold text-ink-secondary"
+      >
+        {initials(displayName)}
+      </span>
+      <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className="min-w-0 text-[17px] leading-6 font-semibold break-words text-ink">
+            {displayName}
+          </h2>
+          <StarRating rating={review.rating} size="md" />
+        </div>
+        <p className="text-caption leading-5 break-words text-ink-muted">
+          {clientName ? (
+            <>
+              {clientId ? (
+                <Link
+                  href={`/clients/${clientId}`}
+                  className="text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
+                >
+                  {clientName}
+                </Link>
+              ) : (
+                <span className="text-ink">{clientName}</span>
+              )}
+              {" · "}
+            </>
+          ) : null}
+          <span>{review.locationName}</span> · Google review ·{" "}
           <time
             dateTime={review.createTime}
             title={formatDateTime(review.createTime, review.timezone)}
-            className="whitespace-nowrap tabular-nums"
           >
             {formatRelativeTime(review.createTime)}
           </time>
-        </div>
+        </p>
       </div>
-      <ReviewMetadata review={review} />
+      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1">
+        <Link
+          href={`/listings/${review.locationId}`}
+          className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+        >
+          Open listing
+        </Link>
+        <ReviewMetadata review={review} />
+        {navigation}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The head's frame, shared by the loading, error and loaded pane so the
+ * return-to-list control is the SAME element throughout: it takes focus
+ * when a review opens on a narrow screen, and a control that was swapped
+ * for a new one when the review arrived would drop that focus.
+ */
+function HeadFrame({
+  leading,
+  children,
+}: {
+  leading?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div
+      data-slot="review-head"
+      className="flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 border-b border-line px-4 py-3.5 @md/detail:px-[18px]"
+    >
+      {leading ? (
+        <div className="-ml-1.5 shrink-0 basis-full lg:hidden">{leading}</div>
+      ) : null}
+      {children}
     </div>
   )
 }
@@ -131,9 +217,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="text-body text-ink-muted italic">
-        A rating with no written review.
-      </p>
+      <p className="text-ui text-ink-muted">A rating with no written review.</p>
     )
   }
 
@@ -145,7 +229,7 @@ function ReviewBody({ review }: { review: Review }) {
       <blockquote
         lang={parsed.bodyLang ?? undefined}
         dir="auto"
-        className="text-body leading-relaxed whitespace-pre-line text-ink"
+        className="m-0 font-reading text-reading whitespace-pre-line text-ink"
       >
         {parsed.body}
       </blockquote>
@@ -469,11 +553,11 @@ function ReplyStatusStrip({ review }: { review: Review }) {
       data-slot="reply-status-strip"
       data-pulse={pulse ? "true" : undefined}
       className={cn(
-        "flex min-h-6 items-center rounded-(--np-radius-tag) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring",
-        pulse && "px-1.5 ring-2 ring-(--np-success-line) ring-inset"
+        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring",
+        pulse && "px-2 ring-2 ring-success-solid ring-inset"
       )}
     >
-      <ReplyStatusLine status={status} />
+      <ReplyStatusLine status={status} variant="bar" />
     </div>
   )
 }
@@ -481,40 +565,158 @@ function ReplyStatusStrip({ review }: { review: Review }) {
 function ActionFooterSkeleton() {
   return (
     <div className="flex justify-end gap-2" aria-hidden>
-      <Skeleton className="h-(--np-control-h) w-28 rounded-(--np-radius-pill)" />
+      <Skeleton className="h-(--np-control-h) w-40 bg-ink-on-charcoal/15" />
     </div>
   )
 }
 
-function PaneHeader({
-  leading,
-  navigation,
-}: {
-  leading?: ReactNode
-  navigation?: ReactNode
-}) {
-  if (!leading && !navigation) return null
+/**
+ * The customer's words beside what Google shows now (reference
+ * `.quote-card` and `.live-card`).
+ *
+ * The review is the one place in the pane set in the reading serif, on the
+ * sunken surface with the accent quote mark. The live card is drawn dashed
+ * because it is Google's, not ours: it shows the reply only when Google has
+ * confirmed it is live, says so when a reply has been sent and not yet
+ * confirmed, and otherwise says plainly that customers see no reply.
+ */
+function ReviewAndReplyCards({ review }: { review: Review }) {
+  const displayName = review.reviewerIsAnonymous
+    ? "Anonymous"
+    : (review.reviewerDisplayName ?? "Anonymous")
+  const reply = review.reply
+  const live = reply?.body && isLiveOnGoogle(reply.publishStatus) ? reply : null
+  const sent = !live && reply?.body && reply.publishStatus === "accepted"
+  const publishedBy = review.timeline.find(
+    (event) => event.action === "review.reply.published"
+  )
+
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 px-2">
-      {leading ? <div className="min-w-0 lg:hidden">{leading}</div> : null}
-      {navigation ? (
-        <div className="ml-auto flex shrink-0 items-center">{navigation}</div>
-      ) : null}
-    </div>
+    <section
+      aria-label="The review and the live reply"
+      className="grid grid-cols-1 gap-3 @2xl/detail:grid-cols-2"
+    >
+      <article
+        aria-label={`Review from ${displayName}`}
+        data-slot="review-card"
+        className="m-0 flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) bg-surface-alt px-5 py-[18px]"
+      >
+        <QuoteIcon
+          aria-hidden
+          strokeWidth={0}
+          className="size-5 fill-current text-accent-ink"
+        />
+        <div className="min-w-0">
+          <ReviewBody review={review} />
+          <ReviewMedia media={review.media} />
+        </div>
+        <p className="font-mono text-caption text-ink-muted tabular-nums">
+          {displayName}
+          {review.rating !== null
+            ? ` · ${review.rating} ${review.rating === 1 ? "star" : "stars"}`
+            : ""}
+          {" · "}
+          {formatRelativeTime(review.createTime)}
+        </p>
+      </article>
+
+      <article
+        aria-label="The reply live on Google"
+        data-slot="live-reply-card"
+        className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-dashed border-line-strong px-4 py-3.5"
+      >
+        <span className="font-mono text-[11.5px] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase">
+          On Google now
+        </span>
+        {live ? (
+          <>
+            <p
+              dir="auto"
+              className="text-[15px] leading-6 whitespace-pre-line text-ink"
+            >
+              {live.body}
+            </p>
+            <p className="font-mono text-caption text-ink-muted tabular-nums">
+              {publishedBy?.actorName
+                ? `Published by ${publishedBy.actorName}`
+                : "Live on Google"}
+              {live.googleReplyUpdatedAt
+                ? ` · ${formatDateTime(live.googleReplyUpdatedAt, review.timezone)}`
+                : publishedBy
+                  ? ` · ${formatRelativeTime(publishedBy.createdAt)}`
+                  : ""}
+            </p>
+          </>
+        ) : sent ? (
+          <p className="text-ui text-ink-muted">
+            Sent to Google — waiting for Google to confirm it is live. Customers
+            may not see it yet.
+          </p>
+        ) : (
+          <p className="text-ui text-ink-muted">
+            Nothing is live yet. Customers see the review without a reply.
+          </p>
+        )}
+        {reply?.googlePolicyViolation ? (
+          <p className="flex items-start gap-1.5 text-caption text-danger-ink">
+            <TriangleAlertIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="mt-0.5 size-3.5 shrink-0"
+            />
+            Google flagged this reply: {reply.googlePolicyViolation}
+          </p>
+        ) : null}
+      </article>
+    </section>
   )
 }
+
+/** Where the reply has got to, as five stages, from the review's own state. */
+function ReplyLifecycle({ review }: { review: Review }) {
+  const steps = deriveLifecycle(review)
+  return (
+    <Lifecycle
+      aria-label="Reply lifecycle"
+      stages={steps.map((step) =>
+        step.id === "received"
+          ? {
+              ...step,
+              meta: `From Google · ${formatRelativeTime(review.createTime)}`,
+            }
+          : step
+      )}
+    />
+  )
+}
+
+// The action bar is sticky at the foot of the screen on a phone or a short
+// window, and a static last row of the pane where the workspace is locked.
+const FOOTER_CLASS =
+  "sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-b-[calc(var(--np-radius-card)-1px)] on-charcoal px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] md:[@media(min-height:620px)]:static md:[@media(min-height:620px)]:pb-3 [&_:focus-visible]:outline-ink-on-charcoal"
+
+const SCROLL_CLASS =
+  "flex min-h-0 flex-1 flex-col gap-5 p-4 @md/detail:p-[18px] md:[@media(min-height:620px)]:overflow-y-auto"
 
 function ReviewDetail({
   reviewId,
+  clientName,
+  clientId,
   leading,
   navigation,
   composer,
   actions,
 }: {
   reviewId: string
-  /** Slot at the head of the pinned header (the mobile return-to-list control). */
+  /** The client the review's location belongs to, from the list row. */
+  clientName?: string | null
+  /** Its id, for the link to the client. */
+  clientId?: string | null
+  /** Accepted for compatibility; the pane no longer draws an avatar for it. */
+  organisationName?: string
+  /** Slot at the head of the pane (the narrow-screen return-to-list control). */
   leading?: ReactNode
-  /** Previous / next review controls, pinned in the pane chrome. */
+  /** Previous / next review controls, in the pane head. */
   navigation?: ReactNode
   /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
@@ -522,79 +724,67 @@ function ReviewDetail({
   actions?: ReactNode
 }) {
   const query = useReviewDetail(reviewId)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Timeline rows and verification cards below the fold reveal once as they
+  // scroll in; anything already visible when the pane mounts stays visible.
+  useReveals(scrollRef, query.data ? reviewId : undefined)
 
-  if (query.isPending) {
-    return (
-      <div aria-busy="true" className="flex min-h-0 flex-1 flex-col">
-        <PaneHeader leading={leading} navigation={navigation} />
-        <div className="flex flex-col gap-2 border-b border-line-subtle px-(--np-card-pad) pt-2 pb-3">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3 w-56" />
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 p-(--np-card-pad)">
-          <Skeleton className="h-24 w-full rounded-(--np-radius-control)" />
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-28 w-full rounded-(--np-radius-control)" />
-        </div>
-        {actions ? (
-          <footer className="shrink-0 border-t border-line-subtle px-(--np-card-pad) py-2.5">
-            <ActionFooterSkeleton />
-          </footer>
-        ) : null}
-      </div>
-    )
-  }
-  if (query.isError || !query.data) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <PaneHeader leading={leading} navigation={navigation} />
-        <QueryError
-          title="We could not load this review."
-          cause={query.error}
-          onRetry={() => void query.refetch()}
-          className="p-(--np-card-pad)"
-        />
-      </div>
-    )
-  }
-
-  const review = query.data.review
+  const review = query.data?.review
+  const pending = query.isPending
+  const failed = !pending && (query.isError || !review)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PaneHeader leading={leading} navigation={navigation} />
-      <ReviewIdentity review={review} />
+    <div
+      aria-busy={pending || undefined}
+      className="@container/detail flex min-h-0 flex-1 flex-col"
+    >
+      <HeadFrame leading={leading}>
+        {review ? (
+          <ReviewHead
+            review={review}
+            clientName={clientName}
+            clientId={clientId}
+            navigation={navigation}
+          />
+        ) : (
+          <>
+            {pending ? (
+              <>
+                <Skeleton className="size-9 rounded-full" />
+                <div className="flex flex-1 flex-col gap-1.5 pt-1">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-56 max-w-full" />
+                </div>
+              </>
+            ) : null}
+            <div className="ml-auto">{navigation}</div>
+          </>
+        )}
+      </HeadFrame>
 
-      {/* One reading order, one scroll region: what the customer said, then
-          the reply, then anything that is in the way of sending it, then the
-          history last and collapsed. The five-stage tracker that used to sit
-          above all of this is now inside the exception's disclosure — it was
-          permanent chrome answering a question most reviews never raise. */}
-      <div
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-        data-slot="inbox-detail-scroll"
-      >
-        {/* A measure, not a column width. Past about 70 characters the eye
-            loses the start of the next line, and the pane is now wide enough
-            at 1440px to run well past that. */}
-        <div className="flex w-full max-w-[72ch] flex-col gap-5 self-center p-(--np-card-pad)">
-          <section aria-label="Customer review" className="flex flex-col gap-3">
-            <h3 className="text-caption font-medium text-ink-muted">
-              Customer review
-            </h3>
-            <ReviewBody review={review} />
-            <ReviewMedia media={review.media} />
-          </section>
+      {/* One reading order, one scroll region: what is in the way, where the
+          reply has got to, the customer's words beside what Google shows,
+          the reply, the checks, and what happened — with the action bar
+          pinned beneath. */}
+      {review ? (
+        <div
+          ref={scrollRef}
+          className={SCROLL_CLASS}
+          data-slot="inbox-detail-scroll"
+        >
+          <ReplyExceptionSlot review={review} />
+          <ReplyLifecycle review={review} />
+          <ReviewAndReplyCards review={review} />
 
-          <section
-            aria-label="Your reply"
-            className="flex flex-col gap-3 border-t border-line-subtle pt-5"
-          >
-            <ReplyStatusStrip review={review} />
+          <section aria-label="Reply" className="flex flex-col gap-3">
             <LiveReplyDisclosure review={review} />
             {composer}
-            <ReplyExceptionSlot review={review} />
           </section>
+
+          <VerificationChecks
+            verification={review.latestVerification}
+            status={review.workflowStatus}
+          />
 
           <ActivityTimeline
             timeline={review.timeline}
@@ -602,11 +792,35 @@ function ReviewDetail({
             collapsible
           />
         </div>
-      </div>
+      ) : failed ? (
+        <QueryError
+          title="We could not load this review."
+          cause={query.error}
+          onRetry={() => void query.refetch()}
+          className="p-(--np-card-pad)"
+        />
+      ) : (
+        <div className={SCROLL_CLASS}>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-32 w-full rounded-(--np-radius-card)" />
+          <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
+        </div>
+      )}
 
-      {actions ? (
-        <footer className="shrink-0 border-t border-line-subtle bg-surface px-(--np-card-pad) py-2.5">
-          {actions}
+      {review ? (
+        <footer data-slot="composer-footer" className={FOOTER_CLASS}>
+          <div className="flex min-w-0 flex-[1_1_240px] items-center">
+            <ReplyStatusStrip review={review} />
+          </div>
+          {actions ? (
+            <div className="ml-auto flex max-w-full min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end">
+              {actions}
+            </div>
+          ) : null}
+        </footer>
+      ) : pending && actions ? (
+        <footer className={FOOTER_CLASS}>
+          <ActionFooterSkeleton />
         </footer>
       ) : null}
     </div>

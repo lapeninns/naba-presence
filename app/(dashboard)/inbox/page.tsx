@@ -2,6 +2,7 @@ import { HydrationBoundary } from "@tanstack/react-query"
 
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { InboxView } from "@/components/inbox/inbox-view"
+import { ShortcutsButton } from "@/components/inbox/shortcuts-button"
 import { inboxPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
 import { getSession } from "@/lib/server/session"
@@ -25,11 +26,15 @@ export default async function InboxPage() {
     <PageFrame width="workspace" className="min-h-0 flex-1">
       <PageHeader
         title="Inbox"
+        // The sentence is dropped on phones and short windows, where the
+        // workspace needs the height more than the reminder.
         description={
-          <span className="max-lg:hidden">
-            Every client&rsquo;s reviews. Reply with care.
+          <span className="max-md:hidden [@media(max-height:619.98px)]:hidden">
+            Every client&rsquo;s reviews in one queue. Nothing reaches Google
+            until a verified reply is published.
           </span>
         }
+        actions={<ShortcutsButton />}
       />
       <HydrationBoundary state={state}>
         <InboxView showLocationFilter={locationCount > 1} />

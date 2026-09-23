@@ -2,6 +2,7 @@
 
 import { useId } from "react"
 
+import { ChipCount, chipClassName } from "@/components/ui/chip"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   REVIEW_QUEUE_LABELS,
@@ -16,12 +17,13 @@ import {
 import { cn } from "@/lib/utils"
 
 /**
- * The five queue controls, above the review workspace.
+ * The five queues as a row of chips above the filters (reference `#queues`).
  *
- * They replace the permanent left rail. A rail spent 240px of a 1280px screen
- * on six rows that change once an hour, and it pushed the reply — the thing the
- * operator is actually here for — into whatever was left. The same six rows fit
- * on one line above the panes, and the detail pane gets the width back.
+ * The current queue fills with ink, like a pressed chip; the accent stays
+ * reserved for the primary action. Each count sits inside its chip in mono,
+ * and a non-zero Failed count is drawn in the danger ink because that number
+ * is itself the exception. The row scrolls sideways rather than wrapping on
+ * a phone, with the cut chip saying there is more.
  *
  * Still a `nav` labelled "Review queues": these are the inbox's primary
  * navigation wherever they are drawn, and the landmark is what screen-reader
@@ -32,11 +34,13 @@ function QueueTabs({
   counts,
   countsPending,
   onQueueChange,
+  className,
 }: {
   queue: ReviewQueue
   counts: ReviewCounts | undefined
   countsPending: boolean
   onQueueChange: (queue: VisibleQueue) => void
+  className?: string
 }) {
   const noteId = useId()
   const current = visibleQueue(queue)
@@ -45,11 +49,15 @@ function QueueTabs({
     <nav
       aria-label="Review queues"
       aria-describedby={noteId}
-      className="flex flex-wrap items-center gap-1 border-b border-line-subtle pb-2"
+      className={cn(
+        "-m-0.5 flex min-w-0 [scrollbar-width:none] items-center gap-2 overflow-x-auto p-0.5 [&::-webkit-scrollbar]:hidden",
+        className
+      )}
     >
       {VISIBLE_QUEUES.map((item) => {
         const count = counts?.byQueue?.[item] ?? 0
         const active = current === item
+        const alert = item === "failed" && count > 0
         return (
           <button
             key={item}
@@ -69,36 +77,21 @@ function QueueTabs({
             ]
               .filter(Boolean)
               .join(", ")}
-            className={cn(
-              "flex min-h-9 items-center justify-center gap-2 rounded-(--np-radius-control) border px-3 text-ui whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none",
-              active
-                ? // A neutral fill and a real edge, not the accent tint:
-                  // strong colour is reserved for the primary action and for
-                  // exceptions that need attention.
-                  "border-line bg-fill-secondary font-semibold text-ink"
-                : "border-transparent text-ink-muted hover:bg-fill-tertiary hover:text-ink"
-            )}
+            className={chipClassName({ pressed: active })}
           >
             <span>{REVIEW_QUEUE_LABELS[item]}</span>
             {countsPending ? (
               // A skeleton, never a zero: "0" before the count lands tells the
               // operator there is nothing to do when there may be plenty.
-              <Skeleton className="h-3 w-5" />
+              <Skeleton className={cn("h-3 w-4", active && "bg-canvas/30")} />
             ) : (
-              <span
+              <ChipCount
                 aria-hidden
-                className={cn(
-                  "text-caption tabular-nums",
-                  // The one queue whose non-zero count is itself the exception.
-                  item === "failed" && count > 0
-                    ? "text-danger-ink"
-                    : active
-                      ? "text-ink"
-                      : "text-ink-muted"
-                )}
+                tone={alert && !active ? "alert" : "default"}
+                className={cn(active && "text-canvas/80")}
               >
                 {count > 0 ? count : "–"}
-              </span>
+              </ChipCount>
             )}
           </button>
         )

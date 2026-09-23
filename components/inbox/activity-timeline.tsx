@@ -114,6 +114,7 @@ function ActivityTimeline({
         ) : (
           <Timeline
             aria-label="Activity events"
+            reveal
             className="pt-1"
             entries={timeline.map((event, index) => ({
               id: `${event.action}-${event.createdAt}-${index}`,

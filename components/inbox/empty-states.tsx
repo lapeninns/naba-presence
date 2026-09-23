@@ -1,22 +1,24 @@
 "use client"
 
-import {
-  CloudDownloadIcon,
-  InboxIcon,
-  SearchXIcon,
-  TriangleAlertIcon,
-  UnplugIcon,
-} from "lucide-react"
-
 import Link from "next/link"
+
+import {
+  CheckIcon,
+  CircleAlertIcon,
+  FilterIcon,
+  InboxIcon,
+  LoaderIcon,
+  PlugIcon,
+  UnlinkIcon,
+} from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { formatRelativeTime } from "@/lib/format/date"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
+import { cn } from "@/lib/utils"
 
 type Content = {
-  icon: typeof InboxIcon
   title: string
   description: string
 }
@@ -35,16 +37,14 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
   switch (reason) {
     case "filtered":
       return {
-        icon: SearchXIcon,
-        title: "No reviews match these filters",
-        description: "Try widening or clearing your filters.",
+        title: "No reviews match these filters.",
+        description: "Widen or clear them to see the rest of the queue.",
       }
     case "queue_empty":
       return {
-        icon: InboxIcon,
-        title: "Nothing in this queue",
+        title: "Nothing needs a reply.",
         description:
-          "Every review here has been dealt with. Choose another queue above to keep working.",
+          "Every review in this queue has been dealt with. Choose another queue above to keep working.",
       }
     // This state carries the whole message, headline and action included. It
     // used to defer to the shell's ReconnectBanner, but that banner is now
@@ -52,14 +52,12 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
     // there is nothing else to defer to.
     case "disconnected":
       return {
-        icon: UnplugIcon,
-        title: "Google is not connected",
+        title: "Google is not connected.",
         description: "Reconnect Google to sync and reply to your reviews.",
       }
     case "not_connected":
       return {
-        icon: UnplugIcon,
-        title: "No locations are linked to Google yet",
+        title: "No locations are linked to Google yet.",
         description:
           "Link a client's locations to Google and their reviews will be imported here.",
       }
@@ -68,8 +66,7 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
     // either way; "importing right now" would not.
     case "importing":
       return {
-        icon: CloudDownloadIcon,
-        title: "Reviews are still coming in",
+        title: "Reviews are still coming in.",
         description:
           counts.running === 1
             ? "One location is waiting on Google. Reviews appear here as they land, which can take a few minutes."
@@ -77,8 +74,7 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
       }
     case "import_failed":
       return {
-        icon: TriangleAlertIcon,
-        title: "Some locations could not be imported",
+        title: "Some locations could not be imported.",
         description:
           counts.failed === 1
             ? "One location's import did not finish, so its reviews are missing. Check its connection in Settings."
@@ -86,8 +82,7 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
       }
     case "never_imported":
       return {
-        icon: CloudDownloadIcon,
-        title: "No reviews have been imported yet",
+        title: "No reviews have been imported yet.",
         description:
           "These locations are linked, but no import has run for them. Start one from Settings.",
       }
@@ -95,16 +90,14 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
     // Google was last asked rather than asserting a fact about Google now.
     case "checked":
       return {
-        icon: InboxIcon,
-        title: "No reviews yet",
+        title: "No reviews yet.",
         description: counts.lastSyncAt
           ? `Google had none for these locations when we last checked, ${formatRelativeTime(counts.lastSyncAt)}.`
           : "Google had none for these locations when we last checked.",
       }
     case "unknown":
       return {
-        icon: InboxIcon,
-        title: "Nothing to show here",
+        title: "Nothing to show here.",
         description: "No reviews are in this view.",
       }
   }
@@ -127,9 +120,59 @@ const NO_COUNTS: EmptyCounts = {
 }
 
 /**
- * The list's empty state: a light glyph, the reason, and the one action that
- * changes it. Grey capsules, because the action is a way out rather than the
- * page's primary verb.
+ * A message in place of content (reference `.empty`): a tinted mark, the
+ * title, one muted sentence and at most one action. Used for the pane that
+ * has nothing selected and for every reason a queue can be empty.
+ */
+function Statement({
+  title,
+  description,
+  action,
+  icon = <InboxIcon />,
+  tone = "neutral",
+  className,
+}: {
+  title: string
+  description?: React.ReactNode
+  action?: React.ReactNode
+  icon?: React.ReactNode
+  tone?: "neutral" | "ok" | "bad"
+  className?: string
+}) {
+  return (
+    <Empty
+      title={title}
+      description={description}
+      action={action}
+      icon={icon}
+      tone={tone}
+      titleAs="h2"
+      className={className}
+    />
+  )
+}
+
+const ICONS: Record<EmptyReason, React.ReactNode> = {
+  filtered: <FilterIcon />,
+  queue_empty: <CheckIcon />,
+  disconnected: <UnlinkIcon />,
+  not_connected: <PlugIcon />,
+  importing: <LoaderIcon />,
+  import_failed: <CircleAlertIcon />,
+  never_imported: <PlugIcon />,
+  checked: <InboxIcon />,
+  unknown: <InboxIcon />,
+}
+
+const TONES: Partial<Record<EmptyReason, "ok" | "bad">> = {
+  queue_empty: "ok",
+  disconnected: "bad",
+  import_failed: "bad",
+}
+
+/**
+ * The list's empty state: the reason, said plainly, and the one action that
+ * changes it.
  */
 function EmptyState({
   reason,
@@ -140,10 +183,10 @@ function EmptyState({
   counts?: EmptyCounts
   onClear?: () => void
 }) {
-  const { icon: Icon, title, description } = content(reason, counts)
+  const { title, description } = content(reason, counts)
   const action =
     reason === "filtered" && onClear ? (
-      <Button variant="secondary" pill onClick={onClear}>
+      <Button variant="secondary" onClick={onClear}>
         Clear filters
       </Button>
     ) : reason === "disconnected" ||
@@ -152,20 +195,21 @@ function EmptyState({
       reason === "not_connected" ? (
       <Link
         href="/settings/connections"
-        className={buttonVariants({ variant: "secondary", pill: true })}
+        className={cn(buttonVariants({ variant: "secondary" }))}
       >
         Manage connection
       </Link>
     ) : undefined
 
   return (
-    <Empty
-      icon={<Icon aria-hidden />}
+    <Statement
       title={title}
       description={description}
       action={action}
+      icon={ICONS[reason]}
+      tone={TONES[reason] ?? "neutral"}
     />
   )
 }
 
-export { EmptyState }
+export { EmptyState, Statement }

@@ -12,13 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
-import { cn } from "@/lib/utils"
 
 /**
  * Actions over a selection, floating over the workspace as a capsule on the
@@ -85,52 +83,32 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
   const failures = outcome
     ? outcome.results.filter((row) => row.status !== "ok")
     : []
-  // A single row of tools is a capsule; once there is a note or a list of
-  // outcomes under it, the panel radius keeps the corners concentric.
-  const hasNotes = partial || failures.length > 0
 
   return (
     <div
       role="region"
       aria-label="Selected reviews"
       data-slot="bulk-action-bar"
-      className={cn(
-        "absolute bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 material-popover shadow-(--np-shadow-pop)",
-        "transition-[opacity,translate] duration-(--np-duration-overlay) ease-spring starting:translate-y-2 starting:opacity-0",
-        hasNotes
-          ? "rounded-(--np-radius-panel) px-3 py-2.5"
-          : "rounded-(--np-radius-pill) py-1.5 pr-1.5 pl-3"
-      )}
+      // Reference `.bulkbar`: the list's own charcoal bar, pinned under the
+      // rows — sticky at the foot of the screen where the page scrolls.
+      className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 rounded-b-[calc(var(--np-radius-card)-1px)] on-charcoal px-3 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] [&_:focus-visible]:outline-ink-on-charcoal md:[@media(min-height:620px)]:pb-2.5"
     >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="pr-1.5 text-ui font-medium text-ink tabular-nums">
+      <div className="flex flex-wrap items-center gap-2">
+        <strong className="mr-auto text-ui font-semibold text-ink-on-charcoal tabular-nums">
           {chosen.length} selected
-        </span>
-
-        <Button
-          size="sm"
-          pill
-          disabled={approvable.length === 0 || bulk.isPending}
-          onClick={() => void run("approve")}
-        >
-          <Check aria-hidden strokeWidth={1.75} data-icon="inline-start" />
-          {approvable.length === chosen.length
-            ? "Approve"
-            : `Approve ${approvable.length} of ${chosen.length}`}
-        </Button>
+        </strong>
 
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <Button
                 size="sm"
-                variant="secondary"
-                pill
+                variant="ghost-dark"
                 disabled={bulk.isPending}
               />
             }
           >
-            <UserPlus aria-hidden strokeWidth={1.75} data-icon="inline-start" />
+            <UserPlus aria-hidden data-icon="inline-start" />
             Assign
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center">
@@ -153,8 +131,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
         <Button
           size="sm"
-          variant="secondary"
-          pill
+          variant="ghost-dark"
           disabled={bulk.isPending}
           onClick={() => void run("mark_reviewed")}
         >
@@ -162,18 +139,29 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
         </Button>
 
         <Button
+          size="sm"
+          variant="on-dark"
+          disabled={approvable.length === 0 || bulk.isPending}
+          onClick={() => void run("approve")}
+        >
+          <Check aria-hidden data-icon="inline-start" />
+          {approvable.length === chosen.length
+            ? "Approve"
+            : `Approve ${approvable.length} of ${chosen.length}`}
+        </Button>
+
+        <Button
           size="icon-sm"
-          variant="ghost"
-          pill
+          variant="ghost-dark"
           aria-label="Clear selection"
           onClick={clear}
         >
-          <X aria-hidden strokeWidth={1.75} />
+          <X aria-hidden />
         </Button>
       </div>
 
       {partial ? (
-        <p className="text-caption text-ink-muted">
+        <p className="text-caption text-ink-muted-on-charcoal">
           {chosen.length - approvable.length} of these are not awaiting your
           approval, so Approve will skip them.
         </p>
@@ -184,16 +172,12 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           {failures.map((row) => (
             <li
               key={row.reviewId}
-              className="flex items-center gap-2 text-caption"
+              className="flex items-center gap-2 text-caption text-ink-on-charcoal"
             >
-              <StatusPill
-                tone={row.status === "failed" ? "at-risk" : "attention"}
-                variant="inline"
-                className="text-caption"
-              >
+              <span className="font-semibold">
                 {row.status === "failed" ? "Failed" : "Skipped"}
-              </StatusPill>
-              <span className="text-ink-muted">
+              </span>
+              <span className="text-ink-muted-on-charcoal">
                 {row.code ? describeErrorCode(row.code) : "No reason given."}
               </span>
             </li>

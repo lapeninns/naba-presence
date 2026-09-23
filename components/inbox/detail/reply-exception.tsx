@@ -1,9 +1,9 @@
 "use client"
 
-import { useId, useState } from "react"
-import { ChevronDownIcon } from "lucide-react"
+import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react"
+import Link from "next/link"
 
-import { deriveLifecycle, type LifecycleStep } from "@/lib/inbox/lifecycle"
+import { buttonVariants } from "@/components/ui/button"
 import type { PrimaryAction } from "@/lib/inbox/reply-state"
 import type { ReviewDetail } from "@/lib/contracts/reviews"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
@@ -111,6 +111,19 @@ function describeException(
   }
 
   if (
+    !review.capabilities.canEdit &&
+    !review.capabilities.canPublish &&
+    !review.capabilities.canRequestApproval
+  ) {
+    return {
+      title: "View-only access",
+      description:
+        "You can read this review and its reply, but not edit or publish it for this location. Ask an owner or admin for reply access.",
+      tone: "caution",
+    }
+  }
+
+  if (
     !review.capabilities.canPublish &&
     !review.capabilities.canRequestApproval
   ) {
@@ -134,23 +147,16 @@ function describeException(
   return null
 }
 
-const STEP_STATE_INK: Record<LifecycleStep["state"], string> = {
-  done: "text-ink-muted",
-  current: "text-ink",
-  todo: "text-ink-muted",
-  skipped: "text-ink-muted",
-  failed: "text-danger-ink",
-}
-
 /**
- * The exception, next to the reply decision it affects — and the detailed
- * lifecycle behind a disclosure underneath it.
+ * The exception, at the head of the review it affects (reference `.alert`):
+ * a tinted block with the glyph in the tone's ink, the title, what happened
+ * in words, and — where the operator can do something outside this pane —
+ * the link that does it. Where the reply has got to is the lifecycle strip
+ * beneath it, so this says only what is in the way.
  *
- * The five-stage tracker used to sit permanently across the top of every
- * review, including the eight-out-of-ten where nothing had gone wrong and the
- * whole pipeline said "done, done, done, not required, not published". It is
- * the same information, offered where it is actually wanted: when something is
- * in the way and the operator needs to know which step.
+ * Deliberately not `role="alert"`: the pane's one live status is the line
+ * on the action bar, and a second announcement of the same fact on every
+ * review opened would be noise.
  */
 function ReplyException({
   review,
@@ -159,13 +165,14 @@ function ReplyException({
   review: Review
   action: PrimaryAction
 }) {
-  const [open, setOpen] = useState(false)
-  const panelId = useId()
   const health = useConnectionHealth()
   const exception = describeException(review, action, health.status)
   if (!exception) return null
-
-  const steps = deriveLifecycle(review)
+  const Icon =
+    exception.tone === "attention" ? CircleAlertIcon : TriangleAlertIcon
+  const connectionLink =
+    exception.title === "Google disconnected" ||
+    exception.title === "Publish failed"
 
   return (
     <aside
@@ -173,72 +180,38 @@ function ReplyException({
       data-tone={exception.tone}
       aria-label="This reply needs attention"
       className={cn(
-        "mt-4 flex flex-col gap-1 rounded-(--np-radius-control) border bg-fill-tertiary p-3",
-        exception.tone === "attention"
-          ? "border-(--np-danger-line)"
-          : "border-(--np-warning-line)"
+        "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-(--np-radius-card) px-3.5 py-3 text-ui text-ink",
+        exception.tone === "attention" ? "bg-danger-tint" : "bg-warning-tint"
       )}
     >
-      <strong className="text-ui font-semibold text-ink">
-        {exception.title}
-      </strong>
-      <p className="text-ui leading-normal text-ink-muted">
+      <Icon
+        aria-hidden
+        strokeWidth={1.75}
+        className={cn(
+          "row-span-3 mt-0.5 size-4",
+          exception.tone === "attention"
+            ? "text-danger-ink"
+            : "text-warning-ink"
+        )}
+      />
+      <strong className="font-semibold">{exception.title}</strong>
+      <p className="leading-normal text-ink-secondary">
         {exception.description}
+        {exception.title === "Publish failed" ||
+        exception.title === "Google declined this reply"
+          ? " Nothing new is live on Google."
+          : ""}
       </p>
-
-      <div className="mt-2 border-t border-line-subtle pt-1">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={panelId}
-          onClick={() => setOpen((value) => !value)}
-          className="flex min-h-8 w-full items-center justify-between gap-2 rounded-(--np-radius-tag) text-caption font-medium text-ink focus-halo focus-visible:outline-none"
-        >
-          <span>Workflow details</span>
-          <ChevronDownIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className={cn(
-              "size-3.5 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
-              open && "rotate-180"
-            )}
-          />
-        </button>
-        {/* Permanently mounted so aria-controls never points at nothing. */}
-        <ol
-          id={panelId}
-          hidden={!open}
-          aria-label="Reply lifecycle details"
-          className="flex flex-col gap-2 pt-2 pb-1"
-        >
-          {steps.map((step) => (
-            <li
-              key={step.id}
-              data-state={step.state}
-              aria-current={step.state === "current" ? "step" : undefined}
-              className="flex items-baseline justify-between gap-3 text-caption"
-            >
-              <span
-                className={cn(
-                  step.state === "current"
-                    ? "font-semibold text-ink"
-                    : "text-ink"
-                )}
-              >
-                {step.label}
-              </span>
-              <span className={cn("text-right", STEP_STATE_INK[step.state])}>
-                {step.meta ??
-                  (step.state === "done"
-                    ? "Done"
-                    : step.state === "skipped"
-                      ? "Not required"
-                      : "Waiting")}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      {connectionLink ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Link
+            href="/settings/connections"
+            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          >
+            Check Google connections
+          </Link>
+        </div>
+      ) : null}
     </aside>
   )
 }

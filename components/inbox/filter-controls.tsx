@@ -13,22 +13,28 @@ export function toggleRating(ratings: number[], value: number): number[] {
 }
 
 /**
- * Compact 1–5 star multi-select. Capsule chips on the fill grey; a chosen
- * rating fills with the accent, the same way a pressed ToggleChip does. The
- * roles stay `checkbox` because several can be on at once.
+ * The 1–5 star multi-select, as one 36px control: a hairline box holding
+ * five toggles. A chosen rating fills with ink, the way a pressed chip does —
+ * the accent is kept for the primary action. The roles stay `checkbox`
+ * because several can be on at once (Home deep-links `rating=1,2`).
  */
 function RatingFilter({
   ratings,
   onChange,
+  className,
 }: {
   ratings: number[]
   onChange: (ratings: number[]) => void
+  className?: string
 }) {
   return (
     <div
       role="group"
       aria-label="Rating"
-      className="flex shrink-0 flex-wrap items-center gap-1"
+      className={cn(
+        "inline-flex h-(--np-field-h) shrink-0 items-center gap-0.5 rounded-(--np-radius-field) border border-line-strong bg-surface p-0.5",
+        className
+      )}
     >
       {RATING_OPTIONS.map((option) => {
         const checked = ratings.includes(option.value)
@@ -41,10 +47,10 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-0.5 rounded-(--np-radius-pill) px-2 text-caption font-medium tabular-nums focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
+              "inline-flex h-full min-w-8 flex-1 items-center justify-center gap-0.5 rounded-[6px] px-1.5 font-mono text-caption font-medium tabular-nums focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none pointer-coarse:min-w-10",
               checked
-                ? "bg-primary text-primary-foreground hover:bg-(--np-accent-hover)"
-                : "bg-fill text-ink hover:bg-fill-secondary"
+                ? "bg-ink text-canvas"
+                : "text-ink-secondary hover:bg-fill hover:text-ink"
             )}
           >
             <StarIcon
@@ -52,7 +58,9 @@ function RatingFilter({
               strokeWidth={1.75}
               className={cn(
                 "size-3",
-                checked ? "fill-current stroke-current" : "fill-transparent stroke-current"
+                checked
+                  ? "fill-current stroke-current"
+                  : "fill-(--np-rating) stroke-(--np-rating)"
               )}
             />
             {option.value}

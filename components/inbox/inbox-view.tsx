@@ -1,27 +1,21 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef } from "react"
-import {
-  ArrowLeftIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  MessagesSquareIcon,
-} from "lucide-react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { FilterToolbar } from "@/components/inbox/filter-toolbar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
 import { QueueTabs } from "@/components/inbox/queue-tabs"
-import { ReviewSearchBar } from "@/components/inbox/review-filters"
 import {
   SelectionProvider,
   useSelection,
 } from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
 import { TodayStrip } from "@/components/inbox/today/today-strip"
-import { EmptyState } from "@/components/inbox/empty-states"
+import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import { ReplyComposer } from "@/components/inbox/reply-composer"
@@ -34,21 +28,9 @@ import {
 import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Empty } from "@/components/ui/empty"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { Checkbox } from "@/components/ui/checkbox"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  SplitPane,
-  SplitPaneHandle,
-  SplitPanePanel,
-} from "@/components/ui/split-pane"
 import {
   Tooltip,
   TooltipContent,
@@ -77,7 +59,28 @@ import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
-import { useSessionRole } from "@/lib/queries/use-session"
+import { useSession, useSessionRole } from "@/lib/queries/use-session"
+import { formatNumber } from "@/lib/format"
+
+/** The nearest ancestor that scrolls: the shell's column, or the document. */
+function scrollParent(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null
+  while (current) {
+    const { overflowY } = window.getComputedStyle(current)
+    if (overflowY === "auto" || overflowY === "scroll") return current
+    current = current.parentElement
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? null
+}
+
+/** "14:32" — when this list was last fetched, in the viewer's own clock. */
+function refreshedAt(timestamp: number | undefined): string | null {
+  if (!timestamp) return null
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp))
+}
 
 function InboxViewInner({
   showLocationFilter,
@@ -108,7 +111,13 @@ function InboxViewInner({
   // view and LocationsIndex share one QueryClient across client navigation,
   // and writing the raw `{locations: […]}` envelope here while the hook writes
   // a mapped array meant whichever mounted last corrupted the other.
-  const locationsQuery = useLocationDirectory(useSessionRole())
+  const session = useSession()
+  const role = useSessionRole()
+  const locationsQuery = useLocationDirectory(role)
+  // A viewer cannot assign, mark or approve, so the bulk tools — the tick
+  // boxes and the bar they raise — are not offered (reference: the bulk bar
+  // is hidden for view-only access). The server refuses them regardless.
+  const canBatch = role !== "viewer"
   const isDesktop = useDesktopLayout()
 
   const reviews = flattenReviews(reviewsQuery.data)
@@ -167,9 +176,16 @@ function InboxViewInner({
   // discarding the edit (AlertDialog) or blocks the selection change. The
   // boolean return tells ReviewList's arrow-key handler whether it's safe to
   // move DOM focus onto the target row (see review-list.tsx).
+  // Notes where the list was scrolled before a narrow screen swaps it for the
+  // detail (kept current by an effect further down, beside the restore).
+  const onBeforeOpenRef = useRef<() => void>(() => {})
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listScrollRef = useRef<HTMLElement>(null)
+  const savedScroll = useRef<{ page: number; list: number } | null>(null)
   const onSelect = useCallback(
     async (id: string): Promise<boolean> => {
       if (!(await dirtyGate())) return false
+      onBeforeOpenRef.current()
       updateState({ selected: id }, "push")
       return true
     },
@@ -329,27 +345,21 @@ function InboxViewInner({
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
 
-  // The same four lines a real row draws: a name and a date, a venue and a
-  // rating, one line of review, and the status.
+  // The same three lines a real row draws: the stars, name and age; two
+  // lines of review; the venue and the status.
   function renderListSkeleton() {
     return (
       <div aria-busy="true" className="flex flex-col">
         {[0, 1, 2, 3, 4, 5].map((index) => (
           <div
             key={index}
-            className="flex flex-col gap-2 border-b border-line-subtle px-3 py-2.5"
+            className="grid grid-cols-[22px_minmax(0,1fr)] gap-2.5 border-b border-line py-3 pr-3.5 pl-3"
           >
-            <div className="flex items-center justify-between gap-2">
-              <Skeleton className="h-3.5 w-32" />
-              <Skeleton className="h-3 w-10" />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <Skeleton className="h-3 w-40" />
-              <Skeleton className="h-3 w-14" />
-            </div>
-            <Skeleton className="h-3 w-full max-w-64" />
-            <div className="flex justify-end">
-              <Skeleton className="h-3 w-20" />
+            <span />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-3.5 w-[55%]" />
+              <Skeleton className="h-3.5 w-[90%]" />
+              <Skeleton className="h-3.5 w-[35%]" />
             </div>
           </div>
         ))}
@@ -413,6 +423,7 @@ function InboxViewInner({
     }
     return (
       <ReviewList
+        ref={listScrollRef}
         reviews={reviews}
         selectedId={state.selected}
         queue={state.queue}
@@ -423,28 +434,30 @@ function InboxViewInner({
         isRefreshing={isListRefreshing}
         onReachEnd={loadMore}
         isLoadingMore={reviewsQuery.isFetchingNextPage}
-        selection={{
-          selected: selection.selected,
-          toggle: (id) => selection.toggle(id),
-          extendTo: (id) =>
-            selection.extendTo(
-              id,
-              reviews.map((r) => r.id)
-            ),
-        }}
+        selection={
+          canBatch
+            ? {
+                selected: selection.selected,
+                toggle: (id) => selection.toggle(id),
+                extendTo: (id) =>
+                  selection.extendTo(
+                    id,
+                    reviews.map((r) => r.id)
+                  ),
+              }
+            : undefined
+        }
       />
     )
   }
 
-  // Below lg the detail opens as a sheet over the list. Its "Back to reviews"
+  // Below lg the detail replaces the list in place; its "Back to reviews"
   // control takes focus so keyboard and screen-reader users land somewhere
-  // meaningful in the new surface instead of losing their place (ReviewList
-  // re-focuses the originating row on the way back). `.focus()` on the
-  // `lg:hidden` button is a silent no-op in the inspector column, where it is
-  // `display: none`, so this is harmless on desktop.
+  // meaningful instead of losing their place (ReviewList re-focuses the
+  // originating row on the way back).
   const backButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (state.selected) backButtonRef.current?.focus()
+    if (state.selected) backButtonRef.current?.focus({ preventScroll: true })
   }, [state.selected])
 
   // `r` and `a` are handled by the detail pane's own controls, which know
@@ -455,17 +468,23 @@ function InboxViewInner({
     () => ({
       next: () => void onAdjacentReview("next"),
       previous: () => void onAdjacentReview("prev"),
-      "toggle-selection": () => {
-        if (state.selected) selection.toggle(state.selected)
-      },
-      "extend-selection": () => {
-        if (state.selected)
-          selection.extendTo(
-            state.selected,
-            reviews.map((review) => review.id)
-          )
-      },
-      "clear-selection": () => selection.clear(),
+      // A viewer has no bulk tools, so the selection keys are not bound
+      // (and not listed in the shortcuts dialog) for them.
+      ...(canBatch
+        ? {
+            "toggle-selection": () => {
+              if (state.selected) selection.toggle(state.selected)
+            },
+            "extend-selection": () => {
+              if (state.selected)
+                selection.extendTo(
+                  state.selected,
+                  reviews.map((review) => review.id)
+                )
+            },
+            "clear-selection": () => selection.clear(),
+          }
+        : {}),
       // `r` asks the composer to open and take focus. It does not decide
       // whether editing is allowed — the composer knows the review's
       // capabilities and its workflow status, and the hotkey layer must not
@@ -475,7 +494,7 @@ function InboxViewInner({
         window.dispatchEvent(new Event(REPLY_FOCUS_EVENT))
       },
     }),
-    [onAdjacentReview, reviews, selection, state.selected]
+    [canBatch, onAdjacentReview, reviews, selection, state.selected]
   )
 
   const clientName = state.clientId
@@ -483,9 +502,8 @@ function InboxViewInner({
         ?.name
     : undefined
 
-  // What Home used to say, then the queue tabs, then the compact filter
-  // toolbar, then the chips of what is applied — one block above the two
-  // panes, in place of the permanent rail. Pressing a client chip is a
+  // Today, then the queue chips, then the filter row, then the chips of what
+  // is applied — one block above the two panes. Pressing a client chip is a
   // filter like any other, so it goes through the same dirty-gated handler.
   const workspaceControls = (
     <div
@@ -494,6 +512,8 @@ function InboxViewInner({
     >
       <TodayStrip
         clientId={state.clientId}
+        counts={countsQuery.data}
+        countsPending={countsQuery.isPending}
         onClientChange={(clientId) => onFilterChange({ clientId })}
       />
       <QueueTabs
@@ -524,49 +544,73 @@ function InboxViewInner({
     </div>
   )
 
+  const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
+  const ticked = reviews.filter((review) => selection.selected.has(review.id))
+  const allTicked = reviews.length > 0 && ticked.length === reviews.length
+  const refreshed = refreshedAt(reviewsQuery.dataUpdatedAt)
+
+  // Reference `.list-pane`: a card with a sunken head (select all, how many,
+  // when the list was fetched), the rows, and the bulk bar pinned under
+  // them when something is ticked. Where the workspace is locked to the
+  // window the rows scroll inside the card; everywhere else the page does.
   const listPane = (
-    <div
+    <section
+      aria-label="Reviews"
       data-slot="inbox-list-pane"
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden"
     >
-      <div className="flex shrink-0 flex-col gap-2 border-b border-line-subtle px-3 py-2.5">
-        {/* One review search, at the head of the rows it searches. The shell's
-            ⌘K launcher is Commands — clients, venues and actions — and
-            deliberately does not look inside review text, so there is exactly
-            one place to type words a customer wrote. */}
-        <ReviewSearchBar
-          state={state}
-          onChange={onFilterChange}
-          className="min-w-0"
-        />
+      <div className="flex min-h-11 shrink-0 items-center gap-2.5 rounded-t-(--np-radius-card) border-b border-line bg-surface-alt px-3 py-2 text-[12.5px] text-ink-muted">
+        {canBatch ? (
+          <Checkbox
+            checked={allTicked}
+            indeterminate={ticked.length > 0 && !allTicked}
+            disabled={!loaded || reviews.length === 0}
+            aria-label="Select every review in this view"
+            onCheckedChange={(checked) => {
+              if (checked) selection.replace(reviews.map((review) => review.id))
+              else selection.clear()
+            }}
+          />
+        ) : null}
+        {/* Announced politely rather than as a page number, because the
+            count changes as rows load rather than jumping between pages. */}
+        <span aria-live="polite" className="tabular-nums">
+          {reviewsQuery.isPending
+            ? "Loading reviews…"
+            : reviewsQuery.isError
+              ? "Queue unavailable"
+              : `${formatNumber(reviews.length)} ${
+                  reviews.length === 1 ? "review" : "reviews"
+                }${reviewsQuery.hasNextPage ? " so far" : ""}`}
+        </span>
+        <span aria-hidden className="flex-1" />
+        {loaded && refreshed ? (
+          <span
+            className="font-mono text-[11.5px] text-ink-muted tabular-nums"
+            title="When this list was last fetched from NabaPresence. Counts cover every review in each queue for the current client scope."
+          >
+            Refreshed {refreshed}
+          </span>
+        ) : null}
       </div>
       {renderList()}
-      {!reviewsQuery.isPending &&
-      !reviewsQuery.isError &&
-      reviews.length > 0 ? (
-        <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-t border-line-subtle px-3">
-          {/* Announced politely rather than as a page number, because the
-              count changes as rows load rather than jumping between pages. */}
-          <span
-            aria-live="polite"
-            className="text-caption text-ink-muted tabular-nums"
-          >
-            Showing {reviews.length}
-            {reviewsQuery.hasNextPage ? " so far" : ""}
+      {loaded && reviews.length > 0 && reviewsQuery.hasNextPage ? (
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-t border-line px-3">
+          <span className="text-caption text-ink-muted">
+            More reviews below
           </span>
-          {reviewsQuery.hasNextPage ? (
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={reviewsQuery.isFetchingNextPage}
-              onClick={loadMore}
-            >
-              {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-            </Button>
-          ) : null}
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={reviewsQuery.isFetchingNextPage}
+            onClick={loadMore}
+          >
+            {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+          </Button>
         </div>
       ) : null}
-    </div>
+      {canBatch ? <BulkActionBar rows={reviews} /> : null}
+    </section>
   )
 
   const navigation = (
@@ -577,7 +621,6 @@ function InboxViewInner({
             <Button
               variant="ghost"
               size="icon-sm"
-              pill
               aria-label="Previous review"
               disabled={!hasPrevReview}
               onClick={() => void onAdjacentReview("prev")}
@@ -594,7 +637,6 @@ function InboxViewInner({
             <Button
               variant="ghost"
               size="icon-sm"
-              pill
               aria-label="Next review"
               disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
               onClick={() => void onAdjacentReview("next")}
@@ -608,157 +650,129 @@ function InboxViewInner({
     </div>
   )
 
-  // The detail is mounted in exactly one place — the inspector column or the
-  // sheet — so the composer's dirty guard is registered once.
+  const selectedRow = reviews.find((review) => review.id === state.selected)
+
+  // The detail is mounted in exactly one place, so the composer's dirty guard
+  // is registered once.
   const detail = state.selected ? (
     <DetailErrorBoundary key={state.selected}>
-      <div
+      <ReviewDetail
         key={state.selected}
-        className="flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) ease-standard starting:opacity-0"
-      >
-        <ReviewDetail
-          reviewId={state.selected}
-          leading={
-            // Mobile-only return-to-list affordance, pinned in the pane
-            // header; Back also works because selection was pushed (spec §6).
-            <Button
-              ref={backButtonRef}
-              variant="ghost"
-              size="sm"
-              onClick={onBackToList}
-              className="lg:hidden"
-            >
-              <ArrowLeftIcon
-                aria-hidden
-                strokeWidth={1.75}
-                data-icon="inline-start"
-              />
-              Back to reviews
-            </Button>
-          }
-          navigation={navigation}
-          composer={<ReplyComposer reviewId={state.selected} />}
-          actions={<ActionBar reviewId={state.selected} />}
-        />
-      </div>
+        reviewId={state.selected}
+        clientName={selectedRow?.location.clientName ?? null}
+        clientId={selectedRow?.location.clientId ?? null}
+        organisationName={session.data?.session?.organisationName}
+        leading={
+          // The return-to-list control, below lg only; Back also works
+          // because selection was pushed (spec §6). Its words are
+          // "Reviews", as in the reference; its name says where it goes.
+          <Button
+            ref={backButtonRef}
+            variant="ghost"
+            size="sm"
+            aria-label="Back to reviews"
+            onClick={onBackToList}
+            className="lg:hidden"
+          >
+            <ArrowLeftIcon aria-hidden data-icon="inline-start" />
+            Reviews
+          </Button>
+        }
+        navigation={navigation}
+        composer={<ReplyComposer reviewId={state.selected} />}
+        actions={<ActionBar reviewId={state.selected} />}
+      />
     </DetailErrorBoundary>
   ) : null
 
+  // Reference `.detail`: a card whose head and action bar stay put while the
+  // middle scrolls — where the workspace is locked to the window. On a phone
+  // or a short window it is an ordinary block in the page and the action bar
+  // is sticky at the foot of the screen instead, so it is never out of reach
+  // and never clipped.
   const inspector = (
     <section
       aria-label="Selected review"
       data-slot="inbox-inspector"
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--np-radius-card) bg-surface"
+      className="flex min-h-0 min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden"
     >
       {detail ?? (
-        <Empty
-          icon={<MessagesSquareIcon aria-hidden />}
+        <Statement
           title="No review selected"
-          description="Choose a review from the list to read it and reply."
+          description="Pick a review from the list, or press J to open the first one."
           className="my-auto"
         />
       )}
     </section>
   )
 
-  // Below lg, everything the sheet covers is parked together: the list AND the
-  // workspace controls above it. Parking only the list used to leave the queue
-  // tabs and the filter toolbar tabbable behind an open review.
-  const parked = !isDesktop && Boolean(state.selected)
+  // Below lg the list and the detail take turns (reference `data-view`):
+  // opening a review hides the list and the controls above it, and Back
+  // brings them back where they were.
+  const detailOnly = !isDesktop && Boolean(state.selected)
+
+  // Where the list was when a review was opened, so returning to it lands on
+  // the same rows rather than at the top. Both scrollers are kept: the page
+  // (phones, short windows) and the list's own (the locked tablet workspace).
+  const wasDetailOnly = useRef(detailOnly)
+  useLayoutEffect(() => {
+    const scroller = scrollParent(rootRef.current)
+    if (detailOnly && !wasDetailOnly.current) {
+      // Opening: start the review at its head.
+      if (scroller) scroller.scrollTop = 0
+    } else if (!detailOnly && wasDetailOnly.current && savedScroll.current) {
+      const saved = savedScroll.current
+      savedScroll.current = null
+      if (scroller) scroller.scrollTop = saved.page
+      if (listScrollRef.current) listScrollRef.current.scrollTop = saved.list
+    }
+    wasDetailOnly.current = detailOnly
+  }, [detailOnly])
+  useEffect(() => {
+    onBeforeOpenRef.current = () => {
+      if (isDesktop || state.selected) return
+      savedScroll.current = {
+        page: scrollParent(rootRef.current)?.scrollTop ?? 0,
+        list: listScrollRef.current?.scrollTop ?? 0,
+      }
+    }
+  }, [isDesktop, state.selected])
 
   return (
     <TooltipProvider>
-      <div className="relative flex min-h-0 flex-1 flex-col gap-(--np-gap-card)">
+      <div
+        ref={rootRef}
+        data-slot="inbox"
+        data-view={detailOnly ? "detail" : "list"}
+        // `min-h-0` only where the workspace is locked to the window: there
+        // the panes share the height and scroll inside. Everywhere else the
+        // inbox is as tall as its content and the page scrolls.
+        className="relative flex flex-1 flex-col gap-4 md:[@media(min-height:620px)]:min-h-0"
+      >
         <InboxHotkeys handlers={hotkeyHandlers} />
 
-        <div
-          className={cn("flex shrink-0 flex-col", parked && "invisible")}
-          inert={parked ? true : undefined}
-        >
+        <div className="flex shrink-0 flex-col" hidden={detailOnly}>
           {workspaceControls}
         </div>
 
-        {isDesktop ? (
-          // Three permanent regions: the application sidebar (owned by the
-          // shell), this list, and the detail. The split starts at 40% — the
-          // width the rail used to take now belongs to the reply — and both
-          // panels keep a minimum that stays usable at 1024px.
-          // The two `max-lg` guards only matter for the one frame between the
-          // server's desktop guess and the client's measurement on a narrow
-          // screen.
-          <SplitPane orientation="horizontal" className="min-h-0 flex-1 gap-0">
-            <SplitPanePanel
-              defaultSize="40"
-              minSize={300}
-              className="min-h-0 max-lg:flex-1!"
-            >
-              {listPane}
-            </SplitPanePanel>
-            <SplitPaneHandle
-              label="Resize the review list"
-              className="mx-1.5 bg-transparent max-lg:hidden"
-            />
-            <SplitPanePanel minSize={420} className="min-h-0 max-lg:hidden">
-              {inspector}
-            </SplitPanePanel>
-          </SplitPane>
-        ) : (
-          // While the detail sheet is up the list beneath it is parked: kept
-          // in the tree so the selected row keeps its aria-current, but
-          // invisible and inert so neither a swipe nor a screen reader lands
-          // on a row the sheet is covering.
+        <div
+          data-slot="inbox-split"
+          className={cn(
+            "grid flex-1 grid-cols-1 gap-4 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:[grid-template-rows:minmax(0,1fr)]",
+            isDesktop && "lg:grid-cols-[clamp(320px,34%,440px)_minmax(0,1fr)]"
+          )}
+        >
+          {/* Kept in the tree while a review is open on a narrow screen, so
+              the selected row keeps its aria-current and the list its place,
+              but hidden from everyone. */}
           <div
-            className={cn(
-              "flex min-h-0 flex-1 flex-col",
-              parked && "invisible"
-            )}
-            inert={parked ? true : undefined}
+            className="flex min-w-0 flex-col md:[@media(min-height:620px)]:min-h-0"
+            hidden={detailOnly}
           >
             {listPane}
           </div>
-        )}
-
-        {/* Below lg the detail is a bottom sheet over the list. It is
-            deliberately non-modal and never dismissed by an outside press: the
-            discard-confirm AlertDialog lives outside it in the React tree, and
-            a modal sheet would either hide the rest of the page from assistive
-            tech or treat "Keep editing" as a tap on the scrim. The only ways
-            out are "Back to reviews" and Escape, both dirty-gated. */}
-        {!isDesktop ? (
-          <Sheet
-            open={Boolean(state.selected)}
-            modal={false}
-            disablePointerDismissal
-            onOpenChange={(open) => {
-              if (!open) onBackToList()
-            }}
-          >
-            <SheetContent
-              side="bottom"
-              showCloseButton={false}
-              initialFocus={backButtonRef}
-              className="h-[calc(100dvh-1.5rem)]"
-            >
-              <SheetHeader className="sr-only">
-                <SheetTitle>Selected review</SheetTitle>
-                <SheetDescription>
-                  The review, where its reply has got to, and your reply.
-                </SheetDescription>
-              </SheetHeader>
-              {/* The same landmark the desktop inspector carries, so "Selected
-                  review" is reachable by region on every width. */}
-              <section
-                aria-label="Selected review"
-                data-slot="inbox-inspector"
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                {detail}
-              </section>
-            </SheetContent>
-          </Sheet>
-        ) : null}
-
-        <BulkActionBar rows={reviews} />
+          {isDesktop || state.selected ? inspector : null}
+        </div>
       </div>
     </TooltipProvider>
   )
