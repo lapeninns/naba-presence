@@ -52,10 +52,9 @@ export function RefreshGoogleButton({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-end gap-1 max-sm:w-full max-sm:items-stretch">
       <Button
         variant="secondary"
-        size="sm"
         onClick={() => void run()}
         disabled={pending}
       >
@@ -66,10 +65,13 @@ export function RefreshGoogleButton({
             pending ? "animate-spin motion-reduce:animate-none" : undefined
           }
         />
-        {pending ? "Refreshing…" : "Refresh Google data"}
+        {pending ? "Refreshing…" : "Refresh from Google"}
       </Button>
       {error ? (
-        <span role="alert" className="text-caption text-danger-ink">
+        <span
+          role="alert"
+          className="max-w-72 text-caption text-danger-ink sm:text-right"
+        >
           {error}
         </span>
       ) : null}

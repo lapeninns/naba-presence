@@ -1,67 +1,44 @@
 "use client"
 
+import { Link2OffIcon, SearchIcon } from "lucide-react"
 import { useState } from "react"
 
-import {
-  ChartCard,
-  ChartLegend,
-  ReportingLineChart,
-  type ColorVar,
-} from "@/components/ui/chart"
 import { KpiTile } from "@/components/ui/kpi-tile"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { SectionHeader } from "@/components/ui/section-header"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
+import { reportTileGridClassName } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
+import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
+import { KeywordsTable } from "@/components/performance/keywords-table"
+import { PresenceFigures } from "@/components/performance/presence-figures"
 import { RangeSelect } from "@/components/performance/range-select"
+import { ApiClientError } from "@/lib/api/client"
 import { useAnalyticsKeywords } from "@/lib/queries/use-analytics-keywords"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
-import { formatKeywordImpressions } from "@/lib/reporting/keyword-impressions"
-import {
-  IMPRESSION_METRICS,
-  metricLabel,
-  ORDERED_METRICS,
-} from "@/lib/reporting/metric-labels"
 import { PRESENCE_RANGES } from "@/lib/reporting/ranges"
-import {
-  formatDate,
-  formatDuration,
-  formatNumber,
-  formatPercent,
-} from "@/lib/format"
+import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
 
 type PresenceRangeId = (typeof PRESENCE_RANGES)[number]["id"]
-
-const IMPRESSION_SERIES = IMPRESSION_METRICS.map((metric, index) => ({
-  key: metric,
-  label: metricLabel(metric),
-  colorVar: (index + 1) as ColorVar,
-}))
-
-const sectionHeadingClassName = "text-title font-semibold text-ink"
 
 export function LocationPerformance({ locationId }: { locationId: string }) {
   const [rangeId, setRangeId] = useState<PresenceRangeId>("28d")
   const overview = useAnalyticsOverview()
   const presence = useAnalyticsPresence({ range: rangeId, locationId })
   const keywords = useAnalyticsKeywords({ range: "6m", locationId })
+  const keywordsPaused =
+    keywords.error instanceof ApiClientError &&
+    keywords.error.code === "keywords_paused"
 
   return (
-    <div className="flex flex-col gap-(--np-gap-section)">
+    <div className="@container/report flex flex-col gap-(--np-gap-section)">
       {/* Review metrics — filtered from the org-wide overview.locations[] */}
       <section className="flex flex-col gap-3">
         {/* "Review activity" (not "Reviews") — the tile below is literally
             labelled "Reviews"; a heading with identical text would either
             resolve findByText("Reviews") before the query settles, or collide
             with the tile once it has (both break the pinned test). */}
-        <h2 className={sectionHeadingClassName}>Review activity</h2>
+        <SectionHeader title="Review activity" description="Last 30 days" />
         {overview.isPending ? (
           <ReportingPanel variant="loading" title="Loading review activity…" />
         ) : overview.isError ? (
@@ -77,6 +54,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
             if (!row) {
               return (
                 <ReportingPanel
+                  framed
                   variant="empty"
                   title="No review activity"
                   description="This location has no reviews in the last 30 days."
@@ -84,21 +62,8 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
               )
             }
             return (
-              <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
-                <KpiTile
-                  label="Reviews"
-                  value={formatNumber(row.reviews)}
-                  hint="Last 30 days"
-                />
-                <KpiTile
-                  label="Average rating"
-                  value={
-                    row.averageRating === null
-                      ? "—"
-                      : row.averageRating.toFixed(1)
-                  }
-                  hint="Out of 5"
-                />
+              <div className={reportTileGridClassName()}>
+                <KpiTile label="Reviews" value={formatNumber(row.reviews)} />
                 <KpiTile
                   label="Response rate"
                   value={
@@ -111,7 +76,16 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
                 <KpiTile
                   label="Median response time"
                   value={formatDuration(row.medianFirstResponseSeconds)}
-                  hint="First reply"
+                  hint="Review received to first reply"
+                />
+                <KpiTile
+                  label="Average rating"
+                  value={
+                    row.averageRating === null
+                      ? "—"
+                      : row.averageRating.toFixed(1)
+                  }
+                  hint="Out of 5"
                 />
               </div>
             )
@@ -121,15 +95,16 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
 
       {/* Google visibility — presence scoped by locationId */}
       <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className={sectionHeadingClassName}>Visibility on Google</h2>
-          <RangeSelect
-            value={rangeId}
-            onChange={setRangeId}
-            options={PRESENCE_RANGES}
-            label="Visibility range"
-          />
-        </div>
+        <SectionHeader
+          title="Visibility on Google"
+          actions={
+            <RangeSelect
+              value={rangeId}
+              onChange={setRangeId}
+              options={PRESENCE_RANGES}
+            />
+          }
+        />
         {presence.isPending ? (
           <ReportingPanel
             variant="loading"
@@ -142,98 +117,85 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
           />
         ) : !presence.data.ingestionEnabled ? (
           <ReportingPanel
+            framed
             variant="off"
             title="Not switched on"
             description="Visibility metrics are not switched on for your account yet."
           />
         ) : presence.data.state === "no_link" ? (
           <ReportingPanel
+            framed
             variant="empty"
+            icon={<Link2OffIcon />}
             title="Not linked"
             description="This location is not linked to Google."
           />
+        ) : presence.data.state === "pending" ? (
+          <ReportingPanel framed variant="collecting" />
+        ) : presence.data.state === "unavailable" ? (
+          <UnavailableAlert
+            codes={
+              presence.data.unavailableReasons.length
+                ? presence.data.unavailableReasons
+                : ["performance_sync_failed"]
+            }
+            title="Figures could not be refreshed"
+          />
         ) : presence.data.state !== "ready" ? (
           <ReportingPanel
+            framed
             variant="empty"
             title="No visibility data yet"
             description="Google has not reported visibility data for this window."
           />
         ) : (
           <>
-            <FetchedAtCaption iso={presence.data.freshThrough} timezone="UTC" />
-            <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
-              {ORDERED_METRICS.map((metric) => (
-                <KpiTile
-                  key={metric}
-                  label={metricLabel(metric)}
-                  value={formatNumber(presence.data.totals[metric])}
-                />
-              ))}
-            </div>
-            <ChartCard
-              title="Views over time"
-              description={<ChartLegend items={IMPRESSION_SERIES} />}
-              state={presence.data.series.length ? "ready" : "empty"}
-              emptyLabel="No daily views in this window."
-            >
-              <ReportingLineChart
-                data={presence.data.series.map((point) => ({
-                  date: point.date,
-                  ...point.metrics,
-                }))}
-                xKey="date"
-                xTickFormatter={(iso) => formatDate(iso, "UTC")}
-                series={IMPRESSION_SERIES}
-              />
-            </ChartCard>
+            <FetchedAtCaption
+              iso={presence.data.freshThrough}
+              timezone="UTC"
+              prefix="Google figures as at"
+            />
+            <UnavailableAlert
+              codes={presence.data.unavailableReasons}
+              title="Some figures could not be refreshed"
+            />
+            <PresenceFigures data={presence.data} />
           </>
         )}
       </section>
 
       {/* Search keywords — keywords scoped by locationId */}
       <section className="flex flex-col gap-3">
-        <h2 className={sectionHeadingClassName}>Search keywords</h2>
+        <SectionHeader
+          title="Search keywords"
+          description="Top 20, last 6 months"
+        />
         {keywords.isPending ? (
           <ReportingPanel variant="loading" title="Loading search keywords…" />
         ) : keywords.isError ? (
-          <ReportingPanel
-            variant="paused"
-            title="Keyword reporting is paused"
-            description="Google search-keyword reporting is temporarily paused."
-          />
+          keywordsPaused ? (
+            <ReportingPanel
+              framed
+              variant="paused"
+              title="Keyword reporting is paused"
+              description="Google search-keyword reporting is temporarily paused."
+            />
+          ) : (
+            <ReportingPanel
+              variant="error"
+              onRetry={() => void keywords.refetch()}
+            />
+          )
         ) : keywords.data.keywords.length === 0 ? (
           <ReportingPanel
+            framed
             variant="empty"
+            icon={<SearchIcon />}
             title="No keywords yet"
             description="Google has not reported any search keywords for this location."
           />
         ) : (
-          <Table surface>
-            <TableHeader>
-              <TableRow>
-                <TableHead numeric className="w-12">
-                  #
-                </TableHead>
-                <TableHead>Search term</TableHead>
-                <TableHead numeric>Impressions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {keywords.data.keywords.slice(0, 20).map((keyword) => (
-                <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
-                  <TableCell numeric className="text-ink-muted">
-                    {keyword.rank}
-                  </TableCell>
-                  <TableCell className="font-medium text-ink" dir="auto">
-                    {keyword.keyword}
-                  </TableCell>
-                  <TableCell numeric>
-                    {formatKeywordImpressions(keyword)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <KeywordsTable keywords={keywords.data.keywords.slice(0, 20)} />
         )}
       </section>
     </div>
