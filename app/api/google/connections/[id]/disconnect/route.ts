@@ -4,16 +4,8 @@ import {
   disconnectParamsSchema,
   type DisconnectResponse,
 } from "@/lib/contracts/connections"
-import { writeAudit } from "@/lib/server/audit"
-import { decryptSecret } from "@/lib/server/crypto"
-import { getDatabase } from "@/lib/server/db"
-import {
-  connectionAccessToken,
-  revokeGoogleToken,
-  updateGoogleNotificationSetting,
-} from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
-import { log } from "@/lib/server/logger"
+import { updateGoogleNotificationSetting } from "@/lib/server/google"
+import { disconnect } from "@/lib/server/google/connections"
 import { writePublishAttemptEvent } from "@/lib/server/publishing"
 import { route } from "@/lib/server/route"
 
@@ -36,238 +28,32 @@ type StrandedAttempt = {
 export const POST = route({
   roles: ["owner", "admin"],
   params: disconnectParamsSchema,
-  handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
-    const { id } = params
-    // Phase 1 - read. Google's notification mutations take up to 20s each and
-    // issue no SQL in between, so holding a transaction across them tripped
-    // idle_in_transaction_session_timeout and rolled the whole disconnect back.
-    const target = await tenant(async (sql) => {
-      const [connection] = await sql<
-        {
-          notificationsEnabled: boolean
-          refreshToken: Buffer | null
-          accessToken: Buffer | null
-        }[]
-      >`
-        select
-          notifications_enabled as "notificationsEnabled",
-          refresh_token_ciphertext as "refreshToken",
-          access_token_ciphertext as "accessToken"
-        from google_connection
-        where id = ${id}
-          and status <> 'disconnected'
-        limit 1
-      `
-      if (!connection) {
-        throw new ApiError(404, "connection_not_found", "Connection not found.")
-      }
-      const accounts = await sql<{ googleAccountName: string }[]>`
-        select google_account_name as "googleAccountName"
-        from google_account
-        where google_connection_id = ${id}
-      `
-      return {
-        notificationsEnabled: connection.notificationsEnabled,
-        accountNames: accounts.map((account) => account.googleAccountName),
-        // Held in memory for the revoke in phase 6: phase 3 nulls the stored
-        // copies, and Google can only revoke what it is shown.
-        grantToken: connection.refreshToken
-          ? decryptSecret(connection.refreshToken)
-          : connection.accessToken
-            ? decryptSecret(connection.accessToken)
-            : null,
-      }
+  handler: async ({ session, params, requestId, clientRequestId }) => {
+    // The connection service owns the ordering (local removal first and
+    // authoritative, then Google's notification cleanup, then the revoke).
+    // This route adds only what is its own: the publish attempts the
+    // disconnect strands, settled in the same transaction.
+    const outcome = await disconnect({
+      organisationId: session.organisationId,
+      userId: session.userId,
+      connectionId: params.id,
+      requestId,
+      clientRequestId,
+      withinDisconnect: async (sql) => ({
+        publishAttemptsSettled: await settleStrandedAttempts(sql, {
+          organisationId: session.organisationId,
+          connectionId: params.id,
+        }),
+      }),
+      clearNotifications: (accessToken, accountName) =>
+        updateGoogleNotificationSetting(accessToken, accountName, "", [], {
+          connectionKey: params.id,
+        }),
     })
-
-    // Phase 2 - the access token, while the credentials still exist. Losing it
-    // only costs the notification cleanup: revoking locally is what the user
-    // asked for and must not depend on Google answering.
-    const cleanupErrors: string[] = []
-    let accessToken: string | null = null
-    if (target.notificationsEnabled && target.accountNames.length) {
-      try {
-        accessToken = await connectionAccessToken(
-          getDatabase(),
-          session.organisationId,
-          id
-        )
-      } catch (error) {
-        cleanupErrors.push(
-          error instanceof ApiError ? error.code : "notification_cleanup_failed"
-        )
-      }
-    }
-
-    // Phase 3 - revoke, durably, BEFORE any provider mutation. A Google outage
-    // can now only leave a stale notificationSetting at Google, never a row
-    // the user believes is disconnected but that still holds live tokens.
-    const revoked = await tenant(async (sql) => {
-      const result = await sql`
-        update google_connection
-        set
-          status = 'disconnected',
-          access_token_ciphertext = null,
-          refresh_token_ciphertext = null,
-          notifications_enabled = false,
-          disconnected_at = now(),
-          purge_due_at = now() + interval '7 days'
-        where id = ${id}
-          and status <> 'disconnected'
-        returning id
-      `
-      if (!result.length) {
-        throw new ApiError(404, "connection_not_found", "Connection not found.")
-      }
-      await sql`
-        update connection_task
-        set status = 'cancelled', resolved_at = now()
-        where google_connection_id = ${id}
-          and status = 'open'
-      `
-      await sql`
-        update sync_checkpoint
-        set
-          status = 'cancelled',
-          finished_at = now(),
-          next_attempt_at = null
-        where external_location_id in (
-          select id
-          from external_location
-          where google_connection_id = ${id}
-        )
-          and status in ('pending', 'running', 'failed')
-      `
-      const removedRoutes = await sql`
-        delete from webhook_route
-        where organisation_id = ${session.organisationId}
-          and external_location_id in (
-            select id
-            from external_location
-            where google_connection_id = ${id}
-          )
-        returning google_location_name
-      `
-      await sql`
-        update location_link
-        set is_active = false
-        where external_location_id in (
-          select id
-          from external_location
-          where google_connection_id = ${id}
-        )
-      `
-      const settledAttempts = await settleStrandedAttempts(sql, {
-        organisationId: session.organisationId,
-        connectionId: id,
-      })
-      await writeAudit(sql, {
-        organisationId: session.organisationId,
-        actorUserId: session.userId,
-        action: "google.connection.disconnected",
-        subjectType: "google_connection",
-        subjectId: id,
-        requestId,
-        metadata: {
-          purgeDueWithinDays: 7,
-          routesRemoved: removedRoutes.length,
-          publishAttemptsSettled: settledAttempts,
-          clientRequestId,
-        },
-      })
-      return { settledAttempts }
-    })
-
-    // Phase 4 - clear Google's notification settings, one account at a time so
-    // one unreachable account cannot skip every account after it.
-    const residualAccounts: string[] = []
-    if (accessToken) {
-      for (const accountName of target.accountNames) {
-        try {
-          await updateGoogleNotificationSetting(
-            accessToken,
-            accountName,
-            "",
-            [],
-            { connectionKey: id }
-          )
-        } catch (error) {
-          residualAccounts.push(accountName)
-          cleanupErrors.push(
-            error instanceof ApiError
-              ? error.code
-              : "notification_cleanup_failed"
-          )
-        }
-      }
-    }
-
-    // Phase 5 - record what Google would not accept. The connection is already
-    // revoked, so this is a residual notificationSetting at Google that an
-    // operator has to clear by hand; it needs a durable trace, not a rollback.
-    if (cleanupErrors.length) {
-      log.warn("google.notification_cleanup_failed", {
-        requestId,
-        organisationId: session.organisationId,
-        connectionId: id,
-        residualAccounts: residualAccounts.length,
-        errors: cleanupErrors,
-      })
-      await tenant((sql) =>
-        writeAudit(sql, {
-          organisationId: session.organisationId,
-          actorUserId: session.userId,
-          action: "google.notifications.cleanup_failed",
-          subjectType: "google_connection",
-          subjectId: id,
-          requestId,
-          metadata: {
-            residualAccounts,
-            errors: cleanupErrors,
-            publishAttemptsSettled: revoked.settledAttempts,
-            clientRequestId,
-          },
-        })
-      )
-    }
-    // Phase 6 - revoke the grant at Google, last. Revoking the refresh token
-    // also kills the access token phase 4 needs, so it cannot come earlier,
-    // and the local disconnect above must not wait on Google either. Best
-    // effort: a failure is logged and audited, never returned as an error,
-    // because the user's connection is already gone from NabaPresence.
-    if (target.grantToken) {
-      const outcome = await revokeGoogleToken(target.grantToken)
-      if (outcome.revoked) {
-        log.info("google.connection.revoked_at_google", {
-          requestId,
-          organisationId: session.organisationId,
-          connectionId: id,
-        })
-      } else {
-        log.warn("google.connection.revoke_failed", {
-          requestId,
-          organisationId: session.organisationId,
-          connectionId: id,
-          status: outcome.status,
-          error: outcome.error,
-        })
-        await tenant((sql) =>
-          writeAudit(sql, {
-            organisationId: session.organisationId,
-            actorUserId: session.userId,
-            action: "google.connection.revoke_failed",
-            subjectType: "google_connection",
-            subjectId: id,
-            requestId: `${requestId}:revoke`,
-            metadata: {
-              status: outcome.status,
-              error: outcome.error,
-              clientRequestId,
-            },
-          })
-        )
-      }
-    }
-    return { status: "disconnected" } satisfies DisconnectResponse
+    return {
+      status: "disconnected",
+      googleRevocation: outcome.googleRevocation,
+    } satisfies DisconnectResponse
   },
 })
 

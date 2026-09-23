@@ -263,6 +263,7 @@ async function settleKeywordCheckpoint(
         dead_lettered_at = null,
         next_attempt_at = now() + interval '24 hours',
         finished_at = now(),
+        last_succeeded_at = now(),
         last_error_code = ${
           walk.unrecognisedMonths.length ? "keyword_months_unrecognised" : null
         }

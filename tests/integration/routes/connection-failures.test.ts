@@ -1,5 +1,6 @@
 import {
   createCipheriv,
+  createDecipheriv,
   createHash,
   randomBytes,
   randomUUID,
@@ -32,6 +33,22 @@ function encryptHarnessSecret(value: string) {
     cipher.final(),
   ])
   return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), ciphertext])
+}
+
+function decryptHarnessSecret(value: Buffer) {
+  const key = createHash("sha256")
+    .update(
+      process.env.TOKEN_ENCRYPTION_KEY ??
+        "route-harness-token-key-32-characters!!",
+      "utf8"
+    )
+    .digest()
+  const decipher = createDecipheriv("aes-256-gcm", key, value.subarray(1, 13))
+  decipher.setAuthTag(value.subarray(13, 29))
+  return Buffer.concat([
+    decipher.update(value.subarray(29)),
+    decipher.final(),
+  ]).toString("utf8")
 }
 
 describeDatabase("google connection failure handling", () => {
@@ -165,7 +182,8 @@ describeDatabase("google connection failure handling", () => {
   async function completeOAuth(
     owner: Awaited<ReturnType<typeof createTestTenant>>,
     googleSubject: string,
-    scope = "openid email profile https://www.googleapis.com/auth/business.manage"
+    scope = "openid email profile https://www.googleapis.com/auth/business.manage",
+    startBody: Record<string, unknown> = {}
   ) {
     stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
       status: 200,
@@ -188,7 +206,7 @@ describeDatabase("google connection failure handling", () => {
     const start = await fetch(`${server.baseUrl}/api/google/connect/start`, {
       method: "POST",
       headers: { cookie: owner.cookie, "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(startBody),
     })
     const { authorizationUrl } = (await start.json()) as {
       authorizationUrl: string
@@ -281,7 +299,7 @@ describeDatabase("google connection failure handling", () => {
       json: {
         access_token: "recovered-access-token",
         expires_in: 3600,
-        scope: "business.manage",
+        scope: "https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))
@@ -329,7 +347,7 @@ describeDatabase("google connection failure handling", () => {
       json: {
         access_token: "recovered-access-token",
         expires_in: 3600,
-        scope: "business.manage",
+        scope: "https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))
@@ -379,12 +397,17 @@ describeDatabase("google connection failure handling", () => {
     expect(tasks[0].resolvedAt).not.toBeNull()
   })
 
-  it("supersedes the old task when a different Google account is connected", async () => {
+  it("labels the task when a reconnect comes back as a different account", async () => {
     const { owner, connectionId } = await seedRefreshableTenant()
     await openReconnectTask(owner.organisationId, connectionId)
     stub.reset()
 
-    const response = await completeOAuth(owner, `replacement-${connectionId}`)
+    const response = await completeOAuth(
+      owner,
+      `replacement-${connectionId}`,
+      undefined,
+      { reconnectConnectionId: connectionId }
+    )
 
     expect(response.status, await response.clone().text()).toBe(200)
     // The old row's work (relink or disconnect it) is real, so the task stays
@@ -403,6 +426,21 @@ describeDatabase("google connection failure handling", () => {
         and status = 'active'
     `
     expect(replacement.count).toBe(1)
+  })
+
+  it("leaves other logins' reconnect tasks alone when a new account connects", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    await openReconnectTask(owner.organisationId, connectionId)
+    stub.reset()
+
+    // A fresh connect (for another client, say), not a reconnect of this one.
+    const response = await completeOAuth(owner, `another-${connectionId}`)
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    const tasks = await reconnectTasks(connectionId)
+    expect(tasks).toEqual([
+      expect.objectContaining({ status: "open", reasonCode: "invalid_grant" }),
+    ])
   })
 
   it("never activates a consent that left out business.manage", async () => {
@@ -584,7 +622,7 @@ describeDatabase("google connection failure handling", () => {
         access_token: "late-access-token",
         expires_in: 3600,
         refresh_token: "late-refresh-token",
-        scope: "business.manage",
+        scope: "https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))
@@ -666,7 +704,7 @@ describeDatabase("google connection failure handling", () => {
         expires_in: 3600,
         refresh_token: "rotated-refresh-token",
         refresh_token_expires_in: 604_800,
-        scope: "business.manage",
+        scope: "https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))
@@ -755,5 +793,245 @@ describeDatabase("google connection failure handling", () => {
         and action = 'google.connection.revoke_failed'
     `
     expect(audit?.metadata).toMatchObject({ status: 503, error: "backend_error" })
+  })
+
+  /** The row's credential as the reconnect race cases need to see it. */
+  async function credentialState(connectionId: string) {
+    const [row] = await admin<
+      {
+        status: string
+        generation: number
+        accessToken: Buffer | null
+        refreshToken: Buffer | null
+        connectedBy: string | null
+      }[]
+    >`
+      select
+        status,
+        credential_generation as generation,
+        access_token_ciphertext as "accessToken",
+        refresh_token_ciphertext as "refreshToken",
+        connected_by_user_id::text as "connectedBy"
+      from google_connection
+      where id = ${connectionId}
+    `
+    return {
+      ...row,
+      access: row.accessToken ? decryptHarnessSecret(row.accessToken) : null,
+      refresh: row.refreshToken ? decryptHarnessSecret(row.refreshToken) : null,
+    }
+  }
+
+  /** Waits for a request the in-flight call is known to make. */
+  async function waitForCall(predicate: (path: string) => boolean) {
+    const deadline = Date.now() + 5_000
+    while (!stub.calls.some((call) => predicate(call.path))) {
+      if (Date.now() > deadline) throw new Error("Expected request never arrived")
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  it("a refresh rejected on the old credential cannot flag a reconnect", async () => {
+    const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
+    stub.reset()
+    // The refresh grant (old credential) is slow and then rejected; the
+    // authorization-code exchange (the reconnect) answers at once.
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, (call) =>
+      (call.body as { grant_type?: string })?.grant_type === "refresh_token"
+        ? { status: 400, delayMs: 1_500, json: { error: "invalid_grant" } }
+        : {
+            status: 200,
+            json: {
+              access_token: "callback-access-token",
+              expires_in: 3600,
+              refresh_token: "callback-refresh-token",
+              scope:
+                "openid email profile https://www.googleapis.com/auth/business.manage",
+              token_type: "Bearer",
+            },
+          }
+    )
+    const inFlight = fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    await waitForTokenCall()
+    const reconnected = await completeOAuth(owner, googleSubject)
+    expect(reconnected.status, await reconnected.clone().text()).toBe(200)
+    const before = await credentialState(connectionId)
+    expect(before).toMatchObject({ status: "active", generation: 2 })
+
+    await inFlight
+
+    const after = await credentialState(connectionId)
+    expect(after).toMatchObject({
+      status: "active",
+      generation: 2,
+      access: "callback-access-token",
+      refresh: "callback-refresh-token",
+      connectedBy: owner.userId,
+    })
+    expect(
+      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+    ).toHaveLength(0)
+    const [audit] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from audit_log
+      where subject_id = ${connectionId}
+        and action = 'google.connection.reconnect_required'
+    `
+    expect(audit.count).toBe(0)
+  })
+
+  it("a refresh answered on the old credential cannot overwrite a reconnect", async () => {
+    const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, (call) =>
+      (call.body as { grant_type?: string })?.grant_type === "refresh_token"
+        ? {
+            status: 200,
+            delayMs: 1_500,
+            json: {
+              access_token: "late-old-generation-token",
+              expires_in: 3600,
+              refresh_token: "late-old-generation-refresh",
+              scope: "https://www.googleapis.com/auth/business.manage",
+              token_type: "Bearer",
+            },
+          }
+        : {
+            status: 200,
+            json: {
+              access_token: "callback-access-token",
+              expires_in: 3600,
+              refresh_token: "callback-refresh-token",
+              scope:
+                "openid email profile https://www.googleapis.com/auth/business.manage",
+              token_type: "Bearer",
+            },
+          }
+    )
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 200,
+      json: { accounts: [] },
+    }))
+    const inFlight = fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    await waitForTokenCall()
+    const reconnected = await completeOAuth(owner, googleSubject)
+    expect(reconnected.status, await reconnected.clone().text()).toBe(200)
+
+    // The late request carries on with the new credential rather than
+    // failing: the reconnect already stored a working token.
+    const late = await inFlight
+    expect(late.status, await late.clone().text()).toBe(200)
+    const accountCalls = stub.calls.filter((call) =>
+      call.path.includes("/v1/accounts")
+    )
+    expect(accountCalls.length).toBeGreaterThan(0)
+
+    expect(await credentialState(connectionId)).toMatchObject({
+      status: "active",
+      generation: 2,
+      access: "callback-access-token",
+      refresh: "callback-refresh-token",
+    })
+  })
+
+  it("a 401 on a token from before a reconnect does not flag the new credential", async () => {
+    const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
+    // A current access token, so the in-flight request goes straight to the
+    // API with the old credential.
+    await admin`
+      update google_connection
+      set access_token_expires_at = now() + interval '1 hour'
+      where id = ${connectionId}
+    `
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 401,
+      delayMs: 1_500,
+      json: { error: { code: 401, status: "UNAUTHENTICATED" } },
+    }))
+    const inFlight = fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    await waitForCall((path) => path.includes("/v1/accounts"))
+    const reconnected = await completeOAuth(owner, googleSubject)
+    expect(reconnected.status, await reconnected.clone().text()).toBe(200)
+
+    const late = await inFlight
+    expect(late.status).toBe(401)
+    expect(await credentialState(connectionId)).toMatchObject({
+      status: "active",
+      generation: 2,
+    })
+    expect(
+      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+    ).toHaveLength(0)
+  })
+
+  it("marks one listing, never the connection, when Google denies that location", async () => {
+    const { owner, connectionId, googleAccountName } =
+      await seedRefreshableTenant()
+    await admin`
+      update google_connection
+      set access_token_expires_at = now() + interval '1 hour'
+      where id = ${connectionId}
+    `
+    const marker = randomUUID()
+    const [external] = await admin<{ id: string }[]>`
+      insert into external_location (
+        organisation_id, google_connection_id, google_account_name,
+        google_location_name, title, verified
+      )
+      values (
+        ${owner.organisationId}, ${connectionId}, ${googleAccountName},
+        ${`locations/denied-${marker}`}, 'Denied venue', true
+      )
+      returning id::text as id
+    `
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: `locations/denied-${marker}` }, () => ({
+      status: 403,
+      json: {
+        error: {
+          code: 403,
+          status: "PERMISSION_DENIED",
+          message: "The caller does not have permission",
+        },
+      },
+    }))
+    const location = await admin<{ id: string }[]>`
+      insert into location (organisation_id, name)
+      values (${owner.organisationId}, 'Denied venue')
+      returning id::text as id
+    `
+    await admin`
+      insert into location_link (organisation_id, location_id, external_location_id)
+      values (${owner.organisationId}, ${location[0].id}, ${external.id})
+    `
+    const response = await fetch(`${server.baseUrl}/api/sync/reconcile`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ externalLocationIds: [external.id] }),
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+
+    const [listing] = await admin<{ accessState: string; code: string | null }[]>`
+      select access_state as "accessState", access_error_code as code
+      from external_location where id = ${external.id}
+    `
+    expect(listing).toEqual({
+      accessState: "access_lost",
+      code: "listing_permission_denied",
+    })
+    expect((await connectionState(connectionId))[0].status).toBe("active")
+    expect(
+      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+    ).toHaveLength(0)
   })
 })

@@ -8,6 +8,7 @@ import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import { connectionAccessToken, googleReviews } from "@/lib/server/google"
+import { restoreListingAccess } from "@/lib/server/google/connection-failures"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -780,10 +781,17 @@ export async function syncLinkedLocation(input: {
           consecutive_failure_count = 0,
           finished_at = ${resumable ? null : new Date()},
           last_review_update_time = now(),
+          -- Every page of this run answered, so the location's reviews were
+          -- checked against Google just now, whether or not more pages
+          -- remain. Only this path moves it: a failed run leaves it alone.
+          last_succeeded_at = now(),
           lease_expires_at = null
         where id = ${header.checkpointId}
           and status <> 'cancelled'
       `
+      // Google answered for this location, so any listing-level access loss
+      // recorded earlier is over.
+      await restoreListingAccess(sql, input.externalLocationId)
     })
     return {
       status: hasMore ? "partial" : "succeeded",

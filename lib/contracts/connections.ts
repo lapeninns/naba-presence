@@ -73,5 +73,10 @@ export const connectStartResponseSchema = z.object({ authorizationUrl: z.string(
 export type ConnectStartResponse = z.infer<typeof connectStartResponseSchema>
 
 /** POST `/api/google/connections/[id]/disconnect` response. */
-export const disconnectResponseSchema = z.object({ status: z.literal("disconnected") })
+export const disconnectResponseSchema = z.object({
+  status: z.literal("disconnected"),
+  // Whether Google confirmed the revoke. "failed" is never presented as
+  // revoked: the grant may still be listed in the Google account.
+  googleRevocation: z.enum(["revoked", "failed", "not_attempted"]).optional(),
+})
 export type DisconnectResponse = z.infer<typeof disconnectResponseSchema>

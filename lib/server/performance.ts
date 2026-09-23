@@ -233,6 +233,7 @@ async function persistPerformancePoints(
         dead_lettered_at = null,
         next_attempt_at = now() + interval '6 hours',
         finished_at = now(),
+        last_succeeded_at = now(),
         last_error_code = null
       where id = ${location.checkpointId}
     `

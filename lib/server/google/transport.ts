@@ -9,9 +9,11 @@ import {
 } from "@/lib/domain/retry"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import {
   persistConnectionFailure,
   reconnectRequiredError,
+  recordListingAccessLoss,
 } from "./connection-failures"
 import { accessTokenOwner, forgetAccessToken } from "./credentials"
 
@@ -145,6 +147,88 @@ export function credentialFailureCode(
   return null
 }
 
+/** `ErrorInfo.reason` values on a 403 that describe the Cloud project, not the login. */
+const OPERATOR_REASONS = new Set([
+  "SERVICE_DISABLED",
+  "API_DISABLED",
+  "ACCESS_NOT_CONFIGURED",
+  "CONSUMER_INVALID",
+  "BILLING_DISABLED",
+  "RATE_LIMIT_EXCEEDED",
+  "RESOURCE_EXHAUSTED",
+])
+
+function errorInfoReasons(body: unknown): string[] {
+  if (typeof body !== "object" || body === null) return []
+  const error = Reflect.get(body, "error")
+  if (typeof error !== "object" || error === null) return []
+  const details = Reflect.get(error, "details")
+  if (!Array.isArray(details)) return []
+  return details.flatMap((detail) => {
+    const reason =
+      typeof detail === "object" && detail !== null
+        ? Reflect.get(detail, "reason")
+        : undefined
+    return typeof reason === "string" ? [reason] : []
+  })
+}
+
+/**
+ * A 403 that is the operator's to fix: the Business Profile API is not
+ * enabled for the Cloud project, access has not been approved (quota 0), or
+ * billing is off. Every tenant sees it at once, and neither a reconnect nor a
+ * listing-level warning helps.
+ */
+export function operatorFailureCode(status: number, body: unknown): string | null {
+  if (status !== 403) return null
+  const reason = errorInfoReasons(body).find((entry) => OPERATOR_REASONS.has(entry))
+  return reason ? `google_operator_${reason.toLowerCase()}` : null
+}
+
+/** `locations/{id}` from a Business Profile URL, or null for anything else. */
+export function locationNameFromUrl(url: string): {
+  locationName: string
+  /** True when the URL addresses the location itself or its review list. */
+  locationScoped: boolean
+} | null {
+  let path: string
+  try {
+    path = new URL(url).pathname
+  } catch {
+    return null
+  }
+  const match = /\/locations\/([^/:]+)(\/[^:]*)?/.exec(path)
+  if (!match) return null
+  const rest = match[2] ?? ""
+  return {
+    locationName: `locations/${match[1]}`,
+    locationScoped: rest === "" || rest === "/reviews" || rest === "/",
+  }
+}
+
+/**
+ * The failure code for an answer that says this login can no longer reach
+ * ONE location, or null. A 403 PERMISSION_DENIED anywhere under a location
+ * (that is not about scopes or the Cloud project), or a 404 for the location
+ * itself or its review list. A 404 for a single review, post or photo is an
+ * ordinary missing resource and does not count.
+ */
+export function listingAccessFailureCode(
+  status: number,
+  body: unknown,
+  url: string
+): "listing_permission_denied" | "listing_not_found" | null {
+  const location = locationNameFromUrl(url)
+  if (!location) return null
+  if (status === 403) {
+    if (hasScopeInsufficientReason(body)) return null
+    if (operatorFailureCode(status, body)) return null
+    return "listing_permission_denied"
+  }
+  if (status === 404 && location.locationScoped) return "listing_not_found"
+  return null
+}
+
 export async function googleRequest<T>(
   url: string,
   accessToken: string,
@@ -256,11 +340,42 @@ export async function googleRequest<T>(
             : null
           if (credentialFailure && owner) {
             forgetAccessToken(accessToken)
-            await persistConnectionFailure(
-              { id: owner.connectionId, organisation_id: owner.organisationId },
-              credentialFailure
-            )
+            // Carries the generation the token was issued under: a 401 on a
+            // token from before a reconnect is dropped, not recorded against
+            // the credential that replaced it.
+            await persistConnectionFailure(owner, credentialFailure)
             throw reconnectRequiredError()
+          }
+          const operatorFailure = operatorFailureCode(response.status, body)
+          if (operatorFailure) {
+            log.error("google.operator_configuration_error", {
+              providerHost,
+              status: response.status,
+              code: operatorFailure,
+            })
+          }
+          const listingFailure = listingAccessFailureCode(
+            response.status,
+            body,
+            url
+          )
+          const listingOwner =
+            listingFailure && !credentialFailure
+              ? accessTokenOwner(accessToken)
+              : null
+          if (listingFailure && listingOwner) {
+            const location = locationNameFromUrl(url)
+            if (location) {
+              // Best effort: marking the listing must never replace the
+              // provider error the caller is about to see.
+              await recordListingAccessLoss(
+                listingOwner,
+                location.locationName,
+                listingFailure
+              ).catch((error) =>
+                log.warn("google.listing_access_record_failed", { error })
+              )
+            }
           }
           const error = providerError(body)
           const reason =
