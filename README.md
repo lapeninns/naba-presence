@@ -226,10 +226,25 @@ verification token can be required in addition. Google API access, OAuth
 verification, end-client authorisation, and the storage-policy interpretation
 must be approved before general availability.
 
+The OAuth app must be **In production**, not Testing: in Testing Google issues
+seven-day refresh tokens and every connection breaks weekly. For revocation
+notices within a minute, register a Cross-Account Protection (RISC) stream at:
+
+```text
+POST {NEXTAUTH_URL}/api/webhooks/google/risc
+```
+
+(`docs/runbook.md`, "RISC"). Without it, revocations are caught at the next
+token refresh or API call.
+
 ## Operational references
 
 - [Architecture and data controls](docs/architecture.md)
 - [Operations runbook](docs/runbook.md)
+- [Observability and alert rules](docs/observability.md)
+- [Connect once, return daily: implementation record](docs/specs/2026-09-23-connect-once-implementation.md)
+- Environment variables: every key the server reads is documented in
+  [`.env.example`](.env.example) (pinned by `tests/env-flags.test.ts`)
 - [Requirement traceability matrix](docs/requirements-matrix.md)
 - [Backend, API, and frontend feature map](docs/frontend-backend-feature-map.md)
 - [Design-system palette specification](docs/specs/2026-07-28-design-system.md)

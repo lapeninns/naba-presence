@@ -107,6 +107,55 @@ through a content-free location map, and reconciled against Google before
 becoming inbox data. Failed event metadata is retained for at most 30 days and
 can be replayed by an authorised operator.
 
+### Connection service
+
+`lib/server/google/connections.ts` is the only code that changes a Google
+connection's credentials or lifecycle state; routes call its operations
+(`getAccessToken`, `completeAuthorisation`, `recordCredentialRejection`,
+`disconnect`, `setNotificationSettings`) and never write `google_connection`
+or its reconnect tasks themselves. `connection-failures.ts` holds the state
+transitions it and the transport share.
+
+Two invariants hold in SQL rather than by lock ordering:
+
+1. **Disconnect is authoritative.** Every write after a Google round trip is
+   conditional on `status <> 'disconnected'`, so a refresh or rejection that
+   lands after a disconnect cannot restore tokens, reactivate the row or open
+   a reconnect task.
+2. **A result belongs to its credential.** `credential_generation` is bumped
+   by every consent and every disconnect; refresh results, refresh
+   rejections and API 401s carry the generation they were issued under and
+   are dropped if it has moved. A request that loses that race retries once
+   with the new token.
+
+Refreshes are single-flight per connection across servers (a session advisory
+lock on a reserved connection, re-reading the row after taking it). Consent
+requires `business.manage` in the returned `scope` (a missing field counts as
+not granted) and a refresh token new or stored. Reconnect never revokes the
+token it replaces — Google revokes the whole grant for the project, including
+the new token — and only a deliberate disconnect calls `/revoke`, recording
+the outcome on the row.
+
+Failure classification: `invalid_grant`/scope loss → needs reconnect; 5xx,
+timeouts, rate limits, `invalid_client` → Degraded (retried, no reconnect);
+403 PERMISSION_DENIED or 404 for one location → that listing's
+`access_state = 'access_lost'`, connection untouched; 403 with a project
+reason (API disabled) → operator fault, logged. RISC events
+(`/api/webhooks/google/risc`) route through the same rejection path.
+
+Every Business Profile request draws from a Postgres budget shared by all
+instances (`lib/server/google/rate-budget.ts`, 0049) before the per-process
+pacer; see `docs/runbook.md`.
+
+Token ciphertext carries a key id (format 0x02) once `TOKEN_ENCRYPTION_KEYS`
+is set, and any configured key decrypts, so the encryption key can be rotated
+with `POST /api/operations/reencrypt` and no reconnects. OAuth state is signed
+with `OAUTH_STATE_SECRET`, not `NEXTAUTH_SECRET`, once that is set.
+
+Platform sign-in and the Google grant are separate lifetimes: sessions slide
+to 14 idle days and end 90 days after sign-in, "sign out everywhere" ends
+them all, and none of it touches a connection or background sync.
+
 ## Standalone canonical resources and Google publication
 
 NabaPresence is the sole owner of canonical profile, Hours, and Food Menus
@@ -390,11 +439,17 @@ every claim window and the backlog gauge without a single predicate changing.
 The metric checkpoints retire the same way through `dead_lettered_at`, and both
 are re-armed only by an explicit operator act (a fresh backfill; a relink).
 
-`lib/server/jobs.ts` drains retryable webhook events, checkpoints, and publish
-attempts across the content-free `organisation_job_route`, immediately
-re-entering `withTenant` for customer data. `scripts/scheduler.mjs` runs seven
-ticks — reconciliation, retention, the provider-deletion sweep,
-presence-resource reconciliation, the performance and keyword ingests, and jobs.
+`lib/server/jobs.ts` drains retryable webhook events, checkpoints, publish
+attempts and the recurring reconcile, performance and keyword checkpoints
+(0048) across the content-free `organisation_job_route`, immediately
+re-entering `withTenant` for customer data. Those three recurring syncs are a
+queue: their cron only arms a checkpoint for every linked location
+(`ensure_recurring_checkpoints`), the runner claims what is due under its
+per-organisation cap, and success books the next run on the kind's grid from
+the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
+last_succeeded_at` moves only on success and is what every freshness signal
+reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
+runs the older seven for local and non-Vercel deployments.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and stamps that
 loop's `ops_heartbeat` row on a completed run so the lock namespace and the
@@ -406,6 +461,23 @@ recently attempted linked locations per tenant, isolates every resource
 failure, and records content-free success/error checkpoints. The scheduler
 runs this sweep every 15 minutes by default, so reconciliation does not depend
 on a user opening the location workspace.
+
+## Health and notifications
+
+Client and listing health derive from successful checks, never from token
+refreshes (`lib/clients/health.ts`, `lib/server/location-summary.ts`): Up to
+date (checked within an hour), Data delayed (late or retrying — the platform
+recovers on its own), Action needed (a login to reconnect, a permission
+missing, or a listing's manager access removed). The org-wide banner shows any
+login that needs reconnecting to everyone, with a one-click reconnect for
+owners and admins.
+
+`/api/cron/health` (every 15 minutes) re-derives incidents per tenant under
+RLS (`notification_incident`), emails each new one once to owners and admins
+(`notification_delivery`, unique per incident and recipient, claimed before
+sending), and raises `platform_incident` for stopped ticks and sustained quota
+pressure. Email goes through `lib/server/notifications/email.ts`; with no
+provider configured deliveries are recorded `suppressed`.
 
 ## Membership, organisation switching, privacy, and retention
 
