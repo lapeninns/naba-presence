@@ -24,9 +24,12 @@ import {
 function SiblingSwitcher({
   current,
   role,
+  className,
 }: {
   current: DirectoryEntry
   role: string | null
+  /** Sizes the control; defaults to a 14rem field. */
+  className?: string
 }) {
   const pathname = usePathname()
   const directory = useLocationDirectory(role)
@@ -50,7 +53,7 @@ function SiblingSwitcher({
       <ComboboxInput
         placeholder="Switch listing"
         aria-label="Switch to another listing of this client"
-        wrapperClassName="w-56"
+        wrapperClassName={className ?? "w-56"}
         className="h-(--np-control-h)"
       />
       <ComboboxContent>

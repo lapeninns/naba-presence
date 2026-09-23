@@ -1,5 +1,6 @@
 "use client"
 
+import { LockIcon } from "lucide-react"
 import { useState } from "react"
 
 import { DangerZoneDialog } from "@/components/locations/danger-zone-dialog"
@@ -41,23 +42,63 @@ function toAdminRow(record: RawRecord): AdminRow {
   }
 }
 
+/**
+ * Why a row cannot be changed or removed here, or null. Google keeps exactly
+ * one primary owner, and a listing must never be left without an owner.
+ */
+export function ownerLockReason(
+  admin: AdminRow,
+  admins: readonly AdminRow[]
+): string | null {
+  if (admin.role === "PRIMARY_OWNER")
+    return "Can’t be removed or changed here: every listing keeps one primary owner."
+  const owners = admins.filter(
+    (row) => row.role === "OWNER" || row.role === "PRIMARY_OWNER"
+  )
+  if (admin.role === "OWNER" && owners.length <= 1)
+    return "The last owner can’t be removed or made a manager. Make someone else an owner first."
+  return null
+}
+
 /** One admins sub-resource (`locationAdmins` / `accountAdmins`) as a table with row actions. */
-export function AdminsSection({ data }: { data: unknown }) {
+export function AdminsSection({
+  data,
+  caption,
+}: {
+  data: unknown
+  caption?: string
+}) {
+  const admins = asArray(asRecord(data).admins).map(toAdminRow)
   return (
     <AdminsTable
-      admins={asArray(asRecord(data).admins).map(toAdminRow)}
+      admins={admins}
       invitations={[]}
-      renderActions={(admin) => <AdminRowActions admin={admin} />}
+      caption={caption}
+      renderActions={(admin) => {
+        const locked = ownerLockReason(admin, admins)
+        return locked ? (
+          <span className="inline-flex max-w-[22rem] items-start gap-1.5 text-left text-caption text-ink-muted">
+            <LockIcon
+              className="mt-0.5 size-3.5 shrink-0"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            {locked}
+          </span>
+        ) : (
+          <AdminRowActions admin={admin} />
+        )
+      }}
     />
   )
 }
 
 function AdminRowActions({ admin }: { admin: AdminRow }) {
   return (
-    <span className="flex items-center gap-2">
+    <>
       <UpdateAdminRoleControl admin={admin} />
       <RemoveAdminAction admin={admin} />
-    </span>
+    </>
   )
 }
 
@@ -88,7 +129,7 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
   if (!name || currentRole === "PRIMARY_OWNER") return null
 
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-2">
       <Select
         value={role}
         onValueChange={(value: string | null) => value && setRole(value)}
@@ -152,7 +193,7 @@ function RemoveAdminAction({ admin }: { admin: AdminRow }) {
     <>
       <Button
         size="sm"
-        variant="destructive"
+        variant="ghost"
         aria-label={`Remove ${admin.admin ?? name}`}
         onClick={() => setOpen(true)}
         disabled={writeBlocked || !locationName}
@@ -163,7 +204,7 @@ function RemoveAdminAction({ admin }: { admin: AdminRow }) {
         open={open}
         onOpenChange={setOpen}
         title="Remove this administrator?"
-        description={`This removes ${admin.admin ?? "this person"}'s access to manage this business on Google.`}
+        description={`${admin.admin ?? "This person"} loses access to manage this business on Google straight away. Replies and edits they already made stay.`}
         expectedName={locationName}
         confirmLabel="Remove administrator"
         pending={remove.isPending}
