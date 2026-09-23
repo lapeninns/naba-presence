@@ -48,6 +48,7 @@ export {
   googleOAuthUrl,
   googleUserInfo,
   pkceChallenge,
+  revokeGoogleToken,
 } from "@/lib/server/google/oauth"
 export type { GoogleTokenResponse } from "@/lib/server/google/oauth"
 export {

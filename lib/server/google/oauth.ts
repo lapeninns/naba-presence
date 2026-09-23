@@ -114,6 +114,55 @@ export async function exchangeGoogleCode(
   return body
 }
 
+export type GoogleRevokeOutcome =
+  | { readonly revoked: true; readonly status: number }
+  | { readonly revoked: false; readonly status: number | null; readonly error: string }
+
+/**
+ * Ask Google to revoke a token. Revoking the refresh token also revokes every
+ * access token issued from it, so after this Google refuses the grant even if
+ * a copy of either survived somewhere.
+ *
+ * Never throws: the caller has already disconnected locally, and Google being
+ * unreachable must not undo that. Google answers 400 `invalid_token` for a
+ * token that is already dead, which is the outcome wanted, so it counts.
+ */
+export async function revokeGoogleToken(
+  token: string
+): Promise<GoogleRevokeOutcome> {
+  try {
+    const response = await fetch(
+      googleApiTarget("https://oauth2.googleapis.com/revoke"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(getServerEnv().GOOGLE_TIMEOUT_MS),
+      }
+    )
+    if (response.ok) return { revoked: true, status: response.status }
+    const text = await response.text()
+    let error = "revoke_failed"
+    try {
+      const body = JSON.parse(text) as { error?: unknown }
+      if (typeof body.error === "string") error = body.error
+    } catch {
+      // Not JSON; keep the generic code.
+    }
+    if (response.status === 400 && error === "invalid_token") {
+      return { revoked: true, status: response.status }
+    }
+    return { revoked: false, status: response.status, error }
+  } catch (error) {
+    return {
+      revoked: false,
+      status: null,
+      error: isAbortError(error) ? "google_timeout" : "network_error",
+    }
+  }
+}
+
 export async function googleUserInfo(accessToken: string): Promise<{
   sub: string
   email?: string
