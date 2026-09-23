@@ -24,18 +24,12 @@ export type LeaseKey = (typeof LEASE_KEYS)[number]
 
 /**
  * `ops_heartbeat.name` for every tick whose lease a route actually takes, in
- * the order the health route reports them.
- *
- * `naba:sweep` is deliberately absent. The key exists so
- * `app/api/sync/sweep/route.ts` can adopt it -- it is the one cron route with
- * no advisory lock, and the scheduler now drives it daily -- but until that
- * handler is wrapped nothing stamps the row, and reporting a tick that can
- * never be stamped would be a permanent false alarm. Move it here in the same
- * change that wraps the route.
+ * the order the health route reports them. The sweep's fleet enqueue takes
+ * `naba:sweep`, so every tick is listed.
  */
-export const SCHEDULER_TICK_NAMES: readonly string[] = LEASE_KEYS.filter(
-  (key) => key !== "naba:sweep"
-).map((key) => key.slice("naba:".length))
+export const SCHEDULER_TICK_NAMES: readonly string[] = LEASE_KEYS.map((key) =>
+  key.slice("naba:".length)
+)
 
 function tickName(key: LeaseKey): string {
   return key.slice("naba:".length)

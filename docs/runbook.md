@@ -82,16 +82,24 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
   automatically, and without it every tick answers 401 `invalid_cron_token`.
   `tests/server/vercel-cron.test.ts` pins the table — cadences, page sizes,
   and the GET handler each path lands on — so a quiet edit cannot drop a tick.
-- Each fire is stateless and runs one page from the head of the tenant order
-  (or from the `organisationCursor` it is given); nothing follows `nextCursor`
-  between fires. One page covers 100 organisations for reconciliation,
-  performance and keywords, 100 for retention (`batch_size=100`), 10 for
-  presence resources, and 1 organisation at 5 pages per location for the sweep.
-  While the fleet fits in one page that is a complete walk; past that, add
-  cursor-following (or another host running `scripts/scheduler.mjs`, which
-  still walks cursors across pages for local development and non-Vercel
-  deployments via `SCHEDULER_BASE_URL` and the same `CRON_SECRET`) rather than
-  enlarging pages past the per-page budgets below.
+- Reconciliation, presence resources, performance and keywords resume where
+  the previous fire stopped: each GET shim stores the page's `nextCursor` in
+  `cron_cursor` and the next fire starts after it (a null cursor means the
+  walk finished; the next fire starts at the head). One page covers 100
+  organisations for reconciliation, performance and keywords, 10 for presence
+  resources, and 100 for retention (`batch_size=100`, not cursor-walked).
+  An explicit `organisationCursor` on the query runs that page without moving
+  the stored walk. `scripts/scheduler.mjs` still walks cursors itself for
+  local development and non-Vercel deployments (`SCHEDULER_BASE_URL` and the
+  same `CRON_SECRET`).
+- The daily sweep does not page. `/api/sync/sweep` (cron) calls
+  `enqueue_sweep_checkpoints`, which arms a `sweep` checkpoint for every
+  linked location in every organisation in one statement, under the
+  `naba:sweep` lease (heartbeat `sweep`, stale after two days). The job
+  runner claims them every minute, five pages per claim; a location with more
+  history parks with its cursor and resumes on the next day's enqueue. A sweep
+  that finished within 20 hours is not re-queued, and `dead` checkpoints wait
+  for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
   own advisory lock, so an overlapping or duplicate fire answers `skipped`
@@ -112,21 +120,18 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
   and returns a `nextCursor` for the rest; the scheduler asks for the next
   page immediately, and for the three routes that report `truncated`
   (performance, keywords, presence resources) it also logs `<tick>.truncated`
-  naming the organisations that page did not reach. `/api/sync/sweep` has no
-  budget of its own — the scheduler bounds it by asking for one organisation
-  and five pages per location, and a location with more history than that
-  parks its checkpoint for the jobs runner. Keep every budget below the
+  naming the organisations that page did not reach. A session-run
+  `/api/sync/sweep` (an owner sweeping their own organisation) has a 45s
+  budget; the fleet sweep is bounded by the job runner. Keep every budget below the
   scheduler's 55s request abort: a page cut off by the abort still commits on
   the server, but no cursor reaches the scheduler, so it resumes from the last
   cursor it holds and repeats that page.
-- Under Vercel Cron there is no walk position between fires: every fire starts
-  at the head and a `nextCursor` in the response is only a handle for a manual
-  follow-up request, not something the next fire resumes. A page that fails
-  every time therefore delays — but cannot starve — the organisations ordered
-  after it, because the next fire re-enters at the head rather than resuming
-  onto the poisoned page. (`scripts/scheduler.mjs` keeps the old in-memory
-  walks with `<tick>.cursor_reset` when it is the driver; the routes behave
-  identically under either caller.)
+- A stored cursor cannot trap the walk on a page that fails every time: a
+  fire that throws resets its walk to the head, and a cursor that three fires
+  in a row started from without finishing (for example, killed at
+  `maxDuration`) is abandoned for the head. Both log `cron.cursor_reset`.
+  (`scripts/scheduler.mjs` keeps its own in-memory walks with
+  `<tick>.cursor_reset` when it is the driver.)
 - Alert on failed sync checkpoints, connections in `expired`/`error`, publish
   attempts in `ambiguous`, and unprocessed webhook events older than five
   minutes.
