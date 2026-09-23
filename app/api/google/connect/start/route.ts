@@ -18,7 +18,19 @@ export const runtime = "nodejs"
 export const POST = route({
   roles: ["owner", "admin"],
   body: connectStartBodySchema,
-  handler: async ({ session, body }) => {
+  handler: async ({ session, body, tenant }) => {
+    // Read through RLS: another organisation's connection id yields no hint,
+    // not its owner's email.
+    const loginHint = body.reconnectConnectionId
+      ? await tenant(async (sql) => {
+          const [row] = await sql<{ email: string | null }[]>`
+            select google_email as email
+            from google_connection
+            where id = ${body.reconnectConnectionId!}
+          `
+          return row?.email ?? null
+        })
+      : null
     const nonce = randomToken(24)
     const verifier = randomToken(64)
     const statePayload = Buffer.from(
@@ -47,6 +59,7 @@ export const POST = route({
       authorizationUrl: googleOAuthUrl({
         state: nonce,
         codeChallenge: pkceChallenge(verifier),
+        loginHint,
       }),
     } satisfies ConnectStartResponse
   },

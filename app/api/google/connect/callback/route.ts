@@ -7,6 +7,7 @@ import {
   prepareAutomaticGoogleReviewSetup,
   type AutomaticGoogleSetup,
 } from "@/lib/server/automatic-google-setup"
+import { attachConnectionToClient } from "@/lib/server/clients"
 import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -14,6 +15,7 @@ import {
   exchangeGoogleCode,
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleUserInfo,
+  grantsBusinessManage,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -38,6 +40,34 @@ const stateSchema = z.object({
   returnTo: z.string().optional(),
   expiresAt: z.number(),
 })
+
+/**
+ * Where the flow started, read from the state cookie for the error path.
+ *
+ * The success path reads it from the verified, parsed state. A failure may be
+ * the state itself (expired, tampered), so this only trusts a cookie whose
+ * signature checks out, ignores its expiry, and falls back to the default.
+ * The path is still run through the allow-list: it names a page, nothing more.
+ */
+async function startedFrom(): Promise<string> {
+  try {
+    const stateCookie = (await cookies()).get("naba_google_oauth")?.value
+    const [payload, signature] = stateCookie?.split(".") ?? []
+    if (!payload || !signature || !verifySignedValue(payload, signature)) {
+      return DEFAULT_OAUTH_RETURN
+    }
+    const parsed: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    )
+    const returnTo =
+      typeof parsed === "object" && parsed !== null
+        ? Reflect.get(parsed, "returnTo")
+        : undefined
+    return safeOAuthReturn(typeof returnTo === "string" ? returnTo : null)
+  } catch {
+    return DEFAULT_OAUTH_RETURN
+  }
+}
 
 async function oauthParameters(request: Request) {
   if (request.method === "GET") {
@@ -123,6 +153,16 @@ async function completeOAuth({
   })
 
   const tokens = await exchangeGoogleCode(params.code, state.verifier)
+  // Google's consent screen lets a person untick Business Profile access. A
+  // token without it signs in fine and then fails every call, so it must not
+  // become (or replace the tokens of) an active connection.
+  if (!grantsBusinessManage(tokens.scope)) {
+    throw new ApiError(
+      403,
+      "google_scope_missing",
+      "Google did not grant permission to manage Business Profiles."
+    )
+  }
   const profile = await googleUserInfo(tokens.access_token)
   const refreshTokenExpiresAt = tokens.refresh_token_expires_in
     ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
@@ -206,6 +246,20 @@ async function completeOAuth({
         and status = 'open'
       returning id
     `
+    // The setup wizard counts this login as the client's from here on, even
+    // when Google shows it several accounts or locations and nothing below
+    // can be linked automatically. The clientId came through the signed
+    // state, so Google's redirect cannot pick which client this lands on.
+    const attachedClientId =
+      state.clientId &&
+      (await attachConnectionToClient(sql, {
+        organisationId: session.organisationId,
+        clientId: state.clientId,
+        connectionId: row.id,
+        userId: session.userId,
+      }))
+        ? state.clientId
+        : null
     await writeAudit(sql, {
       organisationId: session.organisationId,
       actorUserId: session.userId,
@@ -219,6 +273,7 @@ async function completeOAuth({
         googleEmail: profile.email ?? null,
         previousStatus: existing?.status ?? null,
         supersededReconnectTasks: superseded.length,
+        clientId: attachedClientId,
         clientRequestId,
       },
     })
@@ -306,11 +361,18 @@ function redirectStatus(error: unknown, requestId: string): number {
   return status
 }
 
+/** Error codes the connections page has its own wording for. */
+const OAUTH_ERROR_REASONS = new Set(["google_scope_missing"])
+
 // Browser redirect from Google: errors become a redirect, never a JSON body.
 export const GET = route({
   auth: "public",
   handler: async ({ request, requestId, clientRequestId }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
+    // Read before completeOAuth: it deletes the state cookie once the session
+    // matches, and a failure after that (the token exchange) must still know
+    // where the flow started.
+    const origin = await startedFrom()
     try {
       const { returnTo } = await completeOAuth({
         request,
@@ -325,17 +387,28 @@ export const GET = route({
       )
     } catch (error) {
       const status = String(redirectStatus(error, requestId))
-      // The error path cannot read the state (that is often what failed), so
-      // it falls back to the connections page.
+      // A reason the page can explain better than a status number can.
+      const reason: Record<string, string> =
+        error instanceof ApiError && OAUTH_ERROR_REASONS.has(error.code)
+          ? { reason: error.code }
+          : {}
+      // Back to where the flow started (the setup step, a client page), not
+      // to Settings: an operator mid-setup would otherwise lose their place.
+      // A lapsed session still goes to sign-in.
       const path =
         error instanceof ApiError && error.code === "authentication_required"
           ? "/sign-in"
-          : DEFAULT_OAUTH_RETURN
+          : origin
       // `rid` is the correlation id a user can quote in a support ticket; the
       // redirect is the only thing they can see.
       return NextResponse.redirect(
         new URL(
-          `${path}?google=error&status=${status}&rid=${requestId}`,
+          withOAuthStatus(path, {
+            google: "error",
+            status,
+            ...reason,
+            rid: requestId,
+          }),
           baseUrl
         )
       )

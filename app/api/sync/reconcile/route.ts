@@ -14,6 +14,7 @@ import {
 } from "@/lib/server/reviews"
 import { isCronRequest, route } from "@/lib/server/route"
 import { cronPageInput } from "@/lib/server/cron-query"
+import { followCronCursor } from "@/lib/server/cron-cursor"
 import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -289,11 +290,13 @@ export const GET = route({
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
-    return runReconcilePage({
-      session: null,
-      input: reconcileSchema.parse(cronPageInput(query)),
-      requestId,
-      clientRequestId,
-    })
+    return followCronCursor("reconcile", cronPageInput(query), (input) =>
+      runReconcilePage({
+        session: null,
+        input: reconcileSchema.parse(input),
+        requestId,
+        clientRequestId,
+      })
+    )
   },
 })

@@ -18,6 +18,7 @@ import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
 import { readProfileStateBundle } from "@/lib/server/profile"
 import { cronPageInput } from "@/lib/server/cron-query"
+import { followCronCursor } from "@/lib/server/cron-cursor"
 import { route } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
@@ -326,8 +327,12 @@ export const POST = route({
 // caller keeps using POST.
 export const GET = route({
   auth: "cron",
-  query: (searchParams) =>
-    presenceResourcesSyncSchema.parse(cronPageInput(searchParams)),
+  query: (searchParams) => cronPageInput(searchParams),
   handler: async ({ query, requestId }) =>
-    runPresenceResourcesPage(query, requestId),
+    followCronCursor("presence-resources", query, (input) =>
+      runPresenceResourcesPage(
+        presenceResourcesSyncSchema.parse(input),
+        requestId
+      )
+    ),
 })

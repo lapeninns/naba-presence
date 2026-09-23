@@ -18,7 +18,7 @@ const ticks = [
   "/api/sync/reconcile?maxOrganisations=100",
   "/api/sync/presence-resources?maxOrganisations=10&maxLocations=5",
   "/api/sync/performance?maxOrganisations=100&maxLocations=25",
-  "/api/sync/sweep?maxOrganisations=1&maxPagesPerLocation=5",
+  "/api/sync/sweep",
   "/api/sync/keywords?maxOrganisations=100&maxLocations=10",
   "/api/cron/retention?batch_size=100",
 ]
@@ -127,11 +127,13 @@ describeDatabase("vercel cron tick shims", () => {
     "walks the fleet through GET /api/sync/sweep",
     async () => {
       const response = await authed(
-        "/api/sync/sweep?maxOrganisations=1&maxPagesPerLocation=5"
+        "/api/sync/sweep"
       )
       expect(response.status).toBe(200)
       const body = (await response.json()) as Record<string, unknown>
       expect(typeof body.processed).toBe("number")
+      expect(typeof body.queued).toBe("number")
+      expect(body.nextCursor).toBeNull()
       expect(Array.isArray(body.failures)).toBe(true)
       expect("locations" in body).toBe(false)
     },

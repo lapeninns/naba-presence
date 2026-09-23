@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/performance"
 import { isCronRequest, route } from "@/lib/server/route"
 import { cronPageInput } from "@/lib/server/cron-query"
+import { followCronCursor } from "@/lib/server/cron-cursor"
 import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -62,11 +63,13 @@ export const POST = route({
 export const GET = route({
   auth: "cron",
   handler: async ({ query, requestId }) =>
-    runPerformancePage({
-      session: null,
-      input: performanceSyncSchema.parse(cronPageInput(query)),
-      requestId,
-    }),
+    followCronCursor("performance", cronPageInput(query), (input) =>
+      runPerformancePage({
+        session: null,
+        input: performanceSyncSchema.parse(input),
+        requestId,
+      })
+    ),
 })
 
 // One page of the tenant walk, shared by the session POST (own organisation)

@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 
 import { clientHealth, type ClientHealth } from "@/lib/clients/health"
 import type {
@@ -15,6 +15,75 @@ import type { Session } from "@/lib/server/session"
 
 type SummaryRow = Omit<ClientSummary, "health" | "connections"> & {
   connections: ClientConnection[] | null
+}
+
+/**
+ * True when the Google connection is one of the client's logins: either the
+ * operator connected or picked it while setting this client up (recorded in
+ * `client_google_connection`), or one of the client's linked locations is
+ * reached through it.
+ *
+ * The first half is what lets setup move past Connect for a login that sees
+ * several accounts or locations. Nothing is linked automatically for those,
+ * so a rule that waited for a linked location kept the wizard on Connect
+ * forever.
+ */
+export function belongsToClient(
+  sql: TransactionSql,
+  clientId: Fragment,
+  connectionId: Fragment
+) {
+  return sql`(
+    exists (
+      select 1
+      from client_google_connection cgc
+      where cgc.client_id = ${clientId}
+        and cgc.google_connection_id = ${connectionId}
+    )
+    or exists (
+      select 1
+      from location l
+      join location_link ll on ll.location_id = l.id and ll.is_active
+      join external_location e on e.id = ll.external_location_id
+      where l.client_id = ${clientId}
+        and e.google_connection_id = ${connectionId}
+    )
+  )`
+}
+
+/**
+ * Record that a Google login belongs to a client. Idempotent. Returns false
+ * when either side is not in this organisation: both are read through RLS
+ * here, because a foreign-key check alone would accept another tenant's
+ * connection id.
+ */
+export async function attachConnectionToClient(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    clientId: string
+    connectionId: string
+    userId: string | null
+  }
+): Promise<boolean> {
+  const [row] = await sql<{ attached: boolean }[]>`
+    with target as (
+      select c.id as client_id, gc.id as connection_id
+      from client c
+      join google_connection gc on gc.id = ${input.connectionId}
+      where c.id = ${input.clientId}
+    ),
+    inserted as (
+      insert into client_google_connection (
+        organisation_id, client_id, google_connection_id, created_by
+      )
+      select ${input.organisationId}, client_id, connection_id, ${input.userId}
+      from target
+      on conflict (client_id, google_connection_id) do nothing
+    )
+    select exists (select 1 from target) as attached
+  `
+  return row?.attached ?? false
 }
 
 /**
@@ -110,14 +179,7 @@ export async function listClientSummaries(
         'lastRefreshAt', to_json(gc.last_refresh_at)#>>'{}'
       )) as items
       from google_connection gc
-      where exists (
-        select 1
-        from location l
-        join location_link ll on ll.location_id = l.id and ll.is_active
-        join external_location e on e.id = ll.external_location_id
-        where l.client_id = c.id
-          and e.google_connection_id = gc.id
-      )
+      where ${belongsToClient(sql, sql`c.id`, sql`gc.id`)}
     ) connections on true
     where c.archived_at is null
       and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
@@ -210,18 +272,18 @@ export async function readClientSetup(
     left join lateral (
       select gc.id, gc.status, gc.notifications_enabled
       from google_connection gc
-      where exists (
-        select 1
-        from location l
-        join location_link ll on ll.location_id = l.id and ll.is_active
-        join external_location e on e.id = ll.external_location_id
-        where l.client_id = c.id and e.google_connection_id = gc.id
-      )
+      where ${belongsToClient(sql, sql`c.id`, sql`gc.id`)}
       order by (gc.status = 'active') desc, gc.created_at desc
       limit 1
     ) conn on true
     left join lateral (
-      select count(*) as active from google_account ga where ga.is_active
+      -- Only accounts reachable through this client's own logins. Counting
+      -- the whole organisation let a second client skip the account step
+      -- because the first client's accounts were already active.
+      select count(*) as active
+      from google_account ga
+      where ga.is_active
+        and ${belongsToClient(sql, sql`c.id`, sql`ga.google_connection_id`)}
     ) accounts on true
     left join lateral (
       select count(*) as linked

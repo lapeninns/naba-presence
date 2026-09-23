@@ -242,6 +242,7 @@ const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
   // 86400s ticks, two intervals.
   retention: 172_800,
   keywords: 172_800,
+  sweep: 172_800,
 }
 
 const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs

@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { Stepper } from "@/components/ui/stepper"
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { OAuthReturn } from "@/components/settings/oauth-return"
 import { SETUP_STEPS, type SetupStep } from "@/lib/contracts/clients"
 import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import {
@@ -106,6 +107,17 @@ function SetupWizard({ clientId }: { clientId: string }) {
             }
           />
 
+          {/* A failed Google sign-in comes back here, to the step it
+              started from; say what happened before the step itself. */}
+          <div className="mx-auto w-full max-w-3xl empty:hidden">
+            <OAuthReturn
+              connectInput={{
+                clientId,
+                returnTo: `/setup?client=${clientId}&step=account`,
+              }}
+            />
+          </div>
+
           <section
             aria-labelledby="setup-step-title"
             className="mx-auto flex w-full max-w-3xl flex-col rounded-(--np-radius-panel) bg-surface"
@@ -146,7 +158,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 step={current}
                 clientId={clientId}
                 clientName={clientName ?? "this client"}
+                connectionId={setupQuery.data?.setup.connection?.id ?? null}
                 onAdvance={advance}
+                onConnected={() => goTo("account")}
               />
             </div>
 
@@ -180,12 +194,16 @@ function StepBody({
   step,
   clientId,
   clientName,
+  connectionId,
   onAdvance,
+  onConnected,
 }: {
   step: SetupStep
   clientId: string
   clientName: string
+  connectionId: string | null
   onAdvance: () => void
+  onConnected: () => void
 }) {
   switch (step) {
     case "agency":
@@ -193,9 +211,15 @@ function StepBody({
     case "client":
       return <StepClientSummary clientId={clientId} clientName={clientName} />
     case "connect":
-      return <StepConnect clientId={clientId} clientName={clientName} />
+      return (
+        <StepConnect
+          clientId={clientId}
+          clientName={clientName}
+          onConnected={onConnected}
+        />
+      )
     case "account":
-      return <StepAccount />
+      return <StepAccount clientId={clientId} connectionId={connectionId} />
     case "locations":
       return <StepLocations clientId={clientId} clientName={clientName} />
     case "backfill":

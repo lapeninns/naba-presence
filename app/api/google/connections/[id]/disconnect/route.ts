@@ -5,9 +5,11 @@ import {
   type DisconnectResponse,
 } from "@/lib/contracts/connections"
 import { writeAudit } from "@/lib/server/audit"
+import { decryptSecret } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import {
   connectionAccessToken,
+  revokeGoogleToken,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
@@ -40,8 +42,17 @@ export const POST = route({
     // issue no SQL in between, so holding a transaction across them tripped
     // idle_in_transaction_session_timeout and rolled the whole disconnect back.
     const target = await tenant(async (sql) => {
-      const [connection] = await sql<{ notificationsEnabled: boolean }[]>`
-        select notifications_enabled as "notificationsEnabled"
+      const [connection] = await sql<
+        {
+          notificationsEnabled: boolean
+          refreshToken: Buffer | null
+          accessToken: Buffer | null
+        }[]
+      >`
+        select
+          notifications_enabled as "notificationsEnabled",
+          refresh_token_ciphertext as "refreshToken",
+          access_token_ciphertext as "accessToken"
         from google_connection
         where id = ${id}
           and status <> 'disconnected'
@@ -58,6 +69,13 @@ export const POST = route({
       return {
         notificationsEnabled: connection.notificationsEnabled,
         accountNames: accounts.map((account) => account.googleAccountName),
+        // Held in memory for the revoke in phase 6: phase 3 nulls the stored
+        // copies, and Google can only revoke what it is shown.
+        grantToken: connection.refreshToken
+          ? decryptSecret(connection.refreshToken)
+          : connection.accessToken
+            ? decryptSecret(connection.accessToken)
+            : null,
       }
     })
 
@@ -210,6 +228,44 @@ export const POST = route({
           },
         })
       )
+    }
+    // Phase 6 - revoke the grant at Google, last. Revoking the refresh token
+    // also kills the access token phase 4 needs, so it cannot come earlier,
+    // and the local disconnect above must not wait on Google either. Best
+    // effort: a failure is logged and audited, never returned as an error,
+    // because the user's connection is already gone from NabaPresence.
+    if (target.grantToken) {
+      const outcome = await revokeGoogleToken(target.grantToken)
+      if (outcome.revoked) {
+        log.info("google.connection.revoked_at_google", {
+          requestId,
+          organisationId: session.organisationId,
+          connectionId: id,
+        })
+      } else {
+        log.warn("google.connection.revoke_failed", {
+          requestId,
+          organisationId: session.organisationId,
+          connectionId: id,
+          status: outcome.status,
+          error: outcome.error,
+        })
+        await tenant((sql) =>
+          writeAudit(sql, {
+            organisationId: session.organisationId,
+            actorUserId: session.userId,
+            action: "google.connection.revoke_failed",
+            subjectType: "google_connection",
+            subjectId: id,
+            requestId: `${requestId}:revoke`,
+            metadata: {
+              status: outcome.status,
+              error: outcome.error,
+              clientRequestId,
+            },
+          })
+        )
+      }
     }
     return { status: "disconnected" } satisfies DisconnectResponse
   },

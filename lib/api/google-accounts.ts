@@ -13,10 +13,13 @@ export function fetchGoogleAccounts(connectionId?: string | null, options?: Requ
   return apiFetch(path, { schema: googleAccountsResponseSchema, ...options })
 }
 
-export function saveActiveAccounts(accountIds: AccountSelectionInput["accountIds"]) {
+export function saveActiveAccounts(
+  accountIds: AccountSelectionInput["accountIds"],
+  scope: Pick<AccountSelectionInput, "clientId" | "connectionId"> = {}
+) {
   return apiFetch("/api/google/accounts", {
     method: "PATCH",
-    body: { accountIds } satisfies AccountSelectionInput,
+    body: { accountIds, ...scope } satisfies AccountSelectionInput,
     schema: googleAccountsResponseSchema,
   })
 }

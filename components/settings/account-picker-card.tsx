@@ -20,14 +20,22 @@ import { describeActionError } from "@/lib/errors/action-errors"
  * account's role in muted text on the right, and an explicit Save — the
  * selection is a set, and saving half of one would be worse than saving none.
  */
-export function AccountPickerCard() {
+export function AccountPickerCard({
+  clientId,
+  connectionId,
+}: {
+  /** Setup: save only among this client's logins. */
+  clientId?: string
+  /** Setup: the login the client connected, instead of the derived one. */
+  connectionId?: string | null
+} = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
   // A connection picker (Select bound to the user's choice) lands once an org can hold
   // more than one Google connection at once; today deriveAutoSelection's single-connection
   // path resolves the working connection on its own, and Task 9's import card reuses the
   // same rule against the shared Query cache.
-  const resolvedConnectionId = deriveAutoSelection({
+  const derivedConnectionId = deriveAutoSelection({
     connections: connections.map((connection) => ({
       id: connection.id,
       status: connection.status,
@@ -36,8 +44,9 @@ export function AccountPickerCard() {
     selectedConnectionId: null,
     selectedAccountName: null,
   }).connectionId
+  const resolvedConnectionId = connectionId ?? derivedConnectionId
 
-  const accounts = useGoogleAccounts(resolvedConnectionId)
+  const accounts = useGoogleAccounts(resolvedConnectionId, { clientId })
   const toast = useToastManager()
   const headingId = useId()
 
@@ -77,7 +86,14 @@ export function AccountPickerCard() {
     )
   }
 
-  const rows = accounts.query.data.accounts
+  // Only accounts this login reaches: a save is scoped to it, so a row from
+  // another login could be ticked here but never switched on.
+  const rows = accounts.query.data.accounts.filter(
+    (account) =>
+      !resolvedConnectionId ||
+      !account.googleConnectionId ||
+      account.googleConnectionId === resolvedConnectionId
+  )
   if (rows.length === 0) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
