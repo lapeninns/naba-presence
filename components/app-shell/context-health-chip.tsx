@@ -5,9 +5,10 @@ import * as React from "react"
 
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import { useClients, useOrgHealth } from "@/lib/queries/use-clients"
+import { TONE_CLASSES } from "@/lib/ui/status-tone"
+import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
-import { HealthCapsule } from "./status-chip"
 
 /**
  * Connection health for whatever the page is about.
@@ -17,6 +18,9 @@ import { HealthCapsule } from "./status-chip"
  * not. The previous chip collapsed every connection in the organisation to
  * connected or disconnected, which meant one client's broken login was
  * invisible while another client's login still worked.
+ *
+ * A bordered white pill with a status dot and the words. Below 768px it is a
+ * 44px circle with the dot alone; the words stay the link's accessible name.
  */
 function ContextHealthChip() {
   const clientId = useClientScope()
@@ -51,19 +55,35 @@ function ContextHealthChip() {
       {isPending ? null : (
         <Link
           href={clientId ? `/clients/${clientId}` : "/clients"}
-          className="group/health rounded-(--np-radius-pill) focus-halo transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none active:scale-[0.98]"
+          data-slot="health-chip"
+          data-tone={tone}
+          className={cn(
+            "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
+            "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
+            "focus-halo focus-visible:outline-none",
+            "max-md:size-11 max-md:justify-center max-md:px-0"
+          )}
         >
-          <HealthCapsule
-            tone={tone}
-            className="transition-colors duration-(--np-duration-fast) group-hover/health:bg-fill group-hover/health:text-ink"
-          >
-            {/* One element, not a visible copy plus a screen-reader copy:
-                two nodes carrying the same accessible text make the chip
-                ambiguous to "next item" navigation and to getByText. Below
-                `sm` the dot alone shows and the label stays in the
-                accessibility tree. */}
-            <span className="sr-only sm:not-sr-only">{label}</span>
-          </HealthCapsule>
+          <span
+            aria-hidden
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              TONE_CLASSES[tone].dot
+            )}
+          />
+          {/* One element, not a visible copy plus a screen-reader copy: two
+              nodes carrying the same text make the chip ambiguous to "next
+              item" navigation and to getByText. On phones the dot alone
+              shows and the words stay in the accessibility tree. */}
+          <span className="min-w-0 truncate max-md:sr-only">
+            {scoped && !stale ? (
+              <>
+                <span className="max-lg:sr-only">{scoped.name}:</span> {label}
+              </>
+            ) : (
+              label
+            )}
+          </span>
         </Link>
       )}
     </>

@@ -8,18 +8,16 @@ import {
   type FormEvent,
 } from "react"
 
+import { Mail } from "lucide-react"
+
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { AuthLink } from "@/components/auth/auth-link"
 import { PasswordField } from "@/components/auth/password-field"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-button"
 import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  segmentedItemClassName,
-  segmentedThumbClassName,
-  segmentedTrackClassName,
-} from "@/components/ui/segmented-control"
 import * as authApi from "@/lib/api/auth"
 import {
   authErrorMessage,
@@ -45,6 +43,31 @@ const CREATE_FIELD_ORDER = [
 // PasswordField/Field, which don't expose a ref for this.
 function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
+}
+
+/**
+ * The domain schemas' own messages are written for the API ("Too small:
+ * expected string to have >=2 characters"); these say what to do instead.
+ * Only the wording changes: which fields fail is still the schema's call.
+ */
+function friendlyFieldErrors(
+  errors: Record<string, string>,
+  values: { displayName: string; email: string; password: string }
+): Record<string, string> {
+  const next = { ...errors }
+  if (next.displayName) {
+    next.displayName =
+      values.displayName.trim().length > 120
+        ? "Use no more than 120 characters."
+        : "Enter your name, at least 2 characters."
+  }
+  if (next.email) {
+    next.email = values.email.trim()
+      ? "Enter an email address like name@agency.co.uk."
+      : "Enter your email address."
+  }
+  if (next.password && !values.password) next.password = "Enter your password."
+  return next
 }
 
 function zodFieldErrors(
@@ -119,7 +142,10 @@ function SignInForm({
     if (mode === "sign-in") {
       const parsed = loginSchema.safeParse({ email, password, inviteToken })
       if (!parsed.success) {
-        const errors = zodFieldErrors(parsed.error, SIGN_IN_FIELD_ORDER)
+        const errors = friendlyFieldErrors(
+          zodFieldErrors(parsed.error, SIGN_IN_FIELD_ORDER),
+          { displayName, email, password }
+        )
         setFieldErrors(errors)
         const target = SIGN_IN_FIELD_ORDER.find((key) => errors[key])
         if (target) focusField(target)
@@ -153,7 +179,10 @@ function SignInForm({
       inviteToken,
     })
     if (!parsed.success) {
-      const errors = zodFieldErrors(parsed.error, CREATE_FIELD_ORDER)
+      const errors = friendlyFieldErrors(
+        zodFieldErrors(parsed.error, CREATE_FIELD_ORDER),
+        { displayName, email, password }
+      )
       if (password !== confirmPassword) {
         errors.confirmPassword = "Both passwords must match."
       }
@@ -189,17 +218,40 @@ function SignInForm({
 
   if (stage === "confirm-sent") {
     return (
-      <div className="flex flex-col gap-4">
-        <h2 className="text-title font-semibold text-ink">Check your email</h2>
-        <p className="text-body text-ink-muted">
-          We sent a confirmation link to {email}. Open it, then sign in.
-        </p>
-        <ResendConfirmationButton email={email} inviteToken={inviteToken} />
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1.5">
+          <span
+            aria-hidden
+            className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink"
+          >
+            <Mail className="size-5" strokeWidth={1.75} />
+          </span>
+          <h2 className="text-section font-semibold text-ink">
+            Check your email
+          </h2>
+          <p className="text-body text-ink-muted">
+            We sent a confirmation link to{" "}
+            <span className="font-semibold [overflow-wrap:anywhere] text-ink">
+              {email}
+            </span>
+            . Open it, then sign in.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2.5 rounded-lg bg-surface-alt p-4">
+          <p className="text-ui text-ink">
+            Not there after a few minutes? Check spam or promotions, then send a
+            fresh link.
+          </p>
+          <ResendConfirmationButton
+            email={email}
+            inviteToken={inviteToken}
+            variant="button"
+          />
+        </div>
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           size="lg"
-          pill
           className="w-full"
           onClick={() => {
             setStage("form")
@@ -213,21 +265,21 @@ function SignInForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-      {/* The segmented control's own track, thumb and segment recipes,
-          imported rather than retyped: this used to be a copy of those class
-          strings, which is how the auth screen's track drifts from the one on
-          Home the first time either is tuned.
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+      {message ? (
+        <div ref={alertRef} tabIndex={-1} className="outline-none">
+          <AuthErrorAlert message={message} email={email} />
+        </div>
+      ) : null}
 
-          Only the SEMANTICS differ. It stays a group of two pressed buttons
-          rather than a tablist because the two modes are one form with two
-          shapes, not two panels, and `aria-pressed` is what tests and
-          assistive tech read — so the thumb is drawn on the selected button
-          itself instead of by Tabs.Indicator. */}
+      {/* Two pressed buttons rather than a tablist: the two modes are one
+          form with two shapes, not two panels, and `aria-pressed` is what
+          tests and assistive tech read. Drawn as the reference's full-width
+          segmented control. */}
       <div
         role="group"
         aria-label="Account action"
-        className={segmentedTrackClassName}
+        className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-fill p-[3px]"
       >
         {(
           [
@@ -242,20 +294,16 @@ function SignInForm({
             aria-label={name}
             onClick={() => switchMode(value)}
             className={cn(
-              segmentedItemClassName,
-              mode === value && cn(segmentedThumbClassName, "text-ink")
+              "inline-flex h-[30px] items-center justify-center rounded-[7px] px-3 text-ui font-medium whitespace-nowrap focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none pointer-coarse:h-10",
+              mode === value
+                ? "bg-surface text-ink shadow-np-raised"
+                : "text-ink-secondary hover:bg-surface/50 hover:text-ink"
             )}
           >
             {label}
           </button>
         ))}
       </div>
-
-      {message ? (
-        <div ref={alertRef} tabIndex={-1}>
-          <AuthErrorAlert message={message} email={email} />
-        </div>
-      ) : null}
 
       {mode === "create-account" ? (
         <Field error={fieldErrors.displayName}>
@@ -294,6 +342,11 @@ function SignInForm({
           onValueChange={setPassword}
           autoComplete="current-password"
           error={fieldErrors.password}
+          labelAside={
+            <AuthLink href="/forgot-password" className="text-ui">
+              Forgot password?
+            </AuthLink>
+          }
         />
       ) : (
         <>
@@ -320,9 +373,9 @@ function SignInForm({
       <Button
         type="submit"
         size="lg"
-        pill
-        className="w-full"
+        className="h-11 w-full"
         disabled={pending}
+        aria-busy={pending || undefined}
       >
         {mode === "sign-in"
           ? pending
@@ -333,13 +386,23 @@ function SignInForm({
             : "Create account"}
       </Button>
 
+      {nextPath && nextPath !== "/inbox" ? (
+        <p className="-mt-2 text-caption text-ink-muted">
+          After signing in you’ll go back to{" "}
+          <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-[12px] [overflow-wrap:anywhere] text-ink">
+            {nextPath}
+          </code>
+          .
+        </p>
+      ) : null}
+
       {mode === "sign-in" ? (
         // Always visible, never conditioned on the sign-in error (D3): a
         // resend affordance gated on `email_not_verified` would itself
         // confirm whether the address is registered. Showing it
         // unconditionally keeps the resend path (spec §8) without adding an
         // enumeration channel.
-        <div className="flex flex-col items-start gap-1 border-t border-line-subtle pt-5">
+        <div className="flex flex-col items-start gap-1 border-t border-line pt-4">
           <p className="text-caption text-ink-muted">
             Didn&apos;t receive a confirmation email?
           </p>

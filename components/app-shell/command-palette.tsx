@@ -95,8 +95,8 @@ function CommandPalette({
       <CommandInput placeholder="Go to a client, a location or an action…" />
       <CommandList>
         <CommandEmpty>
-          Nothing matched that. To search review text, use Search reviews in
-          the Inbox.
+          Nothing matched that. To search review text, use Search reviews in the
+          Inbox.
         </CommandEmpty>
 
         {clients.data?.items.length ? (
@@ -181,6 +181,17 @@ function CommandPalette({
  * textareas and anything contenteditable, or it would eat a slash mid-sentence
  * in a reply the operator is writing.
  */
+const OPEN_PALETTE_EVENT = "np:open-command-palette"
+
+/**
+ * Opens the toolbar's palette from anywhere on the page (the not-found
+ * page's "Search clients and listings" button), without lifting the
+ * palette's state out of the toolbar that owns it.
+ */
+function openCommandPalette() {
+  document.dispatchEvent(new Event(OPEN_PALETTE_EVENT))
+}
+
 function useCommandPalette() {
   const [open, setOpen] = React.useState(false)
 
@@ -197,8 +208,13 @@ function useCommandPalette() {
         setOpen((previous) => !previous)
       }
     }
+    const onOpenRequest = () => setOpen(true)
     document.addEventListener("keydown", onKeyDown)
-    return () => document.removeEventListener("keydown", onKeyDown)
+    document.addEventListener(OPEN_PALETTE_EVENT, onOpenRequest)
+    return () => {
+      document.removeEventListener("keydown", onKeyDown)
+      document.removeEventListener(OPEN_PALETTE_EVENT, onOpenRequest)
+    }
   }, [])
 
   return { open, setOpen }
@@ -225,14 +241,13 @@ function useSyncPlatform() {
 }
 
 /**
- * The toolbar's Commands trigger. It looks like a capsule field — a grey pill
- * with a magnifier, a label and the shortcut — but it is a button that opens
- * the palette, because the palette is where typing goes. Below `sm` only the
- * magnifier shows; the label stays in the accessible name.
+ * The toolbar's search trigger. It looks like a field (a bordered white box
+ * with a magnifier, a label and the shortcut) but it is a button that opens
+ * the palette, because the palette is where typing goes. Below 768px it is a
+ * 44px square with the magnifier alone; the label stays the accessible name.
  *
- * Labelled "Commands" rather than "Search" so its scope is on the button
- * itself: it goes to clients, locations and actions. Review text is searched
- * in the Inbox, in one clearly labelled field.
+ * The label names its scope (clients, listings, pages and actions). Review
+ * text is searched in the Inbox, in one clearly labelled field.
  */
 function CommandPaletteButton({
   onClick,
@@ -246,22 +261,32 @@ function CommandPaletteButton({
     <button
       type="button"
       onClick={onClick}
-      aria-label="Commands: clients, locations and actions"
+      aria-label="Search clients, listings, pages and actions"
       aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        "flex h-(--np-control-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-2.5 text-ui text-ink-muted sm:w-56 sm:px-3",
-        "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink active:scale-[0.98]",
+        "flex h-[34px] shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted md:min-w-50",
+        "transition-colors duration-(--np-duration-fast) hover:border-line-strong hover:text-ink",
         "focus-halo focus-visible:outline-none",
+        "max-md:size-11 max-md:justify-center max-md:p-0",
         className
       )}
     >
       <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
-      <span className="sr-only flex-1 text-left sm:not-sr-only">Commands</span>
-      <Kbd className="hidden border-0 bg-transparent px-0 text-ink-muted sm:inline-flex">
+      <span aria-hidden className="flex-1 truncate text-left max-md:hidden">
+        Search clients, listings…
+      </span>
+      <Kbd aria-hidden className="ml-auto max-md:hidden">
         {hint}
       </Kbd>
     </button>
   )
 }
 
-export { CommandPalette, CommandPaletteButton, useCommandPalette }
+export {
+  CommandPalette,
+  CommandPaletteButton,
+  openCommandPalette,
+  useCommandPalette,
+  useShortcutHint,
+}

@@ -118,10 +118,13 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   if (!isUsableToken(tokenHash)) {
     return (
-      <div className="flex flex-col items-start gap-5">
-        <p className="text-body text-ink-muted">
-          This password reset link is missing or incomplete. Request a new one
-          to continue.
+      <div className="flex flex-col items-start gap-2.5 rounded-lg bg-surface-alt p-4">
+        <p className="text-body font-semibold text-ink">
+          This link is missing or incomplete
+        </p>
+        <p className="text-ui text-ink-muted">
+          Open the newest reset email and use its link, or request a new one to
+          continue.
         </p>
         <AuthLink href="/forgot-password">Request another link</AuthLink>
       </div>
@@ -130,16 +133,16 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   if (deadToken && message) {
     return (
-      <div ref={alertRef} tabIndex={-1}>
+      <div ref={alertRef} tabIndex={-1} className="outline-none">
         <AuthErrorAlert message={message} />
       </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       {message ? (
-        <div ref={alertRef} tabIndex={-1}>
+        <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} />
         </div>
       ) : null}
@@ -165,9 +168,9 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
       <Button
         type="submit"
         size="lg"
-        pill
-        className="w-full"
+        className="h-11 w-full"
         disabled={pending}
+        aria-busy={pending || undefined}
       >
         {pending ? "Updating…" : "Update password"}
       </Button>

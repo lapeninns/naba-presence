@@ -34,8 +34,8 @@ function InvitationActions({
   const sameEmail = viewer.email === invitedEmail
 
   return (
-    <div className="flex flex-col gap-5">
-      <p className="text-body text-ink-muted">
+    <div className="flex flex-col gap-4">
+      <p className="text-body [overflow-wrap:anywhere] text-ink-muted">
         {sameEmail
           ? `You are signed in as ${viewer.email}. Sign out and continue to accept this invitation.`
           : `You are signed in as ${viewer.email}, but this invitation is for ${invitedEmail}.`}
@@ -43,8 +43,7 @@ function InvitationActions({
       <Button
         type="button"
         size="lg"
-        pill
-        className="w-full"
+        className="h-11 w-full"
         onClick={handleSignOut}
         disabled={pending}
       >

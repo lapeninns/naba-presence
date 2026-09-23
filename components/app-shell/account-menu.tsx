@@ -1,19 +1,25 @@
 "use client"
 
-import { ChevronsUpDown, LogOut } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
+import { LogOut, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react"
+import { useTheme } from "next-themes"
 import * as React from "react"
+import { z } from "zod"
 
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { apiFetch } from "@/lib/api/client"
 import { signOut } from "@/lib/api/auth"
+import { apiFetch } from "@/lib/api/client"
 import { cn } from "@/lib/utils"
-import { z } from "zod"
 
 import type { ShellSession } from "./app-shell"
 
@@ -23,12 +29,25 @@ const organisationsSchema = z.object({
   ),
 })
 
+const ROLE_LABEL: Record<string, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  member: "Member",
+  viewer: "Viewer",
+}
+
 const ROLE_EXPLANATION: Record<string, string> = {
   owner: "Full access, including compliance and billing",
   admin: "Manages clients, connections and the team",
   member: "Replies to reviews and edits assigned clients",
   viewer: "Read-only",
 }
+
+const THEMES = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "Match system", icon: Monitor },
+] as const
 
 function initialsFor(name: string) {
   const letters = name
@@ -52,8 +71,22 @@ async function handleSignOut() {
   }
 }
 
+const subscribeNever = () => () => {}
+
 /**
- * Identity, role and the way out.
+ * `theme` reflects localStorage on the client but not in the server render,
+ * so the radio group reads "system" until hydration has finished.
+ */
+function useHydrated() {
+  return React.useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false
+  )
+}
+
+/**
+ * Identity, role, theme and the way out, from the sidebar's foot.
  *
  * The role is spelled out rather than shown as a bare lowercase word: "member"
  * on its own does not tell anyone what they may do, and the first question a
@@ -66,13 +99,20 @@ async function handleSignOut() {
  */
 function AccountMenu({
   session,
+  rail = false,
   className,
 }: {
   session: ShellSession | null
+  /** The responsive sidebar: shows only the avatar in the icon-rail band. */
+  rail?: boolean
   className?: string
 }) {
   const displayName = session?.displayName ?? "Account"
   const role = session?.role
+  const roleLabel = role ? ROLE_LABEL[role] : null
+  const { theme, setTheme } = useTheme()
+  const hydrated = useHydrated()
+  const currentTheme = hydrated && theme ? theme : "system"
 
   const organisations = useQuery({
     queryKey: ["organisations"],
@@ -110,9 +150,10 @@ function AccountMenu({
           <button
             type="button"
             className={cn(
-              "flex h-11 w-full items-center gap-2.5 rounded-(--np-radius-control) px-2 text-left",
-              "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill-tertiary active:scale-[0.98] aria-expanded:bg-fill-tertiary",
+              "flex min-h-11 w-full items-center gap-2.5 rounded-md p-2 text-left",
+              "transition-colors duration-(--np-duration-fast) hover:bg-fill aria-expanded:bg-fill",
               "focus-halo focus-visible:outline-none",
+              rail && "md:max-[1181px]:justify-center",
               className
             )}
           />
@@ -120,59 +161,104 @@ function AccountMenu({
       >
         <span
           aria-hidden
-          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-semibold text-ink"
+          className="grid size-6 shrink-0 place-items-center rounded-full bg-fill text-[10.5px] font-semibold tracking-[0.02em] text-ink-secondary"
         >
           {initialsFor(displayName)}
         </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-ui font-medium text-ink">
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            rail && "md:max-[1181px]:sr-only"
+          )}
+        >
+          <span className="truncate text-ui font-semibold text-ink">
             {displayName}
           </span>
-          {role ? (
-            <span className="truncate text-caption text-ink-muted capitalize">
-              {role}
+          {roleLabel || session?.organisationName ? (
+            <span className="truncate text-caption text-ink-muted">
+              {[roleLabel, session?.organisationName]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           ) : null}
         </span>
-        <ChevronsUpDown
-          className="size-4 shrink-0 text-ink-muted"
+        <MoreHorizontal
+          className={cn(
+            "size-4 shrink-0 text-ink-muted",
+            rail && "md:max-[1181px]:hidden"
+          )}
           strokeWidth={1.75}
           aria-hidden
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-64">
-        <div className="px-2 py-1.5">
-          <p className="truncate text-ui font-medium text-ink">{displayName}</p>
-          <p className="truncate text-caption text-ink-muted">
-            {session?.email}
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="w-[min(18rem,calc(100vw-2rem))]"
+      >
+        <div className="flex flex-col gap-0.5 px-2 pt-1.5 pb-2">
+          <p className="truncate text-ui font-semibold text-ink">
+            {displayName}
           </p>
-          {role ? (
-            <p className="mt-1.5 text-caption text-ink-muted">
-              <span className="font-medium capitalize">{role}</span>
-              {ROLE_EXPLANATION[role] ? ` · ${ROLE_EXPLANATION[role]}` : ""}
+          {session?.email ? (
+            <p className="text-caption break-all text-ink-muted">
+              {session.email}
             </p>
           ) : null}
+          {role ? (
+            <div className="mt-1.5 flex flex-col items-start gap-1">
+              <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-[0.71875rem] font-medium tracking-[0.02em] text-ink-secondary uppercase">
+                {role}
+              </span>
+              {ROLE_EXPLANATION[role] ? (
+                <p className="text-caption text-ink-muted">
+                  {ROLE_EXPLANATION[role]}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Theme</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={currentTheme}
+            onValueChange={(value) => setTheme(String(value))}
+          >
+            {THEMES.map((option) => (
+              <DropdownMenuRadioItem
+                key={option.value}
+                value={option.value}
+                closeOnClick
+              >
+                <option.icon aria-hidden />
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+
         {others.length > 0 ? (
           <>
-            <div className="mx-2 my-1 h-px bg-line-subtle" />
-            <p className="px-2 py-1 text-caption font-medium text-ink-muted">
-              Switch organisation
-            </p>
-            {others.map((organisation) => (
-              <DropdownMenuItem
-                key={organisation.organisationId}
-                disabled={switching}
-                onClick={() => void switchTo(organisation.organisationId)}
-              >
-                <span className="truncate">{organisation.name}</span>
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Switch organisation</DropdownMenuLabel>
+              {others.map((organisation) => (
+                <DropdownMenuItem
+                  key={organisation.organisationId}
+                  disabled={switching}
+                  onClick={() => void switchTo(organisation.organisationId)}
+                >
+                  <span className="truncate">{organisation.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           </>
         ) : null}
-        <div className="mx-2 my-1 h-px bg-line-subtle" />
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => void handleSignOut()}>
-          <LogOut className="size-4" strokeWidth={1.75} aria-hidden />
+          <LogOut aria-hidden />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -180,4 +266,4 @@ function AccountMenu({
   )
 }
 
-export { AccountMenu }
+export { AccountMenu, ROLE_EXPLANATION, ROLE_LABEL }

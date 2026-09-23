@@ -1,6 +1,6 @@
 "use client"
 
-import { TriangleAlertIcon } from "lucide-react"
+import { Unlink } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
@@ -24,13 +24,12 @@ function formatWhen(iso: string | null | undefined): string | null {
  * permanent red bar naming no one: it neither said which client was affected
  * nor gave an action that helped the client actually in front of you.
  *
- * On org-wide pages this renders nothing. Home's attention list carries those
- * clients instead, where each row can name its own client and its own fix.
+ * On org-wide pages this renders nothing; the Inbox's Today strip and the
+ * clients list carry those clients, each with its own fix.
  *
- * Visually a tinted warning card sitting at the top of the content column,
- * inside the page's own gutters, with a plain (accent-text) action. Nothing
- * else in the shell is red or bordered, and this should not be either: it is
- * a card with a colour, not an alarm.
+ * Drawn as the reference's full-bleed banner directly under the toolbar: a
+ * danger tint across the content column, inside the page gutters, with the
+ * one action as a secondary button.
  */
 export function ReconnectBanner({ className }: { className?: string }) {
   const clientId = useClientScope()
@@ -53,38 +52,40 @@ export function ReconnectBanner({ className }: { className?: string }) {
   const lastRefresh = formatWhen(broken?.lastRefreshAt)
 
   return (
-    <div className={cn("shrink-0", className)}>
-      <div
-        role="alert"
-        className="flex flex-col gap-3 rounded-(--np-radius-card) bg-warning-tint px-4 py-3 text-ui text-ink sm:flex-row sm:items-center"
+    <div
+      role="alert"
+      data-slot="reconnect-banner"
+      className={cn(
+        "flex shrink-0 flex-wrap items-start gap-3 bg-danger-tint px-5 py-2.5 text-ui text-ink sm:items-center md:px-(--np-page-pad-x)",
+        className
+      )}
+    >
+      <Unlink
+        className="mt-0.5 size-4 shrink-0 text-danger-ink sm:mt-0"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <p className="min-w-0 flex-[1_1_16rem] text-pretty [overflow-wrap:anywhere]">
+        <strong className="font-semibold">
+          {client.name}: Google needs reconnecting.
+        </strong>{" "}
+        <span className="text-ink-secondary">
+          {broken?.googleEmail
+            ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
+            : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
+          {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
+        </span>
+      </p>
+      <Link
+        href={`/clients/${client.id}`}
+        prefetch={false}
+        className={cn(
+          buttonVariants({ variant: "outline", size: "sm" }),
+          "shrink-0 pointer-coarse:min-h-11"
+        )}
       >
-        <TriangleAlertIcon
-          className="size-4 shrink-0 text-warning-ink"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="font-semibold">
-            {client.name}: Google needs reconnecting
-          </p>
-          <p className="text-ink-muted">
-            {broken?.googleEmail
-              ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
-              : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
-            {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
-          </p>
-        </div>
-        <Link
-          href={`/clients/${client.id}`}
-          prefetch={false}
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "shrink-0 self-start text-accent-ink sm:self-center"
-          )}
-        >
-          Reconnect Google
-        </Link>
-      </div>
+        Reconnect Google
+      </Link>
     </div>
   )
 }

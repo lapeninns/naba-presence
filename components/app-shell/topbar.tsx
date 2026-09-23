@@ -3,7 +3,6 @@
 import { Menu } from "lucide-react"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 import { ShellBreadcrumbs } from "./breadcrumbs-context"
@@ -13,31 +12,33 @@ import {
   useCommandPalette,
 } from "./command-palette"
 import { ContextHealthChip } from "./context-health-chip"
-import { ThemeToggle } from "./theme-toggle"
 
 /**
- * The toolbar: the strip above the content column that the page scrolls
- * beneath. Where you are (the trail), how to get anywhere (search), and
- * whether anything is broken (the health capsule). The page's own title is
- * NOT here — it lives in `PageHeader`, in the content column, with its
- * actions — which is what makes this a toolbar and not a title bar.
+ * The toolbar: the 56px strip above the content column that the page scrolls
+ * beneath. Where you are (the trail), whether anything is broken (the health
+ * chip) and how to get anywhere (search). The page's own title is NOT here:
+ * it lives in `PageHeader`, in the content column, with its actions.
  *
- * It is a material: translucent and blurred, with a hairline along its bottom
- * edge drawn as an inset shadow so it never takes a pixel of layout. The
- * shell makes it sticky inside the scroll column; this component only draws.
+ * Below 768px the trail collapses to its last crumb, the chip and search
+ * become 44px icon buttons, and the menu button that opens the navigation
+ * sheet appears at the trailing edge.
  *
  * `sessionReady` gates every data-reading child. On the first anonymous visit
  * the shell provisions the session cookie before anything else runs. A query
  * that fires ahead of it gets a 401, and the API client treats that as "sign
- * in again" and hard-navigates away — so an ungated chip in the toolbar
- * would bounce the user off the page they asked for.
+ * in again" and hard-navigates away, so an ungated chip in the toolbar would
+ * bounce the user off the page they asked for.
  */
 function Toolbar({
   onOpenNav,
+  navOpen = false,
+  navToggleRef,
   sessionReady,
   className,
 }: {
   onOpenNav: () => void
+  navOpen?: boolean
+  navToggleRef?: React.Ref<HTMLButtonElement>
   sessionReady: boolean
   className?: string
 }) {
@@ -47,38 +48,31 @@ function Toolbar({
     <header
       data-slot="toolbar"
       className={cn(
-        "flex h-(--np-toolbar-h) shrink-0 items-center gap-3 material-toolbar px-4 [box-shadow:inset_0_-0.5px_0_var(--np-line)] md:px-(--np-page-pad-x)",
+        "flex h-(--np-toolbar-h) shrink-0 items-center gap-3 bg-canvas px-5 shadow-[inset_0_-1px_0_var(--np-line)] max-md:gap-2 md:px-(--np-page-pad-x)",
         className
       )}
     >
-      {/* The one control in the toolbar that exists only below `md`, which
-          is to say only where a finger is likely to be the pointer. It takes
-          the 44px comfortable target there rather than the 32px control
-          height the rest of the toolbar is built on — the same rule the
-          location tab strip applies to its capsules. */}
-      <Button
-        variant="secondary"
-        size="icon"
-        className="md:hidden pointer-coarse:size-11"
-        aria-label="Open navigation"
-        onClick={onOpenNav}
-      >
-        <Menu strokeWidth={1.75} aria-hidden />
-      </Button>
-
       {sessionReady ? (
-        <ShellBreadcrumbs className="hidden min-w-0 flex-1 sm:block" />
+        <ShellBreadcrumbs className="min-w-0 flex-1" />
       ) : (
-        <div className="hidden flex-1 sm:block" />
+        <div className="flex-1" />
       )}
 
-      <div className="ml-auto flex items-center gap-2">
-        {sessionReady ? <ContextHealthChip /> : null}
-        {sessionReady ? (
-          <CommandPaletteButton onClick={() => palette.setOpen(true)} />
-        ) : null}
-        <ThemeToggle />
-      </div>
+      {sessionReady ? <ContextHealthChip /> : null}
+      {sessionReady ? (
+        <CommandPaletteButton onClick={() => palette.setOpen(true)} />
+      ) : null}
+      <button
+        ref={navToggleRef}
+        type="button"
+        aria-label="Open navigation"
+        aria-expanded={navOpen}
+        aria-controls="mobile-navigation"
+        onClick={onOpenNav}
+        className="grid size-11 shrink-0 place-items-center rounded-md text-ink focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill focus-visible:outline-none md:hidden"
+      >
+        <Menu className="size-5" strokeWidth={1.75} aria-hidden />
+      </button>
 
       {sessionReady ? (
         <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />

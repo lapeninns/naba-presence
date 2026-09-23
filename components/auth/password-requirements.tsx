@@ -1,4 +1,4 @@
-import { Circle, CircleCheck } from "lucide-react"
+import { CircleCheck } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -26,14 +26,18 @@ function checkPasswordRules(value: string): PasswordRule[] {
  */
 function PasswordRequirements({ value }: { value: string }) {
   return (
-    <ul className="flex flex-col gap-1 pt-1">
+    <ul
+      // No aria-label: "Password requirements" would match getByLabel
+      // ("Password") beside the input itself. The rows name themselves.
+      className="grid grid-cols-1 gap-x-3 gap-y-1 pt-0.5 min-[431px]:grid-cols-2"
+    >
       {checkPasswordRules(value).map((rule) => (
         <li
           key={rule.id}
           aria-label={`${rule.met ? "Met" : "Not yet met"}: ${rule.label}`}
           data-met={rule.met || undefined}
           className={cn(
-            "flex items-center gap-1.5 text-caption transition-colors duration-(--np-duration-fast) ease-spring-snappy",
+            "flex items-center gap-1.5 text-caption transition-colors duration-(--np-duration-fast)",
             rule.met ? "text-ink" : "text-ink-muted"
           )}
         >
@@ -44,10 +48,9 @@ function PasswordRequirements({ value }: { value: string }) {
               aria-hidden
             />
           ) : (
-            <Circle
-              className="size-3.5 shrink-0 text-ink-faint"
-              strokeWidth={1.75}
+            <span
               aria-hidden
+              className="size-3.5 shrink-0 rounded-full border-[1.5px] border-line-strong"
             />
           )}
           {rule.label}
