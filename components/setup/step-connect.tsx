@@ -9,9 +9,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
+import { useToastManager } from "@/components/ui/toast"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatRelativeTime } from "@/lib/format"
+import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 
@@ -30,18 +32,24 @@ import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 function StepConnect({
   clientId,
   clientName,
+  onConnected,
 }: {
   clientId: string
   clientName: string
+  /** Called once an existing login is filed under the client. */
+  onConnected: () => void
 }) {
   const params = useSearchParams()
   const workspace = useConnectionWorkspace()
+  const { attachConnection } = useClientMutations()
+  const toast = useToastManager()
   const [starting, setStarting] = React.useState(false)
   const [startError, setStartError] = React.useState<string | null>(null)
 
   const returned = params.get("google")
   const returnedStatus = params.get("status")
   const requestId = params.get("rid")
+  const returnedReason = params.get("reason")
 
   const connections = workspace.query.data?.connections ?? []
   const usable = connections.filter(
@@ -66,6 +74,20 @@ function StepConnect({
     }
   }
 
+  const pickExisting = (connectionId: string) => {
+    attachConnection.mutate(
+      { clientId, connectionId },
+      {
+        onSuccess: onConnected,
+        onError: (error) =>
+          toast.add({
+            title: "Could not use that account",
+            description: describeActionError(error),
+          }),
+      }
+    )
+  }
+
   return (
     <QueryStates
       status={
@@ -83,10 +105,15 @@ function StepConnect({
         <div className="flex flex-col gap-4">
           {startError || returned === "error" ? (
             <Alert variant="destructive" data-testid="setup-connect-error">
-              <AlertTitle>Google didn’t connect</AlertTitle>
+              <AlertTitle>
+                {!startError && returnedReason === "google_scope_missing"
+                  ? "Permission not granted"
+                  : "Google didn’t connect"}
+              </AlertTitle>
               <AlertDescription className="flex flex-col gap-1">
                 <span>
-                  {startError ?? describeGoogleConnectStatus(returnedStatus)}
+                  {startError ??
+                    describeGoogleConnectStatus(returnedStatus, returnedReason)}
                 </span>
                 {!startError && requestId ? (
                   <span className="text-caption text-ink-muted">
@@ -193,7 +220,24 @@ function StepConnect({
                       {broken ? (
                         <StatusPill tone="bad">Needs reconnecting</StatusPill>
                       ) : (
-                        <StatusPill tone="ok">Connected</StatusPill>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <StatusPill tone="ok">Connected</StatusPill>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            pending={
+                              attachConnection.isPending &&
+                              attachConnection.variables?.connectionId ===
+                                connection.id
+                            }
+                            pendingLabel="Using…"
+                            disabled={attachConnection.isPending}
+                            onClick={() => pickExisting(connection.id)}
+                            aria-label={`Use ${connection.googleEmail ?? "this Google account"}`}
+                          >
+                            Use this account
+                          </Button>
+                        </span>
                       )}
                     </li>
                   )

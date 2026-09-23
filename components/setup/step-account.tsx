@@ -10,9 +10,19 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
  *
  * Reuses the settings card rather than a second implementation: the selection
  * rules (auto-derived connection, explicit save) are the same job, and two
- * copies would drift the moment one gained a fix.
+ * copies would drift the moment one gained a fix. The client and its login
+ * scope the save, so choosing accounts here leaves other clients' accounts
+ * alone.
  */
-function StepAccount({ clientName }: { clientName: string }) {
+function StepAccount({
+  clientName,
+  clientId,
+  connectionId,
+}: {
+  clientName: string
+  clientId: string
+  connectionId: string | null
+}) {
   return (
     <>
       <Alert variant="info" icon={<InfoIcon aria-hidden />}>
@@ -22,7 +32,7 @@ function StepAccount({ clientName }: { clientName: string }) {
           stay available for other clients.
         </AlertDescription>
       </Alert>
-      <AccountPickerCard />
+      <AccountPickerCard clientId={clientId} connectionId={connectionId} />
     </>
   )
 }

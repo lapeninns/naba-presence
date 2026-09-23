@@ -47,7 +47,9 @@ export {
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleOAuthUrl,
   googleUserInfo,
+  grantsBusinessManage,
   pkceChallenge,
+  revokeGoogleToken,
 } from "@/lib/server/google/oauth"
 export type { GoogleTokenResponse } from "@/lib/server/google/oauth"
 export {

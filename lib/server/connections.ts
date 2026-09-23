@@ -18,6 +18,7 @@ type ConnectionRow = {
   notificationsEnabled: boolean
   lastRefreshAt: string | Date | null
   lastErrorCode: string | null
+  refreshTokenExpiresAt: string | Date | null
   reconnectRequired: boolean
   createdAt: string | Date
 }
@@ -42,6 +43,7 @@ export async function listConnections(
         notifications_enabled as "notificationsEnabled",
         last_refresh_at as "lastRefreshAt",
         last_error_code as "lastErrorCode",
+        refresh_token_expires_at as "refreshTokenExpiresAt",
         exists (
           select 1
           from connection_task ct
@@ -70,6 +72,9 @@ export async function listConnections(
     ...row,
     lastRefreshAt: row.lastRefreshAt
       ? new Date(row.lastRefreshAt as string | Date).toISOString()
+      : null,
+    refreshTokenExpiresAt: row.refreshTokenExpiresAt
+      ? new Date(row.refreshTokenExpiresAt as string | Date).toISOString()
       : null,
     createdAt: new Date(row.createdAt as string | Date).toISOString(),
   }))

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   assignLocationsToClient,
+  attachClientConnection,
   createClient,
   fetchClient,
   fetchClients,
@@ -104,6 +105,18 @@ export function useClientMutations() {
           grantToClientMembers: input.grantToClientMembers ?? true,
         }),
       onSuccess: invalidate,
+    }),
+    attachConnection: useMutation({
+      mutationFn: (input: { clientId: string; connectionId: string }) =>
+        attachClientConnection(input.clientId, {
+          connectionId: input.connectionId,
+        }),
+      onSuccess: (response, input) => {
+        // The wizard decides where it is from this query, so it has to hold
+        // the new state before the step changes, not after a refetch.
+        queryClient.setQueryData(queryKeys.clientSetup(input.clientId), response)
+        invalidate()
+      },
     }),
     unassignLocations: useMutation({
       mutationFn: (input: { clientId: string; locationIds: string[] }) =>

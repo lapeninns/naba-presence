@@ -2,7 +2,7 @@
 
 import { RefreshCw } from "lucide-react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
 import {
@@ -12,10 +12,24 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { useToastManager } from "@/components/ui/toast"
+import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
 
-function describeOAuthStatus(status: string | null): string {
+/** The parameters the OAuth callback appends; everything else is the page's. */
+const OAUTH_PARAMS = ["google", "status", "rid", "reason"]
+
+/** Where a successful connection gets its own confirmation panel. */
+const CONNECTIONS_PATH = "/settings/connections"
+
+function describeOAuthStatus(
+  status: string | null,
+  reason: string | null
+): string {
+  if (reason === "google_scope_missing") {
+    return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
+  }
   switch (status) {
     case "400":
       return "Google sign-in was cancelled or couldn’t be completed. Try connecting again."
@@ -30,39 +44,64 @@ function describeOAuthStatus(status: string | null): string {
   }
 }
 
-type Outcome = { kind: "connected" } | { kind: "error"; message: string }
+type Outcome =
+  { kind: "connected" } | { kind: "error"; title: string; message: string }
 
 /**
- * What came back from Google's sign-in (`?google=connected|error&status=`):
- * a confirmation, or the cause in plain words with Try again. The query is
- * stripped once read, and the message stays until the page is left.
+ * The outcome of a Google OAuth round trip (`?google=connected|error&status=
+ * &reason=`), on whichever page the flow returned to: the callback sends
+ * failures back to where they started, such as a setup step, rather than
+ * always to Settings. `connectInput` is what "Try again" restarts with, so a
+ * retry from setup stays in setup. Only the callback's own parameters are
+ * stripped, and the message stays until the page is left.
  */
-export function OAuthReturn() {
+export function OAuthReturn({
+  connectInput = {},
+}: { connectInput?: ConnectStartBody } = {}) {
   const params = useSearchParams()
+  const pathname = usePathname()
   const router = useRouter()
+  const toast = useToastManager()
   const { connect } = useConnectionWorkspace()
   const google = params.get("google")
   const status = params.get("status")
+  const reason = params.get("reason")
   const [outcome, setOutcome] = useState<Outcome | null>(null)
 
   // Same ref-guard shape as lib/locations/use-reset-on-revision.ts — only
-  // handle a given `google`/`status` pair once, not on every incidental
-  // re-render; and never reset when router.replace strips the query (the
-  // identity changes, but the message stays).
-  const identity = `${google ?? ""}:${status ?? ""}`
+  // handle a given callback result once, not on every incidental re-render;
+  // and never reset when router.replace strips the query (the identity
+  // changes, but the message stays).
+  const identity = `${google ?? ""}:${status ?? ""}:${reason ?? ""}`
   const identityRef = useRef<string | null>(null)
+  const onConnectionsPage = pathname === CONNECTIONS_PATH
   const next: Outcome | null =
     google === "connected"
       ? { kind: "connected" }
       : google === "error"
-        ? { kind: "error", message: describeOAuthStatus(status) }
+        ? {
+            kind: "error",
+            title:
+              reason === "google_scope_missing"
+                ? "Permission not granted"
+                : "We couldn’t connect Google",
+            message: describeOAuthStatus(status, reason),
+          }
         : null
   useEffect(() => {
     if (google !== "connected" && google !== "error") return
     if (identityRef.current === identity) return
     identityRef.current = identity
-    setOutcome(next)
-    router.replace("/settings/connections")
+    // The connections page confirms with its own panel; anywhere else (a
+    // setup step) a toast, so the step's own content stays in charge.
+    setOutcome(next?.kind === "connected" && !onConnectionsPage ? null : next)
+    if (next?.kind === "connected" && !onConnectionsPage) {
+      toast.add({ title: "Google Business Profile connected", type: "success" })
+    }
+    const remaining = new URLSearchParams(params.toString())
+    for (const key of OAUTH_PARAMS) remaining.delete(key)
+    const query = remaining.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, google, status])
 
@@ -72,8 +111,8 @@ export function OAuthReturn() {
       <Alert variant="success">
         <AlertTitle>Google Business Profile connected</AlertTitle>
         <AlertDescription>
-          Google confirmed access for this login. Link its locations to a
-          client from client setup.
+          Google confirmed access for this login. Link its locations to a client
+          from client setup.
         </AlertDescription>
         <AlertActions>
           <Link
@@ -88,7 +127,7 @@ export function OAuthReturn() {
   }
   return (
     <Alert variant="destructive">
-      <AlertTitle>We couldn’t connect Google</AlertTitle>
+      <AlertTitle>{outcome.title}</AlertTitle>
       <AlertDescription>
         {outcome.message} Nothing was changed.
       </AlertDescription>
@@ -98,7 +137,7 @@ export function OAuthReturn() {
           size="sm"
           pending={connect.isPending}
           pendingLabel="Opening Google…"
-          onClick={() => connect.mutate({})}
+          onClick={() => connect.mutate(connectInput)}
         >
           <RefreshCw aria-hidden />
           Try again

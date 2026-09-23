@@ -1,5 +1,6 @@
 import { apiFetch, type RequestOptions } from "./client"
 import {
+  type ConnectStartBody,
   connectStartResponseSchema,
   connectionsResponseSchema,
   disconnectResponseSchema,
@@ -18,9 +19,7 @@ export function fetchConnections(options?: RequestOptions) {
   })
 }
 
-export function startGoogleConnect(
-  input: { clientId?: string; returnTo?: string } = {}
-) {
+export function startGoogleConnect(input: ConnectStartBody = {}) {
   return apiFetch("/api/google/connect/start", {
     method: "POST",
     body: input,

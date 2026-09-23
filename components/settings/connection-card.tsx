@@ -167,7 +167,13 @@ export function ReconnectDialog({
           <Button
             pending={connect.isPending}
             pendingLabel="Opening Google…"
-            onClick={() => connect.mutate({})}
+            // Target this connection: Google pre-fills its login, and the
+            // callback updates it rather than adding a new one.
+            onClick={() =>
+              connect.mutate(
+                connection ? { reconnectConnectionId: connection.id } : {}
+              )
+            }
           >
             <ExternalLink aria-hidden />
             Continue to Google

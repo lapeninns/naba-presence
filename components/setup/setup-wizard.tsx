@@ -333,7 +333,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   clientId={clientId}
                   clientName={name}
                   facts={facts}
+                  connectionId={setup?.connection?.id ?? null}
                   onAgencyDirtyChange={setAgencyDirty}
+                  onConnected={() => goTo("account")}
                 />
               </div>
             </div>
@@ -442,13 +444,17 @@ function StepBody({
   clientId,
   clientName,
   facts,
+  connectionId,
   onAgencyDirtyChange,
+  onConnected,
 }: {
   step: SetupStep
   clientId: string
   clientName: string
   facts: SetupFacts
+  connectionId: string | null
   onAgencyDirtyChange: (dirty: boolean) => void
+  onConnected: () => void
 }) {
   switch (step) {
     case "agency":
@@ -456,9 +462,21 @@ function StepBody({
     case "client":
       return <StepClientSummary clientId={clientId} clientName={clientName} />
     case "connect":
-      return <StepConnect clientId={clientId} clientName={clientName} />
+      return (
+        <StepConnect
+          clientId={clientId}
+          clientName={clientName}
+          onConnected={onConnected}
+        />
+      )
     case "account":
-      return <StepAccount clientName={clientName} />
+      return (
+        <StepAccount
+          clientName={clientName}
+          clientId={clientId}
+          connectionId={connectionId}
+        />
+      )
     case "locations":
       return <StepLocations clientId={clientId} clientName={clientName} />
     case "backfill":
