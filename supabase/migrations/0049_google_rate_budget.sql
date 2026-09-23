@@ -12,10 +12,11 @@ begin;
 -- google_rate_bucket is platform-level, like ops_heartbeat: bucket names are
 -- API hosts ("mybusiness.googleapis.com") and per-location edit buckets
 -- ("edit:locations/123"); no tenant data. Each row is a fixed window counter.
--- The caller sizes the window (10 seconds) and its capacity (a sixth of the
--- per-minute limit) so that any rolling minute, which spans at most seven
--- windows, stays under the limit: 7 x floor(240/6) = 280 < 300, and
--- 7 x 1 = 7 < 10 edits.
+-- The caller sizes the window and its capacity so that any rolling minute
+-- stays under the limit: API buckets use 10-second windows of a sixth of the
+-- per-minute figure (a rolling minute spans at most seven: 7 x 40 = 280 <
+-- 300); edit buckets use one-minute windows of half of it (at most two:
+-- 2 x 4 = 8 < 10 edits).
 --
 -- blocked_until is the cross-instance Retry-After: one instance hearing 429
 -- stops them all for the time Google asked.

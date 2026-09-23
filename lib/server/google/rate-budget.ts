@@ -20,8 +20,15 @@ import { log } from "@/lib/server/logger"
  * into a fleet-wide block.
  */
 
-/** Fixed windows this long; see 0049 for why a sixth of a minute. */
+/**
+ * Per-API buckets use 10-second windows holding a sixth of the per-minute
+ * figure; per-profile edit buckets use one-minute windows holding half of
+ * it, so a person saving a few fields in a row is not made to wait while the
+ * rolling minute still stays under Google's limit. In both, any rolling
+ * minute spans at most (60 / window + 1) windows.
+ */
 export const BUDGET_WINDOW_SECONDS = 10
+const EDIT_WINDOW_SECONDS = 60
 const WINDOWS_PER_MINUTE = 60 / BUDGET_WINDOW_SECONDS
 const BUDGET_TIMEOUT_MS = 2_000
 /** Retry-After Google did not state: back off this long. */
@@ -42,16 +49,32 @@ export function worstRollingMinute(perMinute: number): number {
   return windowCapacity(perMinute) * (WINDOWS_PER_MINUTE + 1)
 }
 
+export function editWindowCapacity(perMinute: number): number {
+  return Math.max(1, Math.floor(perMinute / 2))
+}
+
+/** Worst case edits to one profile in any rolling minute. */
+export function worstRollingMinuteOfEdits(perMinute: number): number {
+  return editWindowCapacity(perMinute) * 2
+}
+
+type Budget = {
+  bucket: string
+  perMinute: number
+  capacity: number
+  windowSeconds: number
+}
+
 /**
- * The budgets one request draws from: its API's, and for a write to one
- * location, that profile's edit budget. Google's quota is per API service,
- * which is the host. The OAuth and OpenID endpoints are not Business Profile
- * quota and draw nothing.
+ * The budgets one request draws from: its API's, and for a write to a
+ * location through the Business Information API, that profile's edit
+ * budget. Google's "10 edits per minute per Business Profile" is a Business
+ * Information limit; review replies, posts and media go through other
+ * surfaces and are bounded by their API's budget only. Quota is per API
+ * service, which is the host. The OAuth and OpenID endpoints are not
+ * Business Profile quota and draw nothing.
  */
-export function budgetsFor(
-  url: string,
-  mode: "safe" | "mutation"
-): { bucket: string; perMinute: number }[] {
+export function budgetsFor(url: string, mode: "safe" | "mutation"): Budget[] {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -59,23 +82,28 @@ export function budgetsFor(
     return []
   }
   const host = parsed.hostname
-  if (
-    !/^(mybusiness|businessprofileperformance)[a-z]*\.googleapis\.com$/.test(
-      host
-    )
-  ) {
+  if (!/^(mybusiness|businessprofileperformance)[a-z]*\.googleapis\.com$/.test(host)) {
     return []
   }
   const env = getServerEnv()
-  const budgets = [
-    { bucket: host, perMinute: env.GOOGLE_API_REQUESTS_PER_MINUTE },
+  const perMinute = env.GOOGLE_API_REQUESTS_PER_MINUTE
+  const budgets: Budget[] = [
+    {
+      bucket: host,
+      perMinute,
+      capacity: windowCapacity(perMinute),
+      windowSeconds: BUDGET_WINDOW_SECONDS,
+    },
   ]
-  if (mode === "mutation") {
+  if (mode === "mutation" && host === "mybusinessbusinessinformation.googleapis.com") {
     const location = /\/locations\/([^/:]+)/.exec(parsed.pathname)
     if (location) {
+      const edits = env.GOOGLE_LOCATION_EDITS_PER_MINUTE
       budgets.push({
         bucket: `edit:locations/${location[1]}`,
-        perMinute: env.GOOGLE_LOCATION_EDITS_PER_MINUTE,
+        perMinute: edits,
+        capacity: editWindowCapacity(edits),
+        windowSeconds: EDIT_WINDOW_SECONDS,
       })
     }
   }
@@ -116,7 +144,7 @@ export async function acquireGoogleBudget(
   deadline: number
 ): Promise<void> {
   if (!getServerEnv().GOOGLE_RATE_BUDGET_ENABLED) return
-  for (const { bucket, perMinute } of budgetsFor(url, mode)) {
+  for (const { bucket, capacity, windowSeconds } of budgetsFor(url, mode)) {
     for (;;) {
       let waitMs: number
       try {
@@ -124,8 +152,8 @@ export async function acquireGoogleBudget(
           getDatabase()<{ waitMs: number }[]>`
             select take_google_rate_budget(
               ${bucket},
-              ${windowCapacity(perMinute)},
-              ${BUDGET_WINDOW_SECONDS}
+              ${capacity},
+              ${windowSeconds}
             ) as "waitMs"
           `,
           BUDGET_TIMEOUT_MS

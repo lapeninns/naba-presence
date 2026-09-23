@@ -47,6 +47,7 @@ describeDatabase("fleet coverage at 150 organisations", () => {
       GOOGLE_TIMEOUT_MS: "5000",
       // Production defaults, including the shared Google budget.
       GOOGLE_API_REQUESTS_PER_MINUTE: "240",
+      GOOGLE_RATE_BUDGET_ENABLED: "true",
       GOOGLE_LOCATION_EDITS_PER_MINUTE: "8",
     })
     for (let index = 0; index < FLEET; index += 1) {

@@ -36,11 +36,11 @@ function serverEnv(
     WEBHOOKS_ENABLED: "false",
     PASSWORD_AUTH_ENABLED: "false",
     OPENAI_API_KEY: "",
-    // The shared Google budget is exercised by rate-budget.test.ts and
-    // fleet-scale.test.ts with real limits; everywhere else it would only
-    // slow suites that fire bursts at a local stub.
-    GOOGLE_API_REQUESTS_PER_MINUTE: "10000",
-    GOOGLE_LOCATION_EDITS_PER_MINUTE: "10",
+    // The shared Google budget lives in the database every suite shares, so
+    // one suite's stubbed 429 would block the next suite's calls for the
+    // Retry-After. It is switched on, with real limits, only by the suites
+    // that test it (rate-budget, fleet-scale).
+    GOOGLE_RATE_BUDGET_ENABLED: "false",
     ...overrides,
   }
 }
@@ -85,6 +85,15 @@ export async function startAppServer(
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
+  // A server that dies mid-suite otherwise shows up only as ECONNREFUSED in
+  // whichever test calls it next; say why it died.
+  let stopping = false
+  child.once("exit", (code, signal) => {
+    if (stopping) return
+    console.error(
+      `[app-server] ${baseUrl} exited unexpectedly (code ${code}, signal ${signal})\n${stderr.slice(-4000)}`
+    )
+  })
   return {
     baseUrl,
     get stdout() {
@@ -94,6 +103,7 @@ export async function startAppServer(
       return stderr
     },
     stop: async () => {
+      stopping = true
       child.kill("SIGTERM")
       await Promise.race([
         once(child, "exit"),

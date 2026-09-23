@@ -139,8 +139,10 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 - **Google request budget (0049).** Every Business Profile call first takes a
   slot from `google_rate_bucket`: per API host
   (`GOOGLE_API_REQUESTS_PER_MINUTE`, 240) and, for a write, per location
-  (`GOOGLE_LOCATION_EDITS_PER_MINUTE`, 8). Windows are 10 seconds, so any
-  rolling minute stays under Google's 300 QPM and 10 edits/min. A 429 from
+  (`GOOGLE_LOCATION_EDITS_PER_MINUTE`, 8) for Business Information writes.
+  API windows are 10 seconds and edit windows one minute, sized so any
+  rolling minute stays under Google's 300 QPM and 10 edits/min. Review
+  replies, posts and media draw only on their API's budget. A 429 from
   Google blocks that bucket for every instance until its `Retry-After`. Work
   that cannot get a slot before its deadline fails with the retryable
   `google_rate_limited` and is retried a minute later without spending its

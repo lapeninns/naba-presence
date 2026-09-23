@@ -85,23 +85,19 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
     `
     // Use keeps a session alive: the idle window slides forward from now,
     // capped at the absolute limit set at sign-in (0051). A support session
-    // has no room to slide (its idle and absolute limits are equal).
+    // keeps its fixed expiry and never slides.
     await sql`
       update app_session
       set
         last_seen_at = now(),
-        expires_at = least(
-          now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '1 day'),
-          coalesce(absolute_expires_at, expires_at)
-        )
+        expires_at = case
+          when support_actor is null then least(
+            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '1 day'),
+            coalesce(absolute_expires_at, expires_at)
+          )
+          else expires_at
+        end
       where id = ${sessionIdentity.sessionId}
-        and support_actor is null
-    `
-    await sql`
-      update app_session
-      set last_seen_at = now()
-      where id = ${sessionIdentity.sessionId}
-        and support_actor is not null
     `
     return session ?? null
   }) as Promise<Session | null>

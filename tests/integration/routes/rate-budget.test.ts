@@ -33,6 +33,7 @@ describeDatabase("shared Google request budget", () => {
     GOOGLE_TIMEOUT_MS: "5000",
     GOOGLE_REQUESTS_PER_SECOND: "100",
     GOOGLE_API_REQUESTS_PER_MINUTE: "6",
+    GOOGLE_RATE_BUDGET_ENABLED: "true",
   })
 
   beforeAll(async () => {

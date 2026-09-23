@@ -16,7 +16,7 @@ without both.
 
 | Finding                                               | Status                          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Production isn't running; Google approvals unrecorded | **Externally blocked** (see §6) | Checked read-only on 2026-09-23: Vercel production still serves the 226-day-old gb-preview build (`/sign-in` 404, `/signin` 200); production `DATABASE_URL`/`DIRECT_DATABASE_URL` are the 226-day-old values the runbook records as NXDOMAIN; no `SUPABASE_*`, `EMAIL_*` or `OPS_ALERT_EMAILS`. Google Cloud project `23639420332`: every Business Profile API enabled, **quota approved** (Business Information / Account Management / Performance 300 QPM, v4 600 QPM). OAuth publishing status and the `business.manage` sensitivity class are not readable from the CLI. |
+| Production isn't running; Google approvals unrecorded | **Externally blocked** (see §6) | Checked read-only on 2026-09-23: Vercel production still serves the 226-day-old gb-preview build (`/sign-in` 404, `/signin` 200); production `DATABASE_URL`/`DIRECT_DATABASE_URL` are the 226-day-old values the runbook records as NXDOMAIN; no `SUPABASE_*`, `EMAIL_*` or `OPS_ALERT_EMAILS`. Google Cloud project `23639420332`: every Business Profile API enabled, **quota approved** (Business Information / Account Management / Performance 300 QPM, v4 600 QPM). The OAuth app is still in **Testing**: the dev connection's refresh token expires seven days after issue (2026-09-25). The `business.manage` sensitivity class is not readable from the CLI. |
 
 ### High
 
@@ -91,10 +91,11 @@ without both.
    queue (0046). Next runs are booked on each kind's grid from the slot they
    were due in (`next_scheduled_run`): a late run catches up once and rejoins
    the grid instead of drifting.
-6. **Postgres rate budget, windowed so the limit really holds.** Fixed
-   10-second windows sized at a sixth of the per-minute setting; any rolling
-   minute spans at most seven windows, so 240/min never exceeds 280 < 300, and
-   8 edits/min never exceeds 7 < 10. A 429 blocks the bucket for every
+6. **Postgres rate budget, windowed so the limit really holds.** Per-API buckets use
+   10-second windows of a sixth of the per-minute setting (a rolling minute
+   spans at most seven, so 240/min never exceeds 280 < 300); per-profile edit
+   buckets apply to Business Information writes only and use one-minute
+   windows of half the setting (8/min never exceeds 8 < 10). A 429 blocks the bucket for every
    instance until `Retry-After`. The budget fails open to local pacing after
    2 s so a saturated pool can never deadlock a request.
 7. **Degraded ≠ needs reconnect.** `expired` without an open reconnect task
@@ -208,7 +209,7 @@ discovery document. Live RISC delivery requires registration (§6).
 | --------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Production database does not exist      | Production DB variables unchanged for 226 days, host NXDOMAIN (runbook) | Provision the database (runbook "Production database"), run `pnpm db:migrate` (now 52 migrations incl. 0047–0052), create the runtime role, set Vercel env                                                                                                           | Everything in production                                                 |
 | Production serves the old build         | `/sign-in` 404, `/signin` 200 on `googlereview-gbp.vercel.app`          | Deploy this branch after merge, once the database exists                                                                                                                                                                                                             | Everything in production                                                 |
-| OAuth publishing status and scope class | Not readable via gcloud                                                 | In Cloud Console → Google Auth Platform: confirm **In production**; check the Data Access page for `business.manage` sensitivity; start verification if sensitive                                                                                                    | Persistent (> 7 day) connections                                         |
+| OAuth app still in **Testing** | The local dev connection (created 2026-09-18) holds a refresh token Google set to expire 2026-09-25, a seven-day lifetime, which Google issues only to Testing apps requesting more than name/email/profile. The Cloud Console itself was not readable from the CLI. | In Google Auth Platform → Audience, click **Publish app**; on the Data Access page check the `business.manage` class and start verification if it is sensitive. Then reconnect once: tokens issued in Testing keep their seven-day expiry. | Any connection lasting longer than seven days, and the 30-day soak |
 | Email provider                          | None configured anywhere                                                | Choose a provider (adapter is Resend-shaped), verify a sender domain, set `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM`, `OPS_ALERT_EMAILS`                                                                                                                        | Email delivery (incidents still recorded and shown in-app)               |
 | RISC registration                       | `risc.googleapis.com` not enabled on the project                        | Enable the RISC API, accept RISC terms, create a service account with `roles/riscconfigs.admin`, register the stream at `/api/webhooks/google/risc` for `token-revoked`, `tokens-revoked`, `account-disabled`, `account-purged`, `verification`; run `stream:verify` | Revocation detection within a minute (fallback: next refresh / API call) |
 | Vercel plan vs cron cadence             | `vercel.json` already had a minute cron before this work                | Confirm the project's plan supports minute and 15-minute crons                                                                                                                                                                                                       | Queue drain rate, alerts                                                 |
@@ -219,7 +220,7 @@ discovery document. Live RISC delivery requires registration (§6).
 
 **NO-GO for production.** The code for the Now, Next and feasible Later work is
 implemented and tested locally, but production has no database, still serves
-the old build, has no email provider, and the OAuth publishing status is
-unconfirmed. `docs/live-certification/release-checklist.md` remains NO-GO. The
+the old build, has no email provider, and the OAuth app is still in Testing, so every
+connection would expire after seven days whatever the code does. `docs/live-certification/release-checklist.md` remains NO-GO. The
 branch is ready for review and merge; production readiness depends on the
 owner actions in §6 and the soak in §5.
