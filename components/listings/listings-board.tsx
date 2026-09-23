@@ -77,7 +77,11 @@ function matchesHealth(health: ListingHealth, filter: HealthFilter): boolean {
     case "all":
       return true
     case "attention":
-      return health === "attention" || health === "disconnected"
+      return (
+        health === "attention" ||
+        health === "disconnected" ||
+        health === "access_lost"
+      )
     case "unpublished":
       return health === "unpublished"
     case "not_linked":
@@ -90,11 +94,35 @@ function matchesHealth(health: ListingHealth, filter: HealthFilter): boolean {
 /** Worst first, then by name, so the top of the board is the to-do list. */
 const HEALTH_ORDER: Record<ListingHealth, number> = {
   disconnected: 0,
+  access_lost: 0,
   attention: 1,
   unpublished: 2,
   pending_verification: 3,
   not_linked: 4,
   healthy: 5,
+}
+
+/**
+ * When this listing's reviews were last successfully checked with Google,
+ * and whether that is late. Only successful checks count, so a sync that
+ * keeps failing shows its age here instead of looking fresh.
+ */
+function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
+  const freshness = summary?.freshness
+  if (!freshness) return null
+  const checked = freshness.lastCheckedAt
+    ? `Checked ${formatRelativeTime(freshness.lastCheckedAt)}`
+    : "Not checked yet"
+  return (
+    <span
+      className={cn(
+        "text-caption",
+        freshness.state === "data_delayed" ? "text-warning-ink" : "text-ink-muted"
+      )}
+    >
+      {freshness.state === "data_delayed" ? `${checked} · delayed, retrying` : checked}
+    </span>
+  )
 }
 
 function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
@@ -423,9 +451,12 @@ function ListingsBoard({ role }: { role: string | null }) {
           )}
         </TableCell>
         <TableCell label="Health">
-          <StatusPill tone={listingHealthTone(row.health)}>
-            {listingHealthLabel(row.health)}
-          </StatusPill>
+          <span className="flex flex-col items-start gap-1">
+            <StatusPill tone={listingHealthTone(row.health)}>
+              {listingHealthLabel(row.health)}
+            </StatusPill>
+            <FreshnessLine summary={row.summary} />
+          </span>
         </TableCell>
         <TableCell label="Waiting" span>
           {summaries.isPending ? (

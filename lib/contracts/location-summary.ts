@@ -70,6 +70,26 @@ export const listingSummarySchema = z.object({
     foodMenus: z.number().int().nonnegative(),
   }),
   lastPublish: lastPublishSchema.nullable(),
+  /**
+   * Can this listing's Google data be trusted right now: Up to date, Data
+   * delayed, or Action needed, with when its reviews were last SUCCESSFULLY
+   * checked against Google. Optional so an older cached response still
+   * parses.
+   */
+  freshness: z
+    .object({
+      state: z.enum(["up_to_date", "data_delayed", "action_needed"]),
+      reason: z
+        .enum([
+          "reconnect_required",
+          "listing_access_lost",
+          "google_unavailable",
+          "sync_delayed",
+        ])
+        .nullable(),
+      lastCheckedAt: z.string().nullable(),
+    })
+    .optional(),
 })
 export type ListingSummary = z.infer<typeof listingSummarySchema>
 

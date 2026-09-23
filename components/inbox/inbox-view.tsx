@@ -14,6 +14,7 @@ import {
   useSelection,
 } from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
+import { GoogleFreshness } from "@/components/inbox/google-freshness"
 import { TodayStrip } from "@/components/inbox/today/today-strip"
 import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
@@ -584,6 +585,7 @@ function InboxViewInner({
                 }${reviewsQuery.hasNextPage ? " so far" : ""}`}
         </span>
         <span aria-hidden className="flex-1" />
+        <GoogleFreshness />
         {loaded && refreshed ? (
           <span
             className="font-mono text-[11.5px] text-ink-muted tabular-nums"
