@@ -1,12 +1,16 @@
 "use client"
 
-import { useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
+import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
+
+/** The parameters the OAuth callback appends; everything else is the page's. */
+const OAUTH_PARAMS = ["google", "status", "rid", "reason"]
 
 function describeOAuthStatus(
   status: string | null,
@@ -29,8 +33,17 @@ function describeOAuthStatus(
   }
 }
 
-export function OAuthReturn() {
+/**
+ * The outcome of a Google OAuth round trip, on whichever page the flow
+ * returned to (the callback now sends failures back to where they started,
+ * such as a setup step, rather than always to Settings). `connectInput` is
+ * what "Try again" restarts with, so a retry from setup stays in setup.
+ */
+export function OAuthReturn({
+  connectInput = {},
+}: { connectInput?: ConnectStartBody } = {}) {
   const params = useSearchParams()
+  const pathname = usePathname()
   const router = useRouter()
   const toast = useToastManager()
   const { connect } = useConnectionWorkspace()
@@ -76,7 +89,12 @@ export function OAuthReturn() {
     if (google === "connected") {
       toast.add({ title: "Google Business Profile connected", type: "success" })
     }
-    router.replace("/settings/connections")
+    // Strip only the callback's own parameters: a setup step keeps its
+    // `client` and `step`.
+    const remaining = new URLSearchParams(params.toString())
+    for (const key of OAUTH_PARAMS) remaining.delete(key)
+    const query = remaining.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, google, status])
 
@@ -86,7 +104,7 @@ export function OAuthReturn() {
       <AlertTitle>{error.title}</AlertTitle>
       <AlertDescription>{error.description}</AlertDescription>
       <AlertAction>
-        <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate({})}>
+        <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate(connectInput)}>
           Try again
         </Button>
       </AlertAction>

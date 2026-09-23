@@ -43,6 +43,8 @@ export type GoogleTokenResponse = {
 export function googleOAuthUrl(input: {
   state: string
   codeChallenge: string
+  /** The Google account to preselect, when reconnecting a known login. */
+  loginHint?: string | null
 }): string {
   const env = getServerEnv()
   if (!env.GOOGLE_CLIENT_ID) {
@@ -68,6 +70,7 @@ export function googleOAuthUrl(input: {
     code_challenge: input.codeChallenge,
     code_challenge_method: "S256",
   })
+  if (input.loginHint) params.set("login_hint", input.loginHint)
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`
 }
 

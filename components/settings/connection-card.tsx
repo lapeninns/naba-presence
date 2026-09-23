@@ -138,7 +138,9 @@ export function ConnectionCard({
                           className="text-accent-ink"
                           disabled={connect.isPending}
                           aria-label={`Reconnect ${name}`}
-                          onClick={() => connect.mutate({})}
+                          onClick={() =>
+                            connect.mutate({ reconnectConnectionId: connection.id })
+                          }
                         >
                           Reconnect
                         </Button>
