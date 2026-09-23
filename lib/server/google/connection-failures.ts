@@ -28,6 +28,14 @@ const CREDENTIAL_REJECTIONS = new Set([
   "refresh_token_missing",
 ])
 
+/**
+ * Failures only a fresh consent can fix, so the connection is `revoked`
+ * (unloadable) rather than `expired` (retried by the next refresh). A token
+ * without `business.manage` refreshes happily into another token without it,
+ * and an `expired` row would close its own reconnect task on that refresh.
+ */
+const REVOKING_FAILURES = new Set(["invalid_grant", "insufficient_scope"])
+
 export function revokesConnection(errorCode: string): boolean {
   return CREDENTIAL_REJECTIONS.has(errorCode)
 }
@@ -77,15 +85,17 @@ export function isConnectionBlockedError(error: unknown): boolean {
   )
 }
 
+type FailedConnection = Pick<GoogleConnectionRow, "id" | "organisation_id">
+
 async function recordConnectionFailure(
   sql: TransactionSql,
-  connection: GoogleConnectionRow,
+  connection: FailedConnection,
   errorCode: string
 ) {
   await sql`
     update google_connection
     set
-      status = ${errorCode === "invalid_grant" ? "revoked" : "expired"},
+      status = ${REVOKING_FAILURES.has(errorCode) ? "revoked" : "expired"},
       last_error_code = ${errorCode}
     where id = ${connection.id}
   `
@@ -132,7 +142,7 @@ async function recordConnectionFailure(
 }
 
 export async function persistConnectionFailure(
-  connection: GoogleConnectionRow,
+  connection: FailedConnection,
   errorCode: string
 ) {
   // Invariant: callers must not hold an open transaction. This helper owns

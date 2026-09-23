@@ -111,7 +111,7 @@ describeDatabase("automatic Google review setup", () => {
         access_token: "automatic-access-token",
         expires_in: 3600,
         refresh_token: "automatic-refresh-token",
-        scope: "openid email profile business.manage",
+        scope: "openid email profile https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))
@@ -236,7 +236,7 @@ describeDatabase("automatic Google review setup", () => {
         access_token: "state-access-token",
         expires_in: 3600,
         refresh_token: "state-refresh-token",
-        scope: "openid email profile business.manage",
+        scope: "openid email profile https://www.googleapis.com/auth/business.manage",
         token_type: "Bearer",
       },
     }))

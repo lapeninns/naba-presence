@@ -164,7 +164,8 @@ describeDatabase("google connection failure handling", () => {
   /** Drives the real OAuth flow: start (for the signed state cookie), callback. */
   async function completeOAuth(
     owner: Awaited<ReturnType<typeof createTestTenant>>,
-    googleSubject: string
+    googleSubject: string,
+    scope = "openid email profile https://www.googleapis.com/auth/business.manage"
   ) {
     stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
       status: 200,
@@ -172,7 +173,7 @@ describeDatabase("google connection failure handling", () => {
         access_token: "callback-access-token",
         expires_in: 3600,
         refresh_token: "callback-refresh-token",
-        scope: "openid email profile business.manage",
+        scope,
         token_type: "Bearer",
       },
     }))
@@ -402,5 +403,140 @@ describeDatabase("google connection failure handling", () => {
         and status = 'active'
     `
     expect(replacement.count).toBe(1)
+  })
+
+  it("never activates a consent that left out business.manage", async () => {
+    // A brand-new login: nothing may be stored at all.
+    const fresh = await createTestTenant(admin)
+    organisations.push(fresh.organisationId)
+    stub.reset()
+    const refused = await completeOAuth(
+      fresh,
+      `scopeless-${fresh.organisationId}`,
+      "openid https://www.googleapis.com/auth/userinfo.email"
+    )
+    expect(refused.status, await refused.clone().text()).toBe(403)
+    expect(await refused.json()).toMatchObject({ error: "google_scope_missing" })
+    const [stored] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from google_connection
+      where organisation_id = ${fresh.organisationId}
+    `
+    expect(stored.count).toBe(0)
+
+    // A re-consent for a login that needs reconnecting keeps it that way,
+    // rather than overwriting its tokens with ones that cannot manage anything.
+    const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
+    await openReconnectTask(owner.organisationId, connectionId)
+    stub.reset()
+    const partial = await completeOAuth(owner, googleSubject, "openid email profile")
+    expect(partial.status).toBe(403)
+    const [connection] = await connectionState(connectionId)
+    expect(connection.status).toBe("revoked")
+    expect((await reconnectTasks(connectionId))[0].status).toBe("open")
+  })
+
+  it("marks the connection for reconnect when Google answers 401", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      json: {
+        access_token: "refused-access-token",
+        expires_in: 3600,
+        scope: "https://www.googleapis.com/auth/business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 401,
+      json: { error: { code: 401, status: "UNAUTHENTICATED", message: "Invalid Credentials" } },
+    }))
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(401)
+    expect(await response.json()).toMatchObject({ error: "google_reconnect_required" })
+    const [connection] = await connectionState(connectionId)
+    // Expired, not revoked: the next call refreshes, and a refresh that works
+    // closes the task on its own.
+    expect(connection).toMatchObject({
+      status: "expired",
+      lastErrorCode: "google_unauthenticated",
+    })
+    const tasks = await reconnectTasks(connectionId)
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({ status: "open", reasonCode: "google_unauthenticated" })
+  })
+
+  it("revokes on a 403 for missing scopes, and ignores a 403 for one resource", async () => {
+    const scoped = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      json: {
+        access_token: "narrow-access-token",
+        expires_in: 3600,
+        scope: "openid",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 403,
+      json: {
+        error: {
+          code: 403,
+          status: "PERMISSION_DENIED",
+          message: "Request had insufficient authentication scopes.",
+          details: [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+            },
+          ],
+        },
+      },
+    }))
+    const narrow = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${scoped.connectionId}`,
+      { headers: { cookie: scoped.owner.cookie } }
+    )
+    expect(narrow.status, await narrow.clone().text()).toBe(401)
+    expect((await connectionState(scoped.connectionId))[0]).toMatchObject({
+      status: "revoked",
+      lastErrorCode: "insufficient_scope",
+    })
+
+    const denied = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      json: {
+        access_token: "denied-access-token",
+        expires_in: 3600,
+        scope: "https://www.googleapis.com/auth/business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 403,
+      json: {
+        error: {
+          code: 403,
+          status: "PERMISSION_DENIED",
+          message: "The caller does not have permission",
+        },
+      },
+    }))
+    const forbidden = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${denied.connectionId}`,
+      { headers: { cookie: denied.owner.cookie } }
+    )
+    expect(forbidden.status).toBe(403)
+    expect((await connectionState(denied.connectionId))[0].status).toBe("active")
+    expect(await reconnectTasks(denied.connectionId)).toHaveLength(0)
   })
 })

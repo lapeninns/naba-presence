@@ -11,12 +11,22 @@ import {
   isAbortError,
 } from "./transport"
 
-const OAUTH_SCOPE = [
-  "openid",
-  "email",
-  "profile",
-  "https://www.googleapis.com/auth/business.manage",
-].join(" ")
+export const BUSINESS_MANAGE_SCOPE =
+  "https://www.googleapis.com/auth/business.manage"
+
+const OAUTH_SCOPE = ["openid", "email", "profile", BUSINESS_MANAGE_SCOPE].join(
+  " "
+)
+
+/**
+ * True when the space-separated `scope` Google returned with a token includes
+ * Business Profile management. Google's consent screen lets a person untick
+ * individual permissions, and a token without this one can sign in but not
+ * read a single review.
+ */
+export function grantsBusinessManage(scope: string | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(BUSINESS_MANAGE_SCOPE)
+}
 
 export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
 
