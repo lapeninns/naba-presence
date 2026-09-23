@@ -18,7 +18,7 @@
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/sync/sweep?maxOrganisations=1&maxPagesPerLocation=5",
+      "path": "/api/sync/sweep",
       "schedule": "30 1 * * *"
     },
     {
