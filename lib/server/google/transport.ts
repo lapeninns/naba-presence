@@ -9,6 +9,11 @@ import {
 } from "@/lib/domain/retry"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import {
+  persistConnectionFailure,
+  reconnectRequiredError,
+} from "./connection-failures"
+import { accessTokenOwner, forgetAccessToken } from "./credentials"
 
 let nextGoogleRequestAt = 0
 const nextGoogleConnectionRequestAt = new Map<string, number>()
@@ -93,6 +98,51 @@ function providerError(body: unknown): {
     description,
     reason: Reflect.get(error, "message"),
   }
+}
+
+function hasScopeInsufficientReason(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false
+  const error = Reflect.get(body, "error")
+  if (typeof error !== "object" || error === null) return false
+  const details = Reflect.get(error, "details")
+  if (Array.isArray(details)) {
+    for (const detail of details) {
+      if (
+        typeof detail === "object" &&
+        detail !== null &&
+        Reflect.get(detail, "reason") === "ACCESS_TOKEN_SCOPE_INSUFFICIENT"
+      ) {
+        return true
+      }
+    }
+  }
+  const message = Reflect.get(error, "message")
+  return (
+    typeof message === "string" &&
+    /insufficient authentication scopes/i.test(message)
+  )
+}
+
+/**
+ * The failure code for an answer that says the credential itself is no good,
+ * or null for everything else.
+ *
+ * 401 is Google refusing the token. 403 counts only when it is about the
+ * token's scopes: Business Profile also answers 403 when the login has lost
+ * manager access to one account or location, or when the API is disabled for
+ * the Cloud project, and neither is fixed by reconnecting - flagging the
+ * shared login for reconnect over one venue would send someone through
+ * Google's consent screen for nothing.
+ */
+export function credentialFailureCode(
+  status: number,
+  body: unknown
+): "google_unauthenticated" | "insufficient_scope" | null {
+  if (status === 401) return "google_unauthenticated"
+  if (status === 403 && hasScopeInsufficientReason(body)) {
+    return "insufficient_scope"
+  }
+  return null
 }
 
 export async function googleRequest<T>(
@@ -193,6 +243,24 @@ export async function googleRequest<T>(
               setTimeout(resolve, Math.min(retryAfterMs, timeoutMs))
             )
             continue
+          }
+          // Before the mutation classification: a rejected credential means
+          // Google refused the call outright, so nothing was written and the
+          // work must wait for a reconnect rather than fail.
+          const credentialFailure = credentialFailureCode(
+            response.status,
+            body
+          )
+          const owner = credentialFailure
+            ? accessTokenOwner(accessToken)
+            : null
+          if (credentialFailure && owner) {
+            forgetAccessToken(accessToken)
+            await persistConnectionFailure(
+              { id: owner.connectionId, organisation_id: owner.organisationId },
+              credentialFailure
+            )
+            throw reconnectRequiredError()
           }
           const error = providerError(body)
           const reason =

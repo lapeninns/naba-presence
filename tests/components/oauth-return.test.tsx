@@ -35,4 +35,12 @@ describe("OAuthReturn", () => {
     expect(replace).toHaveBeenCalledWith("/settings/connections")
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
+
+  it("explains a consent that left out Business Profile access", () => {
+    search = new URLSearchParams("google=error&status=403&reason=google_scope_missing")
+    render(<Toaster><OAuthReturn /></Toaster>)
+    expect(screen.getByText("Permission not granted")).toBeInTheDocument()
+    expect(screen.getByText(/leave the Business Profile permission ticked/i)).toBeInTheDocument()
+    expect(screen.queryByText(/don’t have permission to connect Google/i)).toBeNull()
+  })
 })

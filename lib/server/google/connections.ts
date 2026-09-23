@@ -17,6 +17,7 @@ import {
   revokesConnection,
   type GoogleConnectionRow,
 } from "./connection-failures"
+import { rememberAccessToken } from "./credentials"
 import type { GoogleTokenResponse } from "./oauth"
 import { googleApiTarget, googleTimeoutError, isAbortError } from "./transport"
 
@@ -248,12 +249,13 @@ export async function connectionAccessToken(
   const connection = await withTenant(organisationId, (transaction) =>
     loadConnection(transaction, connectionId)
   )
-  if (
+  const token =
     connection.status !== "active" ||
     !connection.access_token_expires_at ||
     connection.access_token_expires_at.getTime() <= Date.now() + 60_000
-  ) {
-    return refreshAccessToken(connection)
-  }
-  return decryptSecret(connection.access_token_ciphertext)
+      ? await refreshAccessToken(connection)
+      : decryptSecret(connection.access_token_ciphertext)
+  // Lets the transport route a 401 from Google back to this connection.
+  rememberAccessToken(token, { organisationId, connectionId })
+  return token
 }

@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 
-function describeOAuthStatus(status: string | null): string {
+function describeOAuthStatus(
+  status: string | null,
+  reason: string | null
+): string {
+  if (reason === "google_scope_missing") {
+    return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
+  }
   switch (status) {
     case "400":
       return "Google sign-in was cancelled or couldn’t be completed. Try connecting again."
@@ -30,7 +36,8 @@ export function OAuthReturn() {
   const { connect } = useConnectionWorkspace()
   const google = params.get("google")
   const status = params.get("status")
-  const [error, setError] = useState<string | null>(null)
+  const reason = params.get("reason")
+  const [error, setError] = useState<{ title: string; description: string } | null>(null)
 
   // Deviation from the brief's reference impl (a bare `setState` in the effect
   // body): react-hooks/set-state-in-effect flags a synchronous setState call
@@ -39,9 +46,18 @@ export function OAuthReturn() {
   // re-render. `useResetOnRevision` itself does not fit here: this effect must
   // fire on mount for a fresh `?google=` pair, and must NOT reset `error` when
   // router.replace strips the query (identity changes, but the alert stays).
-  const identity = `${google ?? ""}:${status ?? ""}`
+  const identity = `${google ?? ""}:${status ?? ""}:${reason ?? ""}`
   const identityRef = useRef<string | null>(null)
-  const errorMessage = google === "error" ? describeOAuthStatus(status) : null
+  const errorMessage =
+    google === "error"
+      ? {
+          title:
+            reason === "google_scope_missing"
+              ? "Permission not granted"
+              : "We couldn’t connect Google",
+          description: describeOAuthStatus(status, reason),
+        }
+      : null
   useEffect(() => {
     // Nothing to process on the settled pass (router.replace below strips the
     // ?google= query, which re-renders with google === null) or for any other
@@ -62,13 +78,13 @@ export function OAuthReturn() {
     }
     router.replace("/settings/connections")
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, google, status, errorMessage])
+  }, [identity, google, status])
 
   if (!error) return null
   return (
     <Alert variant="destructive">
-      <AlertTitle>We couldn’t connect Google</AlertTitle>
-      <AlertDescription>{error}</AlertDescription>
+      <AlertTitle>{error.title}</AlertTitle>
+      <AlertDescription>{error.description}</AlertDescription>
       <AlertAction>
         <Button variant="outline" size="sm" disabled={connect.isPending} onClick={() => connect.mutate({})}>
           Try again

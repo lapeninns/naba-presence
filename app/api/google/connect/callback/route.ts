@@ -15,6 +15,7 @@ import {
   exchangeGoogleCode,
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleUserInfo,
+  grantsBusinessManage,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -124,6 +125,16 @@ async function completeOAuth({
   })
 
   const tokens = await exchangeGoogleCode(params.code, state.verifier)
+  // Google's consent screen lets a person untick Business Profile access. A
+  // token without it signs in fine and then fails every call, so it must not
+  // become (or replace the tokens of) an active connection.
+  if (!grantsBusinessManage(tokens.scope)) {
+    throw new ApiError(
+      403,
+      "google_scope_missing",
+      "Google did not grant permission to manage Business Profiles."
+    )
+  }
   const profile = await googleUserInfo(tokens.access_token)
   const refreshTokenExpiresAt = tokens.refresh_token_expires_in
     ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
@@ -322,6 +333,9 @@ function redirectStatus(error: unknown, requestId: string): number {
   return status
 }
 
+/** Error codes the connections page has its own wording for. */
+const OAUTH_ERROR_REASONS = new Set(["google_scope_missing"])
+
 // Browser redirect from Google: errors become a redirect, never a JSON body.
 export const GET = route({
   auth: "public",
@@ -341,6 +355,11 @@ export const GET = route({
       )
     } catch (error) {
       const status = String(redirectStatus(error, requestId))
+      // A reason the page can explain better than a status number can.
+      const reason =
+        error instanceof ApiError && OAUTH_ERROR_REASONS.has(error.code)
+          ? `&reason=${error.code}`
+          : ""
       // The error path cannot read the state (that is often what failed), so
       // it falls back to the connections page.
       const path =
@@ -351,7 +370,7 @@ export const GET = route({
       // redirect is the only thing they can see.
       return NextResponse.redirect(
         new URL(
-          `${path}?google=error&status=${status}&rid=${requestId}`,
+          `${path}?google=error&status=${status}${reason}&rid=${requestId}`,
           baseUrl
         )
       )
