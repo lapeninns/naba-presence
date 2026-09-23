@@ -137,7 +137,7 @@ function IndustryEditor({
 }) {
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <section className="flex max-w-2xl flex-col gap-4">
+      <section className="flex flex-col gap-3">
         <h3 className="text-title font-semibold text-ink">Lodging</h3>
         <SectionPanel title="Lodging" result={state.lodging}>
           {(data) => (
@@ -161,7 +161,7 @@ function IndustryEditor({
           page with three sections whose right edges all stopped in different
           places; the control inside it is bounded instead, the way the Open
           status pop-up on the Identity panel is. */}
-      <section className="flex max-w-2xl flex-col gap-4">
+      <section className="flex flex-col gap-3">
         <h3 className="text-title font-semibold text-ink">Business calls</h3>
         <SectionPanel title="Business calls" result={state.calls}>
           {(data) => (
@@ -175,7 +175,7 @@ function IndustryEditor({
         </SectionPanel>
       </section>
 
-      <section className="flex max-w-2xl flex-col gap-4">
+      <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h3 className="text-title font-semibold text-ink">Healthcare</h3>
           <p className="text-ui text-ink-muted">
@@ -183,7 +183,7 @@ function IndustryEditor({
             listing that can&apos;t be edited here yet.
           </p>
         </div>
-        <div className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface">
+        <div className="flex flex-col gap-3">
           <SectionPanel
             title="Healthcare services"
             result={state.healthcareServices}

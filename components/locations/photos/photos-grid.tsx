@@ -18,8 +18,12 @@ import { formatNumber } from "@/lib/format"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 /**
- * The paginated card grid. Owns the per-card actions: moving an item to
- * another category (inline), previewing it, and the delete confirmation.
+ * The paginated gallery (reference `.gallery`). Owns the per-photo actions:
+ * moving an item to another category, making it the logo, the lightbox and
+ * the delete confirmation.
+ *
+ * Tiles are at least 10rem wide, so a phone shows two across from about
+ * 360px and one across below that; a wide pane fits five or six.
  */
 export function PhotosGrid({
   locationId,
@@ -30,6 +34,7 @@ export function PhotosGrid({
   total,
   pageSize,
   disabled,
+  writeReason,
   onPageChange,
   onChanged,
 }: {
@@ -41,12 +46,14 @@ export function PhotosGrid({
   total: number
   pageSize: number
   disabled: boolean
+  writeReason?: string | null
   onPageChange: (page: number) => void
   /** Called after any write succeeds, to re-read the library from Google. */
   onChanged: () => void
 }) {
-  const [previewItem, setPreviewItem] = useState<MediaItem | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null)
+  const previewItem = items.find((item) => item.id === previewId) ?? null
 
   const changeCategory = useResourceMutation<
     MediaMutationResult,
@@ -58,11 +65,21 @@ export function PhotosGrid({
         expectedGoogleHash: input.item.googleHash,
       }),
     invalidate: onChanged,
-    successToast: "Category updated",
+    successToast: (result, input) => {
+      const what = input.category === "LOGO" ? "Logo" : "Category"
+      return result.status === "succeeded"
+        ? `${what} updated on Google`
+        : `${what} change sent to Google`
+    },
   })
   const updatingId = changeCategory.isPending
     ? (changeCategory.variables?.item.id ?? null)
     : null
+
+  const moveTo = (item: MediaItem, category: MediaCategory) => {
+    if (category === item.category) return
+    changeCategory.mutate({ item, category })
+  }
 
   const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
   const rangeEnd = Math.min(page * pageSize, total)
@@ -70,7 +87,10 @@ export function PhotosGrid({
   return (
     <>
       <TooltipProvider>
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-3 p-(--np-card-pad)">
+        <ul
+          aria-label="Photos"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))] gap-3"
+        >
           {items.map((item) => (
             <MediaCard
               key={item.id}
@@ -78,11 +98,8 @@ export function PhotosGrid({
               disabled={disabled}
               updating={updatingId === item.id}
               patchCategories={patchCategories}
-              onOpen={() => setPreviewItem(item)}
-              onCategoryChange={(next) => {
-                if (next === item.category) return
-                changeCategory.mutate({ item, category: next })
-              }}
+              onOpen={() => setPreviewId(item.id)}
+              onCategoryChange={(next) => moveTo(item, next)}
               onDelete={() => setDeleteTarget(item)}
             />
           ))}
@@ -91,39 +108,48 @@ export function PhotosGrid({
 
       <nav
         aria-label="Photo pages"
-        className="flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle px-(--np-card-pad) py-2.5"
+        className="flex flex-wrap items-center justify-between gap-2"
       >
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
         >
-          <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
+          <ChevronLeftIcon aria-hidden />
           Previous
         </Button>
-        <span className="order-first w-full text-center text-caption text-ink-muted tabular-nums sm:order-none sm:w-auto">
+        <span className="order-first w-full text-center font-mono text-caption text-ink-muted tabular-nums sm:order-none sm:w-auto">
           {formatNumber(rangeStart)}–{formatNumber(rangeEnd)} of{" "}
           {formatNumber(total)}
           {pageCount > 1 ? ` · Page ${page} of ${pageCount}` : null}
         </span>
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
           disabled={page >= pageCount}
           onClick={() => onPageChange(page + 1)}
         >
           Next
-          <ChevronRightIcon aria-hidden strokeWidth={1.75} />
+          <ChevronRightIcon aria-hidden />
         </Button>
       </nav>
 
       <PhotoPreview
         item={previewItem}
+        items={items}
         open={previewItem !== null}
         onOpenChange={(open) => {
-          if (!open) setPreviewItem(null)
+          if (!open) setPreviewId(null)
         }}
+        onNavigate={(next) => setPreviewId(next.id)}
+        writeReason={writeReason}
+        updating={previewItem ? updatingId === previewItem.id : false}
+        onDelete={(item) => {
+          setPreviewId(null)
+          setDeleteTarget(item)
+        }}
+        onUseAsLogo={(item) => moveTo(item, "LOGO")}
       />
       <DeletePhotoDialog
         locationId={locationId}

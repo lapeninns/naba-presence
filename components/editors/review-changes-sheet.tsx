@@ -1,31 +1,41 @@
 "use client"
 
-import { Check, Minus, X } from "lucide-react"
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import {
+  PublishSteps,
+  type PublishStep as PublishStepView,
+} from "@/components/ui/publish-steps"
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Spinner } from "@/components/ui/spinner"
+import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
 
 /**
- * The confirmation step in front of every Google write.
+ * The confirmation step in front of every Google write (reference review
+ * sheet): the field-level diff, an explicit overwrite acknowledgement when
+ * Google changed something since the draft started, then the per-step
+ * results of the publish as the real responses arrive.
  *
- * One sheet, not three different confirmations: some editors used a
- * dialog with a typed acknowledgement, some published straight from a
- * button, and one had a bespoke overwrite confirm. An operator publishing
- * to a client's public listing should see the same thing every time, and
- * that thing should be the actual diff rather than a sentence claiming
- * there is one.
+ * One sheet, not three different confirmations: an operator publishing to a
+ * client's public listing sees the same thing every time, and that thing is
+ * the actual diff rather than a sentence claiming there is one.
+ *
+ * Step wording follows what the app can prove. A step that saved
+ * NabaPresence's copy says "Saved here"; a Google write whose request
+ * succeeded says "Sent to Google", never "Live on Google", because the app
+ * has no verification evidence at that moment. The editor's own status
+ * (refetched afterwards) is what says the listing matches Google.
  */
 function ReviewChangesSheet({
   open,
@@ -37,6 +47,7 @@ function ReviewChangesSheet({
   publishing,
   results,
   error,
+  publishDisabledReason,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -52,6 +63,8 @@ function ReviewChangesSheet({
   /** Per-step outcome, so a half-finished publish is visible rather than guessed. */
   results?: PublishStepResult[]
   error?: string | null
+  /** Why publishing can't run right now (paused, no permission). */
+  publishDisabledReason?: string | null
 }) {
   const conflicts = rows.filter((row) => row.state === "conflict")
   const [acknowledged, setAcknowledged] = React.useState(false)
@@ -65,11 +78,16 @@ function ReviewChangesSheet({
     if (open) setAcknowledged(false)
   }
 
-  const blocked = conflicts.length > 0 && !acknowledged
+  const blocked =
+    (conflicts.length > 0 && !acknowledged) || Boolean(publishDisabledReason)
+  const failedAt = results?.findIndex((step) => step.status === "failed") ?? -1
+  const failed = failedAt !== -1
+  const laterSteps = failed && results ? results.length - failedAt - 1 : 0
+  const steps = results ? stepsView(results) : []
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex flex-col gap-0 md:max-w-xl">
+      <SheetContent side="right" size="wide" className="flex flex-col gap-0">
         <SheetHeader>
           <SheetTitle>Review changes</SheetTitle>
           <SheetDescription>
@@ -79,115 +97,153 @@ function ReviewChangesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-6">
+        <SheetBody>
           <ChangeDiff
             rows={rows}
             caption={`Changes to publish for ${locationName}`}
           />
 
           {conflicts.length > 0 ? (
-            <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-warning-tint p-4 text-warning-ink">
-              <p className="text-ui">
+            <Alert variant="warning" role="status">
+              <AlertTitle>
                 {conflicts.length === 1
-                  ? `Google's copy of ${conflicts[0].field} changed after you started editing. Publishing replaces it.`
-                  : `Google changed ${conflicts.length} of these fields after you started editing. Publishing replaces its values.`}
-              </p>
-              <Label className="flex items-start gap-2.5 text-ui text-warning-ink">
+                  ? `Google changed ${conflicts[0].field} after you started editing`
+                  : `Google changed ${conflicts.length} of these fields after you started editing`}
+              </AlertTitle>
+              <AlertDescription className="flex flex-col gap-2.5">
+                <span>
+                  The “On Google now” column shows what Google holds. Publishing
+                  replaces it with yours.
+                </span>
                 <Checkbox
                   checked={acknowledged}
                   onCheckedChange={(checked) =>
                     setAcknowledged(Boolean(checked))
                   }
+                  label="I’ve read what Google has now and want to replace it."
+                  labelClassName="text-ui"
                 />
-                <span>
-                  I&rsquo;ve read what Google has now and want to replace it.
-                </span>
-              </Label>
-            </div>
+              </AlertDescription>
+            </Alert>
           ) : null}
 
-          {results && results.length > 0 ? (
-            <ol className="flex flex-col gap-1.5" aria-label="Publish progress">
-              {results.map((step) => (
-                <li key={step.key} className="flex items-center gap-2 text-ui">
-                  <StepGlyph status={step.status} />
-                  <span className="text-ink-muted">
-                    {step.label}
-                    <span className="sr-only">
-                      {step.status === "done"
-                        ? ": done"
-                        : step.status === "failed"
-                          ? ": failed"
-                          : step.status === "running"
-                            ? ": in progress"
-                            : ": not started yet"}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ol>
+          {steps.length > 0 ? (
+            <section
+              aria-labelledby="review-progress"
+              className="flex flex-col gap-2"
+            >
+              <h3
+                id="review-progress"
+                className="text-ui font-semibold text-ink"
+              >
+                Progress
+              </h3>
+              <PublishSteps steps={steps} aria-label="Publish progress" />
+            </section>
           ) : null}
 
           {error ? (
             <p role="alert" className="text-ui text-danger-ink">
-              {error}
+              {failed
+                ? [
+                    error,
+                    failedAt > 0 ? "The steps above it went through." : null,
+                    laterSteps > 0 ? "Nothing after it was sent." : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")
+                : error}
             </p>
           ) : null}
-        </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 material-toolbar px-6 py-3 [box-shadow:inset_0_0.5px_0_var(--np-line)]">
+          {publishDisabledReason ? (
+            <p role="note" className="text-caption text-ink-muted">
+              {publishDisabledReason}
+            </p>
+          ) : null}
+        </SheetBody>
+
+        {/* The footer's own layout: stacked full-width buttons on a phone
+            with the primary action on top, one row from sm up. */}
+        <SheetFooter className="sm:items-center">
+          <Button
+            variant="ghost"
+            className="sm:mr-auto"
+            onClick={() => onOpenChange(false)}
+          >
+            Keep editing
+          </Button>
           {onSaveDraft ? (
-            <Button variant="ghost" onClick={() => void onSaveDraft()}>
-              Save without publishing
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => onOpenChange(false)}>
-              Keep editing
-            </Button>
             <Button
-              onClick={() => void onPublish()}
-              disabled={blocked || publishing}
+              variant="secondary"
+              onClick={() => void onSaveDraft()}
+              disabled={publishing}
             >
-              {publishing ? "Publishing…" : "Publish to Google"}
+              Save here
             </Button>
-          </div>
-        </div>
+          ) : null}
+          <Button
+            onClick={() => void onPublish()}
+            disabled={blocked}
+            pending={publishing}
+            pendingLabel="Publishing…"
+          >
+            {failed ? "Try again" : "Publish to Google"}
+          </Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   )
 }
 
-/** The per-step mark. Decorative: the sr-only text beside it carries the state. */
-function StepGlyph({ status }: { status: PublishStepResult["status"] }) {
-  const base = "size-4 shrink-0"
-  if (status === "done")
-    return (
-      <Check
-        className={`${base} text-success-ink`}
-        strokeWidth={2}
-        aria-hidden
-      />
-    )
-  if (status === "failed")
-    return (
-      <X className={`${base} text-danger-ink`} strokeWidth={2} aria-hidden />
-    )
-  if (status === "running")
-    return (
-      <span className={`${base} inline-flex items-center justify-center`}>
-        <Spinner decorative size="sm" />
-      </span>
-    )
-  return (
-    <Minus
-      className={`${base} text-ink-faint`}
-      strokeWidth={1.75}
-      aria-hidden
-    />
-  )
+/** The flow's raw step states, in the words the app can stand behind. */
+function stepsView(results: PublishStepResult[]): PublishStepView[] {
+  const failedAt = results.findIndex((step) => step.status === "failed")
+  return results.map((step, index) => {
+    const local = step.kind === "local"
+    if (step.status === "done" && step.noop)
+      return {
+        id: step.key,
+        label: step.label,
+        state: "skipped",
+        stateLabel: "Nothing to send",
+        detail: "Already matches Google, so no request was made.",
+      }
+    if (step.status === "done")
+      return {
+        id: step.key,
+        label: step.label,
+        state: local ? "skipped" : "sent",
+        stateLabel: local ? "Saved here" : "Sent to Google",
+        detail: local
+          ? "NabaPresence’s copy. Not on Google by itself."
+          : undefined,
+      }
+    if (step.status === "running")
+      return {
+        id: step.key,
+        label: step.label,
+        state: "pending",
+        stateLabel: local ? "Saving…" : "Sending to Google…",
+      }
+    if (step.status === "failed")
+      return {
+        id: step.key,
+        label: step.label,
+        state: "failed",
+        detail: step.message,
+        errorCode: step.code,
+      }
+    return {
+      id: step.key,
+      label: step.label,
+      state: failedAt !== -1 && index > failedAt ? "skipped" : "pending",
+      stateLabel:
+        failedAt !== -1 && index > failedAt
+          ? "Not sent — an earlier step failed"
+          : undefined,
+    }
+  })
 }
 
 export { ReviewChangesSheet }

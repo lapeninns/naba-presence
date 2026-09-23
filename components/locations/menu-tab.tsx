@@ -1,15 +1,22 @@
 "use client"
 
-import { UtensilsCrossed } from "lucide-react"
+import { DownloadIcon, Plus, UtensilsCrossed } from "lucide-react"
 import { useCallback, useMemo, useRef, useState } from "react"
 
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { LocationTab } from "@/components/locations/location-tab"
-import { MenuEditor } from "@/components/locations/menu-editor"
+import {
+  MenuEditor,
+  stripDraftKeys,
+  validateMenu,
+  type MenuProblem,
+} from "@/components/locations/menu-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
   fetchFoodMenus,
   publishFoodMenus,
@@ -18,6 +25,7 @@ import {
 } from "@/lib/api/location-menu"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { usePublishFlow } from "@/lib/editors/use-publish-flow"
+import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
 import { menuChangeRows } from "@/lib/locations/menu-diff"
@@ -45,11 +53,14 @@ export function MenuTab({ locationId }: { locationId: string }) {
             publishReason={publishReason}
           />
         ) : (
-          <Empty
-            icon={<UtensilsCrossed aria-hidden />}
-            title="This location can’t have a food menu"
-            description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
-          />
+          <div className="rounded-lg border border-line bg-surface">
+            <Empty
+              icon={<UtensilsCrossed aria-hidden />}
+              titleAs="h2"
+              title="This location can’t have a food menu"
+              description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
+            />
+          </div>
         )
       }
     </LocationTab>
@@ -70,10 +81,21 @@ function MenuForm({
   })
   const [reviewOpen, setReviewOpen] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
+  // Problems show once a review has been attempted, then follow the edits
+  // live so each one clears as it is fixed.
+  const [checked, setChecked] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+
+  // The menu as Google would receive it: the editor's typing state removed.
+  const clean = useMemo(() => stripDraftKeys(draft), [draft])
+  const problems: MenuProblem[] = useMemo(
+    () => (checked ? validateMenu(draft) : []),
+    [checked, draft]
+  )
 
   const rows = useMemo(
-    () => menuChangeRows({ draft, google: state.googleMenus }),
-    [draft, state.googleMenus]
+    () => menuChangeRows({ draft: clean, google: state.googleMenus }),
+    [clean, state.googleMenus]
   )
 
   const saved = useRef<FoodMenusState | null>(null)
@@ -85,7 +107,7 @@ function MenuForm({
         run: async () => {
           await saveFoodMenus(locationId, {
             expectedCanonicalRevision: state.canonicalResource.revision,
-            menus: draft,
+            menus: clean,
           })
           saved.current = await fetchFoodMenus(locationId)
         },
@@ -104,7 +126,7 @@ function MenuForm({
         },
       },
     ],
-    [locationId, draft, state.canonicalResource.revision]
+    [locationId, clean, state.canonicalResource.revision]
   )
 
   const flow = usePublishFlow({
@@ -118,43 +140,150 @@ function MenuForm({
   })
 
   const publishReason = editReason ?? gateReason
-  const draftCounts = countFoodMenus(draft as Array<Record<string, unknown>>)
+  const draftCounts = countFoodMenus(clean as Array<Record<string, unknown>>)
+  const googleHasMenu = state.googleCounts.sections > 0
+  const noMenu = draftCounts.sections === 0
+
+  const changeCount = rows.length
+  const statusLabel =
+    noMenu && !isDirty
+      ? googleHasMenu
+        ? "Menu only on Google"
+        : "No menu"
+      : changeCount > 0
+      ? `${formatNumber(changeCount)} ${changeCount === 1 ? "change" : "changes"} not on Google`
+      : state.status === "in_sync" && !isDirty
+        ? noMenu
+          ? "No menu"
+          : "In sync with Google"
+        : undefined
+
+  function review() {
+    const found = validateMenu(draft)
+    setChecked(true)
+    setAttempt((count) => count + 1)
+    if (found.length > 0) return
+    setServerError(null)
+    flow.reset()
+    setReviewOpen(true)
+  }
+
+  function startMenu() {
+    setDraft([
+      {
+        ...((draft[0] ?? {}) as Record<string, unknown>),
+        sections: [
+          {
+            labels: [{ displayName: "" }],
+            items: [{ labels: [{ displayName: "" }] }],
+          },
+        ],
+      },
+      ...draft.slice(1),
+    ])
+  }
 
   return (
     <EditorFrame
       title="Food menu"
-      description={`Publishing replaces the whole food menu on Google. ${draftCounts.sections} sections, ${draftCounts.items} items.`}
-      statusLabel={
-        state.status === "in_sync" && !isDirty ? "In sync with Google" : undefined
+      statusLabel={statusLabel}
+      tone={
+        noMenu && !isDirty
+          ? "neutral"
+          : changeCount > 0
+            ? "attention"
+            : "healthy"
       }
-      tone="healthy"
+      description={
+        <>
+          Publishing replaces the whole food menu on Google, not only what you
+          changed.{" "}
+          <span className="font-mono tabular-nums">{draftCounts.sections}</span>{" "}
+          {draftCounts.sections === 1 ? "section" : "sections"},{" "}
+          <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
+          {draftCounts.items === 1 ? "item" : "items"}.
+        </>
+      }
       gateReason={editReason}
       footer={
-        <EditorFooter
-          status={
-            isDirty
-              ? "edited"
-              : state.status === "in_sync"
-                ? "in_sync"
-                : "unpublished"
-          }
-          isDirty={isDirty}
-          onReview={() => {
-            setServerError(null)
-            flow.reset()
-            setReviewOpen(true)
-          }}
-          onDiscard={discard}
-          disabledReason={publishReason}
-          hint={
-            state.status === "in_sync"
-              ? "This menu matches Google."
-              : "Google holds a different menu. Review to see what differs."
-          }
-        />
+        noMenu && !isDirty ? undefined : (
+          <EditorFooter
+            status={
+              isDirty
+                ? "edited"
+                : state.status === "in_sync"
+                  ? "in_sync"
+                  : "unpublished"
+            }
+            // Drift already saved here is publishable too, as in Hours and
+            // Profile; only local edits can be discarded.
+            isDirty={isDirty || rows.length > 0}
+            canDiscard={isDirty}
+            onReview={review}
+            onDiscard={() => {
+              discard()
+              setChecked(false)
+            }}
+            disabledReason={publishReason}
+            hint={
+              state.status === "in_sync"
+                ? "This menu matches Google."
+                : "Google holds a different menu. Review to see what differs."
+            }
+          />
+        )
       }
     >
-      <MenuEditor menus={draft} onChange={setDraft} disabled={disabled} />
+      <ValidationSummary
+        errors={problems}
+        focusKey={attempt}
+        title={
+          problems.length === 1
+            ? "1 problem to fix before publishing"
+            : `${problems.length} problems to fix before publishing`
+        }
+      />
+
+      {noMenu ? (
+        <div className="rounded-lg border border-line bg-surface">
+          <Empty
+            icon={<UtensilsCrossed aria-hidden />}
+            titleAs="h3"
+            title="No food menu yet"
+            description={
+              googleHasMenu
+                ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${state.googleCounts.items} ${state.googleCounts.items === 1 ? "item" : "items"}. Start from Google’s menu, or start a new one here.`
+                : `Neither NabaPresence nor Google has a food menu for ${state.location.name}. Start one here; nothing reaches Google until you publish.`
+            }
+            action={
+              disabled ? undefined : (
+                <>
+                  {googleHasMenu ? (
+                    <Button onClick={() => setDraft(state.googleMenus)}>
+                      <DownloadIcon aria-hidden />
+                      Start from Google’s menu
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant={googleHasMenu ? "secondary" : "default"}
+                    onClick={startMenu}
+                  >
+                    <Plus aria-hidden />
+                    Start a menu
+                  </Button>
+                </>
+              )
+            }
+          />
+        </div>
+      ) : (
+        <MenuEditor
+          menus={draft}
+          onChange={setDraft}
+          disabled={disabled}
+          problems={problems}
+        />
+      )}
 
       {serverError ? (
         <Alert variant="destructive">

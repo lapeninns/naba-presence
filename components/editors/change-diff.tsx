@@ -1,17 +1,9 @@
 import * as React from "react"
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { StatusPill } from "@/components/ui/status-pill"
+import { DiffView } from "@/components/ui/diff-view"
 
 export type ChangeRow = {
-  /** Unique row key; defaults to `field`. Needed when two rows share a name. */
+  /** Unique row key; defaults to `field`. */
   key?: string
   /** The field in the customer's words, not the provider's. */
   field: string
@@ -27,56 +19,28 @@ export type ChangeRow = {
 }
 
 /**
- * Field-level before and after for every write that reaches Google.
- *
- * A table, not two stacked panels: the comparison is row-wise, and a real
- * table lets a screen reader announce "Phone, on Google now, 01223 277 217"
- * rather than reading two disconnected lists and leaving the pairing to the
- * listener.
- *
- * It sits on the sheet's white, so its boundary is a hairline rather than a
- * second white card.
+ * Field-level before and after for every write that reaches Google: the
+ * shared `DiffView` (reference `.diff`) with the editor's row type. A real
+ * table, so a screen reader announces "Phone, On Google now, 01223 277 217"
+ * rather than two disconnected lists; under 560px of its own width the
+ * columns stack and each value carries its column label.
  */
 function ChangeDiff({ rows, caption }: { rows: ChangeRow[]; caption: string }) {
-  return (
-    <div
-      data-slot="change-diff"
-      className="overflow-hidden rounded-(--np-radius-card) hairline"
-    >
-      <Table>
-        <caption className="sr-only">{caption}</caption>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-40">Field</TableHead>
-            <TableHead>On Google now</TableHead>
-            <TableHead>Will change to</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.key ?? row.field} data-state={row.state}>
-              <TableCell className="align-top font-medium text-ink">
-                <span className="flex flex-col gap-1">
-                  {row.field}
-                  {row.state === "conflict" ? (
-                    <StatusPill tone="attention" variant="inline">
-                      Changed on Google
-                    </StatusPill>
-                  ) : null}
-                </span>
-              </TableCell>
-              <TableCell className="align-top text-ink-muted">
-                {row.before || <span className="text-ink-faint">Not set</span>}
-              </TableCell>
-              <TableCell className="align-top text-ink">
-                {row.after || <span className="text-ink-faint">Cleared</span>}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
+  // DiffView keys rows by field name; two rows that share a name (a date
+  // listed twice, say) get the key appended so React can tell them apart
+  // without changing what is read out.
+  const seen = new Map<string, number>()
+  const diffRows = rows.map((row) => {
+    const count = seen.get(row.field) ?? 0
+    seen.set(row.field, count + 1)
+    return {
+      field: count === 0 ? row.field : `${row.field}⁠${"​".repeat(count)}`,
+      before: row.before,
+      after: row.after,
+      state: row.state,
+    }
+  })
+  return <DiffView rows={diffRows} caption={caption} />
 }
 
 export { ChangeDiff }

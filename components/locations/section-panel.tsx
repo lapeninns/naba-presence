@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils"
  * Google error string, per §7); an empty one shows a "nothing set" note;
  * otherwise its editor, on a plain card.
  *
- * The card is the grouped-background kind: white on the canvas, no border,
- * no shadow. `heading` draws the title inside the card as a hairline-separated
+ * The card is the reference `.card`: white on the canvas, a 1px hairline,
+ * radius 12, no shadow. `heading` draws the title inside the card as a hairline-separated
  * header; it is off by default because every caller today already writes its
  * own heading above the panel, and two would read twice.
  */
@@ -42,7 +42,10 @@ export function SectionPanel({
   if (result.data == null) {
     return (
       <Empty
-        className={cn("rounded-(--np-radius-card) bg-surface", className)}
+        className={cn(
+          "rounded-(--np-radius-card) border border-line bg-surface",
+          className
+        )}
         title={`No ${title.toLowerCase()} set`}
         description="There is nothing to manage here yet."
       />
@@ -52,12 +55,12 @@ export function SectionPanel({
     <div
       data-slot="section-panel"
       className={cn(
-        "flex flex-col rounded-(--np-radius-card) bg-surface",
+        "flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface",
         className
       )}
     >
       {heading ? (
-        <h3 className="border-b border-line-subtle px-(--np-card-pad) py-3 text-title font-semibold text-ink">
+        <h3 className="border-b border-line px-(--np-card-pad) py-3 text-title font-semibold text-ink">
           {title}
         </h3>
       ) : null}

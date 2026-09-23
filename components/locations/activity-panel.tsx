@@ -3,8 +3,9 @@
 import { useState } from "react"
 
 import { LocationTab } from "@/components/locations/location-tab"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { StatusPill } from "@/components/ui/status-pill"
+import { Timeline, type TimelineTone } from "@/components/ui/timeline"
 import type { LocationActivityState } from "@/lib/contracts/location-activity"
 import { formatNumber } from "@/lib/format"
 import { useLocationActivity } from "@/lib/queries/use-location-activity"
@@ -16,12 +17,16 @@ function humanise(value: string): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }
 
-function statusVariant(
-  status: string
-): "success" | "destructive" | "secondary" {
+function statusTone(status: string): TimelineTone {
   if (status === "succeeded") return "success"
-  if (status === "failed" || status === "ambiguous") return "destructive"
-  return "secondary"
+  if (status === "failed" || status === "ambiguous") return "danger"
+  return "neutral"
+}
+
+function statusPillTone(status: string): "ok" | "bad" | "outline" {
+  if (status === "succeeded") return "ok"
+  if (status === "failed" || status === "ambiguous") return "bad"
+  return "outline"
 }
 
 export function LocationActivityPanel({ locationId }: { locationId: string }) {
@@ -70,33 +75,38 @@ function ActivityList({
         </p>
       ) : (
         <>
-          <ul className="divide-y divide-line-subtle">
-            {activity.items.map((item) => (
-              <li key={item.id} className="flex flex-col gap-1.5 py-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-body font-semibold text-ink">
-                    {humanise(item.operation)}
+          <Timeline
+            aria-label="Recent changes"
+            entries={activity.items.map((item) => ({
+              id: item.id,
+              tone: statusTone(item.status),
+              title: (
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-semibold text-ink">
+                    {humanise(item.operation)} · {humanise(item.resourceType)}
                   </span>
-                  <Badge variant="secondary">
-                    {humanise(item.resourceType)}
-                  </Badge>
-                  <Badge variant={statusVariant(item.status)}>
+                  <StatusPill tone={statusPillTone(item.status)}>
                     {humanise(item.status)}
-                  </Badge>
-                </div>
-                <p className="text-caption text-ink-muted tabular-nums">
-                  {new Date(item.createdAt).toLocaleString("en-GB")}
-                  {item.actorDisplayName ? ` · ${item.actorDisplayName}` : null}
-                  {item.updateMask.length > 0
-                    ? ` · ${item.updateMask.map(humanise).join(", ")}`
-                    : null}
-                  {item.lastErrorCode
-                    ? ` · ${humanise(item.lastErrorCode)}`
-                    : null}
-                </p>
-              </li>
-            ))}
-          </ul>
+                  </StatusPill>
+                </span>
+              ),
+              meta: [
+                item.actorDisplayName,
+                item.updateMask.length > 0
+                  ? item.updateMask.map(humanise).join(", ")
+                  : null,
+                item.lastErrorCode ? humanise(item.lastErrorCode) : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+              when: new Date(item.createdAt).toLocaleString("en-GB", {
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            }))}
+          />
           {pageCount > 1 ? (
             <nav
               aria-label="Activity pages"

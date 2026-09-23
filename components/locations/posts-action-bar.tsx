@@ -1,9 +1,16 @@
 "use client"
 
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, RefreshCwIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 
-import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   decidePostApproval,
@@ -17,6 +24,7 @@ import type { LocationCapabilities } from "@/lib/contracts/location-capabilities
 import { resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+import { cn } from "@/lib/utils"
 
 function publishOutcomeTitle(status: string) {
   if (status === "awaiting_approval") return "Post submitted for approval."
@@ -110,15 +118,32 @@ export function PostsActionBar({
     ? resourceDisabledReason(caps, "posts", writesEnabled)
     : pausedReason
 
+  const live = Boolean(post.googlePostName)
+  // A post whose publish outcome is unknown has no Google name, so deleting
+  // it is local only (lib/server/posts deleteLocalPost), yet Google may hold
+  // a copy. Say so rather than promise Google never had it.
+  const uncertainOnGoogle =
+    post.status === "ambiguous" || post.status === "publishing"
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
       {post.status === "draft" || post.status === "failed" ? (
         <Button
           size="sm"
+          variant="secondary"
           onClick={() => publish.mutate()}
-          disabled={Boolean(primaryReason) || publish.isPending}
+          disabled={Boolean(primaryReason)}
+          pending={publish.isPending}
+          pendingLabel={offerRequestApproval ? "Requesting…" : "Publishing…"}
         >
-          {offerRequestApproval ? "Request approval" : "Publish"}
+          {post.status === "failed" && !offerRequestApproval ? (
+            <RefreshCwIcon aria-hidden />
+          ) : null}
+          {offerRequestApproval
+            ? "Request approval"
+            : post.status === "failed"
+              ? "Retry publish"
+              : "Publish"}
         </Button>
       ) : null}
       {post.status === "ambiguous" ? (
@@ -127,9 +152,10 @@ export function PostsActionBar({
         // same update twice. Reading Google is the only safe next move.
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
           onClick={() => check.mutate()}
-          disabled={check.isPending}
+          pending={check.isPending}
+          pendingLabel="Checking Google…"
         >
           Check Google
         </Button>
@@ -138,16 +164,19 @@ export function PostsActionBar({
         <>
           <Button
             size="sm"
+            variant="secondary"
             onClick={() => decide.mutate("approve")}
             disabled={Boolean(approveReason) || decide.isPending}
+            pending={decide.isPending && decide.variables === "approve"}
           >
             Approve
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
             onClick={() => decide.mutate("reject")}
             disabled={Boolean(rejectReason) || decide.isPending}
+            pending={decide.isPending && decide.variables === "reject"}
           >
             Reject
           </Button>
@@ -158,35 +187,71 @@ export function PostsActionBar({
           href={post.googleSearchUrl}
           target="_blank"
           rel="noreferrer"
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
         >
           View on Google
-          <ExternalLink strokeWidth={1.75} aria-hidden />
+          <ExternalLink aria-hidden />
         </a>
       ) : null}
       <Button
         size="sm"
         variant="ghost"
-        className="text-danger-ink hover:bg-danger-tint"
+        className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
         onClick={() => setDeleteOpen(true)}
         disabled={Boolean(deleteReason) || remove.isPending}
       >
+        <Trash2Icon aria-hidden />
         Delete
       </Button>
-      <OverwriteConfirmDialog
+      {primaryReason &&
+      (post.status === "draft" || post.status === "failed") ? (
+        <span className="w-full text-caption text-ink-muted">
+          {primaryReason}
+        </span>
+      ) : null}
+      <AlertDialog
         open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="Delete this post?"
-        description={
-          post.googlePostName
-            ? "This removes the post from your Google Business Profile."
-            : "This deletes the draft."
-        }
-        confirmLabel="Delete"
-        requireAcknowledgement={false}
-        pending={remove.isPending}
-        onConfirm={() => remove.mutate()}
-      />
+        onOpenChange={(open) => {
+          if (!remove.isPending) setDeleteOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            {live ? "Delete this post from Google?" : "Delete this post?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {live
+              ? "This removes the post from your Google Business Profile. Customers stop seeing it straight away, and it can’t be undone."
+              : uncertainOnGoogle
+                ? "This deletes the post from NabaPresence."
+                : "This deletes the draft."}
+          </AlertDialogDescription>
+          {live ? null : (
+            <p className="text-ui text-ink-muted">
+              {post.status === "ambiguous"
+                ? "Deleting here doesn’t touch Google. If Google did receive this post, it stays there; use Check Google first to find out."
+                : post.status === "publishing"
+                  ? // No Check Google here: that action is only offered once
+                    // the publish outcome is known to be ambiguous.
+                    "Deleting here doesn’t touch Google. This post is still being sent, so if Google receives it, it stays there."
+                  : "Only NabaPresence has it, so Google is not affected."}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="ghost">Keep it</Button>}
+            />
+            <Button
+              variant="danger"
+              onClick={() => remove.mutate()}
+              pending={remove.isPending}
+              pendingLabel={live ? "Deleting from Google…" : "Deleting…"}
+            >
+              {live ? "Delete from Google" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
