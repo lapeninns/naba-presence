@@ -130,6 +130,9 @@ describeDatabase("operations health alerting", () => {
           now()
         )
     `
+    // The last SUCCESSFUL reconcile was two hours ago; the one that just
+    // failed must not make the location look fresh (finished_at moves on a
+    // failure, last_succeeded_at does not).
     await admin`
       insert into sync_checkpoint (
         organisation_id,
@@ -137,14 +140,18 @@ describeDatabase("operations health alerting", () => {
         sync_type,
         status,
         finished_at,
+        last_succeeded_at,
+        last_error_code,
         updated_at
       )
       values (
         ${organisationId},
         ${linked.externalLocationId},
         'reconcile',
-        'succeeded',
+        'failed',
+        now() - interval '1 minute',
         now() - interval '2 hours',
+        'google_unavailable',
         now()
       )
     `
@@ -260,7 +267,8 @@ describeDatabase("operations health alerting", () => {
       ambiguousPublishAttempts: 1,
       staleStartedAttempts: 0,
       // The backfill, performance and notification checkpoints seeded above.
-      checkpointFailures24h: 3,
+      // Includes the failed reconcile seeded for the freshness case.
+      checkpointFailures24h: 4,
       connectionErrors24h: 1,
       schedulerHeartbeatAt: expect.any(String),
       schedulerHeartbeatStale: false,

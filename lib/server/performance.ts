@@ -231,7 +231,9 @@ async function persistPerformancePoints(
         last_metric_date = greatest(last_metric_date, ${freshThrough}::date),
         attempt_count = 0,
         dead_lettered_at = null,
-        next_attempt_at = now() + interval '6 hours',
+        -- From the slot this run was due in (0048), so a late tick does
+        -- not push every later run back.
+        next_attempt_at = next_scheduled_run(scheduled_for, interval '6 hours'),
         finished_at = now(),
         last_succeeded_at = now(),
         last_error_code = null

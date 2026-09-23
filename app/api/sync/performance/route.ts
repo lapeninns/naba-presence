@@ -11,7 +11,7 @@ import {
 } from "@/lib/server/performance"
 import { isCronRequest, route } from "@/lib/server/route"
 import { cronPageInput } from "@/lib/server/cron-query"
-import { followCronCursor } from "@/lib/server/cron-cursor"
+import { enqueueRecurring } from "@/lib/server/recurring-sync"
 import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -60,16 +60,17 @@ export const POST = route({
 // 6 hours, with the schema fields as query params
 // (`?maxOrganisations=100&maxLocations=25`). Cron-only — an owner/admin
 // session refreshing its own organisation keeps using POST.
+// Vercel Cron entry point. Enqueues rather than walks (0048): every linked
+// location in every organisation gets its `performance` checkpoint, and the job
+// runner claims the due ones every minute. The query is still validated so a
+// malformed cron path fails loudly. The ingestion kill switch is enforced at
+// the runner's claim; enqueueing while paused is harmless.
 export const GET = route({
   auth: "cron",
-  handler: async ({ query, requestId }) =>
-    followCronCursor("performance", cronPageInput(query), (input) =>
-      runPerformancePage({
-        session: null,
-        input: performanceSyncSchema.parse(input),
-        requestId,
-      })
-    ),
+  handler: async ({ query, requestId }) => {
+    performanceSyncSchema.parse(cronPageInput(query))
+    return enqueueRecurring("performance", requestId)
+  },
 })
 
 // One page of the tenant walk, shared by the session POST (own organisation)

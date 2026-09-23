@@ -53,24 +53,39 @@ import type { TransactionSql } from "postgres"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv, type ServerEnv } from "@/lib/server/env"
+import {
+  gbpIngestionEnabled,
+  getServerEnv,
+  type ServerEnv,
+} from "@/lib/server/env"
+import { syncDueKeywords } from "@/lib/server/keywords"
 import { log } from "@/lib/server/logger"
 import {
   recoverAttempt,
   retryPublishAttempt,
   writePublishAttemptEvent,
 } from "@/lib/server/publishing"
+import { syncDuePerformance } from "@/lib/server/performance"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 
-/** The five things the runner knows how to do. */
+/**
+ * What the runner knows how to do. The last three are recurring
+ * per-location syncs (0048): their crons only enqueue, and the runner is what
+ * reaches every organisation.
+ */
 const JOB_KINDS = [
   "webhook",
   "webhook_dead",
   "checkpoint",
   "recover",
   "retry",
+  "reconcile",
+  "performance",
+  "keywords",
 ] as const
+
+const RECURRING_KINDS = new Set<JobKind>(["reconcile", "performance", "keywords"])
 
 export type JobKind = (typeof JOB_KINDS)[number]
 
@@ -79,7 +94,7 @@ type ClaimedJob = {
   jobId: string
   organisationId: string
   externalLocationId: string | null
-  syncType: "backfill" | "sweep" | null
+  syncType: "backfill" | "sweep" | "reconcile" | "performance" | "keywords" | null
   retryCount: number
 }
 
@@ -88,6 +103,8 @@ export type JobSummary = {
   checkpoints: number
   attempts: number
   dead: number
+  /** Recurring reconcile, performance and keyword runs. */
+  recurring: number
 }
 
 /** What one tick shares with every item it runs. */
@@ -95,6 +112,8 @@ type Tick = {
   /** The run's `ctx.requestId`, correlating every row this tick writes. */
   requestId: string
   summary: JobSummary
+  /** Epoch ms the tick must be finished by. */
+  deadline: number
 }
 
 const WEBHOOK_MAX_RETRIES = 5
@@ -142,11 +161,20 @@ function recoveryDelayMs(attempts: number) {
  */
 function claimableKinds(env: ServerEnv): JobKind[] {
   if (!env.JOBS_ENABLED) return []
-  return JOB_KINDS.filter((kind) =>
-    kind === "recover" || kind === "retry"
-      ? env.PUBLISH_ENABLED
-      : env.SYNC_ENABLED
-  )
+  return JOB_KINDS.filter((kind) => {
+    switch (kind) {
+      case "recover":
+      case "retry":
+        return env.PUBLISH_ENABLED
+      // Ingestion surfaces answer to their own flag, as their routes do.
+      case "performance":
+        return gbpIngestionEnabled(env, "performance")
+      case "keywords":
+        return gbpIngestionEnabled(env, "keywords")
+      default:
+        return env.SYNC_ENABLED
+    }
+  })
 }
 
 /**
@@ -625,6 +653,35 @@ async function settleRecoveryFailure(
 }
 
 /**
+ * A recurring run that threw before its own settle could. The sync
+ * functions settle their failures themselves (with their own back-off and,
+ * for performance and keywords, a dead-letter ceiling); this covers what
+ * escaped them, so a persistent fault retries every few minutes instead of
+ * on every tick, and never dead-letters work that recovers on its own.
+ */
+async function deferRecurring(job: ClaimedJob, error: unknown) {
+  await withTenant(job.organisationId, async (sql) => {
+    await sql`
+      update sync_checkpoint
+      set
+        next_attempt_at = ${new Date(
+          Date.now() + retryDelayMs(job.retryCount + 1, Math.random, 60_000, 30 * 60_000)
+        )},
+        last_error_code = coalesce(last_error_code, 'job_failed'),
+        lease_expires_at = null
+      where id = ${job.jobId}
+        and status <> 'running'
+    `
+  })
+  log.error("jobs.recurring_failed", {
+    organisationId: job.organisationId,
+    kind: job.kind,
+    checkpointId: job.jobId,
+    error,
+  })
+}
+
+/**
  * Runs one claimed item to settlement. Never throws: a failure reschedules
  * the item and is counted, so one poisoned job cannot end the tick.
  */
@@ -683,7 +740,12 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
 
       case "checkpoint": {
         tick.summary.checkpoints += 1
-        if (!job.externalLocationId || !job.syncType) return
+        if (
+          !job.externalLocationId ||
+          (job.syncType !== "backfill" && job.syncType !== "sweep")
+        ) {
+          return
+        }
         const outcome = await syncLinkedLocation({
           organisationId: job.organisationId,
           externalLocationId: job.externalLocationId,
@@ -697,6 +759,42 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
         ) {
           await cancelUnlinkedCheckpoint(job)
         }
+        return
+      }
+
+      case "reconcile": {
+        tick.summary.recurring += 1
+        if (!job.externalLocationId) return
+        await syncLinkedLocation({
+          organisationId: job.organisationId,
+          externalLocationId: job.externalLocationId,
+          type: "reconcile",
+          maxPages: 20,
+          requestId: tick.requestId,
+          deadline: tick.deadline,
+        })
+        return
+      }
+
+      case "performance": {
+        tick.summary.recurring += 1
+        if (!job.externalLocationId) return
+        await syncDuePerformance(job.organisationId, {
+          requestId: tick.requestId,
+          externalLocationId: job.externalLocationId,
+          maxLocations: 1,
+        })
+        return
+      }
+
+      case "keywords": {
+        tick.summary.recurring += 1
+        if (!job.externalLocationId) return
+        await syncDueKeywords(job.organisationId, {
+          requestId: tick.requestId,
+          externalLocationId: job.externalLocationId,
+          maxLocations: 1,
+        })
         return
       }
 
@@ -717,6 +815,8 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
     try {
       if (job.kind === "webhook" || job.kind === "webhook_dead") {
         await rescheduleWebhook(job, error)
+      } else if (RECURRING_KINDS.has(job.kind)) {
+        await deferRecurring(job, error)
       } else if (job.kind === "checkpoint") {
         await rescheduleCheckpoint(job, error)
       } else {
@@ -765,6 +865,7 @@ export async function runDueJobs(options: {
     checkpoints: 0,
     attempts: 0,
     dead: 0,
+    recurring: 0,
   }
 
   const kinds = claimableKinds(env)
@@ -782,7 +883,7 @@ export async function runDueJobs(options: {
   await reclaimExpired()
 
   const deadline = Date.now() + Math.max(0, options.budgetMs)
-  const tick: Tick = { requestId: options.requestId, summary }
+  const tick: Tick = { requestId: options.requestId, summary, deadline }
 
   // The lease must outlive the slowest item in a batch. Google calls are
   // bounded by GOOGLE_TIMEOUT_MS and a checkpoint runs up to five pages, so

@@ -16,6 +16,7 @@ import {
   recordListingAccessLoss,
 } from "./connection-failures"
 import { accessTokenOwner, forgetAccessToken } from "./credentials"
+import { acquireGoogleBudget, recordGoogleThrottle } from "./rate-budget"
 
 let nextGoogleRequestAt = 0
 const nextGoogleConnectionRequestAt = new Map<string, number>()
@@ -36,9 +37,9 @@ const googleRequestCount = googleMeter.createCounter(
 )
 
 /**
- * Scheduled Google work is single-flight via withAdvisoryLock, so this
- * process-local limiter is fleet pacing for sync. Interactive publishes are
- * per-process and individually rare.
+ * Smooths bursts inside one process. It is NOT the fleet limit: that is the
+ * shared Postgres budget (rate-budget.ts), which every instance draws from
+ * before this pacer runs.
  */
 async function paceGoogleRequest(connectionKey?: string) {
   const interval = 1000 / getServerEnv().GOOGLE_REQUESTS_PER_SECOND
@@ -267,6 +268,10 @@ export async function googleRequest<T>(
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
           attempts = attempt
+          // Fleet-wide first, so a request that must be deferred never holds
+          // a local pacing slot; throws the retryable google_rate_limited
+          // when the shared budget will not open before this call's deadline.
+          await acquireGoogleBudget(url, mode, deadline)
           await paceGoogleRequest(options.connectionKey)
           const remainingMs = deadline - Date.now()
           if (remainingMs <= 0) throw googleTimeoutError()
@@ -313,6 +318,18 @@ export async function googleRequest<T>(
           if (response.ok) {
             outcome = "success"
             return body as T
+          }
+          if (response.status === 429) {
+            // Quota is per Cloud project, so every instance must back off,
+            // not just this one.
+            const retryAfter = Number(response.headers.get("retry-after"))
+            await recordGoogleThrottle(
+              url,
+              mode,
+              Number.isFinite(retryAfter) && retryAfter > 0
+                ? retryAfter * 1000
+                : null
+            )
           }
           if (
             isRetryableGoogleStatus(response.status) &&

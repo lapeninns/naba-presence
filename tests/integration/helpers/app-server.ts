@@ -36,6 +36,11 @@ function serverEnv(
     WEBHOOKS_ENABLED: "false",
     PASSWORD_AUTH_ENABLED: "false",
     OPENAI_API_KEY: "",
+    // The shared Google budget is exercised by rate-budget.test.ts and
+    // fleet-scale.test.ts with real limits; everywhere else it would only
+    // slow suites that fire bursts at a local stub.
+    GOOGLE_API_REQUESTS_PER_MINUTE: "10000",
+    GOOGLE_LOCATION_EDITS_PER_MINUTE: "10",
     ...overrides,
   }
 }

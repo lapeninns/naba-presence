@@ -14,7 +14,7 @@ import {
 } from "@/lib/server/reviews"
 import { isCronRequest, route } from "@/lib/server/route"
 import { cronPageInput } from "@/lib/server/cron-query"
-import { followCronCursor } from "@/lib/server/cron-cursor"
+import { enqueueRecurring } from "@/lib/server/recurring-sync"
 import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
@@ -279,24 +279,20 @@ export const POST = route({
   },
 })
 
-// Vercel Cron entry point: the same single page the scheduler POSTed every
-// 15 minutes, with the schema fields as query params
-// (`?maxOrganisations=100`). Cron-only — an owner/admin session reconciling
-// its own organisation keeps using POST. The kill switch is checked before
-// parsing, preserving the POST order of 401, 503, then 400.
+// Vercel Cron entry point. Enqueues rather than walks (0048): every linked
+// location in every organisation gets a reconcile checkpoint, and the job
+// runner claims the due ones every minute, fairly across organisations and
+// within its own budget, so no organisation waits on a cursor. An
+// owner/admin session reconciling its own organisation keeps using POST, and
+// so does the self-hosted scheduler (scripts/scheduler.mjs). The kill switch
+// is checked before parsing, preserving the POST order of 401, 503, then 400.
 export const GET = route({
   auth: "cron",
-  handler: async ({ query, requestId, clientRequestId }) => {
+  handler: async ({ query, requestId }) => {
     if (!getServerEnv().SYNC_ENABLED) {
       throw new ApiError(503, "sync_paused", "Review sync is paused.")
     }
-    return followCronCursor("reconcile", cronPageInput(query), (input) =>
-      runReconcilePage({
-        session: null,
-        input: reconcileSchema.parse(input),
-        requestId,
-        clientRequestId,
-      })
-    )
+    reconcileSchema.parse(cronPageInput(query))
+    return enqueueRecurring("reconcile", requestId)
   },
 })

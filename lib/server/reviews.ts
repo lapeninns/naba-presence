@@ -367,6 +367,9 @@ type SyncHeader = {
  */
 const MAX_CONSECUTIVE_FAILURES = 10
 
+/** How often every linked location's reviews are checked against Google. */
+export const RECONCILE_INTERVAL = "15 minutes"
+
 /** Errors an operator has to clear at Google; retrying cannot resolve them. */
 function isPermanentSyncFailure(errorCode: string, status?: number) {
   return (
@@ -512,19 +515,34 @@ export async function syncLinkedLocation(input: {
     // blocked on a person rather than on a budget: burning the cap on either
     // dead-letters work that was only ever waiting.
     const reconnectBlocked = errorCode === "google_reconnect_required"
+    // The shared Google budget deferred this run (rate-budget.ts). Nothing
+    // failed; it goes again in a minute without spending the cap.
+    const rateDeferred = errorCode === "google_rate_limited"
     const failureCount =
-      settlement.parked || reconnectBlocked
+      settlement.parked || reconnectBlocked || rateDeferred
         ? header.consecutiveFailureCount
         : header.consecutiveFailureCount + 1
+    // Reconcile is the recurring freshness check: a Google outage that
+    // outlasts the failure cap must not stop it for good, so only a failure
+    // retrying cannot fix retires it. It backs off (syncRetryAt caps at 30
+    // minutes) and recovers on its own when Google does.
     const dead =
       !settlement.parked &&
       (isPermanentSyncFailure(errorCode, settlement.status) ||
-        (!reconnectBlocked && failureCount >= MAX_CONSECUTIVE_FAILURES))
+        (input.type !== "reconcile" &&
+          !reconnectBlocked &&
+          failureCount >= MAX_CONSECUTIVE_FAILURES))
     const discardToken = dead || discardsPageToken(settlement.status)
     const retryAt =
       dead || settlement.parked
         ? null
-        : syncRetryAt(header.checkpointId, header.attemptCount)
+        : rateDeferred
+          ? new Date(Date.now() + 60_000)
+          : // Backs off on consecutive failures, not lifetime attempts:
+            // attempt_count only ever grows, so a location that had synced a
+            // few hundred times retried its first failure at the 30-minute
+            // cap.
+            syncRetryAt(header.checkpointId, failureCount)
     await withTenant(input.organisationId, async (sql) => {
       const settled = await sql<{ id: string }[]>`
         update sync_checkpoint
@@ -763,10 +781,9 @@ export async function syncLinkedLocation(input: {
           },
         })
       }
-      // Nothing ever claims a reconcile checkpoint (claim_due_jobs takes only
-      // 'backfill' and 'sweep') and the next tick restarts at page one anyway,
-      // so parking one at 'pending' with a due next_attempt_at would only
-      // inflate the operator's backlog. hasMore reaches the caller instead.
+      // A reconcile always starts again at page one, so it never parks a
+      // cursor. It is recurring (0048): success books the next run from the
+      // slot this one was due in, not from now, so cadence does not drift.
       const resumable = hasMore && input.type !== "reconcile"
       await sql`
         update sync_checkpoint
@@ -775,8 +792,10 @@ export async function syncLinkedLocation(input: {
           page_token = ${resumable ? (pageToken ?? null) : null},
           next_attempt_at = ${
             resumable
-              ? syncRetryAt(header.checkpointId, header.attemptCount)
-              : null
+              ? syncRetryAt(header.checkpointId, 1)
+              : input.type === "reconcile"
+                ? sql`next_scheduled_run(scheduled_for, ${RECONCILE_INTERVAL}::interval)`
+                : null
           },
           consecutive_failure_count = 0,
           finished_at = ${resumable ? null : new Date()},
