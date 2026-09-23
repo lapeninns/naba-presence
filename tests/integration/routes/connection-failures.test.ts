@@ -706,4 +706,54 @@ describeDatabase("google connection failure handling", () => {
     expect(Buffer.compare(after.refreshToken!, before.refreshToken!)).not.toBe(0)
     expect(after.refreshTokenExpiresAt).toBeInstanceOf(Date)
   }, 60_000)
+
+  it("revokes the grant at Google when an owner disconnects", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/revoke" }, () => ({
+      status: 200,
+      json: {},
+    }))
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/connections/${connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    const revokes = stub.calls.filter((call) => call.path.endsWith("/revoke"))
+    expect(revokes).toHaveLength(1)
+    // The refresh token, so every access token issued from it dies with it.
+    expect(revokes[0].body).toEqual({ token: "stub-refresh-token" })
+    const [row] = await admin<
+      { status: string; access: Buffer | null; refresh: Buffer | null }[]
+    >`
+      select status, access_token_ciphertext as access, refresh_token_ciphertext as refresh
+      from google_connection where id = ${connectionId}
+    `
+    expect(row).toEqual({ status: "disconnected", access: null, refresh: null })
+  })
+
+  it("still disconnects, and records it, when Google will not revoke", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/revoke" }, () => ({
+      status: 503,
+      json: { error: "backend_error" },
+    }))
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/connections/${connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await connectionState(connectionId))[0].status).toBe("disconnected")
+    const [audit] = await admin<{ metadata: { status: number; error: string } }[]>`
+      select metadata from audit_log
+      where subject_id = ${connectionId}
+        and action = 'google.connection.revoke_failed'
+    `
+    expect(audit?.metadata).toMatchObject({ status: 503, error: "backend_error" })
+  })
 })
