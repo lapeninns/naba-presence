@@ -17,10 +17,10 @@ import { cn } from "@/lib/utils"
  * The command palette shell, over cmdk.
  *
  * cmdk owns the listbox semantics, the filtering and the arrow-key roving
- * focus; this file supplies the chrome: the popover material, a capsule
- * search field on top, grouped results under caption labels, and an
- * accent-tinted highlight (a palette is a list you scan, so it does not use
- * the solid menu highlight). The dialog keeps a real title and description,
+ * focus; this file supplies the chrome (reference `.palette`): a 620px
+ * panel 12vh from the top, a borderless title-size search row over a
+ * hairline, mono uppercase group labels, rows that take the accent tint when
+ * selected, and an optional footer of key hints (`footer` / `CommandFooter`). The dialog keeps a real title and description,
  * visually hidden — a dialog with no accessible name is announced as an
  * unnamed region, which is precisely the state a keyboard user lands in when
  * they hit the shortcut.
@@ -30,23 +30,27 @@ function CommandDialog({
   onOpenChange,
   title = "Search",
   description = "Find a client, a location or an action.",
+  footer,
   children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title?: string
   description?: string
+  /** Key hints under the list, e.g. `<CommandFooter>`. */
+  footer?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden rounded-(--np-radius-modal) border-0 bg-transparent p-0 shadow-(--np-shadow-modal) sm:max-w-xl"
+        className="top-[12vh] block w-[min(620px,calc(100vw-24px))] max-w-none translate-y-0 gap-0 overflow-hidden p-0 data-starting-style:translate-y-2 sm:max-w-none"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
-        <Command className="material-popover">{children}</Command>
+        <Command className="bg-surface">{children}</Command>
+        {footer}
       </DialogContent>
     </Dialog>
   )
@@ -70,28 +74,23 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div className="border-b border-line-subtle p-2">
-      <div
-        data-slot="command-search"
+    <div
+      data-slot="command-search"
+      className="flex items-center gap-2.5 border-b border-line px-[18px]"
+    >
+      <SearchIcon
+        className="size-4 shrink-0 text-ink-muted"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <CommandPrimitive.Input
+        data-slot="command-input"
         className={cn(
-          "flex h-(--np-field-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-3",
-          "transition-[box-shadow] duration-(--np-duration-fast) ease-spring-snappy focus-within:[box-shadow:var(--np-focus-halo)]"
+          "h-14 w-full min-w-0 bg-transparent text-title text-ink outline-none placeholder:text-ink-muted",
+          className
         )}
-      >
-        <SearchIcon
-          className="size-4 shrink-0 text-ink-muted"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <CommandPrimitive.Input
-          data-slot="command-input"
-          className={cn(
-            "h-full w-full min-w-0 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted",
-            className
-          )}
-          {...props}
-        />
-      </div>
+        {...props}
+      />
     </div>
   )
 }
@@ -104,7 +103,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-80 overflow-x-hidden overflow-y-auto p-1",
+        "max-h-[50vh] overflow-x-hidden overflow-y-auto overscroll-contain p-1.5",
         className
       )}
       {...props}
@@ -132,7 +131,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden p-1 text-ink [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-ink-muted",
+        "overflow-hidden text-ink [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11.5px] [&_[cmdk-group-heading]]:tracking-[0.04em] [&_[cmdk-group-heading]]:text-ink-muted [&_[cmdk-group-heading]]:uppercase",
         className
       )}
       {...props}
@@ -148,7 +147,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "flex min-h-(--np-menu-item-h) cursor-default items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-1.5 text-ui text-ink outline-none select-none",
+        "flex min-h-9 cursor-default items-center gap-2.5 rounded-(--np-radius-control) px-3 py-2 text-body text-ink outline-none select-none pointer-coarse:min-h-(--np-touch) [&_svg]:text-ink-muted data-[selected=true]:[&_svg]:text-accent-ink",
         "transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy",
         "data-[selected=true]:bg-accent-tint data-[selected=true]:text-accent-ink",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
@@ -177,6 +176,20 @@ function CommandShortcut({
   )
 }
 
+/** Key hints under the palette (reference `.palette-foot`). */
+function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="command-footer"
+      className={cn(
+        "flex flex-wrap gap-x-4 gap-y-1 border-t border-line bg-surface px-4 py-2.5 text-caption text-ink-muted max-sm:hidden",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
 function CommandSeparator({
   className,
   ...props
@@ -184,7 +197,7 @@ function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn("mx-2 my-1 h-px bg-line-subtle", className)}
+      className={cn("mx-1 my-1 h-px bg-line", className)}
       {...props}
     />
   )
@@ -194,6 +207,7 @@ export {
   Command,
   CommandDialog,
   CommandEmpty,
+  CommandFooter,
   CommandGroup,
   CommandInput,
   CommandItem,

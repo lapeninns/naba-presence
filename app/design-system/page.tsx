@@ -1,29 +1,34 @@
 import { notFound } from "next/navigation"
 
 import {
-  Archive,
-  Bell,
-  Building2,
-  Filter,
+  Check,
+  ChevronDown,
+  CircleAlert,
   Inbox,
-  List,
-  Map,
   MoreHorizontal,
-  Plus,
-  Reply,
-  Search,
-  Star,
-  UserRound,
+  Pencil,
+  Unlink,
 } from "lucide-react"
 
-import { ContrastEvidence } from "@/app/design-system/contrast-evidence"
-import { EditorFooterDemo } from "@/app/design-system/editor-footer-demo"
-import { SpringDemo } from "@/app/design-system/spring-demo"
 import { CommandDemo } from "@/app/design-system/command-demo"
+import { ContrastEvidence } from "@/app/design-system/contrast-evidence"
+import {
+  CounterTextareaDemo,
+  PendingButtonDemo,
+  RemovableChipDemo,
+  TagInputDemo,
+  ThemeToggleDemo,
+  ValidationDemo,
+} from "@/app/design-system/interactive-demos"
 import { ToastDemo } from "@/app/design-system/toast-demo"
-import { CapabilityBanner } from "@/components/editors/capability-banner"
-import { ChangeDiff } from "@/components/editors/change-diff"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+  Banner,
+} from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -35,7 +40,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Breadcrumbs } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -45,16 +49,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ToggleChip } from "@/components/ui/chip"
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxGroup,
-  ComboboxGroupLabel,
-  ComboboxInput,
-  ComboboxItem,
-} from "@/components/ui/combobox"
+import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogClose,
@@ -65,20 +63,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { DiffView } from "@/components/ui/diff-view"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
@@ -88,19 +81,21 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
 import { KpiTile } from "@/components/ui/kpi-tile"
+import { Lifecycle } from "@/components/ui/lifecycle"
 import {
   Popover,
-  PopoverClose,
   PopoverContent,
   PopoverDescription,
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Meter, Progress } from "@/components/ui/progress"
+import { PublishSteps } from "@/components/ui/publish-steps"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { SectionHeader } from "@/components/ui/section-header"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -108,23 +103,24 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
-  SelectGroupLabel,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import {
   Sheet,
+  SheetBody,
+  SheetClose,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Stepper } from "@/components/ui/stepper"
 import { Switch } from "@/components/ui/switch"
@@ -137,7 +133,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { Timeline } from "@/components/ui/timeline"
 import {
   Tooltip,
@@ -146,7 +141,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { getServerEnv } from "@/lib/server/env"
-import { STATUS_TONES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 type SectionTitle =
@@ -164,173 +158,190 @@ const SECTION_IDS: Record<SectionTitle, string> = {
   Compositions: "compositions",
 }
 
-const SORT_ITEMS: Record<string, string> = {
-  updated_desc: "Most recent",
-  rating_desc: "Highest rated",
-  rating_asc: "Lowest rated",
-  replied: "Replied",
-  unreplied: "Needs reply",
+const TOC: Array<[string, string]> = [
+  ["Foundations", "section-foundations"],
+  ["Type", "section-typography"],
+  ["Spacing", "section-spacing-and-radius"],
+  ["Controls", "ds-controls"],
+  ["Status", "ds-status"],
+  ["Data", "ds-data"],
+  ["Progress", "ds-flow"],
+  ["States", "ds-states"],
+  ["Overlays", "ds-overlays"],
+  ["Forms", "ds-forms"],
+  ["Compositions", "section-compositions"],
+]
+
+const PRINCIPLES: Array<[string, string]> = [
+  [
+    "The customer’s words are the largest readable text",
+    "Reviews set in the reading serif at 17/28; chrome stays at 13–14px.",
+  ],
+  [
+    "State is always labelled",
+    "Pills carry words, not just colour. A dot never stands alone.",
+  ],
+  [
+    "Nothing claims success before Google confirms",
+    "“Sent to Google” comes before “Live on Google”.",
+  ],
+  [
+    "One primary action per surface",
+    "The accent solid appears once per viewport; other routes are secondary or ghost.",
+  ],
+  [
+    "Every workspace reflows by its own width",
+    "Container queries, not the viewport, decide columns — 320px to 1920px.",
+  ],
+]
+
+// Spelled out so Tailwind sees every class.
+const SWATCH_GROUPS: Array<[string, Array<[string, string, string]>]> = [
+  [
+    "Neutrals",
+    [
+      ["canvas", "bg-canvas", "Page background"],
+      ["surface", "bg-surface", "Cards, fields"],
+      ["surface-alt", "bg-surface-alt", "Sunken rows, rails, table head"],
+      ["fill", "bg-fill", "Hover fill, skeleton, tracks"],
+      ["line", "bg-line", "Hairlines"],
+      ["line-strong", "bg-line-strong", "Control boundary (3:1)"],
+      ["ink", "bg-ink", "Body text"],
+      ["ink-secondary", "bg-ink-secondary", "Strong secondary text"],
+      ["ink-muted", "bg-ink-muted", "Captions, meta"],
+    ],
+  ],
+  [
+    "Accent",
+    [
+      ["primary", "bg-primary", "Primary button, current marker"],
+      ["accent-hover", "bg-accent-hover", "Primary hover"],
+      ["accent-ink", "bg-accent-ink", "Selected text, links"],
+      ["accent-tint", "bg-accent-tint", "Selected background"],
+    ],
+  ],
+  [
+    "Status",
+    [
+      ["success-ink", "bg-success-ink", "Success text"],
+      ["success-tint", "bg-success-tint", "Success fill"],
+      ["success-solid", "bg-success-solid", "Success dot"],
+      ["warning-ink", "bg-warning-ink", "Warning text"],
+      ["warning-tint", "bg-warning-tint", "Warning fill"],
+      ["warning-solid", "bg-warning-solid", "Warning dot"],
+      ["danger-ink", "bg-danger-ink", "Error text"],
+      ["danger-tint", "bg-danger-tint", "Error fill"],
+      ["danger-solid", "bg-danger-solid", "Danger button, error dot"],
+      ["info-ink", "bg-info-ink", "Info text"],
+      ["info-tint", "bg-info-tint", "Info fill"],
+      ["info-solid", "bg-info-solid", "Info dot"],
+      ["rating", "bg-rating", "Rating stars"],
+    ],
+  ],
+  [
+    "Counter-surface and charts",
+    [
+      ["charcoal", "bg-charcoal", "Action bar, toasts"],
+      ["ink-on-charcoal", "bg-ink-on-charcoal", "Text on charcoal"],
+      [
+        "ink-muted-on-charcoal",
+        "bg-ink-muted-on-charcoal",
+        "Secondary on charcoal",
+      ],
+      ["chart-1", "bg-chart-1", "Series 1"],
+      ["chart-2", "bg-chart-2", "Series 2"],
+      ["chart-3", "bg-chart-3", "Baseline series"],
+    ],
+  ],
+]
+
+const TYPE_ROLES: Array<[string, string, string]> = [
+  [
+    "Caption · 12/16",
+    "text-caption text-ink-muted",
+    "Synced 12 min ago · Sample figures",
+  ],
+  [
+    "Meta · mono 12",
+    "font-mono text-caption text-ink-muted",
+    "PROVIDER_PERMISSION_DENIED · 17 Sep, 18:02",
+  ],
+  [
+    "Eyebrow · mono 11.5",
+    "font-mono text-[11.5px] font-medium tracking-[0.06em] text-ink-muted uppercase",
+    "The Bell · LI-02",
+  ],
+  ["UI · 13/20", "text-ui", "Buttons, table cells, navigation"],
+  [
+    "Body · 14/22",
+    "text-body",
+    "Replies publish to Google as soon as they pass the checks.",
+  ],
+  ["Title · 16/24", "text-title font-semibold", "Reply performance"],
+  ["Section · 18/26", "text-section font-semibold", "Google logins"],
+  [
+    "Page · serif 22–28",
+    "font-display text-page-title font-semibold",
+    "Reply policy",
+  ],
+  [
+    "Display · serif 28–36",
+    "font-display text-display font-semibold",
+    "Everything is handled",
+  ],
+  [
+    "Reading · serif 17/28",
+    "font-reading text-reading",
+    "Sunday lunch took almost an hour to arrive and the roast potatoes were cold by the time they did.",
+  ],
+  [
+    "Figures · mono tabular",
+    "font-mono tabular-nums",
+    "1,234 · 10 h 52 min · 4.4",
+  ],
+]
+
+const SPACE = [1, 2, 3, 4, 5, 6, 8, 10, 12] as const
+const SPACE_WIDTH: Record<(typeof SPACE)[number], string> = {
+  1: "w-1",
+  2: "w-2",
+  3: "w-3",
+  4: "w-4",
+  5: "w-5",
+  6: "w-6",
+  8: "w-8",
+  10: "w-10",
+  12: "w-12",
 }
+const RADII: Array<[string, string]> = [
+  ["tag 6", "rounded-(--np-radius-tag)"],
+  ["control 8", "rounded-(--np-radius-control)"],
+  ["card 12", "rounded-(--np-radius-card)"],
+  ["modal 16", "rounded-(--np-radius-modal)"],
+  ["pill", "rounded-(--np-radius-pill)"],
+]
 
-const DESIGN_SYSTEM_LOCATIONS = [
-  "Riverside",
-  "Old Crown",
-  "The Plough",
-] as const
-
-const SURFACES = [
-  ["canvas", "bg-canvas", "The page. Grouped background."],
-  ["surface", "bg-surface", "Cards. No border, no shadow."],
-  ["surface-raised", "bg-surface-raised", "A step up in the dark theme."],
-  ["surface-sunken", "bg-surface-sunken", "Wells and inset regions."],
-  ["surface-overlay", "bg-surface-overlay", "Dialogs and opaque popups."],
-] as const
-
-const LABELS = [
-  ["ink", "text-ink", "Primary text. Measured at 4.5:1 everywhere."],
-  ["ink-muted", "text-ink-muted", "Secondary text and captions. Also 4.5:1."],
-  [
-    "ink-faint",
-    "text-ink-faint",
-    "Decorative only: separators, inert glyphs. 3:1.",
-  ],
-  [
-    "ink-quaternary",
-    "text-ink-quaternary",
-    "Disabled glyphs only. Never words.",
-  ],
-] as const
-
-const FILLS = [
-  ["fill", "bg-fill", "Grey buttons, segmented tracks"],
-  ["fill-secondary", "bg-fill-secondary", "Search fields, keycaps, hover"],
-  ["fill-tertiary", "bg-fill-tertiary", "Plain button hover, subtle wells"],
-] as const
-
-const LINES = [
-  ["line-subtle", "border-line-subtle", "Row and card separators"],
-  ["line", "border-line", "Popover arrow edge, shadcn --border"],
-  ["line-strong", "border-line-strong", "Control edges. The only line at 3:1."],
-] as const
-
-const STATUS_FAMILIES = [
-  {
-    name: "success",
-    tint: "bg-success-tint text-success-ink",
-    solid: "bg-(--np-success-solid) text-(--np-success-on-solid)",
-    line: "border-(--np-success-line)",
-  },
-  {
-    name: "warning",
-    tint: "bg-warning-tint text-warning-ink",
-    solid: "bg-(--np-warning-solid) text-(--np-warning-on-solid)",
-    line: "border-(--np-warning-line)",
-  },
-  {
-    name: "danger",
-    tint: "bg-danger-tint text-danger-ink",
-    solid: "bg-(--np-danger-solid) text-(--np-danger-on-solid)",
-    line: "border-(--np-danger-line)",
-  },
-  {
-    name: "info",
-    tint: "bg-info-tint text-info-ink",
-    solid: "bg-(--np-info-solid) text-(--np-info-on-solid)",
-    line: "border-(--np-info-line)",
-  },
-] as const
-
-const TYPE_ROLES = [
-  {
-    role: "caption",
-    className: "text-caption",
-    spec: "12 / 16 · +0.01em",
-    weight: "400, 500 for labels",
-    use: "Metadata, footnotes, keycaps. 12px is the floor; 11px stays banned.",
-  },
-  {
-    role: "ui",
-    className: "text-ui",
-    spec: "13 / 18",
-    weight: "400, 500 for controls",
-    use: "Buttons, menu items, table text, field labels.",
-  },
-  {
-    role: "body",
-    className: "text-body",
-    spec: "14 / 20",
-    weight: "400; 600 makes a headline",
-    use: "Paragraphs, review text, descriptions.",
-  },
-  {
-    role: "title",
-    className: "text-title",
-    spec: "15 / 20 · −0.01em",
-    weight: "600",
-    use: "Card titles, popover titles.",
-  },
-  {
-    role: "section",
-    className: "text-section",
-    spec: "17 / 22 · −0.015em",
-    weight: "600",
-    use: "Dialog and sheet titles.",
-  },
-  {
-    role: "page-title",
-    className: "text-page-title",
-    spec: "24 / 28 · −0.02em",
-    weight: "700",
-    use: "The one h1 on a page.",
-  },
-  {
-    role: "display",
-    className: "text-display",
-    spec: "32 / 36 · −0.025em",
-    weight: "700, tabular figures",
-    use: "KPI figures.",
-  },
-] as const
-
-const RADII = [
-  ["tag", "6px", "Badges in cells, checkboxes, keycaps"],
-  ["control", "10px", "Buttons, segmented tracks, menu rows' parent"],
-  ["field", "10px", "Inputs and textareas"],
-  ["card", "14px", "Cards, popovers, menus"],
-  ["panel", "16px", "Auth card, inspector"],
-  ["modal", "20px", "Dialogs"],
-  ["sheet", "28px", "Bottom sheets"],
-  ["pill", "999px", "Capsules and circles"],
-] as const
-
-const METRICS = [
-  ["--np-gap-card", "12px", "Between cards in a grid"],
-  ["--np-gap-section", "24px", "Between sections of a page"],
-  ["--np-card-pad", "16px", "Inside a card; the grouped-list inset"],
-  ["--np-panel-pad", "20px", "Inside a panel or inspector"],
-  ["--np-page-pad-x / -y", "32px / 24px", "Page gutters; -x is 20px below md"],
-  ["--np-toolbar-h", "52px", "The toolbar"],
-  ["--np-sidebar-width", "244px", "The sidebar"],
-] as const
-
-const DENSITY = [
-  ["--np-row-h", "44px", "32px", "List and table rows"],
-  ["--np-control-h", "32px", "28px", "Buttons, selects, segmented controls"],
-  ["--np-field-h", "34px", "30px", "Text fields"],
-  ["--np-menu-item-h", "30px", "26px", "Menu rows"],
-  ["--np-pill-h", "22px", "22px", "Badges and status pills"],
-] as const
-
-// Spelled out rather than templated so Tailwind sees every class.
-const CHART_FILLS = [
-  "bg-(--np-chart-1)",
-  "bg-(--np-chart-2)",
-  "bg-(--np-chart-3)",
-  "bg-(--np-chart-4)",
-  "bg-(--np-chart-5)",
-  "bg-(--np-chart-6)",
-] as const
-const BUSY_TILES = [0, 1, 2, 3, 4, 5, 1, 3, 5, 0, 2, 4] as const
+const SAMPLE_REVIEWS = [5, 8, 6, 9, 12, 14, 7]
+const SAMPLE_REPLIED = [5, 7, 6, 8, 10, 11, 4]
+const SAMPLE_MAX = 14
+// Spelled out so Tailwind sees every height class.
+const BAR_H: Record<number, string> = {
+  0: "h-0",
+  1: "h-[7%]",
+  2: "h-[14%]",
+  3: "h-[21%]",
+  4: "h-[29%]",
+  5: "h-[36%]",
+  6: "h-[43%]",
+  7: "h-[50%]",
+  8: "h-[57%]",
+  9: "h-[64%]",
+  10: "h-[71%]",
+  11: "h-[79%]",
+  12: "h-[86%]",
+  13: "h-[93%]",
+  14: "h-full",
+}
 
 function Section({
   title,
@@ -342,13 +353,12 @@ function Section({
   children: React.ReactNode
 }) {
   const id = `section-${SECTION_IDS[title]}`
-
   return (
     <section
       aria-labelledby={id}
-      className="flex flex-col gap-(--np-gap-section) border-t border-line-subtle pt-(--np-gap-section) first-of-type:border-t-0 first-of-type:pt-0"
+      className="flex scroll-mt-4 flex-col gap-6 border-t border-line pt-8 first-of-type:border-t-0 first-of-type:pt-0"
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 id={id} className="text-section font-semibold text-ink">
           {title}
         </h2>
@@ -361,51 +371,90 @@ function Section({
   )
 }
 
-/** One named specimen inside a section: an h3, an optional note, the thing. */
+/** One named specimen: an h3, a caption note, and the thing itself. */
 function Specimen({
   title,
   note,
+  id,
   children,
 }: {
   title: string
   note?: React.ReactNode
+  id?: string
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
+    <div id={id} className="flex min-w-0 scroll-mt-4 flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <h3 className="text-title font-semibold text-ink">{title}</h3>
-        {note ? (
-          <p className="max-w-3xl text-ui text-ink-muted">{note}</p>
-        ) : null}
+        {note ? <p className="text-caption text-ink-muted">{note}</p> : null}
       </div>
       {children}
     </div>
   )
 }
 
-function Swatch({
-  name,
+/** The reference `.demo` panel. */
+function Demo({
+  column = false,
+  sunken = false,
   className,
-  note,
-  edge = false,
+  children,
 }: {
-  name: string
-  className: string
-  note: string
-  edge?: boolean
+  column?: boolean
+  sunken?: boolean
+  className?: string
+  children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <div
-        className={cn(
-          "h-14 rounded-(--np-radius-control)",
-          edge && "hairline",
-          className
-        )}
+    <div
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-3 rounded-(--np-radius-card) border border-line p-5",
+        column && "flex-col flex-nowrap items-stretch",
+        sunken ? "bg-canvas" : "bg-surface",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** The primitives most affected by the theme, drawn together. */
+function ThemeSampler() {
+  return (
+    <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-canvas p-4 text-ink">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button>Publish to Google</Button>
+        <Button variant="secondary">Save draft</Button>
+        <Button variant="danger-outline">Discard</Button>
+        <StatusPill tone="ok">Live on Google</StatusPill>
+        <StatusPill tone="warn">Awaiting approval</StatusPill>
+        <StatusPill tone="bad">Publish failed</StatusPill>
+      </div>
+      <Field>
+        <FieldLabel>Business name</FieldLabel>
+        <Input defaultValue="The Bell" />
+      </Field>
+      <ActionBar
+        sticky={false}
+        safeArea={false}
+        label="Sample action bar"
+        status={
+          <span>
+            <strong>1 change not on Google</strong>{" "}
+            <ActionBarMuted>· Saved here</ActionBarMuted>
+          </span>
+        }
+        actions={
+          <>
+            <Button variant="ghost-dark" size="sm">
+              Discard
+            </Button>
+            <Button size="sm">Review changes</Button>
+          </>
+        }
       />
-      <p className="font-mono text-caption text-ink">{name}</p>
-      <p className="text-caption text-ink-muted">{note}</p>
     </div>
   )
 }
@@ -414,1385 +463,1134 @@ export const metadata = { title: "Design system · NabaPresence" }
 
 // Rendered per request, never prerendered. DESIGN_SYSTEM_EVIDENCE_ENABLED is a
 // serve-time control, so a build-time decision would freeze whichever value
-// happened to be set when `next build` ran - in CI the flag is absent at build
-// and present only on the test step, which would ship this page as a baked 404
-// and take the accessibility evidence with it. Forcing dynamic also moves
+// happened to be set when `next build` ran. Forcing dynamic also moves
 // ContrastEvidence's cwd-relative read of app/globals.css onto the request
-// path; that resolves both under `pnpm start` at the repo root and from the
-// standalone output, which carries its own .next/standalone/app/globals.css.
+// path.
 export const dynamic = "force-dynamic"
 
 export default function Page() {
   if (!getServerEnv().DESIGN_SYSTEM_EVIDENCE_ENABLED) notFound()
   return (
-    <main
-      id="main"
-      tabIndex={-1}
-      className="mx-auto flex min-h-svh w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 py-6 outline-none md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
-    >
-      <header className="flex flex-col gap-2">
-        <p className="text-caption font-medium text-ink-muted">
-          Apple-grade, platform-native, light-first
-        </p>
-        <h1 className="text-page-title font-bold text-balance text-ink">
-          NabaPresence design system
-        </h1>
-        <p className="max-w-2xl text-ui text-ink-muted">
-          The living reference. Every specimen reads the same tokens the app
-          does, so a role that drifts shows up here first. Colour, type, shape
-          and motion come from app/globals.css; the contrast pairs below are
-          measured from that file, not asserted in a comment.
-        </p>
-      </header>
-
-      <Section
-        title="Foundations"
-        description="Colour is a small vocabulary: a grouped background, four inks, three greys, one accent and four status families. Everything else is a material, a hairline or a shadow."
+    <TooltipProvider>
+      <main
+        id="main"
+        tabIndex={-1}
+        className="mx-auto flex min-h-svh w-full max-w-[1080px] flex-col gap-10 px-(--np-page-pad-x) py-(--np-page-pad-y) pb-16 outline-none"
       >
-        <Specimen
-          title="Surfaces"
-          note="The page is a soft grey and content sits on white. A card needs neither a border nor a shadow to be a card; a white surface on another white surface takes the hairline."
-        >
-          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {SURFACES.map(([name, className, note]) => (
-              <Swatch
-                key={name}
-                name={name}
-                className={className}
-                note={note}
-                edge
-              />
-            ))}
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
+            <p className="font-mono text-[11.5px] font-medium tracking-[0.06em] text-ink-muted uppercase">
+              Rendered evidence · components/ui
+            </p>
+            <h1 className="font-display text-page-title font-semibold text-balance text-ink">
+              NabaPresence design system
+            </h1>
+            <p className="max-w-[70ch] text-body text-ink-muted">
+              Every token and component below is rendered live from the shipping
+              primitives, so this page is proof rather than a description.
+              Switch the theme to check both; contrast ratios are measured from
+              app/globals.css.
+            </p>
           </div>
-        </Specimen>
+          <ThemeToggleDemo />
+        </header>
 
-        <Specimen
-          title="Label ladder"
-          note="Four inks. Words use the first two, both measured at 4.5:1 on every surface they land on. The last two are for ornament and disabled glyphs and may never carry text."
+        <nav
+          aria-label="On this page"
+          className="sticky top-0 z-10 -my-2 bg-canvas py-2"
         >
-          <div className="grid gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad) sm:grid-cols-2">
-            {LABELS.map(([name, className, note]) => (
-              <div key={name} className="flex flex-col gap-0.5">
-                {name === "ink" || name === "ink-muted" ? (
-                  <p className={cn("text-body font-medium", className)}>
-                    Reply to Old Crown Girton
-                  </p>
-                ) : (
-                  // Decorative inks never carry words, so the specimen is what
-                  // they are for: a separator and an inert glyph.
+          <ChipRow>
+            {TOC.map(([label, id]) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className="inline-flex h-8 shrink-0 items-center rounded-(--np-radius-pill) border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink no-underline focus-halo hover:border-line-strong hover:bg-surface-alt pointer-coarse:h-10"
+              >
+                {label}
+              </a>
+            ))}
+          </ChipRow>
+        </nav>
+
+        <Section
+          title="Foundations"
+          description="What every screen is checked against, and the colour roles it is built from."
+        >
+          <ol className="grid list-none [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-3">
+            {PRINCIPLES.map(([title, body], index) => (
+              <li
+                key={title}
+                className="flex flex-col gap-1 rounded-(--np-radius-card) bg-surface-alt p-4"
+              >
+                <span className="font-mono text-caption font-semibold text-accent-ink">
+                  0{index + 1}
+                </span>
+                <strong className="text-title font-semibold">{title}</strong>
+                <span className="text-ui text-ink-muted">{body}</span>
+              </li>
+            ))}
+          </ol>
+
+          {SWATCH_GROUPS.map(([group, swatches]) => (
+            <Specimen key={group} title={group}>
+              <div className="grid [grid-template-columns:repeat(auto-fill,minmax(min(100%,160px),1fr))] gap-3">
+                {swatches.map(([name, className, role]) => (
+                  <div
+                    key={name}
+                    className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+                  >
+                    <div
+                      className={cn("h-14 border-b border-line", className)}
+                    />
+                    <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-2">
+                      <code className="font-mono text-caption font-semibold break-all">
+                        {name}
+                      </code>
+                      <span className="text-caption text-ink-muted">
+                        {role}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Specimen>
+          ))}
+
+          <Specimen
+            title="Both themes"
+            note="The same primitives in the dark theme, on a dark island, beside the current theme."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <ThemeSampler />
+              <div className="dark rounded-(--np-radius-card)">
+                <ThemeSampler />
+              </div>
+            </div>
+          </Specimen>
+
+          <Specimen
+            title="Contrast"
+            note="Text needs 4.5:1; large text and control boundaries 3:1. Measured from the shipping token file."
+          >
+            <ContrastEvidence />
+          </Specimen>
+        </Section>
+
+        <Section
+          title="Typography"
+          description="System sans for the interface, a serif for page titles and the customer’s own words, mono for figures and codes."
+        >
+          <Card size="sm" className="@container gap-0 py-0">
+            {TYPE_ROLES.map(([role, className, sample]) => (
+              <div
+                key={role}
+                className="grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)] items-baseline gap-4 border-b border-line px-4 py-2.5 last:border-0 @max-[560px]:grid-cols-1 @max-[560px]:gap-1"
+              >
+                <span className="font-mono text-caption text-ink-muted">
+                  {role}
+                </span>
+                <span className={cn("min-w-0 break-words", className)}>
+                  {sample}
+                </span>
+              </div>
+            ))}
+          </Card>
+        </Section>
+
+        <Section
+          title="Spacing and radius"
+          description="A 4px base. Radii grow with the size of the thing they round."
+        >
+          <div className="grid [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
+            <Demo column>
+              {SPACE.map((step) => (
+                <div
+                  key={step}
+                  className="grid grid-cols-[56px_48px_minmax(0,1fr)] items-center gap-3 font-mono text-caption"
+                >
+                  <span>{`space-${step}`}</span>
+                  <span className="text-ink-muted">{step * 4}px</span>
+                  <span
+                    className={cn(
+                      "h-3 rounded-[2px] bg-chart-1",
+                      SPACE_WIDTH[step]
+                    )}
+                  />
+                </div>
+              ))}
+            </Demo>
+            <Demo column>
+              <div className="flex flex-wrap gap-4">
+                {RADII.map(([label, radius]) => (
+                  <div
+                    key={label}
+                    className={cn(
+                      "grid h-16 w-22 place-items-end justify-items-start border-[1.5px] border-line-strong bg-surface-alt p-1.5 font-mono text-[11px] text-ink-muted",
+                      radius
+                    )}
+                  >
+                    {label}
+                  </div>
+                ))}
+              </div>
+              <p className="text-caption text-ink-muted">
+                Controls are 36px tall (30 small), and 44px on touch screens;
+                chips and segments grow to 40px.
+              </p>
+            </Demo>
+          </div>
+        </Section>
+
+        <Section
+          title="Primitives"
+          description="Every component in every state it can be in."
+        >
+          <div id="ds-controls" className="flex scroll-mt-4 flex-col gap-6">
+            <Specimen
+              title="Buttons"
+              note="One primary per surface. Pending keeps a readable label."
+            >
+              <Demo>
+                <Button>Publish to Google</Button>
+                <Button variant="secondary">Save draft</Button>
+                <Button variant="ghost">Cancel</Button>
+                <Button variant="danger">Delete from Google</Button>
+                <Button variant="danger-outline">Discard edits</Button>
+                <Button variant="tinted">Suggest a reply</Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal aria-hidden />
+                </Button>
+              </Demo>
+              <Demo>
+                <Button size="sm">Small</Button>
+                <Button>Default</Button>
+                <Button size="lg">Large</Button>
+                <Button disabled>Disabled</Button>
+                <Button
+                  variant="secondary"
+                  disabledReason="Save a draft that passes every check first."
+                >
+                  Not ready (explains why)
+                </Button>
+                <Button variant="secondary" pending pendingLabel="Publishing…">
+                  Publish
+                </Button>
+                <PendingButtonDemo />
+              </Demo>
+            </Specimen>
+
+            <Specimen
+              title="Fields"
+              note="Visible labels; errors sit beside the field with a reason."
+            >
+              <Demo>
+                <div className="grid w-full gap-4 sm:grid-cols-2">
+                  <Field>
+                    <FieldLabel>Default</FieldLabel>
+                    <Input placeholder="The Bell" />
+                    <FieldDescription>
+                      Hint text sits under the field.
+                    </FieldDescription>
+                  </Field>
+                  <Field error="Enter a valid email address, like name@example.com.">
+                    <FieldLabel>Invalid</FieldLabel>
+                    <Input defaultValue="bell@" />
+                    <FieldError />
+                  </Field>
+                  <Field>
+                    <FieldLabel optional="read only">Disabled</FieldLabel>
+                    <Input defaultValue="Managed by Google" disabled />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Search</FieldLabel>
+                    <Input type="search" placeholder="Search reviews" />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Select</FieldLabel>
+                    <Select defaultValue="28" items={{ "28": "Last 28 days", "90": "Last 90 days" }}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="28">Last 28 days</SelectItem>
+                        <SelectItem value="90">Last 90 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel optional>Website</FieldLabel>
+                    <Input type="url" placeholder="https://" />
+                  </Field>
+                  <CounterTextareaDemo />
+                </div>
+              </Demo>
+            </Specimen>
+
+            <Specimen
+              title="Choices"
+              note="Checkbox, radio, switch and choice cards."
+            >
+              <Demo className="items-start gap-8">
+                <div className="flex flex-col gap-2">
+                  <Checkbox defaultChecked label="Checked" />
+                  <Checkbox label="Unchecked" />
+                  <Checkbox indeterminate label="Indeterminate" />
+                  <Checkbox disabled label="Disabled" />
+                </div>
+                <RadioGroup defaultValue="a" aria-label="Radio example">
+                  <RadioGroupItem value="a">Selected</RadioGroupItem>
+                  <RadioGroupItem value="b">Not selected</RadioGroupItem>
+                  <RadioGroupItem value="c" disabled>
+                    Disabled
+                  </RadioGroupItem>
+                </RadioGroup>
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-2.5 text-body">
+                    <Switch defaultChecked aria-labelledby="ds-sw-on" />
+                    <span id="ds-sw-on">On</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 text-body">
+                    <Switch aria-labelledby="ds-sw-off" />
+                    <span id="ds-sw-off">Off</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 text-body text-ink-muted">
+                    <Switch disabled aria-labelledby="ds-sw-dis" />
+                    <span id="ds-sw-dis">Disabled</span>
+                  </label>
+                </div>
+              </Demo>
+              <RadioGroup
+                defaultValue="low"
+                aria-label="Approval policy"
+                className="grid [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))] gap-3"
+              >
+                <ChoiceCard
+                  value="low"
+                  title="Approval for low ratings"
+                  description="Selected card: accent border and tint."
+                />
+                <ChoiceCard
+                  value="all"
+                  title="Approval for every reply"
+                  description="Unselected card."
+                />
+                <ChoiceCard
+                  value="none"
+                  title="No approval"
+                  description="Disabled: owners only."
+                  disabled
+                />
+              </RadioGroup>
+            </Specimen>
+
+            <Specimen
+              title="Segmented and chips"
+              note="Segmented picks one view; chips filter and scope. Pressed chips fill with ink."
+            >
+              <Demo>
+                <SegmentedControl defaultValue="warm" aria-label="Tone">
+                  <SegmentedControlItem value="warm">Warm</SegmentedControlItem>
+                  <SegmentedControlItem value="concise">
+                    Concise
+                  </SegmentedControlItem>
+                  <SegmentedControlItem value="empathetic">
+                    Empathetic
+                  </SegmentedControlItem>
+                </SegmentedControl>
+                <ToggleChip pressed count={5}>
+                  Needs reply
+                </ToggleChip>
+                <ToggleChip count={2}>Approval</ToggleChip>
+                <ToggleChip count={1} countTone="alert">
+                  Failed
+                </ToggleChip>
+                <RemovableChipDemo />
+              </Demo>
+            </Specimen>
+          </div>
+
+          <div id="ds-status" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Status vocabulary"
+              note="Pills always carry a word. Tone is a second cue, never the only one."
+            >
+              <Demo>
+                <StatusPill tone="ok">Live on Google</StatusPill>
+                <StatusPill tone="info">Publishing</StatusPill>
+                <StatusPill tone="warn">Awaiting approval</StatusPill>
+                <StatusPill tone="bad">Publish failed</StatusPill>
+                <StatusPill tone="accent">Draft ready</StatusPill>
+                <StatusPill tone="neutral" dashed>
+                  No reply yet
+                </StatusPill>
+                <StatusPill tone="neutral">Neutral</StatusPill>
+                <StatusPill tone="neutral" plain>
+                  Plain
+                </StatusPill>
+                <StatusPill tone="outline">Outline</StatusPill>
+              </Demo>
+              <Demo>
+                <span className="flex items-center gap-1.5 text-ui">
+                  <StatusPill tone="healthy" variant="dot" />
+                  Healthy
+                </span>
+                <span className="flex items-center gap-1.5 text-ui">
+                  <StatusPill tone="attention" variant="dot" />
+                  Needs attention
+                </span>
+                <span className="flex items-center gap-1.5 text-ui">
+                  <StatusPill tone="at-risk" variant="dot" />
+                  Disconnected
+                </span>
+                <span className="flex items-center gap-1.5 text-ui">
+                  <StatusPill tone="neutral" variant="dot" dashed />
+                  Not set up
+                </span>
+                <Badge variant="secondary">3</Badge>
+                <Badge variant="role">Owner</Badge>
+                <Kbd>⌘K</Kbd>
+                <Stars value={4} />
+                <Avatar>
+                  <AvatarFallback>AS</AvatarFallback>
+                </Avatar>
+                <Avatar size="sm">
+                  <AvatarFallback>PK</AvatarFallback>
+                </Avatar>
+                <code className="rounded-(--np-radius-tag) border border-line bg-surface-alt px-1.5 font-mono text-caption whitespace-nowrap">
+                  PROVIDER_PERMISSION_DENIED
+                </code>
+              </Demo>
+            </Specimen>
+            <Specimen title="Alerts and banner">
+              <div className="flex flex-col gap-3">
+                <Alert variant="info">
+                  <AlertTitle>Info</AlertTitle>
+                  <AlertDescription>
+                    Google revises the last few days of performance data.
+                  </AlertDescription>
+                </Alert>
+                <Alert variant="success">
+                  <AlertTitle>Live on Google</AlertTitle>
+                  <AlertDescription>
+                    Google confirmed the reply.
+                  </AlertDescription>
+                </Alert>
+                <Alert variant="warning">
+                  <AlertTitle>These figures may be incomplete</AlertTitle>
+                  <AlertDescription>
+                    Syncing is catching up with Google’s totals.
+                  </AlertDescription>
+                </Alert>
+                <Alert variant="destructive">
+                  <AlertTitle>Google declined this reply</AlertTitle>
+                  <AlertDescription>
+                    The connected login no longer manages this listing. Nothing
+                    is live.{" "}
+                    <code className="rounded-(--np-radius-tag) bg-surface px-1.5 font-mono text-caption">
+                      PROVIDER_PERMISSION_DENIED
+                    </code>
+                  </AlertDescription>
+                  <AlertActions>
+                    <Button variant="secondary" size="sm">
+                      Check the Google login
+                    </Button>
+                  </AlertActions>
+                </Alert>
+                <Alert>
+                  <AlertTitle>A note with no status</AlertTitle>
+                  <AlertDescription>
+                    The sunken surface with a hairline.
+                  </AlertDescription>
+                </Alert>
+                <Banner
+                  tone="bad"
+                  icon={<Unlink strokeWidth={1.75} aria-hidden />}
+                  className="rounded-(--np-radius-card)"
+                  action={
+                    <Button variant="secondary" size="sm">
+                      Reconnect
+                    </Button>
+                  }
+                >
+                  <strong>
+                    The Old Crown’s Google login needs reconnecting.
+                  </strong>{" "}
+                  <span className="text-ink-secondary">
+                    Page-wide banner under the toolbar.
+                  </span>
+                </Banner>
+              </div>
+            </Specimen>
+          </div>
+
+          <div id="ds-data" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Tables"
+              note="Labelled rows below 720px of the table’s own width. Figures are mono and right-aligned."
+            >
+              <Table surface responsive>
+                <caption className="sr-only">Locations, sample</caption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead numeric>Reviews</TableHead>
+                    <TableHead numeric>Median reply</TableHead>
+                    <TableHead className="w-px text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    [
+                      "The Prince of Wales",
+                      "LI-01",
+                      "ok",
+                      "On track",
+                      "46",
+                      "3 h 10 min",
+                      false,
+                    ],
+                    [
+                      "The Bell",
+                      "LI-02 · selected row",
+                      "warn",
+                      "Slow replies",
+                      "38",
+                      "9 h",
+                      true,
+                    ],
+                    [
+                      "The Old Crown",
+                      "OC-01",
+                      "bad",
+                      "Disconnected",
+                      "18",
+                      "—",
+                      false,
+                    ],
+                  ].map(
+                    ([name, code, tone, status, reviews, median, selected]) => (
+                      <TableRow
+                        key={String(name)}
+                        data-selected={selected ? "true" : undefined}
+                      >
+                        <TableCell label="Location">
+                          <div className="flex min-w-0 flex-col">
+                            <span className="font-semibold">{name}</span>
+                            <span className="text-caption text-ink-muted">
+                              {code}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell label="Status">
+                          <StatusPill tone={tone as "ok" | "warn" | "bad"}>
+                            {status}
+                          </StatusPill>
+                        </TableCell>
+                        <TableCell label="Reviews" numeric>
+                          {reviews}
+                        </TableCell>
+                        <TableCell label="Median reply" numeric>
+                          {median}
+                        </TableCell>
+                        <TableCell data-actions="" className="text-right">
+                          <Button variant="ghost" size="sm">
+                            Open
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  )}
+                </TableBody>
+              </Table>
+            </Specimen>
+
+            <Specimen
+              title="Tabs"
+              note="An ink underline; the row scrolls when it does not fit."
+            >
+              <Tabs defaultValue="reply">
+                <TabsList aria-label="Tabs example">
+                  <TabsTab value="reply">Reply performance</TabsTab>
+                  <TabsTab value="google">Google performance</TabsTab>
+                  <TabsTab value="keywords">Search keywords</TabsTab>
+                </TabsList>
+                <TabsPanel
+                  value="reply"
+                  className="text-caption text-ink-muted"
+                >
+                  First panel. Arrow keys move between tabs.
+                </TabsPanel>
+                <TabsPanel
+                  value="google"
+                  className="text-caption text-ink-muted"
+                >
+                  Second panel.
+                </TabsPanel>
+                <TabsPanel
+                  value="keywords"
+                  className="text-caption text-ink-muted"
+                >
+                  Third panel.
+                </TabsPanel>
+              </Tabs>
+            </Specimen>
+
+            <Specimen title="Stat tiles">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <KpiTile
+                  label="Reviews received"
+                  value="211"
+                  delta={{
+                    value: "+4",
+                    direction: "up",
+                    label: "vs previous 28 days",
+                  }}
+                />
+                <KpiTile
+                  label="Median time to reply"
+                  value="10 h 52 min"
+                  delta={{
+                    value: "+21 min",
+                    direction: "up",
+                    tone: "danger",
+                    label: "slower",
+                  }}
+                />
+                <KpiTile
+                  label="Average rating"
+                  value="4.4"
+                  delta={{ value: "No change", direction: "flat" }}
+                />
+                <KpiTile
+                  label="Response rate"
+                  value="—"
+                  hint="No comparison: missing is not zero"
+                />
+              </div>
+            </Specimen>
+
+            <Specimen title="Charts and progress" note="Sample figures.">
+              <div className="grid [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
+                <figure className="m-0 flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-5">
+                  <ChartLegend
+                    items={[
+                      { label: "Replied", colorVar: 2 },
+                      { label: "Not yet replied", colorVar: 1 },
+                    ]}
+                  />
                   <div
                     aria-hidden
-                    className={cn("flex h-5 items-center gap-3", className)}
+                    className="grid h-35 grid-cols-7 items-end gap-1.5"
                   >
-                    <span className="h-px w-24 bg-current" />
-                    <span className="size-2 rounded-full bg-current" />
-                    <span className="size-2 rounded-full bg-current" />
+                    {SAMPLE_REVIEWS.map((received, index) => (
+                      <div
+                        key={index}
+                        className="flex h-full flex-col items-center justify-end gap-[3px]"
+                      >
+                        <span className="font-mono text-[11px] font-semibold tabular-nums">
+                          {received}
+                        </span>
+                        <span
+                          className={cn(
+                            "w-full max-w-9 rounded-t-[3px] bg-chart-1",
+                            BAR_H[received - SAMPLE_REPLIED[index]]
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "w-full max-w-9 bg-chart-2",
+                            BAR_H[SAMPLE_REPLIED[index]]
+                          )}
+                        />
+                      </div>
+                    ))}
                   </div>
-                )}
-                <p className="font-mono text-caption text-ink-muted">{name}</p>
-                <p className="text-caption text-ink-muted">{note}</p>
+                  <div
+                    aria-hidden
+                    className="flex justify-between font-mono text-[11px] text-ink-muted"
+                  >
+                    <span>16 Sep</span>
+                    <span>22 Sep</span>
+                  </div>
+                  <figcaption className="text-caption text-ink-muted">
+                    Filled marks, a legend, a direct label on every bar
+                    (received), tabular numerals, and the same figures as a
+                    table for assistive tech. Max {SAMPLE_MAX}.
+                  </figcaption>
+                  <ChartDataTable
+                    caption="Reviews received and replied, sample"
+                    columns={["Day", "Received", "Replied"]}
+                    rows={SAMPLE_REVIEWS.map((received, index) => [
+                      `${16 + index} Sep`,
+                      received,
+                      SAMPLE_REPLIED[index],
+                    ])}
+                  />
+                </figure>
+                <Demo column>
+                  <Meter label="Response rate" value={83} />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-ui">Import progress · 62%</span>
+                    <Progress value={62} label="Import progress" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-ui">Failed import</span>
+                    <Progress value={30} tone="bad" label="Failed import" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-ui">Queued, length unknown</span>
+                    <Progress label="Queued import" />
+                  </div>
+                </Demo>
               </div>
-            ))}
+            </Specimen>
           </div>
-        </Specimen>
 
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen
-            title="Fill ladder"
-            note="The three greys controls are made of. A grey button is fill; the search field and keycaps are fill-secondary; a plain button hovers onto fill-tertiary."
-          >
-            <div className="flex flex-col gap-2 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              {FILLS.map(([name, className, note]) => (
-                <div
-                  key={name}
-                  className={cn(
-                    "flex h-(--np-control-h) items-center justify-between rounded-(--np-radius-control) px-3",
-                    className
-                  )}
-                >
-                  <span className="font-mono text-caption text-ink">
-                    {name}
-                  </span>
-                  <span className="text-caption text-ink-muted">{note}</span>
-                </div>
-              ))}
-            </div>
-          </Specimen>
-
-          <Specimen
-            title="Lines"
-            note="Separators are thin and light. Only line-strong clears 3:1, which is why it is the edge of every field and outline button and nothing else."
-          >
-            <div className="flex flex-col rounded-(--np-radius-card) bg-surface px-(--np-card-pad) py-2">
-              {LINES.map(([name, className, note]) => (
-                <div
-                  key={name}
-                  className={cn(
-                    "flex h-(--np-row-h) items-center justify-between border-t",
-                    className
-                  )}
-                >
-                  <span className="font-mono text-caption text-ink">
-                    {name}
-                  </span>
-                  <span className="text-caption text-ink-muted">{note}</span>
-                </div>
-              ))}
-            </div>
-          </Specimen>
-        </div>
-
-        <Specimen
-          title="Accent"
-          note="System blue at hue 256, held to WCAG: the filled and text steps sit darker than the platform's so white and the tint both clear 4.5:1. The vivid step is for graphics only."
-        >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="flex h-14 items-center justify-center rounded-(--np-radius-control) bg-primary text-ui font-medium text-primary-foreground">
-              Filled · bg-primary
-            </div>
-            <div className="flex h-14 items-center justify-center rounded-(--np-radius-control) bg-accent-tint text-ui font-medium text-accent-ink">
-              Tinted · bg-accent-tint
-            </div>
-            <div className="flex h-14 items-center justify-center rounded-(--np-radius-control) bg-surface text-ui font-medium text-accent-ink">
-              Link · text-accent-ink
-            </div>
-            <div className="flex h-14 items-center justify-center gap-2 rounded-(--np-radius-control) bg-surface text-ui text-ink-muted">
-              <span className="size-4 rounded-(--np-radius-pill) bg-(--np-accent-vivid)" />
-              Vivid · graphics at 3:1
-            </div>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Status vocabulary"
-          note="Four families, each with an ink, a tint, a solid and a line. Text is ink on tint; a filled indicator is on-solid on solid; the dot in a status pill is the solid. Five tones map onto them for everything that has a state."
-        >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {STATUS_FAMILIES.map((family) => (
-              <div
-                key={family.name}
-                className="flex flex-col gap-2 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)"
-              >
-                <p className="font-mono text-caption text-ink">{family.name}</p>
-                <div
-                  className={cn(
-                    "flex h-(--np-control-h) items-center rounded-(--np-radius-control) px-3 text-ui font-medium",
-                    family.tint
-                  )}
-                >
-                  ink on tint
-                </div>
-                <div
-                  className={cn(
-                    "flex h-(--np-control-h) items-center rounded-(--np-radius-control) px-3 text-ui font-medium",
-                    family.solid
-                  )}
-                >
-                  on-solid on solid
-                </div>
-                <div
-                  className={cn(
-                    "flex h-(--np-control-h) items-center rounded-(--np-radius-control) border px-3 text-ui text-ink-muted",
-                    family.line
-                  )}
-                >
-                  line
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-            <div className="flex flex-wrap items-center gap-2">
-              {STATUS_TONES.map((tone) => (
-                <StatusPill key={tone} tone={tone}>
-                  {tone}
-                </StatusPill>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-4">
-              {STATUS_TONES.map((tone) => (
-                <StatusPill key={tone} tone={tone} variant="inline">
-                  {tone}
-                </StatusPill>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {STATUS_TONES.map((tone) => (
-                <span
-                  key={tone}
-                  className="flex items-center gap-1.5 text-caption text-ink-muted"
-                >
-                  <StatusPill tone={tone} variant="dot" />
-                  {tone}
-                </span>
-              ))}
-            </div>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Materials"
-          note="Sidebar, toolbar and popover are translucent and blurred, and content scrolls beneath them. Each has an opaque twin that takes over under prefers-reduced-transparency or when the browser cannot blur; text on a material is measured against the twin. A material never sits on a scrolling row."
-        >
-          <div className="relative h-72 overflow-hidden rounded-(--np-radius-card) bg-surface">
-            <div
-              aria-hidden
-              className="absolute inset-0 grid grid-cols-4 gap-2 p-3 sm:grid-cols-6"
+          <div id="ds-flow" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Progress through a task"
+              note="Stepper for setup, lifecycle for a reply, timeline for activity."
             >
-              {BUSY_TILES.map((tile, index) => (
-                <div
-                  key={index}
-                  className={cn(
-                    "flex items-end rounded-(--np-radius-control) p-2 text-caption font-semibold text-primary-foreground",
-                    CHART_FILLS[tile]
-                  )}
-                ></div>
-              ))}
-            </div>
-
-            <div className="absolute inset-y-0 left-0 hidden w-44 flex-col gap-1 material-sidebar p-3 [box-shadow:inset_-0.5px_0_0_var(--np-line)] sm:flex">
-              <p className="px-2 pb-1 text-caption font-medium text-ink">
-                material-sidebar
-              </p>
-              <span className="flex h-8 items-center gap-2 rounded-(--np-radius-control) bg-accent-tint px-2.5 text-ui font-medium text-accent-ink">
-                <Inbox className="size-4" strokeWidth={1.75} aria-hidden />
-                Inbox
-              </span>
-              <span className="flex h-8 items-center gap-2 rounded-(--np-radius-control) px-2.5 text-ui font-medium text-ink">
-                <Building2 className="size-4" strokeWidth={1.75} aria-hidden />
-                Clients
-              </span>
-              <span className="flex h-8 items-center gap-2 rounded-(--np-radius-control) px-2.5 text-ui font-medium text-ink">
-                <Star className="size-4" strokeWidth={1.75} aria-hidden />
-                Reporting
-              </span>
-            </div>
-
-            <div className="absolute inset-x-0 top-0 flex h-(--np-toolbar-h) items-center justify-between material-toolbar px-4 [box-shadow:inset_0_-0.5px_0_var(--np-line)] sm:left-44">
-              <span className="text-ui font-medium text-ink">
-                material-toolbar
-              </span>
-              <span className="flex h-(--np-control-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui text-ink-muted">
-                <Search className="size-4" strokeWidth={1.75} aria-hidden />
-                Search
-                <Kbd>⌘K</Kbd>
-              </span>
-            </div>
-
-            <div className="absolute right-4 bottom-4 w-52 rounded-(--np-radius-card) material-popover p-1 shadow-(--np-shadow-pop)">
-              <p className="px-2 py-1.5 text-caption font-medium text-ink-muted">
-                material-popover
-              </p>
-              <span className="flex h-(--np-menu-item-h) items-center rounded-(--np-radius-tag) bg-primary px-2 pl-7 text-ui text-primary-foreground">
-                Reply
-                <kbd className="ml-auto font-sans text-caption">⌘R</kbd>
-              </span>
-              <span className="flex h-(--np-menu-item-h) items-center rounded-(--np-radius-tag) px-2 pl-7 text-ui text-ink">
-                Archive
-              </span>
-            </div>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Elevation"
-          note="Cards on the canvas carry none. Chrome takes a hairline; overlays take a hairline plus an ambient and a key shadow. In the dark theme elevation is lightness first, shadow second."
-        >
-          <div className="grid gap-4 py-2 sm:grid-cols-2 lg:grid-cols-4">
-            <Swatch
-              name="hairline"
-              className="bg-surface"
-              note="0.5px edge. Toolbar, keycaps, outline buttons."
-              edge
-            />
-            <Swatch
-              name="shadow-raised"
-              className="bg-surface shadow-(--np-shadow-raised)"
-              note="Segmented thumb, switch knob."
-            />
-            <Swatch
-              name="shadow-pop"
-              className="bg-surface shadow-(--np-shadow-pop)"
-              note="Menus, popovers, toasts."
-            />
-            <Swatch
-              name="shadow-modal"
-              className="bg-surface shadow-(--np-shadow-modal)"
-              note="Dialogs and sheets."
-            />
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Motion"
-          note="A spring curve encoded as linear(), so every browser plays the same curve. Hover and press use the snappy spring over --np-duration-fast; overlays scale from their anchor on the full spring. Reduced motion collapses every duration globally."
-        >
-          <SpringDemo />
-        </Specimen>
-
-        <Specimen
-          title="Contrast"
-          note="Every ink/surface pair the product paints, measured in both themes from the shipping CSS by the same module the CI gate runs. Apple's own palette fails several of these; where the platform and WCAG disagree, WCAG wins."
-        >
-          <ContrastEvidence />
-        </Specimen>
-      </Section>
-
-      <Section
-        title="Typography"
-        description="One family: San Francisco where the platform has it, Inter with its optical-size axis everywhere else. Seven roles, each owning a size, a line height and a tracking value. Hierarchy is weight and tracking, never a second typeface."
-      >
-        <Specimen title="Type roles">
-          <div className="flex flex-col rounded-(--np-radius-card) bg-surface px-(--np-card-pad)">
-            {TYPE_ROLES.map((role) => (
-              <div
-                key={role.role}
-                className="grid gap-x-6 gap-y-1 border-t border-line-subtle py-4 first:border-t-0 md:grid-cols-[10rem_1fr_16rem] md:items-baseline"
-              >
-                <div className="flex flex-col">
-                  <p className="font-mono text-caption text-ink">
-                    text-{role.role}
-                  </p>
-                  <p className="text-caption text-ink-muted tabular-nums">
-                    {role.spec}
-                  </p>
-                </div>
-                <p
-                  className={cn(
-                    "text-ink",
-                    role.className,
-                    role.role === "display" && "font-bold tabular-nums",
-                    role.role === "page-title" && "font-bold",
-                    (role.role === "title" || role.role === "section") &&
-                      "font-semibold"
-                  )}
-                >
-                  {role.role === "display"
-                    ? "4.6 · 128 · 92%"
-                    : "Every client's Google reviews in one inbox"}
-                </p>
-                <div className="flex flex-col">
-                  <p className="text-caption text-ink">Weight {role.weight}</p>
-                  <p className="text-caption text-ink-muted">{role.use}</p>
-                </div>
+              <div className="grid [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
+                <Demo column>
+                  <Stepper
+                    orientation="vertical"
+                    aria-label="Setup steps"
+                    steps={[
+                      { id: "1", label: "Connect Google", state: "done" },
+                      { id: "2", label: "Choose locations", state: "current" },
+                      {
+                        id: "3",
+                        label: "Import review history",
+                        state: "todo",
+                        note: "Optional",
+                      },
+                      { id: "4", label: "Invite the team", state: "todo" },
+                    ]}
+                  />
+                </Demo>
+                <Demo column>
+                  <Timeline
+                    entries={[
+                      {
+                        id: "a",
+                        title: "Review received from Google",
+                        when: "2 h ago",
+                        marker: <Inbox aria-hidden />,
+                      },
+                      {
+                        id: "b",
+                        title: "Verification passed",
+                        when: "1 h ago",
+                        tone: "success",
+                      },
+                      {
+                        id: "c",
+                        title: "Publish failed",
+                        when: "40 min ago",
+                        tone: "danger",
+                        detail:
+                          "PROVIDER_PERMISSION_DENIED · request 2c91-a0e4",
+                      },
+                    ]}
+                  />
+                </Demo>
               </div>
-            ))}
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Weight carries hierarchy"
-          note="A headline is body size at 600. A page title is 700. Figures are display at 700 with tabular numerals. The family never changes."
-        >
-          <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-            <p className="text-display font-bold text-ink tabular-nums">4.6</p>
-            <p className="text-page-title font-bold text-ink">
-              Old Crown Girton
-            </p>
-            <p className="text-section font-semibold text-ink">Edit hours</p>
-            <p className="text-title font-semibold text-ink">
-              Reply performance
-            </p>
-            <p className="text-body font-semibold text-ink">
-              A headline is body at 600
-            </p>
-            <p className="text-body text-ink">
-              Body text at 400 for review copy and descriptions.
-            </p>
-            <p className="text-ui font-medium text-ink">
-              UI at 500 for controls and labels
-            </p>
-            <p className="text-caption text-ink-muted">
-              Caption at 400, muted, for metadata · 12 min ago
-            </p>
-          </div>
-        </Specimen>
-      </Section>
-
-      <Section
-        title="Spacing and radius"
-        description="Shape is a ladder of eight radii; nested corners are concentric by construction. Spacing is a handful of named metrics, and density changes only the ones that govern rows and controls."
-      >
-        <Specimen title="Radius ladder">
-          <div className="grid gap-4 sm:grid-cols-4 lg:grid-cols-8">
-            {RADII.map(([name, value, note]) => (
-              <div key={name} className="flex flex-col gap-1.5">
-                <div
-                  className="h-16 bg-surface hairline"
-                  style={{ borderRadius: `var(--np-radius-${name})` }}
+              <Demo column>
+                <Stepper
+                  aria-label="Setup steps, horizontal"
+                  steps={[
+                    { id: "h1", label: "Agency", state: "done" },
+                    { id: "h2", label: "Client", state: "current" },
+                    { id: "h3", label: "Connect", state: "todo" },
+                  ]}
                 />
-                <p className="font-mono text-caption text-ink">
-                  {name} · {value}
+                <Lifecycle
+                  aria-label="Reply lifecycle"
+                  stages={[
+                    {
+                      id: "r",
+                      label: "Received",
+                      state: "done",
+                      meta: "From Google · 2 h ago",
+                    },
+                    {
+                      id: "d",
+                      label: "Drafted",
+                      state: "done",
+                      meta: "Tom B.",
+                    },
+                    {
+                      id: "v",
+                      label: "Verified",
+                      state: "failed",
+                      meta: "2 checks failed",
+                    },
+                    {
+                      id: "a",
+                      label: "Approved",
+                      state: "current",
+                      meta: "Awaiting approval",
+                    },
+                    {
+                      id: "p",
+                      label: "Published",
+                      state: "todo",
+                      meta: "Not on Google",
+                    },
+                  ]}
+                />
+                <p className="text-caption text-ink-muted">
+                  Done, failed, current and to-do. A skipped step uses a dashed
+                  ring. Under 520px of its own width the lifecycle turns
+                  vertical.
                 </p>
-                <p className="text-caption text-ink-muted">{note}</p>
-              </div>
-            ))}
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Concentric corners"
-          note="An inner radius is the outer radius minus the padding, written as rounded-[calc(var(--np-radius-panel)-6px)] or the next smaller token. Where the browser supports corner-shape, every corner is a superellipse."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <div className="rounded-(--np-radius-panel) bg-fill p-1.5">
-                <div className="flex h-20 items-center justify-center rounded-[calc(var(--np-radius-panel)-6px)] bg-surface text-caption text-ink-muted tabular-nums">
-                  16 − 6 = 10
-                </div>
-              </div>
-              <p className="text-caption text-ink-muted">
-                A panel radius with 6px of padding wraps a control radius.
-              </p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="rounded-(--np-radius-card) bg-fill p-(--np-card-pad)">
-                <div className="flex h-12 items-center justify-center rounded-(--np-radius-tag) bg-surface text-caption text-ink-muted tabular-nums">
-                  14 − 16 &lt; 0 → tag
-                </div>
-              </div>
-              <p className="text-caption text-ink-muted">
-                When the padding exceeds the radius, pick the next smaller token
-                rather than a negative value.
-              </p>
-            </div>
-          </div>
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen title="Spacing metrics">
-            <div className="rounded-(--np-radius-card) bg-surface px-(--np-card-pad)">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Token</TableHead>
-                    <TableHead numeric>Value</TableHead>
-                    <TableHead>Where</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {METRICS.map(([token, value, where]) => (
-                    <TableRow key={token}>
-                      <TableCell className="font-mono text-caption">
-                        {token}
-                      </TableCell>
-                      <TableCell numeric>{value}</TableCell>
-                      <TableCell className="text-ink-muted">{where}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Specimen>
-
-          <Specimen
-            title="Density"
-            note="data-density switches spacing only. Nothing drops below 12px text or a 24px target."
-          >
-            <div className="rounded-(--np-radius-card) bg-surface px-(--np-card-pad)">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Token</TableHead>
-                    <TableHead numeric>Comfortable</TableHead>
-                    <TableHead numeric>Compact</TableHead>
-                    <TableHead>Governs</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {DENSITY.map(([token, comfortable, compact, governs]) => (
-                    <TableRow key={token}>
-                      <TableCell className="font-mono text-caption">
-                        {token}
-                      </TableCell>
-                      <TableCell numeric>{comfortable}</TableCell>
-                      <TableCell numeric>{compact}</TableCell>
-                      <TableCell className="text-ink-muted">
-                        {governs}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Specimen>
-        </div>
-      </Section>
-
-      <Section
-        title="Primitives"
-        description="Every primitive in components/ui, in its rest state and the states that matter. Base UI underneath; triggers take render={…}."
-      >
-        <Specimen
-          title="Button"
-          note="Apple's four styles: filled, tinted, grey and plain, with outline as grey plus a hairline and destructive as a tinted red. Pill is the capsule for calls to action and toolbar circles. Every button presses to 0.98 on the snappy spring."
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="default">Save changes</Button>
-            <Button variant="tinted">Approve reply</Button>
-            <Button variant="secondary">Secondary</Button>
-            <Button variant="outline">Outline</Button>
-            <Button variant="ghost">Ghost</Button>
-            <Button variant="destructive">Delete reply</Button>
-            <Button variant="link">Link</Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button pill>New client</Button>
-            <Button pill variant="tinted">
-              <Plus strokeWidth={1.75} data-icon="inline-start" />
-              Add location
-            </Button>
-            <Button pill variant="secondary">
-              Grey pill
-            </Button>
-            <Button pill size="icon-sm" variant="secondary" aria-label="Filter">
-              <Filter strokeWidth={1.75} />
-            </Button>
-            <Button
-              pill
-              size="icon"
-              variant="secondary"
-              aria-label="More actions"
+              </Demo>
+            </Specimen>
+            <Specimen
+              title="Publish results"
+              note="Each write states its own outcome. “Sent” is never shown as success."
             >
-              <MoreHorizontal strokeWidth={1.75} />
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="xs">Extra small</Button>
-            <Button size="sm">Small</Button>
-            <Button size="default">Default</Button>
-            <Button size="lg">Large</Button>
-            <Button size="icon-xs" aria-label="Add item, extra small">
-              <Plus strokeWidth={1.75} />
-            </Button>
-            <Button size="icon-sm" aria-label="Add item, small">
-              <Plus strokeWidth={1.75} />
-            </Button>
-            <Button size="icon" aria-label="Add item">
-              <Plus strokeWidth={1.75} />
-            </Button>
-            <Button size="icon-lg" aria-label="Add item, large">
-              <Plus strokeWidth={1.75} />
-            </Button>
-            <Button disabled>Disabled</Button>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Tooltip"
-          note="For icon-only buttons. The aria-label is still the accessible name; the tooltip only repeats it for sighted people."
-        >
-          <TooltipProvider>
-            <div className="flex flex-wrap items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button variant="ghost" size="icon" aria-label="Reply" />
-                  }
-                >
-                  <Reply strokeWidth={1.75} />
-                </TooltipTrigger>
-                <TooltipContent>Reply</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button variant="ghost" size="icon" aria-label="Archive" />
-                  }
-                >
-                  <Archive strokeWidth={1.75} />
-                </TooltipTrigger>
-                <TooltipContent>Archive</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="More actions"
-                    />
-                  }
-                >
-                  <MoreHorizontal strokeWidth={1.75} />
-                </TooltipTrigger>
-                <TooltipContent side="bottom">More actions</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen
-            title="Badge"
-            note="22px capsules; tag shape for badges that sit flush in cells and fields."
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="default">Default</Badge>
-              <Badge variant="tinted">Draft</Badge>
-              <Badge variant="secondary">Secondary</Badge>
-              <Badge variant="outline">Outline</Badge>
-              <Badge variant="ghost">Ghost</Badge>
-              <Badge variant="link">Link</Badge>
-              <Badge variant="success">Published</Badge>
-              <Badge variant="warning">Stale</Badge>
-              <Badge variant="destructive">Failed</Badge>
-              <Badge variant="info">Syncing</Badge>
-              <Badge variant="secondary" shape="tag">
-                3
-              </Badge>
-              <Badge variant="tinted" shape="tag">
-                Owner
-              </Badge>
-            </div>
-          </Specimen>
-
-          <Specimen
-            title="Chip and keycap"
-            note="A pressed filter chip is filled with the accent; keycaps are fill-secondary with a hairline, or plain in a menu's shortcut column."
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <ToggleChip pressed>Needs reply</ToggleChip>
-              <ToggleChip>5 stars</ToggleChip>
-              <ToggleChip>Old Crown</ToggleChip>
-              <ToggleChip disabled>Archived</ToggleChip>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Kbd>⌘K</Kbd>
-              <Kbd>⌘⇧R</Kbd>
-              <Kbd>Esc</Kbd>
-              <span className="text-ui text-ink-muted">
-                Plain: <Kbd variant="plain">⌘R</Kbd>
-              </span>
-            </div>
-          </Specimen>
-        </div>
-
-        <Specimen
-          title="Alert"
-          note="Tint background, status ink, the variant's own glyph. role=alert for destructive and warning, role=status otherwise."
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Alert variant="default">
-              <AlertTitle>Default</AlertTitle>
-              <AlertDescription>
-                Neutral informational message.
-              </AlertDescription>
-            </Alert>
-            <Alert variant="destructive">
-              <AlertTitle>Publish failed</AlertTitle>
-              <AlertDescription>
-                Google rejected the reply. Check the connection and try again.
-              </AlertDescription>
-            </Alert>
-            <Alert variant="success">
-              <AlertTitle>Reply published</AlertTitle>
-              <AlertDescription>It is live on Google.</AlertDescription>
-            </Alert>
-            <Alert variant="warning">
-              <AlertTitle>Data may be out of date</AlertTitle>
-              <AlertDescription>Reconnect Google to refresh.</AlertDescription>
-            </Alert>
-            <Alert variant="info">
-              <AlertTitle>Syncing</AlertTitle>
-              <AlertDescription>
-                New reviews arrive in the background.
-              </AlertDescription>
-            </Alert>
-          </div>
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen
-            title="Card"
-            note="White on the grey canvas, card radius, no border, no shadow. Inset divides its children with hairlines."
-          >
-            <Card>
-              <CardHeader>
-                <CardTitle as="h4">Reply performance</CardTitle>
-                <CardDescription>
-                  Last 30 days across all locations.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-body">
-                  92% of reviews replied to within 24 hours.
-                </p>
-              </CardContent>
-              <CardFooter>
-                <Button size="sm" variant="secondary">
-                  View report
-                </Button>
-              </CardFooter>
-            </Card>
-            <Card inset>
-              <CardHeader>
-                <CardTitle as="h4">Members</CardTitle>
-              </CardHeader>
-              {[
-                ["Aman Shrestha", "Owner"],
-                ["Sam Patel", "Editor"],
-                ["Jo Lee", "Viewer"],
-              ].map(([name, role]) => (
-                <div
-                  key={name}
-                  className="flex min-h-(--np-row-h) items-center justify-between px-(--np-card-pad) py-2"
-                >
-                  <span className="text-body text-ink">{name}</span>
-                  <span className="text-caption text-ink-muted">{role}</span>
-                </div>
-              ))}
-            </Card>
-          </Specimen>
-
-          <Specimen
-            title="Grouped list"
-            note="Settings and profile: inset rows on a white group, separators indented from the leading edge, chevrons on navigational rows, a switch or a value trailing."
-          >
-            <GroupedList
-              header="Notifications"
-              footer="Applies to every location you manage."
-            >
-              <GroupedListItem
-                icon={<Bell />}
-                label="Email digest"
-                description="Weekly, Monday 08:00"
-                trailing={<Switch defaultChecked aria-label="Email digest" />}
-              />
-              <GroupedListItem
-                icon={<Inbox />}
-                label="New review alerts"
-                trailing={<Switch aria-label="New review alerts" />}
-              />
-              <GroupedListItem
-                icon={<UserRound />}
-                label="Profile"
-                trailing="Aman"
-                href="/design-system#section-primitives"
-              />
-              <GroupedListItem label="Sign out" tone="danger" chevron={false} />
-            </GroupedList>
-          </Specimen>
-        </div>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-3">
-          <Specimen
-            title="Skeleton"
-            note="In the shape of the content it stands for."
-          >
-            <div className="flex flex-col gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <div className="flex items-center gap-3">
-                <Skeleton className="size-9 rounded-(--np-radius-pill)" />
-                <div className="flex flex-1 flex-col gap-1.5">
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-3 w-1/3" />
-                </div>
-              </div>
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-            </div>
-          </Specimen>
-
-          <Specimen
-            title="Spinner"
-            note="Only beside a sentence that says what is loading."
-          >
-            <div className="flex items-center gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <Spinner decorative size="sm" />
-              <Spinner label="Loading reviews" />
-              <Spinner decorative size="lg" />
-              <span className="flex items-center gap-2 text-ui text-ink-muted">
-                <Spinner decorative size="sm" />
-                Loading reviews
-              </span>
-            </div>
-          </Specimen>
-
-          <Specimen title="Avatar" note="Circles with a hairline edge.">
-            <div className="flex items-center gap-3 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <Avatar size="sm">
-                <AvatarFallback>AS</AvatarFallback>
-              </Avatar>
-              <Avatar>
-                <AvatarFallback>SP</AvatarFallback>
-              </Avatar>
-              <Avatar size="lg">
-                <AvatarFallback>JL</AvatarFallback>
-              </Avatar>
-            </div>
-          </Specimen>
-        </div>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen
-            title="Field and input"
-            note="Label above, control at field height, a half-pixel line-strong edge that becomes the halo plus the edge on focus. The search variant is a capsule on fill-secondary with a clear button."
-          >
-            <div className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <Field>
-                <FieldLabel>Business name</FieldLabel>
-                <Input defaultValue="Old Crown" />
-                <FieldDescription>
-                  Shown on your Google profile.
-                </FieldDescription>
-              </Field>
-              <Field error="Enter a business name.">
-                <FieldLabel>Business name</FieldLabel>
-                <Input />
-                <FieldError />
-              </Field>
-              <Field>
-                <FieldLabel>Phone</FieldLabel>
-                <Input defaultValue="01223 277 217" disabled />
-              </Field>
-              <Input
-                type="search"
-                aria-label="Search reviews"
-                placeholder="Search reviews"
-                defaultValue="Girton"
-              />
-              <Textarea
-                aria-label="Reply draft"
-                defaultValue="Thank you for the kind words — we're glad you enjoyed your stay."
-              />
-            </div>
-          </Specimen>
-
-          <Specimen
-            title="Choice controls"
-            note="Switch for on/off settings, checkbox for selection in a list or form, radio for one of a few. The switch track turns the vivid accent; the checkbox and radio spring their indicator in."
-          >
-            <div className="flex flex-col gap-5 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <div className="flex flex-col gap-3">
-                <label className="flex items-center justify-between text-ui text-ink">
-                  Email alerts
-                  <Switch defaultChecked />
-                </label>
-                <label className="flex items-center justify-between text-ui text-ink">
-                  Publish without review
-                  <Switch />
-                </label>
-                <label className="flex items-center justify-between text-ui text-ink">
-                  Large switch for touch
-                  <Switch size="lg" defaultChecked />
-                </label>
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2 text-ui text-ink">
-                  <Checkbox defaultChecked />
-                  Include Riverside
-                </label>
-                <label className="flex items-center gap-2 text-ui text-ink">
-                  <Checkbox />
-                  Include Old Crown
-                </label>
-                <label className="flex items-center gap-2 text-ui text-ink">
-                  <Checkbox indeterminate />
-                  Some locations
-                </label>
-              </div>
-              <RadioGroup aria-label="Reply channel" defaultValue="email">
-                <RadioGroupItem value="email">Email</RadioGroupItem>
-                <RadioGroupItem value="sms">Text message</RadioGroupItem>
-                <RadioGroupItem value="none" disabled>
-                  Do not notify
-                </RadioGroupItem>
-              </RadioGroup>
-            </div>
-          </Specimen>
-        </div>
-
-        <Specimen
-          title="Segmented control"
-          note="For switching views of the same data. A grey track, a white raised thumb that slides on the snappy spring; the selected segment is the tab stop and arrows move the selection."
-        >
-          <div className="flex flex-wrap items-center gap-4">
-            <SegmentedControl aria-label="View" defaultValue="list">
-              <SegmentedControlItem value="list">
-                <List strokeWidth={1.75} />
-                List
-              </SegmentedControlItem>
-              <SegmentedControlItem value="map">
-                <Map strokeWidth={1.75} />
-                Map
-              </SegmentedControlItem>
-            </SegmentedControl>
-            <SegmentedControl
-              aria-label="Queue"
-              defaultValue="needs_reply"
-              size="sm"
-            >
-              <SegmentedControlItem value="all">All</SegmentedControlItem>
-              <SegmentedControlItem value="needs_reply">
-                Needs reply
-              </SegmentedControlItem>
-              <SegmentedControlItem value="published">
-                Published
-              </SegmentedControlItem>
-            </SegmentedControl>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Tabs"
-          note="For genuinely separate sections of a page. Labels over a hairline with an accent underline that slides."
-        >
-          <Tabs defaultValue="reviews">
-            <TabsList>
-              <TabsTab value="reviews">Reviews</TabsTab>
-              <TabsTab value="profile">Profile</TabsTab>
-              <TabsTab value="access">Access</TabsTab>
-            </TabsList>
-            <TabsPanel value="reviews" className="pt-3 text-body text-ink">
-              Every review across connected locations.
-            </TabsPanel>
-            <TabsPanel value="profile" className="pt-3 text-body text-ink">
-              The Google Business Profile fields.
-            </TabsPanel>
-            <TabsPanel value="access" className="pt-3 text-body text-ink">
-              Who can see and publish for this client.
-            </TabsPanel>
-          </Tabs>
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-3">
-          <Specimen
-            title="Select"
-            note="A grey control; the popup is the popover material with a checkmark column."
-          >
-            <Select defaultValue="updated_desc" items={SORT_ITEMS}>
-              <SelectTrigger aria-label="Sort reviews" className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectGroupLabel>Order</SelectGroupLabel>
-                  <SelectItem value="updated_desc">Most recent</SelectItem>
-                  <SelectItem value="rating_desc">Highest rated</SelectItem>
-                  <SelectItem value="rating_asc">Lowest rated</SelectItem>
-                </SelectGroup>
-                <SelectSeparator />
-                <SelectItem value="replied">Replied</SelectItem>
-                <SelectItem value="unreplied">Needs reply</SelectItem>
-              </SelectContent>
-            </Select>
-          </Specimen>
-
-          <Specimen
-            title="Combobox"
-            note="A field that filters a list. Items stay plain data so the page can remain a server component."
-          >
-            <Combobox items={DESIGN_SYSTEM_LOCATIONS}>
-              <ComboboxInput
-                placeholder="All locations"
-                aria-label="Filter by location"
-              />
-              <ComboboxContent>
-                <ComboboxGroup>
-                  <ComboboxGroupLabel>Locations</ComboboxGroupLabel>
-                  {DESIGN_SYSTEM_LOCATIONS.map((location) => (
-                    <ComboboxItem key={location} value={location}>
-                      {location}
-                    </ComboboxItem>
-                  ))}
-                </ComboboxGroup>
-              </ComboboxContent>
-            </Combobox>
-          </Specimen>
-
-          <Specimen
-            title="Dropdown menu"
-            note="30px rows, a checkmark column, a shortcut column, the solid accent highlight."
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="secondary" />}>
-                Review actions
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem>
-                  <Reply />
-                  Reply
-                  <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Archive />
-                  Archive
-                  <DropdownMenuShortcut>⌘E</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>Move to</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuItem>Needs reply</DropdownMenuItem>
-                    <DropdownMenuItem>Published</DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Show</DropdownMenuLabel>
-                  <DropdownMenuCheckboxItem defaultChecked>
-                    Resolved reviews
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuRadioGroup defaultValue="newest">
-                    <DropdownMenuRadioItem value="newest">
-                      Newest first
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="oldest">
-                      Oldest first
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive">
-                  Delete published reply
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </Specimen>
-        </div>
-
-        <Specimen
-          title="Command"
-          note="A capsule search field, grouped rows, a trailing keycap, on the popover material. Opens with ⌘K in the app."
-        >
-          <CommandDemo locations={DESIGN_SYSTEM_LOCATIONS} />
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) sm:grid-cols-2 lg:grid-cols-4">
-          <Specimen
-            title="Dialog"
-            note="Scales from 0.96 on the spring. Cancel then the primary, last."
-          >
-            <Dialog>
-              <DialogTrigger render={<Button variant="secondary" />}>
-                Edit hours
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Edit hours</DialogTitle>
-                  <DialogDescription>
-                    Weekly schedule for Old Crown Girton.
-                  </DialogDescription>
-                </DialogHeader>
-                <Field>
-                  <FieldLabel>Monday</FieldLabel>
-                  <Input defaultValue="11:00 – 23:00" />
-                </Field>
-                <DialogFooter>
-                  <DialogClose render={<Button variant="secondary" />}>
-                    Cancel
-                  </DialogClose>
-                  <Button>Save changes</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </Specimen>
-
-          <Specimen
-            title="Alert dialog"
-            note="Names the object it destroys. Buttons stack on small screens."
-          >
-            <AlertDialog>
-              <AlertDialogTrigger render={<Button variant="destructive" />}>
-                Discard edits
-              </AlertDialogTrigger>
-              <AlertDialogContent aria-label="Discard your edits to Old Crown Girton?">
-                <AlertDialogTitle>
-                  Discard your edits to Old Crown Girton?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  Regenerating replaces your unsaved changes with a new draft.
-                  This cannot be undone.
-                </AlertDialogDescription>
-                <AlertDialogFooter>
-                  <AlertDialogClose render={<Button variant="secondary" />}>
-                    Keep editing
-                  </AlertDialogClose>
-                  <Button variant="destructive">Discard and regenerate</Button>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </Specimen>
-
-          <Specimen
-            title="Sheet"
-            note="A side panel from md; a bottom sheet with a grabber below it."
-          >
-            <Sheet>
-              <SheetTrigger render={<Button variant="secondary" />}>
-                Open inspector
-              </SheetTrigger>
-              <SheetContent side="right">
-                <SheetHeader>
-                  <SheetTitle>Review detail</SheetTitle>
-                  <SheetDescription>
-                    The full review, the draft and its history.
-                  </SheetDescription>
-                </SheetHeader>
-              </SheetContent>
-            </Sheet>
-          </Specimen>
-
-          <Specimen
-            title="Popover"
-            note="Lightweight detail with an arrow, grown from its anchor."
-          >
-            <Popover>
-              <PopoverTrigger render={<Button variant="secondary" />}>
-                Filters
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="start">
-                <PopoverTitle render={<h4 />}>Filters</PopoverTitle>
-                <PopoverDescription>Narrow the queue.</PopoverDescription>
-                <div className="mt-3 flex flex-col gap-2">
-                  <label className="flex items-center gap-2 text-ui text-ink">
-                    <Checkbox defaultChecked />
-                    Needs reply
-                  </label>
-                  <label className="flex items-center gap-2 text-ui text-ink">
-                    <Checkbox />
-                    Low rating
-                  </label>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <PopoverClose render={<Button size="sm" />}>
-                    Apply filters
-                  </PopoverClose>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </Specimen>
-        </div>
-
-        <Specimen
-          title="Toast"
-          note="Bottom-centre on a phone, top-right from sm; stacked on the popover material."
-        >
-          <ToastDemo />
-        </Specimen>
-
-        <Specimen
-          title="Table"
-          note="No zebra. Hairline separators, a muted header with no uppercase and no background, hover on the hover token, the selected row on the accent tint, figures tabular and right-aligned."
-        >
-          <div className="rounded-(--np-radius-card) bg-surface px-(--np-card-pad)">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Health</TableHead>
-                  <TableHead numeric>Reviews</TableHead>
-                  <TableHead numeric>Rating</TableHead>
-                  <TableHead numeric>Reply rate</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell>Old Crown Girton</TableCell>
-                  <TableCell>
-                    <StatusPill tone="healthy" variant="inline">
-                      Healthy
-                    </StatusPill>
-                  </TableCell>
-                  <TableCell numeric>128</TableCell>
-                  <TableCell numeric>4.6</TableCell>
-                  <TableCell numeric>92%</TableCell>
-                </TableRow>
-                <TableRow data-selected="true">
-                  <TableCell>Riverside</TableCell>
-                  <TableCell>
-                    <StatusPill tone="attention" variant="inline">
-                      Needs attention
-                    </StatusPill>
-                  </TableCell>
-                  <TableCell numeric>41</TableCell>
-                  <TableCell numeric>4.1</TableCell>
-                  <TableCell numeric>67%</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>The Plough</TableCell>
-                  <TableCell>
-                    <StatusPill tone="pending" variant="inline">
-                      Syncing
-                    </StatusPill>
-                  </TableCell>
-                  <TableCell numeric>9</TableCell>
-                  <TableCell numeric>4.8</TableCell>
-                  <TableCell numeric>100%</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </Specimen>
-
-        <Specimen
-          title="Empty"
-          note="A light glyph, a title, one sentence, one action."
-        >
-          <div className="rounded-(--np-radius-card) bg-surface">
-            <Empty
-              icon={<Inbox />}
-              title="No reviews yet"
-              description="New Google reviews will appear here as they arrive."
-              action={<Button pill>Connect Google</Button>}
-            />
-          </div>
-        </Specimen>
-      </Section>
-
-      <Section
-        title="Compositions"
-        description="The pieces built for the agency product. Each one exists because the same shape was being reinvented per screen."
-      >
-        <Specimen
-          title="KPI tile"
-          note="Label above, a display figure in tabular numerals, the movement spoken as well as drawn."
-        >
-          <div className="grid gap-(--np-gap-card) sm:grid-cols-3">
-            <KpiTile
-              label="Reviews received"
-              value="128"
-              hint="Last 30 days"
-              delta={{
-                value: "+12",
-                direction: "up",
-                label: "vs previous 30 days",
-              }}
-            />
-            <KpiTile
-              label="Average rating"
-              value="4.6"
-              hint="Last 30 days"
-              delta={{
-                value: "0.0",
-                direction: "flat",
-                label: "vs previous 30 days",
-              }}
-            />
-            <KpiTile
-              label="Needs reply"
-              value="12"
-              hint="Right now"
-              delta={{
-                value: "+4",
-                direction: "up",
-                tone: "danger",
-                label: "vs last week",
-              }}
-            />
-          </div>
-        </Specimen>
-
-        <div className="grid gap-(--np-gap-section) lg:grid-cols-2">
-          <Specimen
-            title="Timeline"
-            note="An ordered list; the dot colour is never the only signal."
-          >
-            <div className="rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <Timeline
-                entries={[
+              <PublishSteps
+                aria-label="Publish results, sample"
+                live={false}
+                steps={[
                   {
                     id: "1",
-                    title: "Reply published",
-                    meta: "Aman · 12 min ago",
-                    tone: "success",
+                    label: "Description",
+                    state: "live",
+                    detail: "Confirmed by verification",
                   },
                   {
                     id: "2",
-                    title: "Draft approved",
-                    meta: "Sam · 25 min ago",
-                    tone: "accent",
+                    label: "Sunday hours",
+                    state: "sent",
+                    detail: "Waiting for Google to confirm",
                   },
                   {
                     id: "3",
-                    title: "Google flagged the phone number",
-                    meta: "System · Yesterday",
-                    tone: "warning",
-                    detail:
-                      "The number on Google changed after this draft started.",
+                    label: "Phone number",
+                    state: "failed",
+                    detail: "Google refused the change.",
+                    errorCode: "PROVIDER_PERMISSION_DENIED",
+                    action: (
+                      <Button variant="secondary" size="sm">
+                        Retry
+                      </Button>
+                    ),
                   },
                   {
                     id: "4",
-                    title: "Review received",
-                    meta: "Google · 2 days ago",
-                    tone: "neutral",
+                    label: "Attributes",
+                    state: "skipped",
+                    detail: "Unchanged",
                   },
+                  { id: "5", label: "Menu", state: "pending" },
                 ]}
               />
-            </div>
-          </Specimen>
+            </Specimen>
+          </div>
 
-          <Specimen
-            title="Stepper"
-            note="Done is tinted with a check; current is filled; to do is grey."
-          >
-            <div className="flex flex-col gap-6 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-              <Stepper
-                steps={[
-                  { id: "agency", label: "Agency", state: "done" },
-                  { id: "client", label: "Client", state: "done" },
-                  { id: "connect", label: "Connect Google", state: "current" },
-                  { id: "locations", label: "Locations", state: "todo" },
-                ]}
-              />
-              <Stepper
-                orientation="vertical"
-                steps={[
-                  { id: "draft", label: "Draft", state: "done" },
-                  { id: "review", label: "Review", state: "current" },
-                  { id: "publish", label: "Publish", state: "todo" },
-                ]}
-              />
-            </div>
-          </Specimen>
-        </div>
+          <div id="ds-states" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Empty, loading and error"
+              note="Every region has all three. Errors name the cause, a safe code and the next step."
+            >
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card flush>
+                  <Empty
+                    tone="ok"
+                    icon={<Check aria-hidden />}
+                    title="Nothing needs a reply"
+                    description="Every client’s reviews are handled."
+                  />
+                </Card>
+                <Card aria-busy="true" className="gap-2.5">
+                  <CardContent className="flex flex-col gap-2.5">
+                    <p className="flex items-center gap-2 text-ui text-ink-muted">
+                      <Spinner decorative size="sm" />
+                      Loading reviews…
+                    </p>
+                    <Skeleton className="w-3/5" />
+                    <Skeleton />
+                    <Skeleton className="w-2/5" />
+                  </CardContent>
+                </Card>
+                <Card flush>
+                  <Empty
+                    tone="bad"
+                    icon={<CircleAlert aria-hidden />}
+                    title="We couldn’t load this queue"
+                    description="Nothing was changed. REQ 7f3a-19c2"
+                    action={
+                      <Button variant="secondary" size="sm">
+                        Try again
+                      </Button>
+                    }
+                  />
+                </Card>
+              </div>
+            </Specimen>
+          </div>
 
-        <Specimen
-          title="Change diff"
-          note="What every Google write shows before it happens. A conflict row says Google moved the field after the draft started."
+          <div id="ds-overlays" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Overlays and feedback"
+              note="Dialogs confirm consequences; sheets hold longer forms; toasts report outcomes."
+            >
+              <Demo>
+                <AlertDialog>
+                  <AlertDialogTrigger render={<Button variant="secondary" />}>
+                    Open a confirm dialog
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogTitle>
+                      Delete the published reply?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Google removes the reply from the listing. The review
+                      stays and moves back to Needs reply.
+                    </AlertDialogDescription>
+                    <AlertDialogFooter>
+                      <AlertDialogClose render={<Button variant="ghost" />}>
+                        Keep the reply
+                      </AlertDialogClose>
+                      <AlertDialogClose render={<Button variant="danger" />}>
+                        Delete from Google
+                      </AlertDialogClose>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+                <Dialog>
+                  <DialogTrigger render={<Button variant="secondary" />}>
+                    Open a dialog
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Rename this location</DialogTitle>
+                      <DialogDescription>
+                        The name inside NabaPresence only. Google keeps its own.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Field>
+                      <FieldLabel>Name</FieldLabel>
+                      <Input defaultValue="The Bell" />
+                    </Field>
+                    <DialogFooter>
+                      <DialogClose render={<Button variant="ghost" />}>
+                        Cancel
+                      </DialogClose>
+                      <DialogClose render={<Button />}>Save</DialogClose>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <Sheet>
+                  <SheetTrigger render={<Button variant="secondary" />}>
+                    Open a sheet
+                  </SheetTrigger>
+                  <SheetContent>
+                    <SheetHeader>
+                      <SheetTitle>Sheet</SheetTitle>
+                      <SheetDescription>
+                        Slides from the right; from the bottom on phones.
+                      </SheetDescription>
+                    </SheetHeader>
+                    <SheetBody>
+                      <Field>
+                        <FieldLabel>A longer form lives here</FieldLabel>
+                        <Input />
+                      </Field>
+                    </SheetBody>
+                    <SheetFooter>
+                      <SheetClose render={<Button variant="ghost" />}>
+                        Cancel
+                      </SheetClose>
+                      <SheetClose render={<Button />}>Save</SheetClose>
+                    </SheetFooter>
+                  </SheetContent>
+                </Sheet>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button variant="secondary" />}>
+                    Open a menu
+                    <ChevronDown aria-hidden />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Review</DropdownMenuLabel>
+                      <DropdownMenuItem>
+                        <Pencil aria-hidden />
+                        Assign to a colleague
+                      </DropdownMenuItem>
+                      <DropdownMenuItem>
+                        Mark reviewed
+                        <DropdownMenuShortcut>E</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabledReason="Only owners can export.">
+                        Export history
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive">
+                      Delete published reply
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Popover>
+                  <PopoverTrigger render={<Button variant="secondary" />}>
+                    Open a popover
+                  </PopoverTrigger>
+                  <PopoverContent>
+                    <PopoverTitle>Why is this flagged?</PopoverTitle>
+                    <PopoverDescription>
+                      The reply mentions a price that is not on the menu.
+                    </PopoverDescription>
+                  </PopoverContent>
+                </Popover>
+
+                <Tooltip>
+                  <TooltipTrigger render={<Button variant="ghost" />}>
+                    Hover for a tooltip
+                  </TooltipTrigger>
+                  <TooltipContent>Charcoal, caption size</TooltipContent>
+                </Tooltip>
+
+                <CommandDemo
+                  locations={["The Bell", "The Old Crown", "The Railway"]}
+                />
+              </Demo>
+              <Demo>
+                <span className="text-ui text-ink-muted">Toasts:</span>
+                <ToastDemo />
+              </Demo>
+            </Specimen>
+          </div>
+
+          <div id="ds-forms" className="flex scroll-mt-4 flex-col gap-4">
+            <Specimen
+              title="Tag input"
+              note="Enter or comma adds; Backspace in an empty field removes the last."
+            >
+              <Demo column>
+                <TagInputDemo />
+              </Demo>
+            </Specimen>
+            <Specimen
+              title="Validation summary"
+              note="Submit to see it: it takes focus and each problem links to its field."
+            >
+              <Demo column>
+                <ValidationDemo />
+              </Demo>
+            </Specimen>
+            <Specimen title="Card and section header">
+              <Card>
+                <CardHeader divided>
+                  <CardTitle>Opening hours</CardTitle>
+                  <CardDescription>
+                    What Google shows on the listing.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <SectionHeader
+                    as="h4"
+                    title="Regular hours"
+                    description="Seven days"
+                    actions={
+                      <Button variant="ghost" size="sm">
+                        Edit
+                      </Button>
+                    }
+                  />
+                  <p className="text-ui text-ink-muted">
+                    Card head with a rule, body, and a sunken foot.
+                  </p>
+                </CardContent>
+                <CardFooter bar>
+                  <span className="text-caption text-ink-muted">
+                    Saved here 4 min ago
+                  </span>
+                  <Button variant="secondary" size="sm">
+                    Review changes
+                  </Button>
+                </CardFooter>
+              </Card>
+            </Specimen>
+          </div>
+        </Section>
+
+        <Section
+          title="Compositions"
+          description="The customer’s words, the change diff and the action bar."
         >
-          <ChangeDiff
-            caption="Changes to publish for Old Crown"
+          <figure className="m-0 flex flex-col gap-2.5 rounded-(--np-radius-card) bg-surface-alt p-4">
+            <blockquote className="m-0 max-w-(--np-measure-reading) font-reading text-reading">
+              Best curry night in the county. The staff remembered our order
+              from last month.
+            </blockquote>
+            <figcaption className="font-mono text-caption text-ink-muted">
+              Anita G. · 5 stars · sample review
+            </figcaption>
+          </figure>
+          <DiffView
+            caption="Changes to The Bell, sample"
             rows={[
+              {
+                field: "Description",
+                before: "Village pub with rooms.",
+                after: "Village pub serving Nepalese and British food.",
+              },
+              {
+                field: "Sunday hours",
+                before: "12:00–18:00 (sample)",
+                after: "12:00–20:00 (sample)",
+                state: "conflict",
+              },
               {
                 field: "Phone",
                 before: "01223 277 217",
-                after: "01223 277 218",
-              },
-              {
-                field: "Description",
-                before: "A riverside pub.",
-                after: "A riverside pub with rooms.",
-                state: "conflict",
+                after: "01223 277 217",
+                state: "unchanged",
               },
             ]}
           />
-        </Specimen>
-
-        <Specimen
-          title="Editor footer"
-          note="One primary action. The gate note carries the reason whenever it is disabled."
-        >
-          <EditorFooterDemo />
-        </Specimen>
-
-        <Specimen title="Capability banner">
-          <CapabilityBanner
-            tone="read_only"
-            title="You can look, but not change this"
-            description="Only owners and admins can edit this location."
+          <ActionBar
+            sticky={false}
+            safeArea={false}
+            label="Editor actions, sample"
+            status={
+              <>
+                <Pencil aria-hidden />
+                <span>
+                  <strong>2 changes not on Google</strong>{" "}
+                  <ActionBarMuted>· Saved here 4 min ago</ActionBarMuted>
+                </span>
+              </>
+            }
+            actions={
+              <>
+                <Button variant="ghost-dark">Discard</Button>
+                <Button>Review changes</Button>
+              </>
+            }
           />
-        </Specimen>
-
-        <Specimen title="Breadcrumb">
-          <Breadcrumbs
-            crumbs={[
-              { label: "Clients", href: "/clients" },
-              { label: "Old Crown Group", href: "/clients/demo" },
-              { label: "Old Crown Girton" },
-            ]}
-          />
-        </Specimen>
-      </Section>
-    </main>
+          <p className="text-caption text-ink-muted">
+            The charcoal action bar is the one counter-surface per screen. It
+            shows here beside the page’s own primary only because this is a
+            gallery.
+          </p>
+        </Section>
+      </main>
+    </TooltipProvider>
   )
 }

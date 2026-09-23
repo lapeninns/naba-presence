@@ -1,38 +1,51 @@
 "use client"
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
+import Link from "next/link"
+import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
 /**
- * Tabs for genuinely separate page sections: a row of labels over a hairline,
- * with a 2px accent underline that slides to the active one. Switching views
- * of the same data is SegmentedControl's job, so nothing here looks like a
- * track with a thumb.
+ * Tabs for genuinely separate page sections (reference `.tabs`): a row of
+ * 40px labels over a hairline, muted until selected, with a 2px INK
+ * underline inset 8px from the tab's edges. The row scrolls sideways when it
+ * does not fit. Switching views of the same data is SegmentedControl's job.
+ *
+ * `TabNav` is the same drawing for tabs that are links between routes
+ * (`aria-current="page"` rather than a tablist), such as a listing's areas.
  */
 function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn("flex flex-col gap-4", className)}
+      className={cn("flex min-w-0 flex-col gap-4", className)}
       {...props}
     />
   )
 }
 
+/** The row: a hairline track that scrolls sideways without a scrollbar. */
+const tabsRowClassName =
+  "relative flex min-w-0 items-end gap-1 overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+
+/** One tab or tab link. */
+const tabItemClassName = cn(
+  "relative inline-flex h-10 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink disabled:pointer-events-none disabled:opacity-50 pointer-coarse:h-11",
+  "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-[2px] after:bg-transparent after:content-['']",
+  "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
+  "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
+)
+
 /**
  * `fill` is the phone drawing of a short tab row: equal columns that divide
- * the width, rather than a scrolling strip whose last tab is hidden off the
- * edge. From `sm` it returns to the ordinary row. A three-tab report page was
- * writing this out as a grid override plus a per-tab alignment override at
- * the call site; it is one decision about how tabs behave on a narrow screen,
- * so it belongs here.
+ * the width, rather than a scrolling strip. From `sm` it returns to the row.
  */
 const FILL_CLASS = cn(
-  "grid auto-cols-fr grid-flow-col gap-0 overflow-visible",
+  "grid auto-cols-fr grid-flow-col gap-0",
   "[&_[data-slot=tabs-tab]]:justify-center [&_[data-slot=tabs-tab]]:px-2",
-  "sm:flex sm:gap-5 sm:overflow-x-auto",
-  "sm:[&_[data-slot=tabs-tab]]:justify-start sm:[&_[data-slot=tabs-tab]]:px-1"
+  "sm:flex sm:gap-1",
+  "sm:[&_[data-slot=tabs-tab]]:justify-start sm:[&_[data-slot=tabs-tab]]:px-3"
 )
 
 function TabsList({
@@ -45,21 +58,10 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       data-fill={fill || undefined}
-      className={cn(
-        // Horizontal padding matches the tabs' own inset so the focus halo is
-        // not clipped by the scroll container; the row's bottom hairline is
-        // the underline's track.
-        "relative mx-0 flex items-end gap-5 overflow-x-auto border-b border-line-subtle px-1 pt-1",
-        fill && FILL_CLASS,
-        className
-      )}
+      className={cn(tabsRowClassName, fill && FILL_CLASS, className)}
       {...props}
     >
       {children}
-      <TabsPrimitive.Indicator
-        data-slot="tabs-indicator"
-        className="absolute -bottom-px left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) rounded-(--np-radius-pill) bg-primary transition-[translate,width] duration-(--np-duration-standard) ease-spring-snappy"
-      />
     </TabsPrimitive.List>
   )
 }
@@ -68,10 +70,7 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
-      className={cn(
-        "mb-1.5 inline-flex h-(--np-control-h) shrink-0 items-center gap-1.5 rounded-(--np-radius-tag) px-1 text-ui font-medium whitespace-nowrap text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink disabled:pointer-events-none disabled:text-ink-faint data-active:text-ink [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      className={cn(tabItemClassName, className)}
       {...props}
     />
   )
@@ -87,4 +86,49 @@ function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props) {
   )
 }
 
-export { Tabs, TabsList, TabsTab, TabsPanel }
+export type TabNavItem = {
+  href: string
+  label: React.ReactNode
+  current?: boolean
+  /** A count or badge after the label. */
+  badge?: React.ReactNode
+}
+
+/**
+ * Link tabs between routes. `aria-label` names the navigation landmark.
+ * The current link carries `aria-current="page"` and the ink underline.
+ */
+function TabNav({
+  items,
+  className,
+  ...props
+}: Omit<React.ComponentProps<"nav">, "children"> & { items: TabNavItem[] }) {
+  return (
+    <nav data-slot="tab-nav" className={cn("min-w-0", className)} {...props}>
+      <ul className={cn(tabsRowClassName, "list-none")}>
+        {items.map((item) => (
+          <li key={item.href} className="flex shrink-0">
+            <Link
+              href={item.href}
+              aria-current={item.current ? "page" : undefined}
+              className={tabItemClassName}
+            >
+              {item.label}
+              {item.badge}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+export {
+  Tabs,
+  TabsList,
+  TabsTab,
+  TabsPanel,
+  TabNav,
+  tabItemClassName,
+  tabsRowClassName,
+}

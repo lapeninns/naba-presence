@@ -1,5 +1,6 @@
 "use client"
 
+import { CircleAlert } from "lucide-react"
 import {
   createContext,
   useContext,
@@ -35,8 +36,9 @@ export function useFieldContext() {
 }
 
 /**
- * A labelled form control: label above in the UI role at medium weight, the
- * control, then a caption-sized description or error beneath. The Field
+ * A labelled form control (reference `.field`): label above in the UI role at
+ * semibold, the control, then a caption-sized hint or error beneath, 6px
+ * apart. The Field
  * carries `data-invalid` when it has an error so a control inside it can swap
  * its edge to the danger line without knowing about the context.
  */
@@ -67,7 +69,7 @@ function Field({
       <div
         data-slot="field"
         data-invalid={error ? "" : undefined}
-        className={cn("flex flex-col gap-1.5", className)}
+        className={cn("flex min-w-0 flex-col gap-1.5", className)}
         {...props}
       >
         {children}
@@ -88,16 +90,31 @@ function Field({
  */
 function FieldLabel({
   className,
+  optional,
+  children,
   ...props
-}: React.ComponentProps<typeof Label>) {
+}: React.ComponentProps<typeof Label> & {
+  /**
+   * Marks the field optional in words after the label ("optional" by
+   * default, or your own text, e.g. "read only"). Becomes part of the name.
+   */
+  optional?: boolean | string
+}) {
   const field = useFieldContext()
   return (
     <Label
       id={field?.labelId}
       htmlFor={field && !field.controlLabelable ? undefined : field?.id}
-      className={cn("text-ui font-medium text-ink", className)}
+      className={cn("gap-1.5 text-ui leading-5 font-semibold text-ink", className)}
       {...props}
-    />
+    >
+      {children}
+      {optional ? (
+        <span className="font-normal text-ink-muted">
+          ({typeof optional === "string" ? optional : "optional"})
+        </span>
+      ) : null}
+    </Label>
   )
 }
 
@@ -135,6 +152,10 @@ function FieldDescription({
   )
 }
 
+/**
+ * The error beneath a field (reference `.error-text`): danger ink, a leading
+ * alert glyph, and the reason in words. Announced as an alert.
+ */
 function FieldError({ className, ...props }: React.ComponentProps<"p">) {
   const field = useFieldContext()
   if (!field?.error) return null
@@ -143,10 +164,18 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
       id={field.errorId}
       role="alert"
       data-slot="field-error"
-      className={cn("text-caption text-danger-ink", className)}
+      className={cn(
+        "flex items-start gap-1.5 text-caption font-medium text-danger-ink",
+        className
+      )}
       {...props}
     >
-      {field.error}
+      <CircleAlert
+        aria-hidden
+        strokeWidth={1.75}
+        className="mt-px size-3.5 shrink-0"
+      />
+      <span className="min-w-0">{field.error}</span>
     </p>
   )
 }
@@ -213,21 +242,47 @@ export function useFieldTriggerProps({
 }
 
 /**
- * The field chrome every text-like control shares: field height and radius,
- * the half-pixel edge in `line-strong` (the one line that clears 3:1), the
- * focus halo layered over that edge, and the danger edge when invalid.
+ * The field chrome every text-like control shares (reference `.input`): the
+ * field radius, a 1px `line-strong` edge (the control boundary at 3:1) that
+ * darkens on hover, an accent edge plus a 3px accent-tint halo on focus, the
+ * danger edge plus danger-tint halo when invalid, and the sunken surface
+ * when disabled or read-only. 16px text on coarse pointers stops iOS zoom.
  * Exported so a control outside this file (a date input, a number field)
  * can look like an Input without copying the recipe.
  */
 export const fieldChromeClassName = cn(
-  "min-w-0 rounded-(--np-radius-field) bg-(--np-field-bg) text-body text-ink outline-none",
-  "[box-shadow:0_0_0_0.5px_var(--np-line-strong)]",
-  "transition-[box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
-  "placeholder:text-ink-muted",
-  "focus-visible:[box-shadow:var(--np-focus-halo),0_0_0_0.5px_var(--np-line-strong)]",
-  "aria-invalid:[box-shadow:0_0_0_0.5px_var(--np-danger-line)]",
-  "aria-invalid:focus-visible:[box-shadow:var(--np-focus-halo),0_0_0_0.5px_var(--np-danger-line)]",
-  "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+  "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
+  "transition-[border-color,box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
+  "placeholder:text-ink-muted hover:border-ink-muted",
+  "focus:border-primary focus:shadow-[0_0_0_3px_var(--np-accent-tint)] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--np-accent-tint)]",
+  "aria-invalid:border-danger-ink aria-invalid:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+  "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted read-only:bg-surface-alt read-only:text-ink-muted",
+  "pointer-coarse:text-base"
 )
 
-export { Field, FieldDescription, FieldError, FieldLabel }
+/**
+ * A byte or character counter beneath a field (reference `.counter`): mono,
+ * muted, and danger ink once `over`. Say the limit in the text itself
+ * ("1,204 / 4,096 bytes"), so colour is not the only warning.
+ */
+function FieldCounter({
+  over = false,
+  className,
+  ...props
+}: React.ComponentProps<"span"> & { over?: boolean }) {
+  return (
+    <span
+      data-slot="field-counter"
+      data-over={over || undefined}
+      aria-live="polite"
+      className={cn(
+        "font-mono text-[11.5px] text-ink-muted tabular-nums",
+        over && "font-semibold text-danger-ink",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Field, FieldCounter, FieldDescription, FieldError, FieldLabel }

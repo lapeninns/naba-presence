@@ -5,27 +5,34 @@ import { Avatar as AvatarPrimitive } from "@base-ui/react/avatar"
 import { cn } from "@/lib/utils"
 
 /**
- * A circle with a hairline edge. The fallback is initials in UI weight on
- * the fill; the edge is a box-shadow so a white photo on a white card still
- * has a rim and the image itself is never inset.
+ * Reference `.avatar`: a circle on the hover-fill grey with initials in the
+ * strong secondary ink. Sizes 24 / 32 / 44. `shape="square"` is the 8px
+ * rounded square used for locations and organisations.
  */
 const AVATAR_SIZES = {
-  sm: "size-6 text-caption",
-  default: "size-9 text-ui",
-  lg: "size-12 text-body",
+  sm: "size-6 text-[10.5px]",
+  default: "size-8 text-caption",
+  lg: "size-11 text-[15px]",
 } as const
 
 function Avatar({
   className,
   size = "default",
+  shape = "circle",
   ...props
-}: AvatarPrimitive.Root.Props & { size?: keyof typeof AVATAR_SIZES }) {
+}: AvatarPrimitive.Root.Props & {
+  size?: keyof typeof AVATAR_SIZES
+  shape?: "circle" | "square"
+}) {
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
       data-size={size}
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-(--np-radius-pill) bg-fill font-medium text-ink hairline select-none",
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden bg-fill font-semibold tracking-[0.02em] text-ink-secondary select-none",
+        shape === "square"
+          ? "rounded-(--np-radius-control)"
+          : "rounded-(--np-radius-pill)",
         AVATAR_SIZES[size],
         className
       )}

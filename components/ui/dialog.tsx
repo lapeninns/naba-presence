@@ -36,7 +36,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
+        "fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
         className
       )}
       {...props}
@@ -45,41 +45,47 @@ function DialogOverlay({
 }
 
 /**
- * The small grey circle in the top-right corner. Exported because Sheet draws
- * the same one — it was a second copy of this string, which is exactly how
- * two overlays start closing differently.
+ * The ghost close button in the top-right corner (reference `.dialog-close`).
+ * Exported because Sheet draws the same one.
  */
 export const overlayCloseButtonClassName =
-  "absolute top-4 right-4 size-7 rounded-(--np-radius-pill) bg-fill text-ink-muted hover:bg-fill-secondary hover:text-ink [&_svg]:size-3.5 [&_svg]:[stroke-width:1.75]"
+  "absolute top-3.5 right-3.5 text-ink-muted hover:text-ink [&_svg]:size-4"
 
 /**
- * The action row both overlays end on: stacked on a phone with the primary
- * on top where the thumb reaches it, a right-aligned row from `sm` up.
- * Exported for the same reason as the close button.
+ * The action row both overlays end on (reference `.dialog-foot`): a bar on
+ * the sunken surface under a hairline, buttons right-aligned and wrapping;
+ * stacked on a phone with the primary on top where the thumb reaches it.
  */
 export const overlayFooterClassName =
-  "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
+  "flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end"
+
+/** The bar drawing of the footer, pulled to the popup's edges. */
+const overlayFooterBarClassName =
+  "-mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 border-t border-line bg-surface-alt px-(--dlg-pad) py-3 rounded-b-[inherit]"
 
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  size = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** `wide` is the reference `.dialog.wide` (760px) for a diff or table. */
+  size?: "default" | "wide"
 }) {
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-size={size}
         className={cn(
-          // Enter: scale from 0.96 with a fade on the spring. Exit: the same
-          // shape, but faster and without overshoot so dismissal feels
-          // immediate. Position uses translate; scale is a separate property
-          // in Tailwind v4, so the two never fight.
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 rounded-(--np-radius-modal) bg-popover p-6 text-body text-popover-foreground shadow-(--np-shadow-modal) outline-none sm:max-w-md",
-          "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:scale-96 data-starting-style:opacity-0",
+          // Reference `dialog.dialog`: surface, modal radius, pop shadow,
+          // min(520px, 100vw - 24px) wide, at most min(86dvh, 760px) tall
+          // with the body scrolling. Enter rises 8px and fades.
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[min(86dvh,760px)] w-full max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] sm:max-w-[520px] data-[size=wide]:sm:max-w-[760px]",
+          "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:translate-y-[calc(-50%+8px)] data-starting-style:scale-[0.985] data-starting-style:opacity-0",
           className
         )}
         {...props}
@@ -92,7 +98,7 @@ function DialogContent({
               <Button
                 variant="ghost"
                 className={overlayCloseButtonClassName}
-                size="icon-sm"
+                size="icon"
                 aria-label="Close"
               />
             }
@@ -110,7 +116,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-1.5 pr-8", className)}
+      className={cn("flex flex-col gap-1 pr-10", className)}
       {...props}
     />
   )
@@ -124,24 +130,42 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  plain = false,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
+  /** Drop the sunken bar and keep a bare button row. */
+  plain?: boolean
 }) {
   return (
     <div
       data-slot="dialog-footer"
-      className={cn(overlayFooterClassName, className)}
+      className={cn(
+        overlayFooterClassName,
+        !plain && overlayFooterBarClassName,
+        className
+      )}
       {...props}
     >
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="secondary" />}>
+        <DialogPrimitive.Close render={<Button variant="ghost" />}>
           Close
         </DialogPrimitive.Close>
       )}
       {children}
     </div>
+  )
+}
+
+/** A scrolling region between header and footer, for a long form. */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn("flex min-w-0 flex-col gap-4", className)}
+      {...props}
+    />
   )
 }
 
@@ -163,7 +187,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "text-body text-ink-muted *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-ink",
+        "text-ui text-ink-muted *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-ink",
         className
       )}
       {...props}
@@ -173,6 +197,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

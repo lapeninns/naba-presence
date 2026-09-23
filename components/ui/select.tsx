@@ -1,15 +1,17 @@
 "use client"
 
 import { Select as SelectPrimitive } from "@base-ui/react/select"
-import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon } from "lucide-react"
 
 import { useFieldTriggerProps } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 /**
- * The pop-up button. The trigger is a grey control (the fill ladder, not a
- * bordered field) with the up-down chevron glyph; the popup is a menu on the
- * popover material with a checkmark column and the solid accent highlight.
+ * The pop-up button (reference `.select`). The trigger is drawn as a field:
+ * white, the 3:1 control edge, a caret on the right, the accent edge and
+ * halo while open or focused. The popup is the reference `.menu`: white,
+ * hairline edge, pop shadow, rows that highlight on the hover fill, and a
+ * checkmark column for the chosen value.
  */
 function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />
@@ -17,11 +19,12 @@ function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
 
 /** Shared by SelectTrigger and the Combobox trigger so both read as one control. */
 export const selectTriggerClassName = cn(
-  "inline-flex h-(--np-control-h) min-w-0 cursor-default items-center justify-between gap-2 rounded-(--np-radius-control) bg-fill px-3 text-ui text-ink focus-halo select-none",
-  "transition-[background-color,transform] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:bg-fill-secondary active:scale-[0.98] data-popup-open:bg-fill-secondary",
-  "disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50",
-  "aria-invalid:[box-shadow:0_0_0_0.5px_var(--np-danger-line)]",
+  "inline-flex h-(--np-field-h) min-w-0 cursor-default items-center justify-between gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-2.5 pl-[11px] text-body text-ink outline-none select-none",
+  "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
+  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--np-accent-tint)] data-popup-open:border-primary data-popup-open:shadow-[0_0_0_3px_var(--np-accent-tint)]",
+  "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
+  "aria-invalid:border-danger-ink aria-invalid:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+  "pointer-coarse:text-base",
   "[&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
   "[&_[data-slot=select-value][data-placeholder]]:text-ink-muted"
 )
@@ -54,7 +57,7 @@ function SelectTrigger({
         data-slot="select-icon"
         className="flex shrink-0 items-center text-ink-muted"
       >
-        <ChevronsUpDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
+        <ChevronDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -65,24 +68,23 @@ function SelectValue(props: SelectPrimitive.Value.Props) {
 }
 
 /**
- * The menu popup recipe shared with Combobox and DropdownMenu-style popups:
- * popover material, card radius, the pop shadow, and a spring from the
- * trigger side. Base UI's Select aligns the popup with the trigger item by
- * default (`data-side="none"`), in which case nothing scales — the menu
- * simply appears over the trigger, as on the platform.
+ * The menu popup recipe shared with Combobox (reference `.menu`): surface,
+ * hairline edge, 10px radius, pop shadow, 6px inset. Base UI's Select aligns
+ * the popup with the trigger item by default (`data-side="none"`), in which
+ * case nothing scales — the menu simply appears over the trigger.
  */
 export const menuPopupClassName = cn(
-  "rounded-(--np-radius-card) material-popover p-1 text-ink shadow-(--np-shadow-pop) outline-none",
+  "rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none",
   "origin-(--transform-origin) transition-[transform,opacity] duration-(--np-duration-overlay) ease-spring",
-  "data-ending-style:scale-[0.96] data-ending-style:opacity-0 data-starting-style:scale-[0.96] data-starting-style:opacity-0",
+  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
   "data-[side=none]:data-starting-style:scale-100 data-[side=none]:data-starting-style:opacity-100 data-[side=none]:data-starting-style:transition-none"
 )
 
-/** A menu row: 30px, tag radius, checkmark column, solid accent when highlighted. */
+/** A menu row: 32px, tag radius, checkmark column, the hover fill when highlighted. */
 export const menuItemClassName = cn(
-  "relative flex h-(--np-menu-item-h) cursor-default items-center gap-2 rounded-(--np-radius-tag) py-0 pr-2 pl-7 text-ui text-ink outline-none select-none",
-  "data-highlighted:bg-primary data-highlighted:text-primary-foreground",
-  "data-disabled:pointer-events-none data-disabled:opacity-50",
+  "relative flex min-h-(--np-menu-item-h) cursor-default items-center gap-2 rounded-(--np-radius-tag) py-1 pr-2.5 pl-8 text-ui text-ink outline-none select-none pointer-coarse:min-h-(--np-touch)",
+  "data-highlighted:bg-fill data-selected:font-semibold",
+  "data-disabled:pointer-events-none data-disabled:text-ink-muted",
   "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -137,7 +139,7 @@ function SelectItem({
       className={cn(menuItemClassName, className)}
       {...props}
     >
-      <SelectPrimitive.ItemIndicator className="absolute left-2 inline-flex items-center">
+      <SelectPrimitive.ItemIndicator className="absolute left-2.5 inline-flex items-center text-accent-ink">
         <CheckIcon className="size-4" strokeWidth={2} aria-hidden />
       </SelectPrimitive.ItemIndicator>
       <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
@@ -159,7 +161,7 @@ function SelectGroupLabel({
     <SelectPrimitive.GroupLabel
       data-slot="select-group-label"
       className={cn(
-        "px-2 py-1.5 text-caption font-medium text-ink-muted",
+        "px-2.5 pt-1.5 pb-0.5 text-[11.5px] font-medium text-ink-muted",
         className
       )}
       {...props}
@@ -174,7 +176,7 @@ function SelectSeparator({
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"
-      className={cn("mx-2 my-1 h-px bg-line-subtle", className)}
+      className={cn("mx-0.5 my-1 h-px bg-line", className)}
       {...props}
     />
   )

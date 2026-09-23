@@ -15,8 +15,11 @@
   @media not all and (min-width: 48rem) and (min-height: 34rem)
 );
 
+/* Hover motion only where a fine pointer can actually hover. */
+@custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
+
 /* ---------------------------------------------------------------------------
-   NabaPresence design system — Apple-grade, platform-native, light-first.
+   NabaPresence design system — the operator's desk.
 
    Four layers, top to bottom:
      1. RAMPS      raw colour steps. The only layer a designer edits.
@@ -29,63 +32,82 @@
    ramp step or another role. Contrast is not asserted in a comment here — it
    is measured from THIS file by `pnpm check:contrast`, by
    `tests/design-tokens-contrast.test.ts`, and by the /design-system page.
-   See docs/specs/2026-09-04-apple-identity.md.
+   See docs/specs/2026-09-23-operators-desk-identity.md.
 
-   The Apple vocabulary this file speaks:
-     - LABEL LADDER   ink / ink-muted / ink-faint / ink-quaternary
-     - FILL LADDER    fill / fill-secondary / fill-tertiary (control surfaces)
-     - GROUPED BG     canvas is a soft grey; cards are white with no border
-     - MATERIALS      translucent, blurred surfaces for chrome, with an opaque
-                      fallback under reduced-transparency
-     - SPRINGS        motion is a spring curve, never a linear fade
-     - CONCENTRIC     an inner radius is the outer radius minus the padding
+   The vocabulary this file speaks:
+     - COOL PAPER      the page is a cool off-white; work surfaces are white
+                       cards with a 1px line. Structure is a quiet line, not
+                       a shadow.
+     - INK LADDER      ink / ink-secondary / ink-muted / ink-faint
+     - ONE ACCENT      green, on the primary action, focus and the current
+                       item. Never a decorative fill.
+     - TWO VOICES      a system sans for the interface; a serif for page
+                       titles and the customer's own words. Figures and IDs
+                       are mono.
+     - DARK BAR        charcoal, once per screen, holds the action that
+                       reaches Google (composer footer, editor footer, bulk
+                       bar) and toasts.
+     - WORDS FIRST     every status carries a label; colour only reinforces.
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  /* San Francisco where the platform has it, Inter everywhere else. Inter is
-     the fallback because it carries an optical-size axis, which is what keeps
-     small UI text open and large titles tight the way SF does. */
+  /* The interface is set in the platform's own sans. The serif is reserved
+     for page titles and the customer's words (`font-display`,
+     `text-reading`). JetBrains Mono, self-hosted by app/layout.tsx, is the
+     figure face: counts, timestamps, IDs, keycaps. */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, var(--font-inter), "Segoe UI", system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue",
     sans-serif;
   --font-mono:
-    ui-monospace, "SF Mono", var(--font-geist-mono), Menlo, monospace;
-  /* Titles and display figures use the same family as UI: hierarchy is
-     carried by weight and tracking, never by a second typeface. */
-  --font-display: var(--font-sans);
+    var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+  --font-display:
+    "Iowan Old Style", "Charter", "Bitstream Charter", Georgia,
+    "Times New Roman", serif;
   --font-heading: var(--font-display);
+  --font-reading: var(--font-display);
 
-  /* Type roles — the only sanctioned font sizes in feature code.
-     Each role also owns a tracking value; large sizes tighten, small loosen. */
+  /* Type roles — the only sanctioned font sizes in feature code. */
   --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
-  --text-caption--letter-spacing: 0.01em;
+  --text-caption--letter-spacing: 0;
   --text-ui: 0.8125rem;
-  --text-ui--line-height: 1.125rem;
+  --text-ui--line-height: 1.25rem;
   --text-ui--letter-spacing: 0;
   --text-body: 0.875rem;
-  --text-body--line-height: 1.25rem;
+  --text-body--line-height: 1.375rem;
   --text-body--letter-spacing: 0;
-  --text-title: 0.9375rem;
-  --text-title--line-height: 1.25rem;
-  --text-title--letter-spacing: -0.01em;
-  --text-section: 1.0625rem;
-  --text-section--line-height: 1.375rem;
-  --text-section--letter-spacing: -0.015em;
-  --text-page-title: 1.5rem;
-  --text-page-title--line-height: 1.75rem;
-  --text-page-title--letter-spacing: -0.02em;
-  --text-display: 2rem;
-  --text-display--line-height: 2.25rem;
-  --text-display--letter-spacing: -0.025em;
+  --text-title: 1rem;
+  --text-title--line-height: 1.5rem;
+  --text-title--letter-spacing: 0;
+  --text-section: 1.125rem;
+  --text-section--line-height: 1.625rem;
+  --text-section--letter-spacing: -0.005em;
+  /* Page titles are serif and fluid: 22px on a phone, 28px from ~1180px. */
+  --text-page-title: clamp(1.375rem, 1.1vw + 0.9375rem, 1.75rem);
+  --text-page-title--line-height: 1.18;
+  --text-page-title--letter-spacing: -0.01em;
+  --text-display: clamp(1.75rem, 2vw + 1rem, 2.25rem);
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.015em;
+  /* The customer's words: serif, 17/28, the largest readable body on the
+     screen. Not a heading role. */
+  --text-reading: 1.0625rem;
+  --text-reading--line-height: 1.75rem;
+  --text-reading--letter-spacing: 0;
 
   /* Semantic colour utilities: bg-canvas, text-ink-muted, border-line… */
   --color-canvas: var(--np-surface-canvas);
   --color-surface: var(--np-surface);
+  --color-surface-alt: var(--np-surface-alt);
   --color-surface-raised: var(--np-surface-raised);
   --color-surface-sunken: var(--np-surface-sunken);
   --color-surface-overlay: var(--np-surface-overlay);
+  --color-charcoal: var(--np-charcoal);
+  --color-ink-on-charcoal: var(--np-ink-on-charcoal);
+  --color-ink-muted-on-charcoal: var(--np-ink-muted-on-charcoal);
   --color-ink: var(--np-ink);
+  --color-ink-secondary: var(--np-ink-secondary);
   --color-ink-muted: var(--np-ink-muted);
   --color-ink-faint: var(--np-ink-faint);
   --color-ink-quaternary: var(--np-ink-quaternary);
@@ -108,6 +130,13 @@
   --color-danger-tint: var(--np-danger-tint);
   --color-info-ink: var(--np-info-ink);
   --color-info-tint: var(--np-info-tint);
+  --color-success-solid: var(--np-success-solid);
+  --color-warning-solid: var(--np-warning-solid);
+  --color-danger-solid: var(--np-danger-solid);
+  --color-info-solid: var(--np-info-solid);
+  --color-danger-on-solid: var(--np-danger-on-solid);
+  --color-accent-hover: var(--np-accent-hover);
+  --color-scrim: var(--np-scrim);
   --color-material-sidebar: var(--np-material-sidebar);
   --color-material-toolbar: var(--np-material-toolbar);
   --color-material-popover: var(--np-material-popover);
@@ -137,9 +166,60 @@
     }
   }
 
+  /* Entrances. `rise` is the page-load stagger (header, then panel, then
+     rows); `slide-in` is a pane arriving from the edge it belongs to. Both
+     animate opacity and transform only, both run once, and both collapse to
+     their final frame under reduced motion through the global rule below. */
+  --animate-np-rise: np-rise var(--np-duration-enter) var(--np-ease-out) both;
+  --animate-np-rise-lg: np-rise-lg var(--np-duration-enter) var(--np-ease-out)
+    both;
+  --animate-np-slide-in: np-slide-in var(--np-duration-standard)
+    var(--np-ease-out) both;
+  --animate-np-fade: np-fade var(--np-duration-standard) var(--np-ease-out)
+    both;
+  @keyframes np-rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes np-rise-lg {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes np-slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes np-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   --ease-spring: var(--np-ease-spring);
   --ease-spring-snappy: var(--np-ease-spring-snappy);
   --ease-standard: var(--np-ease-standard);
+  --ease-out-strong: var(--np-ease-out);
 
   /* shadcn contract — resolved through the alias layer below. */
   --color-background: var(--background);
@@ -187,221 +267,211 @@
   color-scheme: light;
 
   /* ---- 1. RAMPS ------------------------------------------------------- */
-  /* One cool neutral hue for every grey, so surfaces read as platform chrome
-     rather than paper. Chroma stays tiny; the tint is felt, not seen. */
+  /* One cool neutral (hue 240–250) at small chroma: the page reads as cool
+     paper, the cards as white stock, the ink as blue-black. */
   --np-ramp-neutral-0: oklch(1 0 0);
-  --np-ramp-neutral-50: oklch(0.978 0.003 260);
-  --np-ramp-neutral-100: oklch(0.963 0.005 265);
-  --np-ramp-neutral-150: oklch(0.942 0.006 265);
-  --np-ramp-neutral-200: oklch(0.915 0.007 265);
-  --np-ramp-neutral-300: oklch(0.87 0.008 265);
-  --np-ramp-neutral-400: oklch(0.78 0.01 265);
-  --np-ramp-neutral-500: oklch(0.62 0.012 265);
-  --np-ramp-neutral-600: oklch(0.51 0.014 265);
-  --np-ramp-neutral-800: oklch(0.32 0.012 265);
-  --np-ramp-neutral-900: oklch(0.22 0.01 265);
-  --np-ramp-neutral-950: oklch(0.16 0.008 265);
+  --np-ramp-neutral-50: oklch(0.98 0.005 250);
+  --np-ramp-neutral-100: oklch(0.966 0.006 250);
+  --np-ramp-neutral-150: oklch(0.938 0.008 250);
+  --np-ramp-neutral-200: oklch(0.9 0.008 240);
+  --np-ramp-neutral-300: oklch(0.8 0.012 240);
+  --np-ramp-neutral-400: oklch(0.62 0.014 240);
+  --np-ramp-neutral-500: oklch(0.5 0.018 240);
+  --np-ramp-neutral-600: oklch(0.36 0.02 240);
+  --np-ramp-neutral-800: oklch(0.24 0.02 240);
+  --np-ramp-neutral-900: oklch(0.22 0.02 240);
+  --np-ramp-neutral-950: oklch(0.18 0.012 240);
 
-  /* Accent: system blue. Apple's own #007AFF fails 4.5:1 on white, so the
-     text and button steps sit darker; the vivid step is kept for tints,
-     selection and graphics where only 3:1 applies. */
-  --np-ramp-accent-100: oklch(0.945 0.025 256);
-  --np-ramp-accent-200: oklch(0.89 0.05 256);
-  --np-ramp-accent-400: oklch(0.65 0.18 256);
-  --np-ramp-accent-500: oklch(0.56 0.19 256);
-  --np-ramp-accent-600: oklch(0.49 0.165 256);
-  --np-ramp-accent-700: oklch(0.46 0.15 256);
-  --np-ramp-accent-900: oklch(0.3 0.1 256);
+  /* Accent: a restrained green. The solid carries white text at ≥5:1; the
+     vivid step is the focus ring and graphics, where 3:1 applies. */
+  --np-ramp-accent-100: oklch(0.955 0.035 145);
+  --np-ramp-accent-200: oklch(0.9 0.06 145);
+  --np-ramp-accent-400: oklch(0.58 0.16 145);
+  --np-ramp-accent-500: oklch(0.45 0.105 150);
+  --np-ramp-accent-600: oklch(0.38 0.09 150);
+  --np-ramp-accent-700: oklch(0.4 0.11 150);
+  --np-ramp-accent-900: oklch(0.3 0.08 150);
 
-  --np-ramp-success-100: oklch(0.955 0.04 150);
-  --np-ramp-success-500: oklch(0.5 0.13 150);
-  --np-ramp-success-700: oklch(0.46 0.12 150);
-  --np-ramp-warning-100: oklch(0.96 0.027 70);
-  --np-ramp-warning-300: oklch(0.85 0.11 70);
-  --np-ramp-warning-500: oklch(0.53 0.12 60);
-  --np-ramp-danger-100: oklch(0.955 0.02 25);
-  --np-ramp-danger-500: oklch(0.56 0.2 27);
-  --np-ramp-danger-700: oklch(0.5 0.19 27);
-  --np-ramp-info-100: oklch(0.95 0.026 235);
-  --np-ramp-info-500: oklch(0.52 0.105 235);
+  --np-ramp-success-100: oklch(0.955 0.035 150);
+  --np-ramp-success-500: oklch(0.58 0.14 150);
+  --np-ramp-success-700: oklch(0.43 0.11 150);
+  --np-ramp-warning-100: oklch(0.965 0.035 85);
+  --np-ramp-warning-300: oklch(0.79 0.15 78);
+  --np-ramp-warning-500: oklch(0.46 0.1 65);
+  --np-ramp-danger-100: oklch(0.962 0.018 27);
+  --np-ramp-danger-500: oklch(0.53 0.19 27);
+  --np-ramp-danger-700: oklch(0.49 0.17 27);
+  --np-ramp-info-100: oklch(0.96 0.018 250);
+  --np-ramp-info-500: oklch(0.46 0.13 250);
+  --np-ramp-info-600: oklch(0.56 0.15 250);
 
   /* ---- 2. SEMANTIC ROLES ---------------------------------------------- */
-  /* Grouped background model: the page is soft grey, content sits on white.
-     A card needs neither a border nor a shadow to be a card. */
-  --np-surface-canvas: var(--np-ramp-neutral-100);
+  /* Paper, card, rail. `surface-alt` is the sunken step: table heads, card
+     footers, rails, the review quote block. */
+  --np-surface-canvas: var(--np-ramp-neutral-50);
   --np-surface: var(--np-ramp-neutral-0);
+  --np-surface-alt: var(--np-ramp-neutral-100);
   --np-surface-raised: var(--np-ramp-neutral-0);
-  --np-surface-sunken: var(--np-ramp-neutral-150);
+  --np-surface-sunken: var(--np-ramp-neutral-100);
   --np-surface-overlay: var(--np-ramp-neutral-0);
 
-  /* Label ladder. Quaternary is DECORATIVE ONLY — disabled glyphs and inert
-     ornaments — and is deliberately absent from the contrast manifest. */
+  /* The dark bar: once per screen, for the action that reaches Google. */
+  --np-charcoal: var(--np-ramp-neutral-800);
+  --np-ink-on-charcoal: oklch(0.97 0.004 250);
+  --np-ink-muted-on-charcoal: oklch(0.78 0.012 240);
+
+  /* The accent as a quiet surface: the "needs a reply" summary tile. */
+
+  /* Ink ladder. `secondary` is strong supporting text; `muted` is the
+     descriptive grey; `faint` is the last readable step. Quaternary is
+     DECORATIVE ONLY and absent from the contrast manifest. */
   --np-ink: var(--np-ramp-neutral-900);
-  --np-ink-muted: var(--np-ramp-neutral-600);
+  --np-ink-secondary: var(--np-ramp-neutral-600);
+  --np-ink-muted: var(--np-ramp-neutral-500);
   --np-ink-faint: var(--np-ramp-neutral-500);
   --np-ink-quaternary: var(--np-ramp-neutral-400);
   --np-ink-inverse: var(--np-ramp-neutral-0);
 
-  /* Fill ladder: the grey a control is made of. Segmented tracks, grey
-     buttons, search fields, keycaps. */
+  /* Fill ladder: hover fills, segmented tracks, skeletons, keycaps. */
   --np-fill: var(--np-ramp-neutral-150);
   --np-fill-secondary: var(--np-ramp-neutral-100);
   --np-fill-tertiary: var(--np-ramp-neutral-50);
 
-  /* Separators are hairlines: one light colour, drawn thin. `line-strong` is
-     the only line that must clear 3:1 and is reserved for control edges. */
+  /* `line` draws cards and dividers; `line-strong` is the 3:1 edge of a
+     control (fields, secondary buttons, checkboxes). */
   --np-line-subtle: var(--np-ramp-neutral-150);
   --np-line: var(--np-ramp-neutral-200);
-  --np-line-strong: var(--np-ramp-neutral-500);
-  --np-line-focus: var(--np-ramp-accent-500);
+  --np-line-strong: var(--np-ramp-neutral-400);
+  --np-line-focus: var(--np-ramp-accent-400);
 
   --np-accent: var(--np-ramp-accent-500);
   --np-accent-hover: var(--np-ramp-accent-600);
-  --np-accent-active: var(--np-ramp-accent-700);
+  --np-accent-active: var(--np-ramp-accent-600);
   --np-accent-tint: var(--np-ramp-accent-100);
   --np-accent-tint-strong: var(--np-ramp-accent-200);
   --np-accent-vivid: var(--np-ramp-accent-400);
-  --np-accent-ink: var(--np-ramp-accent-600);
+  --np-accent-ink: var(--np-ramp-accent-700);
   --np-ink-on-accent: var(--np-ramp-neutral-0);
 
   --np-success-ink: var(--np-ramp-success-700);
   --np-success-tint: var(--np-ramp-success-100);
   --np-success-solid: var(--np-ramp-success-500);
-  --np-success-on-solid: var(--np-ramp-neutral-0);
-  --np-success-line: oklch(0.62 0.13 150);
+  --np-success-on-solid: var(--np-ramp-neutral-950);
+  --np-success-line: var(--np-ramp-success-500);
   --np-warning-ink: var(--np-ramp-warning-500);
   --np-warning-tint: var(--np-ramp-warning-100);
   --np-warning-solid: var(--np-ramp-warning-300);
-  --np-warning-on-solid: oklch(0.3 0.06 60);
-  --np-warning-line: oklch(0.64 0.13 70);
+  --np-warning-on-solid: var(--np-ramp-neutral-950);
+  --np-warning-line: oklch(0.6 0.13 70);
   --np-danger-ink: var(--np-ramp-danger-700);
   --np-danger-tint: var(--np-ramp-danger-100);
   --np-danger-solid: var(--np-ramp-danger-500);
   --np-danger-on-solid: var(--np-ramp-neutral-0);
-  --np-danger-line: oklch(0.66 0.17 27);
+  --np-danger-line: var(--np-ramp-danger-500);
   --np-info-ink: var(--np-ramp-info-500);
   --np-info-tint: var(--np-ramp-info-100);
-  --np-info-solid: var(--np-ramp-info-500);
+  --np-info-solid: var(--np-ramp-info-600);
   --np-info-on-solid: var(--np-ramp-neutral-0);
-  --np-info-line: oklch(0.63 0.12 235);
+  --np-info-line: var(--np-ramp-info-600);
 
   --np-selection-bg: var(--np-accent-tint);
-  --np-hover-bg: var(--np-ramp-neutral-50);
-  --np-focus-ring: var(--np-ramp-accent-500);
-  /* The halo hugs the control: no offset, soft edge, accent at partial alpha.
-     Its solid colour is measured above as --np-focus-ring. */
-  --np-focus-halo: 0 0 0 3.5px oklch(0.56 0.19 256 / 0.35);
+  --np-hover-bg: var(--np-ramp-neutral-150);
+  --np-focus-ring: var(--np-ramp-accent-400);
+  /* A 2px accent outline standing 2px off the control. */
+  --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
 
-  /* Materials: translucent chrome that content scrolls beneath. Each has an
-     opaque twin used under reduced-transparency or when blur is unsupported.
-     Text on a material is not in the manifest — it composites over whatever
-     is behind it — so anything readable on one uses the label ladder at the
-     alpha given here, which keeps the surface close to its opaque twin. */
-  --np-material-sidebar: oklch(0.963 0.005 265 / 0.78);
-  --np-material-toolbar: oklch(1 0 0 / 0.78);
-  --np-material-popover: oklch(1 0 0 / 0.88);
-  --np-material-sidebar-opaque: var(--np-ramp-neutral-100);
-  --np-material-toolbar-opaque: var(--np-ramp-neutral-0);
+  /* Chrome is opaque paper with a 1px line. The material names survive so
+     every `material-*` utility still resolves. */
+  --np-material-sidebar: var(--np-ramp-neutral-50);
+  --np-material-toolbar: var(--np-ramp-neutral-50);
+  --np-material-popover: var(--np-ramp-neutral-0);
+  --np-material-sidebar-opaque: var(--np-ramp-neutral-50);
+  --np-material-toolbar-opaque: var(--np-ramp-neutral-50);
   --np-material-popover-opaque: var(--np-ramp-neutral-0);
-  --np-material-blur: 24px;
-  --np-material-saturate: 180%;
-  --np-scrim: oklch(0 0 0 / 0.28);
+  --np-material-blur: 0px;
+  --np-material-saturate: 100%;
+  --np-scrim: oklch(0.22 0.02 240 / 0.42);
 
-  /* Charts: Apple's system hues, each measured against a card at 3:1. */
-  --np-chart-1: oklch(0.55 0.17 256);
-  --np-chart-2: oklch(0.6 0.145 55);
-  --np-chart-3: oklch(0.55 0.13 150);
-  --np-chart-4: oklch(0.55 0.17 300);
-  --np-chart-5: oklch(0.55 0.085 200);
-  --np-chart-6: oklch(0.58 0.17 350);
+  /* Charts start from the accent and separate series by lightness first;
+     a legend always names them. 4–6 are for rare multi-series views. */
+  --np-chart-1: oklch(0.52 0.13 150);
+  --np-chart-2: oklch(0.64 0.1 150);
+  --np-chart-3: oklch(0.6 0.02 240);
+  --np-chart-4: oklch(0.56 0.12 250);
+  --np-chart-5: oklch(0.62 0.13 70);
+  --np-chart-6: oklch(0.55 0.15 27);
   --np-chart-grid: var(--np-line-subtle);
   --np-chart-axis: var(--np-ink-muted);
-  --np-rating: oklch(0.66 0.14 72);
+  /* Stars only. */
+  --np-rating: oklch(0.63 0.13 75);
 
-  /* Shape. Larger than before and concentric by construction: an element
-     nested inside another with padding P uses `calc(outer - P)`, floored at
-     the tag radius, so corners share a centre instead of fighting. */
+  /* Shape. */
   --np-radius-tag: 6px;
-  --np-radius-control: 10px;
-  --np-radius-field: 10px;
-  --np-radius-card: 14px;
-  --np-radius-panel: 16px;
-  --np-radius-modal: 20px;
-  --np-radius-sheet: 28px;
+  --np-radius-control: 8px;
+  --np-radius-field: 8px;
+  --np-radius-card: 12px;
+  --np-radius-panel: 12px;
+  --np-radius-modal: 16px;
+  --np-radius-sheet: 20px;
   --np-radius-pill: 999px;
-  /* Continuous ("squircle") corners where the browser can draw them. */
-  --np-corner-shape: superellipse(1.5);
+  --np-corner-shape: round;
 
-  /* Elevation. Cards on the grouped canvas have none. Chrome and overlays
-     use a hairline plus two shadow layers: ambient (wide, faint) and key
-     (tight, darker). The hairline is a box-shadow so it never adds layout. */
-  --np-shadow-hairline: 0 0 0 0.5px oklch(0 0 0 / 0.12);
+  /* Elevation. Cards are drawn by a 1px line, not a shadow; `raised` lifts a
+     hovered link card; `pop` is menus, dialogs, toasts and the dark bar. */
+  --np-shadow-hairline: 0 0 0 1px var(--np-line);
   --np-shadow-raised:
-    0 0 0 0.5px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.06);
+    0 1px 2px oklch(0.22 0.02 240 / 0.06), 0 2px 8px oklch(0.22 0.02 240 / 0.06);
   --np-shadow-pop:
-    0 0 0 0.5px oklch(0 0 0 / 0.1), 0 2px 6px oklch(0 0 0 / 0.06),
-    0 12px 32px oklch(0 0 0 / 0.14);
+    0 1px 2px oklch(0.22 0.02 240 / 0.08), 0 8px 28px oklch(0.22 0.02 240 / 0.14);
   --np-shadow-modal:
-    0 0 0 0.5px oklch(0 0 0 / 0.1), 0 8px 20px oklch(0 0 0 / 0.1),
-    0 32px 80px oklch(0 0 0 / 0.22);
+    0 1px 2px oklch(0.22 0.02 240 / 0.08), 0 12px 40px oklch(0.22 0.02 240 / 0.2);
 
-  /* Motion. Springs encoded as linear() so every browser plays the same
-     curve. `snappy` settles without overshoot (controls, hover, segmented
-     thumbs); `spring` has a small overshoot (popovers, sheets, toasts). */
-  --np-duration-fast: 160ms;
+  /* Motion: one ease-out, short durations, nothing bounces. */
+  --np-duration-fast: 140ms;
   --np-duration-standard: 260ms;
   --np-duration-deliberate: 360ms;
-  --np-duration-overlay: 320ms;
+  --np-duration-overlay: 240ms;
+  --np-duration-enter: 360ms;
+  --np-stagger: 50ms;
   --np-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --np-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --np-ease-spring-snappy: linear(
-    0,
-    0.108 8%,
-    0.35 18%,
-    0.62 30%,
-    0.8 42%,
-    0.9 55%,
-    0.96 70%,
-    0.99 85%,
-    1
-  );
-  --np-ease-spring: linear(
-    0,
-    0.42 12%,
-    0.82 26%,
-    1.02 42%,
-    1.045 52%,
-    1.01 68%,
-    0.997 80%,
-    1
-  );
+  --np-ease-spring-snappy: cubic-bezier(0.2, 0, 0, 1);
+  --np-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
-  --np-sidebar-width: 244px;
-  --np-toolbar-h: 52px;
-  --np-page-pad-x: 32px;
-  --np-page-pad-y: 24px;
-  --np-page-max-width: 1240px;
-  --np-gap-card: 12px;
+  /* Chrome and page frame. The sidebar is 240px on desktop, a 64px icon rail
+     from 768px to 1180px, and a sheet below 768px. */
+  --np-sidebar-width: 240px;
+  --np-rail-width: 64px;
+  --np-toolbar-h: 56px;
+  --np-page-pad-x: clamp(16px, 2.4vw, 32px);
+  --np-page-pad-y: clamp(16px, 2vw, 28px);
+  --np-page-max-width: 1440px;
+  --np-page-default-width: 1080px;
+  --np-page-narrow-width: 760px;
+  --np-gap-card: 16px;
   --np-gap-section: 24px;
-  --np-card-pad: 16px;
+  --np-card-pad: 20px;
   --np-panel-pad: 20px;
+  --np-measure-reading: 72ch;
+  /* Primary touch controls meet 44×44 on coarse pointers. */
+  --np-touch: 44px;
 
   /* ---- 3. COMPONENT TOKENS -------------------------------------------- */
   /* Density: `comfortable` is the default; DataTable and the inbox list opt
      into `compact` by setting data-density on their own subtree. Only
      spacing moves — the type role never shrinks, so nothing drops below
      12px, and no control falls under the 24px target-size floor. */
-  --np-row-py: 10px;
+  --np-row-py: 12px;
   --np-row-h: 44px;
   --np-cell-px: 14px;
-  --np-control-h: 32px;
-  --np-list-gap: 2px;
+  --np-control-h: 36px;
+  --np-list-gap: 8px;
 
-  --np-field-h: 34px;
+  --np-field-h: 36px;
   --np-field-bg: var(--np-surface);
-  --np-table-header-bg: var(--np-surface);
+  --np-table-header-bg: var(--np-surface-alt);
   --np-pill-h: 22px;
-  --np-menu-item-h: 30px;
+  --np-menu-item-h: 32px;
 
   /* ---- 4. ALIASES ------------------------------------------------------ */
   /* shadcn's `--accent` is a HIGHLIGHT SURFACE, not the brand colour: it maps
@@ -453,131 +523,134 @@
 .dark {
   color-scheme: dark;
 
-  /* Elevation in the dark is lightness: each layer above the canvas is a
-     step lighter, and shadows only add a little separation on top. */
-  --np-surface-canvas: var(--np-ramp-neutral-950);
-  --np-surface: oklch(0.225 0.008 265);
-  --np-surface-raised: oklch(0.265 0.009 265);
-  --np-surface-sunken: oklch(0.19 0.008 265);
-  --np-surface-overlay: oklch(0.25 0.009 265);
+  /* Built for dark, not inverted: a blue-black canvas, cards one step up,
+     the accent lifted so it reads, and the dark bar flips to near-white. */
+  --np-surface-canvas: oklch(0.18 0.012 240);
+  --np-surface: oklch(0.22 0.014 240);
+  --np-surface-alt: oklch(0.2 0.013 240);
+  --np-surface-raised: oklch(0.24 0.014 240);
+  --np-surface-sunken: oklch(0.2 0.013 240);
+  --np-surface-overlay: oklch(0.24 0.014 240);
 
-  --np-ink: oklch(0.955 0.004 265);
-  --np-ink-muted: oklch(0.75 0.01 265);
-  --np-ink-faint: oklch(0.6 0.012 265);
-  --np-ink-quaternary: oklch(0.42 0.01 265);
-  --np-ink-inverse: var(--np-ramp-neutral-950);
+  --np-charcoal: oklch(0.92 0.006 250);
+  --np-ink-on-charcoal: oklch(0.2 0.014 240);
+  --np-ink-muted-on-charcoal: oklch(0.4 0.014 240);
 
-  --np-fill: oklch(0.31 0.009 265);
-  --np-fill-secondary: oklch(0.275 0.009 265);
-  --np-fill-tertiary: oklch(0.245 0.008 265);
 
-  --np-line-subtle: oklch(0.27 0.008 265);
-  --np-line: oklch(0.31 0.009 265);
-  --np-line-strong: oklch(0.55 0.012 265);
-  --np-line-focus: oklch(0.7 0.155 256);
+  --np-ink: oklch(0.95 0.006 250);
+  --np-ink-secondary: oklch(0.85 0.01 240);
+  --np-ink-muted: oklch(0.72 0.014 240);
+  --np-ink-faint: oklch(0.72 0.014 240);
+  --np-ink-quaternary: oklch(0.5 0.014 240);
+  --np-ink-inverse: oklch(0.18 0.012 240);
 
-  --np-accent: oklch(0.53 0.178 256);
-  --np-accent-hover: oklch(0.56 0.19 256);
-  --np-accent-active: oklch(0.5 0.17 256);
-  --np-accent-tint: oklch(0.3 0.07 256);
-  --np-accent-tint-strong: oklch(0.36 0.1 256);
-  --np-accent-vivid: oklch(0.66 0.18 256);
-  --np-accent-ink: oklch(0.74 0.135 256);
-  --np-ink-on-accent: oklch(1 0 0);
+  --np-fill: oklch(0.28 0.015 240);
+  --np-fill-secondary: oklch(0.25 0.014 240);
+  --np-fill-tertiary: oklch(0.21 0.013 240);
 
-  --np-success-ink: oklch(0.8 0.15 150);
-  --np-success-tint: oklch(0.28 0.06 150);
-  --np-success-solid: oklch(0.72 0.17 150);
-  --np-success-on-solid: oklch(0.18 0.04 150);
-  --np-success-line: oklch(0.55 0.11 150);
-  --np-warning-ink: oklch(0.84 0.135 75);
-  --np-warning-tint: oklch(0.29 0.055 70);
-  --np-warning-solid: oklch(0.8 0.15 70);
-  --np-warning-on-solid: oklch(0.22 0.05 65);
-  --np-warning-line: oklch(0.58 0.12 70);
-  --np-danger-ink: oklch(0.8 0.11 25);
-  --np-danger-tint: oklch(0.29 0.07 27);
-  --np-danger-solid: oklch(0.68 0.19 27);
-  --np-danger-on-solid: oklch(0.18 0.05 27);
-  --np-danger-line: oklch(0.58 0.15 27);
-  --np-info-ink: oklch(0.8 0.1 235);
-  --np-info-tint: oklch(0.29 0.055 235);
-  --np-info-solid: oklch(0.74 0.11 235);
-  --np-info-on-solid: oklch(0.18 0.035 235);
-  --np-info-line: oklch(0.56 0.11 235);
+  --np-line-subtle: oklch(0.27 0.014 240);
+  --np-line: oklch(0.32 0.014 240);
+  --np-line-strong: oklch(0.56 0.014 240);
+  --np-line-focus: oklch(0.72 0.15 145);
+
+  --np-accent: oklch(0.74 0.14 150);
+  --np-accent-hover: oklch(0.82 0.12 150);
+  --np-accent-active: oklch(0.82 0.12 150);
+  --np-accent-tint: oklch(0.3 0.05 150);
+  --np-accent-tint-strong: oklch(0.36 0.07 150);
+  --np-accent-vivid: oklch(0.72 0.15 145);
+  --np-accent-ink: oklch(0.8 0.12 150);
+  --np-ink-on-accent: oklch(0.18 0.02 150);
+
+  --np-success-ink: oklch(0.8 0.12 150);
+  --np-success-tint: oklch(0.29 0.05 150);
+  --np-success-solid: oklch(0.7 0.14 150);
+  --np-success-on-solid: oklch(0.18 0.02 150);
+  --np-success-line: oklch(0.6 0.12 150);
+  --np-warning-ink: oklch(0.85 0.12 80);
+  --np-warning-tint: oklch(0.31 0.05 75);
+  --np-warning-solid: oklch(0.79 0.15 78);
+  --np-warning-on-solid: oklch(0.2 0.04 70);
+  --np-warning-line: oklch(0.66 0.13 75);
+  --np-danger-ink: oklch(0.8 0.1 25);
+  --np-danger-tint: oklch(0.3 0.06 25);
+  --np-danger-solid: oklch(0.66 0.17 27);
+  --np-danger-on-solid: oklch(0.16 0.03 27);
+  --np-danger-line: oklch(0.62 0.15 27);
+  --np-info-ink: oklch(0.8 0.09 250);
+  --np-info-tint: oklch(0.3 0.05 250);
+  --np-info-solid: oklch(0.68 0.13 250);
+  --np-info-on-solid: oklch(0.16 0.03 250);
+  --np-info-line: oklch(0.6 0.12 250);
 
   --np-selection-bg: var(--np-accent-tint);
-  --np-hover-bg: oklch(0.27 0.009 265);
-  --np-focus-ring: oklch(0.7 0.155 256);
-  --np-focus-halo: 0 0 0 3.5px oklch(0.7 0.155 256 / 0.4);
+  --np-hover-bg: oklch(0.28 0.015 240);
+  --np-focus-ring: oklch(0.72 0.15 145);
+  --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
 
-  --np-material-sidebar: oklch(0.19 0.008 265 / 0.78);
-  --np-material-toolbar: oklch(0.225 0.008 265 / 0.78);
-  --np-material-popover: oklch(0.25 0.009 265 / 0.88);
-  --np-material-sidebar-opaque: oklch(0.19 0.008 265);
-  --np-material-toolbar-opaque: oklch(0.225 0.008 265);
-  --np-material-popover-opaque: oklch(0.25 0.009 265);
-  --np-scrim: oklch(0 0 0 / 0.5);
+  --np-material-sidebar: oklch(0.18 0.012 240);
+  --np-material-toolbar: oklch(0.18 0.012 240);
+  --np-material-popover: oklch(0.24 0.014 240);
+  --np-material-sidebar-opaque: oklch(0.18 0.012 240);
+  --np-material-toolbar-opaque: oklch(0.18 0.012 240);
+  --np-material-popover-opaque: oklch(0.24 0.014 240);
+  --np-scrim: oklch(0.08 0.01 240 / 0.6);
 
-  --np-chart-1: oklch(0.72 0.14 256);
-  --np-chart-2: oklch(0.76 0.14 55);
-  --np-chart-3: oklch(0.76 0.14 150);
-  --np-chart-4: oklch(0.74 0.14 300);
-  --np-chart-5: oklch(0.76 0.1 200);
-  --np-chart-6: oklch(0.75 0.15 350);
+  --np-chart-1: oklch(0.72 0.14 150);
+  --np-chart-2: oklch(0.52 0.09 150);
+  --np-chart-3: oklch(0.62 0.02 240);
+  --np-chart-4: oklch(0.7 0.11 250);
+  --np-chart-5: oklch(0.76 0.12 70);
+  --np-chart-6: oklch(0.68 0.15 27);
   --np-chart-grid: var(--np-line-subtle);
   --np-chart-axis: var(--np-ink-muted);
-  --np-rating: oklch(0.82 0.15 82);
+  --np-rating: oklch(0.8 0.15 80);
 
-  --np-shadow-hairline: 0 0 0 0.5px oklch(1 0 0 / 0.12);
-  --np-shadow-raised:
-    0 0 0 0.5px oklch(1 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.4);
-  --np-shadow-pop:
-    0 0 0 0.5px oklch(1 0 0 / 0.1), 0 2px 6px oklch(0 0 0 / 0.3),
-    0 12px 32px oklch(0 0 0 / 0.5);
+  --np-shadow-hairline: 0 0 0 1px var(--np-line);
+  --np-shadow-raised: 0 1px 2px oklch(0 0 0 / 0.3);
+  --np-shadow-pop: 0 1px 2px oklch(0 0 0 / 0.4), 0 10px 30px oklch(0 0 0 / 0.5);
   --np-shadow-modal:
-    0 0 0 0.5px oklch(1 0 0 / 0.1), 0 8px 20px oklch(0 0 0 / 0.4),
-    0 32px 80px oklch(0 0 0 / 0.6);
+    0 1px 2px oklch(0 0 0 / 0.4), 0 16px 48px oklch(0 0 0 / 0.6);
 
-  --np-field-bg: oklch(0.2 0.008 265);
-  --np-table-header-bg: var(--np-surface);
+  --np-field-bg: var(--np-surface);
+  --np-table-header-bg: var(--np-surface-alt);
 }
 
 /* Compact density: spacing only. Applied by DataTable and the inbox list, and
    by the shell when the viewer sets the preference. */
 [data-density="compact"] {
-  --np-row-py: 6px;
-  --np-row-h: 32px;
+  --np-row-py: 8px;
+  --np-row-h: 36px;
   --np-cell-px: 10px;
-  --np-control-h: 28px;
-  --np-list-gap: 0px;
-  --np-field-h: 30px;
-  --np-menu-item-h: 26px;
+  --np-control-h: 30px;
+  --np-list-gap: 4px;
+  --np-field-h: 32px;
+  --np-menu-item-h: 28px;
 }
 
-/* The page gutter below `md`, where PageFrame draws `px-5`. The token held
-   only the wide value, so anything bleeding to the screen edge on a phone —
-   the location tab strip, the workspace pane — had to repeat `20px` by hand
-   and drift from the frame. Declared after the base block so the token
-   parser in tests/design-system-contract still reads 32px as the value. */
-@media (width < 48rem) {
-  :root {
-    --np-page-pad-x: 20px;
+/* Coarse pointers get 44px primary controls and fields whatever the
+   density; the 16px field text stops iOS zooming on focus. */
+@media (pointer: coarse) {
+  :root,
+  [data-density="compact"],
+  [data-density="comfortable"] {
+    --np-control-h: var(--np-touch);
+    --np-field-h: var(--np-touch);
   }
 }
 
 [data-density="comfortable"] {
-  --np-row-py: 10px;
+  --np-row-py: 12px;
   --np-row-h: 44px;
   --np-cell-px: 14px;
-  --np-control-h: 32px;
-  --np-list-gap: 2px;
-  --np-field-h: 34px;
-  --np-menu-item-h: 30px;
+  --np-control-h: 36px;
+  --np-list-gap: 8px;
+  --np-field-h: 36px;
+  --np-menu-item-h: 32px;
 }
 
-/* Materials degrade to their opaque twins when the viewer asks for less
-   transparency or the browser cannot blur. Chrome stays legible either way. */
+/* Materials resolve to their opaque twins when the viewer asks for less
+   transparency. */
 @media (prefers-reduced-transparency: reduce) {
   :root,
   .dark {
@@ -632,40 +705,18 @@
     scrollbar-width: thin;
     scrollbar-color: var(--np-ink-quaternary) transparent;
   }
-  /* Continuous corners on every rounded box that supports them. */
-  @supports (corner-shape: superellipse(1.5)) {
-    [data-slot],
-    button,
-    input,
-    select,
-    textarea {
-      corner-shape: var(--np-corner-shape);
-    }
-  }
 }
 
 @utility material-sidebar {
   background-color: var(--np-material-sidebar);
-  backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
-  -webkit-backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
 }
 
 @utility material-toolbar {
   background-color: var(--np-material-toolbar);
-  backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
-  -webkit-backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
 }
 
 @utility material-popover {
   background-color: var(--np-material-popover);
-  backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
-  -webkit-backdrop-filter: blur(var(--np-material-blur))
-    saturate(var(--np-material-saturate));
 }
 
 /* The hairline as a utility: a half-pixel edge that never changes layout. */
@@ -673,7 +724,8 @@
   box-shadow: var(--np-shadow-hairline);
 }
 
-/* Focus as Apple draws it: a soft halo hugging the control, no offset. */
+/* Focus: a 2px accent ring standing 2px off the control, on every
+   interactive element, drawn as box-shadow so it never adds layout. */
 @utility focus-halo {
   &:focus-visible {
     outline: none;
@@ -681,13 +733,57 @@
   }
 }
 
+/* Controls on the charcoal counter-surface: ghost and grey buttons take
+   light ink and a translucent hover; the accent button keeps its own fill. */
+@utility on-charcoal {
+  background-color: var(--np-charcoal);
+  color: var(--np-ink-on-charcoal);
+  & [data-slot="button"][data-variant="ghost"],
+  & [data-slot="button"][data-variant="secondary"],
+  & [data-slot="button"][data-variant="outline"] {
+    color: var(--np-ink-on-charcoal);
+    background-color: oklch(1 0 0 / 0.08);
+    box-shadow: none;
+  }
+  & [data-slot="button"][data-variant="ghost"]:hover,
+  & [data-slot="button"][data-variant="secondary"]:hover,
+  & [data-slot="button"][data-variant="outline"]:hover {
+    background-color: oklch(1 0 0 / 0.16);
+  }
+  & [data-slot="button"][data-variant="ghost"]:focus-visible,
+  & [data-slot="button"][data-variant="secondary"]:focus-visible,
+  & [data-slot="button"][data-variant="default"]:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--np-charcoal),
+      0 0 0 4px var(--np-ink-on-charcoal);
+  }
+  & [data-slot="button"][data-variant="default"]:disabled {
+    opacity: 0.45;
+  }
+}
+
+/* Entrance stagger: each child takes `--np-enter-index` and starts that many
+   steps after its parent. Capped at four steps (240ms) so a long list never
+   queues invisible rows. */
+@utility enter-stagger {
+  animation-delay: calc(
+    var(--np-enter-base, 0ms) + min(var(--np-enter-index, 0), 4) *
+      var(--np-stagger)
+  );
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
   ::after {
     animation-duration: 0.01ms !important;
+    /* A staggered entrance holds its first frame for the whole delay, so
+       the delay has to collapse too or rows would sit invisible. */
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }

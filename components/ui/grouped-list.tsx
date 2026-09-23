@@ -31,20 +31,20 @@ function GroupedList({
   return (
     <div data-slot="grouped-list" className={cn("flex flex-col gap-1.5", className)}>
       {header ? (
-        <p id={headerId} className="px-(--np-card-pad) text-caption text-ink-muted">
+        <p id={headerId} className="px-1 font-mono text-[11.5px] font-medium tracking-[0.06em] text-ink-muted uppercase">
           {header}
         </p>
       ) : null}
       <ul
         aria-labelledby={headerId}
         aria-describedby={footerId}
-        className="overflow-hidden rounded-(--np-radius-card) bg-surface"
+        className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
         {...props}
       >
         {children}
       </ul>
       {footer ? (
-        <p id={footerId} className="px-(--np-card-pad) text-caption text-ink-muted">
+        <p id={footerId} className="px-1 text-caption text-ink-muted">
           {footer}
         </p>
       ) : null}
@@ -154,7 +154,7 @@ function GroupedListItem({
   const rowClass = cn(
     "flex w-full min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
-      "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:bg-(--np-hover-bg) active:bg-fill-tertiary focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
+      "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:bg-surface-alt active:bg-fill focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
     disabled && "pointer-events-none opacity-50",
     className
   )
@@ -170,7 +170,7 @@ function GroupedListItem({
       data-slot="grouped-list-item"
       data-tone={tone}
       style={{ "--gl-inset": inset } as React.CSSProperties}
-      className="relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line-subtle before:content-[''] first:before:hidden"
+      className="relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line before:content-[''] first:before:hidden"
     >
       {href ? (
         <Link

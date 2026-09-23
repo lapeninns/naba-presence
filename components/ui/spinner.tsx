@@ -1,38 +1,35 @@
 import { cn } from "@/lib/utils"
 
 /**
- * An activity indicator, unlike `Skeleton` — which is a placeholder saying
- * "content will fill this shape", not a signal that work is happening.
+ * An activity indicator (reference `.spinner`): a 14px ring in the control
+ * edge colour with one open quarter, turning continuously. Unlike `Skeleton`
+ * it says work is happening, not what shape the content will have.
  *
- * Drawn as the platform's eight-spoke indicator: the spokes fade around the
- * ring and the whole glyph steps through eight positions rather than turning
- * smoothly. Under reduced motion the global rule freezes the animation, and
- * the glyph still reads as "busy" because the fade is baked into the spokes.
- *
- * `decorative` drops the status role for the common case of a spinner sitting
- * inside a region that already announces itself. Nesting two `role="status"`
- * regions makes a screen reader read the wrapper's sentence and then the word
- * "Loading" after it.
+ * `decorative` drops the status role for a spinner inside a region that
+ * already announces itself; nesting two `role="status"` regions makes a
+ * screen reader read both. `tone="current"` draws the ring in the text colour
+ * (inside a button or on the charcoal bar).
  */
 const SPINNER_SIZES = {
   sm: "size-3.5",
   default: "size-4",
-  lg: "size-6",
+  lg: "size-6 border-[2.5px]",
 } as const
-
-const SPOKES = [1, 0.85, 0.7, 0.55, 0.45, 0.35, 0.28, 0.22]
 
 function Spinner({
   className,
   label = "Loading",
   decorative = false,
   size = "default",
+  tone = "default",
   ...props
 }: React.ComponentProps<"span"> & {
   label?: string
   decorative?: boolean
   /** `sm` sits inline with 13px text; `lg` centres a panel. */
   size?: keyof typeof SPINNER_SIZES
+  /** `current` uses the surrounding text colour for the ring. */
+  tone?: "default" | "current"
 }) {
   return (
     <span
@@ -40,32 +37,20 @@ function Spinner({
       aria-label={decorative ? undefined : label}
       aria-hidden={decorative || undefined}
       data-slot="spinner"
-      className="inline-flex shrink-0 items-center justify-center text-ink-muted"
+      className="inline-flex shrink-0 items-center justify-center"
       {...props}
     >
-      <svg
-        viewBox="0 0 24 24"
-        fill="currentColor"
+      <span
         aria-hidden
         className={cn(
-          "animate-spin [animation-timing-function:steps(8,end)] motion-reduce:animate-none",
+          "block animate-spin rounded-full border-2 border-r-transparent [animation-duration:700ms] [animation-timing-function:linear] motion-reduce:animate-none",
+          tone === "current"
+            ? "border-current border-r-transparent"
+            : "border-line-strong border-r-transparent",
           SPINNER_SIZES[size],
           className
         )}
-      >
-        {SPOKES.map((opacity, index) => (
-          <rect
-            key={index}
-            x="10.75"
-            y="2"
-            width="2.5"
-            height="6"
-            rx="1.25"
-            opacity={opacity}
-            transform={`rotate(${index * 45} 12 12)`}
-          />
-        ))}
-      </svg>
+      />
     </span>
   )
 }

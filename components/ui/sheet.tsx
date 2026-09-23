@@ -32,7 +32,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-(--np-scrim) transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
+        "fixed inset-0 z-50 bg-scrim transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
         className
       )}
       {...props}
@@ -43,28 +43,36 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
 type SheetSide = "top" | "right" | "bottom" | "left"
 
 /**
- * Below `md` every side is a bottom sheet: rounded top corners, a grabber,
- * and a spring slide up from the bottom edge. From `md` up the `side` prop
- * takes over — left and right are full-height panels with no border, top
- * and bottom are edge sheets. Enter is a spring; exit is the standard curve
- * so dismissal never overshoots.
+ * Reference `dialog.sheet`.
+ *
+ * `right` (the default) is a full-height panel from the right edge,
+ * min(560px, 100vw) wide (`size="wide"`: 880px). At 640px and below it
+ * becomes a bottom sheet 92dvh tall with 20px top corners and a grabber.
+ * `left` stays a left panel at every width (a navigation drawer).
+ * `bottom` is always a bottom sheet (centred, at most 672px wide from `sm`);
+ * `top` drops from the top edge. Enter slides 24px and fades.
  */
 const sheetSideClassName: Record<SheetSide, string> = {
-  right:
-    "md:inset-y-0 md:right-0 md:left-auto md:h-full md:max-h-none md:w-3/4 md:max-w-sm md:rounded-none md:data-starting-style:translate-y-0 md:data-starting-style:translate-x-full md:data-ending-style:translate-y-0 md:data-ending-style:translate-x-full",
-  left: "md:inset-y-0 md:left-0 md:right-auto md:h-full md:max-h-none md:w-3/4 md:max-w-sm md:rounded-none md:data-starting-style:translate-y-0 md:data-starting-style:-translate-x-full md:data-ending-style:translate-y-0 md:data-ending-style:-translate-x-full",
-  top: "md:inset-x-0 md:top-0 md:bottom-auto md:h-auto md:max-w-none md:rounded-t-none md:rounded-b-(--np-radius-sheet) md:data-starting-style:-translate-y-full md:data-ending-style:-translate-y-full",
-  bottom: "md:max-w-2xl",
+  right: cn(
+    "inset-x-0 bottom-0 h-[92dvh] rounded-t-(--np-radius-sheet) data-ending-style:translate-y-6 data-starting-style:translate-y-6",
+    "sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-dvh sm:max-h-dvh sm:w-[min(560px,100vw)] sm:rounded-none sm:data-ending-style:translate-x-6 sm:data-ending-style:translate-y-0 sm:data-starting-style:translate-x-6 sm:data-starting-style:translate-y-0 sm:data-[size=wide]:w-[min(880px,100vw)]"
+  ),
+  left: "inset-y-0 left-0 h-dvh w-[min(300px,86vw)] data-ending-style:-translate-x-full data-starting-style:-translate-x-full",
+  top: "inset-x-0 top-0 max-h-[92dvh] rounded-b-(--np-radius-sheet) data-ending-style:-translate-y-full data-starting-style:-translate-y-full",
+  bottom:
+    "inset-x-0 bottom-0 mx-auto max-h-[calc(100dvh-1.5rem)] w-full rounded-t-(--np-radius-sheet) data-ending-style:translate-y-full data-starting-style:translate-y-full sm:max-w-2xl",
 }
 
 function SheetContent({
   className,
   children,
   side = "right",
+  size = "default",
   showCloseButton = true,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: SheetSide
+  size?: "default" | "wide"
   showCloseButton?: boolean
 }) {
   return (
@@ -73,24 +81,25 @@ function SheetContent({
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
+        data-size={size}
         className={cn(
-          "fixed z-50 flex flex-col bg-popover text-body text-popover-foreground shadow-(--np-shadow-modal) outline-none",
-          "transition-[translate,opacity] duration-(--np-duration-overlay) ease-spring data-ending-style:duration-(--np-duration-standard) data-ending-style:ease-standard",
-          // The bottom sheet every side collapses to on a narrow screen.
-          "inset-x-0 bottom-0 mx-auto max-h-[calc(100dvh-1.5rem)] w-full rounded-t-(--np-radius-sheet) data-ending-style:translate-y-full data-starting-style:translate-y-full max-md:overflow-y-auto",
+          "fixed z-50 flex flex-col overflow-y-auto overscroll-contain bg-surface text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px]",
+          "transition-[translate,opacity] duration-(--np-duration-standard) ease-spring data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:opacity-0",
           sheetSideClassName[side],
           className
         )}
         {...props}
       >
-        <span
-          aria-hidden="true"
-          data-slot="sheet-grabber"
-          className={cn(
-            "mx-auto mt-2 h-[5px] w-9 shrink-0 rounded-(--np-radius-pill) bg-ink-quaternary",
-            side !== "bottom" && "md:hidden"
-          )}
-        />
+        {side === "right" || side === "bottom" ? (
+          <span
+            aria-hidden="true"
+            data-slot="sheet-grabber"
+            className={cn(
+              "mx-auto mt-2 h-[5px] w-9 shrink-0 rounded-(--np-radius-pill) bg-line-strong",
+              side === "right" && "sm:hidden"
+            )}
+          />
+        ) : null}
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close
@@ -99,7 +108,7 @@ function SheetContent({
               <Button
                 variant="ghost"
                 className={overlayCloseButtonClassName}
-                size="icon-sm"
+                size="icon"
                 aria-label="Close"
               />
             }
@@ -117,21 +126,39 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
-      className={cn("flex flex-col gap-1.5 p-6 pr-14", className)}
+      className={cn("flex shrink-0 flex-col gap-1 p-5 pr-14 pb-3", className)}
+      {...props}
+    />
+  )
+}
+
+/** The scrolling middle of a sheet (reference `.dialog-body`). */
+function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-body"
+      className={cn(
+        "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pt-2 pb-5",
+        className
+      )}
       {...props}
     />
   )
 }
 
 /**
- * The sheet's action row: the same stack-then-row geometry as a dialog's, so
- * "Cancel / Save" sits in the same place whichever overlay it is in.
+ * The sheet's action row: the dialog's bar (sunken surface, hairline above)
+ * pinned to the sheet's bottom, with safe-area padding on a phone.
  */
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn("mt-auto shrink-0 p-6", overlayFooterClassName, className)}
+      className={cn(
+        "sticky bottom-0 mt-auto shrink-0 border-t border-line bg-surface-alt px-5 py-3 pb-[max(12px,env(safe-area-inset-bottom))]",
+        overlayFooterClassName,
+        className
+      )}
       {...props}
     />
   )
@@ -154,7 +181,7 @@ function SheetDescription({
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn("text-body text-ink-muted", className)}
+      className={cn("text-ui text-ink-muted", className)}
       {...props}
     />
   )
@@ -165,6 +192,7 @@ export {
   SheetTrigger,
   SheetClose,
   SheetContent,
+  SheetBody,
   SheetHeader,
   SheetFooter,
   SheetTitle,

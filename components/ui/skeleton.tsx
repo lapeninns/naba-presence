@@ -5,9 +5,8 @@ import { cn } from "@/lib/utils"
  * between skeletons and content sets aria-busy while loading — Skeleton
  * itself is always aria-hidden.
  *
- * A quiet block on the fill ladder with a highlight that travels across it
- * once every two seconds, the way the platform's placeholders shimmer.
- * Reduced motion freezes it globally.
+ * Reference `.skeleton`: the hover-fill grey, the tag radius, at least 12px
+ * tall, with a soft highlight travelling across it. Reduced motion freezes it.
  */
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -15,7 +14,7 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="skeleton"
       aria-hidden="true"
       className={cn(
-        "relative overflow-hidden rounded-(--np-radius-tag) bg-fill-secondary before:absolute before:inset-0 before:animate-shimmer before:bg-linear-to-r before:from-transparent before:via-surface/70 before:to-transparent motion-reduce:before:animate-none",
+        "relative min-h-3 overflow-hidden rounded-(--np-radius-tag) bg-fill before:absolute before:inset-0 before:animate-shimmer before:bg-linear-to-r before:from-transparent before:via-surface/55 before:to-transparent motion-reduce:before:animate-none dark:before:via-ink/6",
         className
       )}
       {...props}
