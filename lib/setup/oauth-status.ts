@@ -7,7 +7,13 @@
  * numbers the connections page does; the request id is shown as-is so it can
  * be quoted to support.
  */
-export function describeGoogleConnectStatus(status: string | null): string {
+export function describeGoogleConnectStatus(
+  status: string | null,
+  reason: string | null = null
+): string {
+  if (reason === "google_scope_missing") {
+    return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
+  }
   switch (status) {
     case "400":
       return "Google’s sign-in was cancelled or couldn’t be completed, so nothing was connected. Try again and choose Allow when Google asks."
@@ -23,4 +29,9 @@ export function describeGoogleConnectStatus(status: string | null): string {
 }
 
 /** The callback's parameters, which should not follow the operator between steps. */
-export const GOOGLE_RETURN_PARAMS = ["google", "status", "rid"] as const
+export const GOOGLE_RETURN_PARAMS = [
+  "google",
+  "status",
+  "rid",
+  "reason",
+] as const

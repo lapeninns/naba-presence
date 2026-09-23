@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ReconnectAlert } from "@/components/settings/reconnect-alert"
@@ -60,11 +60,17 @@ describe("reconnectReason", () => {
 })
 
 describe("ReconnectAlert", () => {
-  it("says a revoked grant was revoked, and reconnects that account", () => {
+  it("says a revoked grant was revoked, and reconnects that account", async () => {
     connections = [connection({})]
     render(<ReconnectAlert />)
     expect(screen.getByText("Google access was revoked")).toBeInTheDocument()
-    screen.getByRole("button", { name: /Reconnect venues@lapen.test/ }).click()
+    // Reconnect first explains what signing in again does, then targets
+    // exactly that connection when the operator continues to Google.
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }))
+    expect(connectMutate).not.toHaveBeenCalled()
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Continue to Google/ })
+    )
     expect(connectMutate).toHaveBeenCalledWith({ reconnectConnectionId: "c1" })
   })
 
