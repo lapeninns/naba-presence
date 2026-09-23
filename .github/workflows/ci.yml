@@ -11,33 +11,26 @@ permissions:
   # this it fails with "Resource not accessible by integration".
   pull-requests: read
 
+# One pipeline per ref: a new push cancels the in-progress run everywhere
+# except main, where runs are allowed to land so timings stay comparable.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  DATABASE_URL: postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:5432/nabareview_test
+  DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/nabareview_test
+  TEST_RUNTIME_DATABASE_URL: postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:5432/nabareview_test
+  NEXTAUTH_SECRET: ci-only-secret-value-with-at-least-32-characters
+  TOKEN_ENCRYPTION_KEY: ci-only-token-key-with-at-least-32-characters
+  CRON_SECRET: ci-only-cron-secret
+
 jobs:
+  # Fast static gates. Nothing here needs a database or a build; failures
+  # report in the first two minutes.
   quality:
     runs-on: ubuntu-latest
-    # The full gate through e2e runs ~18 minutes, so a 20-minute budget left
-    # no headroom for runner variance: the first green pull request took
-    # 17m36s and the identical tree was then cancelled mid-e2e on main.
-    timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: nabareview_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:5432/nabareview_test
-      DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/nabareview_test
-      TEST_RUNTIME_DATABASE_URL: postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:5432/nabareview_test
-      NEXTAUTH_SECRET: ci-only-secret-value-with-at-least-32-characters
-      TOKEN_ENCRYPTION_KEY: ci-only-token-key-with-at-least-32-characters
-      CRON_SECRET: ci-only-cron-secret
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       # No `version:` here on purpose. pnpm/action-setup@v4 hard-errors when a
@@ -51,17 +44,186 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      - run: pnpm check:dead-code
+      - run: pnpm check:dupes
+      - run: pnpm check:large-files
+      - run: pnpm check:tech-debt
+      - run: pnpm check:contrast
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:coverage
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: |
+            test-results/junit.xml
+            coverage/
+          retention-days: 30
+
+  # Produces the standalone server exactly once; integration and e2e consume
+  # it as an artifact instead of each paying for their own build.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Incremental webpack/TypeScript output. Restored across runs of the
+      # same lockfile; the sha suffix keeps each run's cache its own.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-next-build-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-next-build-${{ hashFiles('pnpm-lock.yaml') }}-
+      - id: build
+        run: |
+          start=$(date +%s)
+          pnpm build
+          echo "durationSeconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+      # The timing lands in the run summary and as a long-lived artifact, so
+      # build performance is tracked run over run rather than by memory.
+      - name: Record build timing
+        run: |
+          echo "### Build took ${{ steps.build.outputs.durationSeconds }}s" >> "$GITHUB_STEP_SUMMARY"
+          cat > build-timing.json <<EOF
+          {
+            "sha": "$GITHUB_SHA",
+            "ref": "$GITHUB_REF_NAME",
+            "durationSeconds": ${{ steps.build.outputs.durationSeconds }},
+            "recordedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-timing
+          path: build-timing.json
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-server
+          path: .next/standalone
+          retention-days: 1
+          compression-level: 6
+
+  integration:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nabareview_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm db:migrate
       - run: pnpm db:runtime-role
-      - run: pnpm build
+      - uses: actions/download-artifact@v4
+        with:
+          name: standalone-server
+          path: .next/standalone
       - run: pnpm test:integration
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-report
+          path: test-results/junit.xml
+          retention-days: 30
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Four shards, each pinned to its own port block: the Playwright
+      # webServer and the Google stub bind fixed ports, and shards share a
+      # runner host. Each matrix leg gets its own postgres service, so the
+      # seeded tenants never cross shards.
+      matrix:
+        shard:
+          [
+            { n: 1, port: 3110 },
+            { n: 2, port: 3120 },
+            { n: 3, port: 3130 },
+            { n: 4, port: 3140 },
+          ]
+    services:
+      postgres:
+        image: postgres:17-alpine
         env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nabareview_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
+      - run: pnpm db:runtime-role
+      - uses: actions/download-artifact@v4
+        with:
+          name: standalone-server
+          path: .next/standalone
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e -- --shard=${{ matrix.shard.n }}/4
+        env:
+          PLAYWRIGHT_PORT: ${{ matrix.shard.port }}
           LOCAL_BOOTSTRAP_ENABLED: "true"
-          NEXTAUTH_URL: http://127.0.0.1:3000
+          NEXTAUTH_URL: http://127.0.0.1:${{ matrix.shard.port }}
           WEBHOOKS_ENABLED: "false"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-shard-${{ matrix.shard.n }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
 
   secret-scan:
     runs-on: ubuntu-latest
