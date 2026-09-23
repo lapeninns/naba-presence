@@ -200,8 +200,8 @@ Shipped: the three deprecated per-area `action-errors` shims deleted and every
 importer moved to `lib/errors/action-errors.ts`; `useIndustry`/`useAdministration`
 lost their `enabled` option (the shell gates them); `getSession` wrapped in
 `React.cache` (one lookup per server render); the location workspace scrolls its tab
-pane instead of squashing the header and nav; `TODO(gbp-write)` notes in media and
-place actions rewritten as design decisions. The docs pass (5.1: `docs/architecture.md`,
+pane instead of squashing the header and nav; the old `gbp-write` follow-up
+notes in media and place actions rewritten as design decisions. The docs pass (5.1: `docs/architecture.md`,
 `docs/frontend-backend-feature-map.md`, `README.md`, this ledger) follows in the working
 tree.
 

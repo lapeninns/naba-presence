@@ -1,3 +1,4 @@
+import withBundleAnalyzer from "@next/bundle-analyzer"
 import type { NextConfig } from "next"
 
 // A conservative CSP that locks down framing, object embedding, base-uri and
@@ -16,7 +17,8 @@ import type { NextConfig } from "next"
 // green — hence the dedicated remote-thumbnail render test in Step 1b.
 // Next's development bundle uses eval-based source maps for React debugging.
 // Production bundles do not require eval, so keep it out of the production CSP.
-const developmentEval = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
+const developmentEval =
+  process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
 
 const csp = [
   "default-src 'self'",
@@ -64,11 +66,20 @@ export const RETIRED_ROUTES: { source: string; destination: string }[] = [
   // Business info and Industry are sections of the profile editor;
   // Performance is a report, on Reports.
   { source: "/locations", destination: "/listings" },
-  { source: "/locations/:id/administration", destination: "/listings/:id/people" },
+  {
+    source: "/locations/:id/administration",
+    destination: "/listings/:id/people",
+  },
   { source: "/locations/:id/access", destination: "/listings/:id/people" },
-  { source: "/locations/:id/business-information", destination: "/listings/:id/profile" },
+  {
+    source: "/locations/:id/business-information",
+    destination: "/listings/:id/profile",
+  },
   { source: "/locations/:id/industry", destination: "/listings/:id/profile" },
-  { source: "/locations/:id/performance", destination: "/reports?locationId=:id" },
+  {
+    source: "/locations/:id/performance",
+    destination: "/reports?locationId=:id",
+  },
   { source: "/locations/:id/:area", destination: "/listings/:id/:area" },
   { source: "/locations/:id", destination: "/listings/:id" },
 ]
@@ -94,4 +105,8 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default nextConfig
+// Bundle analysis is opt-in (`pnpm analyze`): the wrapper is inert until
+// ANALYZE=true, so the CI build path stays byte-identical to `pnpm build`.
+export default withBundleAnalyzer({ enabled: process.env.ANALYZE === "true" })(
+  nextConfig
+)

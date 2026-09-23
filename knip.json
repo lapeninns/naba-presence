@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@6.36.0/schema.json",
+  "entry": [
+    "scripts/*.mjs",
+    "scripts/load/*.mjs",
+    "tests/visual/*.ts",
+    "tests/visual/*.mjs",
+    ".design-sync/*.mjs",
+    ".design-sync/previews/*.tsx"
+  ],
+  "ignore": [".design-sync/ds-tailwind.css", ".design-sync/fonts/**"],
+  "ignoreDependencies": ["NabaReview", "@sentry/nextjs", "posthog-js", "tsx"],
+  "ignoreIssues": {
+    "lib/contracts/**": ["exports", "types", "duplicates"],
+    "components/ui/**": ["exports", "types"],
+    "lib/api/**": ["exports", "types"]
+  },
+  "rules": {
+    "exports": "warn",
+    "types": "warn"
+  }
+}

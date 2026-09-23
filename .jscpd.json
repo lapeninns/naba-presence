@@ -1,0 +1,19 @@
+{
+  "threshold": 5,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "minLines": 10,
+  "minTokens": 60,
+  "path": ["app", "components", "lib", "scripts", "supabase", "tests"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "**/tests/fixtures/**",
+    "**/tests/visual/fixture/**",
+    "**/public/**"
+  ]
+}
