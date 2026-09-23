@@ -20,6 +20,66 @@ const eslintConfig = defineConfig([
     // Local Git worktrees contain independent source and generated output.
     ".worktrees/**",
   ]),
+  // Baseline quality gates for first-party TypeScript. Legacy violations are
+  // grandfathered through eslint-suppressions.json (kept current with
+  // `pnpm lint:prune-suppressions`); everything new must pass these.
+  {
+    files: ["**/*.{ts,tsx,mts}"],
+    rules: {
+      // Deep branching is where route handlers and domain modules rot.
+      complexity: ["error", 20],
+      // A source file past this size is a module boundary waiting to happen.
+      // The oversized legacy files are in the suppressions baseline.
+      "max-lines": [
+        "error",
+        { max: 800, skipBlankLines: true, skipComments: true },
+      ],
+      // Work is tracked in issues, not in comments; scripts/check-tech-debt.mjs
+      // applies the same rule to the file types ESLint does not lint.
+      "no-warning-comments": [
+        "error",
+        { terms: ["todo", "fixme", "xxx"], location: "anywhere" },
+      ],
+      "@typescript-eslint/naming-convention": [
+        "error",
+        // Database rows and provider payloads are snake_case; destructure
+        // them freely. Fidelity to the column name beats style there.
+        { selector: "variable", modifiers: ["destructured"], format: null },
+        { selector: "parameter", modifiers: ["destructured"], format: null },
+        { selector: "objectLiteralProperty", format: null },
+        { selector: "typeProperty", format: null },
+        // Method shorthand in object literals and type signatures frequently
+        // mirrors external names: SQL sort keys (`updated_desc`), hotkey ids
+        // (`toggle-selection`), Next.js props (`unstable_retry`).
+        { selector: ["objectLiteralMethod", "typeMethod"], format: null },
+        { selector: "import", format: null },
+        {
+          selector: "default",
+          format: ["camelCase"],
+          leadingUnderscore: "allowSingleOrDouble",
+        },
+        {
+          selector: "variable",
+          format: ["camelCase", "PascalCase", "UPPER_CASE"],
+          leadingUnderscore: "allowSingleOrDouble",
+          trailingUnderscore: "allow",
+        },
+        {
+          selector: "function",
+          format: ["camelCase", "PascalCase"],
+          leadingUnderscore: "allowSingleOrDouble",
+        },
+        {
+          // PascalCase: components arrive as props (`{ Icon }`).
+          selector: "parameter",
+          format: ["camelCase", "PascalCase"],
+          leadingUnderscore: "allowSingleOrDouble",
+        },
+        { selector: "typeLike", format: ["PascalCase"] },
+        { selector: "enumMember", format: ["UPPER_CASE", "PascalCase"] },
+      ],
+    },
+  },
 ])
 
 export default eslintConfig

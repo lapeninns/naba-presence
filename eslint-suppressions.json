@@ -1,0 +1,266 @@
+{
+  "app/api/privacy/requests/route.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "app/api/sync/reconcile/route.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "app/design-system/page.tsx": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "components/app-shell/account-menu.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/clients/client-hub.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/clients/clients-index.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/editors/editor-footer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/editors/review-changes-sheet.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/action-bar.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/detail/reply-exception.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/inbox-view.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/reply-composer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/review-list.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/inbox/today/today-strip.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/listings/health-strip.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/listings/listings-board.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/listings/review-publish.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "components/locations/hours-editor.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/locations/menu-tab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/locations/photos/photo-preview.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/locations/posts-action-bar.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/locations/posts/post-composer-sheet.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/locations/profile/profile-editor.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "components/locations/typed-attribute-control.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/performance/reply-performance-tab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/settings/policy-form.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/setup/setup-wizard.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/ui/button.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "components/ui/stepper.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/domain/food-menu-import.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "lib/domain/verification.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/inbox/lifecycle.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "no-warning-comments": {
+      "count": 1
+    }
+  },
+  "lib/inbox/reply-state.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/listings/area-state.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/locations/google-values.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/clients.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/gbp-write.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/google/transport.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/import-review.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "lib/server/jobs.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/location-administration.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/server/posts.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "lib/server/reviews.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "lib/server/startup.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/ui/breadcrumb-trail.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "tests/components/lifecycle.test.ts": {
+    "no-warning-comments": {
+      "count": 1
+    }
+  },
+  "tests/e2e/accessibility.spec.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "tests/gbp-write.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "tests/integration/helpers/auth-provider.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "tests/integration/routes/import-review.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "tests/integration/routes/privacy-fulfilment.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  }
+}
