@@ -1,0 +1,70 @@
+# The repository's label set, synced by .github/workflows/labels.yml.
+# Edit here; the workflow applies the file on push to main.
+
+- name: "type: bug"
+  color: "d73a4a"
+  description: Something is broken
+- name: "type: feature"
+  color: "0e8a16"
+  description: New capability or behaviour
+- name: "type: chore"
+  color: "6b7280"
+  description: Tooling, refactoring and upkeep
+- name: "type: docs"
+  color: "0075ca"
+  description: Documentation only
+- name: "type: test"
+  color: "8b5cf6"
+  description: Test coverage or test infrastructure
+
+- name: "area: inbox"
+  color: "1d76db"
+  description: Review inbox and reply flow
+- name: "area: listings"
+  color: "1d76db"
+  description: Listings, editors and areas
+- name: "area: reports"
+  color: "1d76db"
+  description: Reports and analytics
+- name: "area: settings"
+  color: "1d76db"
+  description: Settings, team and connections
+- name: "area: auth"
+  color: "1d76db"
+  description: Sign-in, sessions and invitations
+- name: "area: sync"
+  color: "1d76db"
+  description: Background sync, publishing and webhooks
+- name: "area: infra"
+  color: "1d76db"
+  description: Build, CI and developer tooling
+
+- name: "priority: high"
+  color: "b91c1c"
+  description: Address before other work
+- name: "priority: medium"
+  color: "d97706"
+  description: Scheduled in the ordinary queue
+- name: "priority: low"
+  color: "65a30d"
+  description: Take when convenient
+
+- name: "status: needs-triage"
+  color: "e11d48"
+  description: Not yet confirmed or prioritised
+- name: "status: blocked"
+  color: "6b7280"
+  description: Waiting on something external
+
+- name: "security"
+  color: "7f1d1d"
+  description: Security-sensitive; consider private reporting instead
+- name: "dependencies"
+  color: "0366d6"
+  description: Dependency updates (Dependabot)
+- name: "github-actions"
+  color: "0366d6"
+  description: GitHub Actions workflow updates (Dependabot)
+- name: "good first issue"
+  color: "7057ff"
+  description: Self-contained and newcomer-friendly

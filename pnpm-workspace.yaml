@@ -1,5 +1,12 @@
 packages: []
 
+# Only resolve package versions that have been published for at least seven
+# days (the value is minutes), so a yanked or compromised same-day release
+# cannot be picked up by a routine install or upgrade. Dependabot's cooldown
+# (.github/dependabot.yml) mirrors this on the PR side. Override for a single
+# deliberately-vetted package with `minimumReleaseAgeExclude`.
+minimumReleaseAge: 10080
+
 allowBuilds:
   sharp: true
   unrs-resolver: true

@@ -1,0 +1,54 @@
+version: 2
+updates:
+  # pnpm dependencies. The 7-day cooldown mirrors pnpm's `minimumReleaseAge`
+  # in pnpm-workspace.yaml: neither channel picks up a same-day release, so a
+  # yanked or compromised fresh publish cannot land through routine updates.
+  - package-ecosystem: pnpm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    open-pull-requests-limit: 8
+    labels:
+      - dependencies
+      - type: chore
+    groups:
+      next:
+        patterns:
+          - next
+          - "@next/*"
+          - eslint-config-next
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+          - "@vercel/otel"
+      testing:
+        patterns:
+          - vitest
+          - "@vitest/*"
+          - "@playwright/*"
+          - "@testing-library/*"
+          - jsdom
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+    labels:
+      - dependencies
+      - area: infra

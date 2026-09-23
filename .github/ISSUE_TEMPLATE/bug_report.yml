@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in NabaPresence is broken
+labels: ["type: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. For operational incidents (publishing
+        stuck, sync paused), check the kill-switch table in
+        `docs/runbook.md` first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+      placeholder: "On /inbox, I clicked…"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Inbox and replies
+        - Listings and editors
+        - Reports and analytics
+        - Settings, team and connections
+        - Sign-in and invitations
+        - Sync, publishing or webhooks (background)
+        - Build, tests or CI
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >-
+        Request id (the `x-request-id` response header), error code, or a
+        redacted log line. Never paste access tokens, review text, or customer
+        email addresses.
+      render: text
+    validations:
+      required: false

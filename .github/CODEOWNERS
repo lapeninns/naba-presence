@@ -1,0 +1,4 @@
+# Default owner for every path. The maintainer set is a single admin today;
+# add per-path owners (e.g. `/supabase/migrations/ @dba`) as the team grows.
+# CODEOWNERS review is enforced by the `main` ruleset.
+* @lapeninns
