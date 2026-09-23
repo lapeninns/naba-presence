@@ -18,6 +18,7 @@ export const LEASE_KEYS = [
   "naba:keywords",
   "naba:presence-resources",
   "naba:sweep",
+  "naba:health",
 ] as const
 
 export type LeaseKey = (typeof LEASE_KEYS)[number]

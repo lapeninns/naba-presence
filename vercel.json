@@ -28,6 +28,10 @@
     {
       "path": "/api/cron/retention?batch_size=100",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/health",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

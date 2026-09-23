@@ -42,6 +42,8 @@ const expectedCrons: Array<{ path: string; schedule: string }> = [
     path: "/api/cron/retention?batch_size=100",
     schedule: "0 3 * * *",
   },
+  // Incidents and alert emails (lib/server/notifications).
+  { path: "/api/cron/health", schedule: "*/15 * * * *" },
 ]
 
 const fieldRanges: Array<[number, number]> = [
@@ -103,7 +105,7 @@ function assertValidSchedule(schedule: string) {
 }
 
 describe("Vercel Cron scheduler", () => {
-  it("drives all seven scheduler ticks", () => {
+  it("drives all eight scheduler ticks", () => {
     expect(vercelJson.crons).toEqual(expectedCrons)
   })
 
@@ -126,6 +128,7 @@ describe("Vercel Cron scheduler", () => {
       "/api/sync/sweep": 1,
       "/api/sync/keywords": 1,
       "/api/cron/retention": 1,
+      "/api/cron/health": 96,
     }
     for (const cron of expectedCrons) {
       const [minute, hour, dayOfMonth, month, dayOfWeek] =
