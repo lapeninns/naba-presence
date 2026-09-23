@@ -39,6 +39,34 @@ const stateSchema = z.object({
   expiresAt: z.number(),
 })
 
+/**
+ * Where the flow started, read from the state cookie for the error path.
+ *
+ * The success path reads it from the verified, parsed state. A failure may be
+ * the state itself (expired, tampered), so this only trusts a cookie whose
+ * signature checks out, ignores its expiry, and falls back to the default.
+ * The path is still run through the allow-list: it names a page, nothing more.
+ */
+async function startedFrom(): Promise<string> {
+  try {
+    const stateCookie = (await cookies()).get("naba_google_oauth")?.value
+    const [payload, signature] = stateCookie?.split(".") ?? []
+    if (!payload || !signature || !verifySignedValue(payload, signature)) {
+      return DEFAULT_OAUTH_RETURN
+    }
+    const parsed: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    )
+    const returnTo =
+      typeof parsed === "object" && parsed !== null
+        ? Reflect.get(parsed, "returnTo")
+        : undefined
+    return safeOAuthReturn(typeof returnTo === "string" ? returnTo : null)
+  } catch {
+    return DEFAULT_OAUTH_RETURN
+  }
+}
+
 async function oauthParameters(request: Request) {
   if (request.method === "GET") {
     const url = new URL(request.url)
@@ -311,6 +339,10 @@ export const GET = route({
   auth: "public",
   handler: async ({ request, requestId, clientRequestId }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
+    // Read before completeOAuth: it deletes the state cookie once the session
+    // matches, and a failure after that (the token exchange) must still know
+    // where the flow started.
+    const origin = await startedFrom()
     try {
       const { returnTo } = await completeOAuth({
         request,
@@ -325,17 +357,18 @@ export const GET = route({
       )
     } catch (error) {
       const status = String(redirectStatus(error, requestId))
-      // The error path cannot read the state (that is often what failed), so
-      // it falls back to the connections page.
+      // Back to where the flow started (the setup step, a client page), not
+      // to Settings: an operator mid-setup would otherwise lose their place.
+      // A lapsed session still goes to sign-in.
       const path =
         error instanceof ApiError && error.code === "authentication_required"
           ? "/sign-in"
-          : DEFAULT_OAUTH_RETURN
+          : origin
       // `rid` is the correlation id a user can quote in a support ticket; the
       // redirect is the only thing they can see.
       return NextResponse.redirect(
         new URL(
-          `${path}?google=error&status=${status}&rid=${requestId}`,
+          withOAuthStatus(path, { google: "error", status, rid: requestId }),
           baseUrl
         )
       )

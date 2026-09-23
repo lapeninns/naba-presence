@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto"
+import { createHmac, randomUUID } from "node:crypto"
 
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -558,4 +558,67 @@ describeDatabase("automatic Google review setup", () => {
     `
     expect(stored.count).toBe(0)
   }, 60_000)
+
+  it("sends a failed consent back to the setup step it started from", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    if (!server) throw new Error("Integration server did not start")
+    const clientId = randomUUID()
+    const returnTo = `/setup?client=${clientId}&step=account`
+    const start = await fetch(`${server.baseUrl}/api/google/connect/start`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ returnTo }),
+    })
+    expect(start.status, await start.clone().text()).toBe(200)
+    const jar = new Map<string, StoredCookie>()
+    acceptCookies(jar, start)
+    const { authorizationUrl } = (await start.json()) as { authorizationUrl: string }
+    const nonce = new URL(authorizationUrl).searchParams.get("state")
+
+    // The person clicks Cancel on Google's consent screen.
+    const redirected = await fetch(
+      `${server.baseUrl}${CALLBACK_PATH}?error=access_denied&state=${nonce}`,
+      {
+        headers: { cookie: cookieHeader(jar, CALLBACK_PATH, owner.cookie) },
+        redirect: "manual",
+      }
+    )
+    expect([303, 307]).toContain(redirected.status)
+    const location = new URL(redirected.headers.get("location")!)
+    expect(location.pathname).toBe("/setup")
+    expect(location.searchParams.get("client")).toBe(clientId)
+    expect(location.searchParams.get("step")).toBe("account")
+    expect(location.searchParams.get("google")).toBe("error")
+    expect(location.searchParams.get("status")).toBe("400")
+  })
+
+  it("preselects the connection's Google account when reconnecting", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const stranger = await createTestTenant(admin)
+    organisations.push(stranger.organisationId)
+    const own = randomUUID()
+    const foreign = randomUUID()
+    await admin`
+      insert into google_connection (id, organisation_id, google_subject, google_email, status, scope)
+      values
+        (${own}, ${owner.organisationId}, ${`hint-${own}`}, 'venues@lapen.test', 'revoked', 'x'),
+        (${foreign}, ${stranger.organisationId}, ${`hint-${foreign}`}, 'someone@else.test', 'revoked', 'x')
+    `
+    if (!server) throw new Error("Integration server did not start")
+    const hintFor = async (reconnectConnectionId: string) => {
+      const start = await fetch(`${server!.baseUrl}/api/google/connect/start`, {
+        method: "POST",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ reconnectConnectionId }),
+      })
+      expect(start.status, await start.clone().text()).toBe(200)
+      const { authorizationUrl } = (await start.json()) as { authorizationUrl: string }
+      return new URL(authorizationUrl).searchParams.get("login_hint")
+    }
+    expect(await hintFor(own)).toBe("venues@lapen.test")
+    // Another organisation's connection id leaks nothing.
+    expect(await hintFor(foreign)).toBeNull()
+  })
 })

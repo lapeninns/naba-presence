@@ -6,9 +6,11 @@ import { Toaster } from "@/components/ui/toast"
 
 const replace = vi.fn()
 let search = new URLSearchParams()
+let pathname = "/settings/connections"
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
   useSearchParams: () => search,
+  usePathname: () => pathname,
 }))
 const connectMutate = vi.fn()
 vi.mock("@/lib/queries/use-connection-workspace", () => ({
@@ -18,6 +20,7 @@ vi.mock("@/lib/queries/use-connection-workspace", () => ({
 afterEach(() => {
   vi.clearAllMocks()
   search = new URLSearchParams()
+  pathname = "/settings/connections"
 })
 
 describe("OAuthReturn", () => {
@@ -34,5 +37,15 @@ describe("OAuthReturn", () => {
     const { container } = render(<Toaster><OAuthReturn /></Toaster>)
     expect(replace).toHaveBeenCalledWith("/settings/connections")
     expect(container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it("keeps a setup step's own parameters and retries into setup", () => {
+    pathname = "/setup"
+    search = new URLSearchParams("client=c1&step=account&google=error&status=502&rid=r1")
+    const input = { clientId: "c1", returnTo: "/setup?client=c1&step=account" }
+    render(<Toaster><OAuthReturn connectInput={input} /></Toaster>)
+    expect(replace).toHaveBeenCalledWith("/setup?client=c1&step=account")
+    screen.getByRole("button", { name: "Try again" }).click()
+    expect(connectMutate).toHaveBeenCalledWith(input)
   })
 })

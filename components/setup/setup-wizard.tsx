@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { Stepper } from "@/components/ui/stepper"
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { OAuthReturn } from "@/components/settings/oauth-return"
 import { SETUP_STEPS, type SetupStep } from "@/lib/contracts/clients"
 import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import {
@@ -105,6 +106,17 @@ function SetupWizard({ clientId }: { clientId: string }) {
               </Link>
             }
           />
+
+          {/* A failed Google sign-in comes back here, to the step it
+              started from; say what happened before the step itself. */}
+          <div className="mx-auto w-full max-w-3xl empty:hidden">
+            <OAuthReturn
+              connectInput={{
+                clientId,
+                returnTo: `/setup?client=${clientId}&step=account`,
+              }}
+            />
+          </div>
 
           <section
             aria-labelledby="setup-step-title"

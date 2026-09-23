@@ -27,7 +27,14 @@ export const connectStartBodySchema = z.object({
    * an open redirect if it is not.
    */
   returnTo: z.string().max(200).optional(),
+  /**
+   * The connection being reconnected. The server looks up its Google email
+   * and sends it to Google as `login_hint`, so the consent screen opens on
+   * the right account instead of whichever one the browser last used.
+   */
+  reconnectConnectionId: z.uuid().optional(),
 })
+export type ConnectStartBody = z.infer<typeof connectStartBodySchema>
 
 /** POST `/api/google/connections/[id]/disconnect` params. */
 export const disconnectParamsSchema = z.object({ id: z.string() })
@@ -44,6 +51,12 @@ export const connectionSummarySchema = z.object({
   notificationsEnabled: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastErrorCode: z.string().nullable(),
+  /**
+   * When Google said the refresh token itself stops working. Set only for
+   * apps still in Google's "Testing" publishing status (seven days); null
+   * once the OAuth app is in production.
+   */
+  refreshTokenExpiresAt: z.string().nullable().optional(),
   reconnectRequired: z.boolean(),
   createdAt: z.string(),
 })
