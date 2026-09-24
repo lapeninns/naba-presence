@@ -150,4 +150,25 @@ describe("PolicyForm", () => {
     )
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled()
   })
+
+  it("names the language and timezone in words, not codes", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings(),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: true,
+        canManageConnections: true,
+        canEditSettings: true,
+      },
+    })
+    renderForm("owner")
+    expect(screen.getByText("English (UK)")).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Default timezone" })
+    ).toHaveValue("Europe / London")
+  })
 })

@@ -60,3 +60,27 @@ export const organisationsResponseSchema = z.object({
   items: z.array(organisationSummarySchema),
 })
 export type OrganisationsResponse = z.infer<typeof organisationsResponseSchema>
+
+/** The longest agency name the rename form and route accept. */
+export const ORGANISATION_NAME_MAX = 120
+
+/** PATCH `/api/organisations` body: rename the session's organisation. */
+export const organisationRenameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter your agency’s name.")
+    .max(
+      ORGANISATION_NAME_MAX,
+      `Keep the name to ${ORGANISATION_NAME_MAX} characters or fewer.`
+    ),
+})
+export type OrganisationRenameInput = z.input<typeof organisationRenameSchema>
+
+/** PATCH `/api/organisations` response. */
+export const organisationRenamedResponseSchema = z.object({
+  organisation: z.object({ organisationId: z.string(), name: z.string() }),
+})
+export type OrganisationRenamedResponse = z.infer<
+  typeof organisationRenamedResponseSchema
+>

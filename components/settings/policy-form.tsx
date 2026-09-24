@@ -49,10 +49,9 @@ import { ApiClientError } from "@/lib/api/client"
 import { requiresDirectPublishConsent } from "@/lib/contracts/settings"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { editSettingsDisabledReason } from "@/lib/settings/gating"
-import {
-  TIMEZONE_OPTIONS,
-  settingsPolicyFormSchema,
-} from "@/lib/settings/forms/settings-policy"
+import { settingsPolicyFormSchema } from "@/lib/settings/forms/settings-policy"
+import { languageLabel, languageOptionsFor } from "@/lib/settings/languages"
+import { TimezonePicker } from "@/components/settings/timezone-picker"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
 type FormState = {
@@ -499,40 +498,45 @@ export function PolicyForm({ role }: { role: string | null }) {
         <CardContent className="grid grid-cols-1 gap-4 py-(--np-card-pad) @[36rem]:grid-cols-2">
           <Field error={fieldError("defaultLanguageCode")}>
             <FieldLabel>Default language</FieldLabel>
-            <Input
+            <Select
               value={current.defaultLanguageCode}
               disabled={!canEdit}
-              placeholder="en-GB"
-              autoComplete="off"
-              spellCheck={false}
-              className="font-mono"
-              onChange={(event) =>
-                set("defaultLanguageCode", event.target.value)
+              onValueChange={(value: string | null) =>
+                set("defaultLanguageCode", value ?? current.defaultLanguageCode)
               }
-            />
-            <FieldDescription>A language code, such as en-GB.</FieldDescription>
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string) => languageLabel(value)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {languageOptionsFor(current.defaultLanguageCode).map(
+                  (option) => (
+                    <SelectItem key={option.code} value={option.code}>
+                      {option.label}
+                    </SelectItem>
+                  )
+                )}
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              The language new reply drafts are written in when a review’s own
+              language can’t be told.
+            </FieldDescription>
             <FieldError>{fieldError("defaultLanguageCode")}</FieldError>
           </Field>
           <Field error={fieldError("defaultTimezone")}>
             <FieldLabel>Default timezone</FieldLabel>
-            <Select
+            <TimezonePicker
               value={current.defaultTimezone}
               disabled={!canEdit}
-              onValueChange={(value: string | null) =>
-                set("defaultTimezone", value ?? current.defaultTimezone)
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONE_OPTIONS.map((zone) => (
-                  <SelectItem key={zone} value={zone}>
-                    {zone}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(zone) => set("defaultTimezone", zone)}
+            />
+            <FieldDescription>
+              Opening hours and report windows are read in this timezone unless
+              a listing sets its own.
+            </FieldDescription>
             <FieldError>{fieldError("defaultTimezone")}</FieldError>
           </Field>
         </CardContent>
