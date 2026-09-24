@@ -11,6 +11,14 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -103,17 +111,61 @@ function publishHint(role: MemberRole): string {
  * `layout="card"` draws the form as a white card with its own submit
  * (setup); `layout="dialog"` lays it out as a dialog body and footer.
  */
+/**
+ * The link just created, kept on screen until the operator is done with it:
+ * a toast that vanished in a few seconds was the only place it used to be.
+ */
+function CreatedInvite({
+  created,
+}: {
+  created: { email: string; role: MemberRole; url: string }
+}) {
+  const toast = useToastManager()
+  const inputRef = useRef<HTMLInputElement>(null)
+  return (
+    <div className="flex flex-col gap-3" data-testid="invite-created">
+      <Alert variant="success">
+        <AlertTitle>Invitation ready</AlertTitle>
+        <AlertDescription className="[overflow-wrap:anywhere]">
+          {created.email} · {roleLabel(created.role)}. Send them this link. It
+          works once and expires after 7 days.
+        </AlertDescription>
+      </Alert>
+      <Field>
+        <FieldLabel>Invite link</FieldLabel>
+        <div className="flex min-w-0 gap-2">
+          <Input
+            ref={inputRef}
+            readOnly
+            value={created.url}
+            className="min-w-0 flex-1 font-mono"
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              inputRef.current?.select()
+              void copyInviteLink(created.url, toast)
+            }}
+          >
+            <Copy aria-hidden />
+            Copy
+          </Button>
+        </div>
+      </Field>
+    </div>
+  )
+}
+
 function InviteForm({
   actorRole,
   layout,
-  onCreated,
 }: {
   actorRole: MemberRole
   layout: "card" | "dialog"
-  onCreated?: () => void
 }) {
   const client = useQueryClient()
-  const toast = useToastManager()
   const ids = useId()
   const emailRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState("")
@@ -121,6 +173,11 @@ function InviteForm({
   const [canPublish, setCanPublish] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [created, setCreated] = useState<{
+    email: string
+    role: MemberRole
+    url: string
+  } | null>(null)
 
   const create = useMutation({
     mutationFn: (input: {
@@ -134,17 +191,12 @@ function InviteForm({
       setCanPublish(false)
       setEmailError(null)
       setFormError(null)
-      await client.invalidateQueries({ queryKey: queryKeys.invitations })
-      onCreated?.()
-      toast.add({
-        title: "Invitation ready",
-        description: `${input.email} · ${roleLabel(input.role)}. Copy the invite link and send it to them.`,
-        type: "success",
-        actionProps: {
-          children: "Copy link",
-          onClick: () => copyInviteLink(result.inviteUrl, toast),
-        },
+      setCreated({
+        email: input.email,
+        role: input.role,
+        url: result.inviteUrl,
       })
+      await client.invalidateQueries({ queryKey: queryKeys.invitations })
     },
     onError: (error) => {
       const message = describeActionError(error)
@@ -248,6 +300,43 @@ function InviteForm({
     </Button>
   )
 
+  const inviteAnother = (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={() => {
+        setCreated(null)
+        // After the reset renders the fields again.
+        setTimeout(() => emailRef.current?.focus(), 0)
+      }}
+    >
+      Invite someone else
+    </Button>
+  )
+
+  if (created && layout === "dialog") {
+    return (
+      <>
+        <DialogBody>
+          <CreatedInvite created={created} />
+        </DialogBody>
+        <DialogFooter>
+          {inviteAnother}
+          <DialogClose render={<Button>Done</Button>} />
+        </DialogFooter>
+      </>
+    )
+  }
+
+  if (created) {
+    return (
+      <div className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
+        <CreatedInvite created={created} />
+        <div className="flex justify-end">{inviteAnother}</div>
+      </div>
+    )
+  }
+
   if (layout === "dialog") {
     return (
       <form noValidate onSubmit={onSubmit} className="contents">
@@ -292,11 +381,8 @@ export function InviteDialog({
             changes until they accept, and the link expires after 7 days.
           </DialogDescription>
         </DialogHeader>
-        <InviteForm
-          actorRole={actorRole}
-          layout="dialog"
-          onCreated={() => onOpenChange(false)}
-        />
+        {/* Stays open on success to show the link; Done closes it. */}
+        <InviteForm actorRole={actorRole} layout="dialog" />
       </DialogContent>
     </Dialog>
   )
@@ -311,6 +397,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
   const client = useQueryClient()
   const toast = useToastManager()
+  const [revokeTarget, setRevokeTarget] = useState<Invitation | null>(null)
 
   const revoke = useMutation({
     mutationFn: (id: string) => revokeInvitation(id),
@@ -372,103 +459,139 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   }
 
   return (
-    <Table surface responsive aria-label="Pending invitations">
-      <TableHeader>
-        <TableRow>
-          <TableHead>Invited</TableHead>
-          <TableHead>Role</TableHead>
-          <TableHead>Publishing</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {query.data.items.map((invitation) => {
-          const expired = isExpired(invitation)
-          return (
-            <TableRow key={invitation.id}>
-              <TableCell label="Invited">
-                <span className="flex min-w-0 flex-col">
-                  <span className="font-semibold [overflow-wrap:anywhere] text-ink">
-                    {invitation.email}
+    <>
+      <Table surface responsive aria-label="Pending invitations">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Invited</TableHead>
+            <TableHead>Role</TableHead>
+            <TableHead>Publishing</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {query.data.items.map((invitation) => {
+            const expired = isExpired(invitation)
+            return (
+              <TableRow key={invitation.id}>
+                <TableCell label="Invited">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-semibold [overflow-wrap:anywhere] text-ink">
+                      {invitation.email}
+                    </span>
+                    <span className="text-caption text-ink-muted">
+                      Created {formatDay(invitation.createdAt)}
+                    </span>
                   </span>
-                  <span className="text-caption text-ink-muted">
-                    Created {formatDay(invitation.createdAt)}
-                  </span>
-                </span>
-              </TableCell>
-              <TableCell label="Role">
-                <Badge variant="role">{roleLabel(invitation.role)}</Badge>
-              </TableCell>
-              <TableCell label="Publishing">
-                {invitation.role === "viewer" ? (
-                  <StatusPill tone="neutral" plain>
-                    View only
-                  </StatusPill>
-                ) : invitation.canPublish ||
-                  invitation.role === "owner" ||
-                  invitation.role === "admin" ? (
-                  <StatusPill tone="ok">Can publish</StatusPill>
-                ) : (
-                  <StatusPill tone="neutral" dashed>
-                    Drafts only
-                  </StatusPill>
-                )}
-              </TableCell>
-              <TableCell label="Status">
-                <span className="flex flex-col gap-1">
-                  {expired ? (
-                    <StatusPill tone="warn">Expired</StatusPill>
+                </TableCell>
+                <TableCell label="Role">
+                  <Badge variant="role">{roleLabel(invitation.role)}</Badge>
+                </TableCell>
+                <TableCell label="Publishing">
+                  {invitation.role === "viewer" ? (
+                    <StatusPill tone="neutral" plain>
+                      View only
+                    </StatusPill>
+                  ) : invitation.canPublish ||
+                    invitation.role === "owner" ||
+                    invitation.role === "admin" ? (
+                    <StatusPill tone="ok">Can publish</StatusPill>
                   ) : (
                     <StatusPill tone="neutral" dashed>
-                      Pending
+                      Drafts only
                     </StatusPill>
                   )}
-                  <span className="text-caption text-ink-muted">
-                    {expired ? "Expired" : "Expires"}{" "}
-                    {formatDay(invitation.expiresAt)}
+                </TableCell>
+                <TableCell label="Status">
+                  <span className="flex flex-col gap-1">
+                    {expired ? (
+                      <StatusPill tone="warn">Expired</StatusPill>
+                    ) : (
+                      <StatusPill tone="neutral" dashed>
+                        Pending
+                      </StatusPill>
+                    )}
+                    <span className="text-caption text-ink-muted">
+                      {expired ? "Expired" : "Expires"}{" "}
+                      {formatDay(invitation.expiresAt)}
+                    </span>
                   </span>
-                </span>
-              </TableCell>
-              <TableCell data-actions="" className="text-right">
-                <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
-                  {invitation.inviteUrl ? (
+                </TableCell>
+                <TableCell data-actions="" className="text-right">
+                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
+                    {invitation.inviteUrl ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        aria-label={`Copy invite link for ${invitation.email}`}
+                        disabledReason={
+                          expired
+                            ? "This link has expired. Revoke it and invite them again."
+                            : undefined
+                        }
+                        onClick={() =>
+                          copyInviteLink(invitation.inviteUrl!, toast)
+                        }
+                      >
+                        <Copy aria-hidden />
+                        Copy link
+                      </Button>
+                    ) : null}
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
-                      aria-label={`Copy invite link for ${invitation.email}`}
-                      disabledReason={
-                        expired
-                          ? "This link has expired. Revoke it and invite them again."
-                          : undefined
-                      }
-                      onClick={() =>
-                        copyInviteLink(invitation.inviteUrl!, toast)
-                      }
+                      className="text-danger-ink"
+                      disabled={revoke.isPending}
+                      aria-label={`Revoke invitation for ${invitation.email}`}
+                      onClick={() => setRevokeTarget(invitation)}
                     >
-                      <Copy aria-hidden />
-                      Copy link
+                      Revoke
                     </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-danger-ink"
-                    disabled={revoke.isPending}
-                    aria-label={`Revoke invitation for ${invitation.email}`}
-                    onClick={() => revoke.mutate(invitation.id)}
-                  >
-                    Revoke
-                  </Button>
-                </span>
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
+                  </span>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+      <AlertDialog
+        open={revokeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevokeTarget(null)
+        }}
+      >
+        <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
+          <AlertDialogTitle className="[overflow-wrap:anywhere]">
+            Revoke the invitation for {revokeTarget?.email}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            The link stops working straight away. To bring them in later, send a
+            new invitation.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="ghost">Keep it</Button>}
+            />
+            <Button
+              variant="danger"
+              pending={revoke.isPending}
+              pendingLabel="Revoking…"
+              onClick={() => {
+                if (!revokeTarget) return
+                revoke.mutate(revokeTarget.id, {
+                  onSettled: () => setRevokeTarget(null),
+                })
+              }}
+            >
+              Revoke invitation
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
