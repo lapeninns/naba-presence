@@ -16,11 +16,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import { resolveImportSource } from "@/lib/connections/import-source"
+import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useGoogleLocations } from "@/lib/queries/use-google-locations"
 import { useLocationImport } from "@/lib/queries/use-location-import"
-import { useLocationDirectory } from "@/lib/queries/use-locations"
+import {
+  useLocationDirectory,
+  type DirectoryEntry,
+} from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { describeActionError } from "@/lib/errors/action-errors"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
@@ -29,8 +33,10 @@ type RowState = "idle" | "pending" | "imported" | { error: string }
 
 /**
  * The locations Google knows about under the working account, one row each:
- * name, address, whether it is linked here yet, and an Import action for the
- * ones that are not.
+ * name, address, and the next action. A location not yet in NabaPresence can
+ * be imported. One already imported, but not filed under this client, can be
+ * filed or moved here — "linked" on its own only means the Google listing
+ * was imported, not that this client owns it.
  */
 export function ImportCard({
   clientId,
@@ -67,17 +73,29 @@ export function ImportCard({
   // win.
   const managed = useLocationDirectory(useSessionRole())
   const { link } = useLocationImport()
+  const { assignLocations } = useClientMutations()
   const headingId = useId()
 
   const [rowState, setRowState] = useState<Record<string, RowState>>({})
   const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(
     null
   )
+  const [moveTarget, setMoveTarget] = useState<{
+    discoveredId: string
+    locationId: string
+    title: string
+    fromName: string | null
+  } | null>(null)
 
-  const linkedExternalIds = new Set(
+  const directoryByExternal = new Map(
     (managed.data ?? [])
-      .map((location) => location.externalLocationId)
-      .filter((id): id is string => Boolean(id))
+      .filter(
+        (
+          location
+        ): location is DirectoryEntry & { externalLocationId: string } =>
+          Boolean(location.externalLocationId)
+      )
+      .map((location) => [location.externalLocationId, location])
   )
 
   const importOne = async (
@@ -104,6 +122,23 @@ export function ImportCard({
       setRowState((prev) => ({
         ...prev,
         [location.id]: { error: describeActionError(error) },
+      }))
+    }
+  }
+
+  const fileUnderClient = async (discoveredId: string, locationId: string) => {
+    if (!clientId) return
+    setRowState((prev) => ({ ...prev, [discoveredId]: "pending" }))
+    try {
+      await assignLocations.mutateAsync({
+        clientId,
+        locationIds: [locationId],
+      })
+      setRowState((prev) => ({ ...prev, [discoveredId]: "imported" }))
+    } catch (error) {
+      setRowState((prev) => ({
+        ...prev,
+        [discoveredId]: { error: describeActionError(error) },
       }))
     }
   }
@@ -189,9 +224,19 @@ export function ImportCard({
       {heading}
       <GroupedList aria-label="Locations found on Google">
         {discovery.data.locations.map((location) => {
-          const alreadyLinked = linkedExternalIds.has(location.id)
+          const existing = directoryByExternal.get(location.id)
           const state = rowState[location.id] ?? "idle"
-          const done = alreadyLinked || state === "imported"
+          // Without a client, imported is enough. With a client, the listing
+          // still has to be filed under that client before the step is done.
+          const filedHere = clientId
+            ? existing?.clientId === clientId
+            : Boolean(existing)
+          const done = filedHere || state === "imported"
+          const needsFiling =
+            Boolean(clientId) &&
+            existing !== undefined &&
+            existing.clientId !== clientId &&
+            !done
           return (
             <GroupedListItem
               key={location.id}
@@ -222,6 +267,40 @@ export function ImportCard({
               trailing={
                 done ? (
                   <Badge variant="tinted">Linked</Badge>
+                ) : needsFiling && existing ? (
+                  <>
+                    <Badge variant="secondary">
+                      {existing.clientId ? "Another client" : "Not filed"}
+                    </Badge>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={state === "pending"}
+                      aria-label={
+                        existing.clientId
+                          ? `Move ${location.title} to this client`
+                          : `File ${location.title} under this client`
+                      }
+                      onClick={() => {
+                        if (existing.clientId) {
+                          setMoveTarget({
+                            discoveredId: location.id,
+                            locationId: existing.id,
+                            title: location.title,
+                            fromName: existing.clientName ?? null,
+                          })
+                          return
+                        }
+                        void fileUnderClient(location.id, existing.id)
+                      }}
+                    >
+                      {state === "pending"
+                        ? "Filing…"
+                        : existing.clientId
+                          ? "Move here"
+                          : "File here"}
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Badge variant="secondary">Not linked</Badge>
@@ -258,6 +337,28 @@ export function ImportCard({
             const target = relinkTarget
             setRelinkTarget(null)
             void importOne(target, true)
+          }
+        }}
+      />
+      <OverwriteConfirmDialog
+        open={moveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null)
+        }}
+        title={`Move ${moveTarget?.title ?? "this listing"} to this client?`}
+        description={
+          moveTarget?.fromName
+            ? `${moveTarget.title} is filed under ${moveTarget.fromName}. Moving it keeps its reviews with the listing.`
+            : "Moving it keeps its reviews with the listing."
+        }
+        confirmLabel="Move here"
+        requireAcknowledgement={false}
+        pending={assignLocations.isPending}
+        onConfirm={() => {
+          if (moveTarget) {
+            const target = moveTarget
+            setMoveTarget(null)
+            void fileUnderClient(target.discoveredId, target.locationId)
           }
         }}
       />

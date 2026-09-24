@@ -3,6 +3,8 @@ import { HydrationBoundary } from "@tanstack/react-query"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { ShortcutsButton } from "@/components/inbox/shortcuts-button"
+import { SyncReviewsButton } from "@/components/inbox/sync-reviews-button"
+import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { inboxPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
 import { getSession } from "@/lib/server/session"
@@ -34,7 +36,12 @@ export default async function InboxPage() {
             until a verified reply is published.
           </span>
         }
-        actions={<ShortcutsButton />}
+        actions={
+          <>
+            <ShortcutsButton />
+            <SyncReviewsButton canSync={canTriggerSync(session?.role)} />
+          </>
+        }
       />
       <HydrationBoundary state={state}>
         <InboxView showLocationFilter={locationCount > 1} />
