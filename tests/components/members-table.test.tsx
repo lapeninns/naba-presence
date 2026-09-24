@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { MembersTable } from "@/components/settings/members-table"
 import { Toaster } from "@/components/ui/toast"
-import type { Member } from "@/lib/api/members"
+import type { Member, MemberClientTotal } from "@/lib/api/members"
 
 const useMembersMock = vi.fn()
 vi.mock("@/lib/queries/use-members", () => ({ useMembers: () => useMembersMock() }))
@@ -23,8 +23,13 @@ function member(overrides: Partial<Member>): Member {
   }
 }
 
-function renderTable(actorRole: Member["role"], actorUserId: string, members: Member[]) {
-  useMembersMock.mockReturnValue({ data: { members }, isPending: false, isError: false, refetch: vi.fn() })
+function renderTable(
+  actorRole: Member["role"],
+  actorUserId: string,
+  members: Member[],
+  clients?: MemberClientTotal[]
+) {
+  useMembersMock.mockReturnValue({ data: { members, clients }, isPending: false, isError: false, refetch: vi.fn() })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
@@ -95,5 +100,49 @@ describe("MembersTable", () => {
     const publish = await screen.findByRole("menuitem", { name: /Allow publishing/ })
     expect(publish).toHaveAttribute("aria-disabled", "true")
     expect(publish).toHaveAccessibleDescription("Viewers can’t publish.")
+  })
+
+  it("summarises access by client instead of 'No listings assigned yet'", () => {
+    renderTable(
+      "owner",
+      "owner-1",
+      [
+        member({ userId: "owner-1", displayName: "Ana Owner", email: "ana@test", role: "owner", canPublish: true }),
+        member({ userId: "m-1", displayName: "Ben Member", email: "ben@test" }),
+        member({
+          userId: "m-2",
+          displayName: "Cat Member",
+          email: "cat@test",
+          locations: [
+            { locationId: "l1", canPublish: false, clientId: "c1" },
+            { locationId: "l2", canPublish: false, clientId: "c1" },
+            { locationId: "l3", canPublish: false, clientId: "c1" },
+          ],
+        }),
+      ],
+      [
+        { clientId: "c1", name: "Old Crown", archived: false, total: 5 },
+        { clientId: "c2", name: "The Bell", archived: false, total: 2 },
+      ]
+    )
+    expect(screen.queryByText("No listings assigned yet")).not.toBeInTheDocument()
+    expect(screen.getByText("Including clients added later")).toBeInTheDocument()
+    expect(screen.getByText("Old Crown (3 of 5 listings)")).toBeInTheDocument()
+  })
+
+  it("offers Client access for members but not for owners or admins", async () => {
+    const user = userEvent.setup()
+    renderTable("owner", "owner-1", [
+      member({ userId: "owner-1", displayName: "Ana Owner", email: "ana@test", role: "owner", canPublish: true }),
+      member({ userId: "m-1", displayName: "Ben Member", email: "ben@test" }),
+    ])
+    await user.click(screen.getByRole("button", { name: "Actions for Ana Owner" }))
+    const ownerItem = await screen.findByRole("menuitem", { name: /Client access/ })
+    expect(ownerItem).toHaveAttribute("aria-disabled", "true")
+    expect(ownerItem).toHaveAccessibleDescription("Owners and admins always see every client.")
+    await user.keyboard("{Escape}")
+    await user.click(screen.getByRole("button", { name: "Actions for Ben Member" }))
+    const memberItem = await screen.findByRole("menuitem", { name: /Client access/ })
+    expect(memberItem).not.toHaveAttribute("aria-disabled", "true")
   })
 })

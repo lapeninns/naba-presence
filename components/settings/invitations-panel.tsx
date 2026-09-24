@@ -22,6 +22,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogBody,
@@ -35,6 +37,7 @@ import {
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { RadioGroup } from "@/components/ui/radio-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Switch } from "@/components/ui/switch"
@@ -48,6 +51,7 @@ import {
 } from "@/components/ui/table"
 import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
+import { useClients } from "@/lib/queries/use-clients"
 import { useInvitations } from "@/lib/queries/use-invitations"
 import {
   createInvitation,
@@ -118,7 +122,7 @@ function publishHint(role: MemberRole): string {
 function CreatedInvite({
   created,
 }: {
-  created: { email: string; role: MemberRole; url: string }
+  created: { email: string; role: MemberRole; url: string; access: string }
 }) {
   const toast = useToastManager()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -127,8 +131,8 @@ function CreatedInvite({
       <Alert variant="success">
         <AlertTitle>Invitation ready</AlertTitle>
         <AlertDescription className="[overflow-wrap:anywhere]">
-          {created.email} · {roleLabel(created.role)}. Send them this link. It
-          works once and expires after 7 days.
+          {created.email} · {roleLabel(created.role)} · {created.access}. Send
+          them this link. It works once and expires after 7 days.
         </AlertDescription>
       </Alert>
       <Field>
@@ -158,6 +162,154 @@ function CreatedInvite({
   )
 }
 
+/** Above this many clients the invite's client list gets a search box. */
+const CLIENT_SEARCH_THRESHOLD = 8
+
+type ClientScope = { mode: "all" | "some"; clientIds: string[] }
+
+/**
+ * Which clients a member or viewer will see once they accept: all of them
+ * (the default, and it includes clients added later) or only the ticked
+ * ones. Stored on the invitation and applied as listing access when it is
+ * accepted (lib/server/provisioning.ts). Clients with no listings can't be
+ * ticked: scoped to nothing, they would see everything.
+ */
+function InviteClientScope({
+  value,
+  onChange,
+  error,
+  disabled,
+}: {
+  value: ClientScope
+  onChange: (next: ClientScope) => void
+  error: string | null
+  disabled?: boolean
+}) {
+  const ids = useId()
+  const [search, setSearch] = useState("")
+  const clients = useClients({ enabled: value.mode === "some" })
+  const labelId = `${ids}-scope`
+  const items = clients.data?.items ?? []
+  const needle = search.trim().toLowerCase()
+  const visible = needle
+    ? items.filter((item) => item.name.toLowerCase().includes(needle))
+    : items
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span id={labelId} className="text-ui font-semibold text-ink">
+        Client access
+      </span>
+      <RadioGroup
+        value={value.mode}
+        onValueChange={(mode) =>
+          onChange({ ...value, mode: mode as ClientScope["mode"] })
+        }
+        aria-labelledby={labelId}
+        disabled={disabled}
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+      >
+        <ChoiceCard
+          value="all"
+          title="All clients"
+          description="Including clients added later."
+        />
+        <ChoiceCard
+          value="some"
+          title="Only these clients"
+          description="They see only the clients you tick."
+        />
+      </RadioGroup>
+      {value.mode === "some" ? (
+        <div className="flex min-w-0 flex-col gap-2">
+          {clients.isPending ? (
+            <Skeleton className="h-16 w-full" />
+          ) : clients.isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>We couldn’t load your clients</AlertTitle>
+              <AlertDescription>
+                {describeActionError(clients.error)}
+              </AlertDescription>
+              <AlertActions>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => clients.refetch()}
+                >
+                  <RefreshCw aria-hidden />
+                  Try again
+                </Button>
+              </AlertActions>
+            </Alert>
+          ) : items.length === 0 ? (
+            <p className="text-caption text-ink-muted">
+              There are no clients yet. Invite them for all clients, or add a
+              client first.
+            </p>
+          ) : (
+            <>
+              {items.length > CLIENT_SEARCH_THRESHOLD ? (
+                <Input
+                  type="search"
+                  aria-label="Search clients"
+                  placeholder="Search clients"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onClear={() => setSearch("")}
+                />
+              ) : null}
+              <ul
+                aria-label="Clients"
+                className="flex max-h-64 flex-col divide-y divide-line overflow-y-auto rounded-(--np-radius-card) border border-line"
+              >
+                {visible.map((item) => {
+                  const checked = value.clientIds.includes(item.id)
+                  return (
+                    <li key={item.id} className="px-3 py-2.5">
+                      <Checkbox
+                        checked={checked}
+                        disabled={
+                          disabled || (item.locationCount === 0 && !checked)
+                        }
+                        label={item.name}
+                        description={
+                          item.locationCount === 0
+                            ? "No listings yet"
+                            : `${item.locationCount} ${item.locationCount === 1 ? "listing" : "listings"}`
+                        }
+                        onCheckedChange={(next) =>
+                          onChange({
+                            ...value,
+                            clientIds: next
+                              ? [...value.clientIds, item.id]
+                              : value.clientIds.filter((id) => id !== item.id),
+                          })
+                        }
+                      />
+                    </li>
+                  )
+                })}
+              </ul>
+            </>
+          )}
+          {error ? (
+            <p role="alert" className="text-caption text-danger-ink">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** "All clients", or up to two client names and a count. */
+function scopeSummary(names: string[] | null | undefined): string {
+  if (!names) return "All clients"
+  if (names.length <= 2) return names.join(", ")
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`
+}
+
 function InviteForm({
   actorRole,
   layout,
@@ -171,30 +323,44 @@ function InviteForm({
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<MemberRole>("member")
   const [canPublish, setCanPublish] = useState(false)
+  const [scope, setScope] = useState<ClientScope>({
+    mode: "all",
+    clientIds: [],
+  })
+  const [scopeError, setScopeError] = useState<string | null>(null)
   const [emailError, setEmailError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
     email: string
     role: MemberRole
     url: string
+    access: string
   } | null>(null)
+  // Owners and admins see every client whatever the invitation says.
+  const scoped = role === "member" || role === "viewer"
 
   const create = useMutation({
     mutationFn: (input: {
       email: string
       role: MemberRole
       canPublish: boolean
+      clientIds?: string[]
     }) => createInvitation(input),
     onSuccess: async (result, input) => {
       setEmail("")
       setRole("member")
       setCanPublish(false)
+      setScope({ mode: "all", clientIds: [] })
+      setScopeError(null)
       setEmailError(null)
       setFormError(null)
       setCreated({
         email: input.email,
         role: input.role,
         url: result.inviteUrl,
+        access: scopeSummary(
+          result.invitation.clients?.map((client) => client.name)
+        ),
       })
       await client.invalidateQueries({ queryKey: queryKeys.invitations })
     },
@@ -215,10 +381,19 @@ function InviteForm({
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     setFormError(null)
+    const scopedIds =
+      scoped && scope.mode === "some" ? scope.clientIds : undefined
+    if (scopedIds && scopedIds.length === 0) {
+      // An empty scope would mean every client; make them say so instead.
+      setScopeError("Tick at least one client, or choose All clients.")
+      return
+    }
+    setScopeError(null)
     const parsed = invitationFormSchema.safeParse({
       email: email.trim(),
       role,
       canPublish: role === "viewer" ? false : canPublish,
+      ...(scopedIds ? { clientIds: scopedIds } : {}),
     })
     if (!parsed.success) {
       setEmailError(
@@ -283,6 +458,17 @@ function InviteForm({
           onCheckedChange={(value) => setCanPublish(value)}
         />
       </div>
+      {scoped ? (
+        <InviteClientScope
+          value={scope}
+          onChange={(next) => {
+            setScope(next)
+            if (scopeError) setScopeError(null)
+          }}
+          error={scopeError}
+          disabled={create.isPending}
+        />
+      ) : null}
       {formError ? (
         <Alert variant="destructive">
           <AlertTitle>The invitation wasn’t created</AlertTitle>
@@ -488,7 +674,17 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                   </span>
                 </TableCell>
                 <TableCell label="Role">
-                  <Badge variant="role">{roleLabel(invitation.role)}</Badge>
+                  <span className="flex flex-col items-start gap-1">
+                    <Badge variant="role">{roleLabel(invitation.role)}</Badge>
+                    <span className="text-caption text-ink-muted">
+                      {invitation.role === "owner" ||
+                      invitation.role === "admin"
+                        ? "All clients"
+                        : scopeSummary(
+                            invitation.clients?.map((client) => client.name)
+                          )}
+                    </span>
+                  </span>
                 </TableCell>
                 <TableCell label="Publishing">
                   {invitation.role === "viewer" ? (

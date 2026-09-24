@@ -123,7 +123,7 @@ export function TeamView({
         <SectionHeader
           id="team-invitations"
           title="Invitations"
-          description="Invite links expire after 7 days. Until you give a member or viewer specific listings, they can see every client."
+          description="Invite links expire after 7 days. Members and viewers see every client unless you choose clients when inviting them, or later from Client access."
         />
         <InvitationsList onInvite={() => setInviteOpen(true)} />
       </section>
@@ -135,7 +135,7 @@ export function TeamView({
               What each role can do
             </CardTitle>
             <CardDescription>
-              Roles set what someone may do; listing access sets where.
+              Roles set what someone may do; client access sets where.
               Publishing is a separate switch for Members.
             </CardDescription>
           </CardHeader>

@@ -69,6 +69,9 @@ export const queryKeys = {
     ["analytics", kind, params] as const,
   settingsCapabilities: ["settings-capabilities"] as const,
   members: ["members"] as const,
+  // Under the members prefix, so invalidating the team list refreshes it too.
+  memberClientAccess: (userId: string) =>
+    ["members", userId, "client-access"] as const,
   invitations: ["invitations"] as const,
   invitation: (token: string) => ["invitation", token] as const,
   privacyRequests: ["privacy-requests"] as const,

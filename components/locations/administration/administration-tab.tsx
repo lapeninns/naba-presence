@@ -281,6 +281,15 @@ export function AccessTab({
           <div className="flex flex-col gap-6">
             <WritesBlocked reason={editReason ? null : publishReason} />
 
+            <p className="text-caption text-ink-muted">
+              These are the people Google lets manage this listing. Who can see
+              it in NabaPresence is usually managed per client, from{" "}
+              <Link href="/team" className="font-semibold text-ink underline">
+                Team → Client access
+              </Link>
+              .
+            </p>
+
             <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
               <AlertTitle>Primary owner rules</AlertTitle>
               <AlertDescription>
