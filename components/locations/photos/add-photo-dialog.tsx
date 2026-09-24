@@ -1,7 +1,7 @@
 "use client"
 
 import { CircleAlertIcon, LinkIcon, UploadIcon, XIcon } from "lucide-react"
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 
 import { UploadDialog } from "@/components/locations/photos/upload-dialog"
 import { GateNote } from "@/components/locations/publish-gate"
@@ -33,7 +33,10 @@ import {
   type MediaCategory,
   type MediaMutationResult,
 } from "@/lib/api/location-media"
-import { MAX_MEDIA_UPLOAD_BYTES } from "@/lib/contracts/location-media"
+import {
+  MAX_MEDIA_UPLOAD_BYTES,
+  MIN_PHOTO_UPLOAD_BYTES,
+} from "@/lib/contracts/location-media"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { humaniseCategory } from "@/lib/locations/media-labels"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -52,6 +55,8 @@ type UploadEntry = {
   progress: number
   error?: string
   code?: string
+  /** An object URL for the thumbnail; revoked when the entry goes. */
+  previewUrl?: string
 }
 
 function formatSize(bytes: number) {
@@ -60,13 +65,26 @@ function formatSize(bytes: number) {
     : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-/** The two rules the upload route enforces, stated once for picker and drop. */
+/** The rules the upload route enforces, stated once for picker and drop. */
 function checkFile(file: File): string | undefined {
   if (!ACCEPTED_TYPES.includes(file.type))
     return `This file type isn’t supported (${file.type || "unknown type"}). Choose a JPG or PNG.`
   if (file.size > MAX_MEDIA_UPLOAD_BYTES)
     return `Too large at ${formatSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
+  if (file.size < MIN_PHOTO_UPLOAD_BYTES)
+    return `Too small at ${formatSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
   return undefined
+}
+
+function previewFor(file: File): string | undefined {
+  if (!ACCEPTED_TYPES.includes(file.type)) return undefined
+  if (typeof URL.createObjectURL !== "function") return undefined
+  return URL.createObjectURL(file)
+}
+
+function revoke(entries: readonly UploadEntry[]) {
+  for (const entry of entries)
+    if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
 }
 
 const STATUS_PILL: Record<
@@ -124,6 +142,13 @@ export function AddPhotoDialog({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const disabled = Boolean(writeReason)
 
+  // Thumbnails are object URLs: release every one still held on unmount.
+  const held = useRef<UploadEntry[]>([])
+  useEffect(() => {
+    held.current = entries
+  }, [entries])
+  useEffect(() => () => revoke(held.current), [])
+
   const addUrl = useResourceMutation<MediaMutationResult>({
     mutationFn: () =>
       createMediaFromUrl(locationId, {
@@ -168,6 +193,7 @@ export function AddPhotoDialog({
         status: error ? "invalid" : "ready",
         progress: 0,
         error,
+        previewUrl: previewFor(file),
       } satisfies UploadEntry
     })
     setEntries((current) => [...current, ...added])
@@ -231,7 +257,10 @@ export function AddPhotoDialog({
         open={open}
         onOpenChange={(next) => {
           if (!next && uploading) return
-          if (!next) setEntries([])
+          if (!next) {
+            revoke(entries)
+            setEntries([])
+          }
           onOpenChange(next)
         }}
       >
@@ -306,16 +335,23 @@ export function AddPhotoDialog({
               Drop photos here, or choose files
             </span>
             <span id={hintId} className="text-caption text-ink-muted">
-              JPG or PNG, up to {MAX_MEDIA_UPLOAD_BYTES / MB} MB each
+              JPG or PNG, from {MIN_PHOTO_UPLOAD_BYTES / 1024} KB up to{" "}
+              {MAX_MEDIA_UPLOAD_BYTES / MB} MB each
             </span>
           </label>
 
+          {/* One polite summary instead of a live list: a live <ul> read
+              out every progress tick of every file. */}
+          <p className="sr-only" aria-live="polite">
+            {entries.length > 0
+              ? uploading
+                ? `Uploading. ${done} sent, ${ready.length} still to send, ${cannot} can’t upload.`
+                : `${done} sent, ${ready.length} ready, ${cannot} can’t upload.`
+              : ""}
+          </p>
+
           {entries.length > 0 ? (
-            <ul
-              aria-label="Files to upload"
-              aria-live="polite"
-              className="flex flex-col gap-2"
-            >
+            <ul aria-label="Files to upload" className="flex flex-col gap-2">
               {entries.map((entry) => {
                 const pill = STATUS_PILL[entry.status]
                 const removable =
@@ -326,8 +362,23 @@ export function AddPhotoDialog({
                 return (
                   <li
                     key={entry.key}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md border border-line px-3 py-2.5"
+                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md border border-line px-3 py-2.5"
                   >
+                    <span
+                      aria-hidden
+                      className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-fill text-ink-muted"
+                    >
+                      {entry.previewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={entry.previewUrl}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        <CircleAlertIcon className="size-4" />
+                      )}
+                    </span>
                     <span className="flex min-w-0 flex-col">
                       <span className="text-ui font-semibold break-words text-ink">
                         {entry.file.name}
@@ -347,11 +398,12 @@ export function AddPhotoDialog({
                           variant="ghost"
                           size="icon-sm"
                           aria-label={`Remove ${entry.file.name}`}
-                          onClick={() =>
+                          onClick={() => {
+                            revoke([entry])
                             setEntries((current) =>
                               current.filter((row) => row.key !== entry.key)
                             )
-                          }
+                          }}
                         >
                           <XIcon aria-hidden />
                         </Button>
@@ -359,13 +411,13 @@ export function AddPhotoDialog({
                     </span>
                     {entry.status === "uploading" ? (
                       <Progress
-                        className="col-span-2"
+                        className="col-span-3"
                         value={Math.round(entry.progress * 100)}
                         label={`Upload progress for ${entry.file.name}`}
                       />
                     ) : null}
                     {entry.error ? (
-                      <p className="col-span-2 flex items-start gap-1.5 text-caption text-danger-ink">
+                      <p className="col-span-3 flex items-start gap-1.5 text-caption text-danger-ink">
                         <CircleAlertIcon
                           aria-hidden
                           className="mt-px size-3.5 shrink-0"
@@ -446,6 +498,7 @@ export function AddPhotoDialog({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         files={ready.map((entry) => entry.file)}
+        previews={ready.map((entry) => entry.previewUrl ?? null)}
         category={category}
         pending={uploading}
         onConfirm={() => void uploadAll()}
