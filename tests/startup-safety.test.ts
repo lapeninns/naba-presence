@@ -36,6 +36,56 @@ describe("collectSafetyViolations", () => {
     ).toHaveLength(1)
   })
 
+  describe("advisory lock connection", () => {
+    const transaction =
+      "postgresql://naba_runtime.ref:pw@aws-1-us-east-1.pooler.supabase.com:6543/postgres"
+    const session =
+      "postgresql://naba_runtime.ref:pw@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+
+    it("refuses a transaction pooler with no session URL for the locks", () => {
+      const violations = collectSafetyViolations(
+        { ...baseEnv, DATABASE_URL: transaction },
+        safeIdentity
+      )
+      expect(violations.join(" ")).toContain("DATABASE_SESSION_URL")
+    })
+
+    it("refuses a session URL that is itself a transaction pooler", () => {
+      const violations = collectSafetyViolations(
+        {
+          ...baseEnv,
+          DATABASE_URL: transaction,
+          DATABASE_SESSION_URL: transaction,
+        },
+        safeIdentity
+      )
+      expect(violations).toHaveLength(1)
+      expect(violations[0]).toContain("DATABASE_SESSION_URL points at")
+    })
+
+    it("accepts a transaction pooler paired with the session pooler", () => {
+      expect(
+        collectSafetyViolations(
+          {
+            ...baseEnv,
+            DATABASE_URL: transaction,
+            DATABASE_SESSION_URL: session,
+          },
+          safeIdentity
+        )
+      ).toEqual([])
+    })
+
+    it("accepts a session-mode DATABASE_URL on its own", () => {
+      expect(
+        collectSafetyViolations(
+          { ...baseEnv, DATABASE_URL: session },
+          safeIdentity
+        )
+      ).toEqual([])
+    })
+  })
+
   it("requires the Pub/Sub OIDC audience when webhooks are on", () => {
     const violations = collectSafetyViolations(
       { ...baseEnv, WEBHOOKS_ENABLED: true },
