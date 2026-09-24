@@ -185,6 +185,8 @@ export function ReconnectBanner({ className }: { className?: string }) {
                 variant="outline"
                 size="sm"
                 className="max-w-full min-w-0 justify-start overflow-hidden pointer-coarse:min-h-11"
+                // The address is hidden on a phone; the name keeps it.
+                aria-label={`Reconnect ${first.googleEmail ?? "Google"}`}
                 onClick={() => {
                   connect.reset()
                   setDialogOpen(true)
