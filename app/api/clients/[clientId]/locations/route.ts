@@ -3,6 +3,10 @@ import {
   clientIdParamsSchema,
 } from "@/lib/contracts/clients"
 import { writeAudit } from "@/lib/server/audit"
+import {
+  auditExtendedGrants,
+  extendClientHolders,
+} from "@/lib/server/client-access"
 import { ApiError } from "@/lib/server/http"
 import { requireClientAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
@@ -17,6 +21,8 @@ export const runtime = "nodejs"
  * plainly should see the new one too, but per-location grants are explicit,
  * so without this they silently would not. Only members who hold the whole
  * client are extended — a member scoped to one branch stays scoped to it.
+ * The rule lives in `extendClientHolders` (lib/server/client-access.ts) and
+ * every extension is audited per member.
  */
 export const POST = route({
   roles: ["owner", "admin"],
@@ -26,9 +32,6 @@ export const POST = route({
     const assigned = await tenant(async (sql) => {
       await requireClientAccess(sql, session, params.clientId)
 
-      const existing = await sql<{ id: string }[]>`
-        select id::text as id from location where client_id = ${params.clientId}
-      `
       const updated = await sql<{ id: string }[]>`
         update location
            set client_id = ${params.clientId}
@@ -43,21 +46,13 @@ export const POST = route({
         )
       }
 
-      if (body.grantToClientMembers && existing.length > 0) {
-        await sql`
-          insert into location_member (organisation_id, location_id, user_id, can_publish)
-          select ${session.organisationId}, new_location.id, holder.user_id, holder.can_publish
-          from unnest(${sql.array(body.locationIds)}::uuid[]) as new_location(id)
-          join lateral (
-            select lm.user_id, bool_or(lm.can_publish) as can_publish
-            from location_member lm
-            where lm.location_id in ${sql(existing.map((row) => row.id))}
-            group by lm.user_id
-            having count(distinct lm.location_id) = ${existing.length}
-          ) holder on true
-          on conflict (location_id, user_id) do nothing
-        `
-      }
+      const extended = body.grantToClientMembers
+        ? await extendClientHolders(sql, {
+            organisationId: session.organisationId,
+            clientId: params.clientId,
+            locationIds: updated.map((row) => row.id),
+          })
+        : []
 
       await writeAudit(sql, {
         organisationId: session.organisationId,
@@ -67,6 +62,13 @@ export const POST = route({
         subjectId: params.clientId,
         requestId,
         metadata: { locationIds: body.locationIds, granted: body.grantToClientMembers },
+      })
+      await auditExtendedGrants(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        clientId: params.clientId,
+        requestId,
+        extended,
       })
       return updated.map((row) => row.id)
     })
