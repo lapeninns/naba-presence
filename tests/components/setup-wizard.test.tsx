@@ -90,15 +90,16 @@ const renderWizard = () =>
   )
 
 describe("SetupWizard", () => {
-  it("resumes at the step the data has reached, out of nine", async () => {
+  it("resumes at the step the data has reached, numbered among the client’s own steps", async () => {
     stub(fresh)
     renderWizard()
     expect(
       await screen.findByRole("heading", { name: "Connect Google", level: 2 })
     ).toBeInTheDocument()
-    expect(screen.getAllByText(/Step 3 of 9/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Step 1 of 6/).length).toBeGreaterThan(0)
     const rail = screen.getByRole("list", { name: "Setup steps" })
-    expect(rail.querySelectorAll("li")).toHaveLength(9)
+    // The client's own steps plus Done: agency and client are done before.
+    expect(rail.querySelectorAll("li")).toHaveLength(7)
     expect(rail.querySelector("[aria-current='step']")).toHaveTextContent(
       "Connect"
     )

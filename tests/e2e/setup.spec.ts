@@ -28,8 +28,8 @@ test.describe("client setup", () => {
       page.getByRole("heading", { name: "Client setup", level: 1 })
     ).toBeVisible()
     const stepper = page.getByRole("list", { name: "Setup steps" })
-    // All nine steps, Done included (the reference stepper).
-    await expect(stepper.getByRole("listitem")).toHaveCount(9)
+    // The client's own six steps plus Done; agency and client come before.
+    await expect(stepper.getByRole("listitem")).toHaveCount(7)
     // Exactly one step is current, whichever the data resolved to.
     await expect(stepper.locator("[aria-current='step']")).toHaveCount(1)
   })
@@ -45,7 +45,7 @@ test.describe("client setup", () => {
     // Both routes are offered: the first client needs a fresh consent, the
     // tenth is usually on a login the agency already connected.
     await expect(
-      page.getByRole("button", { name: /Continue with Google/ })
+      page.getByRole("button", { name: /Sign in with Google/ })
     ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Use an account already connected" })

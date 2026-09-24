@@ -24,7 +24,7 @@ const AREAS: {
   { href: "/settings", label: "Policy", capability: "always" },
   {
     href: "/settings/connections",
-    label: "Connections",
+    label: "Google connections",
     capability: "canManageConnections",
   },
 ]
@@ -32,7 +32,7 @@ const AREAS: {
 /**
  * The settings sub-navigation (reference `settings-subnav`): link tabs under
  * each settings page's header, the current one underlined in ink. A member
- * or viewer sees only Policy; Connections is for owners and admins.
+ * or viewer sees only Policy; Google connections is for owners and admins.
  */
 export function SettingsNav({
   role,

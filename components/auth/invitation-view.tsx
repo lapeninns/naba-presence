@@ -7,7 +7,7 @@ import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { AuthLink } from "@/components/auth/auth-link"
 import { InvitationActions } from "@/components/auth/invitation-actions"
-import { SignInForm } from "@/components/auth/sign-in-form"
+import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -75,9 +75,15 @@ function InvitationDetails({
 function InvitationView({
   token,
   viewer,
+  initialMode = "create-account",
 }: {
   token: string
   viewer: { displayName: string; email: string } | null
+  /**
+   * `sign-in` after a visitor signed out of a different account to get
+   * here: the invited address usually has an account of its own.
+   */
+  initialMode?: SignInMode
 }) {
   // retry: false - the shared query client defaults to retry: 1, which would
   // double the wait before every error branch below renders (and briefly
@@ -169,14 +175,18 @@ function InvitationView({
         aside="invite"
         eyebrow="Invitation"
         title={`Join ${data.organisationName}`}
-        description="Set a password and you will be able to work on the clients this agency has given you."
+        description={
+          initialMode === "sign-in"
+            ? "Sign in with the invited address and you will be able to work on the clients this agency has given you."
+            : "Set a password and you will be able to work on the clients this agency has given you."
+        }
       >
         <InvitationDetails
           organisationName={data.organisationName}
           email={data.email}
         />
         <SignInForm
-          initialMode="create-account"
+          initialMode={initialMode}
           inviteToken={token}
           invitedEmail={data.email}
         />
@@ -188,7 +198,11 @@ function InvitationView({
     <AuthCard
       eyebrow="Invitation"
       title={`Join ${data.organisationName}`}
-      description="Accepting adds this agency to the account you are already signed in with."
+      description={
+        viewer.email.trim().toLowerCase() === data.email.trim().toLowerCase()
+          ? "Accepting adds this agency to the account you are already signed in with."
+          : "This invitation belongs to a different account."
+      }
     >
       <InvitationDetails
         organisationName={data.organisationName}

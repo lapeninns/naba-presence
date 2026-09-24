@@ -293,4 +293,25 @@ describe("mode toggle", () => {
     expect(screen.getByLabelText("Email address")).toHaveValue("not-an-email")
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
   })
+
+  it("carries the typed email to Forgot password without the URL", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "sam@example.test")
+    const link = screen.getByRole("link", { name: "Forgot password?" })
+    expect(link).toHaveAttribute("href", "/forgot-password")
+    link.addEventListener("click", (event) => event.preventDefault())
+    await user.click(link)
+    expect(window.sessionStorage.getItem("naba:reset-email")).toBe(
+      "sam@example.test"
+    )
+  })
+
+  it("folds the resend-confirmation help behind a disclosure", () => {
+    const { container } = render(<SignInForm />)
+    const details = container.querySelector("details")
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute("open")
+    expect(details).toHaveTextContent("Didn't receive a confirmation email?")
+  })
 })

@@ -10,8 +10,10 @@ import { useEffect, useRef, useState } from "react"
 import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
+import { fetchSession } from "@/lib/api/session"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { queryKeys } from "@/lib/queries/keys"
+import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
 
@@ -101,15 +103,18 @@ function SidebarNav({
   onNavigate,
   layout,
   rail,
+  role,
 }: {
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail: boolean
+  role: string | null
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
   return (
     <Nav
+      role={role}
       onNavigate={onNavigate}
       layout={layout}
       rail={rail}
@@ -137,6 +142,7 @@ function SidebarBody({
   session,
   sessionReady,
   organisationName,
+  role,
   onNavigate,
   layout,
   rail = false,
@@ -144,7 +150,8 @@ function SidebarBody({
 }: {
   session: ShellSession | null
   sessionReady: boolean
-  organisationName: string
+  organisationName: string | null
+  role: string | null
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail?: boolean
@@ -163,7 +170,16 @@ function SidebarBody({
           )}
         >
           <BrandMark
-            title={organisationName}
+            title={
+              organisationName ?? (
+                // A span, not <Skeleton>: this sits inside phrasing content.
+                <span
+                  aria-hidden
+                  data-slot="skeleton"
+                  className="inline-block h-3.5 w-28 rounded-(--np-radius-tag) bg-fill align-middle"
+                />
+              )
+            }
             subtitle="NabaPresence"
             textClassName={cn(responsive && "md:max-[1181px]:sr-only")}
           />
@@ -173,7 +189,12 @@ function SidebarBody({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-3">
         {sessionReady ? (
-          <SidebarNav onNavigate={onNavigate} layout={layout} rail={rail} />
+          <SidebarNav
+            onNavigate={onNavigate}
+            layout={layout}
+            rail={rail}
+            role={role}
+          />
         ) : null}
       </div>
 
@@ -262,7 +283,19 @@ function AppShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const navToggleRef = useRef<HTMLButtonElement>(null)
   const sessionReady = useSessionReady(session)
-  const organisationName = session?.organisationName ?? "Your agency"
+  // The layout hydrates this key from the same server session, so a signed-in
+  // first paint already has the real name. Reading the query (not only the
+  // prop) is what lets a rename in Settings show here at once, and what fills
+  // the name in after the local anonymous bootstrap. Until a name is known the
+  // sidebar draws a skeleton rather than a placeholder that then changes.
+  const liveSession = useQuery({
+    queryKey: queryKeys.session,
+    queryFn: (ctx) => fetchSession(requestOptions(ctx)),
+    enabled: sessionReady,
+  }).data?.session
+  const organisationName =
+    liveSession?.organisationName ?? session?.organisationName ?? null
+  const role = liveSession?.role ?? session?.role ?? null
   const pathname = usePathname()
   const rail = useMediaQuery(
     "(min-width: 768px) and (max-width: 1180.98px)",
@@ -305,6 +338,7 @@ function AppShell({
               session={session}
               sessionReady={sessionReady}
               organisationName={organisationName}
+              role={role}
               layout="responsive"
               rail={rail}
             />
@@ -320,6 +354,7 @@ function AppShell({
                 session={session}
                 sessionReady={sessionReady}
                 organisationName={organisationName}
+                role={role}
                 layout="full"
                 onNavigate={() => setMobileNavOpen(false)}
                 closeButton={closeButton}

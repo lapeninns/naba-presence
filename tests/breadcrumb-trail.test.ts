@@ -58,7 +58,10 @@ describe("breadcrumbTrail", () => {
   })
 
   it("handles settings sections and the flat destinations", () => {
-    expect(trail("/settings/connections")).toEqual(["Settings", "Connections"])
+    expect(trail("/settings/connections")).toEqual([
+      "Settings",
+      "Google connections",
+    ])
     expect(trail("/settings")).toEqual(["Settings"])
     expect(trail("/inbox")).toEqual(["Inbox"])
     expect(trail("/team")).toEqual(["Team"])

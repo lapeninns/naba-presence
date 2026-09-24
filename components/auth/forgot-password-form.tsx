@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type FormEvent,
 } from "react"
@@ -18,6 +19,7 @@ import {
   fieldErrorsFrom,
   type AuthMessage,
 } from "@/lib/api/auth-errors"
+import { clearResetEmail, peekResetEmail } from "@/lib/api/reset-email"
 import { resetRequestSchema } from "@/lib/domain/auth"
 
 // Fields are rendered by `name` (Field's id comes from an internal useId
@@ -27,8 +29,25 @@ function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
 }
 
+// The handed-over address never changes while the page is open.
+const subscribeNever = () => () => {}
+
+/**
+ * Starts with what the visitor had already typed on the sign-in form (handed
+ * over in session storage, never the URL), so "Forgot password?" is not a
+ * second chance to mistype it.
+ */
 function ForgotPasswordForm() {
-  const [email, setEmail] = useState("")
+  // null until the visitor types; until then the field shows the address
+  // handed over from sign-in, read after hydration (storage doesn't exist on
+  // the server, whose snapshot is "").
+  const [typed, setEmail] = useState<string | null>(null)
+  const handedOver = useSyncExternalStore(
+    subscribeNever,
+    peekResetEmail,
+    () => ""
+  )
+  const email = typed ?? handedOver
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [sentTo, setSentTo] = useState<string | null>(null)
@@ -66,6 +85,7 @@ function ForgotPasswordForm() {
       try {
         await authApi.requestPasswordReset(parsed.data.email)
         setSentTo(parsed.data.email)
+        clearResetEmail()
       } catch (error) {
         const errors = fieldErrorsFrom(error)
         setFieldErrors(errors)

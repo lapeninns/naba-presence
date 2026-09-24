@@ -37,6 +37,19 @@ export const settingsPatchSchema = z.object({
 })
 export type SettingsPatchInput = z.input<typeof settingsPatchSchema>
 
+/**
+ * Whether a settings save turns approval OFF, the one change that needs an
+ * owner's explicit direct-publish consent. Leaving an already-off policy off
+ * while editing another field does not. Shared by the route (against the
+ * stored row) and the forms (against the loaded settings).
+ */
+export function requiresDirectPublishConsent(
+  storedApprovalRequired: boolean,
+  input: { approvalRequired: boolean }
+): boolean {
+  return storedApprovalRequired && !input.approvalRequired
+}
+
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------

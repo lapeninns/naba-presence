@@ -28,6 +28,7 @@ import {
   stepBlocker,
   stepDefinition,
   stepIndex,
+  stepNumber,
   stepperState,
   type SetupFacts,
 } from "@/lib/setup/steps"
@@ -67,7 +68,7 @@ function focusTargetFor(step: SetupStep): string {
  * furthest reachable one instead, with a note saying why.
  *
  * Layout (reference `setup.html`): a sticky 220px step rail beside one card
- * from 720px of room; below that the rail folds into "Step N of 9" with a
+ * from 720px of room; below that the rail folds into "Step N of 6" with a
  * progress bar and an "All steps" disclosure. The card's footer (Back, the
  * reason Continue is blocked, Continue) sticks to the bottom of the screen so
  * it is always reachable on a phone.
@@ -80,6 +81,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const { query: connectionsQuery } = useConnectionWorkspace()
 
   const [agencyDirty, setAgencyDirty] = React.useState(false)
+  const saveBeforeContinue = React.useRef<(() => Promise<boolean>) | null>(null)
   const [checking, setChecking] = React.useState(false)
   const [attempt, setAttempt] = React.useState<{
     step: SetupStep
@@ -166,6 +168,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   const definition = stepDefinition(current)
   const index = stepIndex(current)
+  const numbered = stepNumber(current)
   const isDone = current === "done"
   const blocker =
     current === "agency" && agencyDirty
@@ -184,6 +187,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   const advance = async () => {
     setChecking(true)
+    // A step with unsaved work (the accounts picker) saves it first; a save
+    // that fails shows its reason inline in the step and Continue stays put.
+    const saveFirst = saveBeforeContinue.current
+    if (saveFirst && !(await saveFirst())) {
+      setChecking(false)
+      return
+    }
     // Re-read before deciding: the step's own card (accounts, listings,
     // import) saves through its own endpoint and does not refresh setup.
     const [fresh, logins] = await Promise.all([
@@ -246,7 +256,11 @@ function SetupWizard({ clientId }: { clientId: string }) {
               <div className="mb-2 flex flex-col gap-2 @min-[720px]/setup:hidden">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-caption font-semibold text-ink">
-                    Step {index + 1} of {TOTAL} · {definition.label}
+                    {numbered
+                      ? `Step ${numbered.number} of ${numbered.total} · ${definition.label}`
+                      : isDone
+                        ? definition.label
+                        : `Before you start · ${definition.label}`}
                   </p>
                   <Button
                     variant="ghost"
@@ -266,11 +280,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
                     />
                   </Button>
                 </div>
-                <Progress
-                  value={index + 1}
-                  max={TOTAL}
-                  label={`Setup progress: step ${index + 1} of ${TOTAL}`}
-                />
+                {numbered ? (
+                  <Progress
+                    value={numbered.number}
+                    max={numbered.total}
+                    label={`Setup progress: step ${numbered.number} of ${numbered.total}`}
+                  />
+                ) : null}
                 <div id="setup-all-steps" hidden={!stepsOpen}>
                   {stepsOpen ? (
                     <Stepper
@@ -284,7 +300,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
               </div>
               {isDone ? null : (
                 <p className="hidden text-caption font-semibold text-ink-secondary @min-[720px]/setup:block">
-                  Step {index + 1} of {TOTAL}
+                  {numbered
+                    ? `Step ${numbered.number} of ${numbered.total}`
+                    : "Before you start"}
                   {definition.optional ? " · optional" : ""}
                 </p>
               )}
@@ -335,6 +353,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   facts={facts}
                   connectionId={setup?.connection?.id ?? null}
                   onAgencyDirtyChange={setAgencyDirty}
+                  saveBeforeContinueRef={saveBeforeContinue}
                   onConnected={() => goTo("account")}
                 />
               </div>
@@ -446,6 +465,7 @@ function StepBody({
   facts,
   connectionId,
   onAgencyDirtyChange,
+  saveBeforeContinueRef,
   onConnected,
 }: {
   step: SetupStep
@@ -454,6 +474,7 @@ function StepBody({
   facts: SetupFacts
   connectionId: string | null
   onAgencyDirtyChange: (dirty: boolean) => void
+  saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
   onConnected: () => void
 }) {
   switch (step) {
@@ -475,6 +496,7 @@ function StepBody({
           clientName={clientName}
           clientId={clientId}
           connectionId={connectionId}
+          saveBeforeContinueRef={saveBeforeContinueRef}
         />
       )
     case "locations":
@@ -486,7 +508,7 @@ function StepBody({
         />
       )
     case "backfill":
-      return <StepBackfill clientName={clientName} />
+      return <StepBackfill clientId={clientId} clientName={clientName} />
     case "notifications":
       return <StepNotifications />
     case "team":

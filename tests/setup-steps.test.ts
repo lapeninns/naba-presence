@@ -7,6 +7,7 @@ import {
   resolveStep,
   stepBlocker,
   stepIndex,
+  stepNumber,
   stepperState,
 } from "@/lib/setup/steps"
 
@@ -91,12 +92,37 @@ describe("stepperState", () => {
     expect(byId.locations).toBe("todo")
   })
 
-  it("shows all nine steps, and links only the reachable ones", () => {
+  it("shows the client's own steps, and links only the reachable ones", () => {
     const state = stepperState("connect", facts)
-    expect(state).toHaveLength(9)
-    expect(state.at(-1)?.id).toBe("done")
+    // Agency and client are done before the flow starts, so a new client's
+    // rail begins at Connect.
+    expect(state.map((s) => s.id)).toEqual([
+      "connect",
+      "account",
+      "locations",
+      "backfill",
+      "notifications",
+      "team",
+      "done",
+    ])
     const reachable = state.filter((s) => s.reachable).map((s) => s.id)
-    expect(reachable).toEqual(["agency", "client", "connect"])
+    expect(reachable).toEqual(["connect"])
+  })
+
+  it("keeps the preamble steps in the rail while the operator is on one", () => {
+    const state = stepperState("agency", facts)
+    expect(state[0]?.id).toBe("agency")
+    expect(state).toHaveLength(9)
+  })
+})
+
+describe("stepNumber", () => {
+  it("numbers only the client's own steps", () => {
+    expect(stepNumber("connect")).toEqual({ number: 1, total: 6 })
+    expect(stepNumber("team")).toEqual({ number: 6, total: 6 })
+    expect(stepNumber("agency")).toBeNull()
+    expect(stepNumber("client")).toBeNull()
+    expect(stepNumber("done")).toBeNull()
   })
 })
 

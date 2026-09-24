@@ -1,6 +1,6 @@
 "use client"
 
-import { RefreshCw } from "lucide-react"
+import { ChevronRight, RefreshCw } from "lucide-react"
 import { useId, useRef, useState } from "react"
 
 import {
@@ -75,6 +75,7 @@ export function NotificationsCard() {
   const [topic, setTopic] = useState<string | null>(null)
   const [types, setTypes] = useState<Set<string> | null>(null)
   const [topicError, setTopicError] = useState<string | null>(null)
+  const [advancedOpen, setAdvancedOpen] = useState<boolean | null>(null)
   const topicRef = useRef<HTMLInputElement>(null)
 
   const headingId = `${ids}-heading`
@@ -84,8 +85,9 @@ export function NotificationsCard() {
         Real-time notifications
       </CardTitle>
       <CardDescription>
-        Google posts new reviews to a Pub/Sub topic, so they arrive within
-        minutes instead of waiting for the next sync.
+        Google can tell NabaPresence the moment a review arrives, instead of it
+        waiting for the next scheduled check. Without this, reviews still
+        arrive, just later.
       </CardDescription>
     </CardHeader>
   )
@@ -143,6 +145,11 @@ export function NotificationsCard() {
   const currentTopic = topic ?? server.pubsubTopic ?? ""
   const currentTypes = types ?? new Set(server.notificationTypes ?? [])
   const topicEmpty = currentTopic.trim() === ""
+  // Open by default only when a topic is already saved, and always when the
+  // topic needs fixing; otherwise it follows the operator's own toggling
+  // (never the field's contents, which would snap it shut mid-edit).
+  const advancedShown =
+    topicError !== null || (advancedOpen ?? Boolean(server.pubsubTopic))
 
   const toggle = (type: string) => {
     const next = new Set(currentTypes)
@@ -187,25 +194,52 @@ export function NotificationsCard() {
     <Card flush aria-labelledby={headingId} role="region">
       {header}
       <div className="flex flex-col gap-5 p-(--np-card-pad)">
-        <Field error={topicError ?? undefined}>
-          <FieldLabel>Pub/Sub topic</FieldLabel>
-          <Input
-            ref={topicRef}
-            value={currentTopic}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="projects/my-project/topics/reviews"
-            className="font-mono"
-            onChange={(event) => {
-              setTopic(event.target.value)
-              if (topicError) setTopicError(null)
-            }}
-          />
-          <FieldDescription>
-            Clear the topic to turn Google notifications off.
-          </FieldDescription>
-          <FieldError>{topicError}</FieldError>
-        </Field>
+        <p className="text-ui text-ink-secondary" role="status">
+          {topicEmpty
+            ? "Off. Reviews arrive on the scheduled check."
+            : "On. Google sends new reviews as they happen."}
+        </p>
+        {/* The topic is Google Cloud plumbing, not something an agency
+            chooses: it comes from whoever runs this NabaPresence install.
+            Kept behind a disclosure so the card reads as on/off first. It
+            opens by itself when a topic is set or needs fixing. */}
+        <details
+          className="group rounded-(--np-radius-control) border border-line"
+          open={advancedShown}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 px-3 text-ui font-semibold text-ink focus-halo focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-4 text-ink-muted transition-transform duration-(--np-duration-fast) group-open:rotate-90"
+            />
+            Advanced: Google Cloud Pub/Sub topic
+          </summary>
+          <div className="px-3 pb-3">
+            <Field error={topicError ?? undefined}>
+              <FieldLabel>Pub/Sub topic</FieldLabel>
+              <Input
+                ref={topicRef}
+                value={currentTopic}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="projects/my-project/topics/reviews"
+                className="font-mono"
+                onChange={(event) => {
+                  setTopic(event.target.value)
+                  if (topicError) setTopicError(null)
+                }}
+              />
+              <FieldDescription>
+                The topic your NabaPresence administrator set up for Google to
+                post to. If nobody has given you one, leave this empty. Clear it
+                to turn notifications off.
+              </FieldDescription>
+              <FieldError>{topicError}</FieldError>
+            </Field>
+          </div>
+        </details>
         <div
           role="group"
           aria-labelledby={typesLabelId}
@@ -237,7 +271,7 @@ export function NotificationsCard() {
           </ul>
           {topicEmpty ? (
             <p className="text-caption text-ink-muted">
-              Add a topic to choose what Google sends.
+              Add a Pub/Sub topic under Advanced to choose what Google sends.
             </p>
           ) : null}
         </div>

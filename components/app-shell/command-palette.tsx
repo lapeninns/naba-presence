@@ -26,29 +26,58 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthTone } from "@/lib/clients/health"
+import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
-const GO_TO = [
+type PaletteEntry = {
+  href: string
+  label: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  /**
+   * Owner/admin destinations: their pages answer anyone else with Access
+   * denied, so the palette does not offer them (the rule the sidebar and the
+   * settings tabs follow).
+   */
+  adminOnly?: boolean
+}
+
+const GO_TO: PaletteEntry[] = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/listings", label: "Listings", icon: Store },
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/reports", label: "Reports", icon: TrendingUp },
-  { href: "/team", label: "Team", icon: Users },
+  { href: "/team", label: "Team", icon: Users, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
-const ACTIONS = [
-  { href: "/clients/new", label: "New client", icon: Plus },
+const ACTIONS: PaletteEntry[] = [
+  { href: "/clients/new", label: "New client", icon: Plus, adminOnly: true },
   {
     href: "/settings/connections",
     label: "Connect a Google account",
     icon: Plus,
+    adminOnly: true,
   },
-  { href: "/team", label: "Invite a teammate", icon: UserPlus },
+  {
+    href: "/team",
+    label: "Invite a teammate",
+    icon: UserPlus,
+    adminOnly: true,
+  },
 ]
+
+/** The entries this role can use; everything while the role is unknown. */
+export function paletteEntriesFor(
+  entries: PaletteEntry[],
+  role: string | null
+): PaletteEntry[] {
+  if (role === null) return entries
+  const managerial = settingsGatingFromRole(role).canManageTeam
+  return entries.filter((entry) => !entry.adminOnly || managerial)
+}
 
 const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
 
@@ -69,7 +98,10 @@ function CommandPalette({
 }) {
   const router = useRouter()
   const clients = useClients()
-  const locations = useLocationDirectory(useSessionRole())
+  const role = useSessionRole()
+  const locations = useLocationDirectory(role)
+  const goTo = paletteEntriesFor(GO_TO, role)
+  const actions = paletteEntriesFor(ACTIONS, role)
 
   const go = (href: string) => {
     onOpenChange(false)
@@ -140,7 +172,7 @@ function CommandPalette({
         ) : null}
 
         <CommandGroup heading="Go to">
-          {GO_TO.map((item) => {
+          {goTo.map((item) => {
             const Icon = item.icon
             return (
               <CommandItem
@@ -156,7 +188,7 @@ function CommandPalette({
         </CommandGroup>
 
         <CommandGroup heading="Actions">
-          {ACTIONS.map((item) => {
+          {actions.map((item) => {
             const Icon = item.icon
             return (
               <CommandItem

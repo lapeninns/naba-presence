@@ -45,7 +45,9 @@ export const invitationSchema = z.object({
 export type Invitation = z.infer<typeof invitationSchema>
 
 /** GET `/api/invitations` response. */
-export const invitationsResponseSchema = z.object({ items: z.array(invitationSchema) })
+export const invitationsResponseSchema = z.object({
+  items: z.array(invitationSchema),
+})
 export type InvitationsResponse = z.infer<typeof invitationsResponseSchema>
 
 /** POST `/api/invitations` response (201). */
@@ -53,11 +55,26 @@ export const invitationCreatedResponseSchema = z.object({
   invitation: invitationSchema,
   inviteUrl: z.string(),
 })
-export type InvitationCreatedResponse = z.infer<typeof invitationCreatedResponseSchema>
+export type InvitationCreatedResponse = z.infer<
+  typeof invitationCreatedResponseSchema
+>
 
 /** DELETE `/api/invitations/[token]` response. */
-export const invitationRevokedResponseSchema = z.object({ revoked: z.literal(true) })
-export type InvitationRevokedResponse = z.infer<typeof invitationRevokedResponseSchema>
+export const invitationRevokedResponseSchema = z.object({
+  revoked: z.literal(true),
+})
+export type InvitationRevokedResponse = z.infer<
+  typeof invitationRevokedResponseSchema
+>
+
+/** POST `/api/invitations/[token]` response: accepted with the current session. */
+export const invitationAcceptedResponseSchema = z.object({
+  accepted: z.literal(true),
+  organisationId: z.string(),
+})
+export type InvitationAcceptedResponse = z.infer<
+  typeof invitationAcceptedResponseSchema
+>
 
 /** GET `/api/invitations/[token]` response (public invite lookup). */
 export const invitationLookupSchema = z.object({

@@ -9,10 +9,10 @@ describe("SettingsNav", () => {
   it("shows every area to an owner and marks the active one", () => {
     render(<SettingsNav role="owner" />)
     const nav = screen.getByRole("navigation", { name: "Settings sections" })
-    for (const label of ["Policy", "Connections"]) {
+    for (const label of ["Policy", "Google connections"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
-    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Google connections" })).toHaveAttribute(
       "aria-current",
       "page"
     )
@@ -39,7 +39,7 @@ describe("SettingsNav", () => {
 
   it("shows every area to an admin too", () => {
     render(<SettingsNav role="admin" />)
-    for (const label of ["Policy", "Connections"]) {
+    for (const label of ["Policy", "Google connections"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
   })
@@ -47,7 +47,7 @@ describe("SettingsNav", () => {
   it("shows a member only the Policy area", () => {
     render(<SettingsNav role="member" />)
     expect(screen.getByRole("link", { name: "Policy" })).toBeInTheDocument()
-    for (const gone of ["Connections"]) {
+    for (const gone of ["Google connections"]) {
       expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
     }
   })

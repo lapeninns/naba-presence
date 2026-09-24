@@ -7,7 +7,10 @@ import {
   type ResetRequestInput,
   type SignInInput,
 } from "@/lib/contracts/auth"
-import { invitationLookupSchema } from "@/lib/contracts/invitations"
+import {
+  invitationAcceptedResponseSchema,
+  invitationLookupSchema,
+} from "@/lib/contracts/invitations"
 
 export async function signIn(input: SignInInput): Promise<void> {
   await apiFetch("/api/auth/password/login", { method: "POST", body: input })
@@ -56,8 +59,19 @@ export async function resendConfirmation(
 export async function signOut(
   options: { everywhere?: boolean } = {}
 ): Promise<void> {
-  await apiFetch(options.everywhere ? "/api/session?scope=all" : "/api/session", {
-    method: "DELETE",
+  await apiFetch(
+    options.everywhere ? "/api/session?scope=all" : "/api/session",
+    {
+      method: "DELETE",
+    }
+  )
+}
+
+/** Accepts an invitation with the session the visitor already holds. */
+export async function acceptInvitation(token: string) {
+  return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
+    method: "POST",
+    schema: invitationAcceptedResponseSchema,
   })
 }
 

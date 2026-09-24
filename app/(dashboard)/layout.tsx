@@ -1,7 +1,9 @@
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell/app-shell"
+import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
 import { sessionSchema } from "@/lib/api/session"
 import {
   projectDefault,
@@ -26,7 +28,12 @@ export default async function DashboardLayout({
   const session = await getSession()
   const allowAnonymous =
     process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
-  if (!session && !allowAnonymous) redirect("/sign-in")
+  if (!session && !allowAnonymous) {
+    // proxy.ts forwards the requested path; keep it as ?next= so a deep
+    // link followed while signed out lands where it pointed after sign-in.
+    const requested = (await headers()).get(REQUEST_PATH_HEADER)
+    redirect(signInPathFor(requested))
+  }
 
   const queryClient = makeQueryClient()
   if (session) {

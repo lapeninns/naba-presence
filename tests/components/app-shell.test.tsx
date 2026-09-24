@@ -53,23 +53,31 @@ const client = {
 }
 
 function stubApi(
-  overrides: { clients?: unknown[]; connections?: unknown[]; role?: string } = {}
+  overrides: {
+    clients?: unknown[]
+    connections?: unknown[]
+    role?: string
+  } = {}
 ) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     const body = url.includes("/api/google/connections")
       ? { connections: overrides.connections ?? [] }
       : url.includes("/api/clients")
-      ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
-      : url.includes("/api/organisations")
-        ? {
-            items: [
-              { organisationId: "o", name: "Lapen Inns Agency", role: "owner" },
-            ],
-          }
-        : url.includes("/api/session")
-          ? { session: { ...session, role: overrides.role ?? session.role } }
-          : { locations: [] }
+        ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
+        : url.includes("/api/organisations")
+          ? {
+              items: [
+                {
+                  organisationId: "o",
+                  name: "Lapen Inns Agency",
+                  role: "owner",
+                },
+              ],
+            }
+          : url.includes("/api/session")
+            ? { session: { ...session, role: overrides.role ?? session.role } }
+            : { locations: [] }
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -163,22 +171,20 @@ describe("AppShell", () => {
     })
     render(
       <Toaster>
-      <QueryProvider>
-        <AppShell session={session}>
-          <PageFrame>
-            <PageHeader title="Inbox" />
-          </PageFrame>
-        </AppShell>
-      </QueryProvider>
+        <QueryProvider>
+          <AppShell session={session}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
       </Toaster>
     )
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
     // Action needed outranks delayed data: the count names the clients a
     // person has to do something for.
-    expect(
-      await screen.findByText("1 client needs action")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("1 client needs action")).toBeInTheDocument()
   })
 
   const brokenLogin = {
@@ -215,7 +221,7 @@ describe("AppShell", () => {
     ).toHaveAttribute("href", "/clients/c1")
   })
 
-  it("shows a broken login on every page, with a one-click reconnect for admins", async () => {
+  it("shows a broken login on every page, with a reconnect for admins", async () => {
     // Org-wide: this page belongs to no client, and the login has no linked
     // locations left -- the old client-scoped banner showed nothing here.
     const fetchMock = stubApi({ connections: [brokenLogin] })
@@ -228,6 +234,10 @@ describe("AppShell", () => {
       name: "Reconnect login@example.test",
     })
     await user.click(reconnect)
+    // The same explanation Settings' connection card gives, then Google.
+    await user.click(
+      await screen.findByRole("button", { name: "Continue to Google" })
+    )
     const start = fetchMock.mock.calls.find(([input]) =>
       String(input).includes("/api/google/connect/start")
     )
@@ -241,7 +251,10 @@ describe("AppShell", () => {
   })
 
   it("tells other roles who can fix it, without a reconnect control", async () => {
-    stubApi({ connections: [{ ...brokenLogin, googleEmail: "l***@example.test" }], role: "member" })
+    stubApi({
+      connections: [{ ...brokenLogin, googleEmail: "l***@example.test" }],
+      role: "member",
+    })
     render(
       <Toaster>
         <QueryProvider>
@@ -265,7 +278,12 @@ describe("AppShell", () => {
     stubApi({
       connections: [
         brokenLogin,
-        { ...brokenLogin, id: "g2", googleEmail: "a-very-long-shared-venue-manager-address@some-long-domain.example" },
+        {
+          ...brokenLogin,
+          id: "g2",
+          googleEmail:
+            "a-very-long-shared-venue-manager-address@some-long-domain.example",
+        },
       ],
     })
     render(
@@ -330,11 +348,11 @@ describe("session-ready children gate", () => {
     stubApi()
     render(
       <Toaster>
-      <QueryProvider>
-        <AppShell session={null}>
-          <div>gated-child</div>
-        </AppShell>
-      </QueryProvider>
+        <QueryProvider>
+          <AppShell session={null}>
+            <div>gated-child</div>
+          </AppShell>
+        </QueryProvider>
       </Toaster>
     )
     expect(screen.queryByText("gated-child")).not.toBeInTheDocument()
@@ -347,9 +365,9 @@ describe("session-ready children gate", () => {
     const fetchMock = stubApi()
     render(
       <Toaster>
-      <QueryProvider>
-        <AppShell session={null}>content</AppShell>
-      </QueryProvider>
+        <QueryProvider>
+          <AppShell session={null}>content</AppShell>
+        </QueryProvider>
       </Toaster>
     )
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())

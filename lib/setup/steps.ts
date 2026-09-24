@@ -18,6 +18,12 @@ export type SetupStepDefinition = {
   description: string
   /** Steps a client works without; the flow lets you move past them. */
   optional?: boolean
+  /**
+   * Done before the client's own flow starts (the agency exists, the client
+   * was just created). Still reachable with Back or `?step=`, but left out of
+   * the numbering and the rail, so a new client opens at "Step 1", not 3.
+   */
+  preamble?: boolean
 }
 
 export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
@@ -27,13 +33,15 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
     title: "Confirm your agency",
     description:
       "How your agency appears to your team, and the timezone reports and opening hours default to.",
+    preamble: true,
   },
   {
     id: "client",
     label: "Client",
-    title: "Name the client",
+    title: "Confirm the client",
     description:
       "The business you look after, as you and your team refer to it.",
+    preamble: true,
   },
   {
     id: "connect",
@@ -94,6 +102,27 @@ export function stepDefinition(id: SetupStep): SetupStepDefinition {
 
 export function stepIndex(id: SetupStep): number {
   return SETUP_STEPS.indexOf(id)
+}
+
+/** The steps that count: the client's own, without the closing "Done". */
+const NUMBERED_STEPS = SETUP_STEP_DEFINITIONS.filter(
+  (step) => !step.preamble && step.id !== "done"
+).map((step) => step.id)
+
+/**
+ * "Step N of M" for the client's own steps, or null for a preamble step and
+ * for Done, which the wizard shows without a number.
+ */
+export function stepNumber(
+  id: SetupStep
+): { number: number; total: number } | null {
+  const position = NUMBERED_STEPS.indexOf(id)
+  if (position === -1) return null
+  return { number: position + 1, total: NUMBERED_STEPS.length }
+}
+
+export function isPreambleStep(id: SetupStep): boolean {
+  return Boolean(BY_ID.get(id)?.preamble)
 }
 
 export function isSetupStep(
@@ -178,7 +207,7 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
     case "account":
       return facts.accountsActive > 0
         ? null
-        : "Choose at least one Business Profile account and save your choice."
+        : "Choose at least one Business Profile account to continue."
     case "locations":
       return facts.locationsLinked > 0
         ? null
@@ -230,9 +259,12 @@ export function resolveStep(
 }
 
 /**
- * Every step for the stepper: done when its work exists, current where the
+ * The steps for the rail: done when its work exists, current where the
  * operator is, to-do otherwise; `reachable` decides whether it is a link.
  * Stepping back to re-read an answer keeps later work marked done.
+ *
+ * Preamble steps (agency, client) are left out unless the operator is on
+ * one, so the rail is the client's own flow and still marks where they are.
  */
 export function stepperState(
   current: SetupStep,
@@ -245,7 +277,10 @@ export function stepperState(
   state: "done" | "current" | "todo"
 }[] {
   const furthest = furthestReachable(facts)
-  return SETUP_STEP_DEFINITIONS.map((step) => ({
+  const onPreamble = isPreambleStep(current)
+  return SETUP_STEP_DEFINITIONS.filter(
+    (step) => onPreamble || !step.preamble
+  ).map((step) => ({
     id: step.id,
     label: step.label,
     optional: Boolean(step.optional),

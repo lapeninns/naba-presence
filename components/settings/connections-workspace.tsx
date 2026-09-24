@@ -47,7 +47,7 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
   return (
     <>
       <PageHeader
-        title="Google Business Profile"
+        title="Google connections"
         description="The Google accounts this agency has connected, which clients depend on each, and how Google tells us about new reviews."
         actions={
           hasConnection ? (

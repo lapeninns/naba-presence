@@ -23,11 +23,18 @@ import { describeActionError } from "@/lib/errors/action-errors"
 export function AccountPickerCard({
   clientId,
   connectionId,
+  saveBeforeContinueRef,
 }: {
   /** Setup: save only among this client's logins. */
   clientId?: string
   /** Setup: the login the client connected, instead of the derived one. */
   connectionId?: string | null
+  /**
+   * Setup: filled with a function the wizard's Continue calls first. It saves
+   * a changed selection and resolves false when that save fails (the error
+   * shows inline), so Continue never needs a separate Save click.
+   */
+  saveBeforeContinueRef?: React.RefObject<(() => Promise<boolean>) | null>
 } = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
@@ -50,6 +57,8 @@ export function AccountPickerCard({
   const toast = useToastManager()
   const headingId = useId()
 
+  // Success is a toast; a failure stays inline beside the Save button (see
+  // AccountPickerTable), where it is still there when the operator looks.
   const saveStatus = accounts.save.status
   const previousSaveStatus = useRef(saveStatus)
   useEffect(() => {
@@ -57,12 +66,7 @@ export function AccountPickerCard({
     previousSaveStatus.current = saveStatus
     if (saveStatus === "success")
       toast.add({ title: "Accounts updated", type: "success" })
-    if (saveStatus === "error")
-      toast.add({
-        title: describeActionError(accounts.save.error),
-        type: "error",
-      })
-  }, [saveStatus, accounts.save.error, toast])
+  }, [saveStatus, toast])
 
   if (accounts.query.isPending) {
     return (
@@ -120,6 +124,7 @@ export function AccountPickerCard({
         key={accounts.query.dataUpdatedAt}
         rows={rows}
         save={accounts.save}
+        saveBeforeContinueRef={saveBeforeContinueRef}
       />
     </section>
   )
@@ -128,16 +133,42 @@ export function AccountPickerCard({
 function AccountPickerTable({
   rows,
   save,
+  saveBeforeContinueRef,
 }: {
   rows: GoogleAccount[]
   save: ReturnType<typeof useGoogleAccounts>["save"]
+  saveBeforeContinueRef?: React.RefObject<(() => Promise<boolean>) | null>
 }) {
-  const [checked, setChecked] = useState<Set<string>>(
+  const [saved] = useState<Set<string>>(
     () =>
       new Set(
         rows.filter((account) => account.isActive).map((account) => account.id)
       )
   )
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(saved))
+  const dirty =
+    checked.size !== saved.size || [...checked].some((id) => !saved.has(id))
+  const errorId = useId()
+
+  // Kept current every render so Continue always saves the latest ticks.
+  const saveIfChanged = async () => {
+    if (!dirty) return true
+    try {
+      await save.mutateAsync([...checked])
+      return true
+    } catch {
+      // The mutation holds the error; the inline alert below reads it.
+      return false
+    }
+  }
+  // Re-registered after every render so Continue saves the latest ticks.
+  useEffect(() => {
+    if (!saveBeforeContinueRef) return
+    saveBeforeContinueRef.current = saveIfChanged
+    return () => {
+      saveBeforeContinueRef.current = null
+    }
+  })
 
   const toggle = (id: string) => {
     setChecked((current) => {
@@ -173,9 +204,25 @@ function AccountPickerTable({
           </li>
         ))}
       </ul>
-      <div className="flex justify-end">
+      {save.isError ? (
+        <p
+          id={errorId}
+          role="alert"
+          className="text-ui font-medium text-danger-ink"
+        >
+          Your account choice wasn’t saved. {describeActionError(save.error)}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-end gap-3">
+        {dirty && saveBeforeContinueRef ? (
+          <span className="text-caption text-ink-muted" role="status">
+            Continue saves your choice.
+          </span>
+        ) : null}
         <Button
+          variant={saveBeforeContinueRef ? "secondary" : undefined}
           disabled={save.isPending}
+          aria-describedby={save.isError ? errorId : undefined}
           onClick={() => save.mutate([...checked])}
         >
           {save.isPending ? "Saving…" : "Save accounts"}

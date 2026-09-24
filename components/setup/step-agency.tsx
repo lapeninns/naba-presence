@@ -3,42 +3,23 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import * as React from "react"
 
+import { AgencyNameForm } from "@/components/settings/agency-name-form"
+import { TimezonePicker } from "@/components/settings/timezone-picker"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { useToastManager } from "@/components/ui/toast"
 import { saveSettings } from "@/lib/api/settings"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
-import { useSession } from "@/lib/queries/use-session"
 import { useSettings } from "@/lib/queries/use-settings"
-
-// The zones an agency in this market actually works in. A full IANA list is a
-// 400-row dropdown that helps nobody pick.
-const TIMEZONES = [
-  "Europe/London",
-  "Europe/Dublin",
-  "Europe/Paris",
-  "Europe/Madrid",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Australia/Sydney",
-]
 
 /**
  * Confirms the agency's own details before any client work.
  *
- * The name is read-only here: it came from sign-up and renaming it is an
- * account action, not part of onboarding a client. The timezone is not — it
- * decides how opening hours and report windows are interpreted, and getting it
- * wrong is invisible until a report looks wrong.
+ * Sign-up stores a placeholder name, so an owner can put the real one in
+ * here (everyone else sees it read-only). The timezone decides how opening
+ * hours and report windows are interpreted, and getting it wrong is
+ * invisible until a report looks wrong.
  *
  * `onDirtyChange` tells the wizard a changed timezone has not been saved, so
  * Continue can say so instead of dropping the change.
@@ -48,7 +29,6 @@ function StepAgency({
 }: {
   onDirtyChange?: (dirty: boolean) => void
 }) {
-  const session = useSession()
   const settings = useSettings()
   const queryClient = useQueryClient()
   const toast = useToastManager()
@@ -57,20 +37,25 @@ function StepAgency({
 
   // The settings PATCH takes the whole policy object, so the current values
   // ride along unchanged; sending only the timezone would clear the rest.
+  // Saving waits for them to load rather than guessing, since a guessed
+  // `approvalRequired` could quietly change the reply policy.
   const existing = settings.data
   const save = useMutation({
-    mutationFn: (defaultTimezone: string) =>
-      saveSettings({
-        approvalRequired: existing?.approvalRequired ?? true,
-        rawContentRetentionDays: existing?.rawContentRetentionDays ?? 30,
-        defaultLanguageCode: existing?.defaultLanguageCode ?? "en",
+    mutationFn: (defaultTimezone: string) => {
+      if (!existing) throw new Error("Your settings are still loading.")
+      return saveSettings({
+        approvalRequired: existing.approvalRequired,
+        requireTwoPersonApproval: existing.requireTwoPersonApproval,
+        rawContentRetentionDays: existing.rawContentRetentionDays,
+        defaultLanguageCode: existing.defaultLanguageCode,
         defaultTimezone,
-      }),
+      })
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
   })
 
-  const saved = settings.data?.defaultTimezone
+  const saved = existing?.defaultTimezone
   const current = timezone ?? saved ?? "Europe/London"
   const dirty = saved !== undefined && current !== saved
 
@@ -81,77 +66,59 @@ function StepAgency({
   React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   return (
-    <div className="flex max-w-[27.5rem] flex-col gap-5">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="setup-agency-name" className="font-semibold">
-          Agency name
-        </Label>
-        <Input
-          id="setup-agency-name"
-          value={session.data?.session?.organisationName ?? ""}
-          readOnly
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="setup-agency-timezone" className="font-semibold">
-          Default timezone
-        </Label>
-        <Select
-          value={current}
-          onValueChange={(value) => {
-            setSaveError(null)
-            setTimezone(String(value))
-          }}
-        >
-          <SelectTrigger
+    <div className="flex max-w-[27.5rem] flex-col gap-6">
+      <AgencyNameForm />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="setup-agency-timezone" className="font-semibold">
+            Default timezone
+          </Label>
+          <TimezonePicker
             id="setup-agency-timezone"
             aria-describedby="setup-agency-timezone-hint"
+            value={current}
+            disabled={!existing}
+            onChange={(zone) => {
+              setSaveError(null)
+              setTimezone(zone)
+            }}
+          />
+          <p
+            id="setup-agency-timezone-hint"
+            className="text-caption text-ink-muted"
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TIMEZONES.map((zone) => (
-              <SelectItem key={zone} value={zone}>
-                {zone.replace("_", " ").replace("/", " · ")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p
-          id="setup-agency-timezone-hint"
-          className="text-caption text-ink-muted"
-        >
-          Opening hours and report windows are read in this timezone unless a
-          listing sets its own.
-        </p>
-      </div>
-      {saveError ? (
-        <p role="alert" className="text-ui font-medium text-danger-ink">
-          The timezone wasn’t saved. {saveError}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          id="setup-agency-save"
-          variant="secondary"
-          disabled={!dirty}
-          pending={save.isPending}
-          pendingLabel="Saving…"
-          onClick={async () => {
-            setSaveError(null)
-            try {
-              await save.mutateAsync(current)
-              toast.add({ title: "Timezone saved" })
-            } catch (error) {
-              setSaveError(describeActionError(error))
-            }
-          }}
-        >
-          Save timezone
-        </Button>
-        <span className="text-caption text-ink-muted" role="status">
-          {saved === undefined ? "" : dirty ? "Unsaved change" : "Saved"}
-        </span>
+            Opening hours and report windows are read in this timezone unless a
+            listing sets its own.
+          </p>
+        </div>
+        {saveError ? (
+          <p role="alert" className="text-ui font-medium text-danger-ink">
+            The timezone wasn’t saved. {saveError}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            id="setup-agency-save"
+            variant="secondary"
+            disabled={!dirty}
+            pending={save.isPending}
+            pendingLabel="Saving…"
+            onClick={async () => {
+              setSaveError(null)
+              try {
+                await save.mutateAsync(current)
+                toast.add({ title: "Timezone saved" })
+              } catch (error) {
+                setSaveError(describeActionError(error))
+              }
+            }}
+          >
+            Save timezone
+          </Button>
+          <span className="text-caption text-ink-muted" role="status">
+            {saved === undefined ? "" : dirty ? "Unsaved change" : "Saved"}
+          </span>
+        </div>
       </div>
     </div>
   )
