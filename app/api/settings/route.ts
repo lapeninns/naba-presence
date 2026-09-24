@@ -1,4 +1,7 @@
-import { settingsPatchSchema } from "@/lib/contracts/settings"
+import {
+  requiresDirectPublishConsent,
+  settingsPatchSchema,
+} from "@/lib/contracts/settings"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
@@ -42,17 +45,35 @@ export const PATCH = route({
     clientRequestId,
     tenant,
   }) => {
-    if (
-      !input.approvalRequired &&
-      (session.role !== "owner" || !input.directPublishConsent)
-    ) {
-      throw new ApiError(
-        403,
-        "direct_publish_consent_required",
-        "An owner must explicitly consent before direct publishing is enabled."
-      )
-    }
     const settings = await tenant(async (sql) => {
+      // Consent guards the CHANGE, not every save: only a request that turns
+      // approval off needs an owner's explicit consent. Once direct publishing
+      // is on, saving the retention or timezone must not demand it again. The
+      // stored value is read under a row lock so two racing saves cannot both
+      // see "already off".
+      const [stored] = await sql<{ approvalRequired: boolean }[]>`
+        select approval_required as "approvalRequired"
+        from organisation
+        where id = ${session.organisationId}
+        for update
+      `
+      if (!stored) {
+        throw new ApiError(
+          404,
+          "organisation_not_found",
+          "Organisation not found."
+        )
+      }
+      if (
+        requiresDirectPublishConsent(stored.approvalRequired, input) &&
+        (session.role !== "owner" || !input.directPublishConsent)
+      ) {
+        throw new ApiError(
+          403,
+          "direct_publish_consent_required",
+          "An owner must explicitly consent before direct publishing is enabled."
+        )
+      }
       const [row] = await sql`
         update organisation
         set

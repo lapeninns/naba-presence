@@ -46,6 +46,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useSettings } from "@/lib/queries/use-settings"
 import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
 import { ApiClientError } from "@/lib/api/client"
+import { requiresDirectPublishConsent } from "@/lib/contracts/settings"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { editSettingsDisabledReason } from "@/lib/settings/gating"
 import {
@@ -268,9 +269,14 @@ export function PolicyForm({ role }: { role: string | null }) {
     }
   }
 
-  // Mirror the server rule: turning approval off needs an owner + explicit consent.
+  // Mirror the server rule: TURNING approval off needs an owner + explicit
+  // consent. Once it is off, saving another field needs neither.
+  const turningApprovalOff = requiresDirectPublishConsent(
+    initial?.approvalRequired ?? true,
+    current
+  )
   const consentBlocked =
-    !current.approvalRequired && (!isOwner || !current.directPublishConsent)
+    turningApprovalOff && (!isOwner || !current.directPublishConsent)
   const editReason = editSettingsDisabledReason(caps.data)
   const parsed = settingsPolicyFormSchema.safeParse({
     approvalRequired: current.approvalRequired,
@@ -420,21 +426,25 @@ export function PolicyForm({ role }: { role: string | null }) {
               <AlertTitle>Replies will publish without approval</AlertTitle>
               <AlertDescription className="flex flex-col gap-2.5">
                 <span>
-                  {isOwner
-                    ? "Only an owner can confirm this."
-                    : "Only an owner can turn off approval before replies publish."}
+                  {turningApprovalOff
+                    ? isOwner
+                      ? "Only an owner can confirm this."
+                      : "Only an owner can turn off approval before replies publish."
+                    : "Direct publishing is on."}
                   {consentedOn
                     ? ` Direct publishing was confirmed on ${consentedOn}.`
                     : ""}
                 </span>
-                <Checkbox
-                  checked={current.directPublishConsent}
-                  disabled={!isOwner || !canEdit}
-                  onCheckedChange={(value) =>
-                    set("directPublishConsent", value === true)
-                  }
-                  label="I confirm replies may publish to Google without approval"
-                />
+                {turningApprovalOff ? (
+                  <Checkbox
+                    checked={current.directPublishConsent}
+                    disabled={!isOwner || !canEdit}
+                    onCheckedChange={(value) =>
+                      set("directPublishConsent", value === true)
+                    }
+                    label="I confirm replies may publish to Google without approval"
+                  />
+                ) : null}
               </AlertDescription>
             </Alert>
           )}
