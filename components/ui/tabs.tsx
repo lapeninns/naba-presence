@@ -1,6 +1,7 @@
 "use client"
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
+import { LockIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
@@ -25,9 +26,47 @@ function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   )
 }
 
-/** The row: a hairline track that scrolls sideways without a scrollbar. */
-const tabsRowClassName =
-  "relative flex min-w-0 items-end gap-1 overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+/**
+ * The row: a hairline track that scrolls sideways without a scrollbar. When
+ * tabs are hidden past an edge, that edge fades out (a CSS mask driven by
+ * `data-fade`, see `useScrollFade`), so the row says there is more to scroll
+ * to without drawing a scrollbar.
+ */
+const tabsRowClassName = cn(
+  "relative flex min-w-0 items-end gap-1 overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+  "data-[fade=end]:[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]",
+  "data-[fade=start]:[mask-image:linear-gradient(to_left,#000_calc(100%-2.5rem),transparent)]",
+  "data-[fade=both]:[mask-image:linear-gradient(to_right,transparent,#000_2.5rem,#000_calc(100%-2.5rem),transparent)]"
+)
+
+/**
+ * Keeps `data-fade` on a sideways-scrolling row in step with what is hidden:
+ * "start", "end", "both", or absent when everything fits. Written straight
+ * to the element (no React state), on scroll and on resize.
+ */
+function useScrollFade(ref: React.RefObject<HTMLElement | null>) {
+  React.useEffect(() => {
+    const row = ref.current
+    if (!row) return
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth
+      const start = row.scrollLeft > 1
+      const end = max - row.scrollLeft > 1
+      const fade = start && end ? "both" : start ? "start" : end ? "end" : ""
+      if (fade) row.dataset.fade = fade
+      else delete row.dataset.fade
+    }
+    update()
+    row.addEventListener("scroll", update, { passive: true })
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
+    observer?.observe(row)
+    return () => {
+      row.removeEventListener("scroll", update)
+      observer?.disconnect()
+    }
+  }, [ref])
+}
 
 /** One tab or tab link. */
 const tabItemClassName = cn(
@@ -54,8 +93,11 @@ function TabsList({
   fill = false,
   ...props
 }: TabsPrimitive.List.Props & { fill?: boolean }) {
+  const rowRef = React.useRef<HTMLDivElement>(null)
+  useScrollFade(rowRef)
   return (
     <TabsPrimitive.List
+      ref={rowRef}
       data-slot="tabs-list"
       data-fill={fill || undefined}
       className={cn(tabsRowClassName, fill && FILL_CLASS, className)}
@@ -92,6 +134,12 @@ export type TabNavItem = {
   current?: boolean
   /** A count or badge after the label. */
   badge?: React.ReactNode
+  /**
+   * Why this tab's section can't be used right now. The link still works
+   * (the page explains more), but it is drawn muted and the reason is
+   * given as its description.
+   */
+  unavailableReason?: string | null
 }
 
 /**
@@ -103,17 +151,33 @@ function TabNav({
   className,
   ...props
 }: Omit<React.ComponentProps<"nav">, "children"> & { items: TabNavItem[] }) {
+  const rowRef = React.useRef<HTMLUListElement>(null)
+  useScrollFade(rowRef)
   return (
     <nav data-slot="tab-nav" className={cn("min-w-0", className)} {...props}>
-      <ul className={cn(tabsRowClassName, "list-none")}>
+      <ul ref={rowRef} className={cn(tabsRowClassName, "list-none")}>
         {items.map((item) => (
           <li key={item.href} className="flex shrink-0">
             <Link
               href={item.href}
               aria-current={item.current ? "page" : undefined}
-              className={tabItemClassName}
+              data-unavailable={item.unavailableReason ? true : undefined}
+              title={item.unavailableReason ?? undefined}
+              className={cn(
+                tabItemClassName,
+                item.unavailableReason && "font-normal"
+              )}
             >
               {item.label}
+              {item.unavailableReason ? (
+                <LockIcon aria-hidden className="size-3.5 text-ink-muted" />
+              ) : null}
+              {item.unavailableReason ? (
+                <span className="sr-only">
+                  {" "}
+                  (unavailable: {item.unavailableReason})
+                </span>
+              ) : null}
               {item.badge}
             </Link>
           </li>
