@@ -11,6 +11,17 @@ import {
 } from "@/lib/inbox/url-state"
 
 describe("inbox url state", () => {
+  it("round-trips the written-review filter and ignores unknown values", () => {
+    const state = parseInboxState(new URLSearchParams("written=rating_only"))
+    expect(state.written).toBe("rating_only")
+    expect(hasActiveFilters(state)).toBe(true)
+    expect(serializeInboxState(state).get("written")).toBe("rating_only")
+    expect(toReviewsFilters(state).written).toBe("rating_only")
+    expect(
+      parseInboxState(new URLSearchParams("written=essay")).written
+    ).toBeUndefined()
+  })
+
   it("defaults to the needs_reply queue and updated_desc sort", () => {
     const state = parseInboxState(new URLSearchParams())
     expect(state.queue).toBe("needs_reply")

@@ -76,27 +76,30 @@ function RatingFilter({
  * with a white, raised thumb on the chosen segment — but kept as a radio
  * group, because exactly one is on and that is what a radio says.
  */
-function ReplyFilter({
-  replyState,
+/**
+ * A small segmented radio group: "Any" plus a few values, as the filter
+ * sheet's reply and written-review filters both need.
+ */
+function SegmentedFilter<T extends string>({
+  label,
+  value,
+  options,
   onChange,
 }: {
-  replyState: InboxState["replyState"]
-  onChange: (replyState: InboxState["replyState"]) => void
+  label: string
+  value: T | undefined
+  options: readonly { value: T; label: string }[]
+  onChange: (value: T | undefined) => void
 }) {
+  const all = [{ value: "" as const, label: "Any" }, ...options]
   return (
     <div
       role="radiogroup"
-      aria-label="Reply state"
+      aria-label={label}
       className="inline-flex h-7 w-full shrink-0 items-center gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5"
     >
-      {(
-        [
-          { value: "", label: "Any" },
-          { value: "unreplied", label: "Unreplied" },
-          { value: "replied", label: "Replied" },
-        ] as const
-      ).map((option) => {
-        const checked = (replyState ?? "") === option.value
+      {all.map((option) => {
+        const checked = (value ?? "") === option.value
         return (
           <button
             key={option.value || "any"}
@@ -105,11 +108,7 @@ function ReplyFilter({
             aria-checked={checked}
             aria-label={option.label}
             onClick={() =>
-              onChange(
-                option.value === ""
-                  ? undefined
-                  : (option.value as "replied" | "unreplied")
-              )
+              onChange(option.value === "" ? undefined : (option.value as T))
             }
             className={cn(
               "h-full min-w-0 flex-1 rounded-[calc(var(--np-radius-control)-2px)] px-2 text-center text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
@@ -126,4 +125,48 @@ function ReplyFilter({
   )
 }
 
-export { RatingFilter, ReplyFilter }
+const REPLY_OPTIONS = [
+  { value: "unreplied", label: "Unreplied" },
+  { value: "replied", label: "Replied" },
+] as const
+
+function ReplyFilter({
+  replyState,
+  onChange,
+}: {
+  replyState: InboxState["replyState"]
+  onChange: (replyState: InboxState["replyState"]) => void
+}) {
+  return (
+    <SegmentedFilter
+      label="Reply state"
+      value={replyState}
+      options={REPLY_OPTIONS}
+      onChange={onChange}
+    />
+  )
+}
+
+export const WRITTEN_OPTIONS = [
+  { value: "with_text", label: "With text" },
+  { value: "rating_only", label: "Rating only" },
+] as const
+
+function WrittenFilter({
+  written,
+  onChange,
+}: {
+  written: InboxState["written"]
+  onChange: (written: InboxState["written"]) => void
+}) {
+  return (
+    <SegmentedFilter
+      label="Written review"
+      value={written}
+      options={WRITTEN_OPTIONS}
+      onChange={onChange}
+    />
+  )
+}
+
+export { RatingFilter, ReplyFilter, WrittenFilter }

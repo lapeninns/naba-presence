@@ -57,6 +57,15 @@ describe("reviews contract: cursor codec", () => {
 })
 
 describe("reviews contract: wire codec", () => {
+  it("carries the written-review filter on the wire", () => {
+    const params = encodeReviewsQuery({ written: "rating_only" })
+    expect(params.get("written")).toBe("rating_only")
+    expect(decodeReviewsQuery(params).written).toBe("rating_only")
+    expect(() =>
+      decodeReviewsQuery(new URLSearchParams("written=essay"))
+    ).toThrow()
+  })
+
   it("round-trips every filter through the snake_case wire vocabulary", () => {
     const cursor = encodeReviewsCursor(CURSOR)
     const params = encodeReviewsQuery({

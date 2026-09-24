@@ -1,9 +1,10 @@
 "use client"
 
-import { Check, UserPlus, X } from "lucide-react"
+import { Check, MessageSquareText, UserPlus, X } from "lucide-react"
 import * as React from "react"
 
 import { useSelection } from "@/components/inbox/selection-context"
+import { TemplateReplyDialog } from "@/components/inbox/template-reply-dialog"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -23,6 +24,7 @@ import {
 import { useToastManager } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
+import { isRatingOnly } from "@/lib/inbox/template-batch"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
 
@@ -37,18 +39,39 @@ import { useMembers } from "@/lib/queries/use-members"
  * so a stale row never discards the rest of the batch.
  */
 function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
-  const { selected, clear } = useSelection()
+  const { selected, clear, replace } = useSelection()
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
   const [confirmApprove, setConfirmApprove] = React.useState(false)
+  // The selection as it was when the template batch opened. Replies that
+  // publish leave the list (and so the selection's visible rows) while the
+  // dialog is still showing its summary, so it works from this copy and is
+  // rendered even once nothing selected is on screen.
+  const [templateRows, setTemplateRows] = React.useState<ReviewRow[] | null>(
+    null
+  )
 
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
   // selection exists rather than on every visit to the inbox.
   const members = useMembers({ enabled: chosen.length > 0 })
 
-  if (chosen.length === 0) return null
+  const templateDialog = templateRows ? (
+    <TemplateReplyDialog
+      open
+      rows={templateRows}
+      onOpenChange={(open) => {
+        if (!open) setTemplateRows(null)
+      }}
+      onFinished={(sentIds) => {
+        const sent = new Set(sentIds)
+        replace([...selected].filter((id) => !sent.has(id)))
+      }}
+    />
+  ) : null
+
+  if (chosen.length === 0) return templateDialog
 
   const approvable = chosen.filter(
     (row) =>
@@ -166,6 +189,21 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           No reply needed
         </Button>
 
+        {/* Stars with no words: one standard reply each, checked and then
+            published (or submitted) as a batch. Offered only when the
+            selection has some. */}
+        {chosen.some(isRatingOnly) ? (
+          <Button
+            size="sm"
+            variant="ghost-dark"
+            disabled={bulk.isPending}
+            onClick={() => setTemplateRows(chosen)}
+          >
+            <MessageSquareText aria-hidden data-icon="inline-start" />
+            Reply with template
+          </Button>
+        ) : null}
+
         {/* Approving publishes: each approved reply goes to Google at once.
             A batch of that is confirmed, like every other publish. */}
         <Button
@@ -249,6 +287,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {templateDialog}
     </div>
   )
 }

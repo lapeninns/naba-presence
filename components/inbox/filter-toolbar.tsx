@@ -43,6 +43,7 @@ const OWNER_ITEMS: Record<ApprovalOwner, string> = {
 export function activeFilterCount(state: InboxState): number {
   return (
     (state.ratings.length > 0 ? 1 : 0) +
+    (state.written ? 1 : 0) +
     (state.locationIds.length > 0 ? 1 : 0) +
     (state.assignee ? 1 : 0) +
     (state.age ? 1 : 0) +
