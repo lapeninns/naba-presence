@@ -76,7 +76,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Sign-in sessions:</strong> a session cookie (
-            <code>naba_session</code>) that lasts up to 30 days, and a
+            <code>naba_session</code>) that ends after 14 days without use and
+            after 90 days at most, and a
             short-lived cookie (<code>naba_google_oauth</code>, 10 minutes) that
             protects the Google connection step. We use no advertising or
             analytics cookies. Your browser also remembers your theme and any
@@ -86,7 +87,10 @@ export default function PrivacyPage() {
             <strong>Google connection:</strong> the connected Google account’s
             email address and ID, and the access and refresh tokens Google
             issues. Tokens are encrypted with AES-256-GCM before they are
-            stored.
+            stored. We also keep one-way fingerprints of the refresh token, so
+            that when Google tells us a token was revoked (its Cross-Account
+            Protection service) we can match the notice to the connection
+            without keeping another copy of the token.
           </li>
           <li>
             <strong>Business Profile data</strong> for the locations you link:
@@ -129,8 +133,8 @@ export default function PrivacyPage() {
             <strong>Audit records</strong> are kept for one year by default.
           </li>
           <li>
-            <strong>Sessions</strong> expire after 30 days and are deleted 7
-            days later.
+            <strong>Sessions</strong> end after 14 days without use, or 90
+            days at most, and are deleted 7 days later.
           </li>
         </ul>
       </LegalSection>
@@ -139,7 +143,10 @@ export default function PrivacyPage() {
         <p>
           You can disconnect a Google account at any time in Settings. When you
           do, we immediately delete the stored access and refresh tokens, stop
-          all syncing, and ask Google to revoke our access. Seven days later we
+          all syncing, and ask Google to revoke our access. If the same Google
+          account is still connected in another NabaPresence organisation, we
+          do not revoke it, because Google would end that organisation’s access
+          too; access ends when the last connection is removed. Seven days later we
           delete the reviews, replies, listing data and figures we imported
           through that account, unless a legal hold applies. We keep a record
           that the account was connected (its email address and ID) and the
@@ -177,6 +184,14 @@ export default function PrivacyPage() {
           <li>
             <strong>Supabase</strong>, which handles sign-in, including account
             confirmation and password reset emails.
+          </li>
+          <li>
+            <strong>Resend</strong>, which delivers our alert emails (for
+            example, when Google needs reconnecting or a new low-rated review
+            arrives). Alerts go to owners and admins and include the recipient’s
+            email address, the location name, a new review’s star rating (never
+            its text or the reviewer’s name) and, for a connection alert, the
+            connected Google account’s email address.
           </li>
           <li>
             <strong>OpenAI</strong>, when AI reply drafting is switched on: the

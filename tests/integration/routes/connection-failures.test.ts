@@ -454,7 +454,9 @@ describeDatabase("google connection failure handling", () => {
       "openid https://www.googleapis.com/auth/userinfo.email"
     )
     expect(refused.status, await refused.clone().text()).toBe(403)
-    expect(await refused.json()).toMatchObject({ error: "google_scope_missing" })
+    expect(await refused.json()).toMatchObject({
+      error: "google_scope_missing",
+    })
     const [stored] = await admin<{ count: number }[]>`
       select count(*)::int as count
       from google_connection
@@ -467,7 +469,11 @@ describeDatabase("google connection failure handling", () => {
     const { owner, connectionId, googleSubject } = await seedRefreshableTenant()
     await openReconnectTask(owner.organisationId, connectionId)
     stub.reset()
-    const partial = await completeOAuth(owner, googleSubject, "openid email profile")
+    const partial = await completeOAuth(
+      owner,
+      googleSubject,
+      "openid email profile"
+    )
     expect(partial.status).toBe(403)
     const [connection] = await connectionState(connectionId)
     expect(connection.status).toBe("revoked")
@@ -488,7 +494,13 @@ describeDatabase("google connection failure handling", () => {
     }))
     stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
       status: 401,
-      json: { error: { code: 401, status: "UNAUTHENTICATED", message: "Invalid Credentials" } },
+      json: {
+        error: {
+          code: 401,
+          status: "UNAUTHENTICATED",
+          message: "Invalid Credentials",
+        },
+      },
     }))
 
     const response = await fetch(
@@ -497,7 +509,9 @@ describeDatabase("google connection failure handling", () => {
     )
 
     expect(response.status, await response.clone().text()).toBe(401)
-    expect(await response.json()).toMatchObject({ error: "google_reconnect_required" })
+    expect(await response.json()).toMatchObject({
+      error: "google_reconnect_required",
+    })
     const [connection] = await connectionState(connectionId)
     // Expired, not revoked: the next call refreshes, and a refresh that works
     // closes the task on its own.
@@ -507,7 +521,67 @@ describeDatabase("google connection failure handling", () => {
     })
     const tasks = await reconnectTasks(connectionId)
     expect(tasks).toHaveLength(1)
-    expect(tasks[0]).toMatchObject({ status: "open", reasonCode: "google_unauthenticated" })
+    expect(tasks[0]).toMatchObject({
+      status: "open",
+      reasonCode: "google_unauthenticated",
+    })
+  })
+
+  it("refreshes, rather than asking for a reconnect, after a 401 on an older token", async () => {
+    const { owner, connectionId } = await seedRefreshableTenant()
+    // A current access token issued well before the 401: the refresh token
+    // has not been tested since, so the next call must try it first.
+    await admin`
+      update google_connection
+      set access_token_expires_at = now() + interval '30 minutes',
+          last_refresh_at = now() - interval '1 hour'
+      where id = ${connectionId}
+    `
+    stub.reset()
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 401,
+      json: { error: { code: 401, status: "UNAUTHENTICATED" } },
+    }))
+
+    const first = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(first.status, await first.clone().text()).toBe(503)
+    expect(await first.json()).toMatchObject({
+      error: "google_token_unavailable",
+    })
+    const [afterFirst] = await connectionState(connectionId)
+    expect(afterFirst).toMatchObject({
+      status: "active",
+      lastErrorCode: "google_unauthenticated",
+    })
+    expect(await reconnectTasks(connectionId)).toHaveLength(0)
+
+    // The retry refreshes, and Google accepts the new token.
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      json: {
+        access_token: "recovered-access-token",
+        expires_in: 3600,
+        scope: "https://www.googleapis.com/auth/business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    stub.respond({ method: "GET", pathIncludes: "/v1/accounts" }, () => ({
+      status: 200,
+      json: { accounts: [] },
+    }))
+    const retry = await fetch(
+      `${server.baseUrl}/api/google/accounts?connection_id=${connectionId}`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(retry.status, await retry.clone().text()).toBe(200)
+    expect(
+      stub.calls.filter((call) => call.path.endsWith("/token"))
+    ).toHaveLength(1)
+    expect(await reconnectTasks(connectionId)).toHaveLength(0)
   })
 
   it("revokes on a 403 for missing scopes, and ignores a 403 for one resource", async () => {
@@ -574,14 +648,17 @@ describeDatabase("google connection failure handling", () => {
       { headers: { cookie: denied.owner.cookie } }
     )
     expect(forbidden.status).toBe(403)
-    expect((await connectionState(denied.connectionId))[0].status).toBe("active")
+    expect((await connectionState(denied.connectionId))[0].status).toBe(
+      "active"
+    )
     expect(await reconnectTasks(denied.connectionId)).toHaveLength(0)
   })
 
   async function waitForTokenCall() {
     const deadline = Date.now() + 5_000
     while (!stub.calls.some((call) => call.path.endsWith("/token"))) {
-      if (Date.now() > deadline) throw new Error("No token request reached the stub")
+      if (Date.now() > deadline)
+        throw new Error("No token request reached the stub")
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
   }
@@ -650,7 +727,9 @@ describeDatabase("google connection failure handling", () => {
       refreshToken: null,
     })
     expect(
-      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+      (await reconnectTasks(connectionId)).filter(
+        (task) => task.status === "open"
+      )
     ).toHaveLength(0)
   })
 
@@ -680,7 +759,9 @@ describeDatabase("google connection failure handling", () => {
     })
     // No reconnect banner for a connection the owner removed on purpose.
     expect(
-      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+      (await reconnectTasks(connectionId)).filter(
+        (task) => task.status === "open"
+      )
     ).toHaveLength(0)
     const [audit] = await admin<{ count: number }[]>`
       select count(*)::int as count
@@ -737,11 +818,15 @@ describeDatabase("google connection failure handling", () => {
       await second.stop()
     }
 
-    expect(stub.calls.filter((call) => call.path.endsWith("/token"))).toHaveLength(1)
+    expect(
+      stub.calls.filter((call) => call.path.endsWith("/token"))
+    ).toHaveLength(1)
     // Google rotated the refresh token; the new one is kept, with its expiry.
     const [after] = await storedTokens(connectionId)
     expect(after.status).toBe("active")
-    expect(Buffer.compare(after.refreshToken!, before.refreshToken!)).not.toBe(0)
+    expect(Buffer.compare(after.refreshToken!, before.refreshToken!)).not.toBe(
+      0
+    )
     expect(after.refreshTokenExpiresAt).toBeInstanceOf(Date)
   }, 60_000)
 
@@ -772,6 +857,50 @@ describeDatabase("google connection failure handling", () => {
     expect(row).toEqual({ status: "disconnected", access: null, refresh: null })
   })
 
+  it("does not revoke a login another organisation still uses", async () => {
+    const mine = await seedRefreshableTenant()
+    const theirs = await seedRefreshableTenant()
+    // The same Google login connected in both organisations: Google revokes
+    // per login and project, so revoking for one would end the other's.
+    await admin`
+      update google_connection
+      set google_subject = ${mine.googleSubject}
+      where id = ${theirs.connectionId}
+    `
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/revoke" }, () => ({
+      status: 200,
+      json: {},
+    }))
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/connections/${mine.connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: mine.owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({ googleRevocation: "shared" })
+    expect(
+      stub.calls.filter((call) => call.path.endsWith("/revoke"))
+    ).toHaveLength(0)
+    const [row] = await admin<{ status: string; revocation: string | null }[]>`
+      select status, google_revocation_status as revocation
+      from google_connection where id = ${mine.connectionId}
+    `
+    expect(row).toEqual({ status: "disconnected", revocation: "shared" })
+    expect((await connectionState(theirs.connectionId))[0].status).toBe(
+      "active"
+    )
+
+    // Once no one else holds the login, the last disconnect revokes it.
+    const last = await fetch(
+      `${server.baseUrl}/api/google/connections/${theirs.connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: theirs.owner.cookie } }
+    )
+    expect(last.status, await last.clone().text()).toBe(200)
+    expect(await last.json()).toMatchObject({ googleRevocation: "revoked" })
+  })
+
   it("still disconnects, and records it, when Google will not revoke", async () => {
     const { owner, connectionId } = await seedRefreshableTenant()
     stub.reset()
@@ -787,12 +916,17 @@ describeDatabase("google connection failure handling", () => {
 
     expect(response.status, await response.clone().text()).toBe(200)
     expect((await connectionState(connectionId))[0].status).toBe("disconnected")
-    const [audit] = await admin<{ metadata: { status: number; error: string } }[]>`
+    const [audit] = await admin<
+      { metadata: { status: number; error: string } }[]
+    >`
       select metadata from audit_log
       where subject_id = ${connectionId}
         and action = 'google.connection.revoke_failed'
     `
-    expect(audit?.metadata).toMatchObject({ status: 503, error: "backend_error" })
+    expect(audit?.metadata).toMatchObject({
+      status: 503,
+      error: "backend_error",
+    })
   })
 
   /** The row's credential as the reconnect race cases need to see it. */
@@ -826,7 +960,8 @@ describeDatabase("google connection failure handling", () => {
   async function waitForCall(predicate: (path: string) => boolean) {
     const deadline = Date.now() + 5_000
     while (!stub.calls.some((call) => predicate(call.path))) {
-      if (Date.now() > deadline) throw new Error("Expected request never arrived")
+      if (Date.now() > deadline)
+        throw new Error("Expected request never arrived")
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
   }
@@ -872,7 +1007,9 @@ describeDatabase("google connection failure handling", () => {
       connectedBy: owner.userId,
     })
     expect(
-      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+      (await reconnectTasks(connectionId)).filter(
+        (task) => task.status === "open"
+      )
     ).toHaveLength(0)
     const [audit] = await admin<{ count: number }[]>`
       select count(*)::int as count
@@ -970,7 +1107,9 @@ describeDatabase("google connection failure handling", () => {
       generation: 2,
     })
     expect(
-      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+      (await reconnectTasks(connectionId)).filter(
+        (task) => task.status === "open"
+      )
     ).toHaveLength(0)
   })
 
@@ -995,16 +1134,19 @@ describeDatabase("google connection failure handling", () => {
       returning id::text as id
     `
     stub.reset()
-    stub.respond({ method: "GET", pathIncludes: `locations/denied-${marker}` }, () => ({
-      status: 403,
-      json: {
-        error: {
-          code: 403,
-          status: "PERMISSION_DENIED",
-          message: "The caller does not have permission",
+    stub.respond(
+      { method: "GET", pathIncludes: `locations/denied-${marker}` },
+      () => ({
+        status: 403,
+        json: {
+          error: {
+            code: 403,
+            status: "PERMISSION_DENIED",
+            message: "The caller does not have permission",
+          },
         },
-      },
-    }))
+      })
+    )
     const location = await admin<{ id: string }[]>`
       insert into location (organisation_id, name)
       values (${owner.organisationId}, 'Denied venue')
@@ -1021,7 +1163,9 @@ describeDatabase("google connection failure handling", () => {
     })
     expect(response.status, await response.clone().text()).toBe(200)
 
-    const [listing] = await admin<{ accessState: string; code: string | null }[]>`
+    const [listing] = await admin<
+      { accessState: string; code: string | null }[]
+    >`
       select access_state as "accessState", access_error_code as code
       from external_location where id = ${external.id}
     `
@@ -1031,7 +1175,9 @@ describeDatabase("google connection failure handling", () => {
     })
     expect((await connectionState(connectionId))[0].status).toBe("active")
     expect(
-      (await reconnectTasks(connectionId)).filter((task) => task.status === "open")
+      (await reconnectTasks(connectionId)).filter(
+        (task) => task.status === "open"
+      )
     ).toHaveLength(0)
   })
 })

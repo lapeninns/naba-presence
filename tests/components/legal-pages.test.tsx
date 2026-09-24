@@ -44,3 +44,18 @@ describe("public legal pages", () => {
 function escape(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
+
+describe("assertLegalDetailsForProduction", () => {
+  it("fails a production build while operator details are placeholders", async () => {
+    const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
+      "@/lib/legal/operator"
+    )
+    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "preview" })).not.toThrow()
+    expect(() => assertLegalDetailsForProduction({})).not.toThrow()
+    if (hasLegalPlaceholders()) {
+      expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).toThrow(
+        /placeholder operator details/
+      )
+    }
+  })
+})

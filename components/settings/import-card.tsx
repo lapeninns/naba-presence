@@ -8,9 +8,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
+import { resolveImportSource } from "@/lib/connections/import-source"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useGoogleLocations } from "@/lib/queries/use-google-locations"
@@ -27,25 +32,33 @@ type RowState = "idle" | "pending" | "imported" | { error: string }
  * name, address, whether it is linked here yet, and an Import action for the
  * ones that are not.
  */
-export function ImportCard({ clientId }: { clientId?: string } = {}) {
+export function ImportCard({
+  clientId,
+  connectionId: clientConnectionId,
+}: {
+  clientId?: string
+  /** The login this client's setup attached; the org's first one otherwise. */
+  connectionId?: string | null
+} = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
-  const connectionId = deriveAutoSelection({
-    connections: connections.map((c) => ({ id: c.id, status: c.status })),
-    accounts: [],
-    selectedConnectionId: null,
-    selectedAccountName: null,
-  }).connectionId
+  const connectionId =
+    clientConnectionId ??
+    deriveAutoSelection({
+      connections: connections.map((c) => ({ id: c.id, status: c.status })),
+      accounts: [],
+      selectedConnectionId: null,
+      selectedAccountName: null,
+    }).connectionId
   const accounts = useGoogleAccounts(connectionId)
-  const accountName = deriveAutoSelection({
-    connections: connections.map((c) => ({ id: c.id, status: c.status })),
-    accounts: (accounts.query.data?.accounts ?? []).map((a) => ({
-      googleAccountName: a.googleAccountName,
-      isActive: a.isActive,
-    })),
-    selectedConnectionId: connectionId,
-    selectedAccountName: null,
-  }).accountName
+  const [chosenAccountName, setChosenAccountName] = useState<string | null>(
+    null
+  )
+  const { activeAccounts, accountName } = resolveImportSource({
+    accounts: accounts.query.data?.accounts ?? [],
+    connectionId,
+    chosenAccountName,
+  })
 
   const discovery = useGoogleLocations(accountName)
   // Read the directory through the shared hook rather than writing a second,
@@ -96,9 +109,29 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
   }
 
   const heading = (
-    <h2 id={headingId} className="text-title font-semibold text-ink">
-      Import locations
-    </h2>
+    <>
+      <h2 id={headingId} className="text-title font-semibold text-ink">
+        Import locations
+      </h2>
+      {activeAccounts.length > 1 && accountName ? (
+        <SegmentedControl
+          value={accountName}
+          onValueChange={setChosenAccountName}
+          aria-label="Business Profile account"
+          className="max-w-full"
+        >
+          {activeAccounts.map((account) => (
+            <SegmentedControlItem
+              key={account.googleAccountName}
+              value={account.googleAccountName}
+              className="flex-none"
+            >
+              {account.accountName || account.googleAccountName}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
+      ) : null}
+    </>
   )
 
   if (!accountName) {
@@ -107,7 +140,7 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
         {heading}
         <Empty
           title="Choose a Google account"
-          description="Activate a Google account above to discover its locations."
+          description="Switch on at least one Business Profile account for this Google login to see its locations."
         />
       </section>
     )
@@ -121,16 +154,21 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
     )
   }
   if (discovery.isError) {
+    // The account switcher stays, so one account Google will not list does
+    // not strand the others.
     return (
-      <Empty
-        title="We couldn’t discover locations"
-        description={describeActionError(discovery.error)}
-        action={
-          <Button variant="outline" onClick={() => discovery.refetch()}>
-            Try again
-          </Button>
-        }
-      />
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <Empty
+          title="We couldn’t discover locations"
+          description={describeActionError(discovery.error)}
+          action={
+            <Button variant="outline" onClick={() => discovery.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      </section>
     )
   }
   if (discovery.data.locations.length === 0) {

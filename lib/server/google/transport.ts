@@ -11,6 +11,8 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import {
+  googleTokenUnavailableError,
+  handleUnauthenticated,
   persistConnectionFailure,
   reconnectRequiredError,
   recordListingAccessLoss,
@@ -180,9 +182,14 @@ function errorInfoReasons(body: unknown): string[] {
  * billing is off. Every tenant sees it at once, and neither a reconnect nor a
  * listing-level warning helps.
  */
-export function operatorFailureCode(status: number, body: unknown): string | null {
+export function operatorFailureCode(
+  status: number,
+  body: unknown
+): string | null {
   if (status !== 403) return null
-  const reason = errorInfoReasons(body).find((entry) => OPERATOR_REASONS.has(entry))
+  const reason = errorInfoReasons(body).find((entry) =>
+    OPERATOR_REASONS.has(entry)
+  )
   return reason ? `google_operator_${reason.toLowerCase()}` : null
 }
 
@@ -348,18 +355,20 @@ export async function googleRequest<T>(
           // Before the mutation classification: a rejected credential means
           // Google refused the call outright, so nothing was written and the
           // work must wait for a reconnect rather than fail.
-          const credentialFailure = credentialFailureCode(
-            response.status,
-            body
-          )
-          const owner = credentialFailure
-            ? accessTokenOwner(accessToken)
-            : null
+          const credentialFailure = credentialFailureCode(response.status, body)
+          const owner = credentialFailure ? accessTokenOwner(accessToken) : null
           if (credentialFailure && owner) {
             forgetAccessToken(accessToken)
             // Carries the generation the token was issued under: a 401 on a
             // token from before a reconnect is dropped, not recorded against
             // the credential that replaced it.
+            if (credentialFailure === "google_unauthenticated") {
+              // Expire the access token and let the next call's refresh
+              // decide; only a 401 right after a refresh asks for a person.
+              const outcome = await handleUnauthenticated(owner)
+              if (outcome === "refresh") throw googleTokenUnavailableError()
+              throw reconnectRequiredError()
+            }
             await persistConnectionFailure(owner, credentialFailure)
             throw reconnectRequiredError()
           }

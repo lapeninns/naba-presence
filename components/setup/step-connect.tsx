@@ -246,8 +246,8 @@ function StepConnect({
             )}
             {usable.length > 0 ? (
               <p className="text-caption text-ink-muted">
-                A connected account can be used for {clientName} as it is:
-                Continue to pick its Business Profile accounts.
+                Choose “Use this account” to use a connected account for{" "}
+                {clientName}, then pick its Business Profile accounts.
               </p>
             ) : null}
           </section>

@@ -132,7 +132,9 @@ describe("SetupWizard", () => {
   })
 
   it("moves on once the data allows it, keeping the step in the address", async () => {
-    stub(fresh, [
+    // A login attached to this client: an agency login that is merely
+    // present elsewhere does not unlock the accounts step on its own.
+    stub({ ...fresh, connection: { id: "g1", status: "active" } }, [
       {
         id: "g1",
         googleEmail: "ops@example.test",

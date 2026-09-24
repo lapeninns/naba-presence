@@ -795,8 +795,12 @@ export async function completeAuthorisation(input: {
 // ---------------------------------------------------------------------------
 
 export type DisconnectOutcome = {
-  /** Remote revocation at Google: never reported as done unless Google said so. */
-  googleRevocation: "revoked" | "failed" | "not_attempted"
+  /**
+   * Remote revocation at Google: never reported as done unless Google said
+   * so. "shared" means it was skipped because another live connection holds
+   * the same login, and revoking would have ended that one too.
+   */
+  googleRevocation: "revoked" | "failed" | "not_attempted" | "shared"
   /** Notification settings Google would not clear, for an operator. */
   residualNotificationAccounts: string[]
 }
@@ -1008,6 +1012,38 @@ export async function disconnect(input: {
   if (!target.grantToken) {
     return {
       googleRevocation: "not_attempted",
+      residualNotificationAccounts: residualAccounts,
+    }
+  }
+  // Google revokes per login and Cloud project, not per token. If this
+  // row was reconnected since step 3, or another organisation holds the same
+  // login, revoking would end a grant that is still in use.
+  const grantInUse = await withTenant(organisationId, async (sql) => {
+    const [row] = await sql<{ inUse: boolean }[]>`
+      select
+        status <> 'disconnected'
+          or google_grant_in_use_elsewhere(id) as "inUse"
+      from google_connection
+      where id = ${connectionId}
+    `
+    if (row?.inUse) {
+      await sql`
+        update google_connection
+        set google_revocation_status = 'shared', google_revocation_at = now()
+        where id = ${connectionId}
+          and status = 'disconnected'
+      `
+    }
+    return row?.inUse ?? false
+  })
+  if (grantInUse) {
+    log.info("google.connection.revoke_skipped_shared", {
+      requestId,
+      organisationId,
+      connectionId,
+    })
+    return {
+      googleRevocation: "shared",
       residualNotificationAccounts: residualAccounts,
     }
   }

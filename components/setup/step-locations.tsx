@@ -12,9 +12,12 @@ import { ImportCard } from "@/components/settings/import-card"
 function StepLocations({
   clientId,
   clientName,
+  connectionId,
 }: {
   clientId: string
   clientName: string
+  /** The login this client's setup attached. */
+  connectionId: string | null
 }) {
   return (
     <>
@@ -22,7 +25,7 @@ function StepLocations({
         Listings you link here belong to {clientName}. A listing already linked
         to another client keeps its review history when you move it.
       </p>
-      <ImportCard clientId={clientId} />
+      <ImportCard clientId={clientId} connectionId={connectionId} />
     </>
   )
 }

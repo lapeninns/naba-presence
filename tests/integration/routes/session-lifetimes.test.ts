@@ -130,6 +130,29 @@ describeDatabase("platform session lifetimes", () => {
     expect((await authed(old.cookie)).status).toBe(401)
   })
 
+  it("ends only the support session when support signs out everywhere", async () => {
+    const owner = await tenant()
+    const customer = await addSession(owner.userId, owner.organisationId, {
+      expires: "10 days",
+      absolute: "80 days",
+    })
+    const token = randomBytes(32).toString("base64url")
+    await admin`
+      insert into app_session (token_hash, user_id, organisation_id, expires_at, absolute_expires_at, support_actor)
+      values (${sha256(token)}, ${owner.userId}, ${owner.organisationId},
+        now() + interval '1 hour', now() + interval '1 hour', 'support@naba.example')
+    `
+    const response = await fetch(`${server.baseUrl}/api/session?scope=all`, {
+      method: "DELETE",
+      headers: { cookie: `naba_session=${token}` },
+    })
+    expect(response.status).toBe(204)
+    expect((await authed(`naba_session=${token}`)).status).toBe(401)
+    // The customer's own devices stay signed in.
+    expect((await authed(customer.cookie)).status).toBe(200)
+    expect((await authed(owner.cookie)).status).toBe(200)
+  })
+
   it("signs a person out everywhere without touching Google or background sync", async () => {
     const owner = await tenant()
     const other = await tenant()

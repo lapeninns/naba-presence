@@ -177,10 +177,18 @@ export async function applyRiscEvent(
         >)
       : {}
   const eventTypes = Object.keys(events)
+  // A row still at 'received' is an event whose earlier delivery failed
+  // part-way (the outcome is only written once every change is applied).
+  // Google redelivers it, and treating that as a duplicate would drop the
+  // revocation for good; the two-minute wait keeps a delivery that is still
+  // being applied from being run twice at once.
   const [claimed] = await getDatabase()<{ jti: string }[]>`
     insert into risc_event (jti, event_types, outcome)
     values (${String(payload.jti)}, ${eventTypes}, 'received')
-    on conflict (jti) do nothing
+    on conflict (jti) do update
+      set received_at = now()
+      where risc_event.outcome = 'received'
+        and risc_event.received_at < now() - interval '2 minutes'
     returning jti
   `
   if (!claimed) {

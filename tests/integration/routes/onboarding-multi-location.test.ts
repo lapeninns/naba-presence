@@ -382,6 +382,88 @@ describeDatabase(
       expect((await setup(owner.cookie, second)).accountsActive).toBe(2)
     }, 120_000)
 
+    it("keeps an account on for a client that shares the login", async () => {
+      const owner = await createTestTenant(admin)
+      organisations.push(owner.organisationId)
+      const first = await client(owner, "Shared First")
+      const second = await client(owner, "Shared Second")
+      // One agency login attached to both clients.
+      const connectionId = randomUUID()
+      await admin`
+        insert into google_connection (id, organisation_id, google_subject, google_email, status, scope)
+        values (${connectionId}, ${owner.organisationId}, ${`shared-${marker}`},
+          'agency@example.test', 'active', ${SCOPE})
+      `
+      for (const clientId of [first, second]) {
+        await admin`
+          insert into client_google_connection (organisation_id, client_id, google_connection_id)
+          values (${owner.organisationId}, ${clientId}, ${connectionId})
+        `
+      }
+      const [x, y] = await admin<{ id: string; name: string }[]>`
+        insert into google_account (organisation_id, google_connection_id, google_account_name, account_name, is_active)
+        values
+          (${owner.organisationId}, ${connectionId}, ${`accounts/shared-${marker}-x`}, 'X', true),
+          (${owner.organisationId}, ${connectionId}, ${`accounts/shared-${marker}-y`}, 'Y', true)
+        returning id::text as id, google_account_name as name
+      `
+      // The first client already has a listing from account Y.
+      const externalLocationId = randomUUID()
+      const locationId = randomUUID()
+      await admin`
+        insert into external_location (id, organisation_id, google_connection_id, google_account_name, google_location_name, title, verified)
+        values (${externalLocationId}, ${owner.organisationId}, ${connectionId}, ${y.name},
+          ${`locations/shared-${marker}-y1`}, 'Y venue', true)
+      `
+      await admin`
+        insert into location (id, organisation_id, name, client_id)
+        values (${locationId}, ${owner.organisationId}, 'Y venue', ${first})
+      `
+      await admin`
+        insert into location_link (organisation_id, external_location_id, location_id, is_active)
+        values (${owner.organisationId}, ${externalLocationId}, ${locationId}, true)
+      `
+
+      // The second client picks only X during its own setup.
+      const picked = await request("/api/google/accounts", owner.cookie, {
+        method: "PATCH",
+        body: JSON.stringify({
+          clientId: second,
+          connectionId,
+          accountIds: [x.id],
+        }),
+      })
+      expect(picked.status, await picked.clone().text()).toBe(200)
+
+      // Y stays on: the first client's listing depends on it.
+      const states = await admin<{ id: string; active: boolean }[]>`
+        select id::text as id, is_active as active from google_account
+        where google_connection_id = ${connectionId}
+      `
+      const active = new Map(states.map((row) => [row.id, row.active]))
+      expect(active.get(x.id)).toBe(true)
+      expect(active.get(y.id)).toBe(true)
+      expect((await setup(owner.cookie, first)).accountsActive).toBeGreaterThan(
+        0
+      )
+
+      // With no other client relying on it, the same save does switch Y off.
+      await admin`update location set client_id = ${second} where id = ${locationId}`
+      const narrowed = await request("/api/google/accounts", owner.cookie, {
+        method: "PATCH",
+        body: JSON.stringify({
+          clientId: second,
+          connectionId,
+          accountIds: [x.id],
+        }),
+      })
+      expect(narrowed.status, await narrowed.clone().text()).toBe(200)
+      const [yAfter] = await admin<{ active: boolean }[]>`
+        select is_active as active from google_account where id = ${y.id}
+      `
+      expect(yAfter.active).toBe(false)
+    }, 120_000)
+
     it("moves a listing to a newly discovered login only when its own login is broken", async () => {
       const owner = await createTestTenant(admin)
       organisations.push(owner.organisationId)
