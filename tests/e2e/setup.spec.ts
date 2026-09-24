@@ -28,8 +28,8 @@ test.describe("client setup", () => {
       page.getByRole("heading", { name: "Client setup", level: 1 })
     ).toBeVisible()
     const stepper = page.getByRole("list", { name: "Setup steps" })
-    // All nine steps, Done included (the reference stepper).
-    await expect(stepper.getByRole("listitem")).toHaveCount(9)
+    // The client's own six steps plus Done; agency and client come before.
+    await expect(stepper.getByRole("listitem")).toHaveCount(7)
     // Exactly one step is current, whichever the data resolved to.
     await expect(stepper.locator("[aria-current='step']")).toHaveCount(1)
   })
