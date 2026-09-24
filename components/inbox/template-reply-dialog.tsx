@@ -254,10 +254,9 @@ function TemplateReplyDialog({
           <div className="flex flex-col gap-4">
             <p className="text-body">
               <strong className="tabular-nums">{eligible.length}</strong> of{" "}
-              {rows.length} selected{" "}
-              {eligible.length === 1 ? "review gets" : "reviews get"} a template
-              reply, greeting each reviewer by name in the review&apos;s
-              language where it&apos;s known.
+              {`${rows.length} selected ${
+                eligible.length === 1 ? "review gets" : "reviews get"
+              } a template reply, greeting each reviewer by name in the review’s language where it’s known.`}
             </p>
 
             {bands.length > 0 ? (
