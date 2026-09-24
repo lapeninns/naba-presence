@@ -119,11 +119,19 @@ describeDatabase("report shares", () => {
     expect(html).not.toContain(a.clientId)
     expect(html).not.toContain(owner.email)
 
-    const [row] = await admin<{ viewCount: number }[]>`
-      select view_count as "viewCount" from report_share
-      where client_id = ${a.clientId}
-    `
-    expect(row.viewCount).toBeGreaterThanOrEqual(1)
+    // The view is counted by after(), once the response has gone, so the
+    // row can lag the fetch by a moment.
+    let viewCount = 0
+    for (let attempt = 0; attempt < 20 && viewCount < 1; attempt++) {
+      const [row] = await admin<{ viewCount: number }[]>`
+        select view_count as "viewCount" from report_share
+        where client_id = ${a.clientId}
+      `
+      viewCount = row.viewCount
+      if (viewCount < 1)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(viewCount).toBeGreaterThanOrEqual(1)
   })
 
   it("answers revoked, expired and unknown tokens with the same 404", async () => {
@@ -147,12 +155,16 @@ describeDatabase("report shares", () => {
           expires_at = now() - interval '1 day'
       where id = ${expired.share.id}
     `
+    // Revoked, expired and never-issued tokens of the right shape all reach
+    // the database lookup and must come back byte-for-byte the same. A
+    // malformed token is refused before the lookup (its shape is public, so
+    // that says nothing about whether a link exists), which shifts Next's
+    // streaming framing; it is checked separately below.
     const bodies: string[] = []
     for (const path of [
       publicPath(revoked.url),
       publicPath(expired.url),
       `/share/report/${"x".repeat(43)}`,
-      "/share/report/short",
     ]) {
       const response = await fetch(`${server.baseUrl}${path}`, {
         redirect: "manual",
@@ -167,6 +179,13 @@ describeDatabase("report shares", () => {
       bodies.push(html.replaceAll(token, "<token>"))
     }
     expect(new Set(bodies).size).toBe(1)
+
+    const malformed = await fetch(`${server.baseUrl}/share/report/short`, {
+      redirect: "manual",
+    })
+    expect(malformed.status).toBe(404)
+    expect(malformed.headers.get("x-robots-tag")).toContain("noindex")
+    expect(await malformed.text()).toContain("This report link isn’t available")
 
     const audit = await admin<{ action: string }[]>`
       select action from audit_log
