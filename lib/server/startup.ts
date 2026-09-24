@@ -29,6 +29,17 @@ export function collectSafetyViolations(
   if (identity.rowSecurity !== "on") {
     violations.push(`row_security is '${identity.rowSecurity}', expected 'on'.`)
   }
+  // Advisory locks are session state. Through a transaction pooler they are
+  // taken on one backend and released on another, so the scheduler leases
+  // and the Google refresh lock would silently stop excluding anything.
+  const sessionUrl = env.DATABASE_SESSION_URL ?? env.DATABASE_URL
+  if (isTransactionPoolerUrl(sessionUrl)) {
+    violations.push(
+      env.DATABASE_SESSION_URL
+        ? "DATABASE_SESSION_URL points at a transaction pooler (port 6543); advisory locks need the session pooler (port 5432)."
+        : "DATABASE_URL is a transaction pooler (port 6543); set DATABASE_SESSION_URL to the session pooler (port 5432) for advisory locks."
+    )
+  }
   const hasStrongWebhookToken =
     (env.GOOGLE_PUBSUB_VERIFICATION_TOKEN?.length ?? 0) >= 32
   if (
@@ -77,6 +88,15 @@ export function collectSafetyViolations(
     }
   }
   return violations
+}
+
+/** Supabase's pooler serves transaction mode on 6543 and session mode on 5432. */
+export function isTransactionPoolerUrl(url: string): boolean {
+  try {
+    return new URL(url).port === "6543"
+  } catch {
+    return false
+  }
 }
 
 export async function readDbIdentity(): Promise<DbIdentity> {

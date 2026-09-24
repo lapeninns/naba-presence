@@ -5,7 +5,7 @@ import type { Sql, TransactionSql } from "postgres"
 import { isRetryableGoogleStatus, retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { decryptSecret, encryptSecret } from "@/lib/server/crypto"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import { withSessionConnection, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -435,14 +435,12 @@ async function refreshUnderLock(
   // Long enough for the holder's full retried refresh to finish.
   const deadline = Date.now() + getServerEnv().GOOGLE_TIMEOUT_MS + 5_000
   for (;;) {
-    const reserved = await getDatabase().reserve()
-    let acquired = false
-    try {
-      const [lock] = await reserved<{ acquired: boolean }[]>`
+    const refreshed = await withSessionConnection(async (session) => {
+      const [lock] = await session<{ acquired: boolean }[]>`
         select pg_try_advisory_lock(hashtext(${lockKey})) as acquired
       `
-      acquired = lock?.acquired ?? false
-      if (acquired) {
+      if (!lock?.acquired) return null
+      try {
         const current = await loadFromTenant(
           connection.organisation_id,
           connection.id
@@ -450,24 +448,21 @@ async function refreshUnderLock(
         if (!needsRefresh(current)) {
           return issue(current)
         }
-        return await refreshAccessToken(current).then((token) => {
-          rememberAccessToken(token, {
-            organisationId: current.organisation_id,
-            connectionId: current.id,
-            generation: current.credential_generation,
-          })
-          return token
+        const token = await refreshAccessToken(current)
+        rememberAccessToken(token, {
+          organisationId: current.organisation_id,
+          connectionId: current.id,
+          generation: current.credential_generation,
         })
-      }
-    } finally {
-      try {
-        if (acquired) {
-          await reserved`select pg_advisory_unlock(hashtext(${lockKey}))`
-        }
+        return token
       } finally {
-        reserved.release()
+        // Closing the session releases the lock too; never mask the refresh.
+        await session`select pg_advisory_unlock(hashtext(${lockKey}))`.catch(
+          () => undefined
+        )
       }
-    }
+    })
+    if (refreshed !== null) return refreshed
     await new Promise((resolve) => setTimeout(resolve, REFRESH_WAIT_POLL_MS))
     // A disconnect or revocation while waiting surfaces here as
     // connection_not_found, the same as for any caller arriving after it.

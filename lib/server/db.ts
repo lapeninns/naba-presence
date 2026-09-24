@@ -47,6 +47,35 @@ export function getDatabase(): Sql {
 }
 
 /**
+ * Runs `callback` on a dedicated single-connection client that is closed
+ * afterwards, for session advisory locks. Hosted, `DATABASE_URL` goes through
+ * the Supabase transaction pooler, which hands each transaction whatever
+ * backend is free: a session lock taken there is orphaned on that backend and
+ * the unlock lands elsewhere. `DATABASE_SESSION_URL` (the session pooler)
+ * pins one backend for the client's lifetime, and closing the client frees
+ * the pooler slot at once instead of parking it in a suspended instance.
+ *
+ * Deliberately not part of the shared pool: a lock holder that also runs
+ * pooled work (the jobs tick, the refresh re-read) must never wait on a
+ * connection it is itself holding.
+ */
+export async function withSessionConnection<T>(
+  callback: (sql: Sql) => Promise<T>
+): Promise<T> {
+  const env = getServerEnv()
+  const sql = postgres(env.DATABASE_SESSION_URL ?? env.DATABASE_URL, {
+    max: 1,
+    connect_timeout: 10,
+    prepare: false,
+  })
+  try {
+    return await callback(sql)
+  } finally {
+    await sql.end({ timeout: 5 })
+  }
+}
+
+/**
  * Anything that can build a jsonb parameter: the pooled `Sql`, a
  * `TransactionSql` from `withTenant`, or a test double that implements `json`.
  */

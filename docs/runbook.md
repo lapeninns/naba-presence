@@ -446,12 +446,17 @@ Provision in this order:
 
 1. Use a dedicated Supabase project on PostgreSQL 17. Functions run in
    `iad1` (`vercel.json` `regions`) to sit next to the us-east-1 database. From
-   Connect, take the **session pooler** URI (port 5432) — never the
-   transaction pooler (6543): the refresh lock and the scheduler leases are
-   session advisory locks, which a transaction-mode pooler would release
-   between statements. Resolve the hostname and open one test connection
-   before pointing anything at it; the last production database died silently
-   as NXDOMAIN and nothing paged.
+   Connect, take both pooler URIs. `DATABASE_URL` uses the **transaction
+   pooler** (port 6543): a session-mode client pins a backend for as long as
+   it stays open, and suspended Vercel instances keep their idle pools open,
+   so session mode exhausted the pooler's 15 slots (`EMAXCONNSESSION`) with
+   connections nobody was using. `DATABASE_SESSION_URL` uses the **session
+   pooler** (port 5432) and serves only the refresh lock and the scheduler
+   leases, which are session advisory locks that a transaction pooler would
+   release between statements; each lock opens and closes its own
+   connection. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
+   hostname and open one test connection before pointing anything at it; the
+   last production database died silently as NXDOMAIN and nothing paged.
 2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` until every file in
    `supabase/migrations` is recorded in `schema_migration`, then re-run to
    confirm idempotence (all "already applied") and run `pnpm db:status`. The
@@ -461,10 +466,10 @@ Provision in this order:
    are for local tests only:
    `DIRECT_DATABASE_URL='<admin url>' RUNTIME_ROLE_NAME=naba_runtime
    RUNTIME_ROLE_PASSWORD='<32+ random chars>' pnpm db:runtime-role`.
-   `DATABASE_URL` uses the same pooler host with user
-   `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
+   `DATABASE_URL` and `DATABASE_SESSION_URL` use the same pooler host with
+   user `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
    `rolbypassrls` are false, `row_security` is `on`, and `show
-   statement_timeout` is `30s`. The Supabase session pooler drops the
+   statement_timeout` is `30s`. The Supabase pooler drops the
    startup parameters in `lib/server/db.ts`, so the script pins
    `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`
    on the role itself. Role settings apply only to new backends: after
@@ -480,9 +485,9 @@ Provision in this order:
    (list names with `vercel env ls`; never `vercel env pull` into
    `.env.local`). Beyond the variables `.env.example` marks as required, set
    `DATABASE_POOL_MAX=5` and `JOBS_CONCURRENCY=3`: every function instance
-   opens its own pool, one connection is reserved for the lease, and the sum
-   across instances must stay under the Supabase session pooler's client
-   limit. Launch with `WEBHOOKS_ENABLED=false` until the Pub/Sub push
+   opens its own pool, and the sum across instances must stay under the
+   transaction pooler's client limit. Lease and refresh-lock connections sit
+   outside that pool, one short-lived session-pooler client per held lock. Launch with `WEBHOOKS_ENABLED=false` until the Pub/Sub push
    subscription and its OIDC pair exist (the 15-minute reconcile picks up new
    reviews meanwhile), and with `PUBLISH_ENABLED=false` until one draft has
    been checked end to end. Keep database secrets out of the Preview scope.

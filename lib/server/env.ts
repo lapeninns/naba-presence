@@ -106,6 +106,10 @@ const emailList = z
 export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DATABASE_POOL_MAX: z.unknown().optional().transform(parseDatabasePoolMax),
+  // Session-mode connection for advisory locks only (withSessionConnection).
+  // Required when DATABASE_URL is a transaction pooler; unset falls back to
+  // DATABASE_URL, which locally is a direct connection.
+  DATABASE_SESSION_URL: optionalText,
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),
