@@ -39,6 +39,19 @@ describe("public legal pages", () => {
     expect(screen.getByText(new RegExp(escape(LEGAL_OPERATOR.legalName)))).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy")
   })
+
+  it("leaves out an empty registered address without stray punctuation", () => {
+    const { container: privacy } = render(<PrivacyPage />)
+    const { container: terms } = render(<TermsPage />)
+    for (const page of [privacy, terms]) {
+      const text = page.textContent ?? ""
+      if (LEGAL_OPERATOR.registeredAddress === "") {
+        expect(text).toContain(`operated by ${LEGAL_OPERATOR.legalName} `)
+        expect(text).not.toMatch(/\(\s*\)|,\s*\(/)
+      }
+      expect(text).not.toMatch(/\[[A-Z ]+\]/)
+    }
+  })
 })
 
 function escape(value: string) {
@@ -52,6 +65,8 @@ describe("assertLegalDetailsForProduction", () => {
     )
     expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "preview" })).not.toThrow()
     expect(() => assertLegalDetailsForProduction({})).not.toThrow()
+    expect(hasLegalPlaceholders()).toBe(false)
+    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).not.toThrow()
     if (hasLegalPlaceholders()) {
       expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).toThrow(
         /placeholder operator details/

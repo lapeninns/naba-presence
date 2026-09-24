@@ -1,26 +1,28 @@
 /**
  * Who operates NabaPresence, as the privacy notice and terms name them.
  *
- * The bracketed values are placeholders the operator must replace before the
+ * Bracketed values are placeholders the operator must replace before the
  * legal pages go live: Google's OAuth consent screen links to these pages,
- * and a placeholder there is a statement nobody made.
+ * and a placeholder there is a statement nobody made. The operator is a sole
+ * trader, so there is no registered office; an empty address is left out of
+ * the pages rather than treated as a placeholder.
  * `tests/components/legal-pages.test.tsx` checks the pages render them, and
  * `hasLegalPlaceholders()` reports whether any remain.
  */
 export const LEGAL_OPERATOR = {
-  /** The registered legal entity, e.g. "Example Inns Ltd". */
-  legalName: "[LEGAL ENTITY NAME]",
-  /** Registered office address, one line. */
-  registeredAddress: "[REGISTERED ADDRESS]",
+  /** The data controller: a person or a registered entity, e.g. "Example Inns Ltd". */
+  legalName: "Aman Kumar Shrestha",
+  /** Registered office address, one line. Empty for a sole trader. */
+  registeredAddress: "",
   /** Where privacy questions and requests go. */
-  privacyEmail: "[PRIVACY CONTACT EMAIL]",
+  privacyEmail: "amanshresthaaaaa@gmail.com",
   /**
    * Who hosts the production database and where, e.g. "Supabase (EU, Ireland)".
    * Chosen when production is re-provisioned (docs/runbook.md).
    */
-  databaseHost: "[DATABASE HOST AND REGION]",
+  databaseHost: "Supabase (United States, N. Virginia)",
   /** The date these versions take effect, e.g. "1 October 2026". */
-  effectiveDate: "[EFFECTIVE DATE]",
+  effectiveDate: "1 October 2026",
 } as const
 
 /** True while any operator detail is still a placeholder. */

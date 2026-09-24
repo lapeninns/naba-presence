@@ -20,8 +20,9 @@ export default function TermsPage() {
       title="Terms of service"
       summary={
         <p>
-          These terms apply to NabaPresence, a service operated by {legalName} (
-          {registeredAddress}) for managing Google Business Profiles: reading
+          These terms apply to NabaPresence, a service operated by {legalName}
+          {registeredAddress ? ` (${registeredAddress})` : ""} for managing
+          Google Business Profiles: reading
           and replying to reviews and keeping listing details up to date. By
           signing in or connecting a Google account you agree to them on behalf
           of yourself and the business you act for.
