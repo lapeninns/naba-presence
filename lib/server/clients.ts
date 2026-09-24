@@ -132,7 +132,7 @@ export async function listClientSummaries(
         'notStarted', greatest(counts.linked_count - backfill.started, 0)::int
       ) as backfill,
       connections.items as connections,
-      to_json(backfill.last_sync_at)#>>'{}' as "lastSyncAt",
+      to_json(synced.last_sync_at)#>>'{}' as "lastSyncAt",
       json_build_object(
         'stalestCheckAt', to_json(checks.stalest_check_at)#>>'{}',
         'lastSuccessfulCheckAt', to_json(checks.last_success_at)#>>'{}',
@@ -169,8 +169,7 @@ export async function listClientSummaries(
         count(*) filter (where sc.status in ('pending', 'running')) as running,
         count(*) filter (where sc.status = 'failed') as failed,
         count(*) filter (where sc.status = 'succeeded') as succeeded,
-        count(*) as started,
-        max(sc.updated_at) as last_sync_at
+        count(*) as started
       from sync_checkpoint sc
       join external_location e on e.id = sc.external_location_id
       join location_link ll on ll.external_location_id = e.id and ll.is_active
@@ -178,6 +177,17 @@ export async function listClientSummaries(
       where l.client_id = c.id
         and sc.sync_type = 'backfill'
     ) backfill on true
+    -- "Last synced" is the last check Google actually answered, of any kind.
+    -- updated_at also moved on every failed attempt, and backfill alone left
+    -- a healthy client showing the age of its first import.
+    left join lateral (
+      select max(sc.last_succeeded_at) as last_sync_at
+      from sync_checkpoint sc
+      join location_link ll
+        on ll.external_location_id = sc.external_location_id and ll.is_active
+      join location l on l.id = ll.location_id
+      where l.client_id = c.id
+    ) synced on true
     left join lateral (
       select json_agg(distinct jsonb_build_object(
         'id', gc.id::text,
