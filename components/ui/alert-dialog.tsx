@@ -76,7 +76,7 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
         "-mx-(--dlg-pad) mt-2 -mb-(--dlg-pad) flex flex-col-reverse gap-2 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) py-3 *:w-full sm:flex-row sm:flex-wrap sm:justify-end sm:*:w-auto",
         // Sticky on a phone, so the answer stays on screen when the question
         // (a long list of consequences, a checkbox) scrolls.
-        "max-sm:sticky max-sm:bottom-0 max-sm:z-10",
+        "max-sm:sticky max-sm:-bottom-(--dlg-pad) max-sm:z-10",
         className
       )}
       {...props}
