@@ -273,6 +273,14 @@ const COPY: Record<string, string> = {
   viewer_cannot_publish: "Viewers can’t be given publishing access.",
   duplicate_location: "That location appears more than once.",
   location_not_found: "That location no longer exists.",
+  // Client access (PUT /api/members/[userId]/client-access, invitations).
+  would_widen_to_all_clients:
+    "Choose at least one client that has listings. Someone with no listings sees every client, so choose All clients if that’s what you mean.",
+  role_sees_all_clients:
+    "Owners and admins always see every client. Change their role to limit what they see.",
+  duplicate_client: "That client appears more than once.",
+  client_not_found:
+    "One of those clients no longer exists. Reload and try again.",
 
   // ---- Settings: compliance ------------------------------------------------
   privacy_request_not_found: "That privacy request no longer exists.",

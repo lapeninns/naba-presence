@@ -28,6 +28,26 @@ import type { Session } from "@/lib/server/session"
 //                     because two membership tables can disagree and this
 //                     module exists so that cannot happen.
 //
+// Client access is location_member rows too
+//   Team edits access a client at a time (PUT /api/members/[userId]/
+//   client-access), and a scoped invitation grants clients on acceptance.
+//   Both EXPAND a client into one row per listing filed under it, in
+//   lib/server/client-access.ts; the rule above still reads only rows.
+//   Three consequences follow from "no rows = every location":
+//   * Zero rows is a widening, never a removal. Every writer refuses a
+//     change that would leave a member or viewer with no rows unless the
+//     caller says `allClients: true` (client-access and location-members
+//     routes), and a scoped invitation whose clients have no listings left
+//     is refused at acceptance rather than accepted unscoped.
+//   * A listing filed under a client later reaches only the people who hold
+//     EVERY other listing of that client (extendClientHolders, called by
+//     POST /api/clients/[id]/locations, POST /api/location-links and the
+//     automatic Google setup; each extension is audited as
+//     member.client_access_extended). Someone holding part of a client, and
+//     anyone holding "Unfiled listings", is not extended.
+//   * Deleting a listing cascades its rows away; a member whose only rows
+//     go with it is back to every location. No route deletes listings today.
+//
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
 //       where ... and ${visibilityPredicate(sql, session, sql`r.location_id`)}
@@ -227,7 +247,11 @@ export async function requireClientAccess(
     where c.id = ${clientId}
   `
   if (!row?.visible) {
-    throw new ApiError(404, "client_not_found", "The requested client was not found.")
+    throw new ApiError(
+      404,
+      "client_not_found",
+      "The requested client was not found."
+    )
   }
 }
 
