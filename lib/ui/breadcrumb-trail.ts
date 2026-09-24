@@ -30,7 +30,7 @@ const TOP_LEVEL: Record<string, string> = {
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
-  connections: "Connections",
+  connections: "Google connections",
 }
 
 /**

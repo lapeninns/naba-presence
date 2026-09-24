@@ -12,7 +12,7 @@ const STRUCTURE_RULES = ["landmark-no-duplicate-main", "landmark-main-is-top-lev
 // and `/api/operations/health`, owner/admin-gated as they always were.
 const AREAS = [
   { path: "/settings", heading: "Reply policy" },
-  { path: "/settings/connections", heading: "Google Business Profile" },
+  { path: "/settings/connections", heading: "Google connections" },
 ] as const
 
 async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
@@ -73,7 +73,7 @@ test.describe("settings", () => {
       await page.goto("/settings")
       const nav = page.getByRole("navigation", { name: "Settings sections" })
       await expect(nav.getByRole("link", { name: "Policy" })).toBeVisible()
-      for (const gone of ["Team", "Compliance", "Connections", "Listing", "Operations"]) {
+      for (const gone of ["Team", "Compliance", "Google connections", "Listing", "Operations"]) {
         await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
       }
       // The read-only Policy form shows the gate reason, not an editable control.
@@ -99,7 +99,7 @@ test.describe("settings", () => {
     await applyCookie(page, baseURL, state.adminCookie)
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
-    await expect(nav.getByRole("link", { name: "Connections" })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Google connections" })).toBeVisible()
     // Team is a primary destination now, not a settings tab.
     await expect(
       page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Team" })

@@ -1360,7 +1360,7 @@ for (const theme of themes) {
         )
         await page.goto("/settings/connections")
         await expect(
-          page.getByRole("heading", { name: "Google Business Profile" })
+          page.getByRole("heading", { name: "Google connections" })
         ).toBeVisible()
         // Current section headings (components/settings/*-card.tsx) — the old
         // aria-labelled-section names ("Connection setup progress", "Google
