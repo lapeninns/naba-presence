@@ -179,7 +179,7 @@ describe("ReviewList", () => {
     expect(screen.getByRole("button", { name: /First/ })).not.toHaveTextContent(
       "Selected review"
     )
-    expect(second.className).toContain("bg-accent-tint")
+    expect(second.className).toContain("bg-fill")
     expect(second.className).not.toContain("bg-surface-alt")
 
     // And it follows the selection rather than being painted on once.

@@ -43,7 +43,7 @@ describe("resolveAction", () => {
 
   it("has a documented shortcut for every action it resolves", () => {
     const documented = new Set(SHORTCUTS.map((shortcut) => shortcut.action))
-    for (const key of ["j", "k", "r", "a", "e", "x", "Escape", "?"]) {
+    for (const key of ["j", "k", "r", "/", "a", "e", "x", "Escape", "?"]) {
       const action = press(key)
       expect(action).not.toBeNull()
       expect(documented.has(action!)).toBe(true)

@@ -22,18 +22,16 @@ function getSnapshot(): boolean {
   return Boolean(window.matchMedia(DESKTOP_MEDIA_QUERY)?.matches)
 }
 
-// The server cannot know the viewport. It assumes the desktop workspace,
-// which is what the CSS breakpoints already paint for a phone (the inspector
-// column is `hidden lg:flex`), so a narrow screen sees the list first and the
-// detail sheet slides up once the client knows its width.
+// The server cannot know the viewport. It assumes the two-pane workspace;
+// a phone sees the list first and swaps to the review once the client knows
+// its width.
 function getServerSnapshot(): boolean {
   return true
 }
 
 /**
- * Whether the inbox is wide enough for the three-column workspace. Below the
- * `lg` breakpoint the review detail is a bottom sheet over the list rather
- * than an inspector column beside it.
+ * Whether the inbox is wide enough for the queue and the review side by side
+ * (768px and up). Below it the two take turns: the review replaces the list.
  */
 export function useDesktopLayout(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)

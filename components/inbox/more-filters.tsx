@@ -2,8 +2,16 @@
 
 import { useId } from "react"
 
-import { ReplyFilter } from "@/components/inbox/filter-controls"
+import type { LocationOption } from "@/components/inbox/active-filter-chips"
+import { RatingFilter, ReplyFilter } from "@/components/inbox/filter-controls"
+import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import { Button } from "@/components/ui/button"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxItem,
+} from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -46,41 +54,64 @@ function Group({
   )
 }
 
+const ASSIGNEE_ITEMS: Record<string, string> = {
+  "": "Anyone",
+  me: "Me",
+  unassigned: "Unassigned",
+}
+
 /**
- * Everything the toolbar does not keep on screen: client scope, reply status
- * and a custom date range.
+ * Every narrowing the inbox offers, in one sheet (reference `#filters`): a
+ * side sheet from 768px and a bottom sheet on a phone, which the Sheet
+ * primitive decides on its own.
  *
- * A temporary panel rather than a permanent column, and deliberately short.
- * The verification / publish / sync checkbox groups that used to sit here
- * filtered on pipeline state — an engineer's view of a record, not a question
- * an operator asks — and the saved presets duplicated controls already on the
- * toolbar. Both are gone; what is left is the handful of narrowings that have
- * no home on the one-line toolbar. Below `md` the Sheet primitive turns this
- * into a bottom sheet on its own.
+ * The toolbar keeps a few of these on screen where the width allows (see
+ * FilterToolbar); the sheet holds all of them at every width, so a phone
+ * loses nothing. Changes apply as they are made, and the footer closes the
+ * sheet on the result. The pipeline-state checkboxes and saved presets an
+ * older panel carried are gone: they filtered on an engineer's view of a
+ * record, not a question an operator asks.
  */
-function MoreFiltersPanel({
+function FiltersSheet({
   open,
   onOpenChange,
   state,
+  locations,
   clients,
+  showLocationFilter,
   onChange,
   onClear,
+  ageControl,
+  ownerControl,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   state: InboxState
+  locations: LocationOption[]
   /** The agency's clients, for the scope select. Empty for a single-client org. */
   clients: { id: string; name: string }[]
+  /** False for a single-location org, which has no venue to choose. */
+  showLocationFilter: boolean
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
+  /** The age select, drawn by the toolbar so both copies stay identical. */
+  ageControl: (id: string) => React.ReactNode
+  /** "Waiting on", inside Approval only. */
+  ownerControl?: (id: string) => React.ReactNode
 }) {
   const dateFromId = useId()
   const dateToId = useId()
   const clientId = useId()
+  const venueId = useId()
+  const assigneeId = useId()
+  const ageId = useId()
+  const ownerId = useId()
   const clientItems: Record<string, string> = {
     "": "All clients",
     ...Object.fromEntries(clients.map((client) => [client.id, client.name])),
   }
+  const selectedLocation =
+    locations.find((location) => location.id === state.locationIds[0]) ?? null
 
   function toIso(dateValue: string): string | undefined {
     if (!dateValue) return undefined
@@ -101,16 +132,52 @@ function MoreFiltersPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="md:max-w-md">
         <SheetHeader>
-          <SheetTitle>More filters</SheetTitle>
+          <SheetTitle>Filters</SheetTitle>
           <SheetDescription>
-            Client scope, reply status and a custom date range.
+            Narrow the queue. Changes apply as you make them.
           </SheetDescription>
         </SheetHeader>
 
         {/* `px-6` is the sheet gutter SheetHeader draws and every other sheet
-            in the app carries. This panel used the narrower card padding, so
-            its title sat 8px inside its own controls. */}
+            in the app carries. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6">
+          <Group title="Rating">
+            <RatingFilter
+              ratings={state.ratings}
+              onChange={(ratings) => onChange({ ratings })}
+              className="h-11 w-full"
+            />
+          </Group>
+
+          {/* Only the control is hidden for a single-location org, never the
+              chip that clears a stale `?locationId=` arriving from a deep
+              link — hiding both strands the operator in a filtered view. */}
+          {showLocationFilter ? (
+            <Group title="Venue">
+              <Combobox
+                items={locations}
+                value={selectedLocation}
+                onValueChange={(location: LocationOption | null) =>
+                  onChange({ locationIds: location ? [location.id] : [] })
+                }
+                itemToStringLabel={(location: LocationOption) => location.name}
+              >
+                <ComboboxInput
+                  id={venueId}
+                  placeholder="All venues"
+                  aria-label="Filter by location"
+                />
+                <ComboboxContent>
+                  {locations.map((location) => (
+                    <ComboboxItem key={location.id} value={location}>
+                      {location.name}
+                    </ComboboxItem>
+                  ))}
+                </ComboboxContent>
+              </Combobox>
+            </Group>
+          ) : null}
+
           {clients.length > 1 ? (
             <Group title="Client scope">
               <Select
@@ -138,12 +205,43 @@ function MoreFiltersPanel({
             </Group>
           ) : null}
 
+          <Group title="Assigned to">
+            <Select
+              value={state.assignee ?? ""}
+              items={ASSIGNEE_ITEMS}
+              onValueChange={(value: string | null) =>
+                onChange({ assignee: value ? value : undefined })
+              }
+            >
+              <SelectTrigger
+                id={assigneeId}
+                aria-label="Filter by assignee"
+                className="w-full"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                {Object.entries(ASSIGNEE_ITEMS).map(([value, label]) => (
+                  <SelectItem key={value || "anyone"} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Group>
+
+          {ownerControl ? (
+            <Group title="Waiting on">{ownerControl(ownerId)}</Group>
+          ) : null}
+
           <Group title="Reply status">
             <ReplyFilter
               replyState={state.replyState}
               onChange={(replyState) => onChange({ replyState })}
             />
           </Group>
+
+          <Group title="Age">{ageControl(ageId)}</Group>
 
           <Group title="Date range">
             <div className="grid grid-cols-2 gap-2">
@@ -191,22 +289,28 @@ function MoreFiltersPanel({
             ) : null}
             {state.age ? (
               <p className="text-caption text-ink-muted">
-                A date here replaces the Age preset in the toolbar.
+                A date here replaces the Age preset.
               </p>
             ) : null}
+          </Group>
+
+          <Group title="Sort">
+            <ReviewSortSelect
+              state={state}
+              onChange={onChange}
+              className="w-full"
+            />
           </Group>
         </div>
 
         {/* SheetFooter, so this panel's action row is the same object as
-            every other sheet's rather than a lookalike: it keeps the shared
-            stack-then-row geometry and only adds the separator and the
-            space-between this one wants. */}
-        <SheetFooter className="flex-row items-center justify-between border-t border-line-subtle px-6 py-4 sm:justify-between">
-          <Button variant="ghost" size="sm" onClick={onClear}>
+            every other sheet's rather than a lookalike. */}
+        <SheetFooter className="flex-row items-center justify-between border-t border-line-subtle px-6 py-4 pb-[max(16px,env(safe-area-inset-bottom))] sm:justify-between">
+          <Button variant="ghost" onClick={onClear}>
             Clear filters
           </Button>
-          <Button size="sm" pill onClick={() => onOpenChange(false)}>
-            Done
+          <Button pill onClick={() => onOpenChange(false)}>
+            Show results
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -214,4 +318,4 @@ function MoreFiltersPanel({
   )
 }
 
-export { MoreFiltersPanel }
+export { FiltersSheet }

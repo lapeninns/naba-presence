@@ -18,9 +18,10 @@ import {
 export { DEFAULT_REVIEW_QUEUE as DEFAULT_QUEUE, REVIEW_QUEUES as QUEUES }
 export type Queue = ReviewQueue
 
-// Two-pane + auto-select. Tailwind `lg` (1024px) — `xl` (1280) left typical
-// laptop-plus-sidebar widths on the single-pane phone layout.
-export const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
+// Two-pane + auto-select from Tailwind `md` (768px), where a tablet has room
+// for a 280px queue beside the reply thread. Below it the list and the review
+// take turns.
+export const DESKTOP_MEDIA_QUERY = "(min-width: 768px)"
 
 /**
  * The inbox's whole state, in the URL.

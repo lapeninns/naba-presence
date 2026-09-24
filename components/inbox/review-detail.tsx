@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  ExternalLinkIcon,
   GlobeIcon,
   PlayIcon,
-  QuoteIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -20,11 +20,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Lifecycle } from "@/components/ui/lifecycle"
+import { StatusPill } from "@/components/ui/status-pill"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
 import { VerificationChecks } from "@/components/inbox/verification-panel"
 import { useReveals } from "@/lib/motion/use-reveals"
+import { JourneyLine } from "@/components/inbox/detail/journey-line"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
@@ -93,6 +94,12 @@ function replyStateFor(
   }
 }
 
+function reviewerName(review: Review): string {
+  return review.reviewerIsAnonymous
+    ? "Anonymous"
+    : (review.reviewerDisplayName ?? "Anonymous")
+}
+
 function initials(name: string): string {
   const letters = name
     .split(/\s+/)
@@ -104,12 +111,13 @@ function initials(name: string): string {
 }
 
 /**
- * The pane's head (reference `.detail-head`): on a narrow screen the way
- * back to the list, then the reviewer's initials, their name and stars, and
- * one caption line — client, listing, "Google review", age — with the link
- * to the listing, the review's provenance and previous / next at the
- * trailing edge. It says whose review this is and nothing about the reply;
- * the reply's state is on the action bar.
+ * The pane's head (reference `.d-head`): on a phone the way back to the
+ * list, then the reviewer's initials, their name and one caption line —
+ * client, listing, "Google review" — with the link to the listing and
+ * previous / next at the trailing edge. The review's provenance sits with
+ * the review, in the thread. It says
+ * whose review this is and nothing about the reply; the reply's state is on
+ * the publish bar.
  */
 function ReviewHead({
   review,
@@ -122,58 +130,53 @@ function ReviewHead({
   clientId?: string | null
   navigation?: ReactNode
 }) {
-  const displayName = review.reviewerIsAnonymous
-    ? "Anonymous"
-    : (review.reviewerDisplayName ?? "Anonymous")
+  const displayName = reviewerName(review)
 
   return (
     <>
       <span
         aria-hidden
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-caption font-semibold text-ink-secondary"
+        className="grid size-9 shrink-0 place-items-center rounded-full border border-line bg-fill font-mono text-[11px] font-semibold text-ink-secondary @max-[480px]/detail:hidden"
       >
         {initials(displayName)}
       </span>
-      <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-0.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <h2 className="min-w-0 text-[17px] leading-6 font-semibold break-words text-ink">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink max-md:text-[18px]">
             {displayName}
           </h2>
-          <StarRating rating={review.rating} size="md" />
         </div>
-        <p className="text-caption leading-5 break-words text-ink-muted">
+        <p className="line-clamp-2 text-[13px] leading-5 break-words text-ink-muted">
           {clientName ? (
             <>
               {clientId ? (
                 <Link
                   href={`/clients/${clientId}`}
-                  className="text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
+                  className="text-ink-secondary underline decoration-line-strong underline-offset-2 hover:text-ink hover:decoration-ink"
                 >
                   {clientName}
                 </Link>
               ) : (
-                <span className="text-ink">{clientName}</span>
+                <span className="text-ink-secondary">{clientName}</span>
               )}
               {" · "}
             </>
           ) : null}
-          <span>{review.locationName}</span> · Google review ·{" "}
-          <time
-            dateTime={review.createTime}
-            title={formatDateTime(review.createTime, review.timezone)}
-          >
-            {formatRelativeTime(review.createTime)}
-          </time>
+          <span>{review.locationName}</span> · Google review
         </p>
       </div>
-      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1">
+      <div className="flex shrink-0 items-center gap-0.5">
         <Link
           href={`/listings/${review.locationId}`}
-          className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          aria-label="Open listing"
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "@max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0 max-md:size-11"
+          )}
         >
-          Open listing
+          <ExternalLinkIcon aria-hidden data-icon="inline-start" />
+          <span className="@max-xl/detail:sr-only">Open listing</span>
         </Link>
-        <ReviewMetadata review={review} />
         {navigation}
       </div>
     </>
@@ -183,25 +186,29 @@ function ReviewHead({
 /**
  * The head's frame, shared by the loading, error and loaded pane so the
  * return-to-list control is the SAME element throughout: it takes focus
- * when a review opens on a narrow screen, and a control that was swapped
- * for a new one when the review arrived would drop that focus.
+ * when a review opens on a phone, and a control that was swapped for a new
+ * one when the review arrived would drop that focus. The journey line sits
+ * under the head, inside the same top band.
  */
 function HeadFrame({
   leading,
+  below,
   children,
 }: {
   leading?: ReactNode
+  below?: ReactNode
   children: ReactNode
 }) {
   return (
-    <div
-      data-slot="review-head"
-      className="flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 border-b border-line px-4 py-3.5 @md/detail:px-[18px]"
-    >
-      {leading ? (
-        <div className="-ml-1.5 shrink-0 basis-full lg:hidden">{leading}</div>
-      ) : null}
-      {children}
+    <div className="shrink-0 border-b border-line">
+      <div
+        data-slot="review-head"
+        className="flex min-w-0 items-center gap-3 px-4 pt-3.5 pb-2.5 max-md:gap-1.5 max-md:px-2 max-md:pt-2.5"
+      >
+        {leading ? <div className="shrink-0 md:hidden">{leading}</div> : null}
+        {children}
+      </div>
+      {below ? <div className="px-4 pb-3 max-md:px-3.5">{below}</div> : null}
     </div>
   )
 }
@@ -217,7 +224,9 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="text-ui text-ink-muted">A rating with no written review.</p>
+      <p className="font-reading text-[17px] leading-normal text-ink-secondary italic">
+        A rating with no written review.
+      </p>
     )
   }
 
@@ -564,139 +573,206 @@ function ReplyStatusStrip({ review }: { review: Review }) {
 
 function ActionFooterSkeleton() {
   return (
-    <div className="flex justify-end gap-2" aria-hidden>
-      <Skeleton className="h-(--np-control-h) w-40 bg-ink-on-charcoal/15" />
+    <div className="flex flex-1 justify-end gap-2" aria-hidden>
+      <Skeleton className="h-(--np-control-h) w-40 max-md:w-full" />
     </div>
   )
 }
 
-/**
- * The customer's words beside what Google shows now (reference
- * `.quote-card` and `.live-card`).
- *
- * The review is the one place in the pane set in the reading serif, on the
- * sunken surface with the accent quote mark. The live card is drawn dashed
- * because it is Google's, not ours: it shows the reply only when Google has
- * confirmed it is live, says so when a reply has been sent and not yet
- * confirmed, and otherwise says plainly that customers see no reply.
- */
-function ReviewAndReplyCards({ review }: { review: Review }) {
-  const displayName = review.reviewerIsAnonymous
-    ? "Anonymous"
-    : (review.reviewerDisplayName ?? "Anonymous")
-  const reply = review.reply
-  const live = reply?.body && isLiveOnGoogle(reply.publishStatus) ? reply : null
-  const sent = !live && reply?.body && reply.publishStatus === "accepted"
-  const publishedBy = review.timeline.find(
-    (event) => event.action === "review.reply.published"
+/** One message in the thread: an avatar gutter and the message beside it. */
+function ThreadMessage({
+  label,
+  slot,
+  avatar,
+  connector = false,
+  children,
+}: {
+  label: string
+  slot: string
+  avatar: ReactNode
+  /** Draws the line down to the next message. */
+  connector?: boolean
+  children: ReactNode
+}) {
+  return (
+    <article
+      aria-label={label}
+      data-slot={slot}
+      className="grid grid-cols-[36px_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[28px_minmax(0,1fr)] @max-[480px]/detail:gap-x-2.5"
+    >
+      <div className="flex flex-col items-center">
+        {avatar}
+        {connector ? (
+          <span
+            aria-hidden
+            className="my-1.5 min-h-4 w-0.5 flex-1 rounded-full bg-line"
+          />
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-2",
+          connector && "pb-6 @max-[480px]/detail:pb-5"
+        )}
+      >
+        {children}
+      </div>
+    </article>
   )
+}
+
+const AVATAR_CLASS =
+  "grid size-9 shrink-0 place-items-center rounded-full border font-semibold @max-[480px]/detail:size-7"
+
+/**
+ * Where the reply stands on Google, in two or three words beside "Reply
+ * from": live only once Google has confirmed it, sent while Google has it
+ * and has not answered, and otherwise plainly not there yet.
+ */
+function GoogleTag({ review }: { review: Review }) {
+  const reply = review.reply
+  if (reply?.body && isLiveOnGoogle(reply.publishStatus)) {
+    return (
+      <StatusPill tone="ok" data-slot="google-tag">
+        Live on Google
+      </StatusPill>
+    )
+  }
+  if (review.workflowStatus === "publish_requested") {
+    return (
+      <StatusPill tone="warn" data-slot="google-tag">
+        Publishing
+      </StatusPill>
+    )
+  }
+  if (reply?.body && reply.publishStatus === "accepted") {
+    return (
+      <StatusPill tone="info" data-slot="google-tag">
+        Sent · awaiting Google
+      </StatusPill>
+    )
+  }
+  return (
+    <StatusPill tone="outline" dashed data-slot="google-tag">
+      Not on Google yet
+    </StatusPill>
+  )
+}
+
+/**
+ * The review and the reply as a conversation (reference `.thread`): the
+ * customer's message, a rule down the gutter, and the business's reply —
+ * which is where the reply is written, read and checked, so the words are
+ * edited in the place they will appear.
+ *
+ * The review is the one place in the pane set in the reading serif. Whether
+ * the reply is on Google is the tag beside "Reply from", and a live reply
+ * that differs from the one being edited is one click away above it.
+ */
+function ReviewThread({
+  review,
+  clientName,
+  composer,
+}: {
+  review: Review
+  clientName?: string | null
+  composer?: ReactNode
+}) {
+  const displayName = reviewerName(review)
+  const business = clientName ?? review.locationName
+  const violation = review.reply?.googlePolicyViolation
 
   return (
-    <section
-      aria-label="The review and the live reply"
-      className="grid grid-cols-1 gap-3 @2xl/detail:grid-cols-2"
-    >
-      <article
-        aria-label={`Review from ${displayName}`}
-        data-slot="review-card"
-        className="m-0 flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) bg-surface-alt px-5 py-[18px]"
+    <div data-slot="review-thread" className="flex flex-col">
+      <ThreadMessage
+        label={`Review from ${displayName}`}
+        slot="thread-review"
+        connector
+        avatar={
+          <span
+            aria-hidden
+            className={cn(
+              AVATAR_CLASS,
+              "border-line bg-fill font-mono text-[11px] text-ink-secondary @max-[480px]/detail:text-[10px]"
+            )}
+          >
+            {initials(displayName)}
+          </span>
+        }
       >
-        <QuoteIcon
-          aria-hidden
-          strokeWidth={0}
-          className="size-5 fill-current text-accent-ink"
-        />
-        <div className="min-w-0">
-          <ReviewBody review={review} />
-          <ReviewMedia media={review.media} />
+        <div className="flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <StarRating rating={review.rating} size="md" />
+          <time
+            dateTime={review.createTime}
+            title={formatDateTime(review.createTime, review.timezone)}
+            className="font-mono text-caption text-ink-muted tabular-nums"
+          >
+            {formatRelativeTime(review.createTime)}
+          </time>
+          {/* Where the review came from, with the review it describes. */}
+          <span className="-my-1 ml-auto">
+            <ReviewMetadata review={review} />
+          </span>
         </div>
-        <p className="font-mono text-caption text-ink-muted tabular-nums">
-          {displayName}
-          {review.rating !== null
-            ? ` · ${review.rating} ${review.rating === 1 ? "star" : "stars"}`
-            : ""}
-          {" · "}
-          {formatRelativeTime(review.createTime)}
-        </p>
-      </article>
+        <ReviewBody review={review} />
+        <ReviewMedia media={review.media} />
+      </ThreadMessage>
 
-      <article
-        aria-label="The reply live on Google"
-        data-slot="live-reply-card"
-        className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-dashed border-line-strong px-4 py-3.5"
+      <ThreadMessage
+        label="Your reply"
+        slot="thread-reply"
+        avatar={
+          <span
+            aria-hidden
+            className={cn(
+              AVATAR_CLASS,
+              "border-ink bg-ink font-display text-sm text-canvas"
+            )}
+          >
+            {initials(business).charAt(0)}
+          </span>
+        }
       >
-        <span className="font-mono text-[11.5px] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase">
-          On Google now
-        </span>
-        {live ? (
-          <>
-            <p
-              dir="auto"
-              className="text-[15px] leading-6 whitespace-pre-line text-ink"
-            >
-              {live.body}
-            </p>
-            <p className="font-mono text-caption text-ink-muted tabular-nums">
-              {publishedBy?.actorName
-                ? `Published by ${publishedBy.actorName}`
-                : "Live on Google"}
-              {live.googleReplyUpdatedAt
-                ? ` · ${formatDateTime(live.googleReplyUpdatedAt, review.timezone)}`
-                : publishedBy
-                  ? ` · ${formatRelativeTime(publishedBy.createdAt)}`
-                  : ""}
-            </p>
-          </>
-        ) : sent ? (
-          <p className="text-ui text-ink-muted">
-            Sent to Google — waiting for Google to confirm it is live. Customers
-            may not see it yet.
-          </p>
-        ) : (
-          <p className="text-ui text-ink-muted">
-            Nothing is live yet. Customers see the review without a reply.
-          </p>
-        )}
-        {reply?.googlePolicyViolation ? (
+        <div className="flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <b className="min-w-0 font-semibold text-ink">
+            Reply from {review.locationName}
+          </b>
+          <span className="ml-auto @max-[480px]/detail:ml-0">
+            <GoogleTag review={review} />
+          </span>
+        </div>
+        {violation ? (
           <p className="flex items-start gap-1.5 text-caption text-danger-ink">
             <TriangleAlertIcon
               aria-hidden
               strokeWidth={1.75}
               className="mt-0.5 size-3.5 shrink-0"
             />
-            Google flagged this reply: {reply.googlePolicyViolation}
+            Google flagged this reply: {violation}
           </p>
         ) : null}
-      </article>
-    </section>
+        <section aria-label="Reply" className="flex flex-col gap-3">
+          <LiveReplyDisclosure review={review} />
+          {composer}
+        </section>
+      </ThreadMessage>
+    </div>
   )
 }
 
-/** Where the reply has got to, as five stages, from the review's own state. */
-function ReplyLifecycle({ review }: { review: Review }) {
-  const steps = deriveLifecycle(review)
-  return (
-    <Lifecycle
-      aria-label="Reply lifecycle"
-      stages={steps.map((step) =>
-        step.id === "received"
-          ? {
-              ...step,
-              meta: `From Google · ${formatRelativeTime(review.createTime)}`,
-            }
-          : step
-      )}
-    />
-  )
-}
-
-// The action bar is sticky at the foot of the screen on a phone or a short
-// window, and a static last row of the pane where the workspace is locked.
+// The publish bar (reference `.publish`) is sticky at the foot of the screen
+// on a phone or a short window, and a static last row of the pane where the
+// workspace is locked. A raised band rather than a dark one, so the accent
+// Publish button is the one strong thing in it.
 const FOOTER_CLASS =
-  "sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-b-[calc(var(--np-radius-card)-1px)] on-charcoal px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] md:[@media(min-height:620px)]:static md:[@media(min-height:620px)]:pb-3 [&_:focus-visible]:outline-ink-on-charcoal"
+  "sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-b-[calc(var(--np-radius-card)-1px)] border-t border-line bg-surface-alt px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] max-md:rounded-none md:[@media(min-height:620px)]:static md:[@media(min-height:620px)]:pb-3"
 
+// Only this middle row scrolls. The thread keeps a reading measure and
+// centres in a wide pane.
 const SCROLL_CLASS =
-  "flex min-h-0 flex-1 flex-col gap-5 p-4 @md/detail:p-[18px] md:[@media(min-height:620px)]:overflow-y-auto"
+  "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 md:[@media(min-height:620px)]:overflow-y-auto"
+
+const COLUMN_CLASS = "mx-auto flex w-full max-w-[760px] flex-col gap-6"
 
 function ReviewDetail({
   reviewId,
@@ -738,7 +814,16 @@ function ReviewDetail({
       aria-busy={pending || undefined}
       className="@container/detail flex min-h-0 flex-1 flex-col"
     >
-      <HeadFrame leading={leading}>
+      <HeadFrame
+        leading={leading}
+        below={
+          review ? (
+            <JourneyLine steps={deriveLifecycle(review)} />
+          ) : pending ? (
+            <Skeleton className="h-3.5 w-72 max-w-full" />
+          ) : null
+        }
+      >
         {review ? (
           <ReviewHead
             review={review}
@@ -750,47 +835,48 @@ function ReviewDetail({
           <>
             {pending ? (
               <>
-                <Skeleton className="size-9 rounded-full" />
-                <div className="flex flex-1 flex-col gap-1.5 pt-1">
-                  <Skeleton className="h-4 w-40" />
+                <Skeleton className="size-9 rounded-full max-md:hidden" />
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <Skeleton className="h-5 w-40" />
                   <Skeleton className="h-3 w-56 max-w-full" />
                 </div>
               </>
-            ) : null}
+            ) : (
+              <span className="flex-1" />
+            )}
             <div className="ml-auto">{navigation}</div>
           </>
         )}
       </HeadFrame>
 
-      {/* One reading order, one scroll region: what is in the way, where the
-          reply has got to, the customer's words beside what Google shows,
-          the reply, the checks, and what happened — with the action bar
-          pinned beneath. */}
+      {/* One reading order, one scroll region: what is in the way, the
+          customer's words and the reply as a thread, the checks, and what
+          happened — with the publish bar pinned beneath. */}
       {review ? (
         <div
           ref={scrollRef}
           className={SCROLL_CLASS}
           data-slot="inbox-detail-scroll"
         >
-          <ReplyExceptionSlot review={review} />
-          <ReplyLifecycle review={review} />
-          <ReviewAndReplyCards review={review} />
+          <div className={COLUMN_CLASS}>
+            <ReplyExceptionSlot review={review} />
+            <ReviewThread
+              review={review}
+              clientName={clientName}
+              composer={composer}
+            />
 
-          <section aria-label="Reply" className="flex flex-col gap-3">
-            <LiveReplyDisclosure review={review} />
-            {composer}
-          </section>
+            <VerificationChecks
+              verification={review.latestVerification}
+              status={review.workflowStatus}
+            />
 
-          <VerificationChecks
-            verification={review.latestVerification}
-            status={review.workflowStatus}
-          />
-
-          <ActivityTimeline
-            timeline={review.timeline}
-            timezone={review.timezone}
-            collapsible
-          />
+            <ActivityTimeline
+              timeline={review.timeline}
+              timezone={review.timezone}
+              collapsible
+            />
+          </div>
         </div>
       ) : failed ? (
         <QueryError
@@ -801,19 +887,20 @@ function ReviewDetail({
         />
       ) : (
         <div className={SCROLL_CLASS}>
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-32 w-full rounded-(--np-radius-card)" />
-          <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
+          <div className={COLUMN_CLASS}>
+            <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
+            <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
+          </div>
         </div>
       )}
 
       {review ? (
         <footer data-slot="composer-footer" className={FOOTER_CLASS}>
-          <div className="flex min-w-0 flex-[1_1_240px] items-center">
+          <div className="flex min-w-0 flex-[1_1_220px] items-center">
             <ReplyStatusStrip review={review} />
           </div>
           {actions ? (
-            <div className="ml-auto flex max-w-full min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end">
+            <div className="ml-auto flex max-w-full min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end max-md:w-full max-md:flex-[1_1_100%]">
               {actions}
             </div>
           ) : null}

@@ -49,7 +49,7 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1 max-sm:items-stretch">
+    <div className="relative flex flex-col items-end gap-1">
       <Button
         variant="secondary"
         size="sm"
@@ -58,12 +58,13 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         pendingLabel="Syncing…"
       >
         <RefreshCwIcon aria-hidden data-icon="inline-start" />
-        Sync reviews
+        {/* The words fold away on a phone; they stay the button's name. */}
+        <span className="max-md:sr-only">Sync reviews</span>
       </Button>
       {error ? (
         <span
           role="alert"
-          className="max-w-72 text-caption text-danger-ink sm:text-right"
+          className="max-w-72 text-caption text-danger-ink max-md:absolute max-md:top-full max-md:right-0 max-md:z-10 max-md:w-60 max-md:rounded-(--np-radius-control) max-md:bg-surface max-md:p-2 max-md:shadow-np-pop sm:text-right"
         >
           {error}
         </span>

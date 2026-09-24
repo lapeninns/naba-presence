@@ -92,8 +92,12 @@ test.describe("inbox", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/inbox")
+    // The venue filter lives in the Filters sheet at every width.
+    await page.getByRole("button", { name: /^Filters/ }).click()
     await expect(
-      page.getByRole("combobox", { name: "Filter by location" })
+      page
+        .getByRole("dialog", { name: "Filters" })
+        .getByRole("combobox", { name: "Filter by location" })
     ).toBeVisible()
   })
 

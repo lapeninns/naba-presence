@@ -5,6 +5,7 @@ import { useEffect, useId, useState } from "react"
 import { cn } from "@/lib/utils"
 
 import { SearchInput } from "@/components/ui/input"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Select,
   SelectContent,
@@ -34,12 +35,18 @@ import type { InboxState } from "@/lib/inbox/url-state"
  * this is the one place to type words a customer wrote.
  */
 function ReviewSearchField({
+  ref,
   state,
   onChange,
+  showShortcut = false,
   className,
 }: {
+  /** The input itself, so the `/` shortcut can put the caret in it. */
+  ref?: React.Ref<HTMLInputElement>
   state: InboxState
   onChange: (partial: Partial<InboxState>) => void
+  /** Draws the `/` key hint at the trailing edge while the field is empty. */
+  showShortcut?: boolean
   className?: string
 }) {
   const searchId = useId()
@@ -61,21 +68,31 @@ function ReviewSearchField({
   const searchPending = searchDraft !== state.search
 
   return (
-    <>
+    <div className={cn("relative flex min-w-0", className)}>
       <label htmlFor={searchId} className="sr-only">
         Search reviews
       </label>
       <SearchInput
+        ref={ref}
         id={searchId}
         role="searchbox"
         aria-label="Search reviews"
         aria-busy={searchPending || undefined}
         value={searchDraft}
-        placeholder="Search review text or reviewer"
+        placeholder="Search reviews or reviewers"
         onChange={(event) => setSearchDraft(event.target.value)}
-        className={className}
+        className="w-full"
+        inputClassName={showShortcut ? "pr-7" : undefined}
       />
-    </>
+      {showShortcut && searchDraft === "" ? (
+        <Kbd
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 pointer-coarse:hidden"
+        >
+          /
+        </Kbd>
+      ) : null}
+    </div>
   )
 }
 

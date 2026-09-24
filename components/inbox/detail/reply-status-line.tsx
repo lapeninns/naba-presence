@@ -41,8 +41,8 @@ function ReplyStatusLine({
 }: {
   status: ReplyStatus
   /**
-   * `bar` is the sentence on the charcoal action bar, where the tone inks
-   * would not hold contrast: the words and the glyph carry the state.
+   * `bar` is the sentence on the publish bar: set a size up and in ink, with
+   * the words and the glyph carrying the state.
    */
   variant?: "detail" | "row" | "bar"
   className?: string
@@ -58,7 +58,7 @@ function ReplyStatusLine({
       aria-label={variant === "row" ? status.text : undefined}
       className={cn(
         variant === "bar"
-          ? "inline-flex min-w-0 items-center gap-2.5 text-ui font-semibold text-ink-on-charcoal"
+          ? "inline-flex min-w-0 items-center gap-2 text-[13px] leading-5 font-semibold text-ink"
           : "inline-flex min-w-0 items-center gap-1.5 text-caption font-medium whitespace-nowrap",
         variant !== "bar" && SITUATION_TONE_INK[status.tone],
         className

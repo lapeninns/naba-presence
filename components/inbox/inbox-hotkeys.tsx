@@ -18,6 +18,7 @@ export type HotkeyHandlers = Partial<
     | "next"
     | "previous"
     | "reply"
+    | "search"
     | "approve"
     | "assign"
     | "toggle-selection"
