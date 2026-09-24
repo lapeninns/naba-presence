@@ -74,8 +74,7 @@ import { formatNumber } from "@/lib/format"
  * On a phone the panes run edge to edge (reference `.panel` below 768px): the
  * page gutter is cancelled and the card loses its side borders and corners.
  */
-const PHONE_BLEED =
-  "max-md:-mx-4 max-md:rounded-none max-md:border-x-0"
+const PHONE_BLEED = "max-md:-mx-4 max-md:rounded-none max-md:border-x-0"
 
 /** The nearest ancestor that scrolls: the shell's column, or the document. */
 function scrollParent(node: HTMLElement | null): HTMLElement | null {
@@ -114,7 +113,9 @@ function InboxViewInner({
   const readIsDirty = useReadIsDirty()
 
   const reviewsQuery = useReviews(filters)
-  const countsQuery = useReviewCounts({ groupBy: "client" })
+  // Scoped to the client in view, so a queue's badge counts the rows that
+  // queue will show. Unscoped, this is the key the page prefetches.
+  const countsQuery = useReviewCounts({ clientId: state.clientId })
   const clientsQuery = useClients()
   // Narrowed to the client in view when the inbox is filtered to one, so the
   // empty state describes the client the operator is looking at rather than
@@ -178,12 +179,10 @@ function InboxViewInner({
     (queue: Queue) => {
       void (async () => {
         if (!(await dirtyGate())) return
-        // Choosing a queue under "Everything" clears the client scope — the
-        // heading says everything, so it has to mean it.
-        updateState(
-          { queue, clientId: undefined, selected: undefined },
-          "replace"
-        )
+        // The client scope survives a queue change: an operator moving from
+        // one client's Needs reply to its Failed queue is still working that
+        // client.
+        updateState({ queue, selected: undefined }, "replace")
       })()
     },
     [dirtyGate, updateState]
@@ -601,7 +600,10 @@ function InboxViewInner({
                 }${reviewsQuery.hasNextPage ? " so far" : ""}`}
         </span>
         <span aria-hidden className="flex-1" />
-        <GoogleFreshness className="min-w-0 truncate max-2xl:hidden" />
+        <GoogleFreshness
+          clientId={state.clientId}
+          className="min-w-0 truncate max-2xl:hidden"
+        />
         {loaded && refreshed ? (
           <span
             className="font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
@@ -773,7 +775,7 @@ function InboxViewInner({
         // `min-h-0` only where the workspace is locked to the window: there
         // the panes share the height and scroll inside. Everywhere else the
         // inbox is as tall as its content and the page scrolls.
-        className="relative flex flex-1 flex-col gap-3 md:[@media(min-height:620px)]:min-h-0 xl:gap-4"
+        className="relative flex flex-1 flex-col gap-3 xl:gap-4 md:[@media(min-height:620px)]:min-h-0"
       >
         <InboxHotkeys handlers={hotkeyHandlers} />
 
@@ -786,7 +788,7 @@ function InboxViewInner({
           // Reference `.work`: a 280–340px queue beside the thread from
           // 768px, widening to a third of the room (320–420px) from 1280px.
           className={cn(
-            "grid flex-1 grid-cols-1 gap-3 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:[grid-template-rows:minmax(0,1fr)] xl:gap-4",
+            "grid flex-1 grid-cols-1 gap-3 xl:gap-4 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:[grid-template-rows:minmax(0,1fr)]",
             isDesktop &&
               "md:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] xl:grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]"
           )}

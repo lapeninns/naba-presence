@@ -12,8 +12,16 @@ import { cn } from "@/lib/utils"
  * this says when NabaPresence last heard from Google, which is what decides
  * whether a new review could be missing.
  */
-export function GoogleFreshness({ className }: { className?: string }) {
-  const clientId = useClientScope()
+export function GoogleFreshness({
+  clientId: filterClientId,
+  className,
+}: {
+  /** The inbox's client filter, which narrows further than the shell's scope. */
+  clientId?: string
+  className?: string
+}) {
+  const shellClientId = useClientScope()
+  const clientId = filterClientId ?? shellClientId
   const clients = useClients()
   const inScope = (clients.data?.items ?? []).filter(
     (client) => (!clientId || client.id === clientId) && client.linkedCount > 0
@@ -38,7 +46,9 @@ export function GoogleFreshness({ className }: { className?: string }) {
       )}
       title="When NabaPresence last successfully checked these listings' reviews with Google."
     >
-      {oldest ? `Google checked ${formatRelativeTime(oldest)}` : "Google not checked yet"}
+      {oldest
+        ? `Google checked ${formatRelativeTime(oldest)}`
+        : "Google not checked yet"}
       {delayed ? " · delayed, retrying" : ""}
     </span>
   )

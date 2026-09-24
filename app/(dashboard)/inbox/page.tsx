@@ -16,8 +16,8 @@ export const metadata = { title: "Inbox · NabaPresence" }
 // re-render on the server for every one of those changes (the auto-select on
 // load included). Next then moves focus to the re-rendered segment, which
 // wiped text an operator had already typed into the location filter. The
-// list hydrates client-side; only the Today strip's org-wide figures, which
-// never depend on the query string, are prefetched.
+// list hydrates client-side; only the queue badges' organisation-wide counts,
+// which never depend on the query string, are prefetched.
 export default async function InboxPage() {
   const [session, { locationCount }] = await Promise.all([
     getSession(),

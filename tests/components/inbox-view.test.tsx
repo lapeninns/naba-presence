@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
-import type { ReviewDetail as ReviewDetailData, ReviewRow } from "@/lib/api/reviews"
+import type {
+  ReviewDetail as ReviewDetailData,
+  ReviewRow,
+} from "@/lib/api/reviews"
 import type { ReviewCounts } from "@/lib/contracts/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
@@ -23,17 +26,27 @@ const replace = vi.fn()
 // a fresh instance per call would make every `useMemo([searchParams])` in
 // `InboxViewInner` recompute every render, which is unnecessary noise here.
 const INITIAL_PARAMS = new URLSearchParams("selected=rev-1&rating=4")
+let currentParams = INITIAL_PARAMS
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
-  useSearchParams: () => INITIAL_PARAMS,
+  useSearchParams: () => currentParams,
 }))
 
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",
-    location: { id: "loc-1", name: "Riverside", clientId: "c1", clientName: "Old Crown Group" },
-    reviewer: { displayName: "Sam Traveller", isAnonymous: false, profilePhotoUrl: null },
+    location: {
+      id: "loc-1",
+      name: "Riverside",
+      clientId: "c1",
+      clientName: "Old Crown Group",
+    },
+    reviewer: {
+      displayName: "Sam Traveller",
+      isAnonymous: false,
+      profilePhotoUrl: null,
+    },
     rating: 4,
     text: "Great stay, would return.",
     detectedLanguageCode: "en",
@@ -50,7 +63,11 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
     googlePolicyViolation: null,
     replyBody: null,
     syncStatus: "succeeded",
-    capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+    capabilities: {
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+    },
     ...overrides,
   }
 }
@@ -89,7 +106,11 @@ function reviewDetail(): ReviewDetailData {
       ],
       reply: null,
       timeline: [],
-      capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+      capabilities: {
+        canPublish: true,
+        canEdit: true,
+        canRequestApproval: false,
+      },
       latestVerification: null,
     },
   }
@@ -114,6 +135,7 @@ beforeEach(() => {
   sessionStorage.clear()
   push.mockClear()
   replace.mockClear()
+  currentParams = INITIAL_PARAMS
 
   // jsdom does not implement matchMedia; the auto-select effect's isDesktop
   // check calls it unconditionally. `selected` is already set in every test
@@ -134,7 +156,10 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
   vi.spyOn(countsHook, "useReviewCounts").mockReturnValue({
-    data: { total: 1, byStatus: {}, byQueue: {
+    data: {
+      total: 1,
+      byStatus: {},
+      byQueue: {
         needs_reply: 0,
         approval: 0,
         awaiting_my_approval: 0,
@@ -143,7 +168,8 @@ beforeEach(() => {
         failed: 0,
         done: 0,
         all: 0,
-      } },
+      },
+    },
   } as unknown as UseQueryResult<ReviewCounts>)
 
   vi.spyOn(connHealthHook, "useConnectionHealth").mockReturnValue({
@@ -157,7 +183,9 @@ beforeEach(() => {
     data: reviewDetail(),
   } as UseQueryResult<ReviewDetailData>)
 
-  vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
+  vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+    mockMutation()
+  )
   vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
 })
 
@@ -197,13 +225,17 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     renderInbox()
     const textbox = await dirtyComposer(user)
 
-    await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove rating filter" })
+    )
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove rating filter" })
+    )
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -268,6 +300,28 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
   })
 })
 
+describe("InboxView — client scope", () => {
+  it("keeps the client filter when the queue changes", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    renderInbox()
+    const queues = screen.getByRole("navigation", { name: "Review queues" })
+
+    await user.click(within(queues).getByRole("button", { name: /^Done/ }))
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("clientId=c1")
+    expect(replace.mock.calls[0][0]).toContain("queue=done")
+  })
+
+  it("scopes the queue counts to the client in view", () => {
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    renderInbox()
+    expect(countsHook.useReviewCounts).toHaveBeenCalledWith({
+      clientId: "c1",
+    })
+  })
+})
+
 // A failed list fetch must not render as "No reviews yet" (the genuinely
 // empty-queue copy) with no way to recover -- that silently mislabels a real
 // error as an empty inbox.
@@ -287,7 +341,9 @@ describe("InboxView — list fetch failure", () => {
 
     renderInbox()
 
-    expect(screen.getByText("We could not load your reviews.")).toBeInTheDocument()
+    expect(
+      screen.getByText("We could not load your reviews.")
+    ).toBeInTheDocument()
     expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(refetch).toHaveBeenCalledTimes(1)
@@ -325,7 +381,9 @@ describe("InboxView — next and previous review", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
     renderInbox()
-    expect(screen.getByRole("button", { name: "Previous review" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Previous review" })
+    ).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "Next review" }))
     expect(push).toHaveBeenCalled()
     expect(push.mock.calls[0][0]).toContain("selected=rev-2")
