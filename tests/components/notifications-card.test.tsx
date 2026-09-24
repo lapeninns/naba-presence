@@ -73,4 +73,22 @@ describe("NotificationsCard", () => {
       screen.getByRole("button", { name: "Save notifications" })
     ).toBeInTheDocument()
   })
+
+  it("reads as on/off first and keeps the topic under Advanced", () => {
+    const { container } = renderCard(null)
+    expect(
+      screen.getByText("Off. Reviews arrive on the scheduled check.")
+    ).toBeInTheDocument()
+    const details = container.querySelector("details")
+    expect(details).not.toHaveAttribute("open")
+    expect(details).toHaveTextContent("Advanced: Google Cloud Pub/Sub topic")
+  })
+
+  it("opens Advanced when a topic is already set", () => {
+    const { container } = renderCard()
+    expect(container.querySelector("details")).toHaveAttribute("open")
+    expect(
+      screen.getByText("On. Google sends new reviews as they happen.")
+    ).toBeInTheDocument()
+  })
 })
