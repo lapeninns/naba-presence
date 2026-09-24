@@ -56,6 +56,28 @@ export function hasConflict(summary: ListingSummary): boolean {
 }
 
 /**
+ * Google can't be read for this listing right now: its login is expired,
+ * revoked or failing, or the login no longer manages the listing. While
+ * that holds, nothing may claim "In sync" or "checked just now"; the last
+ * comparison is as old as the break.
+ */
+export function googleUnreachable(
+  summary: ListingSummary | null | undefined
+): boolean {
+  if (!summary) return false
+  const connection = summary.connection
+  if (
+    connection &&
+    (connection.status !== "active" || connection.reconnectRequired)
+  )
+    return true
+  return summary.freshness?.reason === "listing_access_lost"
+}
+
+/** The words for a sync state nobody can check right now. */
+export const UNREACHABLE_LABEL = "Unknown — can’t reach Google"
+
+/**
  * Worst-first, like client health. A listing is `healthy` only when nothing
  * else applies. `unpublished` sits below `attention`: work waiting to go out
  * is a to-do, a failed publish or a conflict is a problem.

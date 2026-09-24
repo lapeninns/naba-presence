@@ -254,6 +254,59 @@ describe("PhotosTab", () => {
     expect(input.getAttribute("accept")).not.toMatch(/video/)
   })
 
+  it("shows a thumbnail per file, announces only a summary and releases the previews", async () => {
+    const user = userEvent.setup()
+    const createObjectURL = vi.fn(() => "blob:preview-1")
+    const revokeObjectURL = vi.fn()
+    // jsdom has no object URLs; lend it a pair for this test only.
+    Object.assign(URL, { createObjectURL, revokeObjectURL })
+    useMediaMock.mockReturnValue({
+      data: makeMedia(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Add photos" }))
+    const photo = new File([new Uint8Array(20 * 1024)], "bar.jpg", {
+      type: "image/jpeg",
+    })
+    const tiny = new File([new Uint8Array(100)], "tiny.png", {
+      type: "image/png",
+    })
+    await user.upload(screen.getByLabelText("Direct file upload"), [
+      photo,
+      tiny,
+    ])
+
+    const list = screen.getByRole("list", { name: "Files to upload" })
+    expect(list).not.toHaveAttribute("aria-live")
+    expect(list.querySelector('img[src="blob:preview-1"]')).not.toBeNull()
+    expect(
+      screen.getByText(/Google needs photos of at least 10 KB/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("0 sent, 1 ready, 1 can’t upload.")
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Review file upload" }))
+    const confirm = await screen.findByRole("alertdialog")
+    expect(within(confirm).getByText(/under “Additional”/)).toBeInTheDocument()
+    expect(
+      within(confirm).getByRole("img", { name: "bar.jpg" })
+    ).toBeInTheDocument()
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }))
+
+    await user.click(screen.getByRole("button", { name: "Remove bar.jpg" }))
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+    Reflect.deleteProperty(URL, "createObjectURL")
+    Reflect.deleteProperty(URL, "revokeObjectURL")
+  })
+
   it("paginates current media instead of rendering every image at once", () => {
     const items = manyItems(15)
     useMediaMock.mockReturnValue({
@@ -394,7 +447,9 @@ describe("PhotosTab", () => {
 
   it("reflects the URL's filters as pressed and clears them back to the bare URL", async () => {
     const user = userEvent.setup()
-    searchParams = new URLSearchParams("ownership=customer&category=INTERIOR&page=3")
+    searchParams = new URLSearchParams(
+      "ownership=customer&category=INTERIOR&page=3"
+    )
     loaded(makeMedia({ items: [], total: 0 }))
     renderTab()
     expect(

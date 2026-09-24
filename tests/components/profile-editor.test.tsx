@@ -161,9 +161,7 @@ describe("ProfileTab", () => {
       if (url.includes("type=categories"))
         return jsonResponse({
           result: {
-            categories: [
-              { name: "categories/gcid:spa", displayName: "Spa" },
-            ],
+            categories: [{ name: "categories/gcid:spa", displayName: "Spa" }],
           },
         })
       if (url.includes("/business-information"))
@@ -186,7 +184,9 @@ describe("ProfileTab", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    expect(await screen.findByText("No primary category set.")).toBeInTheDocument()
+    expect(
+      await screen.findByText("No primary category set.")
+    ).toBeInTheDocument()
 
     const addInput = screen.getByLabelText("Add another category")
     await waitFor(() => expect(addInput).toBeEnabled())
@@ -205,7 +205,9 @@ describe("ProfileTab", () => {
     await userEvent.clear(storeCode)
     await userEvent.type(storeCode, "CAMDEN-2")
 
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const sheet = await screen.findByRole("dialog")
     await userEvent.click(
       await within(sheet).findByRole("button", { name: "Publish to Google" })
@@ -228,11 +230,54 @@ describe("ProfileTab", () => {
   })
 })
 
+describe("ProfileTab save here", () => {
+  it("saves the copy fields even when a Google-only field is edited too, keeping that edit", async () => {
+    const fetchMock = stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const storeCode = await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() => expect(storeCode).toBeEnabled())
+    await userEvent.clear(storeCode)
+    await userEvent.type(storeCode, "CAMDEN-2")
+    const name = screen.getByRole("textbox", { name: "Business name" })
+    await userEvent.clear(name)
+    await userEvent.type(name, "Camden House")
+
+    // Each section says where its edits go.
+    expect(screen.getAllByText("Saved here first").length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText("Goes straight to Google").length
+    ).toBeGreaterThan(0)
+
+    await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          (init as RequestInit)?.method === "PUT" &&
+          String(url).includes("/profile")
+      )
+      expect(put).toBeTruthy()
+      const body = JSON.parse((put![1] as RequestInit).body as string)
+      expect(body.values.name).toBe("Camden House")
+    })
+    // Nothing went to Google, and the store code edit is still in the form.
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          (init as RequestInit)?.method === "PATCH" &&
+          String(url).includes("/business-information")
+      )
+    ).toBe(false)
+    expect(screen.getByDisplayValue("CAMDEN-2")).toBeInTheDocument()
+  })
+})
+
 describe("ProfileTab address lines", () => {
   it("lets an operator type spaces and new lines in the address", async () => {
     stubRoutes()
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const address = await screen.findByRole("textbox", { name: "Address lines" })
+    const address = await screen.findByRole("textbox", {
+      name: "Address lines",
+    })
     await waitFor(() => expect(address).toBeEnabled())
     await userEvent.type(address, "12 High Street{Enter}Old Town")
     // The draft keeps clean lines; the textarea keeps what was typed.
@@ -265,9 +310,13 @@ describe("ProfileTab while Google's half is still loading", () => {
     ).toBeInTheDocument()
 
     expect(screen.queryByText("In sync with Google")).toBeNull()
-    expect(screen.queryByText("Everything on this page matches Google.")).toBeNull()
     expect(
-      screen.getByText(/Reading categories, address and attributes from Google/i)
+      screen.queryByText("Everything on this page matches Google.")
+    ).toBeNull()
+    expect(
+      screen.getByText(
+        /Reading categories, address and attributes from Google/i
+      )
     ).toBeInTheDocument()
   })
 

@@ -17,6 +17,7 @@ export function UploadDialog({
   open,
   onOpenChange,
   files,
+  previews = [],
   category,
   pending,
   onConfirm,
@@ -24,6 +25,8 @@ export function UploadDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   files: readonly File[]
+  /** Thumbnail URLs, index-aligned with `files` (null where there is none). */
+  previews?: readonly (string | null)[]
   category: MediaCategory
   pending: boolean
   onConfirm: () => void
@@ -41,9 +44,31 @@ export function UploadDialog({
         </AlertDialogTitle>
         <AlertDialogDescription>
           {count === 1
-            ? `“${files[0]?.name}” will be added as a ${categoryLabel} photo on the Google Business Profile, where customers can see it straight away.`
-            : `They will be added as ${categoryLabel} photos on the Google Business Profile, where customers can see them straight away.`}
+            ? `“${files[0]?.name}” will be added to the Google Business Profile under “${categoryLabel}”, where customers can see it straight away.`
+            : `They will be added to the Google Business Profile under “${categoryLabel}”, where customers can see them straight away.`}
         </AlertDialogDescription>
+        {previews.some(Boolean) ? (
+          <ul
+            aria-label="Photos to upload"
+            className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2"
+          >
+            {files.map((file, index) => (
+              <li
+                key={`${index}-${file.name}`}
+                className="aspect-square overflow-hidden rounded-md bg-fill"
+              >
+                {previews[index] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previews[index]!}
+                    alt={file.name}
+                    className="size-full object-cover"
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="ghost">Cancel</Button>} />
           <Button onClick={onConfirm} pending={pending} disabled={count === 0}>

@@ -8,7 +8,11 @@ import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
 import { uncheckedAreas } from "@/lib/listings/area-state"
-import { googleChangedCount, unpublishedCount } from "@/lib/listings/health"
+import {
+  googleChangedCount,
+  UNREACHABLE_LABEL,
+  unpublishedCount,
+} from "@/lib/listings/health"
 import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
 
@@ -130,6 +134,9 @@ function HealthStrip({
   const changed = googleChangedCount(summary)
   const last = summary.lastPublish
   const unchecked = uncheckedAreas(summary)
+  // Without a working login for this listing nothing here was checked
+  // recently, whatever the last comparison said.
+  const unreachable = linked && (connectionBroken || accessLost)
 
   return (
     <div className={GRID}>
@@ -212,7 +219,9 @@ function HealthStrip({
         label="Sync with Google"
         value={
           unpublished === 0 && changed === 0 ? (
-            unchecked.length > 0 ? (
+            unreachable ? (
+              <StatusPill tone="neutral">{UNREACHABLE_LABEL}</StatusPill>
+            ) : unchecked.length > 0 ? (
               <StatusPill tone="neutral">Nothing waiting</StatusPill>
             ) : (
               <StatusPill tone="healthy">In sync</StatusPill>
@@ -235,7 +244,11 @@ function HealthStrip({
           )
         }
         detail={
-          unpublished > 0
+          unreachable
+            ? unpublished > 0
+              ? "Saved here, not yet on Google. Google can’t be checked until the connection is fixed."
+              : "Google can’t be checked until the connection is fixed, so this may be out of date."
+            : unpublished > 0
             ? "Saved here, not yet on Google"
             : changed > 0
               ? "Google changed something since the last publish"

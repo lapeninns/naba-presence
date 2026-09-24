@@ -20,6 +20,8 @@ export const MEDIA_OWNERSHIPS = ["merchant", "customer"] as const
 export type MediaOwnership = (typeof MEDIA_OWNERSHIPS)[number]
 
 export const MAX_MEDIA_UPLOAD_BYTES = 75 * 1024 * 1024
+/** Google refuses photos under 10 KB; the upload route checks the same. */
+export const MIN_PHOTO_UPLOAD_BYTES = 10 * 1024
 
 // ---------------------------------------------------------------------------
 // Requests

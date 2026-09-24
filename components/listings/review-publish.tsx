@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  ArrowLeftIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
@@ -22,6 +21,8 @@ import {
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import type { ChangeRow } from "@/components/editors/change-diff"
+import { ActivityDrawer } from "@/components/editors/activity-drawer"
+import { ListingAreaHeader } from "@/components/listings/area-frame"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
@@ -287,6 +288,7 @@ function AreaSection({
   pending,
   error,
   onRetry,
+  include,
 }: {
   locationId: string
   area: AreaKey
@@ -294,6 +296,15 @@ function AreaSection({
   pending: boolean
   error: unknown
   onRetry: () => void
+  /**
+   * Whether this area goes out with the others. Omitted when there is only
+   * one area to publish (nothing to choose between).
+   */
+  include?: {
+    checked: boolean
+    onChange: (checked: boolean) => void
+    disabled: boolean
+  }
 }) {
   const label = AREA_LABEL[area]
   const headingId = `review-${area}`
@@ -336,6 +347,21 @@ function AreaSection({
           Edit
         </Link>
       </div>
+      {include && review && review.rows.length > 0 ? (
+        <div className="border-b border-line bg-surface-alt px-4 py-2.5">
+          <Checkbox
+            checked={include.checked}
+            disabled={include.disabled}
+            onCheckedChange={(checked) => include.onChange(Boolean(checked))}
+            label={`Include ${label.toLowerCase()} in this publish`}
+            description={
+              include.checked
+                ? undefined
+                : "Left out: it stays saved here and waits for the next publish."
+            }
+          />
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 p-4">
         {error ? (
           <div role="alert" className="flex flex-wrap items-center gap-3">
@@ -498,10 +524,17 @@ function ReviewPublish({
   const hours = useHoursReview(locationId, areas.includes("hours"))
   const menu = useMenuReview(locationId, areas.includes("menu"))
   const [acknowledged, setAcknowledged] = useState(false)
+  // Areas the operator left out of this publish. Each area publishes through
+  // its own call, so leaving one out simply doesn't queue its step.
+  const [excluded, setExcluded] = useState<AreaKey[]>([])
 
-  const reviews = [profile.review, hours.review, menu.review].filter(
+  const allReviews = [profile.review, hours.review, menu.review].filter(
     (review): review is AreaReview => review !== null
   )
+  const reviews = allReviews.filter(
+    (review) => !excluded.includes(review.key)
+  )
+  const includedAreas = areas.filter((area) => !excluded.includes(area))
   const rows = reviews.reduce((sum, review) => sum + review.rows.length, 0)
   const needsAck = reviews.some((review) => review.needsAck)
   const ackFields = reviews.flatMap((review) =>
@@ -545,21 +578,29 @@ function ReviewPublish({
     flow.results.every((step) => step.status === "done")
 
   const connection = summary.data?.connection
+  // Not the deployment-wide publishing switch (the editors' "paused" banner):
+  // this listing's own Google login is broken. An owner or admin fixes it
+  // by reconnecting from Setup.
   const paused = Boolean(
     connection &&
     (connection.status !== "active" || connection.reconnectRequired)
   )
+  const canManage = role === "owner" || role === "admin"
   const cannotPublish = caps.data ? !caps.data.canPublish : false
 
   const disabledReason = paused
-    ? "Publishing is paused until the Google login is reconnected."
+    ? canManage
+      ? "Publishing is paused until the client’s Google login is reconnected."
+      : "Publishing is paused until an owner or admin reconnects the client’s Google login."
     : cannotPublish
       ? "You can review these changes, but publishing is limited to people with publish access."
       : loading
         ? "Wait until every area has been read from Google."
         : unreadable.length > 0
           ? `Couldn’t read ${AREA_LABEL[unreadable[0]!].toLowerCase()} from Google. Try again above first.`
-          : steps.length === 0
+          : includedAreas.length === 0
+            ? "Include at least one area to publish."
+            : steps.length === 0
             ? "Nothing is left to publish."
             : needsAck && !acknowledged
               ? "Confirm the Google change first."
@@ -581,41 +622,29 @@ function ReviewPublish({
     <ListingGate locationId={locationId} role={role}>
       {(entry) => (
         <PageFrame width="standard">
-          <header className="flex shrink-0 flex-wrap items-end justify-between gap-4">
-            <div className="flex min-w-0 flex-[1_1_22rem] flex-col gap-1.5">
-              <Link
-                href={listingHref(locationId)}
-                className="inline-flex w-fit items-center gap-1.5 rounded-(--np-radius-tag) text-ui font-semibold text-accent-ink underline-offset-3 focus-halo hover:underline"
-              >
-                <ArrowLeftIcon
-                  className="size-3.5"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-                {entry.name}
-              </Link>
-              <h1 className="font-display text-page-title font-semibold text-balance text-ink">
-                Review & publish
-              </h1>
-              <p className="max-w-[70ch] text-body text-pretty text-ink-muted">
-                {done
-                  ? "Every change was sent. Google’s answers are below."
-                  : summary.isPending
-                    ? "Checking what is waiting…"
-                    : summary.isError
-                      ? "We couldn’t check what is waiting."
-                      : areas.length === 0
-                        ? "Nothing is waiting to go to Google."
-                        : `${areas.length === 1 ? "1 area has" : `${areas.length} areas have`} changes saved here that are not yet on Google. Each area is read from Google so you can compare before publishing.`}
-              </p>
-            </div>
-            <Link
-              href={listingHref(locationId)}
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              Back to listing
-            </Link>
-          </header>
+          {/* The same header every listing page has: client, listing name
+              (the way back to the overview), the tabs. */}
+          <ListingAreaHeader
+            entry={entry}
+            role={role}
+            locationId={locationId}
+            current="changes"
+            summary={summary.data}
+            caps={caps.data}
+            status={null}
+            description={
+              done
+                ? "Every change was sent. Google’s answers are below."
+                : summary.isPending
+                  ? "Checking what is waiting…"
+                  : summary.isError
+                    ? "We couldn’t check what is waiting."
+                    : areas.length === 0
+                      ? "Nothing is waiting to go to Google."
+                      : `${areas.length === 1 ? "1 area has" : `${areas.length} areas have`} changes saved here that are not yet on Google. Each area is read from Google so you can compare before publishing.`
+            }
+            actions={<ActivityDrawer locationId={locationId} />}
+          />
 
           {summary.isError && !summary.data ? (
             <div className="rounded-(--np-radius-card) border border-line bg-surface">
@@ -687,8 +716,23 @@ function ReviewPublish({
                   <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
                   <AlertDescription>
                     The client’s Google login needs reconnecting, so Google
-                    can’t be read or written. Your saved changes are kept.
+                    can’t be read or written. Your saved changes are kept.{" "}
+                    {canManage
+                      ? "Reconnect it from Setup, then come back here."
+                      : "Ask an owner or admin to reconnect it."}
                   </AlertDescription>
+                  {canManage && entry.clientId ? (
+                    <AlertActions>
+                      <Link
+                        href={`/setup?client=${entry.clientId}&step=connect`}
+                        className={cn(
+                          buttonVariants({ variant: "secondary", size: "sm" })
+                        )}
+                      >
+                        Reconnect Google
+                      </Link>
+                    </AlertActions>
+                  ) : null}
                 </Alert>
               ) : null}
               {cannotPublish && !paused ? (
@@ -715,6 +759,20 @@ function ReviewPublish({
                     pending={source.query.isPending}
                     error={source.query.error}
                     onRetry={() => void source.query.refetch()}
+                    include={
+                      areas.length > 1
+                        ? {
+                            checked: !excluded.includes(area),
+                            disabled: flow.isPublishing,
+                            onChange: (checked) =>
+                              setExcluded((current) =>
+                                checked
+                                  ? current.filter((key) => key !== area)
+                                  : [...current, area]
+                              ),
+                          }
+                        : undefined
+                    }
                   />
                 )
               })}
@@ -820,7 +878,7 @@ function ReviewPublish({
                     <UploadIcon aria-hidden data-icon="inline-start" />
                     {retry
                       ? "Retry publishing"
-                      : `Publish ${areas.length === 1 ? "1 area" : `${areas.length} areas`} to Google`}
+                      : `Publish ${includedAreas.length === 1 ? "1 area" : `${includedAreas.length} areas`} to Google`}
                   </Button>
                 }
               />

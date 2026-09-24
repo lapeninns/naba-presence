@@ -429,10 +429,10 @@ export function SuggestionList({
                       </Button>
                     </>
                   )}
-                  <span className="text-caption text-ink-muted">
+                  <span className="min-w-0 flex-[1_1_16rem] text-caption text-ink-muted">
                     {missing
                       ? "Only changes NabaPresence’s copy."
-                      : "Accepting changes NabaPresence’s copy only."}
+                      : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
                   </span>
                 </div>
               </li>

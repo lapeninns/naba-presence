@@ -8,7 +8,7 @@ import {
   StoreIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
@@ -61,6 +61,13 @@ const HEALTH_FILTERS = [
 ] as const
 type HealthFilter = (typeof HEALTH_FILTERS)[number]["value"]
 
+function isHealthFilter(value: string | null): value is HealthFilter {
+  return HEALTH_FILTERS.some((filter) => filter.value === value)
+}
+
+/** Worst health first across every client, or grouped under each client. */
+type BoardOrder = "health" | "client"
+
 const UNFILED = "__unfiled__"
 
 type BoardRow = {
@@ -104,6 +111,7 @@ const HEALTH_ORDER: Record<ListingHealth, number> = {
 
 /**
  * When this listing's reviews were last successfully checked with Google,
+ * named as reviews: it says nothing about the profile, hours or menu.
  * and whether that is late. Only successful checks count, so a sync that
  * keeps failing shows its age here instead of looking fresh.
  */
@@ -111,8 +119,8 @@ function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
   const freshness = summary?.freshness
   if (!freshness) return null
   const checked = freshness.lastCheckedAt
-    ? `Checked ${formatRelativeTime(freshness.lastCheckedAt)}`
-    : "Not checked yet"
+    ? `Reviews checked ${formatRelativeTime(freshness.lastCheckedAt)}`
+    : "Reviews not checked yet"
   return (
     <span
       className={cn(
@@ -260,8 +268,12 @@ function BoardSkeleton() {
 /**
  * Every listing the session can see, health first.
  *
- * Unfiled listings lead, under their own group row, because that is where a
- * newly linked listing lands and the one thing it needs is a client. The
+ * By default the board is one list, worst health first across every client,
+ * so the top of it is the to-do list. "By client" groups it instead: unfiled
+ * listings lead, under their own group row, because that is where a newly
+ * linked listing lands and the one thing it needs is a client. The search,
+ * health, client and order choices live in the URL (`q`, `health`,
+ * `clientId`, `order`), so a filtered board can be shared or reloaded. The
  * Waiting column reads the DB-only summary, so the board answers "what is
  * waiting on which listing" without a single Google call. Below 720px of
  * width each row becomes a labelled card that keeps its health, its counts
@@ -269,18 +281,66 @@ function BoardSkeleton() {
  */
 function ListingsBoard({ role }: { role: string | null }) {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const canManage = role === "owner" || role === "admin"
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
 
-  const [search, setSearch] = React.useState("")
-  const [health, setHealth] = React.useState<HealthFilter>("all")
-  const initialClient = searchParams.get("clientId")
-  const [clientFilter, setClientFilter] = React.useState<string | null>(
-    initialClient
+  // Local state answers each keystroke at once; the URL follows it (replace,
+  // not push, so Back leaves the board rather than undoing filters).
+  const [search, setSearchState] = React.useState(
+    () => searchParams.get("q") ?? ""
   )
+  const [health, setHealthState] = React.useState<HealthFilter>(() => {
+    const value = searchParams.get("health")
+    return isHealthFilter(value) ? value : "all"
+  })
+  const [clientFilter, setClientState] = React.useState<string | null>(
+    () => searchParams.get("clientId")
+  )
+  const [order, setOrderState] = React.useState<BoardOrder>(() =>
+    searchParams.get("order") === "client" ? "client" : "health"
+  )
+
+  const writeUrl = (next: {
+    q?: string
+    health?: HealthFilter
+    clientId?: string | null
+    order?: BoardOrder
+  }) => {
+    const params = new URLSearchParams(searchParams.toString())
+    const set = (key: string, value: string | null | undefined, empty: string) => {
+      if (value === undefined) return
+      if (value === null || value === empty) params.delete(key)
+      else params.set(key, value)
+    }
+    set("q", next.q?.trim() === "" ? "" : next.q, "")
+    set("health", next.health, "all")
+    set("clientId", next.clientId, "")
+    set("order", next.order, "health")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    })
+  }
+  const setSearch = (value: string) => {
+    setSearchState(value)
+    writeUrl({ q: value })
+  }
+  const setHealth = (value: HealthFilter) => {
+    setHealthState(value)
+    writeUrl({ health: value })
+  }
+  const setClientFilter = (value: string | null) => {
+    setClientState(value)
+    writeUrl({ clientId: value })
+  }
+  const setOrder = (value: BoardOrder) => {
+    setOrderState(value)
+    writeUrl({ order: value })
+  }
 
   if (directory.isPending) return <BoardSkeleton />
   // A failed background refetch keeps the board it already has.
@@ -370,13 +430,16 @@ function ListingsBoard({ role }: { role: string | null }) {
   const visible = inScope
     .filter((row) => matchesHealth(row.health, health))
     .sort((a, b) => {
+      const worst = HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health]
+      if (order === "health")
+        // Worst health first across every client, then by name.
+        return worst !== 0 ? worst : a.entry.name.localeCompare(b.entry.name)
       // Unfiled first, then by client, then worst health, then name.
       if ((a.clientId === UNFILED) !== (b.clientId === UNFILED))
         return a.clientId === UNFILED ? -1 : 1
       if (a.clientId !== b.clientId)
         return a.clientName.localeCompare(b.clientName)
-      const order = HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health]
-      return order !== 0 ? order : a.entry.name.localeCompare(b.entry.name)
+      return worst !== 0 ? worst : a.entry.name.localeCompare(b.entry.name)
     })
 
   const clientChips = [
@@ -396,13 +459,19 @@ function ListingsBoard({ role }: { role: string | null }) {
     })),
   ].filter((chip) => chip.count > 0)
 
-  const unfiled = visible.filter((row) => row.clientId === UNFILED)
-  const filed = visible.filter((row) => row.clientId !== UNFILED)
+  const grouped = order === "client"
+  const unfiled = grouped
+    ? visible.filter((row) => row.clientId === UNFILED)
+    : []
+  const filed = grouped
+    ? visible.filter((row) => row.clientId !== UNFILED)
+    : visible
 
   const clearFilters = () => {
-    setSearch("")
-    setHealth("all")
-    setClientFilter(null)
+    setSearchState("")
+    setHealthState("all")
+    setClientState(null)
+    writeUrl({ q: "", health: "all", clientId: null })
   }
 
   const renderRow = (row: BoardRow) => {
@@ -558,6 +627,19 @@ function ListingsBoard({ role }: { role: string | null }) {
               </SegmentedControlItem>
             ))}
           </SegmentedControl>
+          <SegmentedControl
+            aria-label="Order listings"
+            className="max-w-full min-w-0"
+            value={order}
+            onValueChange={(next) => setOrder(next as BoardOrder)}
+          >
+            <SegmentedControlItem value="health" className="flex-none">
+              Worst first
+            </SegmentedControlItem>
+            <SegmentedControlItem value="client" className="flex-none">
+              By client
+            </SegmentedControlItem>
+          </SegmentedControl>
         </div>
         <p className="text-caption text-ink-muted" aria-live="polite">
           {summaries.isPending ? (
@@ -573,11 +655,13 @@ function ListingsBoard({ role }: { role: string | null }) {
               <span>
                 {summariseListingHealth(rows.map((row) => row.health))}
               </span>
-              <span>
-                {summaries.isError
-                  ? ". We couldn’t check what is waiting on each listing."
-                  : ". Read from NabaPresence; nothing here asks Google."}
-              </span>
+              {summaries.isError ? (
+                <span>
+                  . We couldn’t check what is waiting on each listing.
+                </span>
+              ) : (
+                <span>.</span>
+              )}
             </>
           )}
         </p>

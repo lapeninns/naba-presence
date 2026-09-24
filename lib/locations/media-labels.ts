@@ -27,8 +27,24 @@ export function isPatchableMediaCategory(
   return (PATCHABLE_MEDIA_CATEGORIES as readonly string[]).includes(category)
 }
 
+/**
+ * The words for categories whose code doesn't read well on its own. Every
+ * other code is humanised mechanically.
+ */
+const CATEGORY_LABELS: Record<string, string> = {
+  CATEGORY_UNSPECIFIED: "Uncategorised",
+  COVER: "Cover photo",
+  PROFILE: "Profile photo",
+  AT_WORK: "At work",
+  FOOD_AND_DRINK: "Food and drink",
+  COMMON_AREA: "Common areas",
+  TEAMS: "Team",
+}
+
 /** `FOOD_AND_DRINK` -> `Food and drink`. */
 export function humaniseCategory(category: string): string {
+  const known = CATEGORY_LABELS[category]
+  if (known) return known
   const lower = category.toLowerCase().replace(/_/g, " ")
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }

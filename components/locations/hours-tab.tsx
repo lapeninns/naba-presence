@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import {
   EditorFooter,
   type EditorStatus,
@@ -59,9 +60,9 @@ export function HoursTab({ locationId }: { locationId: string }) {
     >
       {({ data: hours, caps, disabled, editReason, publishReason }) => (
         <HoursForm
-          // Remount on an external revision change so form-level error, sheet and
-          // mutation state reset with the draft, as the pre-shell tab did.
-          key={hours.canonicalResource.revision}
+          // No remount on a revision change: useEditorDraft follows the new
+          // revision itself, and keeps unsaved edits (asking whose to keep)
+          // when a colleague's save lands mid-edit.
           locationId={locationId}
           hours={hours}
           caps={caps}
@@ -93,11 +94,12 @@ function HoursForm({
   hours: HoursState
   caps: LocationCapabilities | undefined
 }) {
-  const { draft, setDraft, isDirty, discard } = useEditorDraft({
+  const editor = useEditorDraft({
     initial: hours.canonical,
     revision: hours.canonicalResource.revision,
     key: `location-hours-${locationId}`,
   })
+  const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -152,6 +154,7 @@ function HoursForm({
         kind: "local",
         label: "Save the schedule in NabaPresence",
         run: async () => {
+          expectSave()
           await saveHours(locationId, {
             expectedCanonicalRevision: hours.canonicalResource.revision,
             hours: draft,
@@ -178,7 +181,7 @@ function HoursForm({
       },
     })
     return steps
-  }, [locationId, draft, hours, isDirty, needsAck])
+  }, [locationId, draft, hours, isDirty, needsAck, expectSave])
 
   const flow = usePublishFlow({
     steps: buildSteps,
@@ -188,11 +191,13 @@ function HoursForm({
   })
 
   const save = useResourceMutation({
-    mutationFn: () =>
-      saveHours(locationId, {
+    mutationFn: () => {
+      expectSave()
+      return saveHours(locationId, {
         expectedCanonicalRevision: hours.canonicalResource.revision,
         hours: draft,
-      }),
+      })
+    },
     invalidate: [queryKeys.locationHours(locationId)],
     successToast: "Saved here. Not on Google until you publish.",
     onSuccess: () => setFormError(null),
@@ -285,6 +290,14 @@ function HoursForm({
         />
       ) : null}
 
+      <DraftNotices drafts={[editor]} noun="these hours" />
+
+      {formError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <ValidationSummary
         errors={
           attempts > 0
@@ -331,12 +344,6 @@ function HoursForm({
         google={hours.google}
         errors={fieldErrors}
       />
-
-      {formError ? (
-        <Alert variant="destructive">
-          <AlertDescription>{formError}</AlertDescription>
-        </Alert>
-      ) : null}
 
       <DiscardDialog
         open={discardOpen}

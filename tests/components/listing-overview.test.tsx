@@ -185,9 +185,89 @@ describe("ListingOverview", () => {
     expect(
       within(areas).queryByRole("link", { name: "Edit Food menu" })
     ).not.toBeInTheDocument()
-    const menu = within(areas).getByRole("heading", { level: 3, name: "Food menu" }).closest('[data-area="menu"]')
+    const menu = within(areas)
+      .getByRole("heading", { level: 3, name: "Food menu" })
+      .closest('[data-area="menu"]')
     expect(menu).not.toBeNull()
-    expect(within(menu as HTMLElement).getByText("Unavailable")).toBeInTheDocument()
+    expect(
+      within(menu as HTMLElement).getByText("Unavailable")
+    ).toBeInTheDocument()
+  })
+
+  it("never claims In sync while Google can't be reached for the listing", () => {
+    stub({
+      summary: summary({
+        freshness: {
+          state: "action_needed",
+          reason: "listing_access_lost",
+          lastCheckedAt: "2026-09-01T10:00:00Z",
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const sync = document.querySelector('[data-tile="sync"]') as HTMLElement
+    expect(
+      within(sync).getByText("Unknown — can’t reach Google")
+    ).toBeInTheDocument()
+    expect(within(sync).queryByText("In sync")).toBeNull()
+    const areas = screen.getByRole("region", { name: "Areas" })
+    const profile = within(areas)
+      .getByRole("heading", { level: 3, name: "Business profile" })
+      .closest('[data-area="profile"]') as HTMLElement
+    expect(
+      within(profile).getByText("Unknown — can’t reach Google")
+    ).toBeInTheDocument()
+    expect(within(profile).queryByText(/Checked against Google/)).toBeNull()
+  })
+
+  it("links Open on Google to the listing's Maps link, and hides it without one", () => {
+    stub({
+      summary: summary({ mapsUrl: "https://maps.google.com/?cid=123" }),
+    })
+    const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByRole("link", { name: /Open on Google/ })
+    ).toHaveAttribute("href", "https://maps.google.com/?cid=123")
+    unmount()
+
+    stub({ summary: summary() })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(screen.queryByRole("link", { name: /Open on Google/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Open on Google/ })).toBeNull()
+  })
+
+  it("names a failed publish by its area's label", () => {
+    stub({
+      summary: summary({
+        lastPublish: {
+          at: "2026-09-01T10:00:00Z",
+          status: "failed",
+          area: "menu",
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByText(/The last food menu publish failed/)
+    ).toBeInTheDocument()
+  })
+
+  it("marks an area tab this listing can't use", () => {
+    stub({
+      summary: summary(),
+      caps: {
+        canEditCanonical: true,
+        canPublish: true,
+        resources: {
+          menu: { state: "unavailable", reasonCode: "permission_denied" },
+        },
+      },
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const tabs = screen.getByRole("navigation", { name: "Listing areas" })
+    const menu = within(tabs).getByRole("link", { name: /Food menu/ })
+    expect(menu).toHaveAttribute("data-unavailable", "true")
+    expect(menu).toHaveTextContent(/unavailable/)
   })
 
   it("stays busy until the summary arrives", () => {

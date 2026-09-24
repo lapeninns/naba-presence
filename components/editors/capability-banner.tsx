@@ -1,5 +1,6 @@
 import { Info, Lock, Pause, TriangleAlert, type LucideIcon } from "lucide-react"
 
+import { SupportDetails } from "@/components/editors/support-details"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -46,9 +47,9 @@ const TONE: Record<
  * had nothing to go on. The banner states the reason once at the top, so the
  * fields below don't each have to.
  *
- * `code` shows the machine reason (e.g. `publishing_paused`) as a small mono
- * chip after the sentence, for support conversations; the sentence is always
- * the primary signal.
+ * `code` is the machine reason (e.g. `publishing_paused`), folded behind
+ * "Details for support" under the sentence; the sentence is always the
+ * primary signal.
  */
 function CapabilityBanner({
   tone = "read_only",
@@ -84,19 +85,10 @@ function CapabilityBanner({
       />
       <div className="flex min-w-0 flex-col gap-0.5">
         <p className="font-semibold text-ink">{title}</p>
-        {description || code ? (
-          <p className="text-ink-secondary">
-            {description}
-            {code ? (
-              <>
-                {" "}
-                <code className="inline-block max-w-full rounded-(--np-radius-tag) border border-line bg-surface px-1.5 font-mono text-caption break-all text-ink-secondary">
-                  {code}
-                </code>
-              </>
-            ) : null}
-          </p>
+        {description ? (
+          <p className="text-ink-secondary">{description}</p>
         ) : null}
+        <SupportDetails items={[code]} />
       </div>
       {action ? (
         <div className="col-start-2">

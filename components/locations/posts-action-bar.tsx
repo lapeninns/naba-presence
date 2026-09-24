@@ -1,6 +1,11 @@
 "use client"
 
-import { ExternalLink, RefreshCwIcon, Trash2Icon } from "lucide-react"
+import {
+  ExternalLink,
+  RefreshCwIcon,
+  Trash2Icon,
+  UploadIcon,
+} from "lucide-react"
 import { useState } from "react"
 
 import {
@@ -11,6 +16,11 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  PostComposerSheet,
+  postFormValues,
+} from "@/components/locations/posts/post-composer-sheet"
+import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   decidePostApproval,
@@ -22,6 +32,7 @@ import {
 } from "@/lib/api/location-posts"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
+import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
@@ -59,6 +70,7 @@ export function PostsActionBar({
   writesEnabled: boolean
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
   const invalidate = [queryKeys.locationPosts(locationId)]
 
   const publish = useResourceMutation({
@@ -66,6 +78,8 @@ export function PostsActionBar({
     invalidate,
     successToast: (result) => publishOutcomeTitle(result.status),
     errorContext: "post",
+    onSuccess: () => setPublishOpen(false),
+    onError: () => setPublishOpen(false),
   })
   const decide = useResourceMutation({
     mutationFn: (decision: "approve" | "reject") =>
@@ -125,13 +139,20 @@ export function PostsActionBar({
   const uncertainOnGoogle =
     post.status === "ambiguous" || post.status === "publishing"
 
+  const editable = post.status === "draft" || post.status === "failed"
+  const preview = postFormValues(post)
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {post.status === "draft" || post.status === "failed" ? (
+      {editable ? (
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => publish.mutate()}
+          // A request for approval sends nothing to Google, so it goes
+          // straight through; a publish shows the post first.
+          onClick={() =>
+            offerRequestApproval ? publish.mutate() : setPublishOpen(true)
+          }
           disabled={Boolean(primaryReason)}
           pending={publish.isPending}
           pendingLabel={offerRequestApproval ? "Requesting…" : "Publishing…"}
@@ -145,6 +166,15 @@ export function PostsActionBar({
               ? "Retry publish"
               : "Publish"}
         </Button>
+      ) : null}
+      {editable ? (
+        // Editing a draft touches NabaPresence only, so the pause switch
+        // that blocks Google writes doesn't block it.
+        <PostComposerSheet
+          locationId={locationId}
+          disabledReason={null}
+          post={post}
+        />
       ) : null}
       {post.status === "ambiguous" ? (
         // Never Publish from 'ambiguous': the post's Google name is unknown,
@@ -209,6 +239,48 @@ export function PostsActionBar({
           {primaryReason}
         </span>
       ) : null}
+      <AlertDialog
+        open={publishOpen}
+        onOpenChange={(open) => {
+          if (!publish.isPending) setPublishOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Publish this post to Google?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Customers see it on the listing as soon as Google accepts it. To
+            change it afterwards, edit it here and it is sent again.
+          </AlertDialogDescription>
+          <PostPreview
+            topicType={preview.topicType}
+            summary={preview.summary}
+            eventTitle={preview.eventTitle}
+            schedule={
+              preview.topicType !== "STANDARD" &&
+              preview.startDate &&
+              preview.endDate
+                ? preview
+                : null
+            }
+            actionLabel={
+              preview.action ? POST_ACTION_LABEL[preview.action] : ""
+            }
+          />
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="ghost">Not yet</Button>}
+            />
+            <Button
+              onClick={() => publish.mutate()}
+              pending={publish.isPending}
+              pendingLabel="Publishing…"
+            >
+              <UploadIcon aria-hidden />
+              Publish to Google
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={deleteOpen}
         onOpenChange={(open) => {

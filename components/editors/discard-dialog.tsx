@@ -28,11 +28,18 @@ function DiscardDialog({
   onOpenChange,
   onConfirm,
   description = "Every field goes back to what NabaPresence last saved. Google is not affected.",
+  title = "Discard your changes?",
+  confirmLabel = "Discard changes",
+  announce = true,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   description?: string
+  title?: string
+  confirmLabel?: string
+  /** Toast "Changes discarded" after confirming. Off when the page is left. */
+  announce?: boolean
 }) {
   const toasts = useToastManager()
   const confirmed = useRef(false)
@@ -49,7 +56,7 @@ function DiscardDialog({
           )
         }}
       >
-        <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="ghost" />}>
@@ -61,14 +68,15 @@ function DiscardDialog({
               confirmed.current = true
               onConfirm()
               onOpenChange(false)
-              toasts.add({
-                title: "Changes discarded",
-                description: "Back to what NabaPresence last saved.",
-                type: "info",
-              })
+              if (announce)
+                toasts.add({
+                  title: "Changes discarded",
+                  description: "Back to what NabaPresence last saved.",
+                  type: "info",
+                })
             }}
           >
-            Discard changes
+            {confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

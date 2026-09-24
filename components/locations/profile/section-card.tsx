@@ -1,4 +1,4 @@
-import { PenLine } from "lucide-react"
+import { GlobeIcon, PenLine, ShieldCheckIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -33,6 +33,29 @@ export function LabelRow({
 }
 
 /**
+ * Where a section's edits go, said on the section itself, because the
+ * profile mixes two models: the name, description, phone and website are
+ * saved in NabaPresence first ("Save here" keeps them without touching
+ * Google), while categories, address, opening state and attributes have no
+ * NabaPresence copy and go straight to Google when published.
+ */
+export type SaveModel = "here" | "google"
+
+export function SaveModelTag({ model }: { model: SaveModel }) {
+  const Icon = model === "here" ? ShieldCheckIcon : GlobeIcon
+  return (
+    <span
+      data-slot="save-model"
+      data-model={model}
+      className="inline-flex items-center gap-1 rounded-(--np-radius-tag) border border-line bg-surface-alt px-1.5 text-[11.5px] leading-[18px] font-medium text-ink-secondary"
+    >
+      <Icon className="size-3" strokeWidth={2} aria-hidden />
+      {model === "here" ? "Saved here first" : "Goes straight to Google"}
+    </span>
+  )
+}
+
+/**
  * One profile section (reference `.card.section-card`): a white card with a
  * hairline, the heading and a muted line saying what the section is for,
  * then the fields. `id` is the jump target for the section index; the scroll
@@ -43,6 +66,7 @@ export function SectionCard({
   title,
   description,
   changed,
+  model,
   children,
   bare = false,
   className,
@@ -51,6 +75,8 @@ export function SectionCard({
   title: string
   description?: React.ReactNode
   changed?: boolean
+  /** Where this section's edits go; omit when the fields inside differ. */
+  model?: SaveModel
   children: React.ReactNode
   /** No card chrome, for a section made of its own cards (attributes). */
   bare?: boolean
@@ -77,6 +103,7 @@ export function SectionCard({
           >
             {title}
           </h3>
+          {model ? <SaveModelTag model={model} /> : null}
           {changed ? <ChangedMark /> : null}
         </div>
         {description ? (

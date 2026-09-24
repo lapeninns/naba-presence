@@ -5,6 +5,7 @@ import {
   GlobeIcon,
   SendIcon,
   ShieldCheckIcon,
+  UploadIcon,
 } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
@@ -20,12 +21,14 @@ import {
 } from "@/components/editors/editor-status"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { SiblingSwitcher } from "@/components/listings/sibling-switcher"
+import { buttonVariants } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { TabNav, type TabNavItem } from "@/components/ui/tabs"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber } from "@/lib/format"
 import { areaState, suggestionCount } from "@/lib/listings/area-state"
+import { googleUnreachable, unpublishedCount } from "@/lib/listings/health"
 import {
   listingArea,
   listingHref,
@@ -34,9 +37,14 @@ import {
   type ListingAreaKey,
   type ListingAreaModel,
 } from "@/lib/listings/areas"
+import {
+  resourceDisabledReason,
+  type LocationCapabilities,
+} from "@/lib/locations/gating"
 import type { DirectoryEntry } from "@/lib/queries/use-locations"
 import { queryKeys } from "@/lib/queries/keys"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
+import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
 
 /**
@@ -62,22 +70,48 @@ const MODEL_ICON: Record<
   inbound: DownloadIcon,
 }
 
+/** Where a listing page sits: its overview, one area, or Review & publish. */
+export type ListingPageKey = ListingAreaKey | "overview" | "changes"
+
+/**
+ * Why an area can't be used on this listing, from the same capability
+ * evaluation its overview card uses: "unavailable" or "blocked", not a
+ * read-only role (that area still opens, to look).
+ */
+function areaUnavailableReason(
+  caps: LocationCapabilities | undefined,
+  linked: boolean,
+  capability: string | undefined
+): string | null {
+  if (!linked) return "Not linked to Google"
+  if (!caps || !capability) return null
+  const state = caps.resources?.[capability]?.state
+  if (state !== "unavailable" && state !== "blocked") return null
+  return resourceDisabledReason(caps, capability, true)
+}
+
 /**
  * The area tabs: Overview plus every area this role may open, each a link.
  * The suggestions tab carries its real pending count from the DB-only
- * summary. The row scrolls sideways on a narrow screen, and the current tab
- * is scrolled into view on arrival so the selected state is never off-screen.
+ * summary; an area this listing can't use is drawn muted with the reason.
+ * The row scrolls sideways on a narrow screen (its edges fade while there
+ * is more to see), and the current tab is scrolled into view on arrival so
+ * the selected state is never off-screen.
  */
 function ListingAreaTabs({
   locationId,
   current,
   canManageConsoles,
   summary,
+  caps,
+  linked,
 }: {
   locationId: string
-  current: ListingAreaKey | "overview"
+  current: ListingPageKey
   canManageConsoles: boolean
   summary: ListingSummary | undefined
+  caps?: LocationCapabilities
+  linked: boolean
 }) {
   const navRef = React.useRef<HTMLElement>(null)
   const pending = suggestionCount(summary)
@@ -107,6 +141,7 @@ function ListingAreaTabs({
       href: listingHref(locationId, area.segment),
       label: area.label,
       current: area.key === current,
+      unavailableReason: areaUnavailableReason(caps, linked, area.capability),
       badge:
         area.key === "suggestions" && pending > 0 ? (
           <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-(--np-radius-tag) bg-warning-tint px-1.5 font-mono text-[11px] font-semibold text-warning-ink tabular-nums">
@@ -128,10 +163,41 @@ function ListingAreaTabs({
 }
 
 /**
+ * "Review & publish (n)", for every page of a listing while edits saved
+ * here are waiting, so the way to publish them is never only on the
+ * overview. Hidden while the Google login is broken (nothing can go out).
+ */
+function ReviewPublishLink({
+  locationId,
+  summary,
+  className,
+}: {
+  locationId: string
+  summary: ListingSummary | undefined
+  className?: string
+}) {
+  if (!summary || googleUnreachable(summary)) return null
+  const pending = unpublishedCount(summary)
+  if (pending === 0) return null
+  return (
+    <Link
+      href={listingHref(locationId, "changes")}
+      data-slot="review-publish-link"
+      className={cn(buttonVariants({ className: "max-sm:col-span-2" }), className)}
+    >
+      <UploadIcon aria-hidden strokeWidth={1.75} />
+      Review & publish ({formatNumber(pending)})
+    </Link>
+  )
+}
+
+/**
  * The shared head of every listing page (reference `.area-head`): the client
- * as an eyebrow, the page title in the serif with its status pill, the
- * sibling switcher and the page's actions, the area tabs, and — on an area —
- * the one line saying where a change made here goes.
+ * as an eyebrow, the listing's own name (on an area, above the area's title,
+ * so which venue this is never has to be inferred), the page title in the
+ * serif with its status pill, the sibling switcher and the page's actions,
+ * the area tabs, and — on an area — the one line saying where a change made
+ * here goes.
  *
  * `status` is the pill beside the title. Pass `undefined` to show a
  * placeholder while it loads and `null` for none.
@@ -142,6 +208,7 @@ function ListingAreaHeader({
   locationId,
   current,
   summary,
+  caps,
   status,
   description,
   actions,
@@ -149,16 +216,22 @@ function ListingAreaHeader({
   entry: DirectoryEntry
   role: string | null
   locationId: string
-  current: ListingAreaKey | "overview"
+  current: ListingPageKey
   summary: ListingSummary | undefined
+  caps?: LocationCapabilities
   status: React.ReactNode | undefined
   description?: React.ReactNode
   actions?: React.ReactNode
 }) {
   const canManageConsoles = role === "owner" || role === "admin"
-  const area = current === "overview" ? null : listingArea(current)
+  const area =
+    current === "overview" || current === "changes"
+      ? null
+      : listingArea(current)
   const ModelIcon = area ? MODEL_ICON[area.model] : null
-  const title = area ? area.label : entry.name
+  const title =
+    current === "changes" ? "Review & publish" : area ? area.label : entry.name
+  const nested = current !== "overview"
 
   return (
     <header
@@ -170,6 +243,15 @@ function ListingAreaHeader({
           <p className={EYEBROW_CLASS}>
             {entry.clientName ?? "Not filed under a client"}
           </p>
+          {nested ? (
+            <Link
+              href={listingHref(locationId)}
+              data-slot="listing-name"
+              className="w-fit rounded-(--np-radius-tag) text-title font-semibold break-words text-ink underline-offset-3 focus-halo hover:underline"
+            >
+              {entry.name}
+            </Link>
+          ) : null}
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
             <h1 className="min-w-0 font-display text-page-title font-semibold text-balance break-words text-ink">
               {title}
@@ -185,13 +267,7 @@ function ListingAreaHeader({
           </div>
           {area ? (
             <p className="text-ui text-pretty text-ink-muted">
-              {area.description} ·{" "}
-              <Link
-                href={listingHref(locationId)}
-                className="rounded-(--np-radius-tag) font-medium break-words text-accent-ink underline-offset-3 focus-halo hover:underline"
-              >
-                {entry.name}
-              </Link>
+              {area.description}
             </p>
           ) : description ? (
             <p className="max-w-[70ch] text-ui text-pretty text-ink-muted">
@@ -216,6 +292,8 @@ function ListingAreaHeader({
         current={current}
         canManageConsoles={canManageConsoles}
         summary={summary}
+        caps={caps}
+        linked={entry.linked}
       />
 
       {area && ModelIcon ? (
@@ -292,8 +370,15 @@ function AreaFrameBody({
   children: React.ReactNode
 }) {
   const summary = useListingSummary(locationId)
+  const caps = useLocationCapabilities(locationId)
   const editor = useEditorStatus()
-  const editorPill = editorStatusPill(editor)
+  // An editor's "In sync" is a claim about Google; while Google can't be
+  // reached for this listing the summary's "Unknown" speaks instead.
+  const reported = editorStatusPill(editor)
+  const editorPill =
+    reported && reported.tone === "healthy" && googleUnreachable(summary.data)
+      ? null
+      : reported
 
   // The summary is DB-only and nothing else refreshes it while an editor is
   // open. When the editor's state moves (edits saved here, published,
@@ -335,10 +420,15 @@ function AreaFrameBody({
             locationId={locationId}
             current={areaKey}
             summary={summary.data}
+            caps={caps.data}
             status={pill}
             actions={
               <>
                 {actions}
+                <ReviewPublishLink
+                  locationId={locationId}
+                  summary={summary.data}
+                />
                 <ActivityDrawer locationId={locationId} />
               </>
             }
@@ -365,4 +455,10 @@ function AreaFrameBody({
   )
 }
 
-export { AreaFrame, AreaStatusPill, ListingAreaHeader, modelNote }
+export {
+  AreaFrame,
+  AreaStatusPill,
+  ListingAreaHeader,
+  modelNote,
+  ReviewPublishLink,
+}

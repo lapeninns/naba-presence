@@ -13,7 +13,13 @@ export type EditorGate = {
  * it can, derived only from the reasons the capability evaluators already
  * produced (never invented). A role limit reads as "look, don't change"; a
  * paused or disconnected resource reads as blocked, with the machine reason
- * code beside the sentence for support conversations.
+ * code folded behind "Details for support".
+ *
+ * "Paused" (`publishing_paused`) is NabaPresence's own publishing switch,
+ * set for the whole installation: not the client's Google login (that is
+ * "disconnected") and not a role limit. The banner says so, and who can
+ * turn it back on, because "paused" alone read as something the operator
+ * had done or could undo.
  *
  * `noun` names the thing ("this profile", "these hours").
  */
@@ -48,13 +54,20 @@ export function editorGate({
     tone:
       paused || code === "google_location_not_linked" ? "blocked" : "read_only",
     title: paused
-      ? "Publishing to Google is paused for this listing"
+      ? "Publishing to Google is switched off in NabaPresence"
       : code === "google_location_not_linked"
         ? "This listing isn’t linked to Google"
         : "You can’t publish this to Google",
-    description: savesHere
-      ? `${publishReason} You can keep editing and save here; nothing reaches Google until publishing is possible.`
-      : publishReason,
+    description: [
+      paused
+        ? "It’s off for every listing in this NabaPresence installation, not because of anything on Google or this listing. Whoever runs NabaPresence for your team can switch it back on."
+        : publishReason,
+      savesHere
+        ? "You can keep editing and save here; nothing reaches Google until publishing is possible."
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
     code,
   }
 }

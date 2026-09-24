@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from "react"
 import { CategorySearch } from "@/components/locations/business-information/category-search"
 import {
   LabelRow,
+  SaveModelTag,
   SectionCard,
 } from "@/components/locations/profile/section-card"
 import { Badge } from "@/components/ui/badge"
@@ -79,6 +80,7 @@ export function IdentitySection({
             <FieldLabel htmlFor={PROFILE_FIELD_IDS.name}>
               Business name
             </FieldLabel>
+            <SaveModelTag model="here" />
           </LabelRow>
           <Input
             id={PROFILE_FIELD_IDS.name}
@@ -103,6 +105,7 @@ export function IdentitySection({
                 <FieldLabel htmlFor={PROFILE_FIELD_IDS.storeCode}>
                   Store code
                 </FieldLabel>
+                <SaveModelTag model="google" />
               </LabelRow>
               <Input
                 id={PROFILE_FIELD_IDS.storeCode}
@@ -129,6 +132,7 @@ export function IdentitySection({
                 <FieldLabel htmlFor={PROFILE_FIELD_IDS.labels}>
                   Labels
                 </FieldLabel>
+                <SaveModelTag model="google" />
               </LabelRow>
               <TagInput
                 id={PROFILE_FIELD_IDS.labels}
@@ -176,6 +180,7 @@ export function CategoriesSection({
   return (
     <SectionCard
       id="section-categories"
+      model="google"
       title="Categories"
       description="The primary category describes the business as a whole and decides which searches it appears in. Add up to 9 more for what else it offers."
       changed={changed.primary || changed.additional}

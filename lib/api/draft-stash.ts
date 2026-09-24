@@ -42,6 +42,20 @@ export function stashDraft(key: string, value: string): void {
   }
 }
 
+/**
+ * Reads a stashed draft without removing it, for a render-time check (React
+ * may run an initializer twice, so the read must not consume anything).
+ * Null on the server or when storage is unavailable.
+ */
+export function peekStashedDraft(key: string): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return sessionStorage.getItem(PREFIX + key)
+  } catch {
+    return null
+  }
+}
+
 export function takeStashedDraft(key: string): string | null {
   const value = sessionStorage.getItem(PREFIX + key)
   if (value !== null) sessionStorage.removeItem(PREFIX + key)

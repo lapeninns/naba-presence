@@ -32,6 +32,29 @@ describe("areaState", () => {
     })
   })
 
+  it("says Unknown instead of In sync while the Google login is broken", () => {
+    const broken = summary({
+      connection: {
+        status: "revoked",
+        reconnectRequired: true,
+        googleEmail: null,
+      },
+      hours: {
+        status: "in_sync",
+        dirtyCount: 0,
+        observedAt: new Date().toISOString(),
+      },
+      profile: { status: "core_dirty", dirtyCount: 1, observedAt: null },
+    })
+    expect(areaState("hours", broken)).toMatchObject({
+      tone: "neutral",
+      label: "Unknown — can’t reach Google",
+    })
+    expect(areaState("hours", broken).line).not.toMatch(/Checked/)
+    // Edits saved here are still known to be off Google.
+    expect(areaState("profile", broken).label).toBe("Not on Google yet")
+  })
+
   it("never claims a Google-direct area is live without evidence", () => {
     for (const key of ["booking", "photos", "people"] as const) {
       expect(areaState(key, summary()).label).not.toMatch(/live/i)

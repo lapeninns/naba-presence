@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
@@ -152,7 +153,10 @@ export function ProfileTab({ locationId }: { locationId: string }) {
     >
       {({ data, caps, editReason, publishReason }) => (
         <ProfileEditor
-          key={data.profile.canonicalResource.revision}
+          // No remount on a revision change: each draft follows its own
+          // revision, so saving the name here keeps unpublished category,
+          // address and attribute edits, and a colleague's save mid-edit
+          // asks whose to keep instead of wiping the form.
           locationId={locationId}
           state={data}
           caps={caps}
@@ -186,32 +190,34 @@ function ProfileEditor({
   const revision = profile.canonicalResource.revision
 
   const initialValues = useMemo(() => canonicalValues(profile), [profile])
+  const valuesDraft = useEditorDraft({
+    initial: initialValues,
+    revision,
+    key: `location-profile-${locationId}`,
+  })
   const {
     draft: values,
     setDraft: setValues,
     isDirty: valuesDirty,
     discard: discardValues,
-  } = useEditorDraft({
-    initial: initialValues,
-    revision,
-    key: `location-profile-${locationId}`,
-  })
+  } = valuesDraft
   const [errors, setErrors] = useState<FieldErrors>({})
 
   const initialListing = useMemo(
     () => draftFromLocation(business?.location),
     [business?.location]
   )
+  const listingDraft = useEditorDraft({
+    initial: initialListing,
+    revision: business?.locationHash ?? null,
+    key: `location-listing-${locationId}`,
+  })
   const {
     draft: listing,
     setDraft: setListing,
     isDirty: listingDirty,
     discard: discardListing,
-  } = useEditorDraft({
-    initial: initialListing,
-    revision: business?.locationHash ?? null,
-    key: `location-listing-${locationId}`,
-  })
+  } = listingDraft
 
   const initialAttributes = useMemo(
     () =>
@@ -220,16 +226,17 @@ function ProfileEditor({
         : {},
     [business]
   )
+  const attributesDraft = useEditorDraft<Record<string, GoogleAttribute>>({
+    initial: initialAttributes,
+    revision: business?.attributesHash ?? null,
+    key: `location-attributes-${locationId}`,
+  })
   const {
     draft: attributes,
     setDraft: setAttributes,
     isDirty: attributesDirty,
     discard: discardAttributes,
-  } = useEditorDraft<Record<string, GoogleAttribute>>({
-    initial: initialAttributes,
-    revision: business?.attributesHash ?? null,
-    key: `location-attributes-${locationId}`,
-  })
+  } = attributesDraft
 
   const listingUpdate = useMemo(
     () => buildLocationUpdate(initialListing, listing),
@@ -433,12 +440,17 @@ function ProfileEditor({
   // every edit so a fixed field clears its message straight away.
   const [attempts, setAttempts] = useState(0)
 
+  // "Save here" keeps NabaPresence's copy of the name, description, phone
+  // and website. The other sections have no copy here, so their edits stay
+  // in the form (the profile no longer remounts on save) until published.
   const save = useResourceMutation({
-    mutationFn: () =>
-      saveProfile(locationId, {
+    mutationFn: () => {
+      valuesDraft.expectSave()
+      return saveProfile(locationId, {
         expectedCanonicalRevision: revision,
         values: toProfileValues(profileFormSchema.parse(values)),
-      }),
+      })
+    },
     invalidate: [queryKeys.locationProfile(locationId)],
     successToast: "Saved here. Not on Google until you publish.",
     onError: (cause) => {
@@ -480,6 +492,13 @@ function ProfileEditor({
     setAttempts((count) => count + 1)
     setErrors(issues.clientErrors)
     return issues.list.length === 0
+  }
+
+  /** Only the four saved-here fields decide whether "Save here" can run. */
+  function checkValues() {
+    setAttempts((count) => count + 1)
+    setErrors(issues.clientErrors)
+    return Object.keys(issues.clientErrors).length === 0
   }
 
   function review() {
@@ -599,8 +618,8 @@ function ProfileEditor({
 
   const saveReason =
     editReason ??
-    (listingDirty || attributesDirty
-      ? "Categories, address, status and attributes can’t be saved here. Publish or discard them first."
+    (!valuesDirty && (listingDirty || attributesDirty)
+      ? "Categories, address, opening state and attributes go straight to Google when you publish; only the name, description, phone and website are saved here."
       : null)
 
   return (
@@ -621,7 +640,7 @@ function ProfileEditor({
           onReview={review}
           onDiscard={() => setDiscardOpen(true)}
           onSave={() => {
-            if (check()) save.mutate()
+            if (checkValues()) save.mutate()
           }}
           saving={save.isPending}
           saveDisabledReason={saveReason}
@@ -645,6 +664,11 @@ function ProfileEditor({
           code={gate.code}
         />
       ) : null}
+
+      <DraftNotices
+        drafts={[valuesDraft, listingDraft, attributesDraft]}
+        noun="this profile"
+      />
 
       {!gate && needsAck ? (
         <CapabilityBanner
@@ -804,7 +828,12 @@ function ProfileEditor({
         onOpenChange={setReviewOpen}
         rows={rows}
         locationName={profile.location.name}
-        onPublish={() => void flow.publish()}
+        onPublish={() => {
+          valuesDraft.expectSave()
+          listingDraft.expectSave()
+          attributesDraft.expectSave()
+          void flow.publish()
+        }}
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}

@@ -2,10 +2,18 @@ import { HydrationBoundary } from "@tanstack/react-query"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { SuggestionsTab } from "@/components/locations/suggestions/suggestions-page"
+import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { listingPagePrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Suggested updates · Listing · NabaPresence" }
+/** The venue's name in the tab title, from one DB row; never Google. */
+export function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  return listingPageMetadata(params, "Suggested updates")
+}
 
 export default async function ListingSuggestionsPage({
   params,

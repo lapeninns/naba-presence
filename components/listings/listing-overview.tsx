@@ -1,11 +1,14 @@
 "use client"
 
-import { ExternalLinkIcon, RefreshCwIcon, UploadIcon } from "lucide-react"
+import { ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { ActivityDrawer } from "@/components/editors/activity-drawer"
-import { ListingAreaHeader } from "@/components/listings/area-frame"
+import {
+  ListingAreaHeader,
+  ReviewPublishLink,
+} from "@/components/listings/area-frame"
 import { AreaCards } from "@/components/listings/area-cards"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { HealthStrip } from "@/components/listings/health-strip"
@@ -27,7 +30,6 @@ import {
   listingHealthDescription,
   listingHealthLabel,
   listingHealthTone,
-  unpublishedCount,
 } from "@/lib/listings/health"
 import { uncheckedAreas } from "@/lib/listings/area-state"
 import { areaForSegment, listingHref } from "@/lib/listings/areas"
@@ -36,9 +38,6 @@ import type { DirectoryEntry } from "@/lib/queries/use-locations"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
-
-const OPEN_ON_GOOGLE_REASON =
-  "Google’s public link for this listing isn’t in NabaPresence’s saved data, so there is nothing to open yet."
 
 /**
  * The notes that decide what to do before anything else: a listing with no
@@ -120,7 +119,9 @@ function OverviewAlerts({
     alerts.push(
       <Alert key="failed" variant="destructive">
         <AlertTitle>
-          The last {failed.area} publish failed ·{" "}
+          The last{" "}
+          {failedArea ? failedArea.label.toLowerCase() : failed.area} publish
+          failed ·{" "}
           {formatRelativeTime(failed.at)}
         </AlertTitle>
         <AlertDescription>
@@ -189,10 +190,10 @@ function ListingOverview({
           verified: entry.verified ?? summary.data?.verified,
           summary: summary.data,
         })
-        const pending = summary.data ? unpublishedCount(summary.data) : 0
         const address = formatAddressLine(entry.address)
         const summaryFailed = summary.isError && !summary.data
         const disconnected = health === "disconnected"
+        const mapsUrl = summary.data?.mapsUrl ?? null
         return (
           <PageFrame width="wide">
             <ListingAreaHeader
@@ -201,6 +202,7 @@ function ListingOverview({
               locationId={locationId}
               current="overview"
               summary={summary.data}
+              caps={caps.data}
               status={
                 summary.data || !entry.linked ? (
                   <StatusPill tone={listingHealthTone(health)}>
@@ -222,27 +224,25 @@ function ListingOverview({
               }
               actions={
                 <>
-                  {pending > 0 && !disconnected ? (
-                    <Link
-                      href={listingHref(locationId, "changes")}
-                      className={cn(
-                        buttonVariants({
-                          className: "max-sm:col-span-2",
-                        })
-                      )}
-                    >
-                      <UploadIcon aria-hidden strokeWidth={1.75} />
-                      Review & publish ({pending})
-                    </Link>
-                  ) : null}
+                  <ReviewPublishLink
+                    locationId={locationId}
+                    summary={summary.data}
+                  />
                   <ActivityDrawer locationId={locationId} />
-                  <Button
-                    variant="secondary"
-                    disabledReason={OPEN_ON_GOOGLE_REASON}
-                  >
-                    <ExternalLinkIcon aria-hidden />
-                    Open on Google
-                  </Button>
+                  {/* Only when Google has given us the listing's Maps link;
+                      a button that can never be pressed says nothing. */}
+                  {mapsUrl ? (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(buttonVariants({ variant: "secondary" }))}
+                    >
+                      <ExternalLinkIcon aria-hidden />
+                      Open on Google
+                      <span className="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  ) : null}
                 </>
               }
             />

@@ -27,6 +27,7 @@ export const hoursFieldId = {
     `hours-${dayOfWeek}-${index}-closes`,
   specialDate: (index: number) => `special-${index}-date`,
   specialOpens: (index: number) => `special-${index}-opens`,
+  specialCloses: (index: number) => `special-${index}-closes`,
 }
 
 export function minutes(value: string): number {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import {
   fetchMedia,
@@ -37,5 +37,8 @@ export function useMedia(
         },
         requestOptions(ctx)
       ),
+    // Paging or filtering keeps the current grid on screen while the next
+    // page loads, instead of dropping back to a skeleton.
+    placeholderData: keepPreviousData,
   })
 }
