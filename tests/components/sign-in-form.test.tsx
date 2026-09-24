@@ -293,4 +293,24 @@ describe("mode toggle", () => {
     expect(screen.getByLabelText("Email address")).toHaveValue("not-an-email")
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
   })
+
+  it("carries the typed email to Forgot password", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    expect(
+      screen.getByRole("link", { name: "Forgot password?" })
+    ).toHaveAttribute("href", "/forgot-password")
+    await user.type(screen.getByLabelText("Email address"), "sam@example.test")
+    expect(
+      screen.getByRole("link", { name: "Forgot password?" })
+    ).toHaveAttribute("href", "/forgot-password?email=sam%40example.test")
+  })
+
+  it("folds the resend-confirmation help behind a disclosure", () => {
+    const { container } = render(<SignInForm />)
+    const details = container.querySelector("details")
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute("open")
+    expect(details).toHaveTextContent("Didn't receive a confirmation email?")
+  })
 })

@@ -27,8 +27,13 @@ function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
 }
 
-function ForgotPasswordForm() {
-  const [email, setEmail] = useState("")
+/**
+ * `initialEmail` is what the visitor had already typed on the sign-in form
+ * (carried over as `?email=`), so "Forgot password?" is not a second chance
+ * to mistype it.
+ */
+function ForgotPasswordForm({ initialEmail = "" }: { initialEmail?: string }) {
+  const [email, setEmail] = useState(initialEmail)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [sentTo, setSentTo] = useState<string | null>(null)

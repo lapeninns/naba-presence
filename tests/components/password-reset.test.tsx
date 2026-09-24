@@ -9,7 +9,12 @@ import * as authApi from "@/lib/api/auth"
 
 const assign = vi.fn()
 beforeEach(() => {
-  vi.stubGlobal("location", { ...window.location, pathname: "/", search: "", assign })
+  vi.stubGlobal("location", {
+    ...window.location,
+    pathname: "/",
+    search: "",
+    assign,
+  })
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -18,6 +23,13 @@ afterEach(() => {
 })
 
 describe("ForgotPasswordForm", () => {
+  it("starts with the address typed on the sign-in form", () => {
+    render(<ForgotPasswordForm initialEmail="sam@example.test" />)
+    expect(screen.getByLabelText("Email address")).toHaveValue(
+      "sam@example.test"
+    )
+  })
+
   it("confirms without revealing whether the account exists", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "requestPasswordReset").mockResolvedValue(undefined)
@@ -50,9 +62,7 @@ describe("ForgotPasswordForm", () => {
 describe("ResetPasswordForm", () => {
   it("offers a fresh link instead of a form when the token is missing", () => {
     render(<ResetPasswordForm />)
-    expect(
-      screen.queryByLabelText("New password")
-    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Request another link" })
     ).toHaveAttribute("href", "/forgot-password")
@@ -79,7 +89,10 @@ describe("ResetPasswordForm", () => {
     vi.spyOn(authApi, "completePasswordReset").mockResolvedValue(undefined)
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(screen.getByLabelText("Confirm new password"), "correct-horse-9")
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "correct-horse-9"
+    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/inbox"))
   })
@@ -91,7 +104,10 @@ describe("ResetPasswordForm", () => {
     )
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(screen.getByLabelText("Confirm new password"), "correct-horse-9")
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "correct-horse-9"
+    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "That link is invalid or has expired."
@@ -109,7 +125,10 @@ describe("ResetPasswordForm", () => {
     )
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(screen.getByLabelText("Confirm new password"), "correct-horse-9")
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "correct-horse-9"
+    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Too many attempts."
@@ -126,7 +145,10 @@ describe("ResetPasswordForm", () => {
     const spy = vi.spyOn(authApi, "completePasswordReset")
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correcthorse9x")
-    await user.type(screen.getByLabelText("Confirm new password"), "correcthorse9x")
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "correcthorse9x"
+    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(spy).not.toHaveBeenCalled()
     expect(screen.getByLabelText("New password")).toHaveAttribute(

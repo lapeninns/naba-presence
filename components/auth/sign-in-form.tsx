@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react"
 
-import { Mail } from "lucide-react"
+import { ChevronRight, Mail } from "lucide-react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { AuthLink } from "@/components/auth/auth-link"
@@ -343,7 +343,15 @@ function SignInForm({
           autoComplete="current-password"
           error={fieldErrors.password}
           labelAside={
-            <AuthLink href="/forgot-password" className="text-ui">
+            <AuthLink
+              // Carry what was typed, so the reset form starts filled in.
+              href={
+                email.trim()
+                  ? `/forgot-password?${new URLSearchParams({ email: email.trim() })}`
+                  : "/forgot-password"
+              }
+              className="text-ui"
+            >
               Forgot password?
             </AuthLink>
           }
@@ -402,12 +410,22 @@ function SignInForm({
         // confirm whether the address is registered. Showing it
         // unconditionally keeps the resend path (spec §8) without adding an
         // enumeration channel.
-        <div className="flex flex-col items-start gap-1 border-t border-line pt-4">
-          <p className="text-caption text-ink-muted">
+        // Folded behind a disclosure: most people signing in never need it,
+        // and it sat under the form competing with the one action they came
+        // for. Still always present, so the no-enumeration rule above holds.
+        <details className="group border-t border-line pt-4">
+          <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo hover:text-ink focus-visible:outline-none pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-3.5 transition-transform duration-(--np-duration-fast) group-open:rotate-90"
+            />
             Didn&apos;t receive a confirmation email?
-          </p>
-          <ResendConfirmationButton email={email} inviteToken={inviteToken} />
-        </div>
+          </summary>
+          <div className="flex flex-col items-start gap-1 pt-2">
+            <ResendConfirmationButton email={email} inviteToken={inviteToken} />
+          </div>
+        </details>
       ) : null}
     </form>
   )
