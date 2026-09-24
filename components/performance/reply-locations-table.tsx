@@ -56,8 +56,14 @@ const LINK_CLASS =
 
 export function ReplyLocationsTable({
   locations,
+  linked = true,
 }: {
   locations: AnalyticsLocation[]
+  /**
+   * Names and counts open the location's report and inbox. Off for the
+   * public shared report, which has no way into the app.
+   */
+  linked?: boolean
 }) {
   const rows = orderLocations(locations)
   return (
@@ -89,9 +95,16 @@ export function ReplyLocationsTable({
             <TableRow key={location.id}>
               <TableCell className="font-medium text-ink">
                 {/* The location's own report: same figures, one place. */}
-                <Link href={`/reports?locationId=${id}`} className={LINK_CLASS}>
-                  {location.name}
-                </Link>
+                {linked ? (
+                  <Link
+                    href={`/reports?locationId=${id}`}
+                    className={LINK_CLASS}
+                  >
+                    {location.name}
+                  </Link>
+                ) : (
+                  <span className="break-words">{location.name}</span>
+                )}
               </TableCell>
               <TableCell numeric label="Reviews">
                 {formatNumber(location.reviews)}
@@ -118,7 +131,7 @@ export function ReplyLocationsTable({
                 {median.text}
               </TableCell>
               <TableCell numeric label="Unresolved">
-                {location.unresolvedComplaints > 0 ? (
+                {linked && location.unresolvedComplaints > 0 ? (
                   // The count is work waiting (one- and two-star reviews
                   // with no published reply), so it opens those reviews in
                   // the inbox rather than being a dead number.
