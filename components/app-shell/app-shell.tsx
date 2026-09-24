@@ -11,6 +11,7 @@ import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
 import { fetchSession } from "@/lib/api/session"
+import { withClientScope } from "@/lib/clients/scope"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -18,7 +19,7 @@ import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
 
 import { AccountMenu } from "./account-menu"
-import { ClientScopeRoot } from "./client-context"
+import { ClientScopeRoot, useRememberedClient } from "./client-context"
 import { Nav } from "./nav"
 import { ReconnectBanner } from "./reconnect-banner"
 import { ShellOAuthReturn } from "./shell-oauth-return"
@@ -112,9 +113,11 @@ function SidebarNav({
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
+  const { remembered } = useRememberedClient()
   return (
     <Nav
       role={role}
+      scopeClientId={remembered}
       onNavigate={onNavigate}
       layout={layout}
       rail={rail}
@@ -158,11 +161,12 @@ function SidebarBody({
   closeButton?: React.ReactNode
 }) {
   const responsive = layout === "responsive"
+  const { remembered } = useRememberedClient()
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 pr-2">
         <Link
-          href="/inbox"
+          href={withClientScope("/inbox", remembered)}
           onClick={onNavigate}
           className={cn(
             "m-1 flex min-w-0 flex-1 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none",
@@ -275,9 +279,16 @@ function NavigationSheet({
  */
 function AppShell({
   session,
+  rememberedClientId = null,
   children,
 }: {
   session: ShellSession | null
+  /**
+   * The client-scope cookie as the layout read it (lib/clients/scope.ts),
+   * so the sidebar's links and the switcher render the same on the server
+   * as on the first client pass.
+   */
+  rememberedClientId?: string | null
   children: React.ReactNode
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -321,7 +332,7 @@ function AppShell({
     // `h-svh`, not `min-h-svh`: the shell is viewport-locked so expanding
     // content scrolls inside its own column instead of stretching the sidebar.
     <TooltipProvider>
-      <ClientScopeRoot>
+      <ClientScopeRoot rememberedClientId={rememberedClientId}>
         <div className="flex h-svh bg-canvas text-ink">
           <a
             href="#main"

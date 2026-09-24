@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { healthLabel, healthTone } from "@/lib/clients/health"
+import { withClientScope } from "@/lib/clients/scope"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import type { ClientHealth } from "@/lib/clients/health"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
@@ -287,9 +288,16 @@ function Nav({
   layout = "full",
   rail = false,
   role,
+  scopeClientId = null,
 }: {
   onNavigate?: () => void
   clients?: NavClient[]
+  /**
+   * The client the top-bar switcher has in scope. Inbox, Listings and
+   * Reports link to it (`?clientId=`), so moving between them keeps the
+   * scope; null links to every client.
+   */
+  scopeClientId?: string | null
   /** The Inbox's needs-reply count, when the app has it. */
   needsReply?: number
   layout?: NavLayout
@@ -327,7 +335,7 @@ function Nav({
             <React.Fragment key={item.href}>
               <li>
                 <NavRow
-                  href={item.href}
+                  href={withClientScope(item.href, scopeClientId)}
                   label={item.label}
                   icon={item.icon}
                   active={active}

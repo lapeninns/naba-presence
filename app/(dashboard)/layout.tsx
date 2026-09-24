@@ -1,10 +1,14 @@
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
-import { headers } from "next/headers"
+import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell/app-shell"
 import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
 import { sessionSchema } from "@/lib/api/session"
+import {
+  CLIENT_SCOPE_COOKIE,
+  parseClientScopeCookie,
+} from "@/lib/clients/scope"
 import {
   projectDefault,
   projectManagement,
@@ -36,6 +40,12 @@ export default async function DashboardLayout({
   }
 
   const queryClient = makeQueryClient()
+  // The client the operator last worked (lib/clients/scope.ts). Read here so
+  // the sidebar's Inbox, Listings and Reports links carry it in the server
+  // HTML; kept only when it names a client this session can still see.
+  let rememberedClientId = parseClientScopeCookie(
+    (await cookies()).get(CLIENT_SCOPE_COOKIE)?.value
+  )
   if (session) {
     // Each of these opens its own short read transaction and none reads the
     // others' output, so awaiting them one after another only stacked three
@@ -67,6 +77,12 @@ export default async function DashboardLayout({
     // health, so the client list is shell furniture: hydrating it here is
     // what keeps the first paint from showing an empty nav that fills in.
     queryClient.setQueryData(queryKeys.clients, clients)
+    if (
+      clients.items.length <= 1 ||
+      !clients.items.some((client) => client.id === rememberedClientId)
+    ) {
+      rememberedClientId = null
+    }
 
     const management = session.role === "owner" || session.role === "admin"
     queryClient.setQueryData(
@@ -80,7 +96,9 @@ export default async function DashboardLayout({
   return (
     <QueryProvider>
       <HydrationBoundary state={dehydrate(queryClient)}>
-        <AppShell session={session}>{children}</AppShell>
+        <AppShell session={session} rememberedClientId={rememberedClientId}>
+          {children}
+        </AppShell>
       </HydrationBoundary>
     </QueryProvider>
   )

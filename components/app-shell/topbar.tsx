@@ -2,10 +2,12 @@
 
 import { Menu } from "lucide-react"
 import * as React from "react"
+import { Suspense } from "react"
 
 import { cn } from "@/lib/utils"
 
 import { ShellBreadcrumbs } from "./breadcrumbs-context"
+import { ClientScopeSync, ClientSwitcher } from "./client-switcher"
 import {
   CommandPalette,
   CommandPaletteButton,
@@ -15,13 +17,15 @@ import { ContextHealthChip } from "./context-health-chip"
 
 /**
  * The toolbar: the 56px strip above the content column that the page scrolls
- * beneath. Where you are (the trail), whether anything is broken (the health
- * chip) and how to get anywhere (search). The page's own title is NOT here:
- * it lives in `PageHeader`, in the content column, with its actions.
+ * beneath. Which client you are working (the switcher), where you are (the
+ * trail), whether anything is broken (the health chip) and how to get
+ * anywhere (search). The page's own title is NOT here: it lives in
+ * `PageHeader`, in the content column, with its actions.
  *
  * Below 768px the trail collapses to its last crumb, the chip and search
  * become 44px icon buttons, and the menu button that opens the navigation
- * sheet appears at the trailing edge.
+ * sheet appears at the trailing edge. Below 640px the switcher shows the
+ * client's mark alone.
  *
  * `sessionReady` gates every data-reading child. On the first anonymous visit
  * the shell provisions the session cookie before anything else runs. A query
@@ -52,6 +56,14 @@ function Toolbar({
         className
       )}
     >
+      {sessionReady ? (
+        // Both read the address; the boundary keeps a prerendered page from
+        // bailing the whole toolbar out to client rendering.
+        <Suspense fallback={null}>
+          <ClientScopeSync />
+          <ClientSwitcher />
+        </Suspense>
+      ) : null}
       {sessionReady ? (
         <ShellBreadcrumbs className="min-w-0 flex-1" />
       ) : (

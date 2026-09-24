@@ -65,6 +65,31 @@ describe("primary navigation", () => {
     )
   })
 
+  it("carries the client in scope on Inbox, Listings and Reports", () => {
+    pathname.current = "/team"
+    render(<Nav clients={clients} scopeClientId="c2" />)
+    for (const [label, href] of [
+      ["Inbox", "/inbox?clientId=c2"],
+      ["Listings", "/listings?clientId=c2"],
+      ["Clients", "/clients"],
+      ["Reports", "/reports?clientId=c2"],
+    ]) {
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+        "href",
+        href
+      )
+    }
+  })
+
+  it("keeps the current-page mark on a scoped link", () => {
+    pathname.current = "/reports"
+    render(<Nav scopeClientId="c1" />)
+    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+  })
+
   it("keeps Team and Settings behind More until asked", async () => {
     render(<Nav />)
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()

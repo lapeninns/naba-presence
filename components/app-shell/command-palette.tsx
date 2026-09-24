@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  ArrowRightLeft,
   Building2,
   Inbox,
   MapPin,
@@ -26,11 +27,15 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthTone } from "@/lib/clients/health"
+import { withClientScope } from "@/lib/clients/scope"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+
+import { useRememberedClient } from "./client-context"
+import { useClientSwitch } from "./client-switcher"
 
 type PaletteEntry = {
   href: string
@@ -102,6 +107,9 @@ function CommandPalette({
   const locations = useLocationDirectory(role)
   const goTo = paletteEntriesFor(GO_TO, role)
   const actions = paletteEntriesFor(ACTIONS, role)
+  // Go to Inbox, Listings or Reports keeps the client in scope, like the
+  // sidebar's links.
+  const { remembered } = useRememberedClient()
 
   const go = (href: string) => {
     onOpenChange(false)
@@ -171,6 +179,10 @@ function CommandPalette({
           </CommandGroup>
         ) : null}
 
+        <React.Suspense fallback={null}>
+          <SwitchClientCommands onDone={() => onOpenChange(false)} />
+        </React.Suspense>
+
         <CommandGroup heading="Go to">
           {goTo.map((item) => {
             const Icon = item.icon
@@ -178,7 +190,7 @@ function CommandPalette({
               <CommandItem
                 key={item.href}
                 value={`go ${item.label}`}
-                onSelect={() => go(item.href)}
+                onSelect={() => go(withClientScope(item.href, remembered))}
               >
                 <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
@@ -204,6 +216,52 @@ function CommandPalette({
         </CommandGroup>
       </CommandList>
     </CommandDialog>
+  )
+}
+
+/**
+ * "Switch client: …" for every client but the current one, and "All
+ * clients" while one is in scope. The same switch the top-bar switcher
+ * makes, so it follows the same page rules and the Inbox's unsaved-reply
+ * guard. Offered only when there is more than one client to switch between.
+ */
+function SwitchClientCommands({ onDone }: { onDone: () => void }) {
+  const { clients, current, select } = useClientSwitch()
+  if (!clients || clients.length <= 1) return null
+  const choose = (clientId: string | null) => {
+    onDone()
+    void select(clientId)
+  }
+  return (
+    <CommandGroup heading="Switch client">
+      {current ? (
+        <CommandItem
+          value="switch client all clients"
+          onSelect={() => choose(null)}
+        >
+          <Building2 className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+          <span className="flex-1 truncate">Switch client: All clients</span>
+        </CommandItem>
+      ) : null}
+      {clients
+        .filter((client) => client.id !== current)
+        .map((client) => (
+          <CommandItem
+            key={client.id}
+            value={`switch client ${client.name} ${client.id}`}
+            onSelect={() => choose(client.id)}
+          >
+            <ArrowRightLeft
+              className={ICON_CLASS}
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="flex-1 truncate">
+              Switch client: {client.name}
+            </span>
+          </CommandItem>
+        ))}
+    </CommandGroup>
   )
 }
 
