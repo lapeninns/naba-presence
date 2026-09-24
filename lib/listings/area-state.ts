@@ -10,7 +10,12 @@ import type {
 } from "@/lib/contracts/location-summary"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
 import type { ListingArea, ListingAreaKey } from "@/lib/listings/areas"
-import { syncStatusLabel, syncStatusTone } from "@/lib/listings/health"
+import {
+  googleUnreachable,
+  syncStatusLabel,
+  syncStatusTone,
+  UNREACHABLE_LABEL,
+} from "@/lib/listings/health"
 import type { StatusTone } from "@/lib/ui/status-tone"
 
 export type AreaState = {
@@ -49,8 +54,19 @@ function when(iso: string): string {
   return text === "Just now" ? "just now" : text
 }
 
-function syncedState(area: SyncedArea): AreaState {
+function syncedState(area: SyncedArea, unreachable = false): AreaState {
   const dirty = area.status === "core_dirty" || area.status === "conflict"
+  // With Google out of reach, only what is known locally can be said: edits
+  // saved here are still not on Google, but "in sync", "changed on Google"
+  // and "checked just now" are as old as the break.
+  if (unreachable && !dirty)
+    return {
+      tone: "neutral",
+      label: UNREACHABLE_LABEL,
+      line: area.observedAt
+        ? `Last compared with Google ${when(area.observedAt)}`
+        : "Not compared with Google yet",
+    }
   const line = dirty
     ? area.dirtyCount > 1
       ? `${formatNumber(area.dirtyCount)} fields not yet on Google`
@@ -86,9 +102,9 @@ export function areaState(
 ): AreaState {
   switch (key) {
     case "profile":
-      return syncedState(summary.profile)
+      return syncedState(summary.profile, googleUnreachable(summary))
     case "hours":
-      return syncedState(summary.hours)
+      return syncedState(summary.hours, googleUnreachable(summary))
     case "menu":
       if (summary.menu.eligible === false)
         return {
@@ -96,7 +112,7 @@ export function areaState(
           label: "Not offered",
           line: "Google does not show a menu for this kind of business",
         }
-      return syncedState(summary.menu)
+      return syncedState(summary.menu, googleUnreachable(summary))
     case "booking":
       return {
         tone: "neutral",
