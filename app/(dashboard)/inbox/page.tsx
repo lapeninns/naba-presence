@@ -1,6 +1,6 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
-import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
+import { PageFrame } from "@/components/app-shell/page-frame"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { ShortcutsButton } from "@/components/inbox/shortcuts-button"
 import { SyncReviewsButton } from "@/components/inbox/sync-reviews-button"
@@ -24,27 +24,24 @@ export default async function InboxPage() {
     resolvePrimaryLocation(),
   ])
   const state = await prefetch(session, inboxPrefetch())
+  // The inbox draws its own compact toolbar (title, search, queues and
+  // filters in one band), so the page hands it the actions rather than
+  // rendering a PageHeader above it.
   return (
-    <PageFrame width="workspace" className="min-h-0 flex-1">
-      <PageHeader
-        title="Inbox"
-        // The sentence is dropped on phones and short windows, where the
-        // workspace needs the height more than the reminder.
-        description={
-          <span className="max-md:hidden [@media(max-height:619.98px)]:hidden">
-            Every client&rsquo;s reviews in one queue. Nothing reaches Google
-            until a verified reply is published.
-          </span>
-        }
-        actions={
-          <>
-            <ShortcutsButton />
-            <SyncReviewsButton canSync={canTriggerSync(session?.role)} />
-          </>
-        }
-      />
+    <PageFrame
+      width="workspace"
+      className="min-h-0 flex-1 gap-3 pt-4 max-md:px-4 max-md:pt-3 md:pt-4"
+    >
       <HydrationBoundary state={state}>
-        <InboxView showLocationFilter={locationCount > 1} />
+        <InboxView
+          showLocationFilter={locationCount > 1}
+          actions={
+            <>
+              <ShortcutsButton />
+              <SyncReviewsButton canSync={canTriggerSync(session?.role)} />
+            </>
+          }
+        />
       </HydrationBoundary>
     </PageFrame>
   )

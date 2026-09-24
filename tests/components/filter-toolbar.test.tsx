@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -43,86 +43,117 @@ function renderToolbar(
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("FilterToolbar — the line above the panes", () => {
+async function openSheet(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /^Filters/ }))
+  return screen.findByRole("dialog", { name: "Filters" })
+}
+
+describe("FilterToolbar — the filter end of the toolbar", () => {
   it("presents its controls as one labelled filter group", () => {
     renderToolbar()
     const group = screen.getByRole("group", { name: "Filter reviews" })
     expect(group).toHaveAttribute("data-slot", "inbox-filter-toolbar")
+    // Age and sort are the inline shortcuts (CSS folds them away on narrow
+    // screens); everything else waits in the sheet.
     expect(
-      screen.getByRole("combobox", { name: "Filter by location" })
-    ).toBeInTheDocument()
-    expect(screen.getByRole("group", { name: "Rating" })).toBeInTheDocument()
-    expect(
-      screen.getByRole("combobox", { name: "Filter by assignee" })
+      within(group).getByRole("combobox", { name: "Filter by review age" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("combobox", { name: "Filter by review age" })
+      within(group).getByRole("combobox", { name: "Sort reviews" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /More filters/ })
+      within(group).getByRole("button", { name: /^Filters/ })
     ).toBeInTheDocument()
-    // Each control is named on screen too, not only to assistive tech.
-    for (const label of ["Venue", "Rating", "Assigned", "Age"]) {
-      expect(screen.getByText(label)).toBeInTheDocument()
-    }
-  })
-
-  it("hides the venue combobox for a single-location org", () => {
-    // The chip that clears a stale `?locationId=` lives in ActiveFilterChips,
-    // not here, so this component simply drops the control.
-    renderToolbar({ locationIds: ["loc-1"] }, { showLocationFilter: false })
     expect(
       screen.queryByRole("combobox", { name: "Filter by location" })
     ).not.toBeInTheDocument()
-    expect(screen.queryByText("Venue")).not.toBeInTheDocument()
-    expect(screen.getByRole("group", { name: "Rating" })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("group", { name: "Rating" })
+    ).not.toBeInTheDocument()
   })
 
-  it("keeps the rating stars visible without opening any panel", () => {
+  it("keeps every narrowing in the sheet, so a phone loses nothing", async () => {
+    const user = userEvent.setup()
     renderToolbar()
-    for (const name of ["5 stars", "4 stars", "3 stars", "2 stars", "1 star"]) {
-      expect(screen.getByRole("checkbox", { name })).toBeInTheDocument()
+    const sheet = await openSheet(user)
+    expect(
+      within(sheet).getByRole("group", { name: "Rating" })
+    ).toBeInTheDocument()
+    for (const name of [
+      "Filter by location",
+      "Filter by assignee",
+      "Filter by review age",
+      "Sort reviews",
+    ]) {
+      expect(within(sheet).getByRole("combobox", { name })).toBeInTheDocument()
     }
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(
+      within(sheet).getByRole("radiogroup", { name: "Reply state" })
+    ).toBeInTheDocument()
+    expect(within(sheet).getByLabelText("From date")).toBeInTheDocument()
+  })
+
+  it("hides the venue combobox for a single-location org", async () => {
+    // The chip that clears a stale `?locationId=` lives in ActiveFilterChips,
+    // not here, so this component simply drops the control.
+    const user = userEvent.setup()
+    renderToolbar({ locationIds: ["loc-1"] }, { showLocationFilter: false })
+    const sheet = await openSheet(user)
+    expect(
+      within(sheet).queryByRole("combobox", { name: "Filter by location" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(sheet).queryByRole("heading", { name: "Venue" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(sheet).getByRole("group", { name: "Rating" })
+    ).toBeInTheDocument()
   })
 
   it("toggles a star rating into the URL state", async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     renderToolbar({}, { onChange })
-    await user.click(screen.getByRole("checkbox", { name: "5 stars" }))
+    const sheet = await openSheet(user)
+    await user.click(within(sheet).getByRole("checkbox", { name: "5 stars" }))
     expect(onChange).toHaveBeenCalledWith({ ratings: [5] })
   })
 
   it("supports multi-star ratings from Home deep-links", async () => {
-    // components/home/attention-list.tsx links to /inbox?rating=1,2, so the
-    // control has to render several checked stars and clear them one at a time.
+    // Deep links arrive as /inbox?rating=1,2, so the control has to render
+    // several checked stars and clear them one at a time.
     const user = userEvent.setup()
     const onChange = vi.fn()
     renderToolbar({ ratings: [1, 2] }, { onChange })
-    expect(screen.getByRole("checkbox", { name: "1 star" })).toBeChecked()
-    expect(screen.getByRole("checkbox", { name: "2 stars" })).toBeChecked()
-    expect(screen.getByRole("checkbox", { name: "5 stars" })).not.toBeChecked()
-    await user.click(screen.getByRole("checkbox", { name: "1 star" }))
+    const sheet = await openSheet(user)
+    expect(within(sheet).getByRole("checkbox", { name: "1 star" })).toBeChecked()
+    expect(
+      within(sheet).getByRole("checkbox", { name: "2 stars" })
+    ).toBeChecked()
+    expect(
+      within(sheet).getByRole("checkbox", { name: "5 stars" })
+    ).not.toBeChecked()
+    await user.click(within(sheet).getByRole("checkbox", { name: "1 star" }))
     expect(onChange).toHaveBeenCalledWith({ ratings: [2] })
   })
 
-  it("does not count the always-visible rating toward the More filters badge", () => {
-    renderToolbar({ ratings: [3] })
-    expect(
-      screen.getByRole("button", { name: /More filters/ })
-    ).not.toHaveTextContent("1")
+  it("shows no count on the Filters button when nothing narrows the list", () => {
+    renderToolbar({ search: "breakfast", sort: "updated_asc" })
+    expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent(
+      /^Filters$/
+    )
   })
 
-  it("counts what is actually behind More filters on its badge", () => {
+  it("counts each kind of narrowing that is on", () => {
     renderToolbar({
+      ratings: [1, 2],
       clientId: "c1",
       replyState: "unreplied",
       dateFrom: "2026-07-01T00:00:00.000Z",
     })
     expect(
-      screen.getByRole("button", { name: /More filters/ })
-    ).toHaveTextContent("3")
+      screen.getByRole("button", { name: "Filters, 4 active" })
+    ).toBeInTheDocument()
   })
 })
 
@@ -220,7 +251,7 @@ describe("FilterToolbar — age and custom dates", () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     renderToolbar({ age: "7d" }, { onChange })
-    await user.click(screen.getByRole("button", { name: /More filters/ }))
+    await openSheet(user)
     await user.type(await screen.findByLabelText("From date"), "2026-07-01")
     expect(onChange).toHaveBeenCalledWith({
       dateFrom: "2026-07-01T00:00:00.000Z",
@@ -231,24 +262,21 @@ describe("FilterToolbar — age and custom dates", () => {
   it("warns in the panel that a date will replace an active age preset", async () => {
     const user = userEvent.setup()
     renderToolbar({ age: "7d" })
-    await user.click(screen.getByRole("button", { name: /More filters/ }))
+    await openSheet(user)
     expect(
-      await screen.findByText(
-        "A date here replaces the Age preset in the toolbar."
-      )
+      await screen.findByText("A date here replaces the Age preset.")
     ).toBeInTheDocument()
   })
 })
 
-describe("MoreFiltersPanel — what the toolbar keeps off screen", () => {
+describe("FiltersSheet — the sheet behind the Filters button", () => {
   async function openPanel(
     overrides: Partial<InboxState> = {},
     handlers: Parameters<typeof renderToolbar>[1] = {}
   ) {
     const user = userEvent.setup()
     renderToolbar(overrides, handlers)
-    await user.click(screen.getByRole("button", { name: /More filters/ }))
-    await screen.findByRole("dialog", { name: "More filters" })
+    await openSheet(user)
     return user
   }
 
@@ -256,27 +284,35 @@ describe("MoreFiltersPanel — what the toolbar keeps off screen", () => {
     const user = userEvent.setup()
     renderToolbar()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    const trigger = screen.getByRole("button", { name: /More filters/ })
+    const trigger = screen.getByRole("button", { name: /^Filters/ })
     expect(trigger).toHaveAttribute("aria-expanded", "false")
     await user.click(trigger)
     expect(
-      await screen.findByRole("dialog", { name: "More filters" })
+      await screen.findByRole("dialog", { name: "Filters" })
     ).toBeInTheDocument()
     expect(trigger).toHaveAttribute("aria-expanded", "true")
   })
 
-  it("holds the reply status and date controls, and nothing else", async () => {
+  it("groups its controls under headings, without the retired pipeline filters", async () => {
     await openPanel()
     expect(
       screen.getByRole("radiogroup", { name: "Reply state" })
     ).toBeInTheDocument()
     expect(screen.getByLabelText("From date")).toBeInTheDocument()
     expect(screen.getByLabelText("To date")).toBeInTheDocument()
-    for (const title of ["Reply status", "Date range"]) {
+    for (const title of [
+      "Rating",
+      "Venue",
+      "Assigned to",
+      "Reply status",
+      "Age",
+      "Date range",
+      "Sort",
+    ]) {
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument()
     }
-    // The pipeline-state checkboxes and the saved presets are gone: the first
-    // filtered on a record's place in the publish pipeline, the second
+    // The pipeline-state checkboxes and the saved presets stay gone: the
+    // first filtered on a record's place in the publish pipeline, the second
     // duplicated controls already on the toolbar.
     for (const title of ["Workflow", "Saved presets"]) {
       expect(
@@ -334,9 +370,10 @@ describe("MoreFiltersPanel — what the toolbar keeps off screen", () => {
     const user = await openPanel({ replyState: "unreplied" }, { onClear })
     await user.click(screen.getByRole("button", { name: "Clear filters" }))
     expect(onClear).toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Done" }))
-    expect(
-      screen.getByRole("button", { name: /More filters/ })
-    ).toHaveAttribute("aria-expanded", "false")
+    await user.click(screen.getByRole("button", { name: "Show results" }))
+    expect(screen.getByRole("button", { name: /^Filters/ })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    )
   })
 })

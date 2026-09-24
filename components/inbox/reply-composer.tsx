@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import {
+  ChevronRightIcon,
   CircleCheckIcon,
+  PenLineIcon,
   RotateCcwIcon,
   ShieldCheckIcon,
   SparklesIcon,
@@ -44,9 +46,21 @@ const BYTE_LIMIT = 4096
 const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.9)
 
 const TONES = [
-  { value: "warm_professional", label: "Warm" },
-  { value: "concise", label: "Concise" },
-  { value: "empathetic", label: "Empathetic" },
+  {
+    value: "warm_professional",
+    label: "Warm",
+    hint: "Friendly and personal. Thanks them by name and invites them back.",
+  },
+  {
+    value: "concise",
+    label: "Concise",
+    hint: "Short and polite. Two sentences, no more.",
+  },
+  {
+    value: "empathetic",
+    label: "Empathetic",
+    hint: "Acknowledges how they felt before anything else.",
+  },
 ] as const
 
 type Tone = (typeof TONES)[number]["value"]
@@ -63,14 +77,6 @@ const PROVENANCE: Record<string, string> = {
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
-
-/**
- * Reading the reply and editing it are two shapes of one thing, so the line
- * that names it is set once. It used to be the title role in the preview and
- * the smaller UI role in the editor, which made the pane's heading shrink the
- * moment Edit was pressed and everything under it jump up.
- */
-const REPLY_HEADING_CLASS = "text-ui font-semibold text-ink"
 
 function saveShortcutLabel(): string {
   if (typeof navigator === "undefined") return "Ctrl+Enter"
@@ -187,10 +193,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     [review]
   )
 
-  async function runGenerate() {
+  async function runGenerate(withTone: Tone = tone) {
     try {
       // No body → server runs AI (or rating-only template). Manual only.
-      const result = await generateOrSave.mutateAsync({ tone })
+      const result = await generateOrSave.mutateAsync({ tone: withTone })
       setBody(result.body)
       setMutationVerification(result.verification)
       toasts.add({
@@ -331,13 +337,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </p>
   ) : null
 
-  // Reference `.segmented`: tone applies to Generate, so it sits beside it.
+  // Reference `.seg`: tone applies to Generate, so it sits beside it.
   const toneControl = (
     <div
       role="radiogroup"
       aria-label="Reply tone"
       aria-describedby={`${fieldId}-tone-hint`}
-      className="inline-flex h-[30px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-(--np-radius-control) bg-fill p-0.5 pointer-coarse:h-10"
+      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 pointer-coarse:h-10 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%]"
     >
       {TONES.map((option) => {
         const selected = tone === option.value
@@ -350,10 +356,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             disabled={!canEdit || !canDraft}
             onClick={() => setTone(option.value)}
             className={cn(
-              "inline-flex h-full shrink-0 items-center rounded-[6px] px-2.5 text-caption font-semibold whitespace-nowrap focus-halo transition-[background-color,color,box-shadow] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:opacity-50",
+              "inline-flex h-full shrink-0 items-center justify-center rounded-[7px] px-2.5 text-[13px] whitespace-nowrap focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:opacity-50 @max-[480px]/detail:flex-1",
               selected
-                ? "bg-surface text-ink shadow-np-raised"
-                : "text-ink-muted hover:text-ink"
+                ? "bg-ink font-semibold text-canvas"
+                : "text-ink-secondary hover:bg-fill hover:text-ink"
             )}
           >
             {option.label}
@@ -366,115 +372,221 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </div>
   )
 
+  // Nothing drafted, nothing live and nothing typed: choose how to start
+  // (reference `.starter`). Picking a tone generates a draft in it; writing
+  // your own opens the empty editor.
+  const starting =
+    !editing &&
+    body === "" &&
+    !latestDraft &&
+    liveBody === null &&
+    canEdit &&
+    canDraft
+
+  const heading = (
+    <h3 id={`${fieldId}-heading`} className="sr-only">
+      {starting
+        ? "Start a reply"
+        : showPreview
+          ? settled
+            ? "Published reply"
+            : "Your reply"
+          : "Write the reply"}
+    </h3>
+  )
+
+  if (starting) {
+    return (
+      <section
+        aria-labelledby={`${fieldId}-heading`}
+        data-slot="reply-starter"
+        className="flex flex-col gap-3"
+      >
+        {heading}
+        <p className="text-ui text-ink-secondary">
+          Choose a starting point. You can edit every word before it is
+          checked.
+        </p>
+        <div
+          role="group"
+          aria-label="Start from a tone"
+          className="grid grid-cols-1 gap-2 @min-[640px]/detail:grid-cols-3"
+        >
+          {TONES.map((option) => {
+            const busy = generateOrSave.isPending && tone === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                data-slot="tone-card"
+                // The card's name is the action; its sentence is the
+                // description, not part of what a screen reader calls it.
+                aria-label={`${option.label} draft`}
+                aria-describedby={`${fieldId}-${option.value}-hint`}
+                aria-busy={busy || undefined}
+                disabled={generateOrSave.isPending}
+                onClick={() => {
+                  setTone(option.value)
+                  void runGenerate(option.value)
+                }}
+                className={cn(
+                  "flex flex-col gap-1.5 rounded-(--np-radius-card) border border-line bg-surface-sunken p-3.5 text-left focus-halo transition-[background-color,border-color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60",
+                  busy && "animate-pulse"
+                )}
+              >
+                <span className="flex items-center justify-between gap-2 text-ui font-semibold text-ink">
+                  {option.label}
+                  <ChevronRightIcon
+                    aria-hidden
+                    strokeWidth={1.75}
+                    className="size-4 text-ink-muted"
+                  />
+                </span>
+                <span
+                  id={`${fieldId}-${option.value}-hint`}
+                  className="text-[13px] leading-normal text-ink-secondary"
+                >
+                  {busy ? "Drafting…" : option.hint}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <Button
+          variant="ghost"
+          disabled={generateOrSave.isPending}
+          onClick={() => {
+            setEditing(true)
+            requestAnimationFrame(() => textareaRef.current?.focus())
+          }}
+          className="-ml-3 self-start"
+        >
+          <PenLineIcon aria-hidden data-icon="inline-start" />
+          Write my own reply
+        </Button>
+        {discardDialog}
+      </section>
+    )
+  }
+
   return (
     <section
       aria-labelledby={`${fieldId}-heading`}
       data-slot="reply-composer"
-      // Reference `.composer`: one bordered card whose edge takes the focus
-      // ring while the textarea inside is borderless.
-      className="flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--np-accent-tint)]"
+      className="flex min-w-0 flex-col gap-2"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
-        <h3 id={`${fieldId}-heading`} className={REPLY_HEADING_CLASS}>
-          {showPreview
-            ? settled
-              ? "Published reply"
-              : "Your reply"
-            : "Write the reply"}
-        </h3>
-        <span aria-hidden className="flex-1" />
-        {toneControl}
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={!canGenerate}
-          onClick={onGenerateClick}
-        >
-          <SparklesIcon aria-hidden data-icon="inline-start" />
-          {generateOrSave.isPending ? "Working…" : generateLabel}
-        </Button>
+      {heading}
+      {permissionNote}
+
+      {/* Reference `.editor`: one bordered card whose edge takes the focus
+          ring while the textarea inside is borderless, with the tone and
+          draft controls on a bar beneath the words. */}
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface-sunken transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:shadow-[0_0_0_3px_var(--np-fill)]">
         {showPreview ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={!canEdit || !canDraft}
-            onClick={() => setEditing(true)}
+          // The reply as words, before any control asks the operator to do
+          // something about it.
+          <p
+            dir="auto"
+            lang={review.detectedLanguageCode ?? undefined}
+            className="min-h-[88px] px-4 pt-3.5 pb-3 text-[15px] leading-relaxed whitespace-pre-line text-ink"
           >
-            Edit reply
+            {body}
+          </p>
+        ) : (
+          <Textarea
+            ref={textareaRef}
+            id={fieldId}
+            aria-label="Your reply"
+            lang={review.detectedLanguageCode ?? undefined}
+            dir="auto"
+            value={body}
+            readOnly={!canEdit || !canDraft}
+            aria-invalid={overLimit || undefined}
+            aria-describedby={`${fieldId}-count ${fieldId}-hint`}
+            onChange={(event) => setBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                (event.metaKey || event.ctrlKey) &&
+                event.key === "Enter" &&
+                canSave
+              ) {
+                event.preventDefault()
+                void onSave()
+              }
+            }}
+            placeholder="Write a reply, or generate one to start."
+            className={cn(
+              "min-h-[128px] rounded-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+              generateOrSave.isPending && "animate-pulse"
+            )}
+          />
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-2.5 py-2">
+          {toneControl}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!canGenerate}
+            onClick={onGenerateClick}
+          >
+            <SparklesIcon aria-hidden data-icon="inline-start" />
+            {generateOrSave.isPending ? "Working…" : generateLabel}
           </Button>
-        ) : latestDraft || liveBody !== null ? (
-          <Button variant="ghost" size="sm" onClick={() => void closeEditor()}>
-            Close editor
-          </Button>
-        ) : null}
+          {showPreview ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!canEdit || !canDraft}
+              onClick={() => setEditing(true)}
+            >
+              <PenLineIcon aria-hidden data-icon="inline-start" />
+              Edit reply
+            </Button>
+          ) : latestDraft || liveBody !== null ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void closeEditor()}
+            >
+              Close editor
+            </Button>
+          ) : editing && canEdit && canDraft ? (
+            // Came here by "Write my own reply": the way back to the tones.
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void closeEditor()}
+            >
+              Start from a tone
+            </Button>
+          ) : null}
+          <span aria-hidden className="flex-1" />
+          <span
+            id={`${fieldId}-count`}
+            className={cn(
+              "font-mono text-[11px] tabular-nums",
+              overLimit
+                ? "font-semibold text-danger-ink"
+                : nearLimit
+                  ? "text-warning-ink"
+                  : "text-ink-muted"
+            )}
+          >
+            {bytes.toLocaleString("en-GB")} /{" "}
+            {BYTE_LIMIT.toLocaleString("en-GB")} bytes
+          </span>
+          <span role="status" className="sr-only">
+            {overLimit
+              ? "Your reply is over the 4,096-byte limit."
+              : nearLimit
+                ? "Your reply is approaching the 4,096-byte limit."
+                : ""}
+          </span>
+        </div>
       </div>
 
-      {permissionNote ? (
-        <div className="px-4 pt-3">{permissionNote}</div>
-      ) : null}
-
-      {showPreview ? (
-        // The reply as words, before any control asks the operator to do
-        // something about it.
-        <p
-          dir="auto"
-          lang={review.detectedLanguageCode ?? undefined}
-          className="min-h-[120px] px-4 py-3.5 text-[15px] leading-6 whitespace-pre-line text-ink"
-        >
-          {body}
-        </p>
-      ) : (
-        <Textarea
-          ref={textareaRef}
-          id={fieldId}
-          aria-label="Your reply"
-          lang={review.detectedLanguageCode ?? undefined}
-          dir="auto"
-          value={body}
-          readOnly={!canEdit || !canDraft}
-          aria-invalid={overLimit || undefined}
-          aria-describedby={`${fieldId}-count ${fieldId}-hint`}
-          onChange={(event) => setBody(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              event.key === "Enter" &&
-              canSave
-            ) {
-              event.preventDefault()
-              void onSave()
-            }
-          }}
-          placeholder="Write a reply, or generate one to start."
-          className={cn(
-            "min-h-[150px] rounded-none border-0 bg-transparent px-4 py-3.5 text-[15px] leading-6 shadow-none read-only:cursor-default read-only:bg-surface-alt focus:shadow-none focus-visible:shadow-none",
-            generateOrSave.isPending && "animate-pulse"
-          )}
-        />
-      )}
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-b-(--np-radius-card) border-t border-line px-3 py-2 text-caption text-ink-muted">
-        <span
-          id={`${fieldId}-count`}
-          className={cn(
-            "font-mono text-[11.5px] tabular-nums",
-            overLimit
-              ? "font-semibold text-danger-ink"
-              : nearLimit
-                ? "text-warning-ink"
-                : "text-ink-muted"
-          )}
-        >
-          {bytes.toLocaleString("en-GB")} / {BYTE_LIMIT.toLocaleString("en-GB")}{" "}
-          bytes
-        </span>
-        <span role="status" className="sr-only">
-          {overLimit
-            ? "Your reply is over the 4,096-byte limit."
-            : nearLimit
-              ? "Your reply is approaching the 4,096-byte limit."
-              : ""}
-        </span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-caption text-ink-muted">
         {latestDraft ? (
           <span>
             {provenance ?? "Saved draft"}
@@ -530,7 +642,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {canEdit && canDraft && !showPreview ? (
           <span
             id={`${fieldId}-hint`}
-            className="inline-flex items-center gap-1.5 max-sm:hidden"
+            className="inline-flex items-center gap-1.5 pointer-coarse:hidden max-md:hidden"
           >
             <Kbd>{shortcut}</Kbd> save
           </span>

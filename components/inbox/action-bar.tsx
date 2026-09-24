@@ -41,6 +41,10 @@ import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 const REJECT_NOTE_LIMIT = 2000
 
+// On a phone the step the bar exists for fills the row at a 48px thumb
+// height (reference `.publish .btn`).
+const PRIMARY_CLASS = "max-md:h-12 max-md:flex-1"
+
 /**
  * The pane's footer: one filled capsule for the irreversible step (publish,
  * submit, approve), a grey capsule for the way back (reject), and the rest
@@ -173,25 +177,31 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     (primary.kind === "publish" || primary.kind === "update")
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 max-md:w-full">
       {blockedReason ? (
         <p
           id={reasonId}
-          className="min-w-0 flex-[1_1_140px] text-caption text-ink-muted-on-charcoal @2xl/detail:text-right"
+          className="min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right"
         >
           {blockedReason}
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 max-md:w-full">
         {inFlight ? (
-          <Button variant="ghost-dark" pending pendingLabel="Publishing…">
+          <Button
+            variant="secondary"
+            pending
+            pendingLabel="Publishing…"
+            className={PRIMARY_CLASS}
+          >
             Publishing…
           </Button>
         ) : awaitingApproval ? (
           <>
             <Button
-              variant="ghost-dark"
+              variant="secondary"
+              className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
               title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
@@ -201,6 +211,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Reject reply
             </Button>
             <Button
+              className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
               title={primary.reason}
               aria-describedby={blockedReason ? reasonId : undefined}
@@ -216,6 +227,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </>
         ) : offerRequestApproval ? (
           <Button
+            className={PRIMARY_CLASS}
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
@@ -230,6 +242,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         ) : (
           <Button
+            className={PRIMARY_CLASS}
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}
             aria-describedby={blockedReason ? reasonId : undefined}
@@ -261,7 +274,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <DropdownMenuTrigger
               render={
                 <Button
-                  variant="ghost-dark"
+                  variant="ghost"
                   size="icon"
                   aria-label="Review actions"
                 />

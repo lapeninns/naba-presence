@@ -521,12 +521,11 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} invitation`)
       })
 
-      test("inbox landing with the Today strip", async ({ baseURL, page }) => {
+      test("inbox landing", async ({ baseURL, page }) => {
         // Real journey tenant/cookie (see the module comment above): the
-        // landing inbox reads live counts, the client list and the analytics
-        // overview for its Today strip. A real cookie makes those calls
-        // resolve against the real backend instead of 401-ing and
-        // hard-redirecting to /sign-in.
+        // landing inbox reads live counts and the client list. A real cookie
+        // makes those calls resolve against the real backend instead of
+        // 401-ing and hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto("/inbox")
@@ -751,9 +750,10 @@ for (const theme of themes) {
             },
           })
         })
-        // The Today strip above the queues reads the first client's setup
-        // state and the analytics overview (locations needing attention).
-        // Unstubbed, both answer 401 and lib/api/client.ts navigates away.
+        // The inbox stopped reading client setup and the analytics overview
+        // when the Today strip went. They stay stubbed because any read that
+        // slips through unstubbed answers 401 and lib/api/client.ts
+        // navigates away mid-run.
         await page.route(
           /\/api\/clients\/[^/]+\/setup(?:\?.*)?$/,
           async (route) => {
@@ -930,10 +930,9 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
-        // The permanent rail — and the "Queues" sheet it hid inside below lg —
-        // are both gone. The five queue controls and the filter toolbar sit
-        // above the two panes at every width, so nothing has to be opened to
-        // reach them, on a phone or otherwise.
+        // The five queue controls and the Filters button sit in the inbox
+        // toolbar above the two panes at every width, so nothing has to be
+        // opened to reach a queue, on a phone or otherwise.
         const queues = page.getByRole("navigation", { name: "Review queues" })
         await expect(
           queues.getByRole("button", { name: /^Needs reply/ })
@@ -944,30 +943,25 @@ for (const theme of themes) {
         await expect(
           page.getByRole("group", { name: "Filter reviews" })
         ).toBeVisible()
-        // Rating stayed inline rather than folding into a menu: it is the
-        // filter operators reach for most.
+        // Every narrowing opens from one Filters button (a side sheet, or a
+        // bottom sheet on a phone), and Escape dismisses it.
+        const filtersButton = page.getByRole("button", { name: /^Filters/ })
+        await expect(filtersButton).toBeVisible()
+        await filtersButton.click()
+        const filtersSheet = page.getByRole("dialog", { name: "Filters" })
+        await expect(filtersSheet).toBeVisible()
         await expect(
-          page.getByRole("checkbox", { name: "5 stars" })
+          filtersSheet.getByRole("checkbox", { name: "5 stars" })
         ).toBeVisible()
-        // The advanced filters the rail used to hold now open from this
-        // button, and Escape still dismisses them — the behaviour the old
-        // Queues-sheet branch was exercising, against the panel that replaced
-        // it.
-        const moreFilters = page.getByRole("button", { name: /More filters/ })
-        await expect(moreFilters).toBeVisible()
-        await moreFilters.click()
-        const moreFiltersPanel = page.getByRole("dialog", {
-          name: "More filters",
-        })
-        await expect(moreFiltersPanel).toBeVisible()
-        // The verification / publish / sync checkbox groups are gone from
-        // this panel (components/inbox/more-filters.tsx); reply status is
-        // the first narrowing it still holds.
         await expect(
-          moreFiltersPanel.getByRole("region", { name: "Reply status" })
+          filtersSheet.getByRole("region", { name: "Reply status" })
         ).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} inbox filters sheet`
+        )
         await page.keyboard.press("Escape")
-        await expect(moreFiltersPanel).toBeHidden()
+        await expect(filtersSheet).toBeHidden()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
         const row = reviewList.getByRole("button", { name: /Jordan Lee/ })
@@ -982,10 +976,10 @@ for (const theme of themes) {
           )
           await row.click()
           await expect(reviewList).toBeHidden()
-          // Below lg the sheet now parks the workspace controls as well as
-          // the list: the queue tabs and the filter toolbar sit above the
-          // panes, and leaving them tabbable behind an open review would put
-          // focus on controls the sheet covers.
+          // On a phone the open review parks the workspace controls as well
+          // as the list: the inbox toolbar sits above the panes, and leaving
+          // it tabbable behind an open review would put focus on controls
+          // the review covers.
           await expect(
             page.locator('[data-slot="inbox-workspace-controls"]')
           ).toBeHidden()
@@ -1012,7 +1006,7 @@ for (const theme of themes) {
         await expect(
           selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
         ).toBeVisible()
-        // The customer's words are a quote card beside the live reply.
+        // The customer's words open the thread, above the reply.
         await expect(
           selectedReview.getByRole("article", {
             name: "Review from Jordan Lee",
@@ -1038,8 +1032,7 @@ for (const theme of themes) {
             level: 3,
           })
         ).toBeVisible()
-        // The live-reply card and the composer summary both show the words;
-        // the composer's copy is the one this asserts on.
+        // The composer summary shows the words where they will appear.
         await expect(
           selectedReview
             .getByRole("region", { name: "Published reply" })

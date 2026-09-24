@@ -11,10 +11,10 @@ import { SHORTCUTS_OPEN_EVENT } from "@/lib/inbox/events"
  * The dialog itself belongs to InboxHotkeys, so this only asks for it.
  */
 function ShortcutsButton() {
-  // The span keeps the button its own width where the page header lets its
-  // actions share a narrow row.
+  // The span keeps the button its own width where the toolbar lets its
+  // actions share a row. Phones have no keyboard to take shortcuts from.
   return (
-    <span className="flex">
+    <span className="flex max-md:hidden">
       <Button
         type="button"
         variant="ghost"

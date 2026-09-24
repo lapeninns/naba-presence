@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
  * this says when NabaPresence last heard from Google, which is what decides
  * whether a new review could be missing.
  */
-export function GoogleFreshness() {
+export function GoogleFreshness({ className }: { className?: string }) {
   const clientId = useClientScope()
   const clients = useClients()
   const inScope = (clients.data?.items ?? []).filter(
@@ -31,7 +31,10 @@ export function GoogleFreshness() {
     <span
       className={cn(
         "font-mono text-[11.5px] tabular-nums",
-        delayed ? "text-warning-ink" : "text-ink-muted"
+        delayed ? "text-warning-ink" : "text-ink-muted",
+        // A delay is a warning, so it shows wherever the caller would have
+        // folded the routine "checked 5 minutes ago" away.
+        !delayed && className
       )}
       title="When NabaPresence last successfully checked these listings' reviews with Google."
     >

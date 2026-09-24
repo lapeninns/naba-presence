@@ -261,18 +261,18 @@ describe("ReviewDetail", () => {
     // meta line as well, so this is a "one or more" count.
     expect(screen.getAllByText("Live on Google").length).toBeGreaterThan(0)
     expect(screen.getAllByText("30 Jul, 12:00").length).toBeGreaterThan(0)
-    // The live-reply card shows what Google displays; the disclosure beside
-    // the composer stays collapsed until asked for.
+    // The thread shows the reply being worked on; what Google displays is
+    // one click away above it, collapsed until asked for.
     expect(
-      screen.getAllByText("The words that are on Google today.")
-    ).toHaveLength(1)
+      screen.queryByText("The words that are on Google today.")
+    ).not.toBeInTheDocument()
 
     await user.click(
       screen.getByRole("button", { name: /differs from the reply below/ })
     )
     expect(
       screen.getAllByText("The words that are on Google today.")
-    ).toHaveLength(2)
+    ).toHaveLength(1)
   })
 
   // "Your published reply" was the label for every publish_status, including

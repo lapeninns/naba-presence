@@ -25,3 +25,9 @@ export const REPLY_FOCUS_EVENT = "inbox:focus-reply"
  * page, outside the client tree that owns the dialog, so it asks by event.
  */
 export const SHORTCUTS_OPEN_EVENT = "inbox:open-shortcuts"
+
+/**
+ * Puts the caret in the review search — what `/` does. On a phone the field
+ * is folded behind an icon, so the toolbar unfolds it first.
+ */
+export const SEARCH_FOCUS_EVENT = "inbox:focus-search"

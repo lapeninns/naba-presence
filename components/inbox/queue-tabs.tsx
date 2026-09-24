@@ -2,8 +2,8 @@
 
 import { useId } from "react"
 
-import { ChipCount, chipClassName } from "@/components/ui/chip"
 import { Skeleton } from "@/components/ui/skeleton"
+import { formatNumber } from "@/lib/format"
 import {
   REVIEW_QUEUE_LABELS,
   type ReviewCounts,
@@ -17,13 +17,14 @@ import {
 import { cn } from "@/lib/utils"
 
 /**
- * The five queues as a row of chips above the filters (reference `#queues`).
+ * The five queues as one segmented track in the inbox toolbar (reference
+ * `.tabs`).
  *
- * The current queue fills with ink, like a pressed chip; the accent stays
- * reserved for the primary action. Each count sits inside its chip in mono,
- * and a non-zero Failed count is drawn in the danger ink because that number
- * is itself the exception. The row scrolls sideways rather than wrapping on
- * a phone, with the cut chip saying there is more.
+ * The current queue fills with ink; the accent stays reserved for the
+ * primary action. Each count sits beside its label in mono, and a non-zero
+ * Failed count is drawn in the danger ink because that number is itself the
+ * exception. The track scrolls sideways rather than wrapping on a phone, with
+ * the cut segment saying there is more.
  *
  * Still a `nav` labelled "Review queues": these are the inbox's primary
  * navigation wherever they are drawn, and the landmark is what screen-reader
@@ -50,7 +51,7 @@ function QueueTabs({
       aria-label="Review queues"
       aria-describedby={noteId}
       className={cn(
-        "-m-0.5 flex min-w-0 [scrollbar-width:none] items-center gap-2 overflow-x-auto p-0.5 [&::-webkit-scrollbar]:hidden",
+        "flex max-w-full min-w-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[10px] border border-line bg-surface-sunken p-[3px] [&::-webkit-scrollbar]:hidden",
         className
       )}
     >
@@ -77,7 +78,12 @@ function QueueTabs({
             ]
               .filter(Boolean)
               .join(", ")}
-            className={chipClassName({ pressed: active })}
+            className={cn(
+              "inline-flex min-h-[30px] shrink-0 items-center gap-1.5 rounded-[7px] px-2.5 text-ui whitespace-nowrap focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none max-md:min-h-[38px] pointer-coarse:min-h-[38px]",
+              active
+                ? "bg-ink font-semibold text-canvas"
+                : "text-ink-secondary hover:bg-fill hover:text-ink"
+            )}
           >
             <span>{REVIEW_QUEUE_LABELS[item]}</span>
             {countsPending ? (
@@ -85,13 +91,19 @@ function QueueTabs({
               // operator there is nothing to do when there may be plenty.
               <Skeleton className={cn("h-3 w-4", active && "bg-canvas/30")} />
             ) : (
-              <ChipCount
+              <span
                 aria-hidden
-                tone={alert && !active ? "alert" : "default"}
-                className={cn(active && "text-canvas/80")}
+                className={cn(
+                  "font-mono text-[11.5px] tabular-nums",
+                  active
+                    ? "text-canvas/80"
+                    : alert
+                      ? "font-semibold text-danger-ink"
+                      : "text-ink-muted"
+                )}
               >
-                {count > 0 ? count : "–"}
-              </ChipCount>
+                {count > 0 ? formatNumber(count) : "–"}
+              </span>
             )}
           </button>
         )

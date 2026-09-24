@@ -83,8 +83,11 @@ test.describe("inbox critical journeys", () => {
       queues.getByRole("button", { name: /^Needs reply/ })
     ).toBeVisible()
 
-    // Location filter narrows the queue.
-    await page
+    // Location filter narrows the queue. It lives in the Filters sheet, and
+    // the list behind it updates as the venue is chosen.
+    await page.getByRole("button", { name: /^Filters/ }).click()
+    const filters = page.getByRole("dialog", { name: "Filters" })
+    await filters
       .getByLabel("Filter by location")
       .fill(state.directReview.locationName)
     await page
@@ -93,6 +96,8 @@ test.describe("inbox critical journeys", () => {
         exact: true,
       })
       .click()
+    await filters.getByRole("button", { name: "Show results" }).click()
+    await expect(filters).toBeHidden()
     await expect(
       list.getByText(state.approvalReview.text, { exact: true })
     ).toHaveCount(0)

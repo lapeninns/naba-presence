@@ -1,21 +1,26 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react"
+import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
-import { FilterToolbar } from "@/components/inbox/filter-toolbar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
-import { QueueTabs } from "@/components/inbox/queue-tabs"
+import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
 import {
   SelectionProvider,
   useSelection,
 } from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
 import { GoogleFreshness } from "@/components/inbox/google-freshness"
-import { TodayStrip } from "@/components/inbox/today/today-strip"
 import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
@@ -30,6 +35,7 @@ import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Kbd } from "@/components/ui/kbd"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -55,6 +61,7 @@ import {
   PUBLISH_PULSE_EVENT,
   PUBLISH_PULSE_MS,
   REPLY_FOCUS_EVENT,
+  SEARCH_FOCUS_EVENT,
 } from "@/lib/inbox/events"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
@@ -62,6 +69,13 @@ import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSession, useSessionRole } from "@/lib/queries/use-session"
 import { formatNumber } from "@/lib/format"
+
+/**
+ * On a phone the panes run edge to edge (reference `.panel` below 768px): the
+ * page gutter is cancelled and the card loses its side borders and corners.
+ */
+const PHONE_BLEED =
+  "max-md:-mx-4 max-md:rounded-none max-md:border-x-0"
 
 /** The nearest ancestor that scrolls: the shell's column, or the document. */
 function scrollParent(node: HTMLElement | null): HTMLElement | null {
@@ -85,8 +99,10 @@ function refreshedAt(timestamp: number | undefined): string | null {
 
 function InboxViewInner({
   showLocationFilter,
+  actions,
 }: {
   showLocationFilter: boolean
+  actions?: ReactNode
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -456,7 +472,7 @@ function InboxViewInner({
     )
   }
 
-  // Below lg the detail replaces the list in place; its "Back to reviews"
+  // On a phone the detail replaces the list in place; its "Back to reviews"
   // control takes focus so keyboard and screen-reader users land somewhere
   // meaningful instead of losing their place (ReviewList re-focuses the
   // originating row on the way back).
@@ -498,6 +514,7 @@ function InboxViewInner({
         if (!state.selected) return
         window.dispatchEvent(new Event(REPLY_FOCUS_EVENT))
       },
+      search: () => window.dispatchEvent(new Event(SEARCH_FOCUS_EVENT)),
     }),
     [canBatch, onAdjacentReview, reviews, selection, state.selected]
   )
@@ -507,35 +524,26 @@ function InboxViewInner({
         ?.name
     : undefined
 
-  // Today, then the queue chips, then the filter row, then the chips of what
-  // is applied — one block above the two panes. Pressing a client chip is a
-  // filter like any other, so it goes through the same dirty-gated handler.
+  // One compact toolbar (title, search, queues, filters), then the chips of
+  // what is applied — one block above the two panes. Every change goes
+  // through the same dirty-gated handlers as the list.
   const workspaceControls = (
     <div
       data-slot="inbox-workspace-controls"
       className="flex shrink-0 flex-col gap-3"
     >
-      <TodayStrip
-        clientId={state.clientId}
-        counts={countsQuery.data}
-        countsPending={countsQuery.isPending}
-        onClientChange={(clientId) => onFilterChange({ clientId })}
-      />
-      <QueueTabs
-        queue={state.queue}
-        counts={countsQuery.data}
-        countsPending={countsQuery.isPending}
-        onQueueChange={onQueueChange}
-      />
-      <FilterToolbar
+      <InboxToolbar
         state={state}
+        counts={countsQuery.data}
+        countsPending={countsQuery.isPending}
         locations={locationsQuery.data ?? []}
         clients={(clientsQuery.data?.items ?? []).map((client) => ({
           id: client.id,
           name: client.name,
         }))}
         showLocationFilter={showLocationFilter}
-        onChange={onFilterChange}
+        actions={actions}
+        onFilterChange={onFilterChange}
         onQueueChange={onQueueChange}
         onClear={onClearFilters}
       />
@@ -554,17 +562,21 @@ function InboxViewInner({
   const allTicked = reviews.length > 0 && ticked.length === reviews.length
   const refreshed = refreshedAt(reviewsQuery.dataUpdatedAt)
 
-  // Reference `.list-pane`: a card with a sunken head (select all, how many,
+  // Reference `.queue`: a card with a quiet head (select all, how many,
   // when the list was fetched), the rows, and the bulk bar pinned under
   // them when something is ticked. Where the workspace is locked to the
   // window the rows scroll inside the card; everywhere else the page does.
+  // On a phone the card runs edge to edge, as the whole screen is the list.
   const listPane = (
     <section
       aria-label="Reviews"
       data-slot="inbox-list-pane"
-      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden",
+        PHONE_BLEED
+      )}
     >
-      <div className="flex min-h-11 shrink-0 items-center gap-2.5 rounded-t-(--np-radius-card) border-b border-line bg-surface-alt px-3 py-2 text-[12.5px] text-ink-muted">
+      <div className="flex min-h-11 shrink-0 items-center gap-2.5 border-b border-line px-3 py-2 text-[13px] text-ink-muted">
         {canBatch ? (
           <Checkbox
             checked={allTicked}
@@ -579,7 +591,7 @@ function InboxViewInner({
         ) : null}
         {/* Announced politely rather than as a page number, because the
             count changes as rows load rather than jumping between pages. */}
-        <span aria-live="polite" className="tabular-nums">
+        <span aria-live="polite" className="whitespace-nowrap tabular-nums">
           {reviewsQuery.isPending
             ? "Loading reviews…"
             : reviewsQuery.isError
@@ -589,10 +601,10 @@ function InboxViewInner({
                 }${reviewsQuery.hasNextPage ? " so far" : ""}`}
         </span>
         <span aria-hidden className="flex-1" />
-        <GoogleFreshness />
+        <GoogleFreshness className="min-w-0 truncate max-2xl:hidden" />
         {loaded && refreshed ? (
           <span
-            className="font-mono text-[11.5px] text-ink-muted tabular-nums"
+            className="font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
             title="When this list was last fetched from NabaPresence. Counts cover every review in each queue for the current client scope."
           >
             Refreshed {refreshed}
@@ -619,6 +631,8 @@ function InboxViewInner({
     </section>
   )
 
+  // Up and down, because the queue they step through is a column (and `k`
+  // and `j` move the same way).
   const navigation = (
     <div className="flex items-center gap-0.5">
       <Tooltip>
@@ -633,9 +647,11 @@ function InboxViewInner({
             />
           }
         >
-          <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
+          <ChevronUpIcon aria-hidden strokeWidth={1.75} />
         </TooltipTrigger>
-        <TooltipContent>Previous review</TooltipContent>
+        <TooltipContent>
+          Previous review <Kbd>K</Kbd>
+        </TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -649,9 +665,11 @@ function InboxViewInner({
             />
           }
         >
-          <ChevronRightIcon aria-hidden strokeWidth={1.75} />
+          <ChevronDownIcon aria-hidden strokeWidth={1.75} />
         </TooltipTrigger>
-        <TooltipContent>Next review</TooltipContent>
+        <TooltipContent>
+          Next review <Kbd>J</Kbd>
+        </TooltipContent>
       </Tooltip>
     </div>
   )
@@ -669,19 +687,18 @@ function InboxViewInner({
         clientId={selectedRow?.location.clientId ?? null}
         organisationName={session.data?.session?.organisationName}
         leading={
-          // The return-to-list control, below lg only; Back also works
-          // because selection was pushed (spec §6). Its words are
-          // "Reviews", as in the reference; its name says where it goes.
+          // The return-to-list control, on phones only; Back also works
+          // because selection was pushed (spec §6). An arrow, as in the
+          // reference; its name says where it goes.
           <Button
             ref={backButtonRef}
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label="Back to reviews"
             onClick={onBackToList}
-            className="lg:hidden"
+            className="md:hidden"
           >
-            <ArrowLeftIcon aria-hidden data-icon="inline-start" />
-            Reviews
+            <ArrowLeftIcon aria-hidden strokeWidth={1.75} />
           </Button>
         }
         navigation={navigation}
@@ -691,16 +708,19 @@ function InboxViewInner({
     </DetailErrorBoundary>
   ) : null
 
-  // Reference `.detail`: a card whose head and action bar stay put while the
-  // middle scrolls — where the workspace is locked to the window. On a phone
-  // or a short window it is an ordinary block in the page and the action bar
-  // is sticky at the foot of the screen instead, so it is never out of reach
-  // and never clipped.
+  // Reference `.detail`: a card whose head and publish bar stay put while
+  // the thread scrolls — where the workspace is locked to the window. On a
+  // phone or a short window it is an ordinary block in the page and the
+  // publish bar is sticky at the foot of the screen instead, so it is never
+  // out of reach and never clipped.
   const inspector = (
     <section
       aria-label="Selected review"
       data-slot="inbox-inspector"
-      className="flex min-h-0 min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface md:[@media(min-height:620px)]:overflow-hidden",
+        PHONE_BLEED
+      )}
     >
       {detail ?? (
         <Statement
@@ -712,7 +732,7 @@ function InboxViewInner({
     </section>
   )
 
-  // Below lg the list and the detail take turns (reference `data-view`):
+  // On a phone the list and the detail take turns (reference `data-view`):
   // opening a review hides the list and the controls above it, and Back
   // brings them back where they were.
   const detailOnly = !isDesktop && Boolean(state.selected)
@@ -753,7 +773,7 @@ function InboxViewInner({
         // `min-h-0` only where the workspace is locked to the window: there
         // the panes share the height and scroll inside. Everywhere else the
         // inbox is as tall as its content and the page scrolls.
-        className="relative flex flex-1 flex-col gap-4 md:[@media(min-height:620px)]:min-h-0"
+        className="relative flex flex-1 flex-col gap-3 md:[@media(min-height:620px)]:min-h-0 xl:gap-4"
       >
         <InboxHotkeys handlers={hotkeyHandlers} />
 
@@ -763,9 +783,12 @@ function InboxViewInner({
 
         <div
           data-slot="inbox-split"
+          // Reference `.work`: a 280–340px queue beside the thread from
+          // 768px, widening to a third of the room (320–420px) from 1280px.
           className={cn(
-            "grid flex-1 grid-cols-1 gap-4 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:[grid-template-rows:minmax(0,1fr)]",
-            isDesktop && "lg:grid-cols-[clamp(320px,34%,440px)_minmax(0,1fr)]"
+            "grid flex-1 grid-cols-1 gap-3 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:[grid-template-rows:minmax(0,1fr)] xl:gap-4",
+            isDesktop &&
+              "md:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] xl:grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]"
           )}
         >
           {/* Kept in the tree while a review is open on a narrow screen, so
@@ -793,13 +816,19 @@ function InboxViewInner({
 // failure mode than a silently missing one.
 function InboxView({
   showLocationFilter = true,
+  actions,
 }: {
   showLocationFilter?: boolean
+  /** The route's page actions (shortcuts, sync), drawn in the toolbar. */
+  actions?: ReactNode
 }) {
   return (
     <DirtyGuardProvider>
       <SelectionProvider>
-        <InboxViewInner showLocationFilter={showLocationFilter} />
+        <InboxViewInner
+          showLocationFilter={showLocationFilter}
+          actions={actions}
+        />
       </SelectionProvider>
     </DirtyGuardProvider>
   )

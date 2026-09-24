@@ -79,8 +79,8 @@ function ReviewList({
     buttons?.[index]?.focus()
   }
 
-  // Below lg, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
-  // selection and closes the detail sheet; this list never unmounts, so
+  // On a phone, "Back to reviews" (components/inbox/inbox-view.tsx) clears
+  // the selection and closes the review; this list never unmounts, so
   // restoring focus here — to the row that was just deselected, or the
   // roving tab-stop if it's no longer in the list — mirrors that button
   // taking focus on the way into the sheet, rather than silently dropping
@@ -209,11 +209,12 @@ function ReviewList({
               key={review.id}
               className={cn(
                 "group/row relative flex border-b border-line transition-[background-color] duration-(--np-duration-fast) ease-out-strong",
-                selected ? "bg-accent-tint" : "hover-fine:hover:bg-surface-alt",
-                // The one accent in the list: a tint and a 3px bar down the
-                // selected row's leading edge (reference `.rv[aria-current]`).
+                selected ? "bg-fill" : "hover-fine:hover:bg-surface-alt",
+                // The selected row is raised with an ink bar down its leading
+                // edge (reference `.q-item[aria-selected]`): the accent stays
+                // reserved for the one action that publishes.
                 selected &&
-                  "before:absolute before:inset-y-0 before:left-0 before:z-10 before:w-[3px] before:bg-primary before:content-['']"
+                  "before:absolute before:inset-y-2 before:left-0 before:z-10 before:w-[3px] before:rounded-r-[3px] before:bg-ink before:content-['']"
               )}
             >
               {selection ? (
@@ -247,7 +248,7 @@ function ReviewList({
                 className={cn(
                   "relative block min-w-0 flex-1 py-3 pr-3.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                   selection ? "pl-0" : "pl-4",
-                  selected ? "bg-accent-tint" : "active:bg-surface-alt"
+                  selected ? "bg-fill" : "active:bg-surface-alt"
                 )}
               >
                 <span className="flex min-w-0 flex-col">
@@ -268,8 +269,11 @@ function ReviewList({
                   <span
                     lang={parsed?.bodyLang ?? undefined}
                     dir="auto"
+                    // One line beside the thread, where the queue is narrow and
+                    // the full words are a glance away; two on a phone, where
+                    // the row is all there is.
                     className={cn(
-                      "mt-[3px] line-clamp-2 text-ui",
+                      "mt-[3px] line-clamp-2 text-[13px] leading-5 md:line-clamp-1",
                       parsed ? "text-ink-secondary" : "text-ink-muted italic"
                     )}
                   >

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
@@ -95,7 +101,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe("ReplyComposer", () => {
-  it("offers manual Generate draft and tone, without auto-calling the mutation on mount", () => {
+  it("offers a draft in each tone, without auto-calling the mutation on mount", () => {
     const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith(),
@@ -109,21 +115,22 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Host>
     )
+    const tones = screen.getByRole("group", { name: "Start from a tone" })
+    for (const name of ["Warm draft", "Concise draft", "Empathetic draft"]) {
+      expect(within(tones).getByRole("button", { name })).toBeInTheDocument()
+    }
     expect(
-      screen.getByRole("button", { name: "Generate draft" })
+      screen.getByRole("button", { name: "Write my own reply" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("Reply tone")).toBeInTheDocument()
-    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveAttribute(
-      "placeholder",
-      "Write a reply, or generate one to start."
-    )
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
   // Preview exists so a saved reply can be READ before anything asks the
   // operator to change it. With no draft and no live reply there is nothing to
-  // read, so making them click Edit first would be a step that buys nothing.
-  it("opens straight into the editor when there is no reply to read yet", () => {
+  // read, so the pane offers the two ways to start instead: a tone, or the
+  // empty editor.
+  it("opens the empty editor from 'Write my own reply', with a way back", async () => {
+    const user = userEvent.setup()
     vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
       data: reviewWith(),
     } as UseQueryResult<ReviewDetail>)
@@ -136,17 +143,31 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Host>
     )
-    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue("")
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Write my own reply" }))
+    const textbox = screen.getByRole("textbox", { name: "Your reply" })
+    expect(textbox).toHaveValue("")
+    expect(textbox).toHaveAttribute(
+      "placeholder",
+      "Write a reply, or generate one to start."
+    )
+    expect(screen.getByLabelText("Reply tone")).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Edit reply" })
     ).not.toBeInTheDocument()
-    // Nothing to go back to, so the editor offers no way out of itself.
+    // No saved reply to close back to, so the way out is back to the tones.
     expect(
       screen.queryByRole("button", { name: "Close editor" })
     ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Start from a tone" }))
+    expect(
+      screen.getByRole("group", { name: "Start from a tone" })
+    ).toBeInTheDocument()
   })
 
-  it("posts tone without a body when Generate draft is clicked", async () => {
+  it("posts the chosen tone without a body when a tone card is clicked", async () => {
     const user = userEvent.setup()
     const mutateAsync = vi.fn().mockResolvedValue({
       ...DRAFT_RESULT,
@@ -164,8 +185,8 @@ describe("ReplyComposer", () => {
         <ReplyComposer reviewId="rev-1" />
       </Host>
     )
-    await user.click(screen.getByRole("button", { name: "Generate draft" }))
-    expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+    await user.click(screen.getByRole("button", { name: "Concise draft" }))
+    expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty("body")
     expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
       "AI drafted reply"

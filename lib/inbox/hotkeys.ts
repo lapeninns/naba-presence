@@ -9,6 +9,7 @@ export type InboxAction =
   | "next"
   | "previous"
   | "reply"
+  | "search"
   | "approve"
   | "assign"
   | "toggle-selection"
@@ -29,6 +30,7 @@ export const SHORTCUTS: { keys: string; action: InboxAction; label: string }[] =
   { keys: "j", action: "next", label: "Next review" },
   { keys: "k", action: "previous", label: "Previous review" },
   { keys: "r", action: "reply", label: "Write a reply" },
+  { keys: "/", action: "search", label: "Search reviews" },
   { keys: "a", action: "approve", label: "Approve and publish" },
   { keys: "e", action: "assign", label: "Assign to a colleague" },
   { keys: "x", action: "toggle-selection", label: "Select this review" },
@@ -86,6 +88,8 @@ export function resolveAction(
       return "previous"
     case "r":
       return "reply"
+    case "/":
+      return "search"
     case "a":
       return "approve"
     case "e":
