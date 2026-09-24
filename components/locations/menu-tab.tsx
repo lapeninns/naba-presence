@@ -3,6 +3,8 @@
 import { DownloadIcon, Plus, UtensilsCrossed } from "lucide-react"
 import { useCallback, useMemo, useRef, useState } from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
@@ -31,6 +33,7 @@ import type { TabGateReasons } from "@/lib/locations/gating"
 import { menuChangeRows } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 export function MenuTab({ locationId }: { locationId: string }) {
   return (
@@ -43,9 +46,9 @@ export function MenuTab({ locationId }: { locationId: string }) {
       {({ data: state, disabled, editReason, publishReason }) =>
         state.eligible ? (
           <MenuForm
-            // Remount on an external revision change so form-level error, dialog and
-            // mutation state reset with the draft, as the pre-shell tab did.
-            key={state.canonicalResource.revision}
+            // No remount on a revision change: useEditorDraft follows the
+            // new revision itself, and keeps unsaved edits (asking whose to
+            // keep) when a colleague's save lands mid-edit.
             locationId={locationId}
             state={state}
             disabled={disabled}
@@ -74,12 +77,14 @@ function MenuForm({
   editReason,
   publishReason: gateReason,
 }: TabGateReasons & { locationId: string; state: FoodMenusState }) {
-  const { draft, setDraft, isDirty, discard } = useEditorDraft({
+  const editor = useEditorDraft({
     initial: state.canonicalMenus,
     revision: state.canonicalResource.revision,
     key: `location-menu-${locationId}`,
   })
+  const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [discardOpen, setDiscardOpen] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   // Problems show once a review has been attempted, then follow the edits
   // live so each one clears as it is fixed.
@@ -105,6 +110,7 @@ function MenuForm({
         key: "save",
         label: "Save the menu in NabaPresence",
         run: async () => {
+          expectSave()
           await saveFoodMenus(locationId, {
             expectedCanonicalRevision: state.canonicalResource.revision,
             menus: clean,
@@ -126,7 +132,7 @@ function MenuForm({
         },
       },
     ],
-    [locationId, clean, state.canonicalResource.revision]
+    [locationId, clean, state.canonicalResource.revision, expectSave]
   )
 
   const flow = usePublishFlow({
@@ -138,6 +144,30 @@ function MenuForm({
       setServerError(null)
     },
   })
+
+  // "Save here": NabaPresence's copy only, as in Hours and Profile. The
+  // area note ("Saved here first") promised this; the footer never offered it.
+  const save = useResourceMutation({
+    mutationFn: () => {
+      expectSave()
+      return saveFoodMenus(locationId, {
+        expectedCanonicalRevision: state.canonicalResource.revision,
+        menus: clean,
+      })
+    },
+    invalidate: [queryKeys.locationMenu(locationId)],
+    successToast: "Saved here. Not on Google until you publish.",
+    onSuccess: () => setServerError(null),
+    onError: (_error, message) => setServerError(message),
+  })
+
+  function saveHere() {
+    const found = validateMenu(draft)
+    setChecked(true)
+    setAttempt((count) => count + 1)
+    if (found.length > 0) return
+    save.mutate()
+  }
 
   const publishReason = editReason ?? gateReason
   const draftCounts = countFoodMenus(clean as Array<Record<string, unknown>>)
@@ -220,10 +250,10 @@ function MenuForm({
             isDirty={isDirty || rows.length > 0}
             canDiscard={isDirty}
             onReview={review}
-            onDiscard={() => {
-              discard()
-              setChecked(false)
-            }}
+            onDiscard={() => setDiscardOpen(true)}
+            onSave={saveHere}
+            saving={save.isPending}
+            saveDisabledReason={editReason}
             disabledReason={publishReason}
             hint={
               state.status === "in_sync"
@@ -234,13 +264,21 @@ function MenuForm({
         )
       }
     >
+      <DraftNotices drafts={[editor]} noun="this menu" />
+
+      {serverError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <ValidationSummary
         errors={problems}
         focusKey={attempt}
         title={
           problems.length === 1
-            ? "1 problem to fix before publishing"
-            : `${problems.length} problems to fix before publishing`
+            ? "1 problem to fix before saving or publishing"
+            : `${problems.length} problems to fix before saving or publishing`
         }
       />
 
@@ -285,11 +323,16 @@ function MenuForm({
         />
       )}
 
-      {serverError ? (
-        <Alert variant="destructive">
-          <AlertDescription>{serverError}</AlertDescription>
-        </Alert>
-      ) : null}
+      <DiscardDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        description="The menu goes back to what NabaPresence last saved. Google is not affected."
+        onConfirm={() => {
+          discard()
+          setChecked(false)
+          setServerError(null)
+        }}
+      />
 
       <ReviewChangesSheet
         open={reviewOpen}
