@@ -545,6 +545,144 @@ describe("ReplyComposer", () => {
   })
 })
 
+describe("ReplyComposer — generation, tone, undo and checks", () => {
+  const EXISTING = {
+    workflowStatus: "drafted",
+    drafts: [
+      {
+        id: "d1",
+        source: "human",
+        body: "Existing draft body",
+        bodyBytes: 19,
+        evidenceHash: "h",
+        modelName: null,
+        verificationStatus: "pass",
+        createdAt: "2026-07-30T10:05:00.000Z",
+      },
+    ],
+  }
+
+  function mount(
+    overrides: Partial<ReviewDetail["review"]>,
+    mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+  ) {
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith(overrides),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+        <section
+          data-slot="verification-checks"
+          tabIndex={-1}
+          aria-label="Verification"
+        />
+      </Host>
+    )
+    return mutateAsync
+  }
+
+  it("says a failed generation where it happened, with Retry and Write my own", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(
+      {},
+      vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("offline"))
+        .mockResolvedValueOnce(DRAFT_RESULT)
+    )
+    await user.click(screen.getByRole("button", { name: "Concise draft" }))
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent("No draft was generated.")
+    await user.click(within(alert).getByRole("button", { name: "Retry" }))
+    expect(mutateAsync).toHaveBeenLastCalledWith({ tone: "concise" })
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    )
+  })
+
+  it("opens the empty editor from a failed generation's Write my own", async () => {
+    const user = userEvent.setup()
+    mount({}, vi.fn().mockRejectedValue(new TypeError("offline")))
+    await user.click(screen.getByRole("button", { name: "Warm draft" }))
+    const alert = await screen.findByRole("alert")
+    await user.click(
+      within(alert).getByRole("button", { name: "Write my own" })
+    )
+    expect(
+      screen.getByRole("textbox", { name: "Your reply" })
+    ).toBeInTheDocument()
+  })
+
+  it("regenerates in a tone chosen on the editor bar", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    await user.click(screen.getByRole("radio", { name: "Empathetic" }))
+    expect(mutateAsync).toHaveBeenCalledWith({ tone: "empathetic" })
+  })
+
+  it("confirms before a tone change replaces unsaved edits", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), "!")
+    await user.click(screen.getByRole("radio", { name: "Concise" }))
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(
+      screen.getByRole("button", { name: "Discard and regenerate" })
+    )
+    expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
+  })
+
+  it("offers Undo after regenerating over a saved draft, restoring it as an edit", async () => {
+    const user = userEvent.setup()
+    mount(
+      EXISTING,
+      vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
+    )
+    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    await user.click(await screen.findByRole("button", { name: "Undo" }))
+    expect(screen.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      "Existing draft body"
+    )
+  })
+
+  it("takes the operator to the failed checks from the caption that counts them", async () => {
+    const user = userEvent.setup()
+    mount({
+      ...EXISTING,
+      latestVerification: {
+        verdict: "fail",
+        reasons: [
+          { code: "unsupported_claim", severity: "fail", message: "Claim" },
+        ],
+      },
+    })
+    await user.click(
+      screen.getByRole("button", { name: "1 issue to fix before publishing" })
+    )
+    expect(screen.getByRole("region", { name: "Verification" })).toHaveFocus()
+  })
+
+  it("says nothing about length until the reply nears Google's limit", async () => {
+    const user = userEvent.setup()
+    mount(EXISTING)
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    expect(screen.queryByText(/length limit/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole("textbox", { name: "Your reply" }), {
+      target: { value: "a".repeat(3400) },
+    })
+    expect(
+      screen.getByText(/^Nearly at Google's length limit/)
+    ).toBeInTheDocument()
+  })
+})
+
 // The publish bar's "Save & check" runs the composer's own save — the same
 // call Save draft and ⌘↵ make — through the dirty store.
 function SaveProbe() {

@@ -31,6 +31,7 @@ import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { StarRating } from "@/components/inbox/star-rating"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
+import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useIsDirty } from "@/components/inbox/dirty-context"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
 import { deriveLifecycle } from "@/lib/inbox/lifecycle"
@@ -278,7 +279,7 @@ function ReviewBody({ review }: { review: Review }) {
               size="xs"
               aria-expanded={showOriginal}
               onClick={() => setShowOriginal((value) => !value)}
-              className="h-auto p-0 text-caption"
+              className="h-auto p-0 text-caption pointer-coarse:min-h-(--np-touch)"
             >
               {showOriginal ? "Hide original" : "Show original"}
             </Button>
@@ -831,7 +832,7 @@ function ReviewDetail({
   return (
     <div
       aria-busy={pending || undefined}
-      className="@container/detail flex min-h-0 flex-1 flex-col"
+      className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
     >
       <HeadFrame
         leading={leading}
@@ -916,7 +917,12 @@ function ReviewDetail({
 
       {review ? (
         <footer data-slot="composer-footer" className={FOOTER_CLASS}>
-          <div className="flex min-w-0 flex-[1_1_220px] items-center">
+          <div
+            className={cn(
+              "flex min-w-0 flex-[1_1_220px] items-center",
+              TYPING_COLLAPSE_CLASS
+            )}
+          >
             <ReplyStatusStrip review={review} />
           </div>
           {actions ? (

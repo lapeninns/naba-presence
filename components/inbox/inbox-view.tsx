@@ -717,6 +717,9 @@ function InboxViewInner({
               variant="ghost"
               size="icon-sm"
               aria-label="Previous review"
+              // The touch floor on a narrow screen too, as the head's other
+              // controls have (`icon-sm` already grows on a coarse pointer).
+              className="max-md:size-11"
               disabled={!hasPrevReview}
               onClick={() => void onAdjacentReview("prev")}
             />
@@ -735,6 +738,7 @@ function InboxViewInner({
               variant="ghost"
               size="icon-sm"
               aria-label="Next review"
+              className="max-md:size-11"
               disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
               onClick={() => void onAdjacentReview("next")}
             />

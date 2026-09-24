@@ -46,6 +46,8 @@ import {
   type PublishPulseDetail,
 } from "@/lib/inbox/events"
 import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
+import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
+import { cn } from "@/lib/utils"
 
 const REJECT_NOTE_LIMIT = 2000
 
@@ -221,7 +223,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       {blockedReason ? (
         <p
           id={reasonId}
-          className="min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right"
+          className={cn(
+            "min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right",
+            TYPING_COLLAPSE_CLASS
+          )}
         >
           {blockedReason}
         </p>
