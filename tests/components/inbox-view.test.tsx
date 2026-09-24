@@ -214,13 +214,11 @@ async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
   return textbox
 }
 
-// Each of these nav affordances drops `selected` from the URL, which would
-// unmount the (dirty) composer — Task 6 fix round 1: every one must gate
-// through the same dirtyGate() used by onSelect, prompting the discard
-// AlertDialog and aborting on "Keep editing" so the edit and the selection
-// both survive.
-describe("InboxView — dirty-guard gates nav that clears the selection", () => {
-  it("gates a filter change (removing the active rating chip)", async () => {
+// A filter change narrows the list and leaves a dirty reply open: the
+// discard confirm used to pop up a moment after a debounced search keystroke,
+// for an edit the search had no reason to touch.
+describe("InboxView — filters keep a dirty reply open", () => {
+  it("applies a filter change without a prompt and keeps the selection", async () => {
     const user = userEvent.setup()
     renderInbox()
     const textbox = await dirtyComposer(user)
@@ -228,19 +226,43 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     await user.click(
       screen.getByRole("button", { name: "Remove rating filter" })
     )
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Keep editing" }))
-    expect(replace).not.toHaveBeenCalled()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(replace.mock.calls[0][0]).not.toContain("rating=")
     expect(textbox).toHaveValue("Seed extra")
+  })
+
+  it("clears all filters without a prompt and keeps the selection", async () => {
+    const user = userEvent.setup()
+    renderInbox()
+    const textbox = await dirtyComposer(user)
+
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(textbox).toHaveValue("Seed extra")
+  })
+
+  it("drops the selection on a filter change when nothing is unsaved", async () => {
+    const user = userEvent.setup()
+    renderInbox()
 
     await user.click(
       screen.getByRole("button", { name: "Remove rating filter" })
     )
-    await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
+})
 
+// Each of these nav affordances drops `selected` from the URL, which would
+// unmount the (dirty) composer — Task 6 fix round 1: every one must gate
+// through the same dirtyGate() used by onSelect, prompting the discard
+// AlertDialog and aborting on "Keep editing" so the edit and the selection
+// both survive.
+describe("InboxView — dirty-guard gates nav that clears the selection", () => {
   it("gates a queue change", async () => {
     // The rail became a tab strip above the workspace, but it keeps the
     // "Review queues" navigation landmark — the queues are still the inbox's
@@ -274,26 +296,6 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     expect(textbox).toHaveValue("Seed extra")
 
     await user.click(screen.getByRole("button", { name: "Back to reviews" }))
-    await user.click(screen.getByRole("button", { name: "Discard" }))
-    expect(replace).toHaveBeenCalledTimes(1)
-    expect(replace.mock.calls[0][0]).not.toContain("selected=")
-  })
-
-  // Not one of the three named in review, but the same real gap: "Clear all
-  // filters" also omits `selected` from its next state, so it drops the
-  // selection exactly like the explicit `selected: undefined` handlers.
-  it("gates 'Clear all filters'", async () => {
-    const user = userEvent.setup()
-    renderInbox()
-    const textbox = await dirtyComposer(user)
-
-    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Keep editing" }))
-    expect(replace).not.toHaveBeenCalled()
-    expect(textbox).toHaveValue("Seed extra")
-
-    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -385,8 +387,75 @@ describe("InboxView — next and previous review", () => {
       screen.getByRole("button", { name: "Previous review" })
     ).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "Next review" }))
-    expect(push).toHaveBeenCalled()
-    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+    // Replace, not push: stepping through a queue must not leave one history
+    // entry per review between the operator and the page they came from.
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalled()
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+})
+
+describe("InboxView — history", () => {
+  it("pushes when a phone opens a review from the list, so Back returns to it", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const view = renderInbox()
+
+    const rowButton = view.container.querySelector<HTMLButtonElement>(
+      '[data-slot="review-row"]'
+    )
+    await user.click(rowButton!)
+    expect(replace).not.toHaveBeenCalled()
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push.mock.calls[0][0]).toContain("selected=rev-1")
+  })
+
+  it("replaces when a row is chosen beside an open review", async () => {
+    const user = userEvent.setup()
+    const view = renderInbox()
+
+    const rowButton = view.container.querySelector<HTMLButtonElement>(
+      '[data-slot="review-row"]'
+    )
+    await user.click(rowButton!)
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("InboxView — row count announcement", () => {
+  it("announces the count for a filter set once, not again as more rows load", () => {
+    const view = renderInbox()
+    const status = () =>
+      view.container.querySelector<HTMLElement>(
+        '[data-slot="inbox-list-pane"] [role="status"]'
+      )
+    expect(status()).toHaveTextContent("1 review")
+
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          { items: [row()], nextCursor: "c" },
+          { items: [row({ id: "rev-2" })], nextCursor: null },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    // The visible count follows the rows; the spoken one stays put.
+    expect(screen.getByText("2 reviews")).toBeInTheDocument()
+    expect(status()).toHaveTextContent("1 review")
   })
 })
 
@@ -413,10 +482,10 @@ describe("InboxView — publish pulse, then advance", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
   }
 
-  function publish(reviewId: string) {
+  function publish(reviewId: string, status?: "published" | "pending") {
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId } })
+        new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId, status } })
       )
     })
   }
@@ -434,17 +503,55 @@ describe("InboxView — publish pulse, then advance", () => {
 
     publish("rev-1")
     // Still on rev-1 while the strip is pulsing.
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
     await act(async () => {
       vi.advanceTimersByTime(PUBLISH_PULSE_MS - 1)
     })
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
 
     await act(async () => {
       vi.advanceTimersByTime(1)
     })
-    expect(push).toHaveBeenCalledTimes(1)
-    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("says what happened and where the operator now is", async () => {
+    twoReviews()
+    const view = renderInbox()
+
+    publish("rev-1", "pending")
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS)
+    })
+    expect(
+      view.container.querySelector('[data-slot="inbox-advance-status"]')
+    ).toHaveTextContent(
+      "Reply sent to Google. Now showing Sam Traveller's review."
+    )
+  })
+
+  it("moves focus to the new review's name after the advance", async () => {
+    twoReviews()
+    const view = renderInbox()
+
+    publish("rev-1")
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS)
+    })
+    // The router is a mock, so the URL does not move; re-render as if it had.
+    currentParams = new URLSearchParams("selected=rev-2&rating=4")
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    expect(
+      view.container.querySelector('[data-slot="review-heading"]')
+    ).toHaveFocus()
   })
 
   it("ignores a publish for a review that is not the selected one", async () => {
@@ -456,6 +563,7 @@ describe("InboxView — publish pulse, then advance", () => {
       vi.advanceTimersByTime(PUBLISH_PULSE_MS)
     })
     expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("subscribes to the publish event once, not on every render", () => {

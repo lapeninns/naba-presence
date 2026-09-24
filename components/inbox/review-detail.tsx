@@ -124,13 +124,24 @@ function ReviewHead({
   clientName,
   clientId,
   navigation,
+  focusHeading = false,
 }: {
   review: Review
   clientName?: string | null
   clientId?: string | null
   navigation?: ReactNode
+  focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
+  // Focus lands on the name once, when this review is where an advance
+  // arrived. The pane is keyed on the review, so "once" is once per review.
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focusHeading || focused.current) return
+    focused.current = true
+    headingRef.current?.focus()
+  }, [focusHeading])
 
   return (
     <>
@@ -142,7 +153,12 @@ function ReviewHead({
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink max-md:text-[18px]">
+          <h2
+            ref={headingRef}
+            tabIndex={-1}
+            data-slot="review-heading"
+            className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink focus-visible:outline-none max-md:text-[18px]"
+          >
             {displayName}
           </h2>
         </div>
@@ -171,7 +187,7 @@ function ReviewHead({
           aria-label="Open listing"
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),
-            "@max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0 max-md:size-11"
+            "max-md:size-11 @max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0"
           )}
         >
           <ExternalLinkIcon aria-hidden data-icon="inline-start" />
@@ -782,6 +798,7 @@ function ReviewDetail({
   navigation,
   composer,
   actions,
+  focusHeading = false,
 }: {
   reviewId: string
   /** The client the review's location belongs to, from the list row. */
@@ -798,6 +815,8 @@ function ReviewDetail({
   composer?: ReactNode
   /** The applicable primary action, pinned at the foot so it never scrolls away. */
   actions?: ReactNode
+  /** Move focus to the reviewer's name once it loads (after an advance). */
+  focusHeading?: boolean
 }) {
   const query = useReviewDetail(reviewId)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -830,6 +849,7 @@ function ReviewDetail({
             clientName={clientName}
             clientId={clientId}
             navigation={navigation}
+            focusHeading={focusHeading}
           />
         ) : (
           <>

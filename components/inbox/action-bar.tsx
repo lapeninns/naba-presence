@@ -37,7 +37,11 @@ import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
-import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
+import {
+  isAdvancingOutcome,
+  PUBLISH_PULSE_EVENT,
+  type PublishPulseDetail,
+} from "@/lib/inbox/events"
 
 const REJECT_NOTE_LIMIT = 2000
 
@@ -112,28 +116,29 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // the reply) or any other non-published outcome can never render as
       // "published" (fix-round-1 CRITICAL #1).
       toasts.add(describeOutcomeToast(result.status))
-      if (result.status === "published") {
-        window.dispatchEvent(
-          new CustomEvent(PUBLISH_PULSE_EVENT, {
-            detail: { reviewId: review.id },
-          })
-        )
-      }
+      // `pending` moves on too: Google has the reply, nothing more can be
+      // done to it here, and waiting on it left the operator parked on a
+      // review whose only button read "Publishing…".
+      if (isAdvancingOutcome(result.status)) announceOutcome(result.status)
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
+  }
+
+  const announceOutcome = (status: "published" | "pending") => {
+    window.dispatchEvent(
+      new CustomEvent<PublishPulseDetail>(PUBLISH_PULSE_EVENT, {
+        detail: { reviewId: review.id, status },
+      })
+    )
   }
 
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
     try {
       const result = await approval.mutateAsync({ decision, note })
       toasts.add(describeOutcomeToast(result.status))
-      if (result.status === "published") {
-        window.dispatchEvent(
-          new CustomEvent(PUBLISH_PULSE_EVENT, {
-            detail: { reviewId: review.id },
-          })
-        )
+      if (decision === "approve" && isAdvancingOutcome(result.status)) {
+        announceOutcome(result.status)
       }
       if (decision === "reject") {
         setRejectOpen(false)

@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from "react"
 import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
@@ -62,7 +63,9 @@ import {
   PUBLISH_PULSE_MS,
   REPLY_FOCUS_EVENT,
   SEARCH_FOCUS_EVENT,
+  type PublishPulseDetail,
 } from "@/lib/inbox/events"
+import type { ReviewRow } from "@/lib/api/reviews"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
@@ -161,19 +164,21 @@ function InboxViewInner({
     [router, state]
   )
 
-  // Filters use replace (no history spam) and drop any stale selection. Every
-  // handler below drops `selected` (explicitly or by omitting it from the
-  // next state), which would silently unmount a dirty composer — gated behind
-  // the same dirty guard as `onSelect` so an in-progress edit prompts a
-  // discard confirm instead of vanishing.
+  // Filters use replace (no history spam) and drop any stale selection —
+  // unless the open reply holds unsaved edits. Then the review stays open
+  // and only the list narrows: the discard confirm used to pop up a moment
+  // after each debounced keystroke in the search, for an edit the search had
+  // no reason to touch. The review is fetched by id, so it keeps rendering
+  // whether or not the narrowed list still contains it.
   const onFilterChange = useCallback(
     (partial: Partial<InboxState>) => {
-      void (async () => {
-        if (!(await dirtyGate())) return
-        updateState({ ...partial, selected: undefined }, "replace")
-      })()
+      if (readIsDirty()) {
+        updateState(partial, "replace")
+        return
+      }
+      updateState({ ...partial, selected: undefined }, "replace")
     },
-    [dirtyGate, updateState]
+    [readIsDirty, updateState]
   )
   const onQueueChange = useCallback(
     (queue: Queue) => {
@@ -187,11 +192,15 @@ function InboxViewInner({
     },
     [dirtyGate, updateState]
   )
-  // Selection uses push so Back returns to the list on mobile (spec §6). Gated
-  // behind the dirty guard: while the composer is dirty this either confirms
-  // discarding the edit (AlertDialog) or blocks the selection change. The
-  // boolean return tells ReviewList's arrow-key handler whether it's safe to
-  // move DOM focus onto the target row (see review-list.tsx).
+  // Opening a review from the list on a phone pushes, so Back returns to the
+  // list (spec §6). Every other change of selection — a click beside the
+  // list, the arrows, j / k, the advance after a publish — replaces: walking
+  // a backlog of fifty reviews used to leave fifty history entries between
+  // the operator and the page they came from. Gated behind the dirty guard:
+  // while the composer is dirty this either confirms discarding the edit
+  // (AlertDialog) or blocks the selection change. The boolean return tells
+  // ReviewList's arrow-key handler whether it's safe to move DOM focus onto
+  // the target row (see review-list.tsx).
   // Notes where the list was scrolled before a narrow screen swaps it for the
   // detail (kept current by an effect further down, beside the restore).
   const onBeforeOpenRef = useRef<() => void>(() => {})
@@ -202,25 +211,25 @@ function InboxViewInner({
     async (id: string): Promise<boolean> => {
       if (!(await dirtyGate())) return false
       onBeforeOpenRef.current()
-      updateState({ selected: id }, "push")
+      const opensFromList = !isDesktop && !state.selected
+      updateState({ selected: id }, opensFromList ? "push" : "replace")
       return true
     },
-    [dirtyGate, updateState]
+    [dirtyGate, isDesktop, state.selected, updateState]
   )
+  // Like a filter change: a dirty reply stays open while the list widens.
   const onClearFilters = useCallback(() => {
-    void (async () => {
-      if (!(await dirtyGate())) return
-      router.replace(
-        `/inbox?${serializeInboxState({
-          queue: state.queue,
-          locationIds: [],
-          ratings: [],
-          search: "",
-          sort: "updated_desc",
-        }).toString()}`
-      )
-    })()
-  }, [dirtyGate, router, state.queue])
+    router.replace(
+      `/inbox?${serializeInboxState({
+        queue: state.queue,
+        locationIds: [],
+        ratings: [],
+        search: "",
+        sort: "updated_desc",
+        selected: readIsDirty() ? state.selected : undefined,
+      }).toString()}`
+    )
+  }, [readIsDirty, router, state.queue, state.selected])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   const onBackToList = useCallback(() => {
@@ -238,13 +247,14 @@ function InboxViewInner({
     selectedIndex >= 0 &&
     (selectedIndex < reviews.length - 1 || !!reviewsQuery.hasNextPage)
 
+  // Resolves to the review it moved to, or null when it did not move.
   const onAdjacentReview = useCallback(
-    async (direction: AdjacentDirection) => {
-      if (!(await dirtyGate())) return false
+    async (direction: AdjacentDirection): Promise<ReviewRow | null> => {
+      if (!(await dirtyGate())) return null
       const nextId = adjacentReviewId(reviews, state.selected, direction)
       if (nextId) {
-        updateState({ selected: nextId }, "push")
-        return true
+        updateState({ selected: nextId }, "replace")
+        return reviews.find((review) => review.id === nextId) ?? null
       }
       if (
         direction === "next" &&
@@ -255,11 +265,11 @@ function InboxViewInner({
         const newItems = result.data?.pages.at(-1)?.items ?? []
         const firstNew = newItems[0]
         if (firstNew) {
-          updateState({ selected: firstNew.id }, "push")
-          return true
+          updateState({ selected: firstNew.id }, "replace")
+          return firstNew
         }
       }
-      return false
+      return null
     },
     [dirtyGate, reviews, reviewsQuery, state.selected, updateState]
   )
@@ -305,26 +315,51 @@ function InboxViewInner({
   // through refs so the window listener subscribes once, not on every render
   // (`onAdjacentReview` follows `reviewsQuery`, which is a new object each
   // render).
+  //
+  // The advance was the operator's doing — they pressed Publish or Approve —
+  // so it says what happened and where they now are, and puts focus on the
+  // new review's name. Without that, keyboard and screen-reader users were
+  // left on a Publish button that had been unmounted under them.
+  const [advance, setAdvance] = useState<{
+    reviewId: string
+    message: string
+  } | null>(null)
+  const advanceTargetRef = useRef<string | null>(null)
   const onAdjacentReviewRef = useRef(onAdjacentReview)
   const selectedRef = useRef(state.selected)
   const reviewsRef = useRef(reviews)
   const selectReviewRef = useRef((id: string) => {
-    updateState({ selected: id }, "push")
+    updateState({ selected: id }, "replace")
   })
   useEffect(() => {
     onAdjacentReviewRef.current = onAdjacentReview
     selectedRef.current = state.selected
     reviewsRef.current = reviews
     selectReviewRef.current = (id: string) => {
-      updateState({ selected: id }, "push")
+      updateState({ selected: id }, "replace")
     }
   }, [onAdjacentReview, reviews, state.selected, updateState])
   useEffect(() => {
     let timer: number | undefined
     function onPublished(event: Event) {
-      const reviewId = (event as CustomEvent<{ reviewId?: string }>).detail
-        ?.reviewId
+      const detail = (event as CustomEvent<PublishPulseDetail>).detail
+      const reviewId = detail?.reviewId
       if (!reviewId || reviewId !== selectedRef.current) return
+      const outcome =
+        detail.status === "pending"
+          ? "Reply sent to Google."
+          : "Reply published."
+      const arrivedAt = (row: ReviewRow | null | undefined) => {
+        if (!row) return
+        advanceTargetRef.current = row.id
+        const name = row.reviewer.isAnonymous ? null : row.reviewer.displayName
+        setAdvance({
+          reviewId: row.id,
+          message: name
+            ? `${outcome} Now showing ${name}'s review.`
+            : `${outcome} Now showing the next review.`,
+        })
+      }
       // Decide the target NOW: the publish mutation invalidates the list, and
       // in the Needs reply queue the refetch drops the just-published review
       // out of it well inside the pulse, after which "next of the selected
@@ -343,14 +378,16 @@ function InboxViewInner({
           target && current.some((review) => review.id === target)
         if (stillThere) {
           selectReviewRef.current(target)
+          arrivedAt(current.find((review) => review.id === target))
           return
         }
         const shifted = index >= 0 ? current[index] : undefined
         if (shifted && shifted.id !== reviewId) {
           selectReviewRef.current(shifted.id)
+          arrivedAt(shifted)
           return
         }
-        void onAdjacentReviewRef.current("next")
+        void onAdjacentReviewRef.current("next").then(arrivedAt)
       }, PUBLISH_PULSE_MS)
     }
     window.addEventListener(PUBLISH_PULSE_EVENT, onPublished)
@@ -475,9 +512,16 @@ function InboxViewInner({
   // control takes focus so keyboard and screen-reader users land somewhere
   // meaningful instead of losing their place (ReviewList re-focuses the
   // originating row on the way back).
+  // After an advance the new review's name takes focus instead (ReviewDetail's
+  // `focusHeading`).
   const backButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (state.selected) backButtonRef.current?.focus({ preventScroll: true })
+    if (!state.selected) return
+    if (advanceTargetRef.current === state.selected) {
+      advanceTargetRef.current = null
+      return
+    }
+    backButtonRef.current?.focus({ preventScroll: true })
   }, [state.selected])
 
   // `r` and `a` are handled by the detail pane's own controls, which know
@@ -560,6 +604,23 @@ function InboxViewInner({
   const ticked = reviews.filter((review) => selection.selected.has(review.id))
   const allTicked = reviews.length > 0 && ticked.length === reviews.length
   const refreshed = refreshedAt(reviewsQuery.dataUpdatedAt)
+  const countLabel = reviewsQuery.isPending
+    ? "Loading reviews…"
+    : reviewsQuery.isError
+      ? "Queue unavailable"
+      : `${formatNumber(reviews.length)} ${
+          reviews.length === 1 ? "review" : "reviews"
+        }${reviewsQuery.hasNextPage ? " so far" : ""}`
+  // "Adjusting state when a prop changes": the announcement follows the
+  // filter set, and only once its first page has landed.
+  const filtersKey = JSON.stringify(filters)
+  const [countAnnouncement, setCountAnnouncement] = useState({
+    key: "",
+    text: "",
+  })
+  if (reviewsReady && countAnnouncement.key !== filtersKey) {
+    setCountAnnouncement({ key: filtersKey, text: countLabel })
+  }
 
   // Reference `.queue`: a card with a quiet head (select all, how many,
   // when the list was fetched), the rows, and the bulk bar pinned under
@@ -588,16 +649,12 @@ function InboxViewInner({
             }}
           />
         ) : null}
-        {/* Announced politely rather than as a page number, because the
-            count changes as rows load rather than jumping between pages. */}
-        <span aria-live="polite" className="whitespace-nowrap tabular-nums">
-          {reviewsQuery.isPending
-            ? "Loading reviews…"
-            : reviewsQuery.isError
-              ? "Queue unavailable"
-              : `${formatNumber(reviews.length)} ${
-                  reviews.length === 1 ? "review" : "reviews"
-                }${reviewsQuery.hasNextPage ? " so far" : ""}`}
+        <span className="whitespace-nowrap tabular-nums">{countLabel}</span>
+        {/* The count is spoken once per queue or filter change, not again
+            every time another page of rows arrives — scrolling a backlog
+            used to announce "50 reviews so far", "100 reviews so far"… */}
+        <span role="status" className="sr-only">
+          {countAnnouncement.text}
         </span>
         <span aria-hidden className="flex-1" />
         <GoogleFreshness
@@ -688,6 +745,7 @@ function InboxViewInner({
         clientName={selectedRow?.location.clientName ?? null}
         clientId={selectedRow?.location.clientId ?? null}
         organisationName={session.data?.session?.organisationName}
+        focusHeading={advance?.reviewId === state.selected}
         leading={
           // The return-to-list control, on phones only; Back also works
           // because selection was pushed (spec §6). An arrow, as in the
@@ -778,6 +836,9 @@ function InboxViewInner({
         className="relative flex flex-1 flex-col gap-3 xl:gap-4 md:[@media(min-height:620px)]:min-h-0"
       >
         <InboxHotkeys handlers={hotkeyHandlers} />
+        <p role="status" className="sr-only" data-slot="inbox-advance-status">
+          {advance?.message}
+        </p>
 
         <div className="flex shrink-0 flex-col" hidden={detailOnly}>
           {workspaceControls}

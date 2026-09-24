@@ -1,5 +1,40 @@
-/** Dispatched after a reply successfully publishes; situation strip listens. */
+/**
+ * Dispatched after a publish or approval the server accepted: `published`, or
+ * `pending` when Google has the reply and has not confirmed it yet. The status
+ * strip pulses and the inbox moves on to the next review.
+ */
 export const PUBLISH_PULSE_EVENT = "inbox:reply-published"
+
+export type PublishPulseDetail = {
+  reviewId: string
+  status?: "published" | "pending"
+}
+
+/** The outcomes that finish this review's work and so move the inbox on. */
+export function isAdvancingOutcome(
+  status: string
+): status is "published" | "pending" {
+  return status === "published" || status === "pending"
+}
+
+/**
+ * Asks the open composer to save and check its unsaved edits — what the
+ * publish bar's "Save & check" does. The composer owns the text and the save
+ * mutation, so the bar asks rather than saving a copy of its own.
+ */
+export const REPLY_SAVE_EVENT = "inbox:save-reply"
+
+/**
+ * Asks the open composer to generate a draft in the default tone — what `g`
+ * does. Like `r`, the composer decides whether that is allowed.
+ */
+export const REPLY_GENERATE_EVENT = "inbox:generate-reply"
+
+/**
+ * Asks the publish bar to press its primary action — what `a` does. The bar
+ * applies every gate it applies to a click; the hotkey only asks.
+ */
+export const PRIMARY_ACTION_EVENT = "inbox:primary-action"
 
 /**
  * How long the situation strip shows its success ring after a publish. The

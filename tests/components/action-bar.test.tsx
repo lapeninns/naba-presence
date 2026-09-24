@@ -15,6 +15,7 @@ import * as detailHook from "@/lib/queries/use-review-detail"
 import * as publishHook from "@/lib/queries/use-publish-review"
 import * as approvalHook from "@/lib/queries/use-approval-decision"
 import * as deleteHook from "@/lib/queries/use-delete-reply"
+import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
   return {
@@ -305,6 +306,32 @@ describe("ActionBar", () => {
       expect(screen.getByText("Google declined this reply")).toBeInTheDocument()
     )
     expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
+  })
+
+  // Google has a `pending` reply and nothing more can be done to it here, so
+  // the inbox moves on exactly as it does for `published`; `rejected` stays.
+  it.each([
+    ["published", true, "Reply published"],
+    ["pending", true, "Reply submitted"],
+    ["rejected", false, "Google declined this reply"],
+  ])("announces a %s outcome to the inbox: %s", async (status, advances, toast) => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(PUBLISH_PULSE_EVENT, listener)
+    stubHooks(detailWith({}), mutation(vi.fn().mockResolvedValue({ status })))
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    await waitFor(() => expect(screen.getByText(toast)).toBeInTheDocument())
+    window.removeEventListener(PUBLISH_PULSE_EVENT, listener)
+    if (advances) {
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        reviewId: "rev-1",
+        status,
+      })
+    } else {
+      expect(listener).not.toHaveBeenCalled()
+    }
   })
 
   // Fix-round-1 IMPORTANT #3: Reject reverts workflow_status to `drafted` and
