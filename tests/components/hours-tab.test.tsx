@@ -104,8 +104,11 @@ describe("HoursTab", () => {
       },
     })
     renderTab()
-    expect(screen.getByText("Publishing to Google is paused for this listing")).toBeInTheDocument()
-    expect(screen.getByText("publishing_paused")).toBeInTheDocument()
+    expect(screen.getByText("Publishing to Google is switched off in NabaPresence")).toBeInTheDocument()
+    expect(screen.getByText(/Whoever runs NabaPresence for your team can switch it back on/)).toBeInTheDocument()
+    // The reason code is kept for support, folded away rather than in the sentence.
+    expect(screen.getByText("Details for support")).toBeInTheDocument()
+    expect(screen.getByText("publishing_paused").closest("details")).not.toBeNull()
     expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled()
     // Saving here is not publishing: it stays available for an owner.
     expect(screen.getByRole("button", { name: "Save here" })).toBeInTheDocument()

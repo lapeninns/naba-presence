@@ -429,7 +429,7 @@ export function VerificationTab({
                 description="Read from Google when this page opened"
               />
               <div className="flex flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
-                <Sub title="Voice of merchant" result={state.voice}>
+                <Sub title="Google recognises you as the owner" result={state.voice}>
                   {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
                 </Sub>
                 <div className="flex flex-col gap-0.5 px-4 py-3">
