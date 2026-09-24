@@ -5,23 +5,52 @@ import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/button"
+import { useToastManager } from "@/components/ui/toast"
 import { triggerKeywordsSync, triggerPerformanceSync } from "@/lib/api/sync"
 import { ApiClientError } from "@/lib/api/client"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 
+/** What went wrong, in the words the operator can act on. */
+export function refreshErrorCopy(caught: unknown): string {
+  const status = caught instanceof ApiClientError ? caught.status : 0
+  if (status === 503)
+    return "Refreshing is paused right now. Please try again later."
+  if (status === 409)
+    return "A refresh is already running. Please try again in a moment."
+  return describeActionError(caught)
+}
+
+/**
+ * Asks Google for new figures now, rather than at the next scheduled pull.
+ *
+ * The refresh covers the whole organisation's due listings: the sync
+ * endpoints take no client scope (only one Google location, for the
+ * scheduler), so a client-scoped report refreshes every client's figures.
+ */
 export function RefreshGoogleButton({
-  kind,
   canTrigger,
-  onDone,
+  ...props
 }: {
   kind: "performance" | "keywords"
   canTrigger: boolean
   onDone?: () => void
 }) {
+  if (!canTrigger) return null
+  return <RefreshGoogleControl {...props} />
+}
+
+function RefreshGoogleControl({
+  kind,
+  onDone,
+}: {
+  kind: "performance" | "keywords"
+  onDone?: () => void
+}) {
   const queryClient = useQueryClient()
+  const toast = useToastManager()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!canTrigger) return null
 
   async function run() {
     setPending(true)
@@ -36,16 +65,17 @@ export function RefreshGoogleButton({
         ),
         exact: false,
       })
+      toast.add({
+        type: "success",
+        title: "Refresh started",
+        description:
+          kind === "performance"
+            ? "New figures appear here as Google sends them."
+            : "New search terms appear here as Google sends them.",
+      })
       onDone?.()
     } catch (caught) {
-      const status = caught instanceof ApiClientError ? caught.status : 0
-      setError(
-        status === 503
-          ? "Refreshing is paused right now. Please try again later."
-          : status === 409
-            ? "A refresh is already running. Please try again in a moment."
-            : "We could not refresh from Google. Please try again."
-      )
+      setError(refreshErrorCopy(caught))
     } finally {
       setPending(false)
     }
@@ -56,16 +86,11 @@ export function RefreshGoogleButton({
       <Button
         variant="secondary"
         onClick={() => void run()}
-        disabled={pending}
+        pending={pending}
+        pendingLabel="Refreshing…"
       >
-        <RefreshCwIcon
-          aria-hidden
-          strokeWidth={1.75}
-          className={
-            pending ? "animate-spin motion-reduce:animate-none" : undefined
-          }
-        />
-        {pending ? "Refreshing…" : "Refresh from Google"}
+        <RefreshCwIcon aria-hidden strokeWidth={1.75} />
+        Refresh from Google
       </Button>
       {error ? (
         <span

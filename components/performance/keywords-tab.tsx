@@ -1,28 +1,54 @@
 "use client"
 
 import { Link2OffIcon, SearchIcon } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { buttonVariants } from "@/components/ui/button"
+import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
-import { KeywordsTable } from "@/components/performance/keywords-table"
+import {
+  keywordsCsv,
+  KeywordsTable,
+} from "@/components/performance/keywords-table"
 import { RangeSelect } from "@/components/performance/range-select"
 import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
 import { Input } from "@/components/ui/input"
 import { ApiClientError } from "@/lib/api/client"
 import { formatNumber } from "@/lib/format"
 import { useAnalyticsKeywords } from "@/lib/queries/use-analytics-keywords"
-import { KEYWORD_RANGES } from "@/lib/reporting/ranges"
+import { csvFilename } from "@/lib/reporting/csv"
+import {
+  DEFAULT_RANGES,
+  formatPeriod,
+  isValidPeriod,
+  KEYWORD_RANGES,
+  resolvedPeriod,
+  type KeywordRangeId,
+} from "@/lib/reporting/ranges"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session"
+import { cn } from "@/lib/utils"
 
-type KeywordRangeId = (typeof KEYWORD_RANGES)[number]["id"]
-
-export function KeywordsTab({ clientId }: { clientId?: string }) {
-  const [rangeId, setRangeId] = useState<KeywordRangeId>("6m")
+export function KeywordsTab({
+  clientId,
+  range,
+  onRangeChange,
+}: {
+  clientId?: string
+  /** The period, when the page keeps it (in `?range=`); else kept here. */
+  range?: KeywordRangeId
+  onRangeChange?: (range: KeywordRangeId) => void
+}) {
+  const [ownRange, setOwnRange] = useState<KeywordRangeId>(
+    DEFAULT_RANGES.keywords
+  )
+  const rangeId = range ?? ownRange
+  const setRangeId = onRangeChange ?? setOwnRange
   const [query, setQuery] = useState("")
   const role = useSessionRole()
   const keywords = useAnalyticsKeywords({ range: rangeId, clientId })
@@ -30,6 +56,18 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
     keywords.isError &&
     keywords.error instanceof ApiClientError &&
     keywords.error.code === "keywords_paused"
+  const resolved = resolvedPeriod("keywords", rangeId)
+  const answered = keywords.data
+    ? { from: keywords.data.from, to: resolved.to }
+    : null
+  const period = formatPeriod(
+    keywords.data?.range === rangeId && isValidPeriod(answered)
+      ? answered
+      : resolved,
+    "UTC"
+  )
+  const rangeLabel =
+    KEYWORD_RANGES.find((option) => option.id === rangeId)?.label ?? ""
 
   const header = (
     <ReportTabHead
@@ -48,6 +86,7 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
             value={rangeId}
             onChange={setRangeId}
             options={KEYWORD_RANGES}
+            period={period}
           />
           {/* Paused is switched off on purpose: a refresh cannot help. */}
           <RefreshGoogleButton
@@ -82,6 +121,7 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
       ) : (
         <ReportingPanel
           variant="error"
+          cause={keywords.error}
           onRetry={() => void keywords.refetch()}
         />
       )
@@ -111,6 +151,14 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
         icon={<Link2OffIcon />}
         title="No linked location"
         description="Connect a Google location to see the searches that surface it."
+        action={
+          <Link
+            href={clientId ? `/clients/${clientId}` : "/listings"}
+            className={cn(buttonVariants({ variant: "secondary" }))}
+          >
+            {clientId ? "Open this client’s listings" : "Open Listings"}
+          </Link>
+        }
       />
     )
   if (data.state === "pending")
@@ -176,6 +224,13 @@ export function KeywordsTab({ clientId }: { clientId?: string }) {
           {formatNumber(shown.length)} of {formatNumber(data.keywords.length)}{" "}
           terms
         </p>
+        <span className="sm:ml-auto">
+          <CsvDownloadButton
+            filename={csvFilename("search keywords", rangeLabel)}
+            accessibleLabel="Download the search terms shown as CSV"
+            rows={() => keywordsCsv(shown)}
+          />
+        </span>
       </div>
       {shown.length === 0 ? (
         <ReportingPanel

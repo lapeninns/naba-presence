@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
+import { LocationSelect } from "@/components/performance/location-select"
 import {
   NotInDirectory,
   ReportScope,
@@ -19,6 +20,13 @@ import { KeywordsTab } from "@/components/performance/keywords-tab"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { formatNumber } from "@/lib/format"
 import { useClients } from "@/lib/queries/use-clients"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+import { useSessionRole } from "@/lib/queries/use-session"
+import {
+  DEFAULT_RANGES,
+  parseRange,
+  type ReportTab,
+} from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 
 const TABS = [
@@ -61,6 +69,11 @@ function NoLocationsPanel({ client }: { client: ClientSummary }) {
 /**
  * Three reports, each its own section with its own range, so these stay Tabs
  * rather than a segmented control: they are not three views of one dataset.
+ *
+ * Everything that decides what is on screen lives in the address: the tab
+ * (`?tab=`), the client (`?clientId=`), one location (`?locationId=`) and
+ * the period (`?range=`), so a report can be shared, reloaded and gone back
+ * to exactly as it was.
  */
 export function PerformanceView() {
   const router = useRouter()
@@ -70,11 +83,16 @@ export function PerformanceView() {
   const active: TabValue = isTab(param) ? param : "reply"
   const clientId = searchParams.get("clientId") ?? undefined
   const locationId = searchParams.get("locationId")
+  const rawRange = searchParams.get("range")
   const clients = useClients()
+  const directory = useLocationDirectory(useSessionRole())
   const items = clients.data?.items ?? []
   const client = clientId
     ? items.find((entry) => entry.id === clientId)
     : undefined
+  const clientLocations = clientId
+    ? (directory.data ?? []).filter((entry) => entry.clientId === clientId)
+    : []
 
   function replaceParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
@@ -87,11 +105,24 @@ export function PerformanceView() {
     replaceParams((params) => {
       if (next === "reply") params.delete("tab")
       else params.set("tab", next)
+      // A period the next tab does not offer would silently read as its
+      // default; drop it so the address says what is on screen.
+      if (isTab(next) && parseRange(next, rawRange) !== rawRange) {
+        params.delete("range")
+      }
     })
   }
 
+  function setRange(tab: ReportTab) {
+    return (next: string) =>
+      replaceParams((params) => {
+        if (next === DEFAULT_RANGES[tab]) params.delete("range")
+        else params.set("range", next)
+      })
+  }
+
   // One location is a different report — its own figures, no client tabs —
-  // reached from the workspace and the hub rather than picked here.
+  // reached from the workspace, the hub, or the Location field below.
   if (locationId) return <LocationReport locationId={locationId} />
 
   // An id the directory does not hold: say so, never fall back to another
@@ -106,11 +137,13 @@ export function PerformanceView() {
     : null
   const caption = client
     ? `${client.name} · ${locationsPhrase(client.locationCount)}`
-    : clientId
-      ? "Loading client…"
-      : totalLocations === null
-        ? "All clients"
-        : `All clients · ${locationsPhrase(totalLocations)}`
+    : clients.isError
+      ? "Client names couldn’t be loaded"
+      : clientId
+        ? "Loading client…"
+        : totalLocations === null
+          ? "All clients"
+          : `All clients · ${locationsPhrase(totalLocations)}`
   const empty = client && client.locationCount === 0
 
   return (
@@ -123,18 +156,42 @@ export function PerformanceView() {
         title="Reporting scope"
         caption={caption}
         controls={
-          <ClientSelect
-            clients={items}
-            value={clientId}
-            onChange={(next) =>
-              replaceParams((params) => {
-                if (next) params.set("clientId", next)
-                else params.delete("clientId")
-              })
-            }
-          />
+          <>
+            <ClientSelect
+              clients={items}
+              value={clientId}
+              onChange={(next) =>
+                replaceParams((params) => {
+                  if (next) params.set("clientId", next)
+                  else params.delete("clientId")
+                })
+              }
+            />
+            {client ? (
+              <LocationSelect
+                locations={clientLocations}
+                value={undefined}
+                onChange={(next) =>
+                  replaceParams((params) => {
+                    if (next) params.set("locationId", next)
+                    else params.delete("locationId")
+                  })
+                }
+              />
+            ) : null}
+          </>
         }
       />
+      {clients.isError ? (
+        // The figures below are still scoped by the address; only the
+        // client names and the picker are missing.
+        <ReportingPanel
+          variant="error"
+          title="We couldn’t load your clients"
+          cause={clients.error}
+          onRetry={() => void clients.refetch()}
+        />
+      ) : null}
       <Tabs value={active} onValueChange={selectTab}>
         {/* `fill`: three equal columns on a phone, the ordinary row from
             `sm`. The rule now lives on TabsList, so any short tab row gets
@@ -151,21 +208,33 @@ export function PerformanceView() {
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
-            <ReplyPerformanceTab clientId={clientId} />
+            <ReplyPerformanceTab
+              clientId={clientId}
+              range={parseRange("reply", rawRange)}
+              onRangeChange={setRange("reply")}
+            />
           )}
         </TabsPanel>
         <TabsPanel value="google" className="pt-5">
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
-            <GooglePerformanceTab clientId={clientId} />
+            <GooglePerformanceTab
+              clientId={clientId}
+              range={parseRange("google", rawRange)}
+              onRangeChange={setRange("google")}
+            />
           )}
         </TabsPanel>
         <TabsPanel value="keywords" className="pt-5">
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
-            <KeywordsTab clientId={clientId} />
+            <KeywordsTab
+              clientId={clientId}
+              range={parseRange("keywords", rawRange)}
+              onRangeChange={setRange("keywords")}
+            />
           )}
         </TabsPanel>
       </Tabs>
