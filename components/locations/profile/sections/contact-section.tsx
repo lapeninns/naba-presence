@@ -61,6 +61,7 @@ export function ContactSection({
   return (
     <SectionCard
       id="section-contact"
+      model="here"
       title="Contact"
       description="How customers reach the business from Search and Maps."
       changed={changed.phone || changed.website}
@@ -142,6 +143,7 @@ export function AddressSection({
   return (
     <SectionCard
       id="section-address"
+      model="google"
       title="Address"
       description="Where customers find the business. Moving the map pin happens in Google."
       changed={changed.lines || changed.locality || changed.postalCode}
@@ -219,6 +221,7 @@ export function DescriptionSection({
   return (
     <SectionCard
       id="section-description"
+      model="here"
       title="Description"
       description="What makes the place worth a visit, in its own words. No links or offers."
       changed={changed}
@@ -286,6 +289,7 @@ export function OpeningSection({
   return (
     <SectionCard
       id="section-opening"
+      model="google"
       title="Opening state"
       description={
         <>
