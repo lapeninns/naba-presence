@@ -73,6 +73,25 @@ export const RETIRED_ROUTES: { source: string; destination: string }[] = [
   { source: "/locations/:id", destination: "/listings/:id" },
 ]
 
+/**
+ * The public, tokenised pages (`/share/report/<token>`). Declared after the
+ * site-wide headers so these win where the keys overlap (Next: the last
+ * matching header of a key overrides the first).
+ *
+ * - Referrer-Policy: no-referrer — the token is in the path, so no Referer
+ *   may ever carry it off the page (there are no outbound links, but an
+ *   image or a browser extension could still make a request).
+ * - X-Robots-Tag — keep the link out of search indexes even when it is
+ *   pasted somewhere public; the page's own robots meta says the same.
+ * - Cache-Control: private, no-store — one client's figures are never kept
+ *   by a shared cache or served to the next request.
+ */
+export const SHARE_HEADERS: { key: string; value: string }[] = [
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet" },
+  { key: "Cache-Control", value: "private, no-store, max-age=0" },
+]
+
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: process.cwd(),
@@ -90,6 +109,7 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: csp },
         ],
       },
+      { source: "/share/:path*", headers: SHARE_HEADERS },
     ]
   },
 }

@@ -16,6 +16,7 @@ import Link from "next/link"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { ShareReportButton } from "@/components/clients/share-report-dialog"
 import {
   Alert,
   AlertActions,
@@ -169,6 +170,18 @@ function ClientHub({
         <Settings2Icon aria-hidden strokeWidth={1.75} />
         Settings
       </Link>
+    )
+  }
+  if (canManage) {
+    // Owners and admins only: the link shows this client's numbers to
+    // anyone who has it (the API refuses everyone else too).
+    actions.push(
+      <ShareReportButton
+        key="share"
+        clientId={client.id}
+        clientName={client.name}
+        variant="ghost"
+      />
     )
   }
   actions.push(
@@ -520,7 +533,9 @@ function ListingsSection({
               cell: (listing) =>
                 listing.linkId ? (
                   listing.accessLost ? (
-                    <StatusPill tone="bad">Linked · no manager access</StatusPill>
+                    <StatusPill tone="bad">
+                      Linked · no manager access
+                    </StatusPill>
                   ) : loginBroken ? (
                     <StatusPill tone="bad">Linked · paused</StatusPill>
                   ) : (

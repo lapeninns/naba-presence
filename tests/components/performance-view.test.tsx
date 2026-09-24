@@ -177,8 +177,17 @@ describe("PerformanceView", () => {
                       verifiedCount: 2,
                       health: "healthy",
                       connections: [],
-                      openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
-                      backfill: { running: 0, failed: 0, succeeded: 2, notStarted: 0 },
+                      openWork: {
+                        needsReply: 0,
+                        awaitingApproval: 0,
+                        failed: 0,
+                      },
+                      backfill: {
+                        running: 0,
+                        failed: 0,
+                        succeeded: 2,
+                        notStarted: 0,
+                      },
                       lastSyncAt: null,
                     },
                   ],
@@ -200,5 +209,17 @@ describe("PerformanceView", () => {
     )
     expect(await screen.findByText("Location")).toBeInTheDocument()
     expect(screen.getByText("Every location")).toBeInTheDocument()
+    // One client in scope and an owner: the report can be shared.
+    expect(
+      await screen.findByRole("button", { name: "Share report" })
+    ).toBeInTheDocument()
+  })
+
+  it("offers no Share report without a single client in scope", async () => {
+    renderView()
+    await screen.findByRole("tab", { name: "Reply performance" })
+    expect(
+      screen.queryByRole("button", { name: "Share report" })
+    ).not.toBeInTheDocument()
   })
 })

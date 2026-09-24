@@ -135,6 +135,18 @@ describe("ClientHub", () => {
     expect(
       screen.queryByRole("link", { name: /Finish setup/ })
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Share report" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("lets an owner or admin share the client's report", async () => {
+    stub()
+    renderHub()
+    await screen.findByRole("heading", { name: "Old Crown Group", level: 1 })
+    expect(
+      screen.getByRole("button", { name: "Share report" })
+    ).toBeInTheDocument()
   })
 
   it("names the broken login when Google needs reconnecting", async () => {
