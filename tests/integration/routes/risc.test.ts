@@ -204,6 +204,33 @@ describeDatabase("Google RISC receiver", () => {
     expect(audits.count).toBe(1)
   })
 
+  it("applies a redelivered event whose first delivery stopped part-way", async () => {
+    const target = await connection()
+    const jti = randomUUID()
+    // The first delivery recorded the jti, then failed before applying.
+    await admin`
+      insert into risc_event (jti, event_types, outcome, received_at)
+      values (${jti}, ${[EVENTS.tokensRevoked]}, 'received', now() - interval '5 minutes')
+    `
+    const retry = await deliver(
+      await sign(
+        {
+          [EVENTS.tokensRevoked]: {
+            subject: {
+              subject_type: "iss-sub",
+              iss: ISSUER,
+              sub: target.subject,
+            },
+          },
+        },
+        { jti }
+      )
+    )
+    expect(retry.status, await retry.clone().text()).toBe(202)
+    await expect(retry.json()).resolves.toMatchObject({ duplicate: false })
+    expect((await state(target.connectionId))[0].status).toBe("revoked")
+  })
+
   it("accepts a verification event without changing anything", async () => {
     const target = await connection()
     const response = await deliver(
