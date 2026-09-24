@@ -3,7 +3,11 @@
 import { useId } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
-import { RatingFilter, ReplyFilter } from "@/components/inbox/filter-controls"
+import {
+  RatingFilter,
+  ReplyFilter,
+  WrittenFilter,
+} from "@/components/inbox/filter-controls"
 import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import { Button } from "@/components/ui/button"
 import {
@@ -146,6 +150,15 @@ function FiltersSheet({
               ratings={state.ratings}
               onChange={(ratings) => onChange({ ratings })}
               className="h-11 w-full"
+            />
+          </Group>
+
+          {/* Stars with no words are replied to from a standard template, a
+              whole selection at a time — this is how to gather them. */}
+          <Group title="Written review">
+            <WrittenFilter
+              written={state.written}
+              onChange={(written) => onChange({ written })}
             />
           </Group>
 

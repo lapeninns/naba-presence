@@ -8,10 +8,12 @@ import {
   DEFAULT_REVIEW_SORT,
   isReviewReplyState,
   isReviewSort,
+  isReviewWritten,
   REVIEW_QUEUES,
   type ReviewQueue,
   type ReviewReplyState,
   type ReviewSort,
+  type ReviewWritten,
   type ReviewsFilters,
 } from "@/lib/contracts/reviews"
 
@@ -38,6 +40,8 @@ export type InboxState = {
   locationIds: string[]
   assignee?: string
   ratings: number[]
+  /** Written review or stars only; see `ReviewsQuery.written`. */
+  written?: ReviewWritten
   search: string
   sort: ReviewSort
   replyState?: ReviewReplyState
@@ -74,6 +78,9 @@ export function parseInboxState(params: URLSearchParams): InboxState {
     ratings: csv(params.get("rating"))
       .map(Number)
       .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5),
+    written: isReviewWritten(params.get("written"))
+      ? (params.get("written") as ReviewWritten)
+      : undefined,
     search: params.get("search") ?? "",
     sort,
     replyState: isReviewReplyState(rawReply) ? rawReply : undefined,
@@ -92,6 +99,7 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
     params.set("locationId", state.locationIds.join(","))
   if (state.assignee) params.set("assignee", state.assignee)
   if (state.ratings.length) params.set("rating", state.ratings.join(","))
+  if (state.written) params.set("written", state.written)
   if (state.search) params.set("search", state.search)
   if (state.sort !== DEFAULT_REVIEW_SORT) params.set("sort", state.sort)
   if (state.replyState) params.set("replyState", state.replyState)
@@ -113,6 +121,7 @@ export function hasActiveFilters(state: InboxState): boolean {
       state.locationIds.length ||
       state.assignee ||
       state.ratings.length ||
+      state.written ||
       state.search ||
       state.replyState ||
       state.dateFrom ||
@@ -165,6 +174,7 @@ export function toReviewsFilters(
     locationIds: nonEmpty(state.locationIds),
     assignee: state.assignee as ReviewsFilters["assignee"],
     ratings: nonEmpty(state.ratings),
+    written: state.written,
     replyState: state.replyState,
     dateFrom: range.dateFrom,
     dateTo: range.dateTo,

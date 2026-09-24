@@ -160,6 +160,13 @@ export type ReviewsCursor = z.infer<typeof reviewsCursorSchema>
  * Decoded (server-side) query. `replyState` arrives as a comma list on the
  * wire; exactly one value filters, anything else means "no reply filter".
  */
+export const REVIEW_WRITTEN = ["with_text", "rating_only"] as const
+export const reviewWrittenSchema = z.enum(REVIEW_WRITTEN)
+export type ReviewWritten = z.infer<typeof reviewWrittenSchema>
+export function isReviewWritten(value: unknown): value is ReviewWritten {
+  return (REVIEW_WRITTEN as readonly unknown[]).includes(value)
+}
+
 export const reviewsQuerySchema = z.object({
   /**
    * Kept alongside `locationIds` because Home's attention list and every
@@ -173,6 +180,12 @@ export const reviewsQuerySchema = z.object({
   /** "me" and "unassigned" are resolved server-side against the session. */
   assignee: z.union([z.literal("me"), z.literal("unassigned"), z.uuid()]).optional(),
   ratings: z.array(z.number().int().min(1).max(5)).optional(),
+  /**
+   * Whether the reviewer wrote anything. `rating_only` is the stars-and-
+   * nothing-else review — the bulk of most venues' backlog, and the set the
+   * template batch works through.
+   */
+  written: reviewWrittenSchema.optional(),
   statuses: z.array(reviewWorkflowStateSchema).optional(),
   replyState: z
     .array(reviewReplyStateSchema)
@@ -202,6 +215,7 @@ export type ReviewsFilters = Partial<
     | "queue"
     | "assignee"
     | "ratings"
+    | "written"
     | "statuses"
     | "replyState"
     | "dateFrom"
@@ -219,6 +233,7 @@ const WIRE = {
   queue: "queue",
   assignee: "assignee",
   ratings: "rating",
+  written: "written",
   statuses: "status",
   replyState: "reply_state",
   dateFrom: "date_from",
@@ -298,6 +313,7 @@ export function encodeReviewsQuery(
   set(WIRE.queue, filters.queue)
   set(WIRE.assignee, filters.assignee)
   set(WIRE.ratings, csv(filters.ratings))
+  set(WIRE.written, filters.written)
   set(WIRE.statuses, csv(filters.statuses))
   set(WIRE.replyState, filters.replyState)
   set(WIRE.dateFrom, filters.dateFrom)
@@ -350,6 +366,7 @@ export function decodeReviewsQuery(params: URLSearchParams): ReviewsQuery {
     queue: params.get(WIRE.queue) ?? undefined,
     assignee: params.get(WIRE.assignee) ?? undefined,
     ratings: commaNumbers(params.get(WIRE.ratings)),
+    written: params.get(WIRE.written) ?? undefined,
     statuses: commaStrings(params.get(WIRE.statuses)),
     replyState: commaStrings(params.get(WIRE.replyState)),
     dateFrom: params.get(WIRE.dateFrom) ?? undefined,

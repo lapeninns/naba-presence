@@ -202,6 +202,14 @@ export function buildInboxQuery(
           : sql``
       }
       ${
+        // Same test as the draft route's isRatingOnly: whitespace is no text.
+        filters.written === "rating_only"
+          ? sql`and coalesce(btrim(r.review_text), '') = ''`
+          : filters.written === "with_text"
+            ? sql`and coalesce(btrim(r.review_text), '') <> ''`
+            : sql``
+      }
+      ${
         filters.statuses?.length
           ? sql`and r.workflow_status in ${sql(filters.statuses)}`
           : sql``

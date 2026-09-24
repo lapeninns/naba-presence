@@ -64,6 +64,13 @@ function buildChips(
       clear: { ratings: [] },
     })
   }
+  if (state.written) {
+    chips.push({
+      label: state.written === "rating_only" ? "Rating only" : "With text",
+      removeLabel: "Remove written-review filter",
+      clear: { written: undefined },
+    })
+  }
   if (state.search) {
     chips.push({
       label: `Search: "${state.search}"`,

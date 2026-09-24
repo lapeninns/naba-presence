@@ -16,6 +16,30 @@ const state: InboxState = {
 afterEach(() => vi.restoreAllMocks())
 
 describe("ActiveFilterChips", () => {
+  it("shows and clears the rating-only filter", async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          locationIds: [],
+          ratings: [],
+          search: "",
+          written: "rating_only",
+        }}
+        locations={[]}
+        onChange={onChange}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Rating only")).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Remove written-review filter" })
+    )
+    expect(onChange).toHaveBeenCalledWith({ written: undefined })
+  })
+
   it("renders a chip per active filter and clears one on request", async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
@@ -30,7 +54,9 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText("Location: Riverside")).toBeInTheDocument()
     expect(screen.getByText("Rating: 5 stars")).toBeInTheDocument()
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Remove location filter" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove location filter" })
+    )
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 

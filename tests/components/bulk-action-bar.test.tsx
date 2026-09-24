@@ -1,22 +1,28 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import * as React from "react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
-import { SelectionProvider, useSelection } from "@/components/inbox/selection-context"
+import {
+  SelectionProvider,
+  useSelection,
+} from "@/components/inbox/selection-context"
 import { Toaster } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 import * as membersHook from "@/lib/queries/use-members"
 
-function row(
-  id: string,
-  overrides: Partial<ReviewRow> = {}
-): ReviewRow {
+function row(id: string, overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id,
-    location: { id: "l1", name: "Girton", clientId: "c1", clientName: "Old Crown" },
+    location: {
+      id: "l1",
+      name: "Girton",
+      clientId: "c1",
+      clientName: "Old Crown",
+    },
     reviewer: { displayName: "Sam", isAnonymous: false, profilePhotoUrl: null },
     rating: 4,
     text: "Good",
@@ -34,14 +40,18 @@ function row(
     googlePolicyViolation: null,
     replyBody: null,
     syncStatus: "succeeded",
-    capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+    capabilities: {
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+    },
     ...overrides,
   } as ReviewRow
 }
 
-const mutateAsync = vi.fn<
-  (input: unknown) => Promise<BulkReviewResult>
->(async () => ({ results: [{ reviewId: "a", status: "ok" }] }))
+const mutateAsync = vi.fn<(input: unknown) => Promise<BulkReviewResult>>(
+  async () => ({ results: [{ reviewId: "a", status: "ok" }] })
+)
 
 function stub() {
   vi.spyOn(bulkHook, "useBulkReviewAction").mockReturnValue({
@@ -50,7 +60,9 @@ function stub() {
   } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
   vi.spyOn(membersHook, "useMembers").mockReturnValue({
     data: {
-      members: [{ userId: "u1", displayName: "Priya", email: "p@example.test" }],
+      members: [
+        { userId: "u1", displayName: "Priya", email: "p@example.test" },
+      ],
     },
   } as unknown as ReturnType<typeof membersHook.useMembers>)
 }
@@ -70,11 +82,13 @@ function Harness({ rows, select }: { rows: ReviewRow[]; select: string[] }) {
 function renderBar(rows: ReviewRow[], select: string[]) {
   stub()
   render(
-    <Toaster>
-      <SelectionProvider>
-        <Harness rows={rows} select={select} />
-      </SelectionProvider>
-    </Toaster>
+    <QueryClientProvider client={new QueryClient()}>
+      <Toaster>
+        <SelectionProvider>
+          <Harness rows={rows} select={select} />
+        </SelectionProvider>
+      </Toaster>
+    </QueryClientProvider>
   )
 }
 
@@ -178,5 +192,29 @@ describe("BulkActionBar", () => {
     expect(await screen.findByText("Skipped")).toBeInTheDocument()
     // Named by who wrote it and where, not by an id.
     expect(screen.getByText("Sam · Girton")).toBeInTheDocument()
+  })
+
+  it("offers the rating template only when the selection has rating-only reviews", async () => {
+    renderBar([row("a")], ["a"])
+    await screen.findByRole("button", { name: "No reply needed" })
+    expect(
+      screen.queryByRole("button", { name: "Reply with template" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("opens the template batch for a rating-only selection", async () => {
+    const user = userEvent.setup()
+    renderBar(
+      [row("a", { text: null, workflowStatus: "new", draftId: null })],
+      ["a"]
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Reply with template" })
+    )
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Reply with the rating template",
+      })
+    ).toBeInTheDocument()
   })
 })
