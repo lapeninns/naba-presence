@@ -12,9 +12,11 @@ import { queryKeys } from "./keys"
  */
 export function useInvalidateReviewWrites(reviewId: string) {
   const client = useQueryClient()
-  return () => {
-    void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(reviewId) })
-    void client.invalidateQueries({ queryKey: queryKeys.reviewsAll })
-    void client.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
+  return async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: queryKeys.reviewDetail(reviewId) }),
+      client.invalidateQueries({ queryKey: queryKeys.reviewsAll }),
+      client.invalidateQueries({ queryKey: queryKeys.reviewCountsAll }),
+    ])
   }
 }
