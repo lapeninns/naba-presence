@@ -111,6 +111,47 @@ export function ReconnectDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { connect } = useConnectionWorkspace()
+  return (
+    <ReconnectDialogView
+      connection={connection}
+      served={served}
+      open={open}
+      onOpenChange={onOpenChange}
+      pending={connect.isPending}
+      // Target this connection: Google pre-fills its login, and the
+      // callback updates it rather than adding a new one.
+      onContinue={() =>
+        connect.mutate(
+          connection ? { reconnectConnectionId: connection.id } : {}
+        )
+      }
+    />
+  )
+}
+
+/**
+ * The dialog without its wiring, for the shell's reconnect banner: it sits
+ * outside the toast provider `useConnectionWorkspace` needs, and returns to
+ * the page it was opened on rather than to Settings. One explanation of what
+ * reconnecting does, wherever it starts.
+ */
+export function ReconnectDialogView({
+  connection,
+  served,
+  open,
+  onOpenChange,
+  pending,
+  onContinue,
+  error,
+}: {
+  connection: Pick<ConnectionSummary, "googleEmail"> | null
+  served: ServedClient[] | undefined
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  pending: boolean
+  onContinue: () => void
+  error?: string | null
+}) {
   const email = connection?.googleEmail ?? "this Google login"
   const names = joinNames(served)
   return (
@@ -161,19 +202,18 @@ export function ReconnectDialog({
             We never see your Google password. You can remove NabaPresence’s
             access at any time from your Google account.
           </p>
+          {error ? (
+            <p role="alert" className="text-ui font-medium text-danger-ink">
+              {error}
+            </p>
+          ) : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost">Cancel</Button>} />
           <Button
-            pending={connect.isPending}
+            pending={pending}
             pendingLabel="Opening Google…"
-            // Target this connection: Google pre-fills its login, and the
-            // callback updates it rather than adding a new one.
-            onClick={() =>
-              connect.mutate(
-                connection ? { reconnectConnectionId: connection.id } : {}
-              )
-            }
+            onClick={onContinue}
           >
             <ExternalLink aria-hidden />
             Continue to Google
