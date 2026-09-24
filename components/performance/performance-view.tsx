@@ -4,6 +4,7 @@ import { Building2Icon, Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { ShareReportButton } from "@/components/clients/share-report-dialog"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
@@ -85,7 +86,11 @@ export function PerformanceView() {
   const locationId = searchParams.get("locationId")
   const rawRange = searchParams.get("range")
   const clients = useClients()
-  const directory = useLocationDirectory(useSessionRole())
+  const role = useSessionRole()
+  const directory = useLocationDirectory(role)
+  // Sharing shows a client's report to someone outside the organisation,
+  // so it is an owner/admin action; the API enforces the same.
+  const canShare = role === "owner" || role === "admin"
   const items = clients.data?.items ?? []
   const client = clientId
     ? items.find((entry) => entry.id === clientId)
@@ -177,6 +182,12 @@ export function PerformanceView() {
                     else params.delete("locationId")
                   })
                 }
+              />
+            ) : null}
+            {client && canShare ? (
+              <ShareReportButton
+                clientId={client.id}
+                clientName={client.name}
               />
             ) : null}
           </>

@@ -7,6 +7,7 @@ export const queryKeys = {
   clientsArchived: ["clients", "archived"] as const,
   client: (id: string) => ["clients", id] as const,
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
+  clientReportShares: (id: string) => ["clients", id, "report-shares"] as const,
   connections: ["connections"] as const,
   settings: ["settings"] as const,
   // Rooted at "location-directory", NOT "locations": React Query invalidation
