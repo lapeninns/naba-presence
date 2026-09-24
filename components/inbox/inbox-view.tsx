@@ -12,6 +12,7 @@ import {
 } from "react"
 import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
+import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
@@ -52,6 +53,7 @@ import {
   DESKTOP_MEDIA_QUERY,
   hasActiveFilters,
   parseInboxState,
+  scopeInboxState,
   serializeInboxState,
   toReviewsFilters,
   VISIBLE_QUEUES,
@@ -169,21 +171,58 @@ function InboxViewInner({
     [router, state]
   )
 
+  // One change of client scope for every control that makes it: the top-bar
+  // switcher (through the shell's handler), the Filters sheet's Client field
+  // and the chip that removes it. The queue and the other filters stay (see
+  // `scopeInboxState`); an open review of another client closes, and if it
+  // holds an unsaved reply the operator is asked first. Resolves false when
+  // they kept editing, so the switcher leaves its preference alone.
+  const applyClientScope = useCallback(
+    async (
+      clientId: string | undefined,
+      base: InboxState = state
+    ): Promise<boolean> => {
+      const next = scopeInboxState(base, clientId, {
+        locationClientIds: new Map(
+          (locationsQuery.data ?? []).map((location) => [
+            location.id,
+            location.clientId ?? null,
+          ])
+        ),
+        selectedClientId:
+          reviews.find((review) => review.id === base.selected)?.location
+            .clientId ?? null,
+      })
+      if (base.selected && !next.selected && !(await dirtyGate())) return false
+      updateState(next, "replace")
+      return true
+    },
+    [dirtyGate, locationsQuery.data, reviews, state, updateState]
+  )
+  useClientScopeHandler((clientId) => applyClientScope(clientId ?? undefined))
+
   // Filters use replace (no history spam) and drop any stale selection —
   // unless the open reply holds unsaved edits. Then the review stays open
   // and only the list narrows: the discard confirm used to pop up a moment
   // after each debounced keystroke in the search, for an edit the search had
   // no reason to touch. The review is fetched by id, so it keeps rendering
   // whether or not the narrowed list still contains it.
+  //
+  // A change of client is the exception: it goes through `applyClientScope`,
+  // the same path the top-bar switcher takes.
   const onFilterChange = useCallback(
     (partial: Partial<InboxState>) => {
+      if ("clientId" in partial && partial.clientId !== state.clientId) {
+        void applyClientScope(partial.clientId, { ...state, ...partial })
+        return
+      }
       if (readIsDirty()) {
         updateState(partial, "replace")
         return
       }
       updateState({ ...partial, selected: undefined }, "replace")
     },
-    [readIsDirty, updateState]
+    [applyClientScope, readIsDirty, state, updateState]
   )
   const onQueueChange = useCallback(
     (queue: Queue) => {
