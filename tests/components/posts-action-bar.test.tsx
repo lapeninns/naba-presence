@@ -15,6 +15,8 @@ const api = vi.hoisted(() => ({
   decidePostApproval: vi.fn(),
   deletePost: vi.fn(),
   fetchPosts: vi.fn(),
+  createPost: vi.fn(),
+  updatePost: vi.fn(),
 }))
 vi.mock("@/lib/api/location-posts", () => api)
 
@@ -54,6 +56,11 @@ describe("PostsActionBar", () => {
     const client = renderBar()
 
     await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+    // Nothing is sent until the post has been shown and confirmed.
+    const confirm = await screen.findByRole("alertdialog")
+    expect(api.publishPost).not.toHaveBeenCalled()
+    expect(within(confirm).getByText("Open late tonight")).toBeInTheDocument()
+    await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
 
     expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
@@ -66,8 +73,36 @@ describe("PostsActionBar", () => {
 
     // A failed post's publish reads as a retry; it is the same mutation.
     await userEvent.click(screen.getByRole("button", { name: "Retry publish" }))
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish to Google" })
+    )
 
     expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
+  })
+
+  it("offers Edit on drafts and failed posts only, reusing the composer", async () => {
+    api.updatePost.mockResolvedValue({ post: { id: "p1", status: "draft" } })
+    renderBar({ post: post({ status: "failed" }) })
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog", { name: "Edit post" })
+    const text = within(sheet).getByRole("textbox", { name: /summary/i })
+    expect(text).toHaveValue("Open late tonight")
+    await userEvent.type(text, " and Sunday")
+    await userEvent.click(within(sheet).getByRole("button", { name: "Save changes" }))
+
+    await waitFor(() => expect(api.updatePost).toHaveBeenCalledTimes(1))
+    expect(api.updatePost.mock.calls[0]![1]).toBe("p1")
+    expect(api.updatePost.mock.calls[0]![2]).toMatchObject({
+      summary: "Open late tonight and Sunday",
+      languageCode: "en-GB",
+    })
+    expect(api.publishPost).not.toHaveBeenCalled()
+  })
+
+  it("has no Edit for a post that is live or waiting on someone", () => {
+    renderBar({ post: post({ status: "awaiting_approval" }) })
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull()
   })
 
   it("approves and rejects an awaiting-approval post with the matching copy", async () => {
@@ -105,6 +140,9 @@ describe("PostsActionBar", () => {
     const client = renderBar()
 
     await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish to Google" })
+    )
 
     expect(await screen.findByText("A different authorised user must approve this post.")).toBeInTheDocument()
     expect(screen.queryByText(/raw server text/)).not.toBeInTheDocument()

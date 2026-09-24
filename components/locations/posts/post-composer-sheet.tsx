@@ -1,6 +1,6 @@
 "use client"
 
-import { Plus } from "lucide-react"
+import { PencilIcon, Plus } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 
 import { PostPreview } from "@/components/locations/posts/post-preview"
@@ -34,7 +34,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
-import { createPost } from "@/lib/api/location-posts"
+import { createPost, updatePost, type Post } from "@/lib/api/location-posts"
 import {
   LOCAL_POST_ACTION_TYPES,
   type LocalPostActionType,
@@ -101,6 +101,64 @@ function isHttpUrl(value: string) {
   }
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+const pad = (value: unknown) =>
+  typeof value === "number" ? String(value).padStart(2, "0") : ""
+
+/** Google's `{ year, month, day }` → `2026-10-01`, or "" when incomplete. */
+function formDate(value: unknown): string {
+  const date = record(value)
+  if (!date || !date.year || !date.month || !date.day) return ""
+  return `${date.year}-${pad(date.month)}-${pad(date.day)}`
+}
+
+/** Google's `{ hours, minutes }` → `20:30`, or "" when absent. */
+function formTime(value: unknown): string {
+  const time = record(value)
+  if (!time) return ""
+  return `${pad(time.hours ?? 0)}:${pad(time.minutes ?? 0)}`
+}
+
+/** A saved post back into the composer's fields, for editing and previews. */
+export function postFormValues(post: Post): Values {
+  const event = record(post.event)
+  const schedule = record(event?.schedule)
+  const offer = record(post.offer)
+  const cta = record(post.callToAction)
+  const action = LOCAL_POST_ACTION_TYPES.find(
+    (type) => type === cta?.actionType
+  )
+  const text = (value: unknown) => (typeof value === "string" ? value : "")
+  return {
+    topicType: post.topicType,
+    summary: post.summary,
+    eventTitle: text(event?.title),
+    startDate: formDate(schedule?.startDate),
+    startTime: formTime(schedule?.startTime),
+    endDate: formDate(schedule?.endDate),
+    endTime: formTime(schedule?.endTime),
+    couponCode: text(offer?.couponCode),
+    redeemUrl: text(offer?.redeemOnlineUrl),
+    terms: text(offer?.termsConditions),
+    action: action ?? "",
+    actionUrl: text(cta?.url),
+  }
+}
+
+/** The photos a saved post already carries, kept as they are on an edit. */
+function keptMedia(post: Post | undefined): Array<{ sourceUrl: string }> {
+  if (!post || !Array.isArray(post.media)) return []
+  return post.media.flatMap((entry) => {
+    const url = record(entry)?.sourceUrl
+    return typeof url === "string" ? [{ sourceUrl: url }] : []
+  })
+}
+
 /** `2026-10-01` → Google's `{ year, month, day }`. */
 function googleDate(value: string) {
   const [year, month, day] = value.split("-").map(Number)
@@ -145,12 +203,13 @@ function validate(values: Values): Errors {
 }
 
 /** The form values → the posts route's body, in Google's LocalPost shape. */
-function toCandidate(values: Values): Record<string, unknown> {
+function toCandidate(values: Values, post?: Post): Record<string, unknown> {
   const candidate: Record<string, unknown> = {
     topicType: values.topicType,
     summary: values.summary,
-    media: [],
+    media: keptMedia(post),
   }
+  if (post) candidate.languageCode = post.languageCode
   if (values.topicType !== "STANDARD") {
     const event: Record<string, unknown> = { title: values.eventTitle.trim() }
     if (values.startDate && values.endDate) {
@@ -189,16 +248,26 @@ function toCandidate(values: Values): Record<string, unknown> {
  * It saves a draft only. Nothing reaches Google until the post is published
  * from the list, where the repo's approval rules decide whether that is a
  * publish or a request for approval.
+ *
+ * With `post` it edits that draft (or failed post) instead: the fields start
+ * from the saved post, the trigger is a small Edit button, and saving
+ * updates it in place (a failed post goes back to being a draft).
  */
 export function PostComposerSheet({
   locationId,
   disabledReason,
+  post,
 }: {
   locationId: string
   disabledReason: string | null
+  /** The saved draft or failed post to edit. Omit to write a new one. */
+  post?: Post
 }) {
+  const editing = Boolean(post)
   const [open, setOpen] = useState(false)
-  const [values, setValues] = useState<Values>(EMPTY)
+  const [values, setValues] = useState<Values>(() =>
+    post ? postFormValues(post) : EMPTY
+  )
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -210,14 +279,29 @@ export function PostComposerSheet({
   const set = <K extends keyof Values>(key: K, value: Values[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
 
-  const isDirty = (Object.keys(EMPTY) as Array<keyof Values>).some(
-    (key) => key !== "topicType" && String(values[key]).trim().length > 0
-  )
+  const isDirty = post
+    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post))
+    : (Object.keys(EMPTY) as Array<keyof Values>).some(
+        (key) => key !== "topicType" && String(values[key]).trim().length > 0
+      )
   useDirtyGuard({
-    key: `location-posts-composer-${locationId}`,
+    key: post
+      ? `location-posts-edit-${locationId}-${post.id}`
+      : `location-posts-composer-${locationId}`,
     isDirty,
     snapshot: () => JSON.stringify(values),
   })
+
+  function changeOpen(next: boolean) {
+    // Each edit starts from the post as it is saved now, not from whatever
+    // was typed and cancelled last time.
+    if (next && post) {
+      setValues(postFormValues(post))
+      setErrors({})
+      setServerError(null)
+    }
+    setOpen(next)
+  }
 
   // After a failed save, move focus to the first field that needs fixing.
   useEffect(() => {
@@ -228,13 +312,18 @@ export function PostComposerSheet({
   }, [attempt])
 
   const create = useResourceMutation({
-    mutationFn: (input: LocalPostFormValues) => createPost(locationId, input),
+    mutationFn: async (input: LocalPostFormValues): Promise<unknown> =>
+      post
+        ? updatePost(locationId, post.id, input)
+        : createPost(locationId, input),
     invalidate: [queryKeys.locationPosts(locationId)],
-    successToast: "Draft saved. Google is not affected.",
+    successToast: post
+      ? "Draft updated. Google is not affected."
+      : "Draft saved. Google is not affected.",
     errorContext: "post",
     onError: (_error, message) => setServerError(message),
     onSuccess: () => {
-      setValues(EMPTY)
+      if (!post) setValues(EMPTY)
       setErrors({})
       setServerError(null)
       setOpen(false)
@@ -251,7 +340,7 @@ export function PostComposerSheet({
     setErrors(found)
     setAttempt((count) => count + 1)
     if (Object.keys(found).length > 0) return
-    const parsed = localPostFormSchema.safeParse(toCandidate(values))
+    const parsed = localPostFormSchema.safeParse(toCandidate(values, post))
     if (!parsed.success) {
       setServerError(
         parsed.error.issues[0]?.message ?? "Please complete the post."
@@ -264,7 +353,7 @@ export function PostComposerSheet({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
-      {disabled ? (
+      {disabled && !editing ? (
         <span
           id={pausedId}
           className="max-w-[30ch] text-caption text-warning-ink"
@@ -272,24 +361,34 @@ export function PostComposerSheet({
           Paused: publishing to Google is switched off
         </span>
       ) : null}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger
-          render={
-            <Button
-              disabled={disabled}
-              aria-describedby={disabled ? pausedId : undefined}
-            />
-          }
-        >
-          <Plus aria-hidden />
-          New post
-        </SheetTrigger>
+      <Sheet open={open} onOpenChange={changeOpen}>
+        {editing ? (
+          <SheetTrigger
+            render={<Button size="sm" variant="ghost" disabled={disabled} />}
+          >
+            <PencilIcon aria-hidden />
+            Edit
+          </SheetTrigger>
+        ) : (
+          <SheetTrigger
+            render={
+              <Button
+                disabled={disabled}
+                aria-describedby={disabled ? pausedId : undefined}
+              />
+            }
+          >
+            <Plus aria-hidden />
+            New post
+          </SheetTrigger>
+        )}
         <SheetContent side="right" size="wide">
           <SheetHeader>
-            <SheetTitle>New post</SheetTitle>
+            <SheetTitle>{editing ? "Edit post" : "New post"}</SheetTitle>
             <SheetDescription>
-              Saved as a draft. Nothing reaches Google until you publish it from
-              the list.
+              {post?.status === "failed"
+                ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
+                : "Saved as a draft. Nothing reaches Google until you publish it from the list."}
             </SheetDescription>
           </SheetHeader>
 
@@ -558,7 +657,7 @@ export function PostComposerSheet({
             <span className="hidden text-caption text-ink-muted sm:mr-auto sm:block">
               Posts publish when you press Publish; scheduling isn’t available.
             </span>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
+            <Button variant="ghost" onClick={() => changeOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -567,7 +666,7 @@ export function PostComposerSheet({
               pending={create.isPending}
               pendingLabel="Saving…"
             >
-              Save draft
+              {editing ? "Save changes" : "Save draft"}
             </Button>
           </SheetFooter>
         </SheetContent>
