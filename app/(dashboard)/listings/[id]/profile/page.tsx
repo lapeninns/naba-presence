@@ -2,10 +2,18 @@ import { HydrationBoundary } from "@tanstack/react-query"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { ProfileTab } from "@/components/locations/profile/profile-editor"
+import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { listingPagePrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Business profile · Listing · NabaPresence" }
+/** The venue's name in the tab title, from one DB row; never Google. */
+export function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  return listingPageMetadata(params, "Business profile")
+}
 
 export default async function ListingProfilePage({
   params,

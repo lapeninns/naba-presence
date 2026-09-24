@@ -2,10 +2,18 @@ import { HydrationBoundary } from "@tanstack/react-query"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { MenuTab } from "@/components/locations/menu-tab"
+import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { listingPagePrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Food menu · Listing · NabaPresence" }
+/** The venue's name in the tab title, from one DB row; never Google. */
+export function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  return listingPageMetadata(params, "Food menu")
+}
 
 export default async function ListingMenuPage({
   params,
