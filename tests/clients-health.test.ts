@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest"
 import {
   clientFreshness,
   clientHealth,
+  connectionNeedsReconnect,
+  diagnoseClient,
+  HEALTH_FILTERS,
+  healthFilterMatches,
   FRESHNESS_WINDOW_MS,
   freshnessSentence,
   healthDescription,
@@ -229,5 +233,110 @@ describe("summariseHealth", () => {
     expect(summariseHealth(["healthy", "syncing"]).label).toBe("Importing reviews")
     expect(summariseHealth([]).label).toBe("No clients yet")
     expect(summariseHealth(["not_connected"]).label).toBe("Not connected yet")
+  })
+})
+
+describe("health filters", () => {
+  const all: ClientHealth[] = [
+    "healthy",
+    "syncing",
+    "attention",
+    "disconnected",
+    "not_connected",
+  ]
+
+  it("puts every client in exactly one bucket", () => {
+    // Overlapping buckets let one client count on two tiles.
+    const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
+    for (const state of all) {
+      expect(
+        buckets.filter((filter) => healthFilterMatches(filter.value, state))
+      ).toHaveLength(1)
+    }
+  })
+
+  it("labels each bucket with the same word as the pill", () => {
+    for (const filter of HEALTH_FILTERS) {
+      if (filter.value === "all") continue
+      expect(filter.label).toBe(healthLabel(filter.value))
+    }
+  })
+
+  it("never tells a delayed client both to act and not to", () => {
+    expect(healthLabel("attention")).toBe("Data delayed")
+    expect(healthDescription("attention")).not.toMatch(/attention|action/i)
+  })
+})
+
+describe("diagnoseClient", () => {
+  const withEmail = (overrides: Partial<ConnectionHealthInput> = {}) => ({
+    ...connection(overrides),
+    googleEmail: "ops@example.test",
+  })
+
+  it("asks for a reconnect only when a login is broken", () => {
+    const broken = withEmail({ reconnectRequired: true })
+    expect(
+      diagnoseClient({
+        health: "disconnected",
+        connections: [broken],
+        freshness: {
+          state: "action_needed",
+          reason: "reconnect_required",
+          lastSuccessfulCheckAt: null,
+        },
+      })
+    ).toMatchObject({ kind: "reconnect", connection: broken })
+  })
+
+  it("sends a lost listing to the business, not to a reconnect", () => {
+    expect(
+      diagnoseClient({
+        health: "disconnected",
+        connections: [withEmail()],
+        freshness: {
+          state: "action_needed",
+          reason: "listing_access_lost",
+          lastSuccessfulCheckAt: null,
+        },
+        checks: {
+          stalestCheckAt: null,
+          lastSuccessfulCheckAt: null,
+          accessLost: 2,
+        },
+      })
+    ).toMatchObject({ kind: "access_lost", accessLost: 2 })
+  })
+
+  it("has nothing to say about a delayed or healthy client", () => {
+    expect(
+      diagnoseClient({
+        health: "attention",
+        connections: [withEmail({ lastErrorCode: "rate_limited" })],
+        freshness: {
+          state: "data_delayed",
+          reason: "google_unavailable",
+          lastSuccessfulCheckAt: null,
+        },
+      })
+    ).toBeNull()
+  })
+
+  it("falls back to the connections for an older response", () => {
+    expect(
+      diagnoseClient({
+        health: "disconnected",
+        connections: [withEmail({ status: "revoked" })],
+      })
+    ).toMatchObject({ kind: "reconnect" })
+  })
+
+  it("does not treat an expired access token as a broken login", () => {
+    expect(connectionNeedsReconnect(connection({ status: "expired" }))).toBe(
+      false
+    )
+    expect(
+      connectionNeedsReconnect(connection({ reconnectRequired: true }))
+    ).toBe(true)
   })
 })

@@ -4,6 +4,7 @@ import {
   BarChart3Icon,
   ChevronRightIcon,
   CircleAlertIcon,
+  EllipsisIcon,
   InboxIcon,
   KeyRoundIcon,
   MapPinIcon,
@@ -15,16 +16,31 @@ import Link from "next/link"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { DataTable } from "@/components/ui/data-table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
+  connectionNeedsReconnect,
+  diagnoseClient,
+  freshnessSentence,
   healthDescription,
   healthLabel,
   healthTone,
+  type ClientDiagnosis,
 } from "@/lib/clients/health"
 import type { ClientResponse } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -35,10 +51,11 @@ import { cn } from "@/lib/utils"
 
 type Client = ClientResponse["client"]
 type Listing = ClientResponse["locations"][number]
+type Diagnosis = ClientDiagnosis<Client["connections"][number]>
 
-// The listing's overview and its busiest areas, plus its report on Reports.
+// The listing's busiest areas, plus its report on Reports. The overview is
+// the listing's own name, a link already, so it is not repeated here.
 const SECTIONS = [
-  { href: (id: string) => `/listings/${id}`, label: "Listing" },
   { href: (id: string) => `/listings/${id}/profile`, label: "Profile" },
   { href: (id: string) => `/listings/${id}/photos`, label: "Photos" },
   { href: (id: string) => `/listings/${id}/posts`, label: "Posts" },
@@ -106,27 +123,15 @@ function ClientHub({
   }
 
   const { client, locations } = query.data
-  const broken = client.connections.filter(
-    (connection) =>
-      connection.reconnectRequired || connection.status !== "active"
-  )
-  const needsReconnect = broken.length > 0
+  // One diagnosis drives the header chip, the alert and the listing rows, so
+  // they cannot tell three different stories about the same problem.
+  const diagnosis = diagnoseClient(client)
   const notSetUp = client.health === "not_connected"
 
+  // The fix for a broken login lives in the alert below, beside its reason;
+  // the header's primary stays the everyday one.
   const actions: React.ReactNode[] = []
-  if (canManage && needsReconnect) {
-    actions.push(
-      <Link
-        key="reconnect"
-        href={`/setup?client=${client.id}&step=connect`}
-        className={cn(buttonVariants())}
-      >
-        <RefreshCwIcon aria-hidden strokeWidth={1.75} />
-        Reconnect Google
-      </Link>
-    )
-  }
-  if (canManage && notSetUp && !needsReconnect) {
+  if (canManage && notSetUp && !diagnosis) {
     actions.push(
       <Link
         key="finish"
@@ -201,20 +206,26 @@ function ClientHub({
           description={
             <span className="flex flex-col gap-1.5">
               <span>
-                {healthDescription(client.health)}
+                {client.health === "attention" && client.freshness
+                  ? freshnessSentence(client.freshness)
+                  : healthDescription(client.health)}
                 {client.lastSyncAt
                   ? ` Last synced ${formatRelativeTime(client.lastSyncAt)}.`
                   : ""}
               </span>
-              <LoginLine client={client} />
+              <LoginLine client={client} diagnosis={diagnosis} />
             </span>
           }
           actions={<>{ordered}</>}
         />
       </div>
 
-      {client.health === "disconnected" && canManage ? (
-        <ReconnectPrompt client={client} />
+      {diagnosis ? (
+        <DiagnosisAlert
+          client={client}
+          diagnosis={diagnosis}
+          canManage={canManage}
+        />
       ) : null}
 
       <section aria-labelledby="client-work" className="flex flex-col gap-2.5">
@@ -268,6 +279,10 @@ function ClientHub({
           client={client}
           listings={locations}
           canManage={canManage}
+          loginBroken={
+            diagnosis?.kind === "reconnect" ||
+            diagnosis?.kind === "permission_missing"
+          }
         />
         <aside
           aria-label={`${client.name} details`}
@@ -304,8 +319,21 @@ function ClientHub({
   )
 }
 
-/** "Behind it: <login>" with its state, from the client's real connections. */
-function LoginLine({ client }: { client: Client }) {
+/**
+ * "Behind it: <login>" with its state, from the client's real connections.
+ *
+ * The chip never says all is well while a listing is unreachable: a login
+ * can be connected and still have lost manager access to one of the
+ * client's listings, and "Connected · refreshed a minute ago" beside an
+ * Action needed alert read as a contradiction.
+ */
+function LoginLine({
+  client,
+  diagnosis,
+}: {
+  client: Client
+  diagnosis: Diagnosis | null
+}) {
   const [first, ...rest] = client.connections
   if (!first) {
     return (
@@ -315,7 +343,9 @@ function LoginLine({ client }: { client: Client }) {
       </span>
     )
   }
-  const firstBroken = first.reconnectRequired || first.status !== "active"
+  const firstBroken = connectionNeedsReconnect(first)
+  const accessLost = diagnosis?.kind === "access_lost"
+  const lost = accessLost ? diagnosis.accessLost : 0
   return (
     <span className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
       <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
@@ -332,6 +362,12 @@ function LoginLine({ client }: { client: Client }) {
           {first.lastRefreshAt
             ? ` · last refresh ${formatRelativeTime(first.lastRefreshAt)}`
             : ""}
+        </StatusPill>
+      ) : accessLost ? (
+        <StatusPill tone="warn">
+          {lost > 1
+            ? `Connected · ${formatNumber(lost)} listings unreachable`
+            : "Connected · a listing is unreachable"}
         </StatusPill>
       ) : (
         <StatusPill tone="ok">
@@ -388,10 +424,13 @@ function ListingsSection({
   client,
   listings,
   canManage,
+  loginBroken,
 }: {
   client: Client
   listings: Listing[]
   canManage: boolean
+  /** A login needs reconnecting, so every linked listing is paused. */
+  loginBroken: boolean
 }) {
   const linked = listings.filter((listing) => listing.linkId)
   const verified = listings.filter((listing) => listing.verified).length
@@ -480,7 +519,9 @@ function ListingsSection({
               header: "Google",
               cell: (listing) =>
                 listing.linkId ? (
-                  client.health === "disconnected" ? (
+                  listing.accessLost ? (
+                    <StatusPill tone="bad">Linked · no manager access</StatusPill>
+                  ) : loginBroken ? (
                     <StatusPill tone="bad">Linked · paused</StatusPill>
                   ) : (
                     <StatusPill tone="ok">Linked</StatusPill>
@@ -510,25 +551,57 @@ function ListingsSection({
               span: true,
               className: "text-right",
               cell: (listing) => (
-                <nav
-                  aria-label={`${listing.name} sections`}
-                  className="flex flex-wrap gap-1 @max-[720px]/table:justify-start @min-[720px]/table:justify-end"
-                >
-                  {SECTIONS.map((section) => (
-                    <Link
-                      key={section.label}
-                      href={section.href(listing.locationId)}
-                      className={cn(
-                        buttonVariants({
-                          variant: "ghost",
-                          size: "sm",
-                        })
-                      )}
-                    >
-                      {section.label}
-                    </Link>
-                  ))}
-                </nav>
+                <>
+                  <nav
+                    aria-label={`${listing.name} sections`}
+                    className="flex flex-wrap justify-end gap-1 @max-[720px]/table:hidden"
+                  >
+                    {SECTIONS.map((section) => (
+                      <Link
+                        key={section.label}
+                        href={section.href(listing.locationId)}
+                        className={cn(
+                          buttonVariants({
+                            variant: "ghost",
+                            size: "sm",
+                          })
+                        )}
+                      >
+                        {section.label}
+                      </Link>
+                    ))}
+                  </nav>
+                  {/* On a narrow row four ghost links wrapped under the name;
+                      one menu keeps the row to its name and its state. */}
+                  <div className="@min-[720px]/table:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            aria-label={`More for ${listing.name}`}
+                          />
+                        }
+                      >
+                        <EllipsisIcon aria-hidden strokeWidth={1.75} />
+                        More
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {SECTIONS.map((section) => (
+                          <DropdownMenuItem
+                            key={section.label}
+                            render={
+                              <Link href={section.href(listing.locationId)} />
+                            }
+                          >
+                            {section.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </>
               ),
             },
           ]}
@@ -612,18 +685,86 @@ function ImportRow({
   )
 }
 
-function ReconnectPrompt({ client }: { client: Client }) {
-  const broken =
-    client.connections.find((connection) => connection.reconnectRequired) ??
-    client.connections.find((connection) => connection.status !== "active")
+/**
+ * The one alert for a client that needs a person, with the fix inside it.
+ *
+ * A broken login and a lost listing are different problems with different
+ * fixes. They used to share one "Google needs reconnecting" alert, shown
+ * under a shell banner saying reconnecting would not help.
+ */
+function DiagnosisAlert({
+  client,
+  diagnosis,
+  canManage,
+}: {
+  client: Client
+  diagnosis: Diagnosis
+  canManage: boolean
+}) {
+  const email = diagnosis.connection?.googleEmail ?? null
+  if (diagnosis.kind === "access_lost") {
+    const many = diagnosis.accessLost > 1
+    return (
+      <Alert variant="warning">
+        <AlertTitle>
+          {many
+            ? `${formatNumber(diagnosis.accessLost)} listings can’t be reached`
+            : "A listing can’t be reached"}
+        </AlertTitle>
+        <AlertDescription>
+          {email ? (
+            <>
+              <strong className="font-semibold [overflow-wrap:anywhere]">
+                {email}
+              </strong>{" "}
+              is still connected, but it is
+            </>
+          ) : (
+            "The connected Google login still works, but it is"
+          )}{" "}
+          no longer a manager of {many ? "these listings" : "this listing"} on
+          Google. Reconnecting won’t fix this: ask {client.name} to add it back
+          as a manager on the Business Profile. Their other listings keep
+          syncing.
+        </AlertDescription>
+        <AlertActions>
+          <Link
+            href={`/listings?clientId=${client.id}`}
+            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          >
+            See {client.name}’s listings
+          </Link>
+        </AlertActions>
+      </Alert>
+    )
+  }
+  const permission = diagnosis.kind === "permission_missing"
   return (
     <Alert variant="destructive">
-      <AlertTitle>Google needs reconnecting</AlertTitle>
+      <AlertTitle>
+        {permission
+          ? "Google permission missing"
+          : "Google login needs reconnecting"}
+      </AlertTitle>
       <AlertDescription>
-        {broken?.googleEmail
-          ? `${broken.googleEmail} can no longer reach ${client.name}'s Business Profile. Reviews and profile changes have stopped syncing.`
-          : `Reviews and profile changes for ${client.name} have stopped syncing.`}
+        {permission
+          ? `${email ?? "The connected login"} was connected without permission to manage Business Profiles. Reconnect it and allow access when Google asks.`
+          : email
+            ? `Google stopped accepting ${email}, so ${client.name}’s reviews and profile changes have stopped syncing. Reconnect it to resume.`
+            : `Reviews and profile changes for ${client.name} have stopped syncing. Reconnect Google to resume.`}
+        {canManage ? "" : " Ask an owner or admin to reconnect it."}
       </AlertDescription>
+      {canManage ? (
+        <AlertActions>
+          <Link
+            href={`/setup?client=${client.id}&step=connect`}
+            className={cn(buttonVariants({ size: "sm" }))}
+          >
+            <RefreshCwIcon aria-hidden strokeWidth={1.75} />
+            Reconnect Google
+          </Link>
+        </AlertActions>
+      ) : null}
     </Alert>
   )
 }
@@ -652,4 +793,4 @@ function HubSkeleton() {
   )
 }
 
-export { ClientHub }
+export { ClientHub, HubSkeleton }

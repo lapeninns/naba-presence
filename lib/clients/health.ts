@@ -97,7 +97,14 @@ export type ClientFreshness = {
 
 const PERMISSION_CODES = new Set(["insufficient_scope", "invalid_scope"])
 
-function needsReconnect(connection: ConnectionHealthInput) {
+/**
+ * Whether a person has to reconnect this Google login. An `expired` access
+ * token is not on the list: it is refreshed on its own, and calling it broken
+ * put "Needs reconnecting" beside a client whose health said Up to date.
+ * Every surface that marks a login as broken reads this, so the chip, the
+ * alert and the health word cannot disagree about the same login.
+ */
+export function connectionNeedsReconnect(connection: ConnectionHealthInput) {
   return (
     connection.reconnectRequired ||
     connection.status === "revoked" ||
@@ -105,6 +112,8 @@ function needsReconnect(connection: ConnectionHealthInput) {
     connection.status === "disconnected"
   )
 }
+
+const needsReconnect = connectionNeedsReconnect
 
 /**
  * The client's freshness, worst first. A login that needs reconnecting is
@@ -219,7 +228,7 @@ export function healthDescription(health: ClientHealth): string {
     case "syncing":
       return "Importing this client's review history from Google."
     case "attention":
-      return "Google data is delayed. We're retrying; nothing needs doing."
+      return "Google data is delayed. We retry on our own, so there is nothing for you to do."
     case "disconnected":
       return "Someone needs to restore access before reviews can sync."
     case "not_connected":
@@ -265,15 +274,24 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
 }
 
 /**
- * The Clients list's health filter (reference `clients.html`), kept in the
- * address as `?health=`. "Needs attention" includes disconnected clients, so
- * its count matches the shell chip's "N clients need attention".
+ * The Clients list's health filter, kept in the address as `?health=`.
+ *
+ * One vocabulary everywhere: the filter labels, the summary tiles and the
+ * status pills all use the health words above, and the buckets do not
+ * overlap, so a tile's count is exactly the rows its filter shows. (The
+ * filters used to include "Delayed or action needed" beside "Action
+ * needed", so one client counted twice and a tile called "Need attention"
+ * sat over rows that said "nothing needs doing".)
+ *
+ * "Up to date" includes clients still importing their history: their checks
+ * succeed, and the pill on the row says Importing.
  */
 export const HEALTH_FILTERS = [
   { value: "all", label: "All" },
-  { value: "attention", label: "Delayed or action needed" },
-  { value: "disconnected", label: "Action needed" },
-  { value: "not_connected", label: "Not set up" },
+  { value: "disconnected", label: LABELS.disconnected },
+  { value: "attention", label: LABELS.attention },
+  { value: "healthy", label: LABELS.healthy },
+  { value: "not_connected", label: LABELS.not_connected },
 ] as const
 
 export type HealthFilter = (typeof HEALTH_FILTERS)[number]["value"]
@@ -291,12 +309,66 @@ export function healthFilterMatches(
   switch (filter) {
     case "all":
       return true
+    case "healthy":
+      return health === "healthy" || health === "syncing"
     case "attention":
-      return health === "attention" || health === "disconnected"
+      return health === "attention"
     case "disconnected":
       return health === "disconnected"
     case "not_connected":
       return health === "not_connected"
+  }
+}
+
+/**
+ * What is wrong with a client that needs a person, and so which action fixes
+ * it. The hub shows exactly one alert from this, with that action inside it.
+ *
+ *   reconnect           a login stopped working: reconnect it
+ *   permission_missing  a login was granted without Business Profile access:
+ *                       reconnect and tick the permission
+ *   access_lost         every login works, but one lost manager access to a
+ *                       listing at Google: reconnecting does nothing; the
+ *                       business has to add the login back as a manager
+ *
+ * Null when nothing needs a person. Reads the server's freshness reason
+ * first, so it agrees with the health word and the shell banner; an older
+ * response without freshness falls back to the connections themselves.
+ */
+export type ClientDiagnosis<C extends ConnectionHealthInput> = {
+  kind: "reconnect" | "permission_missing" | "access_lost"
+  /** The login concerned: the broken one, or the one that lost access. */
+  connection: C | null
+  /** Listings the logins can no longer reach (access_lost only). */
+  accessLost: number
+}
+
+export function diagnoseClient<C extends ConnectionHealthInput>(client: {
+  health: ClientHealth
+  connections: readonly C[]
+  freshness?: ClientFreshness
+  checks?: ChecksInput
+}): ClientDiagnosis<C> | null {
+  const broken = client.connections.find(connectionNeedsReconnect) ?? null
+  const accessLost = client.checks?.accessLost ?? 0
+  const reason = client.freshness
+    ? client.freshness.reason
+    : broken
+      ? "reconnect_required"
+      : null
+  switch (reason) {
+    case "reconnect_required":
+      return { kind: "reconnect", connection: broken, accessLost }
+    case "permission_missing":
+      return { kind: "permission_missing", connection: broken, accessLost }
+    case "listing_access_lost":
+      return {
+        kind: "access_lost",
+        connection: client.connections[0] ?? null,
+        accessLost,
+      }
+    default:
+      return null
   }
 }
 
