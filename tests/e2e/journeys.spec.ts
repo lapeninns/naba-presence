@@ -25,16 +25,18 @@ async function openReview(page: Page, text: string) {
  *
  * A review that already carries saved reply text opens as a read-only preview
  * behind an "Edit reply" button (components/inbox/reply-composer.tsx); a
- * freshly seeded one, with neither a draft nor a reply, opens straight into
- * the editor. Waiting for whichever of the two is on screen covers both — and
- * covers a retry, where the draft the first attempt saved is still in the
- * database.
+ * freshly seeded one, with neither a draft nor a reply, offers the tone
+ * starter, whose "Write my own reply" opens the empty editor. Waiting for
+ * whichever is on screen covers both — and covers a retry, where the draft
+ * the first attempt saved is still in the database.
  */
 async function openReplyEditor(page: Page) {
   const edit = page.getByRole("button", { name: "Edit reply" })
+  const writeOwn = page.getByRole("button", { name: "Write my own reply" })
   const box = page.getByRole("textbox", { name: "Your reply" })
-  await expect(edit.or(box).first()).toBeVisible()
+  await expect(edit.or(writeOwn).or(box).first()).toBeVisible()
   if (await edit.isVisible()) await edit.click()
+  else if (await writeOwn.isVisible()) await writeOwn.click()
   await expect(box).toBeVisible()
   return box
 }
