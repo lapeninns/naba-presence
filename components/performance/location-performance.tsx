@@ -44,6 +44,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
         ) : overview.isError ? (
           <ReportingPanel
             variant="error"
+            cause={overview.error}
             onRetry={() => void overview.refetch()}
           />
         ) : (
@@ -113,6 +114,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
         ) : presence.isError ? (
           <ReportingPanel
             variant="error"
+            cause={presence.error}
             onRetry={() => void presence.refetch()}
           />
         ) : !presence.data.ingestionEnabled ? (
@@ -183,6 +185,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
           ) : (
             <ReportingPanel
               variant="error"
+              cause={keywords.error}
               onRetry={() => void keywords.refetch()}
             />
           )

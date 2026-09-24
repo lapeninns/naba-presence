@@ -1,3 +1,4 @@
+import { CLIENT_COLOURS } from "@/lib/clients/colours"
 import { contrastRatio, parseColor } from "@/lib/design/contrast"
 import { cn } from "@/lib/utils"
 
@@ -8,14 +9,7 @@ import { cn } from "@/lib/utils"
  * screen and across sessions — an operator scanning a list of forty learns the
  * colours, and a mark that changed on each render would be worse than none.
  */
-const PALETTE = [
-  "#7A4E3B",
-  "#3F5E52",
-  "#4A4C7A",
-  "#6B4A6B",
-  "#3E5B70",
-  "#6E5A2E",
-]
+const PALETTE: readonly string[] = CLIENT_COLOURS.map((colour) => colour.value)
 
 function colourFor(name: string, chosen: string | null) {
   if (chosen) return chosen

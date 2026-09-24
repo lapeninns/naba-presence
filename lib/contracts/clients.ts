@@ -106,7 +106,15 @@ export type ClientsResponse = z.infer<typeof clientsResponseSchema>
 
 export const clientResponseSchema = z.object({
   client: clientSummarySchema,
-  locations: z.array(directoryRowSchema),
+  locations: z.array(
+    directoryRowSchema.extend({
+      /**
+       * The linked Google listing no longer lists this agency's login as a
+       * manager. Optional so an older response still parses.
+       */
+      accessLost: z.boolean().optional(),
+    })
+  ),
 })
 export type ClientResponse = z.infer<typeof clientResponseSchema>
 

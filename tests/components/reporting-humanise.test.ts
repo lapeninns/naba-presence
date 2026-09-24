@@ -51,7 +51,7 @@ describe("formatKeywordImpressions honesty", () => {
 describe("resolveReplyRange", () => {
   it("produces adjacent, equal-length current + previous windows", () => {
     const now = new Date("2026-08-02T00:00:00.000Z")
-    const { current, previous } = resolveReplyRange("30d", now)
+    const { current, previous } = resolveReplyRange("28d", now)
     expect(current.granularity).toBe("day")
     expect(new Date(current.to).getTime()).toBeGreaterThan(new Date(current.from).getTime())
     // previous window ends exactly where the current window begins.

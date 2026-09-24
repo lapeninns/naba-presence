@@ -1,6 +1,6 @@
 "use client"
 
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import {
   Select,
   SelectContent,
@@ -12,17 +12,21 @@ import {
 /**
  * A report's period (reference `Period` field): a visible label over the
  * select, which also names it (only one tab's panel is mounted at a time).
- * Each report keeps its own presets: the three endpoints take different
- * ranges, so one shared period would not fit all three.
+ * Reply and Google performance share their presets; Keywords counts in
+ * whole months (see lib/reporting/ranges). `period` is the dates the choice
+ * resolves to, shown under it, so "Last 28 days" is never a guess.
  */
 export function RangeSelect<T extends string>({
   value,
   onChange,
   options,
+  period,
 }: {
   value: T
   onChange: (value: T) => void
   options: Array<{ id: T; label: string }>
+  /** The resolved dates, e.g. "4 Aug – 31 Aug". */
+  period?: string
 }) {
   return (
     <Field className="min-w-40 flex-1 sm:flex-none">
@@ -43,6 +47,11 @@ export function RangeSelect<T extends string>({
           ))}
         </SelectContent>
       </Select>
+      {period ? (
+        <FieldDescription className="font-mono tabular-nums">
+          {period}
+        </FieldDescription>
+      ) : null}
     </Field>
   )
 }

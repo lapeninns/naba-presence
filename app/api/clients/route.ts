@@ -4,15 +4,30 @@ import {
   type ClientsResponse,
 } from "@/lib/contracts/clients"
 import { writeAudit } from "@/lib/server/audit"
-import { listClientSummaries, loadClientSummary, uniqueClientSlug } from "@/lib/server/clients"
+import {
+  listClientSummaries,
+  loadClientSummary,
+  uniqueClientSlug,
+} from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
+/**
+ * The client list. `?archived=1` answers the archived clients instead, for
+ * the Clients page's Archived view; they are left out of every other list.
+ */
 export const GET = route({
-  handler: async ({ session, tenant }): Promise<ClientsResponse> => {
-    const result = await tenant((sql) => listClientSummaries(sql, session))
+  query: (searchParams) => ({
+    archived: searchParams.get("archived") === "1",
+  }),
+  handler: async ({ session, query, tenant }): Promise<ClientsResponse> => {
+    const result = await tenant((sql) =>
+      listClientSummaries(sql, session, {
+        archived: query.archived ? "only" : "exclude",
+      })
+    )
     return clientsResponseSchema.parse(result)
   },
 })

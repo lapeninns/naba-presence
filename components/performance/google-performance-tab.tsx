@@ -1,6 +1,7 @@
 "use client"
 
 import { Link2OffIcon } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
@@ -10,17 +11,47 @@ import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import { RangeSelect } from "@/components/performance/range-select"
 import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
-import { PRESENCE_RANGES } from "@/lib/reporting/ranges"
+import {
+  DEFAULT_RANGES,
+  formatPeriod,
+  isValidPeriod,
+  PRESENCE_RANGES,
+  resolvedPeriod,
+  type PresenceRangeId,
+} from "@/lib/reporting/ranges"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session" // client session hook (Task 1, REV-1)
+import { cn } from "@/lib/utils"
 
-type PresenceRangeId = (typeof PRESENCE_RANGES)[number]["id"]
-
-export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
-  const [rangeId, setRangeId] = useState<PresenceRangeId>("28d")
+export function GooglePerformanceTab({
+  clientId,
+  range,
+  onRangeChange,
+}: {
+  clientId?: string
+  /** The period, when the page keeps it (in `?range=`); else kept here. */
+  range?: PresenceRangeId
+  onRangeChange?: (range: PresenceRangeId) => void
+}) {
+  const [ownRange, setOwnRange] = useState<PresenceRangeId>(
+    DEFAULT_RANGES.google
+  )
+  const rangeId = range ?? ownRange
+  const setRangeId = onRangeChange ?? setOwnRange
   const role = useSessionRole()
   const presence = useAnalyticsPresence({ range: rangeId, clientId })
+  // The server's own dates once it answers; the same rule before that.
+  const answered = presence.data
+    ? { from: presence.data.from, to: presence.data.to }
+    : null
+  const period = formatPeriod(
+    presence.data?.range === rangeId && isValidPeriod(answered)
+      ? answered
+      : resolvedPeriod("google", rangeId),
+    "UTC"
+  )
 
   const header = (
     <ReportTabHead
@@ -41,6 +72,7 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
             value={rangeId}
             onChange={setRangeId}
             options={PRESENCE_RANGES}
+            period={period}
           />
           {/* Owners and admins only (lib/reporting/sync-permission); for
               everyone else the button is not rendered at all. */}
@@ -69,7 +101,11 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
     )
   if (presence.isError)
     return frame(
-      <ReportingPanel variant="error" onRetry={() => void presence.refetch()} />
+      <ReportingPanel
+        variant="error"
+        cause={presence.error}
+        onRetry={() => void presence.refetch()}
+      />
     )
 
   const data = presence.data
@@ -91,7 +127,15 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
         variant="empty"
         icon={<Link2OffIcon />}
         title="No linked location"
-        description="Add a Google location to see how it is performing."
+        description="Link a Google listing to see how it is performing."
+        action={
+          <Link
+            href={clientId ? `/clients/${clientId}` : "/listings"}
+            className={cn(buttonVariants({ variant: "secondary" }))}
+          >
+            {clientId ? "Open this client’s listings" : "Open Listings"}
+          </Link>
+        }
       />
     )
   if (data.state === "pending")
@@ -126,7 +170,16 @@ export function GooglePerformanceTab({ clientId }: { clientId?: string }) {
         framed
         variant="empty"
         title="No activity yet"
-        description="Google has not reported any visibility data for this window."
+        description={`Google has not reported any visibility data for ${period}.`}
+        action={
+          // A short window on a quiet listing is often empty; a longer one
+          // usually is not, and is one press away.
+          rangeId === "28d" || rangeId === "90d" ? (
+            <Button variant="secondary" onClick={() => setRangeId("12m")}>
+              Show the last 12 months
+            </Button>
+          ) : undefined
+        }
       />
     )
 

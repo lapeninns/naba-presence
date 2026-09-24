@@ -105,7 +105,10 @@ function FieldLabel({
     <Label
       id={field?.labelId}
       htmlFor={field && !field.controlLabelable ? undefined : field?.id}
-      className={cn("gap-1.5 text-ui leading-5 font-semibold text-ink", className)}
+      className={cn(
+        "gap-1.5 text-ui leading-5 font-semibold text-ink",
+        className
+      )}
       {...props}
     >
       {children}
@@ -256,7 +259,7 @@ export const fieldChromeClassName = cn(
   "placeholder:text-ink-muted hover:border-ink-muted",
   "focus:border-primary focus:shadow-[0_0_0_3px_var(--np-accent-tint)] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--np-accent-tint)]",
   "aria-invalid:border-danger-ink aria-invalid:shadow-[0_0_0_3px_var(--np-danger-tint)]",
-  "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted read-only:bg-surface-alt read-only:text-ink-muted",
+  "read-only:bg-surface-alt read-only:text-ink-muted disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted",
   "pointer-coarse:text-base"
 )
 
@@ -264,20 +267,45 @@ export const fieldChromeClassName = cn(
  * A byte or character counter beneath a field (reference `.counter`): mono,
  * muted, and danger ink once `over`. Say the limit in the text itself
  * ("1,204 / 4,096 bytes"), so colour is not the only warning.
+ *
+ * Announced only near or over the limit. A live counter far from its limit
+ * read "12 / 2,000", "13 / 2,000"… after every keystroke, drowning out what
+ * the person was typing. Pass `count` and `max` to let the counter decide
+ * (near is the last tenth), or `near` directly.
  */
+export const FIELD_COUNTER_NEAR = 0.9
+
+export function fieldCounterIsNear(count: number, max: number): boolean {
+  return max > 0 && count >= Math.floor(max * FIELD_COUNTER_NEAR)
+}
+
 function FieldCounter({
   over = false,
+  near,
+  count,
+  max,
   className,
   ...props
-}: React.ComponentProps<"span"> & { over?: boolean }) {
+}: React.ComponentProps<"span"> & {
+  over?: boolean
+  near?: boolean
+  count?: number
+  max?: number
+}) {
+  const isOver =
+    over || (count !== undefined && max !== undefined && count > max)
+  const isNear =
+    near ??
+    (count !== undefined && max !== undefined && fieldCounterIsNear(count, max))
   return (
     <span
       data-slot="field-counter"
-      data-over={over || undefined}
-      aria-live="polite"
+      data-over={isOver || undefined}
+      data-near={isNear || undefined}
+      aria-live={isOver || isNear ? "polite" : "off"}
       className={cn(
         "font-mono text-[11.5px] text-ink-muted tabular-nums",
-        over && "font-semibold text-danger-ink",
+        isOver && "font-semibold text-danger-ink",
         className
       )}
       {...props}

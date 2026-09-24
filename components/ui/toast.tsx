@@ -243,7 +243,44 @@ function Toaster({
 }
 
 const createToastManager = ToastPrimitive.createToastManager
-const useToastManager = ToastPrimitive.useToastManager
+
+/**
+ * How long a toast that carries an action (Undo, View) stays up when the
+ * caller does not say. The default five seconds is enough to read a sentence,
+ * not to read it, decide, and reach the button, so an Undo expired before
+ * anyone could use it.
+ */
+export const ACTION_TOAST_TIMEOUT = 10_000
+
+type AddOptions = Parameters<
+  ReturnType<typeof ToastPrimitive.useToastManager>["add"]
+>[0]
+
+/** Gives an action-carrying toast the longer timeout unless one is set. */
+export function withActionTimeout<T extends AddOptions>(
+  options: T
+): T & { timeout?: number } {
+  if (!options.actionProps || options.timeout !== undefined) return options
+  return { ...options, timeout: ACTION_TOAST_TIMEOUT }
+}
+
+/**
+ * The toast manager, with `add` giving action toasts the longer timeout.
+ * Every in-app caller reads toasts through this, so the rule holds without
+ * each one remembering it.
+ */
+function useToastManager() {
+  const manager = ToastPrimitive.useToastManager()
+  const { add } = manager
+  const wrappedAdd = React.useCallback<typeof add>(
+    (options) => add(withActionTimeout(options)),
+    [add]
+  )
+  return React.useMemo(
+    () => ({ ...manager, add: wrappedAdd }),
+    [manager, wrappedAdd]
+  )
+}
 
 export {
   Toaster,

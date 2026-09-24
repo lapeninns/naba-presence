@@ -19,8 +19,15 @@ import {
 } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { RangeSelect } from "@/components/performance/range-select"
-import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import {
+  replyLocationsCsv,
+  ReplyLocationsTable,
+} from "@/components/performance/reply-locations-table"
+import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import { csvFilename } from "@/lib/reporting/csv"
+import {
+  DEFAULT_RANGES,
+  formatPeriod,
   REPLY_RANGES,
   resolveReplyRange,
   type ReplyRangeId,
@@ -61,8 +68,19 @@ function ReplyPerformanceLoading() {
   )
 }
 
-export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
-  const [rangeId, setRangeId] = useState<ReplyRangeId>("30d")
+export function ReplyPerformanceTab({
+  clientId,
+  range,
+  onRangeChange,
+}: {
+  clientId?: string
+  /** The period, when the page keeps it (in `?range=`); else kept here. */
+  range?: ReplyRangeId
+  onRangeChange?: (range: ReplyRangeId) => void
+}) {
+  const [ownRange, setOwnRange] = useState<ReplyRangeId>(DEFAULT_RANGES.reply)
+  const rangeId = range ?? ownRange
+  const setRangeId = onRangeChange ?? setOwnRange
   // Memoise the range: resolveReplyRange defaults `now` to `new Date()`, so
   // calling it in the render body minted fresh from/to ISO strings every render
   // -> a new useAnalyticsOverview query key -> refetch -> re-render -> an
@@ -75,6 +93,10 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
   const unit = current.granularity
+  const rangeLabel =
+    REPLY_RANGES.find((option) => option.id === rangeId)?.label ??
+    "This window"
+  const period = formatPeriod(current, now.data?.timezone ?? "Europe/London")
 
   const head = (caption: React.ReactNode) => (
     <ReportTabHead
@@ -84,6 +106,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
           value={rangeId}
           onChange={setRangeId}
           options={REPLY_RANGES}
+          period={period}
         />
       }
     />
@@ -98,7 +121,11 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
         {now.isPending ? (
           <ReplyPerformanceLoading />
         ) : (
-          <ReportingPanel variant="error" onRetry={() => void now.refetch()} />
+          <ReportingPanel
+            variant="error"
+            cause={now.error}
+            onRetry={() => void now.refetch()}
+          />
         )}
       </div>
     )
@@ -107,9 +134,6 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
   const s = now.data.summary
   const p = prior.data?.summary ?? null
   const timezone = now.data.timezone
-  const rangeLabel =
-    REPLY_RANGES.find((range) => range.id === rangeId)?.label.toLowerCase() ??
-    "this window"
 
   // Nothing in this window: hold the loading state until the comparison
   // window answers, so the page doesn't draw zero tiles and then collapse.
@@ -137,7 +161,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
           framed
           variant="empty"
           title="No reviews in this window yet"
-          description={`Nothing has been collected for these locations in the ${rangeLabel}. Figures appear here as reviews arrive from Google.`}
+          description={`Nothing has been collected for these locations in the ${rangeLabel.toLowerCase()} (${period}). Figures appear here as reviews arrive from Google.`}
         />
       </div>
     )
@@ -201,6 +225,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
           {hasSeries ? (
             <ReportBarChart
               title="Reviews received and replied"
+              csvName={`review volume ${rangeLabel}`}
               categoryHeading={BIN_HEADING[unit]}
               unitName={unit}
               unitNote={BIN_TOTALS_NOTE[unit]}
@@ -222,6 +247,7 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
           {hasSeries && hasRatings ? (
             <ReportBarChart
               title="Average rating"
+              csvName={`average rating ${rangeLabel}`}
               categoryHeading={BIN_HEADING[unit]}
               unitName={unit}
               unitNote={`Average of the ratings received each ${unit}, out of 5.`}
@@ -257,6 +283,13 @@ export function ReplyPerformanceTab({ clientId }: { clientId?: string }) {
             id="reply-by-location"
             title="By location"
             description="Highest response rate first. Missing figures show “—”, never zero."
+            actions={
+              <CsvDownloadButton
+                filename={csvFilename("reply performance by location", rangeLabel)}
+                accessibleLabel="Download reply performance by location as CSV"
+                rows={() => replyLocationsCsv(now.data.locations)}
+              />
+            }
           />
           <ReplyLocationsTable locations={now.data.locations} />
         </section>

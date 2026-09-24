@@ -105,8 +105,17 @@ export async function attachConnectionToClient(
  */
 export async function listClientSummaries(
   sql: TransactionSql,
-  session: Session
+  session: Session,
+  options: {
+    /**
+     * Which clients: the working list (default), only archived ones (the
+     * Clients page's Archived view, where they can be restored), or both
+     * (reading one client back after archiving or restoring it).
+     */
+    archived?: "exclude" | "only" | "include"
+  } = {}
 ): Promise<{ items: ClientSummary[]; unassignedLocationCount: number }> {
+  const archived = options.archived ?? "exclude"
   const rows = await sql<SummaryRow[]>`
     select
       c.id::text as id,
@@ -236,7 +245,13 @@ export async function listClientSummaries(
       where l.client_id = c.id
         and ${visibilityPredicate(sql, session, sql`l.id`)}
     ) checks on true
-    where c.archived_at is null
+    where ${
+      archived === "only"
+        ? sql`c.archived_at is not null`
+        : archived === "exclude"
+          ? sql`c.archived_at is null`
+          : sql`true`
+    }
       and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
     order by lower(c.name)
   `
@@ -286,9 +301,12 @@ export function healthFor(
 export async function loadClientSummary(
   sql: TransactionSql,
   session: Session,
-  clientId: string
+  clientId: string,
+  options: { includeArchived?: boolean } = {}
 ): Promise<ClientSummary | null> {
-  const { items } = await listClientSummaries(sql, session)
+  const { items } = await listClientSummaries(sql, session, {
+    archived: options.includeArchived ? "include" : "exclude",
+  })
   return items.find((client) => client.id === clientId) ?? null
 }
 

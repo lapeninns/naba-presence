@@ -59,9 +59,16 @@ export const overlayCloseButtonClassName =
 export const overlayFooterClassName =
   "flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end"
 
-/** The bar drawing of the footer, pulled to the popup's edges. */
+/**
+ * The bar drawing of the footer, pulled to the popup's edges. Below `sm` it
+ * sticks to the bottom of the scrolling popup: on a phone a long body pushed
+ * the confirm button below the fold, and the operator had to scroll a modal
+ * to find out how to leave it. The offset is minus the panel's padding:
+ * sticky stops at the scroll container's padding edge, which left the bar
+ * floating 20px above the bottom with the body scrolling under it.
+ */
 const overlayFooterBarClassName =
-  "-mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 border-t border-line bg-surface-alt px-(--dlg-pad) py-3 rounded-b-[inherit]"
+  "-mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 border-t border-line bg-surface-alt px-(--dlg-pad) py-3 rounded-b-[inherit] max-sm:sticky max-sm:-bottom-(--dlg-pad) max-sm:z-10"
 
 function DialogContent({
   className,

@@ -6,6 +6,7 @@ import {
   assignLocationsToClient,
   attachClientConnection,
   createClient,
+  fetchArchivedClients,
   fetchClient,
   fetchClients,
   fetchClientSetup,
@@ -24,6 +25,15 @@ export function useClients() {
     // connection breaking without the operator reloading. A minute is short
     // enough to matter and long enough not to be chatter.
     refetchInterval: 60_000,
+  })
+}
+
+/** Archived clients, fetched only while the Archived view is open. */
+export function useArchivedClients(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.clientsArchived,
+    queryFn: ({ signal }) => fetchArchivedClients(signal),
+    enabled,
   })
 }
 
