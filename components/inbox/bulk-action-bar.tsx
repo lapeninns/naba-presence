@@ -4,6 +4,14 @@ import { Check, UserPlus, X } from "lucide-react"
 import * as React from "react"
 
 import { useSelection } from "@/components/inbox/selection-context"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -33,6 +41,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
+  const [confirmApprove, setConfirmApprove] = React.useState(false)
 
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
@@ -69,14 +78,29 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           skipped === 0
             ? `${ok} ${ok === 1 ? "review" : "reviews"} updated`
             : `${ok} updated, ${skipped} skipped`,
+        description:
+          skipped === 0 ? undefined : "The bar lists which, and why.",
+        type: skipped === 0 ? "success" : "warning",
       })
       if (skipped === 0) clear()
     } catch (error) {
       toast.add({
         title: "That batch did not run",
         description: describeErrorCode(error),
+        type: "error",
       })
     }
+  }
+
+  // Per-row results come back as ids; the operator knows reviews by who
+  // wrote them and where.
+  const describeRow = (reviewId: string) => {
+    const match = rows.find((row) => row.id === reviewId)
+    if (!match) return "A review no longer in this list"
+    const name = match.reviewer.isAnonymous
+      ? "Anonymous"
+      : (match.reviewer.displayName ?? "Anonymous")
+    return `${name} · ${match.location.name}`
   }
 
   const partial = approvable.length < chosen.length && approvable.length > 0
@@ -129,20 +153,26 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Triage, not a reply: it clears the reviews from Needs reply and
+            sends nothing to Google. "Mark reviewed" read as though it might
+            do either. */}
         <Button
           size="sm"
           variant="ghost-dark"
           disabled={bulk.isPending}
+          title="Clears these from Needs reply. Nothing is posted to Google."
           onClick={() => void run("mark_reviewed")}
         >
-          Mark reviewed
+          No reply needed
         </Button>
 
+        {/* Approving publishes: each approved reply goes to Google at once.
+            A batch of that is confirmed, like every other publish. */}
         <Button
           size="sm"
           variant="on-dark"
           disabled={approvable.length === 0 || bulk.isPending}
-          onClick={() => void run("approve")}
+          onClick={() => setConfirmApprove(true)}
         >
           <Check aria-hidden data-icon="inline-start" />
           {approvable.length === chosen.length
@@ -177,6 +207,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
               <span className="font-semibold">
                 {row.status === "failed" ? "Failed" : "Skipped"}
               </span>
+              <span className="min-w-0 truncate">
+                {describeRow(row.reviewId)}
+              </span>
               <span className="text-ink-muted-on-charcoal">
                 {row.code ? describeErrorCode(row.code) : "No reason given."}
               </span>
@@ -184,6 +217,38 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           ))}
         </ul>
       ) : null}
+
+      <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
+        <AlertDialogContent
+          aria-label={`Approve and publish ${approvable.length} ${approvable.length === 1 ? "reply" : "replies"} to Google?`}
+        >
+          <AlertDialogTitle>
+            Approve and publish {approvable.length}{" "}
+            {approvable.length === 1 ? "reply" : "replies"} to Google?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Each approved reply is sent to Google straight away and appears on
+            the business&apos;s profile under its name.
+            {approvable.length < chosen.length
+              ? ` The other ${chosen.length - approvable.length} selected are not awaiting your approval and are left as they are.`
+              : ""}
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="secondary" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              disabled={bulk.isPending}
+              onClick={() => {
+                setConfirmApprove(false)
+                void run("approve")
+              }}
+            >
+              Approve and publish {approvable.length}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

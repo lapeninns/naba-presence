@@ -113,6 +113,9 @@ describe("BulkActionBar", () => {
     const user = userEvent.setup()
     renderBar([row("a"), row("b", { workflowStatus: "new" })], ["a", "b"])
     await user.click(await screen.findByRole("button", { name: /^Approve/ }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 1" })
+    )
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "approve",
       reviewIds: ["a"],
@@ -131,12 +134,28 @@ describe("BulkActionBar", () => {
     })
   })
 
+  // Approving publishes, so a batch of it is confirmed like any publish.
+  it("confirms before approving and publishing, and Cancel sends nothing", async () => {
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve" }))
+    expect(
+      screen.getByRole("alertdialog", {
+        name: "Approve and publish 2 replies to Google?",
+      })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
   it("marks reviews as needing nothing", async () => {
     // A five-star review with no text needs no reply; before triage the only
     // way to clear it from the queue was to publish something.
     const user = userEvent.setup()
     renderBar([row("a")], ["a"])
-    await user.click(await screen.findByRole("button", { name: "Mark reviewed" }))
+    await user.click(
+      await screen.findByRole("button", { name: "No reply needed" })
+    )
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "mark_reviewed",
       reviewIds: ["a"],
@@ -153,6 +172,11 @@ describe("BulkActionBar", () => {
     const user = userEvent.setup()
     renderBar([row("a"), row("b")], ["a", "b"])
     await user.click(await screen.findByRole("button", { name: /^Approve/ }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
     expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    // Named by who wrote it and where, not by an id.
+    expect(screen.getByText("Sam · Girton")).toBeInTheDocument()
   })
 })
