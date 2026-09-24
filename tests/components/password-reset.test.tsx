@@ -24,10 +24,12 @@ afterEach(() => {
 
 describe("ForgotPasswordForm", () => {
   it("starts with the address typed on the sign-in form", () => {
-    render(<ForgotPasswordForm initialEmail="sam@example.test" />)
+    window.sessionStorage.setItem("naba:reset-email", "sam@example.test")
+    render(<ForgotPasswordForm />)
     expect(screen.getByLabelText("Email address")).toHaveValue(
       "sam@example.test"
     )
+    window.sessionStorage.removeItem("naba:reset-email")
   })
 
   it("confirms without revealing whether the account exists", async () => {

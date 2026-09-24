@@ -294,16 +294,17 @@ describe("mode toggle", () => {
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
   })
 
-  it("carries the typed email to Forgot password", async () => {
+  it("carries the typed email to Forgot password without the URL", async () => {
     const user = userEvent.setup()
     render(<SignInForm />)
-    expect(
-      screen.getByRole("link", { name: "Forgot password?" })
-    ).toHaveAttribute("href", "/forgot-password")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
-    expect(
-      screen.getByRole("link", { name: "Forgot password?" })
-    ).toHaveAttribute("href", "/forgot-password?email=sam%40example.test")
+    const link = screen.getByRole("link", { name: "Forgot password?" })
+    expect(link).toHaveAttribute("href", "/forgot-password")
+    link.addEventListener("click", (event) => event.preventDefault())
+    await user.click(link)
+    expect(window.sessionStorage.getItem("naba:reset-email")).toBe(
+      "sam@example.test"
+    )
   })
 
   it("folds the resend-confirmation help behind a disclosure", () => {

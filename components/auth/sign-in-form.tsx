@@ -24,6 +24,7 @@ import {
   fieldErrorsFrom,
   type AuthMessage,
 } from "@/lib/api/auth-errors"
+import { stashResetEmail } from "@/lib/api/reset-email"
 import { loginSchema, registerSchema } from "@/lib/domain/auth"
 import { cn } from "@/lib/utils"
 
@@ -344,12 +345,10 @@ function SignInForm({
           error={fieldErrors.password}
           labelAside={
             <AuthLink
-              // Carry what was typed, so the reset form starts filled in.
-              href={
-                email.trim()
-                  ? `/forgot-password?${new URLSearchParams({ email: email.trim() })}`
-                  : "/forgot-password"
-              }
+              href="/forgot-password"
+              // Carry what was typed (not in the URL), so the reset form
+              // starts filled in.
+              onClick={() => stashResetEmail(email.trim())}
               className="text-ui"
             >
               Forgot password?
