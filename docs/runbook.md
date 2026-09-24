@@ -423,48 +423,77 @@ There is no second, production-topology stack to fall back on. The Docker
 Compose stack that once served that purpose has been deleted: production runs
 on Vercel, so the Supabase CLI stack above is the only local environment.
 
-## Production database (deferred — read before provisioning)
+## Production database
 
-The Vercel production `DATABASE_URL` / `DIRECT_DATABASE_URL` (set 205 days
-ago) point at a host that no longer resolves (`ENOTFOUND`, confirmed
-NXDOMAIN). There is no production database to migrate: every DB-backed
-production request fails, and the "28 applied migrations" premise is void.
-The only live dataset is the local Supabase database, snapshotted to
-`../NabaPresence-backups/local-snapshot-20260903.dump` (custom format, schema
-plus data, verified with `pg_restore -l`). When production provisioning is
-back on the table, follow this order — it was rehearsed end to end against a
-local PostgreSQL 17 stack in September 2026:
+Production runs on the Supabase project `googlereview-gbp` (ref
+`znbjmipdiuzymxytyjvr`, us-east-1, PostgreSQL 17). It sat paused on the free
+plan for months, and a paused project's hostname stops resolving: that was the
+`ENOTFOUND` / NXDOMAIN every DB-backed production request failed with. It was
+restored in September 2026. A free project pauses again after a week without
+activity; the every-minute cron keeps it busy, but move it to a paid plan
+before relying on it. The project still held the Prisma-era schema (25
+tables, 1,040 reviews, 3 July 2026); those objects were moved, not dropped,
+into the `legacy_prisma` schema, which the runtime role cannot use, after a
+dump to `archive/naba-presence-backups/googlereview-gbp-prisma-20260924-*.sql`.
+No data is carried over from the local database, which
+is shared with sibling projects and holds artifacts no committed migration
+defines. Organisations sign up again, reconnect Google, and the
+connect-callback backfill re-imports their reviews. The last local snapshot,
+kept for reference only, is
+`~/LapenInns Project/archive/naba-presence-backups/local-snapshot-20260903.dump`.
 
-1. Provision a DEDICATED PostgreSQL 17 database (the local Supabase database
-   is shared with sibling projects — see step 3). Before pointing anything at
-   it, resolve the hostname and open one test connection; the last production
-   database died silently as NXDOMAIN and nothing paged.
-2. `DIRECT_DATABASE_URL='<new admin url>' pnpm db:migrate` until every file
-   in `supabase/migrations` is recorded in `schema_migration` (52 on
-   `feat/connect-once-hardening`), then re-run to confirm idempotence (all
-   "already applied"). Fresh apply is CI-verified on every push. The session
-   pooler (port 5432, session mode) is required: the refresh lock and the
-   scheduler leases are session advisory locks, which a transaction-mode
-   pooler would release between statements.
-3. Restore data only, for canonical tables only. The local database carries
-   artifacts no committed migration defines — ghost migration row `0021`,
-   tables `audit_logs` (205 rows), `auth_hook_deliveries`, and ~50
-   sibling-project tables (`merchants`, `loyalty_*`, `offer_*`, …) — plus
-   2122 `app_user` rows against 3 organisations, so triage which users belong
-   to NabaPresence before promoting. Recipe: `pg_restore -l`, keep only
-   `TABLE DATA public <table>` for tables present in the migrated target
-   (never `schema_migration`), restore with `--no-owner --disable-triggers
-   -1` (the dump's table order is not FK-safe: `app_session` precedes
-   `app_user`). Then compare row counts against the source before proceeding.
-4. Set `DATABASE_URL` (runtime role, never a superuser) and
-   `DIRECT_DATABASE_URL` via `vercel env`, plus confirm `CRON_SECRET` is set
-   or every cron tick 401s. Never `vercel env pull` into `.env.local`.
-5. `vercel --prod`, then smoke: cron-bearer `GET /api/operations/health`
-   (backlog unlached, `ops_heartbeat` fresh), one firing of each of the eight
-   crons in `vercel.json`, and watch for `lease_expired` (one reclaim burst
-   is expected, a stream is not). Deploying also retires the stale
-   five-minute `/api/cron/worker` pings: that endpoint exists only in the old
-   build and 500s on every fire.
+Provision in this order:
+
+1. Use a dedicated Supabase project on PostgreSQL 17. Functions run in
+   `iad1` (`vercel.json` `regions`) to sit next to the us-east-1 database. From
+   Connect, take the **session pooler** URI (port 5432) — never the
+   transaction pooler (6543): the refresh lock and the scheduler leases are
+   session advisory locks, which a transaction-mode pooler would release
+   between statements. Resolve the hostname and open one test connection
+   before pointing anything at it; the last production database died silently
+   as NXDOMAIN and nothing paged.
+2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` until every file in
+   `supabase/migrations` is recorded in `schema_migration`, then re-run to
+   confirm idempotence (all "already applied") and run `pnpm db:status`. The
+   admin role (`postgres`) owns the SECURITY DEFINER functions, which read
+   FORCE-RLS tables across tenants, so it must keep BYPASSRLS.
+3. Create the runtime login with a generated password — the script's defaults
+   are for local tests only:
+   `DIRECT_DATABASE_URL='<admin url>' RUNTIME_ROLE_NAME=naba_runtime
+   RUNTIME_ROLE_PASSWORD='<32+ random chars>' pnpm db:runtime-role`.
+   `DATABASE_URL` uses the same pooler host with user
+   `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
+   `rolbypassrls` are false, `row_security` is `on`, and `show
+   statement_timeout` is `30s`. The Supabase session pooler drops the
+   startup parameters in `lib/server/db.ts`, so the script pins
+   `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`
+   on the role itself. Role settings apply only to new backends: after
+   (re)running the script, terminate the role's older pooled backends.
+4. Configure Supabase Auth on the same project: Site URL and redirect allow
+   list for the production origin, the `supabase/templates/confirmation.html`
+   and `recovery.html` templates, and custom SMTP (the built-in sender only
+   mails project members). Register
+   `<NEXTAUTH_URL>/api/auth/callback/google` on the Google OAuth client and
+   publish the OAuth app out of Testing, or every connection dies after seven
+   days.
+5. Set the production environment with `vercel env add` / `vercel env rm`
+   (list names with `vercel env ls`; never `vercel env pull` into
+   `.env.local`). Beyond the variables `.env.example` marks as required, set
+   `DATABASE_POOL_MAX=5` and `JOBS_CONCURRENCY=3`: every function instance
+   opens its own pool, one connection is reserved for the lease, and the sum
+   across instances must stay under the Supabase session pooler's client
+   limit. Launch with `WEBHOOKS_ENABLED=false` until the Pub/Sub push
+   subscription and its OIDC pair exist (the 15-minute reconcile picks up new
+   reviews meanwhile), and with `PUBLISH_ENABLED=false` until one draft has
+   been checked end to end. Keep database secrets out of the Preview scope.
+6. `vercel --prod`, then smoke: cron-bearer
+   `GET /api/operations/health?scope=platform` (backlog unlatched,
+   `ops_heartbeat` fresh), one firing of each of the eight crons in
+   `vercel.json`, and watch for `lease_expired` (one reclaim burst is
+   expected, a stream is not). Deploying also retires the stale five-minute
+   `/api/cron/worker` pings: that endpoint exists only in the old build and
+   500s on every fire. Then sign up, connect Google, confirm the reviews
+   arrive in the inbox, and generate one draft.
 
 ## Privacy and disassociation
 
