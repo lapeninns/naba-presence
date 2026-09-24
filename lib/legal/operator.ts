@@ -35,7 +35,7 @@ export function hasLegalPlaceholders(): boolean {
  * the wording can be reviewed before the details are known.
  */
 export function assertLegalDetailsForProduction(
-  env: { VERCEL_ENV?: string } = process.env
+  env: Record<string, string | undefined> = process.env
 ) {
   if (env.VERCEL_ENV === "production" && hasLegalPlaceholders()) {
     throw new Error(
