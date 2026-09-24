@@ -59,18 +59,33 @@ function escape(value: string) {
 }
 
 describe("assertLegalDetailsForProduction", () => {
-  it("fails a production build while operator details are placeholders", async () => {
+  const placeholders = { ...LEGAL_OPERATOR, legalName: "[LEGAL ENTITY NAME]" }
+
+  it("fails a production build while any operator detail is a placeholder", async () => {
     const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
       "@/lib/legal/operator"
     )
-    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "preview" })).not.toThrow()
-    expect(() => assertLegalDetailsForProduction({})).not.toThrow()
+    expect(hasLegalPlaceholders(placeholders)).toBe(true)
+    expect(() =>
+      assertLegalDetailsForProduction({ VERCEL_ENV: "production" }, placeholders)
+    ).toThrow(/placeholder operator details/)
+    // Previews and local builds render the brackets so the wording can be reviewed.
+    expect(() =>
+      assertLegalDetailsForProduction({ VERCEL_ENV: "preview" }, placeholders)
+    ).not.toThrow()
+    expect(() => assertLegalDetailsForProduction({}, placeholders)).not.toThrow()
+  })
+
+  it("treats an empty registered address as deliberate, not a placeholder", async () => {
+    const { hasLegalPlaceholders } = await import("@/lib/legal/operator")
+    expect(hasLegalPlaceholders({ ...LEGAL_OPERATOR, registeredAddress: "" })).toBe(false)
+  })
+
+  it("lets production publish the committed operator details", async () => {
+    const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
+      "@/lib/legal/operator"
+    )
     expect(hasLegalPlaceholders()).toBe(false)
     expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).not.toThrow()
-    if (hasLegalPlaceholders()) {
-      expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).toThrow(
-        /placeholder operator details/
-      )
-    }
   })
 })

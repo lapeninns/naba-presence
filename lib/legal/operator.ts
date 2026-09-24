@@ -26,8 +26,10 @@ export const LEGAL_OPERATOR = {
 } as const
 
 /** True while any operator detail is still a placeholder. */
-export function hasLegalPlaceholders(): boolean {
-  return Object.values(LEGAL_OPERATOR).some((value) => /^\[.*\]$/.test(value))
+export function hasLegalPlaceholders(
+  operator: Record<string, string> = LEGAL_OPERATOR
+): boolean {
+  return Object.values(operator).some((value) => /^\[.*\]$/.test(value))
 }
 
 /**
@@ -37,9 +39,10 @@ export function hasLegalPlaceholders(): boolean {
  * the wording can be reviewed before the details are known.
  */
 export function assertLegalDetailsForProduction(
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  operator: Record<string, string> = LEGAL_OPERATOR
 ) {
-  if (env.VERCEL_ENV === "production" && hasLegalPlaceholders()) {
+  if (env.VERCEL_ENV === "production" && hasLegalPlaceholders(operator)) {
     throw new Error(
       "lib/legal/operator.ts still has placeholder operator details. Fill them in before a production deploy: Google's consent screen links to these pages."
     )
