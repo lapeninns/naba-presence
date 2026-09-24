@@ -59,9 +59,11 @@ import {
 } from "@/lib/inbox/url-state"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import {
+  PRIMARY_ACTION_EVENT,
   PUBLISH_PULSE_EVENT,
   PUBLISH_PULSE_MS,
   REPLY_FOCUS_EVENT,
+  REPLY_GENERATE_EVENT,
   SEARCH_FOCUS_EVENT,
   type PublishPulseDetail,
 } from "@/lib/inbox/events"
@@ -524,10 +526,10 @@ function InboxViewInner({
     backButtonRef.current?.focus({ preventScroll: true })
   }, [state.selected])
 
-  // `r` and `a` are handled by the detail pane's own controls, which know
-  // whether they are currently allowed; the hotkey layer only moves focus
-  // there. Firing a publish from here would bypass every gate the action bar
-  // applies.
+  // `r`, `g` and `a` are handled by the detail pane's own controls, which
+  // know whether they are currently allowed; the hotkey layer only asks.
+  // Firing a publish from here would bypass every gate the action bar
+  // applies, so `a` asks the bar to press its own main button.
   const hotkeyHandlers = useMemo(
     () => ({
       next: () => void onAdjacentReview("next"),
@@ -557,6 +559,20 @@ function InboxViewInner({
         if (!state.selected) return
         window.dispatchEvent(new Event(REPLY_FOCUS_EVENT))
       },
+      // A viewer can neither draft nor publish, so these are not bound (and
+      // not listed) for them.
+      ...(canBatch
+        ? {
+            generate: () => {
+              if (!state.selected) return
+              window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+            },
+            approve: () => {
+              if (!state.selected) return
+              window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+            },
+          }
+        : {}),
       search: () => window.dispatchEvent(new Event(SEARCH_FOCUS_EVENT)),
     }),
     [canBatch, onAdjacentReview, reviews, selection, state.selected]

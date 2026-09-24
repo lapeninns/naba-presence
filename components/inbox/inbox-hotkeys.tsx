@@ -18,6 +18,7 @@ export type HotkeyHandlers = Partial<
     | "next"
     | "previous"
     | "reply"
+    | "generate"
     | "search"
     | "approve"
     | "assign"
@@ -86,9 +87,9 @@ function InboxHotkeys({ handlers }: { handlers: HotkeyHandlers }) {
             beside them. */}
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5 pb-1">
           {SHORTCUTS.filter(
-            // Only keys that do something here: `a` and `e` have no binding
-            // in the inbox yet, and a listed key that does nothing reads as
-            // broken. `?` and ⌘K are owned by this dialog and the shell.
+            // Only keys that do something here: `e` has no binding in the
+            // inbox yet, and a listed key that does nothing reads as broken.
+            // `?` and ⌘K are owned by this dialog and the shell.
             (shortcut) =>
               shortcut.action === "shortcuts" ||
               shortcut.action === "command" ||

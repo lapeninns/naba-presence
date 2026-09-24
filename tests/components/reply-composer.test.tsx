@@ -10,12 +10,15 @@ import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { DirtyGuardProvider } from "@/components/inbox/dirty-context"
+import {
+  DirtyGuardProvider,
+  useComposerSave,
+} from "@/components/inbox/dirty-context"
 import { ReplyComposer } from "@/components/inbox/reply-composer"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
-import { REPLY_FOCUS_EVENT } from "@/lib/inbox/events"
+import { REPLY_FOCUS_EVENT, REPLY_GENERATE_EVENT } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 
@@ -539,5 +542,126 @@ describe("ReplyComposer", () => {
     ).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Edit reply" }))
     expect(screen.queryByText("In sync with Google")).not.toBeInTheDocument()
+  })
+})
+
+// The publish bar's "Save & check" runs the composer's own save — the same
+// call Save draft and ⌘↵ make — through the dirty store.
+function SaveProbe() {
+  const save = useComposerSave()
+  return save ? (
+    <button
+      type="button"
+      disabled={save.blockedReason !== null}
+      onClick={save.save}
+    >
+      Probe save
+    </button>
+  ) : null
+}
+
+describe("ReplyComposer — shared save and first draft", () => {
+  function draftedReview() {
+    return reviewWith({
+      workflowStatus: "drafted",
+      drafts: [
+        {
+          id: "d1",
+          source: "human",
+          body: "Seed",
+          bodyBytes: 4,
+          evidenceHash: "h",
+          modelName: null,
+          verificationStatus: "pass",
+          createdAt: "2026-07-30T10:05:00.000Z",
+        },
+      ],
+    })
+  }
+
+  it("offers its save to the publish bar only while there are edits", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: draftedReview(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+        <SaveProbe />
+      </Host>
+    )
+    expect(
+      screen.queryByRole("button", { name: "Probe save" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.type(screen.getByRole("textbox", { name: "Your reply" }), "!")
+    await user.click(screen.getByRole("button", { name: "Probe save" }))
+    expect(mutateAsync).toHaveBeenCalledWith({
+      body: "Seed!",
+      tone: "warm_professional",
+    })
+  })
+
+  it("says the text cannot be saved while it is empty", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: draftedReview(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+        <SaveProbe />
+      </Host>
+    )
+    await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    await user.clear(screen.getByRole("textbox", { name: "Your reply" }))
+    expect(screen.getByRole("button", { name: "Probe save" })).toBeDisabled()
+  })
+
+  it("generates a first draft in the default tone when `g` asks", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: reviewWith(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+      </Host>
+    )
+    fireEvent(window, new Event(REPLY_GENERATE_EVENT))
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+    )
+  })
+
+  it("leaves an existing draft alone when `g` asks", () => {
+    const mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+    vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+      data: draftedReview(),
+    } as UseQueryResult<ReviewDetail>)
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation(mutateAsync)
+    )
+    vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
+    render(
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+      </Host>
+    )
+    fireEvent(window, new Event(REPLY_GENERATE_EVENT))
+    expect(mutateAsync).not.toHaveBeenCalled()
   })
 })

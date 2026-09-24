@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   ChevronRightIcon,
   CircleCheckIcon,
@@ -30,7 +30,8 @@ import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { REPLY_FOCUS_EVENT } from "@/lib/inbox/events"
+import { REPLY_FOCUS_EVENT, REPLY_GENERATE_EVENT } from "@/lib/inbox/events"
+import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
 import { actorFor } from "@/lib/inbox/lifecycle"
 import { replyWork } from "@/lib/inbox/review-situation"
 import { formatRelativeTime } from "@/lib/format"
@@ -65,6 +66,8 @@ const TONES = [
 
 type Tone = (typeof TONES)[number]["value"]
 
+const DEFAULT_TONE: Tone = "warm_professional"
+
 // `review_draft.source` (supabase/migrations/0001_initial.sql). Who wrote the
 // words matters when you are about to put them on a public profile under the
 // business's name, and the pane never used to say.
@@ -76,14 +79,6 @@ const PROVENANCE: Record<string, string> = {
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
-}
-
-function saveShortcutLabel(): string {
-  if (typeof navigator === "undefined") return "Ctrl+Enter"
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ||
-    /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    ? "⌘↵"
-    : "Ctrl+Enter"
 }
 
 function ReplyComposer({ reviewId }: { reviewId: string }) {
@@ -103,7 +98,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const guardKey = `inbox:reply:${reviewId}`
   const fieldId = useId()
   const [body, setBody] = useState("")
-  const [tone, setTone] = useState<Tone>("warm_professional")
+  const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
   const [confirmOpen, setConfirmOpen] = useState(false)
   // The composer opens closed. A saved reply is something to READ first — the
   // pane's job is "is this reply right?", and a textarea answers a different
@@ -123,7 +118,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     snapshot: () => body,
     askConfirm: askDiscard,
   })
-  useRegisterDirtyGuard(isDirty, confirmDiscard)
 
   // Seed the textbox once per review, then follow the server only while there
   // is nothing of the operator's own to lose. A stashed draft from a forced
@@ -186,6 +180,48 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const verify = useVerifyDraft(reviewId)
   const toasts = useToastManager()
+
+  // The publish bar's "Save & check" runs this composer's own save, through
+  // the dirty store it already reads, so there is one save and one set of
+  // rules for it. The reason it cannot run is said in words on the bar.
+  const saveBlocked = !editableNow
+    ? review?.capabilities.canEdit
+      ? "A publish for this reply is under way."
+      : "You do not have permission to edit this reply."
+    : body.trim() === ""
+      ? "Write the reply before saving it."
+      : byteLength(body) > BYTE_LIMIT
+        ? "Shorten the reply to fit Google's length limit."
+        : null
+  const saveRef = useRef<() => void>(() => {})
+  const runSave = useCallback(() => saveRef.current(), [])
+  useRegisterDirtyGuard(isDirty, confirmDiscard, {
+    save: runSave,
+    blockedReason: saveBlocked,
+    saving: generateOrSave.isPending,
+  })
+
+  // `g`: a first draft in the default tone, when there is nothing to lose —
+  // no saved draft, no live reply and nothing typed. Like `r`, the key only
+  // asks; whether it is allowed is decided here.
+  const generateRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    saveRef.current = () => {
+      if (saveBlocked || generateOrSave.isPending) return
+      void onSave()
+    }
+    generateRef.current = () => {
+      if (!editableNow || generateOrSave.isPending || !review) return
+      if (review.drafts.length > 0 || liveBody !== null || body !== "") return
+      setTone(DEFAULT_TONE)
+      void runGenerate(DEFAULT_TONE)
+    }
+  })
+  useEffect(() => {
+    const onGenerate = () => generateRef.current()
+    window.addEventListener(REPLY_GENERATE_EVENT, onGenerate)
+    return () => window.removeEventListener(REPLY_GENERATE_EVENT, onGenerate)
+  }, [])
 
   const generateLabel = useMemo(
     () =>
@@ -343,7 +379,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       role="radiogroup"
       aria-label="Reply tone"
       aria-describedby={`${fieldId}-tone-hint`}
-      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 pointer-coarse:h-10 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%]"
+      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%] pointer-coarse:h-10"
     >
       {TONES.map((option) => {
         const selected = tone === option.value
@@ -404,8 +440,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       >
         {heading}
         <p className="text-ui text-ink-secondary">
-          Choose a starting point. You can edit every word before it is
-          checked.
+          Choose a starting point. You can edit every word before it is checked.
         </p>
         <div
           role="group"
@@ -430,7 +465,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                   void runGenerate(option.value)
                 }}
                 className={cn(
-                  "flex flex-col gap-1.5 rounded-(--np-radius-card) border border-line bg-surface-sunken p-3.5 text-left focus-halo transition-[background-color,border-color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60",
+                  "flex flex-col gap-1.5 rounded-(--np-radius-card) border border-line bg-surface-sunken p-3.5 text-left focus-halo transition-[background-color,border-color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt",
                   busy && "animate-pulse"
                 )}
               >
@@ -642,7 +677,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {canEdit && canDraft && !showPreview ? (
           <span
             id={`${fieldId}-hint`}
-            className="inline-flex items-center gap-1.5 pointer-coarse:hidden max-md:hidden"
+            className="inline-flex items-center gap-1.5 max-md:hidden pointer-coarse:hidden"
           >
             <Kbd>{shortcut}</Kbd> save
           </span>

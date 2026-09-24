@@ -12,7 +12,12 @@ import type {
 } from "@/lib/api/reviews"
 import type { ReviewCounts } from "@/lib/contracts/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
-import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
+import {
+  PRIMARY_ACTION_EVENT,
+  PUBLISH_PULSE_EVENT,
+  PUBLISH_PULSE_MS,
+  REPLY_GENERATE_EVENT,
+} from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as reviewsHook from "@/lib/queries/use-reviews"
@@ -640,13 +645,38 @@ describe("InboxView — shortcuts dialog", () => {
     })
     expect(within(dialog).getByText("Next review")).toBeInTheDocument()
     expect(within(dialog).getByText("Write a reply")).toBeInTheDocument()
-    // `a` and `e` have no binding in the inbox; listing them would promise
-    // a key that does nothing.
     expect(
-      within(dialog).queryByText("Approve and publish")
-    ).not.toBeInTheDocument()
+      within(dialog).getByText("Generate a first draft")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText("Press the publish bar's main button")
+    ).toBeInTheDocument()
+    // `e` has no binding in the inbox; listing it would promise a key that
+    // does nothing.
     expect(
       within(dialog).queryByText("Assign to a colleague")
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("InboxView — a and g", () => {
+  it("asks the publish bar to press its main button on `a`", async () => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(PRIMARY_ACTION_EVENT, listener)
+    renderInbox()
+    await user.keyboard("a")
+    window.removeEventListener(PRIMARY_ACTION_EVENT, listener)
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks the composer for a first draft on `g`", async () => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(REPLY_GENERATE_EVENT, listener)
+    renderInbox()
+    await user.keyboard("g")
+    window.removeEventListener(REPLY_GENERATE_EVENT, listener)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })

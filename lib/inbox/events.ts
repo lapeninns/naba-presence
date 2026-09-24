@@ -18,13 +18,6 @@ export function isAdvancingOutcome(
 }
 
 /**
- * Asks the open composer to save and check its unsaved edits — what the
- * publish bar's "Save & check" does. The composer owns the text and the save
- * mutation, so the bar asks rather than saving a copy of its own.
- */
-export const REPLY_SAVE_EVENT = "inbox:save-reply"
-
-/**
  * Asks the open composer to generate a draft in the default tone — what `g`
  * does. Like `r`, the composer decides whether that is allowed.
  */
