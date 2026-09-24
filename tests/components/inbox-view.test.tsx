@@ -6,10 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
-import type { ReviewDetail as ReviewDetailData, ReviewRow } from "@/lib/api/reviews"
+import type {
+  ReviewDetail as ReviewDetailData,
+  ReviewRow,
+} from "@/lib/api/reviews"
 import type { ReviewCounts } from "@/lib/contracts/reviews"
 import { __resetDraftSources } from "@/lib/api/draft-stash"
-import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
+import {
+  PRIMARY_ACTION_EVENT,
+  PUBLISH_PULSE_EVENT,
+  PUBLISH_PULSE_MS,
+  REPLY_GENERATE_EVENT,
+} from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as reviewsHook from "@/lib/queries/use-reviews"
@@ -23,17 +31,27 @@ const replace = vi.fn()
 // a fresh instance per call would make every `useMemo([searchParams])` in
 // `InboxViewInner` recompute every render, which is unnecessary noise here.
 const INITIAL_PARAMS = new URLSearchParams("selected=rev-1&rating=4")
+let currentParams = INITIAL_PARAMS
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
-  useSearchParams: () => INITIAL_PARAMS,
+  useSearchParams: () => currentParams,
 }))
 
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",
-    location: { id: "loc-1", name: "Riverside", clientId: "c1", clientName: "Old Crown Group" },
-    reviewer: { displayName: "Sam Traveller", isAnonymous: false, profilePhotoUrl: null },
+    location: {
+      id: "loc-1",
+      name: "Riverside",
+      clientId: "c1",
+      clientName: "Old Crown Group",
+    },
+    reviewer: {
+      displayName: "Sam Traveller",
+      isAnonymous: false,
+      profilePhotoUrl: null,
+    },
     rating: 4,
     text: "Great stay, would return.",
     detectedLanguageCode: "en",
@@ -50,7 +68,11 @@ function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
     googlePolicyViolation: null,
     replyBody: null,
     syncStatus: "succeeded",
-    capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+    capabilities: {
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+    },
     ...overrides,
   }
 }
@@ -89,7 +111,11 @@ function reviewDetail(): ReviewDetailData {
       ],
       reply: null,
       timeline: [],
-      capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+      capabilities: {
+        canPublish: true,
+        canEdit: true,
+        canRequestApproval: false,
+      },
       latestVerification: null,
     },
   }
@@ -114,6 +140,7 @@ beforeEach(() => {
   sessionStorage.clear()
   push.mockClear()
   replace.mockClear()
+  currentParams = INITIAL_PARAMS
 
   // jsdom does not implement matchMedia; the auto-select effect's isDesktop
   // check calls it unconditionally. `selected` is already set in every test
@@ -134,7 +161,10 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
   vi.spyOn(countsHook, "useReviewCounts").mockReturnValue({
-    data: { total: 1, byStatus: {}, byQueue: {
+    data: {
+      total: 1,
+      byStatus: {},
+      byQueue: {
         needs_reply: 0,
         approval: 0,
         awaiting_my_approval: 0,
@@ -143,7 +173,8 @@ beforeEach(() => {
         failed: 0,
         done: 0,
         all: 0,
-      } },
+      },
+    },
   } as unknown as UseQueryResult<ReviewCounts>)
 
   vi.spyOn(connHealthHook, "useConnectionHealth").mockReturnValue({
@@ -157,7 +188,9 @@ beforeEach(() => {
     data: reviewDetail(),
   } as UseQueryResult<ReviewDetailData>)
 
-  vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(mockMutation())
+  vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+    mockMutation()
+  )
   vi.spyOn(draftMutations, "useVerifyDraft").mockReturnValue(mockMutation())
 })
 
@@ -186,29 +219,55 @@ async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
   return textbox
 }
 
+// A filter change narrows the list and leaves a dirty reply open: the
+// discard confirm used to pop up a moment after a debounced search keystroke,
+// for an edit the search had no reason to touch.
+describe("InboxView — filters keep a dirty reply open", () => {
+  it("applies a filter change without a prompt and keeps the selection", async () => {
+    const user = userEvent.setup()
+    renderInbox()
+    const textbox = await dirtyComposer(user)
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove rating filter" })
+    )
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(replace.mock.calls[0][0]).not.toContain("rating=")
+    expect(textbox).toHaveValue("Seed extra")
+  })
+
+  it("clears all filters without a prompt and keeps the selection", async () => {
+    const user = userEvent.setup()
+    renderInbox()
+    const textbox = await dirtyComposer(user)
+
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(textbox).toHaveValue("Seed extra")
+  })
+
+  it("drops the selection on a filter change when nothing is unsaved", async () => {
+    const user = userEvent.setup()
+    renderInbox()
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove rating filter" })
+    )
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).not.toContain("selected=")
+  })
+})
+
 // Each of these nav affordances drops `selected` from the URL, which would
 // unmount the (dirty) composer — Task 6 fix round 1: every one must gate
 // through the same dirtyGate() used by onSelect, prompting the discard
 // AlertDialog and aborting on "Keep editing" so the edit and the selection
 // both survive.
 describe("InboxView — dirty-guard gates nav that clears the selection", () => {
-  it("gates a filter change (removing the active rating chip)", async () => {
-    const user = userEvent.setup()
-    renderInbox()
-    const textbox = await dirtyComposer(user)
-
-    await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Keep editing" }))
-    expect(replace).not.toHaveBeenCalled()
-    expect(textbox).toHaveValue("Seed extra")
-
-    await user.click(screen.getByRole("button", { name: "Remove rating filter" }))
-    await user.click(screen.getByRole("button", { name: "Discard" }))
-    expect(replace).toHaveBeenCalledTimes(1)
-    expect(replace.mock.calls[0][0]).not.toContain("selected=")
-  })
-
   it("gates a queue change", async () => {
     // The rail became a tab strip above the workspace, but it keeps the
     // "Review queues" navigation landmark — the queues are still the inbox's
@@ -246,25 +305,27 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
+})
 
-  // Not one of the three named in review, but the same real gap: "Clear all
-  // filters" also omits `selected` from its next state, so it drops the
-  // selection exactly like the explicit `selected: undefined` handlers.
-  it("gates 'Clear all filters'", async () => {
+describe("InboxView — client scope", () => {
+  it("keeps the client filter when the queue changes", async () => {
     const user = userEvent.setup()
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
     renderInbox()
-    const textbox = await dirtyComposer(user)
+    const queues = screen.getByRole("navigation", { name: "Review queues" })
 
-    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Keep editing" }))
-    expect(replace).not.toHaveBeenCalled()
-    expect(textbox).toHaveValue("Seed extra")
-
-    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
-    await user.click(screen.getByRole("button", { name: "Discard" }))
+    await user.click(within(queues).getByRole("button", { name: /^Done/ }))
     expect(replace).toHaveBeenCalledTimes(1)
-    expect(replace.mock.calls[0][0]).not.toContain("selected=")
+    expect(replace.mock.calls[0][0]).toContain("clientId=c1")
+    expect(replace.mock.calls[0][0]).toContain("queue=done")
+  })
+
+  it("scopes the queue counts to the client in view", () => {
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    renderInbox()
+    expect(countsHook.useReviewCounts).toHaveBeenCalledWith({
+      clientId: "c1",
+    })
   })
 })
 
@@ -287,7 +348,9 @@ describe("InboxView — list fetch failure", () => {
 
     renderInbox()
 
-    expect(screen.getByText("We could not load your reviews.")).toBeInTheDocument()
+    expect(
+      screen.getByText("We could not load your reviews.")
+    ).toBeInTheDocument()
     expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(refetch).toHaveBeenCalledTimes(1)
@@ -325,10 +388,79 @@ describe("InboxView — next and previous review", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
     renderInbox()
-    expect(screen.getByRole("button", { name: "Previous review" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Previous review" })
+    ).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "Next review" }))
-    expect(push).toHaveBeenCalled()
-    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+    // Replace, not push: stepping through a queue must not leave one history
+    // entry per review between the operator and the page they came from.
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalled()
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+})
+
+describe("InboxView — history", () => {
+  it("pushes when a phone opens a review from the list, so Back returns to it", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const view = renderInbox()
+
+    const rowButton = view.container.querySelector<HTMLButtonElement>(
+      '[data-slot="review-row"]'
+    )
+    await user.click(rowButton!)
+    expect(replace).not.toHaveBeenCalled()
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push.mock.calls[0][0]).toContain("selected=rev-1")
+  })
+
+  it("replaces when a row is chosen beside an open review", async () => {
+    const user = userEvent.setup()
+    const view = renderInbox()
+
+    const rowButton = view.container.querySelector<HTMLButtonElement>(
+      '[data-slot="review-row"]'
+    )
+    await user.click(rowButton!)
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("InboxView — row count announcement", () => {
+  it("announces the count for a filter set once, not again as more rows load", () => {
+    const view = renderInbox()
+    const status = () =>
+      view.container.querySelector<HTMLElement>(
+        '[data-slot="inbox-list-pane"] [role="status"]'
+      )
+    expect(status()).toHaveTextContent("1 review")
+
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          { items: [row()], nextCursor: "c" },
+          { items: [row({ id: "rev-2" })], nextCursor: null },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    // The visible count follows the rows; the spoken one stays put.
+    expect(screen.getByText("2 reviews")).toBeInTheDocument()
+    expect(status()).toHaveTextContent("1 review")
   })
 })
 
@@ -355,10 +487,10 @@ describe("InboxView — publish pulse, then advance", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
   }
 
-  function publish(reviewId: string) {
+  function publish(reviewId: string, status?: "published" | "pending") {
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId } })
+        new CustomEvent(PUBLISH_PULSE_EVENT, { detail: { reviewId, status } })
       )
     })
   }
@@ -376,17 +508,55 @@ describe("InboxView — publish pulse, then advance", () => {
 
     publish("rev-1")
     // Still on rev-1 while the strip is pulsing.
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
     await act(async () => {
       vi.advanceTimersByTime(PUBLISH_PULSE_MS - 1)
     })
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
 
     await act(async () => {
       vi.advanceTimersByTime(1)
     })
-    expect(push).toHaveBeenCalledTimes(1)
-    expect(push.mock.calls[0][0]).toContain("selected=rev-2")
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("says what happened and where the operator now is", async () => {
+    twoReviews()
+    const view = renderInbox()
+
+    publish("rev-1", "pending")
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS)
+    })
+    expect(
+      view.container.querySelector('[data-slot="inbox-advance-status"]')
+    ).toHaveTextContent(
+      "Reply sent to Google. Now showing Sam Traveller's review."
+    )
+  })
+
+  it("moves focus to the new review's name after the advance", async () => {
+    twoReviews()
+    const view = renderInbox()
+
+    publish("rev-1")
+    await act(async () => {
+      vi.advanceTimersByTime(PUBLISH_PULSE_MS)
+    })
+    // The router is a mock, so the URL does not move; re-render as if it had.
+    currentParams = new URLSearchParams("selected=rev-2&rating=4")
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    expect(
+      view.container.querySelector('[data-slot="review-heading"]')
+    ).toHaveFocus()
   })
 
   it("ignores a publish for a review that is not the selected one", async () => {
@@ -398,6 +568,7 @@ describe("InboxView — publish pulse, then advance", () => {
       vi.advanceTimersByTime(PUBLISH_PULSE_MS)
     })
     expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("subscribes to the publish event once, not on every render", () => {
@@ -474,13 +645,38 @@ describe("InboxView — shortcuts dialog", () => {
     })
     expect(within(dialog).getByText("Next review")).toBeInTheDocument()
     expect(within(dialog).getByText("Write a reply")).toBeInTheDocument()
-    // `a` and `e` have no binding in the inbox; listing them would promise
-    // a key that does nothing.
     expect(
-      within(dialog).queryByText("Approve and publish")
-    ).not.toBeInTheDocument()
+      within(dialog).getByText("Generate a first draft")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText("Press the publish bar's main button")
+    ).toBeInTheDocument()
+    // `e` has no binding in the inbox; listing it would promise a key that
+    // does nothing.
     expect(
       within(dialog).queryByText("Assign to a colleague")
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("InboxView — a and g", () => {
+  it("asks the publish bar to press its main button on `a`", async () => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(PRIMARY_ACTION_EVENT, listener)
+    renderInbox()
+    await user.keyboard("a")
+    window.removeEventListener(PRIMARY_ACTION_EVENT, listener)
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks the composer for a first draft on `g`", async () => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(REPLY_GENERATE_EVENT, listener)
+    renderInbox()
+    await user.keyboard("g")
+    window.removeEventListener(REPLY_GENERATE_EVENT, listener)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })

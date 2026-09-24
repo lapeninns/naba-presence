@@ -455,6 +455,8 @@ export const reviewDetailSchema = z.object({
         googleReplyState: z.string().nullable(),
         googlePolicyViolation: z.string().nullable(),
         googleReplyUpdatedAt: z.string().nullable(),
+        /** The newest publish attempt's provider error code, if any. */
+        lastErrorCode: z.string().nullable().optional(),
       })
       .nullable(),
     timeline: z.array(

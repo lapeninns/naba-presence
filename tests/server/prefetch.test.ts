@@ -199,10 +199,9 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("inboxPrefetch targets the counts and analytics keys the Today strip reads", () => {
+  it("inboxPrefetch targets the unscoped counts key the queue badges read", () => {
     expect(inboxPrefetch()(session).map((entry) => entry.queryKey)).toEqual([
       queryKeys.reviewCounts("organisation"),
-      queryKeys.analytics("overview", { window: "last-30-days" }),
     ])
   })
 

@@ -122,6 +122,21 @@ export function hasActiveFilters(state: InboxState): boolean {
   )
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * The "To" date picks a whole day, but it is stored as that day's midnight,
+ * and the list used to stop there — so "To: 3 July" left out everything that
+ * happened on 3 July. A day-only bound becomes the start of the next day,
+ * which the query treats as exclusive. A precise instant (a hand-edited link)
+ * is left as it is.
+ */
+function endOfDayBound(dateTo: string | undefined): string | undefined {
+  if (!dateTo || !/T00:00:00(\.000)?Z$/.test(dateTo)) return dateTo
+  const start = Date.parse(dateTo)
+  return Number.isNaN(start) ? dateTo : new Date(start + DAY_MS).toISOString()
+}
+
 function nonEmpty<T>(values: T[]): T[] | undefined {
   return values.length ? values : undefined
 }
@@ -143,7 +158,7 @@ export function toReviewsFilters(
   const range =
     state.age && !explicitRange
       ? ageRange(state.age, options.now ?? Date.now())
-      : { dateFrom: state.dateFrom, dateTo: state.dateTo }
+      : { dateFrom: state.dateFrom, dateTo: endOfDayBound(state.dateTo) }
   return {
     queue: state.queue,
     clientId: state.clientId,

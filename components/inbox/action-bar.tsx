@@ -1,12 +1,13 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import {
   CheckIcon,
   CloudUploadIcon,
   MoreHorizontalIcon,
   RotateCwIcon,
   SendHorizonalIcon,
+  ShieldCheckIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
@@ -20,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
-import { useIsDirty } from "@/components/inbox/dirty-context"
+import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
 import { derivePrimaryAction, publishableDraft } from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -37,7 +39,16 @@ import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
-import { PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
+import { publishFailureCause } from "@/lib/inbox/publish-failure"
+import {
+  isAdvancingOutcome,
+  PRIMARY_ACTION_EVENT,
+  PUBLISH_PULSE_EVENT,
+  type PublishPulseDetail,
+} from "@/lib/inbox/events"
+import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
+import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
+import { cn } from "@/lib/utils"
 
 const REJECT_NOTE_LIMIT = 2000
 
@@ -62,9 +73,32 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // Publish disables with "Save your draft before publishing" while the
   // on-screen text differs from the persisted verified draft (LOCKED #4).
   const isDirty = useIsDirty()
+  // While the reply holds unsaved edits, the composer offers its own save.
+  const composerSave = useComposerSave()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectNote, setRejectNote] = useState("")
+
+  // `a` presses whichever button is the bar's main one — by clicking it, so a
+  // key can never do what the button, as it stands, would not.
+  const primaryRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    function onPrimaryAction() {
+      const button = primaryRef.current
+      if (
+        !button ||
+        button.disabled ||
+        button.getAttribute("aria-disabled") === "true" ||
+        button.getAttribute("aria-busy") === "true"
+      ) {
+        return
+      }
+      button.click()
+    }
+    window.addEventListener(PRIMARY_ACTION_EVENT, onPrimaryAction)
+    return () =>
+      window.removeEventListener(PRIMARY_ACTION_EVENT, onPrimaryAction)
+  }, [])
 
   const review = detail.data?.review
   if (!review) return null
@@ -112,28 +146,29 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // the reply) or any other non-published outcome can never render as
       // "published" (fix-round-1 CRITICAL #1).
       toasts.add(describeOutcomeToast(result.status))
-      if (result.status === "published") {
-        window.dispatchEvent(
-          new CustomEvent(PUBLISH_PULSE_EVENT, {
-            detail: { reviewId: review.id },
-          })
-        )
-      }
+      // `pending` moves on too: Google has the reply, nothing more can be
+      // done to it here, and waiting on it left the operator parked on a
+      // review whose only button read "Publishing…".
+      if (isAdvancingOutcome(result.status)) announceOutcome(result.status)
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
+  }
+
+  const announceOutcome = (status: "published" | "pending") => {
+    window.dispatchEvent(
+      new CustomEvent<PublishPulseDetail>(PUBLISH_PULSE_EVENT, {
+        detail: { reviewId: review.id, status },
+      })
+    )
   }
 
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
     try {
       const result = await approval.mutateAsync({ decision, note })
       toasts.add(describeOutcomeToast(result.status))
-      if (result.status === "published") {
-        window.dispatchEvent(
-          new CustomEvent(PUBLISH_PULSE_EVENT, {
-            detail: { reviewId: review.id },
-          })
-        )
+      if (decision === "approve" && isAdvancingOutcome(result.status)) {
+        announceOutcome(result.status)
       }
       if (decision === "reject") {
         setRejectOpen(false)
@@ -166,14 +201,25 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // A publish already with Google: nothing to press until it answers. Said
   // as what is happening, from the review's own status — never "Live".
   const inFlight = review.workflowStatus === "publish_requested"
+  // Unsaved edits in front of a publish or a submit: the next step is to save
+  // them and let the checks run, so that is what the main button does rather
+  // than sitting there disabled. An approval is decided on the saved reply
+  // whatever the composer holds, so it keeps its Approve.
+  const saveFirst = !inFlight && !awaitingApproval && composerSave !== null
   const blockedReason = inFlight
     ? "Sent to Google — waiting for Google to confirm."
-    : primary.reason
+    : saveFirst
+      ? (composerSave.blockedReason ??
+        "Your edits are checked when you save. Then you can publish.")
+      : primary.reason
 
   // A failed publish is retried with the same verified draft: the same
-  // mutation, named for what it does from here.
+  // mutation, named for what it does from here. Not when Google refused the
+  // words — sending them again unchanged is not a retry, and the exception
+  // above says to edit them.
   const retry =
     review.workflowStatus === "failed" &&
+    publishFailureCause(review.reply) !== "content" &&
     (primary.kind === "publish" || primary.kind === "update")
 
   return (
@@ -181,7 +227,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       {blockedReason ? (
         <p
           id={reasonId}
-          className="min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right"
+          className={cn(
+            "min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right",
+            TYPING_COLLAPSE_CLASS
+          )}
         >
           {blockedReason}
         </p>
@@ -197,6 +246,30 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           >
             Publishing…
           </Button>
+        ) : saveFirst ? (
+          <Button
+            ref={primaryRef}
+            className={PRIMARY_CLASS}
+            disabled={composerSave.blockedReason !== null}
+            pending={composerSave.saving}
+            pendingLabel="Saving and checking…"
+            aria-describedby={reasonId}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            onClick={composerSave.save}
+          >
+            <ShieldCheckIcon
+              aria-hidden
+              strokeWidth={1.75}
+              data-icon="inline-start"
+            />
+            Save & check
+            <Kbd
+              aria-hidden
+              className="ml-1 max-md:hidden pointer-coarse:hidden"
+            >
+              {saveShortcutLabel()}
+            </Kbd>
+          </Button>
         ) : awaitingApproval ? (
           <>
             <Button
@@ -211,6 +284,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Reject reply
             </Button>
             <Button
+              ref={primaryRef}
               className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
               title={primary.reason}
@@ -227,6 +301,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </>
         ) : offerRequestApproval ? (
           <Button
+            ref={primaryRef}
             className={PRIMARY_CLASS}
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}
@@ -242,6 +317,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         ) : (
           <Button
+            ref={primaryRef}
             className={PRIMARY_CLASS}
             disabled={!primary.enabled || publish.isPending}
             title={blockedReason}

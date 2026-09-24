@@ -10,6 +10,7 @@ describe("resolveAction", () => {
     expect(press("j")).toBe("next")
     expect(press("k")).toBe("previous")
     expect(press("r")).toBe("reply")
+    expect(press("g")).toBe("generate")
     expect(press("a")).toBe("approve")
     expect(press("e")).toBe("assign")
     expect(press("Escape")).toBe("clear-selection")
@@ -25,7 +26,7 @@ describe("resolveAction", () => {
   it("stays silent while someone is typing", () => {
     // `a` in the middle of a reply must not publish it — the worst thing a
     // shortcut layer can do in an app whose main job is writing text.
-    for (const key of ["a", "j", "r", "x", "?"]) {
+    for (const key of ["a", "g", "j", "r", "x", "?"]) {
       expect(resolveAction({ key }, { isTyping: true })).toBeNull()
     }
   })
@@ -43,7 +44,7 @@ describe("resolveAction", () => {
 
   it("has a documented shortcut for every action it resolves", () => {
     const documented = new Set(SHORTCUTS.map((shortcut) => shortcut.action))
-    for (const key of ["j", "k", "r", "/", "a", "e", "x", "Escape", "?"]) {
+    for (const key of ["j", "k", "r", "g", "/", "a", "e", "x", "Escape", "?"]) {
       const action = press(key)
       expect(action).not.toBeNull()
       expect(documented.has(action!)).toBe(true)

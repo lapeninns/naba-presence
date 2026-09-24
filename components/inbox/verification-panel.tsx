@@ -149,7 +149,12 @@ function VerificationChecks({
       aria-labelledby={headingId}
       data-slot="verification-checks"
       data-verdict={verdict}
-      className={cn("flex flex-col gap-2.5", className)}
+      // Focusable from the composer's "N issues to fix" caption.
+      tabIndex={-1}
+      className={cn(
+        "flex scroll-mt-4 flex-col gap-2.5 rounded-(--np-radius-control) focus-halo focus-visible:outline-none",
+        className
+      )}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <h3 id={headingId} className="text-ui font-semibold text-ink">

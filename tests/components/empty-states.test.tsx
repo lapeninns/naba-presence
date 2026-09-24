@@ -53,6 +53,48 @@ describe("EmptyState", () => {
     ).toHaveAttribute("href", "/settings/connections")
   })
 
+  it.each([
+    ["failed", "No failed publishes."],
+    ["approval", "Nothing is waiting for approval."],
+    ["awaiting_my_approval", "Nothing is waiting for approval."],
+    ["publishing", "Nothing is on its way to Google."],
+    ["done", "Nothing published yet."],
+    ["needs_reply", "Nothing needs a reply."],
+  ] as const)("words an empty %s queue as that queue", (queue, title) => {
+    render(<EmptyState reason="queue_empty" queue={queue} />)
+    expect(screen.getByText(title)).toBeInTheDocument()
+  })
+
+  it("offers the next queue with work in it", async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    render(
+      <EmptyState
+        reason="queue_empty"
+        queue="failed"
+        nextQueue={{ label: "Needs reply", count: 4, onSelect }}
+      />
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Go to Needs reply (4)" })
+    )
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it("sends an owner or admin straight to adding a first client", () => {
+    render(<EmptyState reason="no_clients" canManageClients />)
+    expect(screen.getByRole("link", { name: "Add a client" })).toHaveAttribute(
+      "href",
+      "/clients/new"
+    )
+  })
+
+  it("tells a member who can add a client instead of linking to a page they cannot use", () => {
+    render(<EmptyState reason="no_clients" />)
+    expect(screen.getByText(/Ask an owner or admin/)).toBeInTheDocument()
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+  })
+
   it("clears filters on request", async () => {
     const user = userEvent.setup()
     const onClear = vi.fn()

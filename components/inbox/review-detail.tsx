@@ -30,7 +30,9 @@ import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { StarRating } from "@/components/inbox/star-rating"
+import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
+import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useIsDirty } from "@/components/inbox/dirty-context"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
 import { deriveLifecycle } from "@/lib/inbox/lifecycle"
@@ -124,13 +126,24 @@ function ReviewHead({
   clientName,
   clientId,
   navigation,
+  focusHeading = false,
 }: {
   review: Review
   clientName?: string | null
   clientId?: string | null
   navigation?: ReactNode
+  focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
+  // Focus lands on the name once, when this review is where an advance
+  // arrived. The pane is keyed on the review, so "once" is once per review.
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focusHeading || focused.current) return
+    focused.current = true
+    headingRef.current?.focus()
+  }, [focusHeading])
 
   return (
     <>
@@ -142,7 +155,12 @@ function ReviewHead({
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink max-md:text-[18px]">
+          <h2
+            ref={headingRef}
+            tabIndex={-1}
+            data-slot="review-heading"
+            className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink focus-visible:outline-none max-md:text-[18px]"
+          >
             {displayName}
           </h2>
         </div>
@@ -171,7 +189,7 @@ function ReviewHead({
           aria-label="Open listing"
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),
-            "@max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0 max-md:size-11"
+            "max-md:size-11 @max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0"
           )}
         >
           <ExternalLinkIcon aria-hidden data-icon="inline-start" />
@@ -262,7 +280,7 @@ function ReviewBody({ review }: { review: Review }) {
               size="xs"
               aria-expanded={showOriginal}
               onClick={() => setShowOriginal((value) => !value)}
-              className="h-auto p-0 text-caption"
+              className="h-auto p-0 text-caption pointer-coarse:min-h-(--np-touch)"
             >
               {showOriginal ? "Hide original" : "Show original"}
             </Button>
@@ -709,6 +727,15 @@ function ReviewThread({
           >
             {formatRelativeTime(review.createTime)}
           </time>
+          {wasEdited(review.createTime, review.updateTime) ? (
+            <time
+              dateTime={review.updateTime}
+              title={formatDateTime(review.updateTime, review.timezone)}
+              className="font-mono text-caption text-ink-muted tabular-nums"
+            >
+              · edited {formatRelativeTime(review.updateTime)}
+            </time>
+          ) : null}
           {/* Where the review came from, with the review it describes. */}
           <span className="-my-1 ml-auto">
             <ReviewMetadata review={review} />
@@ -782,6 +809,7 @@ function ReviewDetail({
   navigation,
   composer,
   actions,
+  focusHeading = false,
 }: {
   reviewId: string
   /** The client the review's location belongs to, from the list row. */
@@ -798,6 +826,8 @@ function ReviewDetail({
   composer?: ReactNode
   /** The applicable primary action, pinned at the foot so it never scrolls away. */
   actions?: ReactNode
+  /** Move focus to the reviewer's name once it loads (after an advance). */
+  focusHeading?: boolean
 }) {
   const query = useReviewDetail(reviewId)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -812,7 +842,7 @@ function ReviewDetail({
   return (
     <div
       aria-busy={pending || undefined}
-      className="@container/detail flex min-h-0 flex-1 flex-col"
+      className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
     >
       <HeadFrame
         leading={leading}
@@ -830,6 +860,7 @@ function ReviewDetail({
             clientName={clientName}
             clientId={clientId}
             navigation={navigation}
+            focusHeading={focusHeading}
           />
         ) : (
           <>
@@ -896,7 +927,12 @@ function ReviewDetail({
 
       {review ? (
         <footer data-slot="composer-footer" className={FOOTER_CLASS}>
-          <div className="flex min-w-0 flex-[1_1_220px] items-center">
+          <div
+            className={cn(
+              "flex min-w-0 flex-[1_1_220px] items-center",
+              TYPING_COLLAPSE_CLASS
+            )}
+          >
             <ReplyStatusStrip review={review} />
           </div>
           {actions ? (

@@ -75,7 +75,7 @@ function InboxToolbar({
             Inbox
           </h1>
           <p className="min-w-0 truncate text-[13px] text-ink-muted max-xl:hidden">
-            Nothing reaches Google until a verified reply is published.
+            Only verified replies reach Google.
           </p>
         </div>
 

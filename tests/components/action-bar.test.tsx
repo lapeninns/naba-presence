@@ -7,6 +7,7 @@ import { ActionBar } from "@/components/inbox/action-bar"
 import {
   DirtyGuardProvider,
   useRegisterDirtyGuard,
+  type ComposerSave,
 } from "@/components/inbox/dirty-context"
 import { Toaster } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -15,6 +16,7 @@ import * as detailHook from "@/lib/queries/use-review-detail"
 import * as publishHook from "@/lib/queries/use-publish-review"
 import * as approvalHook from "@/lib/queries/use-approval-decision"
 import * as deleteHook from "@/lib/queries/use-delete-reply"
+import { PRIMARY_ACTION_EVENT, PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
   return {
@@ -64,15 +66,15 @@ function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutati
 // ActionBar calls useToastManager() (needs a <Toaster> ancestor) and useIsDirty()
 // (needs a DirtyGuardProvider). This host supplies both; `dirty` marks the
 // composer dirty so Publish must disable with the save-first reason.
-function DirtyStamp({ dirty }: { dirty: boolean }) {
-  useRegisterDirtyGuard(dirty, async () => true)
+function DirtyStamp({ dirty, save }: { dirty: boolean; save?: ComposerSave }) {
+  useRegisterDirtyGuard(dirty, async () => true, save)
   return null
 }
-function renderActionBar(dirty = false) {
+function renderActionBar(dirty = false, save?: ComposerSave) {
   return render(
     <Toaster>
       <DirtyGuardProvider>
-        <DirtyStamp dirty={dirty} />
+        <DirtyStamp dirty={dirty} save={save} />
         <ActionBar reviewId="rev-1" />
       </DirtyGuardProvider>
     </Toaster>
@@ -112,6 +114,84 @@ describe("ActionBar", () => {
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeDisabled()
     expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
+  })
+
+  // Sending refused words again unchanged is not a retry.
+  it.each([
+    ["google_timeout", "Retry publish"],
+    ["INVALID_ARGUMENT", "Publish reply"],
+  ])("names the failed-publish button by its cause (%s)", (lastErrorCode, name) => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "failed",
+        reply: {
+          id: "reply-1",
+          body: null,
+          publishStatus: "failed",
+          googleReplyState: null,
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: null,
+          lastErrorCode,
+        },
+      })
+    )
+    renderActionBar()
+    expect(screen.getByRole("button", { name })).toBeInTheDocument()
+  })
+
+  // With the composer's save on offer, unsaved edits turn the main button into
+  // the step that is actually next, rather than a Publish that cannot be used.
+  it("offers Save & check in place of Publish while the composer holds edits", async () => {
+    const user = userEvent.setup()
+    const save = vi.fn()
+    stubHooks(detailWith({}))
+    renderActionBar(true, { save, blockedReason: null, saving: false })
+    expect(screen.queryByRole("button", { name: "Publish reply" })).not.toBeInTheDocument()
+    const button = screen.getByRole("button", { name: "Save & check" })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it("says why Save & check is off when the text cannot be saved", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true, {
+      save: vi.fn(),
+      blockedReason: "Write the reply before saving it.",
+      saving: false,
+    })
+    expect(screen.getByRole("button", { name: "Save & check" })).toBeDisabled()
+    expect(screen.getByText("Write the reply before saving it.")).toBeInTheDocument()
+  })
+
+  it("keeps Approve for an approver whatever the composer holds", () => {
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
+    renderActionBar(true, { save: vi.fn(), blockedReason: null, saving: false })
+    expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Save & check" })).not.toBeInTheDocument()
+  })
+
+  // `a` clicks the bar's main button, so it can never do what the button, as
+  // it stands, would not.
+  it("presses the main button when asked, and only when it is live", async () => {
+    const publish = mutation()
+    stubHooks(detailWith({}), publish)
+    renderActionBar()
+    window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+    await waitFor(() => expect(publish.mutateAsync).toHaveBeenCalledTimes(1))
+  })
+
+  it("ignores the request while the main button is off", () => {
+    const publish = mutation()
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+      }),
+      publish
+    )
+    renderActionBar()
+    window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+    expect(publish.mutateAsync).not.toHaveBeenCalled()
   })
 
   // A `title` attribute is invisible on touch and to most keyboard and
@@ -305,6 +385,32 @@ describe("ActionBar", () => {
       expect(screen.getByText("Google declined this reply")).toBeInTheDocument()
     )
     expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
+  })
+
+  // Google has a `pending` reply and nothing more can be done to it here, so
+  // the inbox moves on exactly as it does for `published`; `rejected` stays.
+  it.each([
+    ["published", true, "Reply published"],
+    ["pending", true, "Reply submitted"],
+    ["rejected", false, "Google declined this reply"],
+  ])("announces a %s outcome to the inbox: %s", async (status, advances, toast) => {
+    const user = userEvent.setup()
+    const listener = vi.fn()
+    window.addEventListener(PUBLISH_PULSE_EVENT, listener)
+    stubHooks(detailWith({}), mutation(vi.fn().mockResolvedValue({ status })))
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    await waitFor(() => expect(screen.getByText(toast)).toBeInTheDocument())
+    window.removeEventListener(PUBLISH_PULSE_EVENT, listener)
+    if (advances) {
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        reviewId: "rev-1",
+        status,
+      })
+    } else {
+      expect(listener).not.toHaveBeenCalled()
+    }
   })
 
   // Fix-round-1 IMPORTANT #3: Reject reverts workflow_status to `drafted` and

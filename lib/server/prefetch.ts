@@ -9,10 +9,6 @@ import {
 import type { ZodType } from "zod"
 
 import {
-  analyticsOverviewSchema,
-  type AnalyticsOverview,
-} from "@/lib/contracts/analytics"
-import {
   listingSummarySchema,
   type ListingSummary,
 } from "@/lib/contracts/location-summary"
@@ -24,13 +20,9 @@ import {
   type SettingsCapabilities,
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
-import {
-  reviewCountsSchema,
-  type ReviewCounts,
-} from "@/lib/contracts/reviews"
+import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
-import { loadAnalyticsOverview } from "@/lib/server/analytics-overview"
 import {
   locationCapabilities,
   settingsCapabilities,
@@ -140,16 +132,6 @@ export async function readReviewCounts(
   return throughWire(reviewCountsSchema, counts)
 }
 
-/** What `useAnalyticsOverview()` (no params, last 30 days) fetches. */
-export async function readAnalyticsOverview(
-  session: Session
-): Promise<AnalyticsOverview> {
-  const overview = await withTenant(session.organisationId, (sql) =>
-    loadAnalyticsOverview(sql, session, { granularity: "day" })
-  )
-  return throughWire(analyticsOverviewSchema, overview)
-}
-
 /** What `useLocationCapabilities(id)` fetches. */
 export async function readLocationCapabilities(
   session: Session,
@@ -206,16 +188,17 @@ export function listingPagePrefetch(
   ]
 }
 
-/** /inbox Today strip: organisation-wide counts and the 30-day analytics overview. */
+/**
+ * /inbox: the queue badges' organisation-wide counts, under the key
+ * `useReviewCounts({ clientId: undefined })` reads. A client-filtered inbox
+ * reads a client-scoped key the page cannot know without the query string,
+ * so that one is fetched in the browser.
+ */
 export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.reviewCounts("organisation"),
       load: () => readReviewCounts(session),
-    },
-    {
-      queryKey: queryKeys.analytics("overview", { window: "last-30-days" }),
-      load: () => readAnalyticsOverview(session),
     },
   ]
 }

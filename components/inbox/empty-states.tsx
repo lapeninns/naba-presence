@@ -14,8 +14,10 @@ import {
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { formatNumber } from "@/lib/format"
 import { formatRelativeTime } from "@/lib/format/date"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
+import { visibleQueue, type Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
 type Content = {
@@ -33,7 +35,40 @@ type Content = {
  * were none — and the second sentence promised an arrival that cannot happen
  * until an import runs.
  */
-function content(reason: EmptyReason, counts: EmptyCounts): Content {
+/**
+ * An empty queue, in that queue's own words. "Nothing needs a reply" over an
+ * empty Failed queue answered a question nobody had asked there.
+ */
+const QUEUE_EMPTY: Record<string, Content> = {
+  needs_reply: {
+    title: "Nothing needs a reply.",
+    description:
+      "Every review in this queue has been dealt with. Choose another queue above to keep working.",
+  },
+  approval: {
+    title: "Nothing is waiting for approval.",
+    description: "Replies submitted for approval appear here.",
+  },
+  publishing: {
+    title: "Nothing is on its way to Google.",
+    description: "Replies sit here between Publish and Google confirming them.",
+  },
+  failed: {
+    title: "No failed publishes.",
+    description: "Every reply sent to Google got there.",
+  },
+  done: {
+    title: "Nothing published yet.",
+    description: "Replies appear here once Google confirms them.",
+  },
+}
+
+function content(
+  reason: EmptyReason,
+  counts: EmptyCounts,
+  queue: Queue | undefined,
+  canManageClients: boolean
+): Content {
   switch (reason) {
     case "filtered":
       return {
@@ -41,11 +76,24 @@ function content(reason: EmptyReason, counts: EmptyCounts): Content {
         description: "Widen or clear them to see the rest of the queue.",
       }
     case "queue_empty":
-      return {
-        title: "Nothing needs a reply.",
-        description:
-          "Every review in this queue has been dealt with. Choose another queue above to keep working.",
-      }
+      return (
+        QUEUE_EMPTY[(queue && visibleQueue(queue)) || "needs_reply"] ??
+        QUEUE_EMPTY.needs_reply
+      )
+    // The first run. Only owners and admins can add a client, so everyone
+    // else is told who can rather than sent to a page that would refuse them.
+    case "no_clients":
+      return canManageClients
+        ? {
+            title: "No clients yet.",
+            description:
+              "Add your first client and link its Google listings. Their reviews arrive here.",
+          }
+        : {
+            title: "No clients yet.",
+            description:
+              "Ask an owner or admin to add a client and link its Google listings. Their reviews will arrive here.",
+          }
     // This state carries the whole message, headline and action included. It
     // used to defer to the shell's ReconnectBanner, but that banner is now
     // client-scoped and the inbox is organisation-wide, so on this screen
@@ -155,6 +203,7 @@ function Statement({
 const ICONS: Record<EmptyReason, React.ReactNode> = {
   filtered: <FilterIcon />,
   queue_empty: <CheckIcon />,
+  no_clients: <InboxIcon />,
   disconnected: <UnlinkIcon />,
   not_connected: <PlugIcon />,
   importing: <LoaderIcon />,
@@ -178,17 +227,39 @@ function EmptyState({
   reason,
   counts = NO_COUNTS,
   onClear,
+  queue,
+  nextQueue,
+  canManageClients = false,
 }: {
   reason: EmptyReason
   counts?: EmptyCounts
   onClear?: () => void
+  /** The queue on screen, for the empty queue's own wording. */
+  queue?: Queue
+  /** The next queue with work in it, offered from an empty one. */
+  nextQueue?: { label: string; count: number; onSelect: () => void }
+  /** Owners and admins, who can add a client. */
+  canManageClients?: boolean
 }) {
-  const { title, description } = content(reason, counts)
+  const { title, description } = content(
+    reason,
+    counts,
+    queue,
+    canManageClients
+  )
   const action =
     reason === "filtered" && onClear ? (
       <Button variant="secondary" onClick={onClear}>
         Clear filters
       </Button>
+    ) : reason === "queue_empty" && nextQueue ? (
+      <Button variant="secondary" onClick={nextQueue.onSelect}>
+        Go to {nextQueue.label} ({formatNumber(nextQueue.count)})
+      </Button>
+    ) : reason === "no_clients" && canManageClients ? (
+      <Link href="/clients/new" className={cn(buttonVariants())}>
+        Add a client
+      </Link>
     ) : reason === "disconnected" ||
       reason === "import_failed" ||
       reason === "never_imported" ||
@@ -207,7 +278,12 @@ function EmptyState({
       description={description}
       action={action}
       icon={ICONS[reason]}
-      tone={TONES[reason] ?? "neutral"}
+      tone={
+        // An empty Done queue is not good news; every other empty queue is.
+        reason === "queue_empty" && queue && visibleQueue(queue) === "done"
+          ? "neutral"
+          : (TONES[reason] ?? "neutral")
+      }
     />
   )
 }

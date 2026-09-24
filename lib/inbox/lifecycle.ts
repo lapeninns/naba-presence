@@ -1,5 +1,18 @@
 import type { ReviewDetail } from "@/lib/contracts/reviews"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
+import {
+  publishFailureCause,
+  type PublishFailureCause,
+} from "@/lib/inbox/publish-failure"
+
+// A timeout or a lost connection is not Google rejecting the reply, and the
+// stage's note should not say it was.
+const FAILED_META: Record<PublishFailureCause, string> = {
+  content: "Google rejected it",
+  connection: "Google connection lost",
+  transient: "Google did not answer",
+  unknown: "Google rejected it",
+}
 
 /**
  * The reply's journey, as five states.
@@ -151,7 +164,7 @@ export function deriveLifecycle(review: Review): LifecycleStep[] {
     meta: isPublished
       ? "Live on Google"
       : failed
-        ? "Google rejected it"
+        ? FAILED_META[publishFailureCause(reply)]
         : status === "publish_requested"
           ? "On its way to Google"
           : undefined,

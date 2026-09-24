@@ -311,7 +311,12 @@ describe("ReviewList", () => {
     render(
       <ReviewList
         reviews={[
-          row({ id: "a", text: "Old", updateTime: "2024-03-04T10:00:00.000Z" }),
+          row({
+            id: "a",
+            text: "Old",
+            createTime: "2024-03-04T10:00:00.000Z",
+            updateTime: "2024-03-04T10:00:00.000Z",
+          }),
         ]}
         selectedId={undefined}
         onSelect={() => true}
@@ -455,9 +460,53 @@ describe("ReviewList", () => {
         onSelect={() => true}
       />
     )
-    expect(screen.getByLabelText("Waiting for approval")).toHaveTextContent(
-      "Awaiting approval"
+    // …and there "Awaiting approval" is all the tab already says, so the
+    // row does not repeat it.
+    expect(screen.queryByLabelText("Waiting for approval")).toBeNull()
+  })
+
+  it("drops a status pill that only repeats the queue it is listed under", () => {
+    const fresh = row({ id: "a", text: "New one" })
+    const { container, rerender } = render(
+      <ReviewList
+        reviews={[fresh]}
+        selectedId={undefined}
+        queue="needs_reply"
+        onSelect={() => true}
+      />
     )
+    expect(container.querySelector('[data-slot="reply-status"]')).toBeNull()
+    rerender(
+      <ReviewList
+        reviews={[fresh]}
+        selectedId={undefined}
+        queue="all"
+        onSelect={() => true}
+      />
+    )
+    expect(
+      container.querySelector('[data-slot="reply-status"]')
+    ).toHaveTextContent("Needs reply")
+  })
+
+  it("dates a row by when it was written, and notes an edit", () => {
+    render(
+      <ReviewList
+        reviews={[
+          row({
+            id: "a",
+            createTime: "2024-03-04T10:00:00.000Z",
+            updateTime: "2024-05-01T10:00:00.000Z",
+          }),
+        ]}
+        selectedId={undefined}
+        onSelect={() => true}
+        timezone="Europe/London"
+      />
+    )
+    const time = screen.getByText(/2024/)
+    expect(time).toHaveAttribute("datetime", "2024-03-04T10:00:00.000Z")
+    expect(time).toHaveTextContent("edited")
   })
 
   // The tick box is only visible on hover or once ticked, so its name is the

@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   ChevronRightIcon,
+  CircleAlertIcon,
   CircleCheckIcon,
   PenLineIcon,
   RotateCcwIcon,
@@ -30,7 +31,8 @@ import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { REPLY_FOCUS_EVENT } from "@/lib/inbox/events"
+import { REPLY_FOCUS_EVENT, REPLY_GENERATE_EVENT } from "@/lib/inbox/events"
+import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
 import { actorFor } from "@/lib/inbox/lifecycle"
 import { replyWork } from "@/lib/inbox/review-situation"
 import { formatRelativeTime } from "@/lib/format"
@@ -43,7 +45,9 @@ import type { LatestVerification } from "@/lib/api/reviews"
 import { cn } from "@/lib/utils"
 
 const BYTE_LIMIT = 4096
-const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.9)
+// The count only appears once it matters: a running "212 / 4,096 bytes"
+// under every reply was a number nobody needed, in a unit nobody writes in.
+const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.8)
 
 const TONES = [
   {
@@ -65,6 +69,8 @@ const TONES = [
 
 type Tone = (typeof TONES)[number]["value"]
 
+const DEFAULT_TONE: Tone = "warm_professional"
+
 // `review_draft.source` (supabase/migrations/0001_initial.sql). Who wrote the
 // words matters when you are about to put them on a public profile under the
 // business's name, and the pane never used to say.
@@ -76,14 +82,6 @@ const PROVENANCE: Record<string, string> = {
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
-}
-
-function saveShortcutLabel(): string {
-  if (typeof navigator === "undefined") return "Ctrl+Enter"
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ||
-    /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    ? "⌘↵"
-    : "Ctrl+Enter"
 }
 
 function ReplyComposer({ reviewId }: { reviewId: string }) {
@@ -103,8 +101,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const guardKey = `inbox:reply:${reviewId}`
   const fieldId = useId()
   const [body, setBody] = useState("")
-  const [tone, setTone] = useState<Tone>("warm_professional")
+  const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // The tone a regenerate waits on while the discard confirm is open: the
+  // Regenerate button's own tone, or the one just chosen on the editor bar.
+  const [pendingTone, setPendingTone] = useState<Tone | null>(null)
+  // A failed generation, said where it happened, with the two ways on.
+  const [generateError, setGenerateError] = useState<{
+    message: string
+    tone: Tone
+  } | null>(null)
   // The composer opens closed. A saved reply is something to READ first — the
   // pane's job is "is this reply right?", and a textarea answers a different
   // question. Editing is entered deliberately, by Edit or by `r`.
@@ -123,7 +129,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     snapshot: () => body,
     askConfirm: askDiscard,
   })
-  useRegisterDirtyGuard(isDirty, confirmDiscard)
 
   // Seed the textbox once per review, then follow the server only while there
   // is nothing of the operator's own to lose. A stashed draft from a forced
@@ -131,6 +136,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // Generate.
   const seededReviewRef = useRef<string | null>(null)
   const seededBodyRef = useRef("")
+  // Text an Undo put back, which a newer draft must not replace.
+  const restoredBodyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!review) return
     if (seededReviewRef.current !== reviewId) {
@@ -149,7 +156,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     // another. Adopt it only when the box still holds what we last seeded.
     if (
       seededBody !== seededBodyRef.current &&
-      (body === seededBodyRef.current || body === seededBody)
+      (body === seededBodyRef.current || body === seededBody) &&
+      body !== restoredBodyRef.current
     ) {
       seededBodyRef.current = seededBody
       setBody(seededBody)
@@ -187,6 +195,48 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const verify = useVerifyDraft(reviewId)
   const toasts = useToastManager()
 
+  // The publish bar's "Save & check" runs this composer's own save, through
+  // the dirty store it already reads, so there is one save and one set of
+  // rules for it. The reason it cannot run is said in words on the bar.
+  const saveBlocked = !editableNow
+    ? review?.capabilities.canEdit
+      ? "A publish for this reply is under way."
+      : "You do not have permission to edit this reply."
+    : body.trim() === ""
+      ? "Write the reply before saving it."
+      : byteLength(body) > BYTE_LIMIT
+        ? "Shorten the reply to fit Google's length limit."
+        : null
+  const saveRef = useRef<() => void>(() => {})
+  const runSave = useCallback(() => saveRef.current(), [])
+  useRegisterDirtyGuard(isDirty, confirmDiscard, {
+    save: runSave,
+    blockedReason: saveBlocked,
+    saving: generateOrSave.isPending,
+  })
+
+  // `g`: a first draft in the default tone, when there is nothing to lose —
+  // no saved draft, no live reply and nothing typed. Like `r`, the key only
+  // asks; whether it is allowed is decided here.
+  const generateRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    saveRef.current = () => {
+      if (saveBlocked || generateOrSave.isPending) return
+      void onSave()
+    }
+    generateRef.current = () => {
+      if (!editableNow || generateOrSave.isPending || !review) return
+      if (review.drafts.length > 0 || liveBody !== null || body !== "") return
+      setTone(DEFAULT_TONE)
+      void runGenerate(DEFAULT_TONE)
+    }
+  })
+  useEffect(() => {
+    const onGenerate = () => generateRef.current()
+    window.addEventListener(REPLY_GENERATE_EVENT, onGenerate)
+    return () => window.removeEventListener(REPLY_GENERATE_EVENT, onGenerate)
+  }, [])
+
   const generateLabel = useMemo(
     () =>
       review && review.drafts.length > 0 ? "Regenerate" : "Generate draft",
@@ -194,15 +244,37 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   )
 
   async function runGenerate(withTone: Tone = tone) {
+    // What the box held, so a regenerate over it can be taken back.
+    const previous = body
+    setGenerateError(null)
     try {
       // No body → server runs AI (or rating-only template). Manual only.
       const result = await generateOrSave.mutateAsync({ tone: withTone })
       setBody(result.body)
       setMutationVerification(result.verification)
+      const restorable =
+        previous.trim() !== "" && previous !== result.body ? previous : null
       toasts.add({
         title: "Draft ready",
-        description: "A fresh reply was generated and verified.",
+        description: restorable
+          ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
+          : "A fresh reply was generated and verified.",
         type: "success",
+        ...(restorable
+          ? {
+              actionProps: {
+                children: "Undo",
+                onClick: () => {
+                  // Held against the adopt-a-newer-draft rule above: the
+                  // refetch carrying the regenerated draft may land after
+                  // this, and must not take the restored text back.
+                  restoredBodyRef.current = restorable
+                  setBody(restorable)
+                  setEditing(true)
+                },
+              },
+            }
+          : {}),
       })
       // A generated draft is saved and checked server-side, so it comes back
       // as something to READ. Only keep the caret in the box if the operator
@@ -215,16 +287,54 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         })
       }
     } catch (error) {
-      toasts.add({ title: describeActionError(error), type: "error" })
+      setGenerateError({ message: describeActionError(error), tone: withTone })
     }
   }
 
   function onGenerateClick() {
     if (isDirty) {
+      setPendingTone(tone)
       setConfirmOpen(true)
       return
     }
     void runGenerate()
+  }
+
+  // Choosing a tone on the editor bar is asking for the reply in that tone,
+  // so it regenerates — through the same discard confirm when there are
+  // unsaved edits. It used to set a value nothing read until Regenerate.
+  function onToneChoose(next: Tone) {
+    if (next === tone || generateOrSave.isPending) return
+    if (isDirty) {
+      setPendingTone(next)
+      setConfirmOpen(true)
+      return
+    }
+    setTone(next)
+    void runGenerate(next)
+  }
+
+  function writeOwn() {
+    setGenerateError(null)
+    setEditing(true)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  // The failed checks are listed under the thread, often a screen below the
+  // editor; the caption that counts them takes the operator there.
+  function showChecks() {
+    const checks = document.querySelector<HTMLElement>(
+      '[data-slot="verification-checks"]'
+    )
+    if (!checks) return
+    const reduce = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)"
+    )?.matches
+    checks.scrollIntoView?.({
+      block: "start",
+      behavior: reduce ? "auto" : "smooth",
+    })
+    checks.focus({ preventScroll: true })
   }
 
   async function onSave() {
@@ -306,8 +416,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       <AlertDialogContent aria-label="Discard your edits?">
         <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
         <AlertDialogDescription>
-          Regenerating replaces your unsaved changes with a new draft. This
-          cannot be undone.
+          Regenerating replaces your unsaved changes with a new draft. You can
+          undo it straight afterwards.
         </AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="secondary" />}>
@@ -315,8 +425,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           </AlertDialogClose>
           <Button
             onClick={() => {
+              const next = pendingTone ?? tone
               setConfirmOpen(false)
-              void runGenerate()
+              setPendingTone(null)
+              setTone(next)
+              void runGenerate(next)
             }}
           >
             Discard and regenerate
@@ -337,13 +450,46 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </p>
   ) : null
 
-  // Reference `.seg`: tone applies to Generate, so it sits beside it.
+  const generateErrorNote = generateError ? (
+    <div
+      role="alert"
+      data-slot="generate-error"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
+    >
+      <CircleAlertIcon
+        aria-hidden
+        strokeWidth={1.75}
+        className="size-4 shrink-0 text-danger-ink"
+      />
+      <span className="min-w-0 flex-[1_1_200px]">
+        <strong className="font-semibold">No draft was generated.</strong>{" "}
+        {generateError.message}
+      </span>
+      <span className="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={generateOrSave.isPending}
+          onClick={() => void runGenerate(generateError.tone)}
+        >
+          Retry
+        </Button>
+        <Button variant="ghost" size="sm" onClick={writeOwn}>
+          <PenLineIcon aria-hidden data-icon="inline-start" />
+          Write my own
+        </Button>
+      </span>
+    </div>
+  ) : null
+
+  // Reference `.seg`: tone applies to Generate, so it sits beside it, and
+  // choosing one regenerates in it.
   const toneControl = (
     <div
       role="radiogroup"
       aria-label="Reply tone"
       aria-describedby={`${fieldId}-tone-hint`}
-      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 pointer-coarse:h-10 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%]"
+      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%] pointer-coarse:h-10"
     >
       {TONES.map((option) => {
         const selected = tone === option.value
@@ -353,8 +499,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             type="button"
             role="radio"
             aria-checked={selected}
-            disabled={!canEdit || !canDraft}
-            onClick={() => setTone(option.value)}
+            disabled={!canEdit || !canDraft || generateOrSave.isPending}
+            onClick={() => onToneChoose(option.value)}
             className={cn(
               "inline-flex h-full shrink-0 items-center justify-center rounded-[7px] px-2.5 text-[13px] whitespace-nowrap focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:opacity-50 @max-[480px]/detail:flex-1",
               selected
@@ -367,7 +513,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         )
       })}
       <span className="sr-only" id={`${fieldId}-tone-hint`}>
-        Tone is used when you generate a draft
+        Choosing a tone generates the reply again in that tone
       </span>
     </div>
   )
@@ -404,8 +550,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       >
         {heading}
         <p className="text-ui text-ink-secondary">
-          Choose a starting point. You can edit every word before it is
-          checked.
+          Choose a starting point. You can edit every word before it is checked.
         </p>
         <div
           role="group"
@@ -430,7 +575,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                   void runGenerate(option.value)
                 }}
                 className={cn(
-                  "flex flex-col gap-1.5 rounded-(--np-radius-card) border border-line bg-surface-sunken p-3.5 text-left focus-halo transition-[background-color,border-color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60",
+                  "flex flex-col gap-1.5 rounded-(--np-radius-card) border border-line bg-surface-sunken p-3.5 text-left focus-halo transition-[background-color,border-color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt",
                   busy && "animate-pulse"
                 )}
               >
@@ -464,6 +609,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <PenLineIcon aria-hidden data-icon="inline-start" />
           Write my own reply
         </Button>
+        {generateErrorNote}
         {discardDialog}
       </section>
     )
@@ -477,6 +623,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     >
       {heading}
       {permissionNote}
+      {generateErrorNote}
 
       {/* Reference `.editor`: one bordered card whose edge takes the focus
           ring while the textarea inside is borderless, with the tone and
@@ -564,23 +711,23 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <span aria-hidden className="flex-1" />
           <span
             id={`${fieldId}-count`}
+            data-slot="length-note"
             className={cn(
-              "font-mono text-[11px] tabular-nums",
-              overLimit
-                ? "font-semibold text-danger-ink"
-                : nearLimit
-                  ? "text-warning-ink"
-                  : "text-ink-muted"
+              "text-caption",
+              overLimit ? "font-semibold text-danger-ink" : "text-warning-ink"
             )}
           >
-            {bytes.toLocaleString("en-GB")} /{" "}
-            {BYTE_LIMIT.toLocaleString("en-GB")} bytes
+            {overLimit
+              ? `Over Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
+              : nearLimit
+                ? `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
+                : ""}
           </span>
           <span role="status" className="sr-only">
             {overLimit
-              ? "Your reply is over the 4,096-byte limit."
+              ? "Your reply is over Google's length limit."
               : nearLimit
-                ? "Your reply is approaching the 4,096-byte limit."
+                ? "Your reply is nearly at Google's length limit."
                 : ""}
           </span>
         </div>
@@ -607,16 +754,19 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <span>Not saved · drafts stay in NabaPresence until published</span>
         )}
         {reasons.length > 0 ? (
-          <span
+          <button
+            type="button"
+            data-slot="checks-link"
+            onClick={showChecks}
             className={cn(
-              "font-semibold",
+              "rounded-[4px] font-semibold underline decoration-1 underline-offset-2 focus-halo focus-visible:outline-none pointer-coarse:min-h-(--np-touch)",
               blocking > 0 ? "text-danger-ink" : "text-warning-ink"
             )}
           >
             {blocking > 0
               ? `${blocking} ${blocking === 1 ? "issue" : "issues"} to fix before publishing`
               : `${reasons.length} ${reasons.length === 1 ? "point" : "points"} to check before publishing`}
-          </span>
+          </button>
         ) : settled && !isDirty ? (
           <span className="inline-flex items-center gap-1.5 text-success-ink">
             <CircleCheckIcon
@@ -642,7 +792,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {canEdit && canDraft && !showPreview ? (
           <span
             id={`${fieldId}-hint`}
-            className="inline-flex items-center gap-1.5 pointer-coarse:hidden max-md:hidden"
+            className="inline-flex items-center gap-1.5 max-md:hidden pointer-coarse:hidden"
           >
             <Kbd>{shortcut}</Kbd> save
           </span>
@@ -677,6 +827,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             <RotateCcwIcon aria-hidden data-icon="inline-start" />
             Revert
           </Button>
+        ) : null}
+
+        {/* Revert throws the edit away and Save draft keeps it; a rule and
+            a gap between them, so a thumb aiming for one does not land on
+            the other. */}
+        {canEdit && canDraft && isDirty && !showPreview ? (
+          <span aria-hidden className="mx-1 h-5 w-px bg-line" />
         ) : null}
 
         {!showPreview ? (
