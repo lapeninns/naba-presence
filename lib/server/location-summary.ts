@@ -333,7 +333,8 @@ export async function readListingSummaries(
           baseline_canonical_hash as "baselineCanonicalHash",
           baseline_google_hash as "baselineGoogleHash",
           observed_at as "observedAt",
-          case when field_key = 'mapsUrl' then google_value #>> '{}' end
+          -- Field values are stored wrapped as {"value": …}.
+          case when field_key = 'mapsUrl' then google_value ->> 'value' end
             as "mapsUrl"
         from profile_field_state
         where location_id = any(${idList}::uuid[])
