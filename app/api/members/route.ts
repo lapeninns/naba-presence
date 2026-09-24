@@ -3,10 +3,12 @@ import type { TransactionSql } from "postgres"
 import {
   memberRemoveSchema,
   memberUpdateSchema,
+  type MemberClientTotal,
   type MemberRemovedResponse,
   type MemberRole,
 } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
+import { loadClientCatalogue } from "@/lib/server/client-access"
 import { ApiError } from "@/lib/server/http"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
@@ -40,8 +42,8 @@ async function assertAnotherOwnerRemains(sql: TransactionSql) {
 export const GET = route({
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
-    const members = await tenant(
-      (sql) => sql`
+    const { members, clients } = await tenant(async (sql) => {
+      const members = await sql`
         select
           u.id::text as "userId",
           u.email,
@@ -53,7 +55,8 @@ export const GET = route({
             json_agg(
               json_build_object(
                 'locationId', lm.location_id::text,
-                'canPublish', lm.can_publish
+                'canPublish', lm.can_publish,
+                'clientId', l.client_id::text
               )
             ) filter (where lm.location_id is not null),
             '[]'::json
@@ -63,6 +66,7 @@ export const GET = route({
         left join location_member lm
           on lm.organisation_id = m.organisation_id
          and lm.user_id = m.user_id
+        left join location l on l.id = lm.location_id
         group by u.id, m.role, m.can_publish, m.created_at
         order by
           case m.role
@@ -73,8 +77,16 @@ export const GET = route({
           end,
           lower(u.display_name)
       `
-    )
-    return { members }
+      const clients: MemberClientTotal[] = (
+        await loadClientCatalogue(sql)
+      ).map(({ listingIds, ...client }) => ({
+        ...client,
+        archived: client.archived ?? false,
+        total: listingIds.length,
+      }))
+      return { members, clients }
+    })
+    return { members, clients }
   },
 })
 

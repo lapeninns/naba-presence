@@ -16,6 +16,12 @@ const assignmentSchema = z.object({
       })
     )
     .max(500),
+  /**
+   * Required to clear every assignment. A member or viewer with no
+   * location_member rows sees EVERY client (lib/server/permissions.ts), so an
+   * empty list is a widening, not a removal, and has to be asked for by name.
+   */
+  allClients: z.literal(true).optional(),
 })
 
 export const PUT = route({
@@ -34,6 +40,13 @@ export const PUT = route({
       `
       if (!member) {
         throw new ApiError(404, "member_not_found", "Member not found.")
+      }
+      if (input.assignments.length === 0 && !input.allClients) {
+        throw new ApiError(
+          409,
+          "would_widen_to_all_clients",
+          "Removing every listing gives them every client. Send allClients: true to mean that."
+        )
       }
       if (
         input.assignments.some((assignment) => assignment.canPublish) &&

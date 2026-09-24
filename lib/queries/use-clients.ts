@@ -17,10 +17,11 @@ import { summariseHealth, type ClientHealth } from "@/lib/clients/health"
 import { queryKeys } from "@/lib/queries/keys"
 
 /** Every client the signed-in user can see, with counts and health. */
-export function useClients() {
+export function useClients({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.clients,
     queryFn: ({ signal }) => fetchClients(signal),
+    enabled,
     // The shell reads this for its health chip, so it has to notice a client's
     // connection breaking without the operator reloading. A minute is short
     // enough to matter and long enough not to be chatter.

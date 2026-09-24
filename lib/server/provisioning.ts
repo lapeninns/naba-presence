@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
+import { grantClientListings } from "@/lib/server/client-access"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
@@ -183,6 +184,47 @@ export async function provisionAuthenticatedOwner(
     .catch(mapAuthenticatedIdentityError)
 }
 
+/**
+ * Turns a client-scoped invitation into location_member rows, inside the
+ * acceptance transaction, for BOTH acceptance paths below. Returns how many
+ * listings were granted (0 for an unscoped invitation).
+ *
+ * Only a membership this acceptance created is scoped: the do-nothing insert
+ * above never rewrites an existing membership, and adding rows to one would
+ * narrow someone the invitation was never about. A scoped invitation whose
+ * clients no longer hold any listing is REFUSED: accepted with no rows, the
+ * invitee would see every client, the opposite of what was asked for.
+ */
+async function applyInvitationScope(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    userId: string
+    joined: boolean
+    pending: { role: string; canPublish: boolean; clientIds: string[] | null }
+  }
+): Promise<number> {
+  const { pending } = input
+  if (!input.joined || !pending.clientIds || pending.clientIds.length === 0) {
+    return 0
+  }
+  if (pending.role !== "member" && pending.role !== "viewer") return 0
+  const granted = await grantClientListings(sql, {
+    organisationId: input.organisationId,
+    userId: input.userId,
+    clientIds: pending.clientIds,
+    canPublish: pending.role === "member" && pending.canPublish,
+  })
+  if (granted.length === 0) {
+    throw new ApiError(
+      409,
+      "invitation_scope_empty",
+      "The clients this invitation was for have no listings any more. Ask for a new invitation."
+    )
+  }
+  return granted.length
+}
+
 export async function provisionAuthenticatedMember(
   identity: AuthenticatedIdentity,
   invitation: {
@@ -215,6 +257,7 @@ export async function provisionAuthenticatedMember(
           canPublish: boolean
           expiresAt: Date
           acceptedAt: Date | null
+          clientIds: string[] | null
         }[]
       >`
         select
@@ -223,7 +266,8 @@ export async function provisionAuthenticatedMember(
           role,
           can_publish as "canPublish",
           expires_at as "expiresAt",
-          accepted_at as "acceptedAt"
+          accepted_at as "acceptedAt",
+          client_ids::text[] as "clientIds"
         from invitation
         where id = ${invitation.id}
           and organisation_id = ${invitation.organisationId}
@@ -274,7 +318,7 @@ export async function provisionAuthenticatedMember(
       // inside authentication, where raising 409 would fail the sign-in
       // itself. Re-inviting the sole owner as a viewer used to leave the
       // organisation permanently ownerless.
-      await sql`
+      const joined = await sql`
         insert into member (
           organisation_id,
           user_id,
@@ -288,7 +332,14 @@ export async function provisionAuthenticatedMember(
           ${pending.canPublish}
         )
         on conflict (organisation_id, user_id) do nothing
+        returning user_id
       `
+      const scopedListings = await applyInvitationScope(sql, {
+        organisationId: invitation.organisationId,
+        userId: user.id,
+        joined: joined.length > 0,
+        pending,
+      })
       if (!user.defaultOrganisationId) {
         await sql`
           update app_user
@@ -314,6 +365,8 @@ export async function provisionAuthenticatedMember(
           provider: identity.provider,
           role: pending.role,
           canPublish: pending.canPublish,
+          clientIds: pending.clientIds,
+          scopedListings,
         },
       })
       const token = await createSession(sql, user.id, invitation.organisationId)
@@ -368,6 +421,7 @@ export async function acceptInvitationForSessionUser(
         canPublish: boolean
         expiresAt: Date
         acceptedAt: Date | null
+        clientIds: string[] | null
       }[]
     >`
       select
@@ -376,7 +430,8 @@ export async function acceptInvitationForSessionUser(
         role,
         can_publish as "canPublish",
         expires_at as "expiresAt",
-        accepted_at as "acceptedAt"
+        accepted_at as "acceptedAt",
+        client_ids::text[] as "clientIds"
       from invitation
       where id = ${invitation.id}
         and organisation_id = ${invitation.organisationId}
@@ -421,7 +476,7 @@ export async function acceptInvitationForSessionUser(
     await sql`select set_config('app.user_id', ${user.userId}, true)`
     // Same do-nothing rule as provisionAuthenticatedMember: acceptance may
     // create a membership but never rewrite an existing one.
-    await sql`
+    const joined = await sql`
       insert into member (organisation_id, user_id, role, can_publish)
       values (
         ${invitation.organisationId},
@@ -430,7 +485,14 @@ export async function acceptInvitationForSessionUser(
         ${pending.canPublish}
       )
       on conflict (organisation_id, user_id) do nothing
+      returning user_id
     `
+    const scopedListings = await applyInvitationScope(sql, {
+      organisationId: invitation.organisationId,
+      userId: user.userId,
+      joined: joined.length > 0,
+      pending,
+    })
     await sql`
       update invitation
       set accepted_at = now(), accepted_by = ${user.userId}
@@ -449,6 +511,8 @@ export async function acceptInvitationForSessionUser(
         provider: "session",
         role: pending.role,
         canPublish: pending.canPublish,
+        clientIds: pending.clientIds,
+        scopedListings,
       },
     })
     const token = await createSession(

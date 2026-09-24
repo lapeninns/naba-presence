@@ -12,10 +12,33 @@ const useInvitationsMock = vi.fn()
 vi.mock("@/lib/queries/use-invitations", () => ({
   useInvitations: () => useInvitationsMock(),
 }))
+const useClientsMock = vi.fn()
+vi.mock("@/lib/queries/use-clients", () => ({
+  useClients: (options?: { enabled?: boolean }) => useClientsMock(options),
+}))
+
+const CROWN = "00000000-0000-4000-8000-00000000c001"
+const EMPTY = "00000000-0000-4000-8000-00000000c003"
+
+function clientItem(id: string, name: string, locationCount: number) {
+  return { id, name, locationCount }
+}
 
 function renderPanel(items: Invitation[]) {
   useInvitationsMock.mockReturnValue({
     data: { items },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  })
+  useClientsMock.mockReturnValue({
+    data: {
+      items: [
+        clientItem(CROWN, "Old Crown", 3),
+        clientItem(EMPTY, "New Client", 0),
+      ],
+      unassignedLocationCount: 0,
+    },
     isPending: false,
     isError: false,
     refetch: vi.fn(),
@@ -182,5 +205,80 @@ describe("InvitationsPanel", () => {
         "11111111-1111-4111-8111-111111111111"
       )
     )
+  })
+
+  it("invites for all clients by default and can scope to chosen clients", async () => {
+    const user = userEvent.setup()
+    const create = vi
+      .spyOn(invitationsApi, "createInvitation")
+      .mockResolvedValue({
+        invitation: {
+          id: "i9",
+          email: "ben@test.com",
+          role: "member",
+          canPublish: false,
+          clients: [{ id: CROWN, name: "Old Crown" }],
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          acceptedAt: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        inviteUrl: "https://app.test/invite/scoped",
+      })
+    renderPanel([])
+
+    expect(screen.getByRole("radio", { name: /^All clients/ })).toBeChecked()
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "ben@test.com"
+    )
+    await user.click(screen.getByRole("radio", { name: /^Only these clients/ }))
+    expect(useClientsMock).toHaveBeenLastCalledWith({ enabled: true })
+
+    // Nothing ticked: refused in the form rather than sent as "everything".
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(create).not.toHaveBeenCalled()
+    expect(
+      screen.getByText("Tick at least one client, or choose All clients.")
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole("checkbox", { name: "New Client" })
+    ).toHaveAttribute("aria-disabled", "true")
+    await user.click(screen.getByRole("checkbox", { name: "Old Crown" }))
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        email: "ben@test.com",
+        role: "member",
+        canPublish: false,
+        clientIds: [CROWN],
+      })
+    )
+    expect(await screen.findByText(/Old Crown\. Send/)).toBeInTheDocument()
+  })
+
+  it("hides the client choice for an admin invitation", async () => {
+    const user = userEvent.setup()
+    renderPanel([])
+    await user.click(screen.getByRole("radio", { name: /^Admin/ }))
+    expect(
+      screen.queryByRole("radio", { name: /^Only these clients/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows each pending invitation's client scope", () => {
+    renderPanel([
+      {
+        id: "i4",
+        email: "scoped@test",
+        role: "viewer",
+        canPublish: false,
+        clients: [{ id: CROWN, name: "Old Crown" }],
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+    expect(screen.getByText("Old Crown")).toBeInTheDocument()
   })
 })

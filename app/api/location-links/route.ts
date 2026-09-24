@@ -11,6 +11,10 @@ import {
 } from "@/lib/contracts/location-links"
 import { projectDefault, projectManagement } from "@/lib/locations/directory"
 import { writeAudit } from "@/lib/server/audit"
+import {
+  auditExtendedGrants,
+  extendClientHolders,
+} from "@/lib/server/client-access"
 import { ApiError } from "@/lib/server/http"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { route } from "@/lib/server/route"
@@ -82,12 +86,19 @@ export const POST = route({
         )
       }
       let locationId = input.locationId
+      // Set when THIS request filed the listing under input.clientId, so the
+      // client's existing holders can be given it (extendClientHolders).
+      let filedIntoClient = false
       if (!locationId) {
-        const [location] = await sql<{ id: string }[]>`
+        const name = input.name ?? external.title
+        const [prior] = await sql<{ clientId: string | null }[]>`
+          select client_id::text as "clientId" from location where name = ${name}
+        `
+        const [location] = await sql<{ id: string; clientId: string | null }[]>`
           insert into location (organisation_id, name, address_json, timezone, client_id)
           values (
             ${session.organisationId},
-            ${input.name ?? external.title},
+            ${name},
             ${
               external.address
                 ? sql.json(JSON.parse(JSON.stringify(external.address)))
@@ -103,9 +114,13 @@ export const POST = route({
             -- Only fills a gap. Re-importing must never move a location that
             -- already belongs to another client.
             client_id = coalesce(location.client_id, excluded.client_id)
-          returning id::text as id
+          returning id::text as id, client_id::text as "clientId"
         `
         locationId = location.id
+        filedIntoClient =
+          Boolean(input.clientId) &&
+          location.clientId === input.clientId &&
+          !prior?.clientId
       } else {
         const [location] = await sql<{ id: string }[]>`
           select id::text as id
@@ -124,11 +139,13 @@ export const POST = route({
         // client, but only when it has none — reassigning silently would move
         // someone else's listing.
         if (input.clientId) {
-          await sql`
+          const filed = await sql`
             update location
                set client_id = ${input.clientId}
              where id = ${locationId} and client_id is null
+            returning id
           `
+          filedIntoClient = filed.length > 0
         }
         await sql`
           update location
@@ -233,6 +250,19 @@ export const POST = route({
           clientRequestId,
         },
       })
+      if (filedIntoClient && input.clientId) {
+        await auditExtendedGrants(sql, {
+          organisationId: session.organisationId,
+          actorUserId: session.userId,
+          clientId: input.clientId,
+          requestId,
+          extended: await extendClientHolders(sql, {
+            organisationId: session.organisationId,
+            clientId: input.clientId,
+            locationIds: [locationId],
+          }),
+        })
+      }
       return row
     })
     return NextResponse.json({ link } satisfies LinkLocationResponse, {

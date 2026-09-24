@@ -1,4 +1,8 @@
-import type { Member } from "@/lib/contracts/members"
+import type { Member, MemberClientTotal } from "@/lib/contracts/members"
+import {
+  describeMemberAccess,
+  summariseClientAccess,
+} from "@/lib/settings/client-access"
 import type { MemberRole } from "@/lib/settings/forms/invitation"
 
 /**
@@ -62,20 +66,40 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
 ]
 
 /**
- * Which listings a member can see. Owners and admins see everything; a
- * member or viewer with no per-listing grants sees every listing, and one
- * with grants sees only those (lib/server/permissions.ts).
+ * Which clients a member can see, for the Team row. Owners and admins see
+ * everything; a member or viewer with no location_member rows sees every
+ * client, including ones added later; one with rows sees the clients those
+ * rows fall in, and "Old Crown (3 of 5 listings)" when older per-listing
+ * grants hold only part of a client (lib/server/permissions.ts,
+ * lib/settings/client-access.ts). Without `clients` (a response from before
+ * client access) it falls back to a listing count.
  */
-export function accessSummary(member: Pick<Member, "role" | "locations">): {
+export function accessSummary(
+  member: Pick<Member, "role" | "locations">,
+  clients?: MemberClientTotal[]
+): {
   label: string
   detail: string | null
 } {
+  if (clients) {
+    return describeMemberAccess(
+      member.role,
+      summariseClientAccess(
+        member.locations.map((location) => ({
+          locationId: location.locationId,
+          clientId: location.clientId ?? null,
+          canPublish: location.canPublish,
+        })),
+        clients
+      )
+    )
+  }
   if (member.role === "owner" || member.role === "admin") {
     return { label: "All clients", detail: null }
   }
   const count = member.locations.length
   if (count === 0) {
-    return { label: "All clients", detail: "No listings assigned yet" }
+    return { label: "All clients", detail: "Including clients added later" }
   }
   return {
     label: `${count} ${count === 1 ? "listing" : "listings"}`,

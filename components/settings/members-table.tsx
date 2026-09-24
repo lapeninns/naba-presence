@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  Building2,
   Ellipsis,
   RefreshCw,
   Shield,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
+import { ClientAccessDialog } from "@/components/settings/client-access-dialog"
 import {
   ChangeRoleDialog,
   RemoveMemberDialog,
@@ -84,15 +86,23 @@ function publishReason(
   if (member.role === "viewer") return "Viewers can’t publish."
   if (gateReason) return gateReason
   if (member.locations.length > 0)
-    return "Set per listing, from each listing’s People with access page."
+    return "Set per client, from Client access."
+  return null
+}
+
+/** Why "Client access…" is unavailable for this row, or null. */
+function clientAccessReason(member: Member): string | null {
+  if (member.role === "owner" || member.role === "admin")
+    return "Owners and admins always see every client."
   return null
 }
 
 /**
  * The people in this organisation (reference `members-table`): who they
  * are, their role, which clients they can see, whether they can publish and
- * when they joined. Changes go through the row's menu: a role change and a
- * removal each confirm in a dialog; the publishing switch saves at once.
+ * when they joined. Changes go through the row's menu: a role change, client
+ * access and a removal each open a dialog; the publishing switch saves at
+ * once.
  * Under 720px of width the table becomes labelled rows.
  */
 export function MembersTable({
@@ -109,6 +119,8 @@ export function MembersTable({
   const [roleOpen, setRoleOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
   const [removeOpen, setRemoveOpen] = useState(false)
+  const [accessTarget, setAccessTarget] = useState<Member | null>(null)
+  const [accessOpen, setAccessOpen] = useState(false)
 
   const mutation = useMutation({
     mutationFn: (input: {
@@ -206,7 +218,7 @@ export function MembersTable({
               ownerCount,
               member: m,
             })
-            const access = accessSummary(m)
+            const access = accessSummary(m, query.data.clients)
             const publishing = publishingState(m)
             const pubReason = publishReason(m, gate.roleReason)
             const isSelf = m.userId === actorUserId
@@ -290,6 +302,16 @@ export function MembersTable({
                         Change role…
                       </DropdownMenuItem>
                       <DropdownMenuItem
+                        disabledReason={clientAccessReason(m) ?? undefined}
+                        onClick={() => {
+                          setAccessTarget(m)
+                          setAccessOpen(true)
+                        }}
+                      >
+                        <Building2 aria-hidden />
+                        Client access…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         disabledReason={pubReason ?? undefined}
                         onClick={() =>
                           mutation.mutate(
@@ -357,6 +379,11 @@ export function MembersTable({
             { onSuccess: () => setRoleOpen(false) }
           )
         }}
+      />
+      <ClientAccessDialog
+        open={accessOpen}
+        member={accessTarget}
+        onOpenChange={setAccessOpen}
       />
       <RemoveMemberDialog
         open={removeOpen}
