@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation"
 
-import { flatRouteTarget } from "@/lib/server/flat-route-redirect"
+import {
+  flatRouteTarget,
+  type FlatRouteSearchParams,
+} from "@/lib/server/flat-route-redirect"
 
 /**
  * Retires the flat `/profile` route.
@@ -12,6 +15,15 @@ import { flatRouteTarget } from "@/lib/server/flat-route-redirect"
  * before anything is flushed — the same reason `/reviews` and `/connections`
  * live here.
  */
-export default async function ProfileIndexRedirect(): Promise<never> {
-  redirect(await flatRouteTarget(""))
+export default async function ProfileIndexRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<FlatRouteSearchParams>
+}): Promise<never> {
+  redirect(
+    await flatRouteTarget("", {
+      searchParams: await searchParams,
+      moved: "profile",
+    })
+  )
 }
