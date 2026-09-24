@@ -27,6 +27,12 @@ import type { Session } from "@/lib/server/session"
 //                     one; there is deliberately no client_member table,
 //                     because two membership tables can disagree and this
 //                     module exists so that cannot happen.
+//   client share   -> not a member at all: the holder of a client report
+//                     link (lib/server/shared-report.ts). Sees the locations
+//                     filed under that ONE client and nothing else, whatever
+//                     role or location_member rows exist. It carries no role,
+//                     so it can never reach grantsFor / canPublishLocation:
+//                     it reads, it never edits or publishes.
 //
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
@@ -71,11 +77,50 @@ export const NO_GRANT: Readonly<LocationGrant> = Object.freeze({
   canPublish: false,
 })
 
-export type VisibilityScope = Pick<Session, "role" | "userId">
+/** A signed-in member, as far as visibility is concerned. */
+export type MemberVisibility = Pick<Session, "role" | "userId">
+
+/**
+ * The holder of a client report share link. No user, no role: visibility is
+ * exactly the one client's locations. Only lib/server/shared-report.ts builds
+ * one, from a token lookup_report_share() resolved.
+ */
+export type ClientShareVisibility = {
+  kind: "client_share"
+  clientId: string
+}
+
+export type VisibilityScope = MemberVisibility | ClientShareVisibility
+
+/**
+ * Who a report is read for: a member's session, or a client share. The
+ * reporting loaders (lib/server/analytics-overview.ts,
+ * lib/server/presence-report.ts) take this rather than a whole Session, so
+ * the public shared report runs the very same SQL as Reports.
+ */
+export type ReportViewer = VisibilityScope & { organisationId: string }
 export type GrantScope = Pick<Session, "role" | "userId" | "canPublish">
 
 export function isManagerialRole(role: Session["role"]) {
   return role === "owner" || role === "admin"
+}
+
+export function isClientShareScope(
+  scope: VisibilityScope
+): scope is ClientShareVisibility {
+  return "kind" in scope && scope.kind === "client_share"
+}
+
+/**
+ * The share scope's client id, refusing an empty one. A share scope with no
+ * client would otherwise be a predicate over nothing -- and the loaders it is
+ * handed to treat "no client" as "the whole agency".
+ */
+function shareClientId(scope: ClientShareVisibility): string {
+  if (typeof scope.clientId !== "string" || scope.clientId.length === 0) {
+    throw new Error("A client share scope needs its client id.")
+  }
+  return scope.clientId
 }
 
 /**
@@ -87,6 +132,13 @@ export function visibilityPredicate(
   session: VisibilityScope,
   locationColumn: Fragment
 ): Fragment {
+  if (isClientShareScope(session)) {
+    return sql`exists (
+      select 1 from location visibility_share_l
+      where visibility_share_l.id = ${locationColumn}
+        and visibility_share_l.client_id = ${shareClientId(session)}
+    )`
+  }
   if (isManagerialRole(session.role)) return sql`true`
   return sql`(
     not exists (
@@ -202,6 +254,9 @@ export function clientVisibilityPredicate(
   session: VisibilityScope,
   clientColumn: Fragment
 ): Fragment {
+  if (isClientShareScope(session)) {
+    return sql`(${clientColumn} = ${shareClientId(session)})`
+  }
   if (isManagerialRole(session.role)) return sql`true`
   return sql`exists (
     select 1 from location visibility_cl
@@ -227,7 +282,11 @@ export async function requireClientAccess(
     where c.id = ${clientId}
   `
   if (!row?.visible) {
-    throw new ApiError(404, "client_not_found", "The requested client was not found.")
+    throw new ApiError(
+      404,
+      "client_not_found",
+      "The requested client was not found."
+    )
   }
 }
 

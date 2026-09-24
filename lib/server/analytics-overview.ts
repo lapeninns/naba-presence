@@ -3,8 +3,10 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import type { AnalyticsGranularity } from "@/lib/contracts/analytics"
-import { visibilityPredicate } from "@/lib/server/permissions"
-import type { Session } from "@/lib/server/session"
+import {
+  visibilityPredicate,
+  type ReportViewer,
+} from "@/lib/server/permissions"
 
 /**
  * The GET /api/analytics/overview reader, moved out of the route so the
@@ -12,6 +14,10 @@ import type { Session } from "@/lib/server/session"
  * route is a thin wrapper around `loadAnalyticsOverview`; both produce the
  * same object, and the prefetch parses it through `analyticsOverviewSchema`
  * so it is byte-identical to what `fetchAnalyticsOverview` yields.
+ *
+ * The public client report (lib/server/shared-report.ts) calls it too, with a
+ * client share viewer instead of a session: the same SQL, narrowed to one
+ * client by `visibilityPredicate` as well as by `clientId`.
  */
 
 type ReportWindow = { from: string; to: string }
@@ -53,7 +59,7 @@ async function loadTimezone(sql: TransactionSql, organisationId: string) {
 
 async function loadSummary(
   sql: TransactionSql,
-  session: Session,
+  session: ReportViewer,
   { from, to }: ReportWindow,
   clientId?: string
 ) {
@@ -126,7 +132,7 @@ async function loadSummary(
 
 async function loadSeries(
   sql: TransactionSql,
-  session: Session,
+  session: ReportViewer,
   { from, to }: ReportWindow,
   granularity: AnalyticsGranularity,
   timezone: string,
@@ -189,7 +195,7 @@ async function loadSeries(
 
 async function loadLocations(
   sql: TransactionSql,
-  session: Session,
+  session: ReportViewer,
   { from, to }: ReportWindow,
   clientId?: string
 ) {
@@ -263,7 +269,7 @@ async function loadLocations(
 
 async function loadProviderTotals(
   sql: TransactionSql,
-  session: Session,
+  session: ReportViewer,
   clientId?: string
 ) {
   const [providerRow] = await sql<ProviderRow[]>`
@@ -336,7 +342,7 @@ export function defaultReportWindow(now = Date.now()): ReportWindow {
 
 export async function loadAnalyticsOverview(
   sql: TransactionSql,
-  session: Session,
+  session: ReportViewer,
   query: AnalyticsOverviewWindow
 ) {
   const defaults = defaultReportWindow()
