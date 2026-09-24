@@ -1,16 +1,17 @@
 "use client"
 
-import { InfoIcon } from "lucide-react"
+import type { RefObject } from "react"
 
-import { Button } from "@/components/ui/button"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import type { ReviewDetail } from "@/lib/contracts/reviews"
 import { formatDateTime } from "@/lib/format"
-import { actorFor } from "@/lib/inbox/lifecycle"
+import { actorFor } from "@/lib/inbox/timeline-actor"
 
 type Review = ReviewDetail["review"]
 
@@ -35,7 +36,18 @@ const DRAFT_SOURCE: Record<string, string> = {
  *    authorship are different claims, and an unassigned review can still have
  *    a named author.
  */
-function ReviewMetadata({ review }: { review: Review }) {
+function ReviewMetadata({
+  review,
+  open,
+  onOpenChange,
+  finalFocus,
+}: {
+  review: Review
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Where focus returns on close: the menu trigger that opened it. */
+  finalFocus?: RefObject<HTMLElement | null>
+}) {
   const latestDraft = review.drafts[0]
   const savedBy = actorFor(review, [
     "review.draft.saved",
@@ -74,21 +86,15 @@ function ReviewMetadata({ review }: { review: Review }) {
   if (publishedBy) rows.push({ term: "Published by", value: publishedBy })
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            pill
-            aria-label="Review details: date, Google profile and reply author"
-            className="shrink-0"
-          />
-        }
-      >
-        <InfoIcon aria-hidden strokeWidth={1.75} />
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" finalFocus={finalFocus}>
+        <DialogHeader>
+          <DialogTitle>Review details</DialogTitle>
+          <DialogDescription>
+            When the review arrived, its Google profile and who worked on the
+            reply.
+          </DialogDescription>
+        </DialogHeader>
         <dl className="flex flex-col gap-3">
           {rows.map((row) => (
             <div key={row.term} className="flex flex-col gap-0.5">
@@ -99,13 +105,13 @@ function ReviewMetadata({ review }: { review: Review }) {
             </div>
           ))}
         </dl>
-        <p className="mt-3 border-t border-line-subtle pt-2 text-caption text-ink-muted">
+        <p className="border-t border-line-subtle pt-2 text-caption text-ink-muted">
           Who a review is assigned to is not part of this review&rsquo;s data
           yet, so it is not shown here. You can still filter the list by
           assignee.
         </p>
-      </PopoverContent>
-    </Popover>
+      </DialogContent>
+    </Dialog>
   )
 }
 

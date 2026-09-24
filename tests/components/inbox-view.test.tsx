@@ -214,11 +214,9 @@ function renderInbox() {
   )
 }
 
-// The pane now opens a saved reply as readable text; the composer is entered
-// deliberately. Every dirty-guard case below still needs a dirty composer, so
-// they all go through Edit reply first.
+// The reply editor is always open, so every dirty-guard case below types
+// straight into it.
 async function dirtyComposer(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Edit reply" }))
   const textbox = screen.getByRole("textbox", { name: "Your reply" })
   await user.type(textbox, " extra")
   return textbox
@@ -485,10 +483,11 @@ describe("InboxView — next and previous review", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
     renderInbox()
+    // The pane has no previous / next buttons; J steps down the queue.
     expect(
-      screen.getByRole("button", { name: "Previous review" })
-    ).toBeDisabled()
-    await user.click(screen.getByRole("button", { name: "Next review" }))
+      screen.queryByRole("button", { name: "Next review" })
+    ).not.toBeInTheDocument()
+    await user.keyboard("j")
     // Replace, not push: stepping through a queue must not leave one history
     // entry per review between the operator and the page they came from.
     expect(push).not.toHaveBeenCalled()

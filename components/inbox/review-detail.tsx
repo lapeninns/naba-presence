@@ -6,12 +6,15 @@ import {
   ChevronRightIcon,
   ExternalLinkIcon,
   GlobeIcon,
+  HistoryIcon,
+  InfoIcon,
+  MoreHorizontalIcon,
   PlayIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 import Link from "next/link"
 
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
@@ -20,34 +23,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { StatusPill } from "@/components/ui/status-pill"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Stars } from "@/components/ui/stars"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
-import { VerificationChecks } from "@/components/inbox/verification-panel"
-import { useReveals } from "@/lib/motion/use-reveals"
-import { JourneyLine } from "@/components/inbox/detail/journey-line"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
-import { StarRating } from "@/components/inbox/star-rating"
 import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
-import { useIsDirty } from "@/components/inbox/dirty-context"
+import {
+  useComposerSave,
+  useIsDirty,
+} from "@/components/inbox/dirty-context"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
-import { deriveLifecycle } from "@/lib/inbox/lifecycle"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
   deriveReplyStatus,
   type ReplyPendingKind,
   type ReplyStateInput,
+  type ReplyStatus,
 } from "@/lib/inbox/reply-state"
-import {
-  describeReplyState,
-  isLiveOnGoogle,
-  replyWork,
-} from "@/lib/inbox/review-situation"
+import { describeReplyState, replyWork } from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { useReplyPending } from "@/lib/queries/use-reply-pending"
@@ -102,36 +106,21 @@ function reviewerName(review: Review): string {
     : (review.reviewerDisplayName ?? "Anonymous")
 }
 
-function initials(name: string): string {
-  const letters = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join("")
-  return letters || "?"
-}
-
 /**
- * The pane's head (reference `.d-head`): on a phone the way back to the
- * list, then the reviewer's initials, their name and one caption line —
- * client, listing, "Google review" — with the link to the listing and
- * previous / next at the trailing edge. The review's provenance sits with
- * the review, in the thread. It says
- * whose review this is and nothing about the reply; the reply's state is on
- * the publish bar.
+ * The pane's head: on a phone the way back to the list, then whose review
+ * this is — the name and one meta line (stars, listing, when) — and a ⋯ menu
+ * holding everything that is true but not part of replying: the listing, the
+ * history and the review's details. It says nothing about the reply; the
+ * reply's state is on the publish bar.
  */
 function ReviewHead({
   review,
-  clientName,
-  clientId,
-  navigation,
   focusHeading = false,
 }: {
   review: Review
+  /** Kept for the caller; the head no longer names the client. */
   clientName?: string | null
   clientId?: string | null
-  navigation?: ReactNode
   focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
@@ -145,58 +134,111 @@ function ReviewHead({
     headingRef.current?.focus()
   }, [focusHeading])
 
+  // The dialogs open from menu items that unmount with the menu, so focus
+  // is handed back to the ⋯ trigger when they close.
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
   return (
     <>
-      <span
-        aria-hidden
-        className="grid size-9 shrink-0 place-items-center rounded-full border border-line bg-fill font-mono text-[11px] font-semibold text-ink-secondary @max-[480px]/detail:hidden"
-      >
-        {initials(displayName)}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2
-            ref={headingRef}
-            tabIndex={-1}
-            data-slot="review-heading"
-            className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink focus-visible:outline-none max-md:text-[18px]"
-          >
-            {displayName}
-          </h2>
-        </div>
-        <p className="line-clamp-2 text-[13px] leading-5 break-words text-ink-muted">
-          {clientName ? (
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          data-slot="review-heading"
+          className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink focus-visible:outline-none max-md:text-[18px]"
+        >
+          {displayName}
+        </h2>
+        <p
+          data-slot="review-meta"
+          className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-5 text-ink-muted"
+        >
+          {review.rating !== null ? (
             <>
-              {clientId ? (
-                <Link
-                  href={`/clients/${clientId}`}
-                  className="text-ink-secondary underline decoration-line-strong underline-offset-2 hover:text-ink hover:decoration-ink"
-                >
-                  {clientName}
-                </Link>
-              ) : (
-                <span className="text-ink-secondary">{clientName}</span>
-              )}
-              {" · "}
+              <Stars
+                value={review.rating}
+                size="sm"
+                label={`Rated ${review.rating} out of 5`}
+              />
+              <span aria-hidden>·</span>
             </>
           ) : null}
-          <span>{review.locationName}</span> · Google review
+          <span className="min-w-0 truncate">{review.locationName}</span>
+          <span aria-hidden>·</span>
+          <time
+            dateTime={review.createTime}
+            title={formatDateTime(review.createTime, review.timezone)}
+            className="tabular-nums"
+          >
+            {formatRelativeTime(review.createTime)}
+          </time>
+          {wasEdited(review.createTime, review.updateTime) ? (
+            <time
+              dateTime={review.updateTime}
+              title={formatDateTime(review.updateTime, review.timezone)}
+              className="tabular-nums"
+            >
+              · edited {formatRelativeTime(review.updateTime)}
+            </time>
+          ) : null}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        <Link
-          href={`/listings/${review.locationId}`}
-          aria-label="Open listing"
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "max-md:size-11 @max-xl/detail:w-(--np-control-h) @max-xl/detail:px-0"
-          )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          ref={moreRef}
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="More actions"
+              className="shrink-0 max-md:size-11"
+            />
+          }
         >
-          <ExternalLinkIcon aria-hidden data-icon="inline-start" />
-          <span className="@max-xl/detail:sr-only">Open listing</span>
-        </Link>
-        {navigation}
-      </div>
+          <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            render={<Link href={`/listings/${review.locationId}`} />}
+          >
+            <ExternalLinkIcon aria-hidden />
+            Open listing
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+            <HistoryIcon aria-hidden />
+            History
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+            <InfoIcon aria-hidden />
+            Review details
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="sm:max-w-lg" finalFocus={moreRef}>
+          <DialogHeader>
+            <DialogTitle>History</DialogTitle>
+            <DialogDescription>
+              Everything that has happened to this review and its reply.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[min(60vh,32rem)] overflow-y-auto">
+            <ActivityTimeline
+              timeline={review.timeline}
+              timezone={review.timezone}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+      <ReviewMetadata
+        review={review}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        finalFocus={moreRef}
+      />
     </>
   )
 }
@@ -205,28 +247,24 @@ function ReviewHead({
  * The head's frame, shared by the loading, error and loaded pane so the
  * return-to-list control is the SAME element throughout: it takes focus
  * when a review opens on a phone, and a control that was swapped for a new
- * one when the review arrived would drop that focus. The journey line sits
- * under the head, inside the same top band.
+ * one when the review arrived would drop that focus.
  */
 function HeadFrame({
   leading,
-  below,
   children,
 }: {
   leading?: ReactNode
-  below?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="shrink-0 border-b border-line">
       <div
         data-slot="review-head"
-        className="flex min-w-0 items-center gap-3 px-4 pt-3.5 pb-2.5 max-md:gap-1.5 max-md:px-2 max-md:pt-2.5"
+        className="flex min-w-0 items-center gap-3 px-4 py-3 max-md:gap-1.5 max-md:px-2 max-md:py-2.5"
       >
         {leading ? <div className="shrink-0 md:hidden">{leading}</div> : null}
         {children}
       </div>
-      {below ? <div className="px-4 pb-3 max-md:px-3.5">{below}</div> : null}
     </div>
   )
 }
@@ -527,12 +565,13 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
 }
 
 /**
- * The one status line, above the reply it describes.
+ * The one status line, on the publish bar beside the button it describes.
  *
  * It is a `role="status"` so a change announces itself, and it is the only
  * status surface in the pane. It comes out of the same ladder the footer's
  * button obeys, so "Ready to publish" and a live Publish button are the same
- * fact stated twice, never two facts.
+ * fact stated twice, never two facts. When the button is off, this line is
+ * where the reason is said.
  */
 function ReplyStatusStrip({ review }: { review: Review }) {
   const [pulse, setPulse] = useState(false)
@@ -549,7 +588,14 @@ function ReplyStatusStrip({ review }: { review: Review }) {
         : mutating === "draft"
           ? "save"
           : null
-  const status = deriveReplyStatus(replyStateFor(review, isDirty, pending))
+  const composerSave = useComposerSave()
+  const derived = deriveReplyStatus(replyStateFor(review, isDirty, pending))
+  // Text the composer cannot send as it stands (empty, too long) outranks
+  // "Ready to publish": the button is off, and this is why.
+  const status: ReplyStatus =
+    !pending && composerSave?.blockedReason
+      ? { ...derived, text: composerSave.blockedReason, icon: "pen" }
+      : derived
 
   // The ring stays up for PUBLISH_PULSE_MS — the same constant InboxView waits
   // on before advancing — so the pulse is actually on screen before this
@@ -597,192 +643,38 @@ function ActionFooterSkeleton() {
   )
 }
 
-/** One message in the thread: an avatar gutter and the message beside it. */
-function ThreadMessage({
-  label,
-  slot,
-  avatar,
-  connector = false,
-  children,
-}: {
-  label: string
-  slot: string
-  avatar: ReactNode
-  /** Draws the line down to the next message. */
-  connector?: boolean
-  children: ReactNode
-}) {
-  return (
-    <article
-      aria-label={label}
-      data-slot={slot}
-      className="grid grid-cols-[36px_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[28px_minmax(0,1fr)] @max-[480px]/detail:gap-x-2.5"
-    >
-      <div className="flex flex-col items-center">
-        {avatar}
-        {connector ? (
-          <span
-            aria-hidden
-            className="my-1.5 min-h-4 w-0.5 flex-1 rounded-full bg-line"
-          />
-        ) : null}
-      </div>
-      <div
-        className={cn(
-          "flex min-w-0 flex-col gap-2",
-          connector && "pb-6 @max-[480px]/detail:pb-5"
-        )}
-      >
-        {children}
-      </div>
-    </article>
-  )
-}
-
-const AVATAR_CLASS =
-  "grid size-9 shrink-0 place-items-center rounded-full border font-semibold @max-[480px]/detail:size-7"
-
 /**
- * Where the reply stands on Google, in two or three words beside "Reply
- * from": live only once Google has confirmed it, sent while Google has it
- * and has not answered, and otherwise plainly not there yet.
- */
-function GoogleTag({ review }: { review: Review }) {
-  const reply = review.reply
-  if (reply?.body && isLiveOnGoogle(reply.publishStatus)) {
-    return (
-      <StatusPill tone="ok" data-slot="google-tag">
-        Live on Google
-      </StatusPill>
-    )
-  }
-  if (review.workflowStatus === "publish_requested") {
-    return (
-      <StatusPill tone="warn" data-slot="google-tag">
-        Publishing
-      </StatusPill>
-    )
-  }
-  if (reply?.body && reply.publishStatus === "accepted") {
-    return (
-      <StatusPill tone="info" data-slot="google-tag">
-        Sent · awaiting Google
-      </StatusPill>
-    )
-  }
-  return (
-    <StatusPill tone="outline" dashed data-slot="google-tag">
-      Not on Google yet
-    </StatusPill>
-  )
-}
-
-/**
- * The review and the reply as a conversation (reference `.thread`): the
- * customer's message, a rule down the gutter, and the business's reply —
- * which is where the reply is written, read and checked, so the words are
- * edited in the place they will appear.
- *
- * The review is the one place in the pane set in the reading serif. Whether
- * the reply is on Google is the tag beside "Reply from", and a live reply
- * that differs from the one being edited is one click away above it.
+ * The review, then the reply: one column, the customer's words above the
+ * place the answer is written.
  */
 function ReviewThread({
   review,
-  clientName,
   composer,
 }: {
   review: Review
-  clientName?: string | null
   composer?: ReactNode
 }) {
   const displayName = reviewerName(review)
-  const business = clientName ?? review.locationName
-  const violation = review.reply?.googlePolicyViolation
 
   return (
-    <div data-slot="review-thread" className="flex flex-col">
-      <ThreadMessage
-        label={`Review from ${displayName}`}
-        slot="thread-review"
-        connector
-        avatar={
-          <span
-            aria-hidden
-            className={cn(
-              AVATAR_CLASS,
-              "border-line bg-fill font-mono text-[11px] text-ink-secondary @max-[480px]/detail:text-[10px]"
-            )}
-          >
-            {initials(displayName)}
-          </span>
-        }
+    <div data-slot="review-thread" className="flex flex-col gap-6">
+      <article
+        aria-label={`Review from ${displayName}`}
+        data-slot="thread-review"
+        className="flex flex-col gap-3"
       >
-        <div className="flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <StarRating rating={review.rating} size="md" />
-          <time
-            dateTime={review.createTime}
-            title={formatDateTime(review.createTime, review.timezone)}
-            className="font-mono text-caption text-ink-muted tabular-nums"
-          >
-            {formatRelativeTime(review.createTime)}
-          </time>
-          {wasEdited(review.createTime, review.updateTime) ? (
-            <time
-              dateTime={review.updateTime}
-              title={formatDateTime(review.updateTime, review.timezone)}
-              className="font-mono text-caption text-ink-muted tabular-nums"
-            >
-              · edited {formatRelativeTime(review.updateTime)}
-            </time>
-          ) : null}
-          {/* Where the review came from, with the review it describes. */}
-          <span className="-my-1 ml-auto">
-            <ReviewMetadata review={review} />
-          </span>
-        </div>
         <ReviewBody review={review} />
         <ReviewMedia media={review.media} />
-      </ThreadMessage>
+      </article>
 
-      <ThreadMessage
-        label="Your reply"
-        slot="thread-reply"
-        avatar={
-          <span
-            aria-hidden
-            className={cn(
-              AVATAR_CLASS,
-              "border-ink bg-ink font-display text-sm text-canvas"
-            )}
-          >
-            {initials(business).charAt(0)}
-          </span>
-        }
+      <section
+        aria-label="Your reply"
+        data-slot="thread-reply"
+        className="flex flex-col gap-3"
       >
-        <div className="flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <b className="min-w-0 font-semibold text-ink">
-            Reply from {review.locationName}
-          </b>
-          <span className="ml-auto @max-[480px]/detail:ml-0">
-            <GoogleTag review={review} />
-          </span>
-        </div>
-        {violation ? (
-          <p className="flex items-start gap-1.5 text-caption text-danger-ink">
-            <TriangleAlertIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="mt-0.5 size-3.5 shrink-0"
-            />
-            Google flagged this reply: {violation}
-          </p>
-        ) : null}
-        <section aria-label="Reply" className="flex flex-col gap-3">
-          <LiveReplyDisclosure review={review} />
-          {composer}
-        </section>
-      </ThreadMessage>
+        <LiveReplyDisclosure review={review} />
+        {composer}
+      </section>
     </div>
   )
 }
@@ -799,14 +691,13 @@ const FOOTER_CLASS =
 const SCROLL_CLASS =
   "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 md:[@media(min-height:620px)]:overflow-y-auto"
 
-const COLUMN_CLASS = "mx-auto flex w-full max-w-[760px] flex-col gap-6"
+const COLUMN_CLASS = "mx-auto flex w-full max-w-[760px] flex-col gap-5"
 
 function ReviewDetail({
   reviewId,
   clientName,
   clientId,
   leading,
-  navigation,
   composer,
   actions,
   focusHeading = false,
@@ -820,8 +711,6 @@ function ReviewDetail({
   organisationName?: string
   /** Slot at the head of the pane (the narrow-screen return-to-list control). */
   leading?: ReactNode
-  /** Previous / next review controls, in the pane head. */
-  navigation?: ReactNode
   /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
   /** The applicable primary action, pinned at the foot so it never scrolls away. */
@@ -830,10 +719,6 @@ function ReviewDetail({
   focusHeading?: boolean
 }) {
   const query = useReviewDetail(reviewId)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  // Timeline rows and verification cards below the fold reveal once as they
-  // scroll in; anything already visible when the pane mounts stays visible.
-  useReveals(scrollRef, query.data ? reviewId : undefined)
 
   const review = query.data?.review
   const pending = query.isPending
@@ -844,69 +729,36 @@ function ReviewDetail({
       aria-busy={pending || undefined}
       className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
     >
-      <HeadFrame
-        leading={leading}
-        below={
-          review ? (
-            <JourneyLine steps={deriveLifecycle(review)} />
-          ) : pending ? (
-            <Skeleton className="h-3.5 w-72 max-w-full" />
-          ) : null
-        }
-      >
+      <HeadFrame leading={leading}>
         {review ? (
           <ReviewHead
             review={review}
             clientName={clientName}
             clientId={clientId}
-            navigation={navigation}
             focusHeading={focusHeading}
           />
         ) : (
           <>
             {pending ? (
-              <>
-                <Skeleton className="size-9 rounded-full max-md:hidden" />
-                <div className="flex flex-1 flex-col gap-1.5">
-                  <Skeleton className="h-5 w-40" />
-                  <Skeleton className="h-3 w-56 max-w-full" />
-                </div>
-              </>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-3 w-56 max-w-full" />
+              </div>
             ) : (
               <span className="flex-1" />
             )}
-            <div className="ml-auto">{navigation}</div>
           </>
         )}
       </HeadFrame>
 
-      {/* One reading order, one scroll region: what is in the way, the
-          customer's words and the reply as a thread, the checks, and what
-          happened — with the publish bar pinned beneath. */}
+      {/* One reading order, one scroll region: what is in the way, then the
+          customer's words and the reply — with the publish bar pinned
+          beneath. */}
       {review ? (
-        <div
-          ref={scrollRef}
-          className={SCROLL_CLASS}
-          data-slot="inbox-detail-scroll"
-        >
+        <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
           <div className={COLUMN_CLASS}>
             <ReplyExceptionSlot review={review} />
-            <ReviewThread
-              review={review}
-              clientName={clientName}
-              composer={composer}
-            />
-
-            <VerificationChecks
-              verification={review.latestVerification}
-              status={review.workflowStatus}
-            />
-
-            <ActivityTimeline
-              timeline={review.timeline}
-              timezone={review.timezone}
-              collapsible
-            />
+            <ReviewThread review={review} composer={composer} />
           </div>
         </div>
       ) : failed ? (
@@ -929,7 +781,7 @@ function ReviewDetail({
         <footer data-slot="composer-footer" className={FOOTER_CLASS}>
           <div
             className={cn(
-              "flex min-w-0 flex-[1_1_220px] items-center",
+              "flex min-w-0 items-center empty:hidden",
               TYPING_COLLAPSE_CLASS
             )}
           >

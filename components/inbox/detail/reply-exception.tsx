@@ -46,7 +46,6 @@ function describeException(
   connection: string
 ): Exception | null {
   const reply = review.reply
-  const verdict = review.latestVerification?.verdict
 
   if (review.workflowStatus === "failed" || reply?.publishStatus === "failed") {
     const cause = publishFailureCause(reply)
@@ -101,15 +100,6 @@ function describeException(
         "This workspace has no active Google connection, so replies cannot reach Google until it is reconnected in Settings.",
       tone: "attention",
       connectionLink: true,
-    }
-  }
-
-  if (verdict === "fail") {
-    return {
-      title: "Correct the saved draft",
-      description:
-        "Verification blocked this reply. Fix the points listed under the draft, then save it again.",
-      tone: "attention",
     }
   }
 
@@ -169,15 +159,6 @@ function describeException(
     }
   }
 
-  if (verdict === "warn") {
-    return {
-      title: "Worth a second look",
-      description:
-        "Verification raised a point about this reply. Read the notes under the draft — you can still publish.",
-      tone: "caution",
-    }
-  }
-
   return null
 }
 
@@ -185,8 +166,9 @@ function describeException(
  * The exception, at the head of the review it affects (reference `.alert`):
  * a tinted block with the glyph in the tone's ink, the title, what happened
  * in words, and — where the operator can do something outside this pane —
- * the link that does it. Where the reply has got to is the lifecycle strip
- * beneath it, so this says only what is in the way.
+ * the link that does it. Where the reply has got to is the status line on
+ * the publish bar, and a failed check is said under the editor, so this says
+ * only what is in the way.
  *
  * Deliberately not `role="alert"`: the pane's one live status is the line
  * on the action bar, and a second announcement of the same fact on every

@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { ArrowLeftIcon } from "lucide-react"
 
 import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
@@ -37,15 +37,9 @@ import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Kbd } from "@/components/ui/kbd"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -282,14 +276,6 @@ function InboxViewInner({
       updateState({ selected: undefined }, "replace")
     })()
   }, [dirtyGate, updateState])
-
-  const selectedIndex = state.selected
-    ? reviews.findIndex((review) => review.id === state.selected)
-    : -1
-  const hasPrevReview = selectedIndex > 0
-  const hasNextReview =
-    selectedIndex >= 0 &&
-    (selectedIndex < reviews.length - 1 || !!reviewsQuery.hasNextPage)
 
   // Resolves to the review it moved to, or null when it did not move.
   const onAdjacentReview = useCallback(
@@ -775,53 +761,6 @@ function InboxViewInner({
     </section>
   )
 
-  // Up and down, because the queue they step through is a column (and `k`
-  // and `j` move the same way).
-  const navigation = (
-    <div className="flex items-center gap-0.5">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Previous review"
-              // The touch floor on a narrow screen too, as the head's other
-              // controls have (`icon-sm` already grows on a coarse pointer).
-              className="max-md:size-11"
-              disabled={!hasPrevReview}
-              onClick={() => void onAdjacentReview("prev")}
-            />
-          }
-        >
-          <ChevronUpIcon aria-hidden strokeWidth={1.75} />
-        </TooltipTrigger>
-        <TooltipContent>
-          Previous review <Kbd>K</Kbd>
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Next review"
-              className="max-md:size-11"
-              disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
-              onClick={() => void onAdjacentReview("next")}
-            />
-          }
-        >
-          <ChevronDownIcon aria-hidden strokeWidth={1.75} />
-        </TooltipTrigger>
-        <TooltipContent>
-          Next review <Kbd>J</Kbd>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  )
-
   const selectedRow = reviews.find((review) => review.id === state.selected)
 
   // The detail is mounted in exactly one place, so the composer's dirty guard
@@ -850,7 +789,6 @@ function InboxViewInner({
             <ArrowLeftIcon aria-hidden strokeWidth={1.75} />
           </Button>
         }
-        navigation={navigation}
         composer={<ReplyComposer reviewId={state.selected} />}
         actions={<ActionBar reviewId={state.selected} />}
       />
