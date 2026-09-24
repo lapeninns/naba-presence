@@ -39,6 +39,28 @@ import { cn } from "@/lib/utils"
 
 type Day = NormalizedHours["regular"][number]
 
+/** Today as YYYY-MM-DD in the browser's own calendar, for "past" marks. */
+function localToday(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/**
+ * Special days in date order, as indexes into the unsorted list (field ids
+ * and validation messages are keyed by that index). Rows still being given
+ * a date stay at the end, in the order they were added.
+ */
+function specialOrder(special: NormalizedHours["special"]): number[] {
+  return special
+    .map((entry, index) => ({ date: entry.effectiveDate, index }))
+    .sort((a, b) => {
+      if (!a.date || !b.date) return !a.date && !b.date ? a.index - b.index : a.date ? -1 : 1
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : a.index - b.index
+    })
+    .map(({ index }) => index)
+}
+
 /** Time fields share one slot width with tabular figures, so a column lines up. */
 const TIME_CLASS = "w-29 tabular-nums"
 
@@ -96,6 +118,12 @@ export function HoursEditor({
   const headingId = useId()
   const specialHeadingId = useId()
   const [copyFrom, setCopyFrom] = useState<number | null>(null)
+  // The periods a day had when it was switched off, so switching it back on
+  // brings them back instead of resetting to 09:00–17:00.
+  const [closedPeriods, setClosedPeriods] = useState<
+    Record<number, Day["periods"]>
+  >({})
+  const today = localToday()
 
   function setDay(next: Day) {
     const regular = value.regular.map((day) =>
@@ -180,19 +208,26 @@ export function HoursEditor({
                         ? `${hoursFieldId.dayOpen(dayOfWeek)}-error`
                         : undefined
                     }
-                    onCheckedChange={(open) =>
-                      setDay(
-                        open
-                          ? {
-                              ...day,
-                              isClosed: false,
-                              periods: [
-                                { opensAt: "09:00", closesAt: "17:00" },
-                              ],
-                            }
-                          : { ...day, isClosed: true, periods: [] }
-                      )
-                    }
+                    onCheckedChange={(open) => {
+                      if (open) {
+                        const remembered = closedPeriods[dayOfWeek]
+                        setDay({
+                          ...day,
+                          isClosed: false,
+                          periods:
+                            remembered && remembered.length > 0
+                              ? remembered.map((p) => ({ ...p }))
+                              : [{ opensAt: "09:00", closesAt: "17:00" }],
+                        })
+                      } else {
+                        if (day.periods.length > 0)
+                          setClosedPeriods((all) => ({
+                            ...all,
+                            [dayOfWeek]: day.periods,
+                          }))
+                        setDay({ ...day, isClosed: true, periods: [] })
+                      }
+                    }}
                   />
                   <span aria-hidden className="w-13 text-ui text-ink-muted">
                     {day.isClosed ? "Closed" : "Open"}
@@ -337,10 +372,15 @@ export function HoursEditor({
         />
         {value.special.length > 0 ? (
           <ul className="flex flex-col gap-2">
-            {value.special.map((entry, index) => {
+            {specialOrder(value.special).map((index) => {
+              const entry = value.special[index]!
               const dateId = hoursFieldId.specialDate(index)
               const opensId = hoursFieldId.specialOpens(index)
+              const closesId = hoursFieldId.specialCloses(index)
               const message = errors[dateId] ?? errors[opensId]
+              const past = Boolean(
+                entry.effectiveDate && entry.effectiveDate < today
+              )
               const errorId = `special-${index}-error`
               const googleEntry = google?.special.find(
                 (other) => other.effectiveDate === entry.effectiveDate
@@ -357,6 +397,7 @@ export function HoursEditor({
               return (
                 <li
                   key={specialKeys[index]}
+                  data-past={past || undefined}
                   className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-x-4 gap-y-2 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 @[520px]/special:grid-cols-[3.5rem_minmax(0,1fr)_auto]"
                 >
                   <span
@@ -446,6 +487,11 @@ export function HoursEditor({
                         })}
                       </div>
                       {changed ? <ChangedMark /> : null}
+                      {past ? (
+                        <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-caption font-semibold text-ink-secondary">
+                          Past
+                        </span>
+                      ) : null}
                     </div>
 
                     {!entry.isClosed ? (
@@ -473,8 +519,11 @@ export function HoursEditor({
                           –
                         </span>
                         <Input
+                          id={closesId}
                           type="time"
                           aria-label={`Special date ${index + 1} closes`}
+                          aria-invalid={errors[opensId] ? true : undefined}
+                          aria-describedby={message ? errorId : undefined}
                           value={entry.closesAt ?? ""}
                           disabled={disabled}
                           onChange={(event) =>
@@ -493,7 +542,7 @@ export function HoursEditor({
 
                     <span className="text-caption text-ink-muted">
                       {entry.effectiveDate
-                        ? `${formatSpecialDate(entry.effectiveDate)}${entry.isClosed ? " · closed all day" : ""}`
+                        ? `${formatSpecialDate(entry.effectiveDate)}${entry.isClosed ? " · closed all day" : ""}${past ? " · already passed, so customers no longer see it" : ""}`
                         : "Choose the date this applies to."}
                     </span>
                     <FieldProblem id={errorId} message={message} />
