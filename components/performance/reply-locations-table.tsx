@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table"
 import { nullableCell } from "@/components/reporting/reporting-states"
 import type { AnalyticsLocation } from "@/lib/api/analytics"
+import type { CsvCell } from "@/lib/reporting/csv"
 import { cn } from "@/lib/utils"
 import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
 
@@ -23,6 +24,35 @@ function orderLocations(locations: AnalyticsLocation[]): AnalyticsLocation[] {
     return b.responseRate - a.responseRate || a.name.localeCompare(b.name)
   })
 }
+
+/**
+ * The table as CSV rows, in the order it is shown. Raw figures (a rate as a
+ * fraction, a median in seconds) so a spreadsheet can compute with them; a
+ * missing figure is an empty cell, never 0.
+ */
+export function replyLocationsCsv(locations: AnalyticsLocation[]): CsvCell[][] {
+  return [
+    [
+      "Location",
+      "Reviews",
+      "Average rating",
+      "Response rate",
+      "Median response (seconds)",
+      "Unresolved",
+    ],
+    ...orderLocations(locations).map((location) => [
+      location.name,
+      location.reviews,
+      location.averageRating,
+      location.responseRate,
+      location.medianFirstResponseSeconds,
+      location.unresolvedComplaints,
+    ]),
+  ]
+}
+
+const LINK_CLASS =
+  "rounded-(--np-radius-tag) break-words underline decoration-line-strong underline-offset-3 focus-halo hover:decoration-current pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
 
 export function ReplyLocationsTable({
   locations,
@@ -54,14 +84,12 @@ export function ReplyLocationsTable({
             location.medianFirstResponseSeconds,
             (v) => formatDuration(v)
           )
+          const id = encodeURIComponent(location.id)
           return (
             <TableRow key={location.id}>
               <TableCell className="font-medium text-ink">
                 {/* The location's own report: same figures, one place. */}
-                <Link
-                  href={`/reports?locationId=${encodeURIComponent(location.id)}`}
-                  className="break-words underline decoration-line-strong underline-offset-3 hover:decoration-current"
-                >
+                <Link href={`/reports?locationId=${id}`} className={LINK_CLASS}>
                   {location.name}
                 </Link>
               </TableCell>
@@ -90,7 +118,20 @@ export function ReplyLocationsTable({
                 {median.text}
               </TableCell>
               <TableCell numeric label="Unresolved">
-                {formatNumber(location.unresolvedComplaints)}
+                {location.unresolvedComplaints > 0 ? (
+                  // The count is work waiting (one- and two-star reviews
+                  // with no published reply), so it opens those reviews in
+                  // the inbox rather than being a dead number.
+                  <Link
+                    href={`/inbox?locationId=${id}&rating=1,2`}
+                    className={LINK_CLASS}
+                    aria-label={`${formatNumber(location.unresolvedComplaints)} unresolved at ${location.name}, open in the inbox`}
+                  >
+                    {formatNumber(location.unresolvedComplaints)}
+                  </Link>
+                ) : (
+                  formatNumber(location.unresolvedComplaints)
+                )}
               </TableCell>
             </TableRow>
           )

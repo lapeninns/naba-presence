@@ -7,7 +7,32 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { KeywordRow } from "@/lib/contracts/analytics"
+import type { CsvCell } from "@/lib/reporting/csv"
 import { formatKeywordImpressions } from "@/lib/reporting/keyword-impressions"
+
+/**
+ * The terms as CSV rows. Impressions as Google gave them: the lower bound,
+ * with the upper bound and whether Google gave a range beside it, so the
+ * file stays as honest as the "N+" on screen.
+ */
+export function keywordsCsv(keywords: KeywordRow[]): CsvCell[][] {
+  return [
+    [
+      "Rank",
+      "Search term",
+      "Impressions (at least)",
+      "Impressions (at most)",
+      "Range from Google",
+    ],
+    ...keywords.map((keyword) => [
+      keyword.rank,
+      keyword.keyword,
+      keyword.impressions,
+      keyword.upperBound,
+      keyword.thresholded ? "yes" : "no",
+    ]),
+  ]
+}
 
 /**
  * Search terms by impressions (reference `keywords-table`): rank, the term

@@ -1,8 +1,12 @@
 "use client"
 
+import { TableIcon } from "lucide-react"
 import * as React from "react"
 
+import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import { Button } from "@/components/ui/button"
 import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
+import { csvFilename } from "@/lib/reporting/csv"
 import { cn } from "@/lib/utils"
 
 /**
@@ -15,7 +19,9 @@ import { cn } from "@/lib/utils"
  * - Figures are printed on the peak bar and the latest bar (every bar when
  *   there are seven or fewer), in tabular mono.
  * - The drawing is `aria-hidden`; the same figures are a visually hidden
- *   table inside the figure, so a screen reader gets every value.
+ *   table inside the figure, so a screen reader gets every value. "Show
+ *   values" puts that table on screen, for anyone who cannot hover a bar
+ *   (a phone, a keyboard) to read its tooltip, and "Download CSV" saves it.
  * - Grouped by default; `stacked` piles the series and labels the total.
  * - Each column has a minimum width. On a narrow screen with many columns
  *   the plot scrolls sideways inside its own box (focusable only while it
@@ -83,6 +89,7 @@ export function ReportBarChart({
   format = (value) => new Intl.NumberFormat("en-GB").format(value),
   unitNote,
   unitName,
+  csvName,
 }: {
   /** Names the figures: the screen-reader table's caption. */
   title: string
@@ -98,9 +105,13 @@ export function ReportBarChart({
   unitNote: string
   /** "day", "week", "month": names what the labelled bar is. */
   unitName: string
+  /** Names the downloaded file; defaults to the title. */
+  csvName?: string
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const overflows = useOverflowsX(scrollRef)
+  const [showValues, setShowValues] = React.useState(false)
+  const tableId = React.useId()
 
   const columnTotal = (datum: ReportBarDatum) =>
     stacked
@@ -240,9 +251,15 @@ export function ReportBarChart({
           absolutely positioned one still widens the page: at 320px a
           four-column table pushed the document to 359px. A clipping sr-only
           box around it keeps it out of the page's scroll width. */}
-      <div className="sr-only">
+      <div
+        id={tableId}
+        className={
+          showValues ? "max-h-72 min-w-0 overflow-auto" : "sr-only"
+        }
+      >
         <ChartDataTable
           caption={title}
+          visible={showValues}
           columns={[categoryHeading, ...series.map((s) => s.label)]}
           rows={data.map((datum) => [
             datum.label,
@@ -251,6 +268,7 @@ export function ReportBarChart({
               return v === null || v === undefined ? "—" : format(v)
             }),
           ])}
+          className="font-mono tabular-nums"
         />
       </div>
       <figcaption className="text-caption text-ink-muted">
@@ -261,6 +279,29 @@ export function ReportBarChart({
             : `The busiest and the latest ${unitName} are labelled.`}{" "}
         {unitNote}
       </figcaption>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={showValues}
+          aria-controls={tableId}
+          onClick={() => setShowValues((shown) => !shown)}
+        >
+          <TableIcon aria-hidden strokeWidth={1.75} />
+          {showValues ? "Hide values" : "Show values"}
+        </Button>
+        <CsvDownloadButton
+          filename={csvFilename(csvName ?? title)}
+          accessibleLabel={`Download ${title} as CSV`}
+          rows={() => [
+            [categoryHeading, ...series.map((s) => s.label)],
+            ...data.map((datum) => [
+              datum.label,
+              ...series.map((s) => datum.values[s.key] ?? null),
+            ]),
+          ]}
+        />
+      </div>
     </figure>
   )
 }
