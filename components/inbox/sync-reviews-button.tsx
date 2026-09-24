@@ -5,9 +5,12 @@ import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/button"
+import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
+import { fetchReviewCounts, type ReviewCounts } from "@/lib/api/review-counts"
 import { triggerReviewSync } from "@/lib/api/sync"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { formatNumber } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 
 /**
@@ -19,6 +22,7 @@ import { queryKeys } from "@/lib/queries/keys"
  */
 export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   const queryClient = useQueryClient()
+  const toasts = useToastManager()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   if (!canSync) return null
@@ -26,6 +30,11 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   async function run() {
     setPending(true)
     setError(null)
+    // The organisation's review total as this page last had it. The sync
+    // route reports what it wrote, which includes every unchanged review on
+    // Google's newest page, so "new" is the difference in the total instead.
+    const countsKey = queryKeys.reviewCounts("organisation")
+    const before = queryClient.getQueryData<ReviewCounts>(countsKey)?.total
     try {
       const result = await triggerReviewSync()
       if (result.skipped) {
@@ -40,7 +49,35 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
       const failure = result.failures?.[0]?.errorCode
       if (failure) {
         setError(describeActionError(new ApiClientError(502, failure, failure)))
+        return
       }
+      const after = await queryClient
+        .fetchQuery({
+          queryKey: countsKey,
+          queryFn: () => fetchReviewCounts(),
+          staleTime: 0,
+        })
+        .then((counts) => counts.total)
+        .catch(() => undefined)
+      const added =
+        before !== undefined && after !== undefined
+          ? Math.max(0, after - before)
+          : null
+      toasts.add(
+        added === null
+          ? { title: "Reviews synced", type: "success" }
+          : added === 0
+            ? {
+                title: "Up to date",
+                description: "Google has no reviews newer than these.",
+                type: "success",
+              }
+            : {
+                title: `${formatNumber(added)} new ${added === 1 ? "review" : "reviews"}`,
+                description: "They are in the list now.",
+                type: "success",
+              }
+      )
     } catch (caught) {
       setError(describeActionError(caught))
     } finally {
