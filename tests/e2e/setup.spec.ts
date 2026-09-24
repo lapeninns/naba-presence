@@ -45,7 +45,7 @@ test.describe("client setup", () => {
     // Both routes are offered: the first client needs a fresh consent, the
     // tenth is usually on a login the agency already connected.
     await expect(
-      page.getByRole("button", { name: /Continue with Google/ })
+      page.getByRole("button", { name: /Sign in with Google/ })
     ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Use an account already connected" })

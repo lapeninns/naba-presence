@@ -1,7 +1,6 @@
 "use client"
 
 import { CircleCheckIcon, Link2Icon } from "lucide-react"
-import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import * as React from "react"
 
@@ -9,7 +8,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
-import { useToastManager } from "@/components/ui/toast"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatRelativeTime } from "@/lib/format"
@@ -42,9 +40,10 @@ function StepConnect({
   const params = useSearchParams()
   const workspace = useConnectionWorkspace()
   const { attachConnection } = useClientMutations()
-  const toast = useToastManager()
   const [starting, setStarting] = React.useState(false)
+  const [startingFor, setStartingFor] = React.useState<string | null>(null)
   const [startError, setStartError] = React.useState<string | null>(null)
+  const [attachError, setAttachError] = React.useState<string | null>(null)
 
   const returned = params.get("google")
   const returnedStatus = params.get("status")
@@ -57,33 +56,36 @@ function StepConnect({
       connection.status === "active" && !connection.reconnectRequired
   )
 
-  const connect = async () => {
+  const connect = async (reconnectConnectionId?: string) => {
     setStarting(true)
+    setStartingFor(reconnectConnectionId ?? null)
     setStartError(null)
     try {
       const { authorizationUrl } = await startGoogleConnect({
         clientId,
-        // Straight back to the next step, not to a settings page the operator
-        // never asked for.
-        returnTo: `/setup?client=${clientId}&step=account`,
+        // Straight back into setup, not to a settings page the operator never
+        // asked for: the next step after a fresh sign-in, or this step after
+        // a reconnect, where the renewed login can then be used.
+        returnTo: reconnectConnectionId
+          ? `/setup?client=${clientId}&step=connect`
+          : `/setup?client=${clientId}&step=account`,
+        ...(reconnectConnectionId ? { reconnectConnectionId } : {}),
       })
       window.location.assign(authorizationUrl)
     } catch (error) {
       setStarting(false)
+      setStartingFor(null)
       setStartError(describeActionError(error))
     }
   }
 
   const pickExisting = (connectionId: string) => {
+    setAttachError(null)
     attachConnection.mutate(
       { clientId, connectionId },
       {
         onSuccess: onConnected,
-        onError: (error) =>
-          toast.add({
-            title: "Could not use that account",
-            description: describeActionError(error),
-          }),
+        onError: (error) => setAttachError(describeActionError(error)),
       }
     )
   }
@@ -156,12 +158,13 @@ function StepConnect({
             <Button
               id="setup-connect-google"
               variant={usable.length === 0 ? "default" : "secondary"}
-              onClick={connect}
-              pending={starting}
+              onClick={() => void connect()}
+              pending={starting && startingFor === null}
               pendingLabel="Opening Google…"
+              disabled={starting}
               className="self-start @min-[520px]/wiz:self-center"
             >
-              Continue with Google
+              Sign in with Google
             </Button>
           </div>
 
@@ -175,6 +178,12 @@ function StepConnect({
             >
               Use an account already connected
             </h3>
+            {attachError ? (
+              <Alert variant="destructive" data-testid="setup-attach-error">
+                <AlertTitle>Couldn’t use that account</AlertTitle>
+                <AlertDescription>{attachError}</AlertDescription>
+              </Alert>
+            ) : null}
             {connections.length === 0 ? (
               <p className="text-ui text-ink-muted">
                 You haven’t connected a Google account yet.
@@ -207,18 +216,29 @@ function StepConnect({
                         </span>
                         {broken ? (
                           <span className="text-caption text-ink-muted">
-                            <Link
-                              href="/settings/connections"
-                              className="rounded-(--np-radius-tag) font-medium text-accent-ink underline underline-offset-3 focus-halo"
-                            >
-                              Reconnect it in Settings
-                            </Link>{" "}
-                            to use it here.
+                            Reconnect it to use it here. Google opens, then you
+                            come straight back to this step.
                           </span>
                         ) : null}
                       </div>
                       {broken ? (
-                        <StatusPill tone="bad">Needs reconnecting</StatusPill>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <StatusPill tone="bad">Needs reconnecting</StatusPill>
+                          {/* Same reconnect as Settings' connection card:
+                              target this login so Google pre-fills it and
+                              the callback renews it rather than adding one. */}
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            pending={starting && startingFor === connection.id}
+                            pendingLabel="Opening Google…"
+                            disabled={starting}
+                            onClick={() => void connect(connection.id)}
+                            aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
+                          >
+                            Reconnect
+                          </Button>
+                        </span>
                       ) : (
                         <span className="flex flex-wrap items-center gap-2">
                           <StatusPill tone="ok">Connected</StatusPill>
