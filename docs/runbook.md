@@ -425,19 +425,23 @@ on Vercel, so the Supabase CLI stack above is the only local environment.
 
 ## Production database
 
-The Vercel production `DATABASE_URL` / `DIRECT_DATABASE_URL` set before
-September 2026 point at a host that no longer resolves (`ENOTFOUND`, confirmed
-NXDOMAIN). Production starts clean on a new hosted Supabase project: no data is
-carried over from the local database, which is shared with sibling projects and
-holds artifacts no committed migration defines. Organisations sign up again,
-reconnect Google, and the connect-callback backfill re-imports their reviews.
-The last local snapshot, kept for reference only, is
+Production runs on the Supabase project `googlereview-gbp` (ref
+`znbjmipdiuzymxytyjvr`, us-east-1, PostgreSQL 17). It sat paused on the free
+plan for months, and a paused project's hostname stops resolving: that was the
+`ENOTFOUND` / NXDOMAIN every DB-backed production request failed with. It was
+restored in September 2026. A free project pauses again after a week without
+activity; the every-minute cron keeps it busy, but move it to a paid plan
+before relying on it. No data is carried over from the local database, which
+is shared with sibling projects and holds artifacts no committed migration
+defines. Organisations sign up again, reconnect Google, and the
+connect-callback backfill re-imports their reviews. The last local snapshot,
+kept for reference only, is
 `~/LapenInns Project/archive/naba-presence-backups/local-snapshot-20260903.dump`.
 
 Provision in this order:
 
-1. Create a dedicated Supabase project in London (eu-west-2) on PostgreSQL 17.
-   Functions run in `lhr1` (`vercel.json` `regions`) to sit next to it. From
+1. Use a dedicated Supabase project on PostgreSQL 17. Functions run in
+   `iad1` (`vercel.json` `regions`) to sit next to the us-east-1 database. From
    Connect, take the **session pooler** URI (port 5432) — never the
    transaction pooler (6543): the refresh lock and the scheduler leases are
    session advisory locks, which a transaction-mode pooler would release
