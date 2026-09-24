@@ -7,7 +7,11 @@ import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
-import { connectionAccessToken, googleReviews } from "@/lib/server/google"
+import {
+  connectionAccessToken,
+  getGoogleLocation,
+  googleReviews,
+} from "@/lib/server/google"
 import { restoreListingAccess } from "@/lib/server/google/connection-failures"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
@@ -108,6 +112,44 @@ export async function linkedLocations(
       }
     order by e.title
   `
+}
+
+/**
+ * Whether Google now reports a listing as verified, recording it when so.
+ * Throws the provider error unchanged, so a 404 or a withdrawn grant settles
+ * the run exactly as a failed review read would.
+ */
+async function verifiedAtGoogle(
+  organisationId: string,
+  linked: LinkedLocation
+): Promise<boolean> {
+  const accessToken = await connectionAccessToken(
+    getDatabase(),
+    organisationId,
+    linked.connectionId
+  )
+  const location = await getGoogleLocation(
+    accessToken,
+    linked.googleLocationName,
+    ["metadata"],
+    { connectionKey: linked.connectionId }
+  )
+  const metadata = location.metadata
+  const verified =
+    typeof metadata === "object" &&
+    metadata !== null &&
+    Reflect.get(metadata, "hasVoiceOfMerchant") === true
+  if (verified) {
+    await withTenant(
+      organisationId,
+      (sql) => sql`
+        update external_location
+        set verified = true
+        where id = ${linked.externalLocationId}
+      `
+    )
+  }
+  return verified
 }
 
 export async function upsertGoogleReview(
@@ -370,6 +412,14 @@ const MAX_CONSECUTIVE_FAILURES = 10
 /** How often every linked location's reviews are checked against Google. */
 export const RECONCILE_INTERVAL = "15 minutes"
 
+/**
+ * How long reconcile waits before checking a listing again after a failure
+ * only the business can clear at Google (unverified, removed, access
+ * withdrawn). Reconcile is the recurring freshness check, so it never
+ * retires: a listing verified or re-shared later has to come back on its own.
+ */
+const PERMANENT_FAILURE_RECHECK_MS = 6 * 60 * 60 * 1000
+
 /** Errors an operator has to clear at Google; retrying cannot resolve them. */
 function isPermanentSyncFailure(errorCode: string, status?: number) {
   return (
@@ -522,27 +572,31 @@ export async function syncLinkedLocation(input: {
       settlement.parked || reconnectBlocked || rateDeferred
         ? header.consecutiveFailureCount
         : header.consecutiveFailureCount + 1
-    // Reconcile is the recurring freshness check: a Google outage that
-    // outlasts the failure cap must not stop it for good, so only a failure
-    // retrying cannot fix retires it. It backs off (syncRetryAt caps at 30
-    // minutes) and recovers on its own when Google does.
+    // Reconcile is the recurring freshness check and never retires: the
+    // queue (0048) claims nothing that is dead, so a dead reconcile would
+    // stop checking the listing for good. An outage backs off (syncRetryAt
+    // caps at 30 minutes); a failure only the business can clear is checked
+    // again every PERMANENT_FAILURE_RECHECK_MS, so a listing verified or
+    // re-shared at Google comes back without anyone relinking it.
+    const permanent = isPermanentSyncFailure(errorCode, settlement.status)
     const dead =
       !settlement.parked &&
-      (isPermanentSyncFailure(errorCode, settlement.status) ||
-        (input.type !== "reconcile" &&
-          !reconnectBlocked &&
-          failureCount >= MAX_CONSECUTIVE_FAILURES))
+      input.type !== "reconcile" &&
+      (permanent ||
+        (!reconnectBlocked && failureCount >= MAX_CONSECUTIVE_FAILURES))
     const discardToken = dead || discardsPageToken(settlement.status)
     const retryAt =
       dead || settlement.parked
         ? null
         : rateDeferred
           ? new Date(Date.now() + 60_000)
-          : // Backs off on consecutive failures, not lifetime attempts:
-            // attempt_count only ever grows, so a location that had synced a
-            // few hundred times retried its first failure at the 30-minute
-            // cap.
-            syncRetryAt(header.checkpointId, failureCount)
+          : permanent
+            ? new Date(Date.now() + PERMANENT_FAILURE_RECHECK_MS)
+            : // Backs off on consecutive failures, not lifetime attempts:
+              // attempt_count only ever grows, so a location that had synced
+              // a few hundred times retried its first failure at the
+              // 30-minute cap.
+              syncRetryAt(header.checkpointId, failureCount)
     await withTenant(input.organisationId, async (sql) => {
       const settled = await sql<{ id: string }[]>`
         update sync_checkpoint
@@ -582,6 +636,24 @@ export async function syncLinkedLocation(input: {
       upserted,
       hasMore: pageToken !== undefined,
       errorCode,
+    }
+  }
+
+  // The stored flag is only refreshed by discovery, so reconcile asks Google
+  // whether a listing linked while unverified has been verified since.
+  if (
+    header.errorCode === "location_not_verified" &&
+    input.type === "reconcile"
+  ) {
+    try {
+      if (await verifiedAtGoogle(input.organisationId, header.linked)) {
+        header.errorCode = null
+      }
+    } catch (error) {
+      return settleFailure(
+        error instanceof ApiError ? error.code : "sync_failed",
+        { status: error instanceof ApiError ? error.status : undefined }
+      )
     }
   }
 
@@ -740,7 +812,8 @@ export async function syncLinkedLocation(input: {
       const expectedCount = evidence?.expectedCount ?? null
       const seenCount = evidence?.seenCount ?? 0
       const storedCount = evidence?.storedCount ?? 0
-      const countMismatch = expectedCount !== null && seenCount !== expectedCount
+      const countMismatch =
+        expectedCount !== null && seenCount !== expectedCount
       const incompleteEnumerationWithoutProviderTotal =
         expectedCount === null && seenCount < storedCount
 
