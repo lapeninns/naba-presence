@@ -125,10 +125,14 @@ function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
     <span
       className={cn(
         "text-caption",
-        freshness.state === "data_delayed" ? "text-warning-ink" : "text-ink-muted"
+        freshness.state === "data_delayed"
+          ? "text-warning-ink"
+          : "text-ink-muted"
       )}
     >
-      {freshness.state === "data_delayed" ? `${checked} · delayed, retrying` : checked}
+      {freshness.state === "data_delayed"
+        ? `${checked} · delayed, retrying`
+        : checked}
     </span>
   )
 }
@@ -297,9 +301,18 @@ function ListingsBoard({ role }: { role: string | null }) {
     const value = searchParams.get("health")
     return isHealthFilter(value) ? value : "all"
   })
-  const [clientFilter, setClientState] = React.useState<string | null>(
-    () => searchParams.get("clientId")
+  const [clientFilter, setClientState] = React.useState<string | null>(() =>
+    searchParams.get("clientId")
   )
+  // The top-bar client switcher changes `?clientId=` from outside the board,
+  // so the chips follow the address whenever it moves on its own. Adjusted
+  // during render, not in an effect, so no frame shows the old client.
+  const urlClient = searchParams.get("clientId")
+  const [seenUrlClient, setSeenUrlClient] = React.useState(urlClient)
+  if (urlClient !== seenUrlClient) {
+    setSeenUrlClient(urlClient)
+    setClientState(urlClient)
+  }
   const [order, setOrderState] = React.useState<BoardOrder>(() =>
     searchParams.get("order") === "client" ? "client" : "health"
   )
@@ -311,7 +324,11 @@ function ListingsBoard({ role }: { role: string | null }) {
     order?: BoardOrder
   }) => {
     const params = new URLSearchParams(searchParams.toString())
-    const set = (key: string, value: string | null | undefined, empty: string) => {
+    const set = (
+      key: string,
+      value: string | null | undefined,
+      empty: string
+    ) => {
       if (value === undefined) return
       if (value === null || value === empty) params.delete(key)
       else params.set(key, value)
