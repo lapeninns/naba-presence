@@ -9,7 +9,12 @@ import * as authApi from "@/lib/api/auth"
 
 const assign = vi.fn()
 beforeEach(() => {
-  vi.stubGlobal("location", { ...window.location, pathname: "/invite/tok", search: "", assign })
+  vi.stubGlobal("location", {
+    ...window.location,
+    pathname: "/invite/tok",
+    search: "",
+    assign,
+  })
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -17,7 +22,9 @@ afterEach(() => {
   assign.mockReset()
 })
 
-function renderView(viewer: { displayName: string; email: string } | null = null) {
+function renderView(
+  viewer: { displayName: string; email: string } | null = null
+) {
   return render(
     <QueryProvider>
       <InvitationView token="tok" viewer={viewer} />
@@ -70,7 +77,9 @@ describe("InvitationView", () => {
     expect(
       await screen.findByText("That invitation has expired.")
     ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Go to sign in" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Go to sign in" })
+    ).toBeInTheDocument()
   })
 
   it("separates a missing invitation from a network failure", async () => {
@@ -113,10 +122,32 @@ describe("InvitationView", () => {
       screen.getByRole("button", { name: "Sign out and continue" })
     )
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
-    expect(assign).toHaveBeenCalledWith("/invite/tok")
+    // Back to the invite in sign-in mode: the invited address is someone
+    // else's, and usually one that already has an account.
+    expect(assign).toHaveBeenCalledWith("/invite/tok?mode=sign-in")
   })
 
-  it("asks a signed-in visitor already matching the invited email to sign out and continue", async () => {
+  it("opens the form in sign-in mode when asked to", async () => {
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      accepted: false,
+      expired: false,
+    })
+    render(
+      <QueryProvider>
+        <InvitationView token="tok" viewer={null} initialMode="sign-in" />
+      </QueryProvider>
+    )
+    expect(
+      await screen.findByRole("button", {
+        name: "Switch to sign in",
+        pressed: true,
+      })
+    ).toBeInTheDocument()
+  })
+
+  it("accepts with the current session when the signed-in email matches", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
@@ -125,17 +156,37 @@ describe("InvitationView", () => {
       expired: false,
     })
     const signOutSpy = vi.spyOn(authApi, "signOut").mockResolvedValue(undefined)
-    renderView({ displayName: "Aman Shrestha", email: "invited@example.test" })
-    expect(
-      await screen.findByText(
-        "You are signed in as invited@example.test. Sign out and continue to accept this invitation."
-      )
-    ).toBeInTheDocument()
+    const acceptSpy = vi
+      .spyOn(authApi, "acceptInvitation")
+      .mockResolvedValue({ accepted: true, organisationId: "org-2" })
+    renderView({ displayName: "Aman Shrestha", email: "Invited@example.test" })
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument()
     await user.click(
-      screen.getByRole("button", { name: "Sign out and continue" })
+      await screen.findByRole("button", { name: "Accept invitation" })
     )
-    await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
-    expect(assign).toHaveBeenCalledWith("/invite/tok")
+    await waitFor(() => expect(acceptSpy).toHaveBeenCalledWith("tok"))
+    expect(signOutSpy).not.toHaveBeenCalled()
+    expect(assign).toHaveBeenCalledWith("/inbox")
+  })
+
+  it("shows an accept failure inline instead of navigating", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      accepted: false,
+      expired: false,
+    })
+    vi.spyOn(authApi, "acceptInvitation").mockRejectedValue(
+      new ApiClientError(410, "invitation_expired", "x")
+    )
+    renderView({ displayName: "Aman Shrestha", email: "invited@example.test" })
+    await user.click(
+      await screen.findByRole("button", { name: "Accept invitation" })
+    )
+    expect(
+      await screen.findByText("That invitation has expired.")
+    ).toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
   })
 })

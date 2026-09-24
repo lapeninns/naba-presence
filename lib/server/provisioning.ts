@@ -328,6 +328,143 @@ export async function provisionAuthenticatedMember(
 }
 
 /**
+ * Accepts an invitation for a visitor who is ALREADY signed in, so matching
+ * the invited address no longer costs a sign-out and a password. Mirrors the
+ * checks in `provisionAuthenticatedMember` (row lock, accepted/expired,
+ * changed-details and email match) against the session user's stored email,
+ * which is the address they last authenticated with. A support session is
+ * refused: it acts as the customer and must not join organisations for them.
+ *
+ * Returns a fresh session token in the invitation's organisation; the caller
+ * swaps the cookie and retires the old session, as `/api/session/switch`
+ * does.
+ */
+export async function acceptInvitationForSessionUser(
+  user: { userId: string; email: string; supportActor?: string | null },
+  invitation: {
+    id: string
+    organisationId: string
+    role: string
+    canPublish: boolean
+  },
+  requestId: string
+): Promise<{ organisationId: string; userId: string; token: string }> {
+  if (user.supportActor) {
+    throw new ApiError(
+      403,
+      "support_session_forbidden",
+      "A support session cannot accept invitations."
+    )
+  }
+  return getDatabase().begin(async (sql) => {
+    await sql`
+      select set_config('app.organisation_id', ${invitation.organisationId}, true)
+    `
+    const [pending] = await sql<
+      {
+        id: string
+        email: string
+        role: string
+        canPublish: boolean
+        expiresAt: Date
+        acceptedAt: Date | null
+      }[]
+    >`
+      select
+        id::text as id,
+        email,
+        role,
+        can_publish as "canPublish",
+        expires_at as "expiresAt",
+        accepted_at as "acceptedAt"
+      from invitation
+      where id = ${invitation.id}
+        and organisation_id = ${invitation.organisationId}
+      for update
+    `
+    if (!pending) {
+      throw new ApiError(404, "invitation_not_found", "Invitation not found.")
+    }
+    if (pending.acceptedAt) {
+      throw new ApiError(
+        409,
+        "invitation_already_used",
+        "This invitation has already been accepted."
+      )
+    }
+    if (pending.expiresAt.getTime() <= Date.now()) {
+      throw new ApiError(
+        410,
+        "invitation_expired",
+        "This invitation has expired."
+      )
+    }
+    if (
+      pending.role !== invitation.role ||
+      pending.canPublish !== invitation.canPublish
+    ) {
+      throw new ApiError(
+        409,
+        "invitation_changed",
+        "The invitation details changed."
+      )
+    }
+    if (
+      pending.email.trim().toLowerCase() !== user.email.trim().toLowerCase()
+    ) {
+      throw new ApiError(
+        403,
+        "invitation_email_mismatch",
+        "Sign in with the email address that received this invitation."
+      )
+    }
+    await sql`select set_config('app.user_id', ${user.userId}, true)`
+    // Same do-nothing rule as provisionAuthenticatedMember: acceptance may
+    // create a membership but never rewrite an existing one.
+    await sql`
+      insert into member (organisation_id, user_id, role, can_publish)
+      values (
+        ${invitation.organisationId},
+        ${user.userId},
+        ${pending.role},
+        ${pending.canPublish}
+      )
+      on conflict (organisation_id, user_id) do nothing
+    `
+    await sql`
+      update invitation
+      set accepted_at = now(), accepted_by = ${user.userId}
+      where id = ${pending.id}
+    `
+    await writeAudit(sql, {
+      organisationId: invitation.organisationId,
+      actorUserId: user.userId,
+      action: "member.invitation_accepted",
+      subjectType: "invitation",
+      subjectId: pending.id,
+      requestId,
+      metadata: {
+        invitedEmail: pending.email,
+        authenticatedEmail: user.email,
+        provider: "session",
+        role: pending.role,
+        canPublish: pending.canPublish,
+      },
+    })
+    const token = await createSession(
+      sql,
+      user.userId,
+      invitation.organisationId
+    )
+    return {
+      organisationId: invitation.organisationId,
+      userId: user.userId,
+      token,
+    }
+  })
+}
+
+/**
  * Google sign-in twin of `provisionAuthenticatedOwner`, kept only because
  * `tests/integration/provisioning.test.ts` and
  * `tests/integration/routes/identity-hardening.test.ts` still drive the

@@ -56,6 +56,21 @@ const BY_CODE: Record<string, AuthMessage> = {
     title: "We could not find that invitation.",
     description: "Check the link, or ask for a new invitation.",
   },
+  invitation_already_used: {
+    title: "This invitation has already been accepted.",
+    description: "Sign in to reach the agency.",
+  },
+  invitation_changed: {
+    title: "This invitation changed while you were looking at it.",
+    description: "Reload the page to see the current invitation.",
+  },
+  invitation_email_mismatch: {
+    title: "This invitation is for a different email address.",
+    description: "Sign in with the address that received it.",
+  },
+  support_session_forbidden: {
+    title: "A support session cannot accept invitations.",
+  },
   auth_identity_conflict: {
     title: "That email is already linked to another account.",
     description: "Sign in with the original account, or use a different email.",
