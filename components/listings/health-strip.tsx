@@ -125,6 +125,7 @@ function HealthStrip({
     !connection ||
     connection.status !== "active" ||
     connection.reconnectRequired
+  const accessLost = summary.freshness?.reason === "listing_access_lost"
   const unpublished = unpublishedCount(summary)
   const changed = googleChangedCount(summary)
   const last = summary.lastPublish
@@ -140,15 +141,30 @@ function HealthStrip({
             <StatusPill tone="neutral">Not linked</StatusPill>
           ) : connectionBroken ? (
             <StatusPill tone="at-risk">Needs reconnecting</StatusPill>
+          ) : accessLost ? (
+            <StatusPill tone="at-risk">Access lost</StatusPill>
+          ) : summary.freshness?.state === "data_delayed" ? (
+            <StatusPill tone="attention">Data delayed</StatusPill>
           ) : (
-            <StatusPill tone="healthy">Connected</StatusPill>
+            <StatusPill tone="healthy">Up to date</StatusPill>
           )
         }
         detail={
-          connection?.googleEmail ??
-          (linked
-            ? "No Google login on record"
-            : "Link it from the client’s setup")
+          accessLost && !connectionBroken
+            ? "The login no longer manages this listing. Ask the business to add it back as a manager."
+            : [
+                connection?.googleEmail ??
+                  (linked
+                    ? "No Google login on record"
+                    : "Link it from the client’s setup"),
+                linked && summary.freshness
+                  ? summary.freshness.lastCheckedAt
+                    ? `reviews checked ${formatRelativeTime(summary.freshness.lastCheckedAt)}`
+                    : "reviews not checked yet"
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
         }
         action={
           linked && connectionBroken && clientId && canManageConsoles ? (

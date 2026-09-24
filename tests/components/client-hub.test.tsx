@@ -76,7 +76,7 @@ describe("ClientHub", () => {
     expect(
       await screen.findByRole("heading", { name: "Old Crown Group", level: 1 })
     ).toBeInTheDocument()
-    expect(screen.getByText("Healthy")).toBeInTheDocument()
+    expect(screen.getByText("Up to date")).toBeInTheDocument()
     expect(screen.getByText("Needs reply")).toBeInTheDocument()
     expect(screen.getByText("5")).toBeInTheDocument()
     // Each work tile opens the inbox already filtered to this client.

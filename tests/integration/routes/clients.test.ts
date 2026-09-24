@@ -17,6 +17,7 @@ type ClientSummary = {
   locationCount: number
   linkedCount: number
   openWork: { needsReply: number; awaitingApproval: number; failed: number }
+  lastSyncAt: string | null
 }
 
 describeDatabase("clients", () => {
@@ -41,11 +42,7 @@ describeDatabase("clients", () => {
     return tenant
   }
 
-  const request = (
-    path: string,
-    cookie: string,
-    init: RequestInit = {}
-  ) =>
+  const request = (path: string, cookie: string, init: RequestInit = {}) =>
     fetch(`${server.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -60,13 +57,19 @@ describeDatabase("clients", () => {
       method: "POST",
       body: JSON.stringify({ name }),
     })
-    const body = (await response.json()) as { client?: ClientSummary; error?: string }
+    const body = (await response.json()) as {
+      client?: ClientSummary
+      error?: string
+    }
     return { response, body }
   }
 
   it("creates a client, slugs the name and lists it with zeroed counts", async () => {
     const owner = await fixture()
-    const { response, body } = await createClient(owner.cookie, "Old Crown Group")
+    const { response, body } = await createClient(
+      owner.cookie,
+      "Old Crown Group"
+    )
     expect(response.status).toBe(200)
     expect(body.client).toMatchObject({
       name: "Old Crown Group",
@@ -90,7 +93,10 @@ describeDatabase("clients", () => {
   it("refuses a duplicate client name with a field error", async () => {
     const owner = await fixture()
     await createClient(owner.cookie, "Harbour Kitchen")
-    const { response, body } = await createClient(owner.cookie, "Harbour Kitchen")
+    const { response, body } = await createClient(
+      owner.cookie,
+      "Harbour Kitchen"
+    )
     expect(response.status).toBe(409)
     expect(body.error).toBe("client_name_taken")
   })
@@ -108,7 +114,10 @@ describeDatabase("clients", () => {
     const assign = await request(
       `/api/clients/${clientId}/locations`,
       owner.cookie,
-      { method: "POST", body: JSON.stringify({ locationIds: [seeded.locationId] }) }
+      {
+        method: "POST",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
     )
     expect(assign.status).toBe(200)
 
@@ -120,8 +129,43 @@ describeDatabase("clients", () => {
     expect(payload.client.locationCount).toBe(1)
     // A freshly seeded review is `new`, which is the Needs reply queue.
     expect(payload.client.openWork.needsReply).toBe(1)
-    expect(payload.locations.map((row) => row.locationId)).toEqual([seeded.locationId])
+    expect(payload.locations.map((row) => row.locationId)).toEqual([
+      seeded.locationId,
+    ])
     expect(payload.locations[0]?.clientId).toBe(clientId)
+  })
+
+  it("reports the last check Google answered, not the last attempt", async () => {
+    const owner = await fixture()
+    const { body } = await createClient(owner.cookie, "Quiet Arms")
+    const clientId = body.client!.id
+    const seeded = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    await request(`/api/clients/${clientId}/locations`, owner.cookie, {
+      method: "POST",
+      body: JSON.stringify({ locationIds: [seeded.locationId] }),
+    })
+    // seedReview files the review against a location and a Google listing
+    // but links neither; link them, as the listings step would.
+    const [link] = await admin<{ externalLocationId: string }[]>`
+      insert into location_link (organisation_id, external_location_id, location_id, is_active)
+      select organisation_id, external_location_id, location_id, true
+      from review where id = ${seeded.reviewId}
+      returning external_location_id::text as "externalLocationId"
+    `
+    // A backfill that failed just now, and a reconcile that succeeded an hour ago.
+    await admin`
+      insert into sync_checkpoint (organisation_id, external_location_id, sync_type, status, last_succeeded_at)
+      values
+        (${owner.organisationId}, ${link.externalLocationId}, 'backfill', 'failed', null),
+        (${owner.organisationId}, ${link.externalLocationId}, 'reconcile', 'succeeded', now() - interval '1 hour')
+    `
+    const detail = await request(`/api/clients/${clientId}`, owner.cookie)
+    const payload = (await detail.json()) as { client: ClientSummary }
+    const lastSync = new Date(payload.client.lastSyncAt!).getTime()
+    expect(Date.now() - lastSync).toBeGreaterThan(55 * 60_000)
+    expect(Date.now() - lastSync).toBeLessThan(65 * 60_000)
   })
 
   it("filters the inbox by client", async () => {
@@ -143,7 +187,10 @@ describeDatabase("clients", () => {
       body: JSON.stringify({ locationIds: [mine.locationId] }),
     })
 
-    const response = await request(`/api/reviews?client_id=${clientId}`, owner.cookie)
+    const response = await request(
+      `/api/reviews?client_id=${clientId}`,
+      owner.cookie
+    )
     const listed = (await response.json()) as { items: { id: string }[] }
     const ids = listed.items.map((item) => item.id)
     expect(ids).toContain(mine.reviewId)
@@ -168,7 +215,9 @@ describeDatabase("clients", () => {
       body: JSON.stringify({ archived: true }),
     })
     expect(blocked.status).toBe(409)
-    expect(((await blocked.json()) as { error: string }).error).toBe("client_has_locations")
+    expect(((await blocked.json()) as { error: string }).error).toBe(
+      "client_has_locations"
+    )
 
     const forced = await request(`/api/clients/${clientId}`, owner.cookie, {
       method: "PATCH",
@@ -186,7 +235,9 @@ describeDatabase("clients", () => {
     const owner = await fixture()
     const { body } = await createClient(owner.cookie, "Cam Cycles")
     const clientId = body.client!.id
-    const seeded = await seedReview(admin, { organisationId: owner.organisationId })
+    const seeded = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
     await request(`/api/clients/${clientId}/locations`, owner.cookie, {
       method: "POST",
       body: JSON.stringify({ locationIds: [seeded.locationId] }),
@@ -227,14 +278,20 @@ describeDatabase("clients", () => {
     const payload = (await listed.json()) as { items: ClientSummary[] }
     expect(payload.items.map((item) => item.id)).not.toContain(clientId)
 
-    const detail = await request(`/api/clients/${clientId}`, `naba_session=${token}`)
+    const detail = await request(
+      `/api/clients/${clientId}`,
+      `naba_session=${token}`
+    )
     expect(detail.status).toBe(404)
   })
 
   it("derives the setup step from what exists", async () => {
     const owner = await fixture()
     const { body } = await createClient(owner.cookie, "Riverside Cafe")
-    const response = await request(`/api/clients/${body.client!.id}/setup`, owner.cookie)
+    const response = await request(
+      `/api/clients/${body.client!.id}/setup`,
+      owner.cookie
+    )
     expect(response.status).toBe(200)
     const payload = (await response.json()) as {
       setup: { nextStep: string; locationsLinked: number; backfill: string }

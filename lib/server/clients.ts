@@ -2,7 +2,11 @@ import "server-only"
 
 import type { Fragment, TransactionSql } from "postgres"
 
-import { clientHealth, type ClientHealth } from "@/lib/clients/health"
+import {
+  clientFreshness,
+  clientHealth,
+  type ClientHealth,
+} from "@/lib/clients/health"
 import type {
   ClientConnection,
   ClientSetup,
@@ -13,8 +17,12 @@ import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
-type SummaryRow = Omit<ClientSummary, "health" | "connections"> & {
+type SummaryRow = Omit<
+  ClientSummary,
+  "health" | "connections" | "freshness" | "checks"
+> & {
   connections: ClientConnection[] | null
+  checks: NonNullable<ClientSummary["checks"]>
 }
 
 /**
@@ -124,7 +132,12 @@ export async function listClientSummaries(
         'notStarted', greatest(counts.linked_count - backfill.started, 0)::int
       ) as backfill,
       connections.items as connections,
-      to_json(backfill.last_sync_at)#>>'{}' as "lastSyncAt"
+      to_json(synced.last_sync_at)#>>'{}' as "lastSyncAt",
+      json_build_object(
+        'stalestCheckAt', to_json(checks.stalest_check_at)#>>'{}',
+        'lastSuccessfulCheckAt', to_json(checks.last_success_at)#>>'{}',
+        'accessLost', coalesce(checks.access_lost, 0)::int
+      ) as checks
     from client c
     left join lateral (
       select
@@ -156,8 +169,7 @@ export async function listClientSummaries(
         count(*) filter (where sc.status in ('pending', 'running')) as running,
         count(*) filter (where sc.status = 'failed') as failed,
         count(*) filter (where sc.status = 'succeeded') as succeeded,
-        count(*) as started,
-        max(sc.updated_at) as last_sync_at
+        count(*) as started
       from sync_checkpoint sc
       join external_location e on e.id = sc.external_location_id
       join location_link ll on ll.external_location_id = e.id and ll.is_active
@@ -165,6 +177,17 @@ export async function listClientSummaries(
       where l.client_id = c.id
         and sc.sync_type = 'backfill'
     ) backfill on true
+    -- "Last synced" is the last check Google actually answered, of any kind.
+    -- updated_at also moved on every failed attempt, and backfill alone left
+    -- a healthy client showing the age of its first import.
+    left join lateral (
+      select max(sc.last_succeeded_at) as last_sync_at
+      from sync_checkpoint sc
+      join location_link ll
+        on ll.external_location_id = sc.external_location_id and ll.is_active
+      join location l on l.id = ll.location_id
+      where l.client_id = c.id
+    ) synced on true
     left join lateral (
       select json_agg(distinct jsonb_build_object(
         'id', gc.id::text,
@@ -176,11 +199,43 @@ export async function listClientSummaries(
             and ct.task_type = 'reconnect'
             and ct.status = 'open'
         ),
-        'lastRefreshAt', to_json(gc.last_refresh_at)#>>'{}'
+        'lastRefreshAt', to_json(gc.last_refresh_at)#>>'{}',
+        'lastErrorCode', gc.last_error_code,
+        'reconnectReason', (
+          select ct.reason_code from connection_task ct
+          where ct.google_connection_id = gc.id
+            and ct.task_type = 'reconnect'
+            and ct.status = 'open'
+          limit 1
+        )
       )) as items
       from google_connection gc
       where ${belongsToClient(sql, sql`c.id`, sql`gc.id`)}
+        -- A login the owner removed on purpose is not a broken one.
+        and gc.status <> 'disconnected'
     ) connections on true
+    left join lateral (
+      -- Freshness from SUCCESSFUL review checks only (0047): a failed sync
+      -- or a token refresh never makes a client look fresh. A listing never
+      -- checked counts from when it was linked.
+      select
+        min(coalesce(chk.last_success, ll.created_at)) as stalest_check_at,
+        case
+          when bool_and(chk.last_success is not null) then min(chk.last_success)
+        end as last_success_at,
+        count(*) filter (where e.access_state = 'access_lost') as access_lost
+      from location l
+      join location_link ll on ll.location_id = l.id and ll.is_active
+      join external_location e on e.id = ll.external_location_id
+      left join lateral (
+        select max(sc.last_succeeded_at) as last_success
+        from sync_checkpoint sc
+        where sc.external_location_id = e.id
+          and sc.sync_type in ('reconcile', 'backfill', 'sweep', 'notification')
+      ) chk on true
+      where l.client_id = c.id
+        and ${visibilityPredicate(sql, session, sql`l.id`)}
+    ) checks on true
     where c.archived_at is null
       and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
     order by lower(c.name)
@@ -201,21 +256,30 @@ export async function listClientSummaries(
 
 function toSummary(row: SummaryRow): ClientSummary {
   const connections = row.connections ?? []
+  const input = {
+    connections,
+    linkedLocationCount: row.linkedCount,
+    backfill: { running: row.backfill.running, failed: row.backfill.failed },
+    checks: row.checks,
+  }
   return {
     ...row,
     connections,
-    health: healthFor({ ...row, connections }),
+    health: clientHealth(input),
+    freshness: clientFreshness(input),
   }
 }
 
 /** The one place a summary row becomes a health word. */
 export function healthFor(
-  row: Pick<ClientSummary, "connections" | "linkedCount" | "backfill">
+  row: Pick<ClientSummary, "connections" | "linkedCount" | "backfill"> &
+    Partial<Pick<ClientSummary, "checks">>
 ): ClientHealth {
   return clientHealth({
     connections: row.connections,
     linkedLocationCount: row.linkedCount,
     backfill: { running: row.backfill.running, failed: row.backfill.failed },
+    checks: row.checks,
   })
 }
 

@@ -14,6 +14,7 @@ import {
   useSelection,
 } from "@/components/inbox/selection-context"
 import { ReviewList } from "@/components/inbox/review-list"
+import { GoogleFreshness } from "@/components/inbox/google-freshness"
 import { TodayStrip } from "@/components/inbox/today/today-strip"
 import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
@@ -271,8 +272,12 @@ function InboxViewInner({
         window.matchMedia(DESKTOP_MEDIA_QUERY).matches,
     })
     if (id) {
+      // Nobody asked for this navigation, so it must not move the page:
+      // Next's default scrolls to and focuses the segment, which slid the
+      // org-wide reconnect banner under the toolbar on every desktop load.
       router.replace(
-        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
+        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`,
+        { scroll: false }
       )
     }
   }, [reviewsReady, reviews, state, router, readIsDirty])
@@ -584,6 +589,7 @@ function InboxViewInner({
                 }${reviewsQuery.hasNextPage ? " so far" : ""}`}
         </span>
         <span aria-hidden className="flex-1" />
+        <GoogleFreshness />
         {loaded && refreshed ? (
           <span
             className="font-mono text-[11.5px] text-ink-muted tabular-nums"

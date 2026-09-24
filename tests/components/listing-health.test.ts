@@ -169,3 +169,31 @@ describe("listingHealth", () => {
     ).toBe("1 needs attention · 2 have changes to publish")
   })
 })
+
+describe("listing access loss", () => {
+  const lost = summary({
+    freshness: {
+      state: "action_needed",
+      reason: "listing_access_lost",
+      lastCheckedAt: null,
+    },
+  })
+
+  it("says Access lost, not Disconnected, when only this listing is unreachable", () => {
+    expect(listingHealth({ linked: true, summary: lost })).toBe("access_lost")
+    expect(listingHealthLabel("access_lost")).toBe("Access lost")
+    expect(listingHealthTone("access_lost")).toBe("at-risk")
+  })
+
+  it("still says Disconnected when the login itself is broken", () => {
+    expect(
+      listingHealth({
+        linked: true,
+        summary: {
+          ...lost,
+          connection: { status: "revoked", reconnectRequired: true, googleEmail: null },
+        },
+      })
+    ).toBe("disconnected")
+  })
+})

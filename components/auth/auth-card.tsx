@@ -242,6 +242,26 @@ function AuthCard({
               {footer}
             </footer>
           ) : null}
+
+          {/* `/` lands here, so this is the public home page Google's OAuth
+              review checks for a privacy policy link. */}
+          <nav
+            aria-label="Legal"
+            className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-caption text-ink-muted"
+          >
+            <Link
+              href="/privacy"
+              className="rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+            >
+              Privacy policy
+            </Link>
+            <Link
+              href="/terms"
+              className="rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+            >
+              Terms of service
+            </Link>
+          </nav>
         </div>
       </main>
     </>

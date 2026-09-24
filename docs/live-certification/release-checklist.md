@@ -50,6 +50,31 @@ owner, due date, rationale, and compensating control in the exception table.
 - [ ] OPS-501 staging migration/rollback and live disconnect/purge/reconnect
       rehearsals passed.
 
+## Connection persistence (connect once, return daily)
+
+See `docs/specs/2026-09-23-connect-once-implementation.md`.
+
+- [ ] Migrations 0047–0052 applied to production through the session pooler;
+      `pnpm db:status` shows every file applied.
+- [ ] Google OAuth app publishing status is **In production** (not Testing);
+      screenshot of the Audience page attached: ____________________
+- [ ] Data Access page checked for the `business.manage` scope class; OAuth
+      verification started or not required: ____________________
+- [ ] Business Profile API quota confirmed non-zero (checked 2026-09-23: 300
+      QPM on Business Information, Account Management and Performance).
+- [ ] Email provider configured (`EMAIL_PROVIDER`, `EMAIL_API_KEY`,
+      `EMAIL_FROM`, `OPS_ALERT_EMAILS`) and one test incident delivered in
+      staging: ____________________
+- [ ] RISC stream registered and `stream:verify` recorded as a `risc_event`
+      with outcome `verification`: ____________________
+- [ ] Vercel plan confirmed to run the minute and 15-minute crons.
+- [ ] Revocation drill: access removed at myaccount.google.com reaches Needs
+      reconnect, email and banner within 15 minutes (1 minute with RISC).
+- [ ] Disconnect drill: the old refresh token answers `invalid_grant` at the
+      token endpoint.
+- [ ] 30-day persistent-connection soak on staging passed (procedure in the
+      implementation record, §5); evidence: ____________________
+
 ## Seven-day soak and canary
 
 - [ ] Staging alerts were quiet for 48 hours before soak day 1.

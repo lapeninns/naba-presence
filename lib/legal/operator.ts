@@ -27,3 +27,19 @@ export const LEGAL_OPERATOR = {
 export function hasLegalPlaceholders(): boolean {
   return Object.values(LEGAL_OPERATOR).some((value) => /^\[.*\]$/.test(value))
 }
+
+/**
+ * Stops a Vercel production build that would publish placeholder operator
+ * details. The legal pages are prerendered, so throwing while rendering them
+ * fails the build. Previews and local builds keep rendering the brackets, so
+ * the wording can be reviewed before the details are known.
+ */
+export function assertLegalDetailsForProduction(
+  env: Record<string, string | undefined> = process.env
+) {
+  if (env.VERCEL_ENV === "production" && hasLegalPlaceholders()) {
+    throw new Error(
+      "lib/legal/operator.ts still has placeholder operator details. Fill them in before a production deploy: Google's consent screen links to these pages."
+    )
+  }
+}

@@ -57,7 +57,11 @@ function accountScope(
   body: { clientId?: string; connectionId?: string }
 ) {
   const client = body.clientId
-    ? belongsToClient(sql, sql`${body.clientId}::uuid`, sql`ga.google_connection_id`)
+    ? belongsToClient(
+        sql,
+        sql`${body.clientId}::uuid`,
+        sql`ga.google_connection_id`
+      )
     : sql`true`
   const connection = body.connectionId
     ? sql`ga.google_connection_id = ${body.connectionId}`
@@ -177,12 +181,31 @@ export const PATCH = route({
           )
         }
       }
+      const chosen = () =>
+        body.accountIds.length
+          ? sql`ga.id in ${sql(body.accountIds)}`
+          : sql`false`
+      // is_active is one flag per account, not per client. Two clients can
+      // share a login, so one client's save must not switch off an account
+      // whose listings another client relies on: its discovery would start
+      // answering 409 and that client's setup would fall back a step.
+      const keptForOtherClients = body.clientId
+        ? sql`exists (
+            select 1
+            from external_location e
+            join location_link ll
+              on ll.external_location_id = e.id and ll.is_active
+            join location l on l.id = ll.location_id
+            where e.google_account_name = ga.google_account_name
+              and l.client_id is not null
+              and l.client_id <> ${body.clientId}::uuid
+          )`
+        : sql`false`
       await sql`
         update google_account ga
-        set is_active = ${
-          body.accountIds.length ? sql`ga.id in ${sql(body.accountIds)}` : false
-        }
+        set is_active = ${chosen()}
         where ${scope}
+          and (${chosen()} or not ${keptForOtherClients})
       `
       await writeAudit(sql, {
         organisationId: session.organisationId,

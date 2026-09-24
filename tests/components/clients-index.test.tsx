@@ -94,7 +94,7 @@ describe("ClientsIndex", () => {
     const table = await screen.findByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
-    expect(within(table).getByText("Disconnected")).toBeInTheDocument()
+    expect(within(table).getByText("Action needed")).toBeInTheDocument()
   })
 
   it("surfaces unassigned locations rather than hiding them", async () => {

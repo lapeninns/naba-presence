@@ -2,14 +2,12 @@ import { cookies } from "next/headers"
 import { after, NextResponse } from "next/server"
 import { z, ZodError } from "zod"
 
-import { writeAudit } from "@/lib/server/audit"
 import {
   prepareAutomaticGoogleReviewSetup,
   type AutomaticGoogleSetup,
 } from "@/lib/server/automatic-google-setup"
 import { attachConnectionToClient } from "@/lib/server/clients"
-import { encryptSecret, verifySignedValue } from "@/lib/server/crypto"
-import { withTenant } from "@/lib/server/db"
+import { verifyOAuthState } from "@/lib/server/crypto"
 import { getServerEnv } from "@/lib/server/env"
 import {
   exchangeGoogleCode,
@@ -17,6 +15,10 @@ import {
   googleUserInfo,
   grantsBusinessManage,
 } from "@/lib/server/google"
+import {
+  completeAuthorisation,
+  scopeMissingError,
+} from "@/lib/server/google/connections"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
@@ -38,6 +40,9 @@ const stateSchema = z.object({
   // Optional so a state minted before these existed still parses.
   clientId: z.uuid().optional(),
   returnTo: z.string().optional(),
+  // The connection a reconnect was started for (and whose email went to
+  // Google as login_hint), so a different account coming back is explicit.
+  reconnectConnectionId: z.uuid().optional(),
   expiresAt: z.number(),
 })
 
@@ -53,7 +58,7 @@ async function startedFrom(): Promise<string> {
   try {
     const stateCookie = (await cookies()).get("naba_google_oauth")?.value
     const [payload, signature] = stateCookie?.split(".") ?? []
-    if (!payload || !signature || !verifySignedValue(payload, signature)) {
+    if (!payload || !signature || !verifyOAuthState(payload, signature)) {
       return DEFAULT_OAUTH_RETURN
     }
     const parsed: unknown = JSON.parse(
@@ -117,7 +122,7 @@ async function completeOAuth({
     throw new ApiError(400, "invalid_oauth_state", "OAuth state has expired.")
   }
   const [payload, signature] = stateCookie.split(".")
-  if (!payload || !signature || !verifySignedValue(payload, signature)) {
+  if (!payload || !signature || !verifyOAuthState(payload, signature)) {
     throw new ApiError(400, "invalid_oauth_state", "OAuth state is invalid.")
   }
   const state = stateSchema.parse(
@@ -153,132 +158,47 @@ async function completeOAuth({
   })
 
   const tokens = await exchangeGoogleCode(params.code, state.verifier)
-  // Google's consent screen lets a person untick Business Profile access. A
-  // token without it signs in fine and then fails every call, so it must not
-  // become (or replace the tokens of) an active connection.
-  if (!grantsBusinessManage(tokens.scope)) {
-    throw new ApiError(
-      403,
-      "google_scope_missing",
-      "Google did not grant permission to manage Business Profiles."
-    )
-  }
+  // Checked before any other call: a token without Business Profile access
+  // must not become (or replace the tokens of) an active connection.
+  if (!grantsBusinessManage(tokens.scope)) throw scopeMissingError()
   const profile = await googleUserInfo(tokens.access_token)
-  const refreshTokenExpiresAt = tokens.refresh_token_expires_in
-    ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000)
-    : null
-  const connection = await withTenant(session.organisationId, async (sql) => {
-    const [existing] = await sql<{ id: string; status: string }[]>`
-      select id::text as id, status
-      from google_connection
-      where google_subject = ${profile.sub}
-      limit 1
-    `
-    const [row] = await sql<{ id: string }[]>`
-      insert into google_connection (
-        organisation_id,
-        google_subject,
-        google_email,
-        status,
-        scope,
-        access_token_ciphertext,
-        refresh_token_ciphertext,
-        access_token_expires_at,
-        refresh_token_expires_at,
-        last_refresh_at,
-        last_error_code,
-        disconnected_at,
-        purge_due_at
-      )
-      values (
-        ${session.organisationId},
-        ${profile.sub},
-        ${profile.email ?? null},
-        'active',
-        ${tokens.scope},
-        ${encryptSecret(tokens.access_token)},
-        ${tokens.refresh_token ? encryptSecret(tokens.refresh_token) : null},
-        now() + (${tokens.expires_in} * interval '1 second'),
-        ${refreshTokenExpiresAt},
-        now(),
-        null,
-        null,
-        null
-      )
-      on conflict (organisation_id, google_subject) do update
-      set
-        google_email = excluded.google_email,
-        status = 'active',
-        scope = excluded.scope,
-        access_token_ciphertext = excluded.access_token_ciphertext,
-        refresh_token_ciphertext = coalesce(
-          excluded.refresh_token_ciphertext,
-          google_connection.refresh_token_ciphertext
-        ),
-        access_token_expires_at = excluded.access_token_expires_at,
-        refresh_token_expires_at = coalesce(
-          excluded.refresh_token_expires_at,
-          google_connection.refresh_token_expires_at
-        ),
-        last_refresh_at = now(),
-        last_error_code = null,
-        disconnected_at = null,
-        purge_due_at = null
-      returning id::text as id
-    `
-    await sql`
-      update connection_task
-      set status = 'completed', resolved_at = now()
-      where google_connection_id = ${row.id}
-        and task_type = 'reconnect'
-        and status = 'open'
-    `
-    // Re-consenting with a different Google account is a different subject,
-    // so it lands on a new connection and the old row's reconnect task stays
-    // open forever. Mark those superseded rather than resolving them - the
-    // old connection's locations really are still unlinked work - and let the
-    // shell banner scope itself to the live connection instead.
-    const superseded = await sql`
-      update connection_task
-      set reason_code = 'superseded_by_reconnect'
-      where google_connection_id <> ${row.id}
-        and task_type = 'reconnect'
-        and status = 'open'
-      returning id
-    `
-    // The setup wizard counts this login as the client's from here on, even
-    // when Google shows it several accounts or locations and nothing below
-    // can be linked automatically. The clientId came through the signed
-    // state, so Google's redirect cannot pick which client this lands on.
-    const attachedClientId =
-      state.clientId &&
-      (await attachConnectionToClient(sql, {
-        organisationId: session.organisationId,
-        clientId: state.clientId,
-        connectionId: row.id,
-        userId: session.userId,
-      }))
-        ? state.clientId
-        : null
-    await writeAudit(sql, {
-      organisationId: session.organisationId,
-      actorUserId: session.userId,
-      action: existing
-        ? "google.connection.reconnected"
-        : "google.connection.connected",
-      subjectType: "google_connection",
-      subjectId: row.id,
-      requestId: `${requestId}:connection`,
-      metadata: {
-        googleEmail: profile.email ?? null,
-        previousStatus: existing?.status ?? null,
-        supersededReconnectTasks: superseded.length,
-        clientId: attachedClientId,
-        clientRequestId,
-      },
-    })
-    return row
+  // Every credential and state write is the connection service's. The
+  // client attach rides in its transaction: the setup wizard counts this
+  // login as the client's from here on, even when Google shows it several
+  // accounts or locations and nothing can be linked automatically. The
+  // clientId came through the signed state, so Google's redirect cannot pick
+  // which client this lands on.
+  let attachedClientId: string | null = null
+  const authorisation = await completeAuthorisation({
+    organisationId: session.organisationId,
+    userId: session.userId,
+    tokens,
+    profile,
+    reconnectConnectionId: state.reconnectConnectionId ?? null,
+    requestId,
+    clientRequestId,
+    attach: async (sql, connectionId) => {
+      if (!state.clientId) return
+      if (
+        await attachConnectionToClient(sql, {
+          organisationId: session.organisationId,
+          clientId: state.clientId,
+          connectionId,
+          userId: session.userId,
+        })
+      ) {
+        attachedClientId = state.clientId
+      }
+    },
   })
+  const connection = { id: authorisation.connectionId }
+  if (attachedClientId) {
+    log.info("google.connection.attached_to_client", {
+      requestId,
+      organisationId: session.organisationId,
+      clientId: attachedClientId,
+    })
+  }
   let setup: AutomaticGoogleSetup
   try {
     setup = await prepareAutomaticGoogleReviewSetup({
@@ -330,7 +250,12 @@ async function completeOAuth({
       }
     })
   }
-  return { connection, setup, returnTo: safeOAuthReturn(state.returnTo) }
+  return {
+    connection,
+    setup,
+    authorisation,
+    returnTo: safeOAuthReturn(state.returnTo),
+  }
 }
 
 /**
@@ -362,7 +287,10 @@ function redirectStatus(error: unknown, requestId: string): number {
 }
 
 /** Error codes the connections page has its own wording for. */
-const OAUTH_ERROR_REASONS = new Set(["google_scope_missing"])
+const OAUTH_ERROR_REASONS = new Set([
+  "google_scope_missing",
+  "google_offline_access_missing",
+])
 
 // Browser redirect from Google: errors become a redirect, never a JSON body.
 export const GET = route({
@@ -374,16 +302,29 @@ export const GET = route({
     // where the flow started.
     const origin = await startedFrom()
     try {
-      const { returnTo } = await completeOAuth({
+      const { returnTo, authorisation } = await completeOAuth({
         request,
         requestId,
         clientRequestId,
       })
       // Back to the step the operator left, not to a settings page they never
       // asked for. The path came through the signed state and is checked
-      // against an allow-list, so Google's redirect cannot choose it.
+      // against an allow-list, so Google's redirect cannot choose it. The
+      // extra flags are facts, never counts nobody has measured yet: whether
+      // this was a reconnect, whether it came back as a different account,
+      // and how many listings are now catching up.
       return NextResponse.redirect(
-        new URL(withOAuthStatus(returnTo, { google: "connected" }), baseUrl)
+        new URL(
+          withOAuthStatus(returnTo, {
+            google: "connected",
+            ...(authorisation.reconnected ? { reconnected: "1" } : {}),
+            ...(authorisation.accountMismatch ? { mismatch: "1" } : {}),
+            ...(authorisation.catchUpLocationIds.length
+              ? { catchup: String(authorisation.catchUpLocationIds.length) }
+              : {}),
+          }),
+          baseUrl
+        )
       )
     } catch (error) {
       const status = String(redirectStatus(error, requestId))

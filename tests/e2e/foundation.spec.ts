@@ -26,7 +26,7 @@ test.describe("rebuild foundation", () => {
     // the link rather than any text on the page.
     await expect(
       page.getByRole("link", {
-        name: /All clients connected|clients? needs? attention|Importing reviews|No clients yet|Not connected yet/,
+        name: /All clients up to date|clients? needs? action|data delayed|Importing reviews|No clients yet|Not connected yet/,
       })
     ).toBeVisible({ timeout: 10_000 })
   })

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  clientFreshness,
   clientHealth,
+  FRESHNESS_WINDOW_MS,
+  freshnessSentence,
   healthDescription,
   healthLabel,
   healthTone,
   summariseHealth,
-  STALE_REFRESH_MS,
   type ClientHealth,
   type ConnectionHealthInput,
 } from "@/lib/clients/health"
@@ -41,9 +43,20 @@ describe("clientHealth", () => {
     // single word for both sends the operator to the wrong screen.
     expect(health({ linkedLocationCount: 0 })).toBe("not_connected")
     expect(health({ connections: [] })).toBe("not_connected")
-    expect(health({ connections: [connection({ status: "expired" })] })).toBe(
-      "disconnected"
-    )
+    // Needs reconnect is an expired or revoked login WITH its reconnect
+    // task. Expired alone is the platform retrying a refresh (Degraded).
+    expect(
+      health({
+        connections: [connection({ status: "expired", reconnectRequired: true })],
+      })
+    ).toBe("disconnected")
+    expect(
+      health({
+        connections: [
+          connection({ status: "expired", lastErrorCode: "google_token_unavailable" }),
+        ],
+      })
+    ).toBe("attention")
   })
 
   it("treats a reconnect task as disconnected even while the row says active", () => {
@@ -52,14 +65,14 @@ describe("clientHealth", () => {
     ).toBe("disconnected")
   })
 
-  it("flags a partly broken client rather than calling it healthy", () => {
-    // The old organisation-wide health said "connected" whenever ANY
-    // connection worked, which hid exactly this case.
+  it("asks for action when any of a client's logins needs reconnecting", () => {
+    // Partly working used to read as a softer "attention", but a person
+    // still has to do something, so it is Action needed.
     expect(
       health({
         connections: [connection(), connection({ status: "revoked" })],
       })
-    ).toBe("attention")
+    ).toBe("disconnected")
   })
 
   it("prefers a failed backfill over a running one", () => {
@@ -67,15 +80,104 @@ describe("clientHealth", () => {
     expect(health({ backfill: { running: 1, failed: 1 } })).toBe("attention")
   })
 
-  it("notices a connection that has not refreshed in a day", () => {
-    const stale = new Date(NOW.getTime() - STALE_REFRESH_MS - 1000).toISOString()
-    expect(health({ connections: [connection({ lastRefreshAt: stale })] })).toBe(
-      "attention"
-    )
-    // Never refreshed is not stale: a brand-new connection has no history yet.
-    expect(health({ connections: [connection({ lastRefreshAt: null })] })).toBe(
-      "healthy"
-    )
+  it("judges freshness by successful checks, never by token refreshes", () => {
+    const longAgo = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const recently = new Date(NOW.getTime() - 5 * 60 * 1000).toISOString()
+    // A quiet client whose checks succeed is up to date however long it has
+    // been since a refresh.
+    expect(
+      health({
+        connections: [connection({ lastRefreshAt: longAgo })],
+        checks: {
+          stalestCheckAt: recently,
+          lastSuccessfulCheckAt: recently,
+          accessLost: 0,
+        },
+      })
+    ).toBe("healthy")
+    // And a fresh refresh does not hide checks that stopped succeeding.
+    const stale = new Date(NOW.getTime() - FRESHNESS_WINDOW_MS - 1000).toISOString()
+    expect(
+      health({
+        connections: [connection({ lastRefreshAt: recently })],
+        checks: { stalestCheckAt: stale, lastSuccessfulCheckAt: stale, accessLost: 0 },
+      })
+    ).toBe("attention")
+  })
+})
+
+describe("clientFreshness", () => {
+  const base = {
+    connections: [connection()],
+    linkedLocationCount: 1,
+    backfill: { running: 0, failed: 0 },
+    now: NOW,
+  }
+  const recently = new Date(NOW.getTime() - 60_000).toISOString()
+  const stale = new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString()
+
+  it("shows a Google outage or rate limit as Data delayed, never Action needed", () => {
+    expect(
+      clientFreshness({
+        ...base,
+        connections: [connection({ lastErrorCode: "google_token_unavailable" })],
+        checks: { stalestCheckAt: stale, lastSuccessfulCheckAt: stale, accessLost: 0 },
+      })
+    ).toEqual({
+      state: "data_delayed",
+      reason: "google_unavailable",
+      lastSuccessfulCheckAt: stale,
+    })
+    expect(
+      clientFreshness({
+        ...base,
+        connections: [connection({ lastErrorCode: "google_rate_limited" })],
+        checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 0 },
+      }).state
+    ).toBe("data_delayed")
+  })
+
+  it("asks for action on a rejected credential, naming a missing permission", () => {
+    expect(
+      clientFreshness({
+        ...base,
+        connections: [connection({ status: "revoked", reconnectRequired: true })],
+      })
+    ).toMatchObject({ state: "action_needed", reason: "reconnect_required" })
+    expect(
+      clientFreshness({
+        ...base,
+        connections: [
+          connection({
+            status: "revoked",
+            reconnectRequired: true,
+            lastErrorCode: "insufficient_scope",
+          }),
+        ],
+      })
+    ).toMatchObject({ state: "action_needed", reason: "permission_missing" })
+  })
+
+  it("treats one listing's lost access apart from the login", () => {
+    const result = clientFreshness({
+      ...base,
+      checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 1 },
+    })
+    expect(result).toMatchObject({
+      state: "action_needed",
+      reason: "listing_access_lost",
+    })
+    // The fix is at the business, not a reconnect.
+    expect(freshnessSentence(result)).not.toMatch(/reconnect/i)
+  })
+
+  it("is up to date when every listing was checked within the window", () => {
+    expect(
+      clientFreshness({
+        ...base,
+        checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 0 },
+      })
+    ).toEqual({ state: "up_to_date", reason: null, lastSuccessfulCheckAt: recently })
   })
 })
 
@@ -111,18 +213,18 @@ describe("summariseHealth", () => {
     // does not.
     expect(summariseHealth(["healthy", "attention", "disconnected"])).toEqual({
       tone: "at-risk",
-      label: "2 clients need attention",
+      label: "1 client needs action",
     })
     expect(summariseHealth(["healthy", "attention"])).toEqual({
       tone: "attention",
-      label: "1 client needs attention",
+      label: "1 client's data delayed",
     })
   })
 
   it("reports the calm states plainly", () => {
     expect(summariseHealth(["healthy", "healthy"])).toEqual({
       tone: "healthy",
-      label: "All clients connected",
+      label: "All clients up to date",
     })
     expect(summariseHealth(["healthy", "syncing"]).label).toBe("Importing reviews")
     expect(summariseHealth([]).label).toBe("No clients yet")

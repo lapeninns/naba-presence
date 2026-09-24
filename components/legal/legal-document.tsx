@@ -1,7 +1,10 @@
 import Link from "next/link"
 
 import { BrandMark } from "@/components/app-shell/brand-mark"
-import { LEGAL_OPERATOR } from "@/lib/legal/operator"
+import {
+  assertLegalDetailsForProduction,
+  LEGAL_OPERATOR,
+} from "@/lib/legal/operator"
 
 /**
  * The frame both legal pages share: the brand, a title, the effective date,
@@ -18,6 +21,7 @@ function LegalDocument({
   summary: React.ReactNode
   children: React.ReactNode
 }) {
+  assertLegalDetailsForProduction()
   return (
     <div className="flex min-h-svh flex-col bg-canvas">
       <main

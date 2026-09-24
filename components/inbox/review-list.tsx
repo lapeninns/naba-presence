@@ -104,7 +104,8 @@ function ReviewList({
       '[data-slot="review-row"]'
     )
     const index = reviews.findIndex((review) => review.id === selectedId)
-    buttons?.[index]?.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
+    const row = buttons?.[index]
+    if (row) scrollIntoNearestScroller(row)
   }, [selectedId, reviews])
 
   function onKeyDown(event: React.KeyboardEvent, index: number) {
@@ -339,3 +340,34 @@ function ReviewList({
 }
 
 export { ReviewList }
+
+/**
+ * Bring a row into view by scrolling only its nearest scrolling container,
+ * and only when it is actually out of view. `scrollIntoView` scrolls every
+ * scrollable ancestor too, so auto-selecting the first review on a desktop
+ * load also scrolled the page column and slid the org-wide reconnect banner
+ * under the sticky toolbar.
+ */
+function scrollIntoNearestScroller(row: HTMLElement) {
+  let scroller = row.parentElement
+  while (scroller) {
+    const overflow = getComputedStyle(scroller).overflowY
+    if (
+      (overflow === "auto" || overflow === "scroll") &&
+      scroller.scrollHeight > scroller.clientHeight
+    ) {
+      break
+    }
+    scroller = scroller.parentElement
+  }
+  if (!scroller) return
+  const rowBox = row.getBoundingClientRect()
+  const box = scroller.getBoundingClientRect()
+  const delta =
+    rowBox.top < box.top
+      ? rowBox.top - box.top
+      : rowBox.bottom > box.bottom
+        ? rowBox.bottom - box.bottom
+        : 0
+  if (delta !== 0) scroller.scrollBy?.({ top: delta, behavior: "smooth" })
+}

@@ -7,7 +7,12 @@ import { parseReplyModeration } from "@/lib/domain/reply-state"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { encryptSecret, sha256 } from "@/lib/server/crypto"
-import { connectionAccessToken, googleReviews } from "@/lib/server/google"
+import {
+  connectionAccessToken,
+  getGoogleLocation,
+  googleReviews,
+} from "@/lib/server/google"
+import { restoreListingAccess } from "@/lib/server/google/connection-failures"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -107,6 +112,44 @@ export async function linkedLocations(
       }
     order by e.title
   `
+}
+
+/**
+ * Whether Google now reports a listing as verified, recording it when so.
+ * Throws the provider error unchanged, so a 404 or a withdrawn grant settles
+ * the run exactly as a failed review read would.
+ */
+async function verifiedAtGoogle(
+  organisationId: string,
+  linked: LinkedLocation
+): Promise<boolean> {
+  const accessToken = await connectionAccessToken(
+    getDatabase(),
+    organisationId,
+    linked.connectionId
+  )
+  const location = await getGoogleLocation(
+    accessToken,
+    linked.googleLocationName,
+    ["metadata"],
+    { connectionKey: linked.connectionId }
+  )
+  const metadata = location.metadata
+  const verified =
+    typeof metadata === "object" &&
+    metadata !== null &&
+    Reflect.get(metadata, "hasVoiceOfMerchant") === true
+  if (verified) {
+    await withTenant(
+      organisationId,
+      (sql) => sql`
+        update external_location
+        set verified = true
+        where id = ${linked.externalLocationId}
+      `
+    )
+  }
+  return verified
 }
 
 export async function upsertGoogleReview(
@@ -366,6 +409,17 @@ type SyncHeader = {
  */
 const MAX_CONSECUTIVE_FAILURES = 10
 
+/** How often every linked location's reviews are checked against Google. */
+export const RECONCILE_INTERVAL = "15 minutes"
+
+/**
+ * How long reconcile waits before checking a listing again after a failure
+ * only the business can clear at Google (unverified, removed, access
+ * withdrawn). Reconcile is the recurring freshness check, so it never
+ * retires: a listing verified or re-shared later has to come back on its own.
+ */
+const PERMANENT_FAILURE_RECHECK_MS = 6 * 60 * 60 * 1000
+
 /** Errors an operator has to clear at Google; retrying cannot resolve them. */
 function isPermanentSyncFailure(errorCode: string, status?: number) {
   return (
@@ -511,19 +565,38 @@ export async function syncLinkedLocation(input: {
     // blocked on a person rather than on a budget: burning the cap on either
     // dead-letters work that was only ever waiting.
     const reconnectBlocked = errorCode === "google_reconnect_required"
+    // The shared Google budget deferred this run (rate-budget.ts). Nothing
+    // failed; it goes again in a minute without spending the cap.
+    const rateDeferred = errorCode === "google_rate_limited"
     const failureCount =
-      settlement.parked || reconnectBlocked
+      settlement.parked || reconnectBlocked || rateDeferred
         ? header.consecutiveFailureCount
         : header.consecutiveFailureCount + 1
+    // Reconcile is the recurring freshness check and never retires: the
+    // queue (0048) claims nothing that is dead, so a dead reconcile would
+    // stop checking the listing for good. An outage backs off (syncRetryAt
+    // caps at 30 minutes); a failure only the business can clear is checked
+    // again every PERMANENT_FAILURE_RECHECK_MS, so a listing verified or
+    // re-shared at Google comes back without anyone relinking it.
+    const permanent = isPermanentSyncFailure(errorCode, settlement.status)
     const dead =
       !settlement.parked &&
-      (isPermanentSyncFailure(errorCode, settlement.status) ||
+      input.type !== "reconcile" &&
+      (permanent ||
         (!reconnectBlocked && failureCount >= MAX_CONSECUTIVE_FAILURES))
     const discardToken = dead || discardsPageToken(settlement.status)
     const retryAt =
       dead || settlement.parked
         ? null
-        : syncRetryAt(header.checkpointId, header.attemptCount)
+        : rateDeferred
+          ? new Date(Date.now() + 60_000)
+          : permanent
+            ? new Date(Date.now() + PERMANENT_FAILURE_RECHECK_MS)
+            : // Backs off on consecutive failures, not lifetime attempts:
+              // attempt_count only ever grows, so a location that had synced
+              // a few hundred times retried its first failure at the
+              // 30-minute cap.
+              syncRetryAt(header.checkpointId, failureCount)
     await withTenant(input.organisationId, async (sql) => {
       const settled = await sql<{ id: string }[]>`
         update sync_checkpoint
@@ -563,6 +636,24 @@ export async function syncLinkedLocation(input: {
       upserted,
       hasMore: pageToken !== undefined,
       errorCode,
+    }
+  }
+
+  // The stored flag is only refreshed by discovery, so reconcile asks Google
+  // whether a listing linked while unverified has been verified since.
+  if (
+    header.errorCode === "location_not_verified" &&
+    input.type === "reconcile"
+  ) {
+    try {
+      if (await verifiedAtGoogle(input.organisationId, header.linked)) {
+        header.errorCode = null
+      }
+    } catch (error) {
+      return settleFailure(
+        error instanceof ApiError ? error.code : "sync_failed",
+        { status: error instanceof ApiError ? error.status : undefined }
+      )
     }
   }
 
@@ -721,7 +812,8 @@ export async function syncLinkedLocation(input: {
       const expectedCount = evidence?.expectedCount ?? null
       const seenCount = evidence?.seenCount ?? 0
       const storedCount = evidence?.storedCount ?? 0
-      const countMismatch = expectedCount !== null && seenCount !== expectedCount
+      const countMismatch =
+        expectedCount !== null && seenCount !== expectedCount
       const incompleteEnumerationWithoutProviderTotal =
         expectedCount === null && seenCount < storedCount
 
@@ -762,10 +854,9 @@ export async function syncLinkedLocation(input: {
           },
         })
       }
-      // Nothing ever claims a reconcile checkpoint (claim_due_jobs takes only
-      // 'backfill' and 'sweep') and the next tick restarts at page one anyway,
-      // so parking one at 'pending' with a due next_attempt_at would only
-      // inflate the operator's backlog. hasMore reaches the caller instead.
+      // A reconcile always starts again at page one, so it never parks a
+      // cursor. It is recurring (0048): success books the next run from the
+      // slot this one was due in, not from now, so cadence does not drift.
       const resumable = hasMore && input.type !== "reconcile"
       await sql`
         update sync_checkpoint
@@ -774,16 +865,25 @@ export async function syncLinkedLocation(input: {
           page_token = ${resumable ? (pageToken ?? null) : null},
           next_attempt_at = ${
             resumable
-              ? syncRetryAt(header.checkpointId, header.attemptCount)
-              : null
+              ? syncRetryAt(header.checkpointId, 1)
+              : input.type === "reconcile"
+                ? sql`next_scheduled_run(scheduled_for, ${RECONCILE_INTERVAL}::interval)`
+                : null
           },
           consecutive_failure_count = 0,
           finished_at = ${resumable ? null : new Date()},
           last_review_update_time = now(),
+          -- Every page of this run answered, so the location's reviews were
+          -- checked against Google just now, whether or not more pages
+          -- remain. Only this path moves it: a failed run leaves it alone.
+          last_succeeded_at = now(),
           lease_expires_at = null
         where id = ${header.checkpointId}
           and status <> 'cancelled'
       `
+      // Google answered for this location, so any listing-level access loss
+      // recorded earlier is over.
+      await restoreListingAccess(sql, input.externalLocationId)
     })
     return {
       status: hasMore ? "partial" : "succeeded",

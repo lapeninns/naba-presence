@@ -51,6 +51,7 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
       from app_session
       where token_hash = ${tokenHash}
         and expires_at > now()
+        and (absolute_expires_at is null or absolute_expires_at > now())
       limit 1
     `
     if (!sessionIdentity) return null
@@ -82,9 +83,20 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
       where s.id = ${sessionIdentity.sessionId}
       limit 1
     `
+    // Use keeps a session alive: the idle window slides forward from now,
+    // capped at the absolute limit set at sign-in (0051). A support session
+    // keeps its fixed expiry and never slides.
     await sql`
       update app_session
-      set last_seen_at = now()
+      set
+        last_seen_at = now(),
+        expires_at = case
+          when support_actor is null then least(
+            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '1 day'),
+            coalesce(absolute_expires_at, expires_at)
+          )
+          else expires_at
+        end
       where id = ${sessionIdentity.sessionId}
     `
     return session ?? null
@@ -124,7 +136,10 @@ export async function setSessionCookie(token: string) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production" && !isLocalBootstrapEnabled(),
     path: "/",
-    maxAge: 60 * 60 * 24 * 30,
+    // The browser keeps the cookie for the absolute lifetime; the server
+    // decides, on every request, whether the session behind it is still
+    // alive (idle window, absolute limit, sign out everywhere).
+    maxAge: 60 * 60 * 24 * getServerEnv().SESSION_ABSOLUTE_DAYS,
     priority: "high",
   })
 }
@@ -216,6 +231,26 @@ export async function ensureDevelopmentSession(): Promise<Session> {
   const session = await lookupSession(token)
   if (!session) throw new Error("Development session could not be created")
   return syncLocalOwnerIdentity(session)
+}
+
+/**
+ * Sign this person out on every device and in every organisation. Keyed by
+ * the caller's own token, so it can only end the caller's sessions. Leaves
+ * every Google connection alone: those belong to the organisation, and
+ * background sync keeps running.
+ */
+export async function revokeAllSessions(): Promise<number> {
+  const cookieStore = await cookies()
+  const token = cookieStore.get(SESSION_COOKIE)?.value
+  let revoked = 0
+  if (token) {
+    const [row] = await getDatabase()<{ revoked: number }[]>`
+      select revoke_user_sessions(${sha256(token)}) as revoked
+    `
+    revoked = row?.revoked ?? 0
+  }
+  cookieStore.delete(SESSION_COOKIE)
+  return revoked
 }
 
 export async function clearSession() {

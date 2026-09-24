@@ -3,7 +3,7 @@ import type { TransactionSql } from "postgres"
 
 import type { OperationsHealth } from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { SCHEDULER_TICK_NAMES } from "@/lib/server/leases"
+import { schedulerLiveness } from "@/lib/server/ops-liveness"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -21,11 +21,14 @@ type AlertingFields = Pick<
   | "dueRunnerCheckpointBacklog"
   | "dueMetricsCheckpointBacklog"
   | "dueUnclaimedCheckpointBacklog"
+  | "dueReconcileBacklog"
   | "duePublishBacklog"
   | "checkpointFailures24h"
   | "connectionErrors24h"
   | "refreshTokensExpiringSoon"
   | "reconcileStalenessSeconds"
+  | "sweepStalenessSeconds"
+  | "listingsAccessLost"
   | "heldPurgeLocations"
   | "pendingPurgeAgeSeconds"
 >
@@ -127,7 +130,7 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
       (
         select count(*)::integer
         from sync_checkpoint
-        where sync_type in ('reconcile', 'notification')
+        where sync_type = 'notification'
           and (
             (status in ('pending', 'failed') and next_attempt_at <= now())
             or (
@@ -138,6 +141,27 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
             )
           )
       ) as "dueUnclaimedCheckpointBacklog",
+      (
+        -- Recurring reconciles the runner owes (0048): due and not leased.
+        -- A reconcile keeps its row at 'succeeded' between runs, so due-ness
+        -- is next_attempt_at alone.
+        select count(*)::integer
+        from sync_checkpoint
+        where sync_type = 'reconcile'
+          and (
+            (
+              status in ('pending', 'failed', 'succeeded')
+              and next_attempt_at <= now() - interval '2 minutes'
+              and coalesce(lease_expires_at, '-infinity'::timestamptz) <= now()
+            )
+            or (
+              status = 'running'
+              and coalesce(
+                lease_expires_at, started_at + interval '15 minutes'
+              ) <= now()
+            )
+          )
+      ) as "dueReconcileBacklog",
       (
         select count(*)::integer
         from publish_attempt
@@ -182,11 +206,32 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
           and refresh_token_expires_at <= now() + interval '3 days'
       ) as "refreshTokensExpiringSoon",
       (
-        select extract(epoch from (now() - max(finished_at)))::integer
-        from sync_checkpoint
-        where sync_type = 'reconcile'
-          and finished_at is not null
+        -- The WORST actively linked location: how long since its reviews were
+        -- last successfully checked. Read from last_succeeded_at, which a
+        -- failed reconcile never moves; finished_at did, so a reconcile that
+        -- failed every tick used to read as perfectly fresh. A location
+        -- never reconciled counts from when it was linked.
+        select extract(epoch from (now() - min(coalesce(sc.last_succeeded_at, ll.created_at))))::integer
+        from location_link ll
+        left join sync_checkpoint sc
+          on sc.external_location_id = ll.external_location_id
+         and sc.sync_type = 'reconcile'
+        where ll.is_active
       ) as "reconcileStalenessSeconds",
+      (
+        select extract(epoch from (now() - min(coalesce(sc.last_succeeded_at, ll.created_at))))::integer
+        from location_link ll
+        left join sync_checkpoint sc
+          on sc.external_location_id = ll.external_location_id
+         and sc.sync_type = 'sweep'
+        where ll.is_active
+      ) as "sweepStalenessSeconds",
+      (
+        select count(*)::integer
+        from external_location e
+        join location_link ll on ll.external_location_id = e.id and ll.is_active
+        where e.access_state = 'access_lost'
+      ) as "listingsAccessLost",
       (
         select count(*)::integer
         from external_location l
@@ -220,80 +265,42 @@ async function tenantAlerting(sql: TransactionSql): Promise<AlertingFields> {
       row.dueRunnerCheckpointBacklog +
       row.dueMetricsCheckpointBacklog +
       row.dueUnclaimedCheckpointBacklog +
+      row.dueReconcileBacklog +
       row.duePublishBacklog,
   }
 }
 
 /**
- * How long each tick may go without completing before its absence is worth
- * acting on: a small multiple of the interval `scripts/scheduler.mjs`
- * documents for it, so one missed run is noise and a stopped tick is not.
- * Change these together with the scheduler's defaults.
+ * Sustained quota pressure on the shared Google budget (0049): which buckets
+ * Google has answered 429 on recently, and which are blocked right now.
+ * Platform-level, like ops_heartbeat; bucket names carry no tenant data.
  */
-const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
-  // 60s tick; matches the five-minute "scheduler silent" rule in
-  // docs/observability.md.
-  jobs: 300,
-  // 900s ticks, three intervals.
-  reconcile: 2_700,
-  "presence-resources": 2_700,
-  // 21600s tick, three intervals.
-  performance: 64_800,
-  // 86400s ticks, two intervals.
-  retention: 172_800,
-  keywords: 172_800,
-  sweep: 172_800,
-}
-
-const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs
-
-type SchedulerLiveness = Pick<
-  OperationsHealth,
-  "schedulerHeartbeatAt" | "schedulerHeartbeatStale" | "schedulerTicks"
->
-
-/**
- * Liveness for the scheduler process and for each tick it drives.
- *
- * `schedulerHeartbeatAt` is still the row the jobs tick writes even while
- * paused, so it keeps meaning "the scheduler reached the web process". Each
- * per-tick row is stamped by that tick's advisory lease on a completed run
- * (lib/server/leases.ts), so a tick that has been failing, skipping on a
- * wedged lock, or never registered at all reports as stale instead of hiding
- * behind the jobs tick's heartbeat.
- */
-async function schedulerLiveness(): Promise<SchedulerLiveness> {
-  // Platform-level read: ops_heartbeat is not tenant-scoped, so it is read
-  // outside withTenant.
-  const rows = await getDatabase()<{ name: string; beatAt: Date }[]>`
-    select name, beat_at as "beatAt"
-    from ops_heartbeat
+async function googleQuotaPressure() {
+  const rows = await getDatabase()<
+    {
+      bucket: string
+      blocked: boolean
+      throttledCount: number
+      lastThrottledAt: Date | null
+    }[]
+  >`
+    select
+      bucket,
+      coalesce(blocked_until > now(), false) as blocked,
+      throttled_count as "throttledCount",
+      last_throttled_at as "lastThrottledAt"
+    from google_rate_bucket
+    where last_throttled_at >= now() - interval '1 hour'
+       or blocked_until > now()
+    order by last_throttled_at desc nulls last
+    limit 20
   `
-  const beats = new Map(rows.map((row) => [row.name, row.beatAt]))
-  const ageSeconds = (beatAt: Date | undefined) =>
-    beatAt ? (Date.now() - beatAt.getTime()) / 1000 : null
-  const scheduler = beats.get("scheduler")
-  const schedulerAge = ageSeconds(scheduler)
-  return {
-    // Normalised here so the tenant projection below can be checked against
-    // the wire contract; `NextResponse.json` would have emitted the same ISO
-    // string from the `Date`.
-    schedulerHeartbeatAt: scheduler?.toISOString() ?? null,
-    schedulerHeartbeatStale:
-      schedulerAge === null || schedulerAge > SCHEDULER_STALE_AFTER_SECONDS,
-    schedulerTicks: SCHEDULER_TICK_NAMES.map((name) => {
-      const beatAt = beats.get(name)
-      const age = ageSeconds(beatAt)
-      const staleAfterSeconds =
-        TICK_STALE_AFTER_SECONDS[name] ?? SCHEDULER_STALE_AFTER_SECONDS
-      return {
-        name,
-        lastCompletedAt: beatAt?.toISOString() ?? null,
-        staleAfterSeconds,
-        stale: age === null || age > staleAfterSeconds,
-      }
-    }),
-  }
+  return rows.map((row) => ({
+    bucket: row.bucket,
+    blocked: row.blocked,
+    throttledCount: row.throttledCount,
+    lastThrottledAt: row.lastThrottledAt?.toISOString() ?? null,
+  }))
 }
 
 async function platformHealth() {
@@ -316,11 +323,14 @@ async function platformHealth() {
     dueRunnerCheckpointBacklog: 0,
     dueMetricsCheckpointBacklog: 0,
     dueUnclaimedCheckpointBacklog: 0,
+    dueReconcileBacklog: 0,
     duePublishBacklog: 0,
     checkpointFailures24h: 0,
     connectionErrors24h: 0,
     refreshTokensExpiringSoon: 0,
     reconcileStalenessSeconds: null,
+    sweepStalenessSeconds: null,
+    listingsAccessLost: 0,
     heldPurgeLocations: 0,
     pendingPurgeAgeSeconds: null,
   }
@@ -337,15 +347,18 @@ async function platformHealth() {
     "dueRunnerCheckpointBacklog",
     "dueMetricsCheckpointBacklog",
     "dueUnclaimedCheckpointBacklog",
+    "dueReconcileBacklog",
     "duePublishBacklog",
     "checkpointFailures24h",
     "connectionErrors24h",
     "refreshTokensExpiringSoon",
+    "listingsAccessLost",
     "heldPurgeLocations",
   ] as const
   const MAXIMISED = [
     "oldestFailedEventAgeSeconds",
     "reconcileStalenessSeconds",
+    "sweepStalenessSeconds",
     "pendingPurgeAgeSeconds",
   ] as const
   for (const organisation of organisations) {
@@ -364,6 +377,7 @@ async function platformHealth() {
     organisationCount: organisations.length,
     ...totals,
     ...(await schedulerLiveness()),
+    googleQuota: await googleQuotaPressure(),
   }
 }
 

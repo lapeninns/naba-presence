@@ -18,7 +18,15 @@ import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
 
 /** The parameters the OAuth callback appends; everything else is the page's. */
-const OAUTH_PARAMS = ["google", "status", "rid", "reason"]
+const OAUTH_PARAMS = [
+  "google",
+  "status",
+  "rid",
+  "reason",
+  "reconnected",
+  "mismatch",
+  "catchup",
+]
 
 /** Where a successful connection gets its own confirmation panel. */
 const CONNECTIONS_PATH = "/settings/connections"
@@ -29,6 +37,9 @@ function describeOAuthStatus(
 ): string {
   if (reason === "google_scope_missing") {
     return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
+  }
+  if (reason === "google_offline_access_missing") {
+    return "Google didn’t grant lasting access, so the connection would have stopped within the hour. Nothing was connected. Try again."
   }
   switch (status) {
     case "400":
@@ -45,7 +56,40 @@ function describeOAuthStatus(
 }
 
 type Outcome =
-  { kind: "connected" } | { kind: "error"; title: string; message: string }
+  | { kind: "connected"; reconnected: boolean; mismatch: boolean; catchUp: number }
+  | { kind: "error"; title: string; message: string }
+
+/**
+ * What a successful connect or reconnect says. Only facts the callback
+ * reported: how many listings are catching up, never a review count nobody
+ * has fetched yet.
+ */
+export function connectedMessage(outcome: {
+  reconnected: boolean
+  mismatch: boolean
+  catchUp: number
+}): { title: string; description: string } {
+  if (outcome.mismatch) {
+    return {
+      title: "Connected a different Google account",
+      description:
+        "That login was added as its own connection. The one you were reconnecting still needs its own login, or can be disconnected.",
+    }
+  }
+  if (outcome.reconnected) {
+    return {
+      title: "Reconnected",
+      description:
+        outcome.catchUp > 0
+          ? `Checking Google now for anything missed on ${outcome.catchUp === 1 ? "1 listing" : `${outcome.catchUp} listings`}. New reviews appear as they arrive.`
+          : "Google accepted the login again.",
+    }
+  }
+  return {
+    title: "Google Business Profile connected",
+    description: "Google confirmed access for this login.",
+  }
+}
 
 /**
  * The outcome of a Google OAuth round trip (`?google=connected|error&status=
@@ -77,7 +121,12 @@ export function OAuthReturn({
   const onConnectionsPage = pathname === CONNECTIONS_PATH
   const next: Outcome | null =
     google === "connected"
-      ? { kind: "connected" }
+      ? {
+          kind: "connected",
+          reconnected: params.get("reconnected") === "1",
+          mismatch: params.get("mismatch") === "1",
+          catchUp: Number.parseInt(params.get("catchup") ?? "0", 10) || 0,
+        }
       : google === "error"
         ? {
             kind: "error",
@@ -92,11 +141,21 @@ export function OAuthReturn({
     if (google !== "connected" && google !== "error") return
     if (identityRef.current === identity) return
     identityRef.current = identity
-    // The connections page confirms with its own panel; anywhere else (a
-    // setup step) a toast, so the step's own content stays in charge.
-    setOutcome(next?.kind === "connected" && !onConnectionsPage ? null : next)
-    if (next?.kind === "connected" && !onConnectionsPage) {
-      toast.add({ title: "Google Business Profile connected", type: "success" })
+    // The connections page confirms with its own panel; anywhere else a
+    // toast, so the page's own content stays in charge -- except a
+    // different-account result, which needs to stay on screen.
+    const panel =
+      next?.kind === "connected" && !onConnectionsPage && !next.mismatch
+        ? null
+        : next
+    setOutcome(panel)
+    if (next?.kind === "connected" && !panel) {
+      const message = connectedMessage(next)
+      toast.add({
+        title: message.title,
+        description: message.description,
+        type: "success",
+      })
     }
     const remaining = new URLSearchParams(params.toString())
     for (const key of OAUTH_PARAMS) remaining.delete(key)
@@ -107,12 +166,15 @@ export function OAuthReturn({
 
   if (!outcome) return null
   if (outcome.kind === "connected") {
+    const message = connectedMessage(outcome)
     return (
-      <Alert variant="success">
-        <AlertTitle>Google Business Profile connected</AlertTitle>
+      <Alert variant={outcome.mismatch ? "warning" : "success"}>
+        <AlertTitle>{message.title}</AlertTitle>
         <AlertDescription>
-          Google confirmed access for this login. Link its locations to a client
-          from client setup.
+          {message.description}
+          {outcome.reconnected || outcome.mismatch
+            ? ""
+            : " Link its locations to a client from client setup."}
         </AlertDescription>
         <AlertActions>
           <Link

@@ -11,9 +11,13 @@ describe("Google request pacing", () => {
     process.env.TOKEN_ENCRYPTION_KEY = "t".repeat(32)
     process.env.CRON_SECRET = "c".repeat(16)
     process.env.GOOGLE_REQUESTS_PER_SECOND = "100"
+    // This is the process-local pacer on its own; the shared Postgres budget
+    // has its own tests (rate-budget.test.ts, integration/rate-budget).
+    process.env.GOOGLE_RATE_BUDGET_ENABLED = "false"
   })
 
   afterEach(async () => {
+    delete process.env.GOOGLE_RATE_BUDGET_ENABLED
     await vi.runAllTimersAsync()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()

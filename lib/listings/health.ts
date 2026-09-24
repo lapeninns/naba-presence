@@ -15,6 +15,7 @@ import type { StatusTone } from "@/lib/ui/status-tone"
 export const LISTING_HEALTH = [
   "not_linked",
   "disconnected",
+  "access_lost",
   "pending_verification",
   "attention",
   "unpublished",
@@ -69,6 +70,9 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   ) {
     return "disconnected"
   }
+  // The login works, but not for this listing: a person at the business has
+  // to restore manager access; a reconnect would change nothing.
+  if (summary?.freshness?.reason === "listing_access_lost") return "access_lost"
   if (input.verified === false || summary?.verified === false) {
     return "pending_verification"
   }
@@ -93,6 +97,7 @@ const TONES: Record<ListingHealth, StatusTone> = {
   attention: "attention",
   pending_verification: "pending",
   disconnected: "at-risk",
+  access_lost: "at-risk",
   not_linked: "neutral",
 }
 
@@ -106,6 +111,7 @@ const LABELS: Record<ListingHealth, string> = {
   attention: "Needs attention",
   pending_verification: "Pending verification",
   disconnected: "Disconnected",
+  access_lost: "Access lost",
   not_linked: "Not linked",
 }
 
@@ -126,6 +132,8 @@ export function listingHealthDescription(health: ListingHealth): string {
       return "Google has not verified this listing yet, so some changes will not show."
     case "disconnected":
       return "The Google login behind this listing needs reconnecting."
+    case "access_lost":
+      return "The Google login no longer manages this listing. Ask the business to add it back as a manager; reconnecting won't help."
     case "not_linked":
       return "Link this listing to Google Business Profile to manage it here."
   }
@@ -168,7 +176,10 @@ export function summariseListingHealth(
 ): string {
   if (healths.length === 0) return "No listings yet"
   const attention = healths.filter(
-    (health) => health === "attention" || health === "disconnected"
+    (health) =>
+      health === "attention" ||
+      health === "disconnected" ||
+      health === "access_lost"
   ).length
   const unpublished = healths.filter(
     (health) => health === "unpublished"

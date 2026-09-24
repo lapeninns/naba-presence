@@ -52,10 +52,12 @@ without bypassing RLS. It contains:
   has expired)
 - `dueRunnerCheckpointBacklog` (`backfill` / `sweep` — what `claim_due_jobs`
   can actually take)
-- `dueMetricsCheckpointBacklog` (`performance` / `keywords` — drained by their
-  own crons, not by the runner)
-- `dueUnclaimedCheckpointBacklog` (`reconcile` / `notification` — no claimer at
-  all; a non-zero value here is rows waiting on 0030's terminal state, not on a
+- `dueMetricsCheckpointBacklog` (`performance` / `keywords` — claimed by the
+  runner since 0048)
+- `dueReconcileBacklog` (recurring `reconcile` checkpoints due for more than
+  two minutes and unleased — the runner is behind)
+- `dueUnclaimedCheckpointBacklog` (`notification` — no claimer at all; a
+  non-zero value here is rows waiting on 0030's terminal state, not on a
   tick)
 - `duePublishBacklog` (unleased due `ambiguous`/`retryable` attempts under the
   recovery ceiling, plus `started` attempts past their lease)
@@ -64,16 +66,24 @@ without bypassing RLS. It contains:
 - `refreshTokensExpiringSoon` (live connections whose Google refresh token
   expires within three days — the seven-day tokens a Testing-status OAuth
   client issues all expire at once, with no other warning)
-- `reconcileStalenessSeconds` (age of the newest completed `reconcile`
-  checkpoint; data freshness, where the heartbeats below are liveness)
+- `reconcileStalenessSeconds` (how long the WORST actively linked location
+  has gone without a successful reconcile — `last_succeeded_at`, which a
+  failed reconcile never moves; a never-reconciled location counts from its
+  link time. Data freshness, where the heartbeats below are liveness. It used
+  to read the newest `finished_at`, which failures also set, so a reconcile
+  failing every tick looked fresh.)
+- `sweepStalenessSeconds` (the same for the daily deleted-review sweep)
+- `listingsAccessLost` (linked listings whose login lost manager access)
+- `googleQuota` (platform scope only: Google rate buckets throttled in the
+  last hour or blocked now, with `throttledCount`)
 - `heldPurgeLocations` (external locations an unreleased legal hold keeps past
   their disconnect purge date)
 - `pendingPurgeAgeSeconds` (how long the oldest still-unpurged disconnected
   connection is overdue)
 - `schedulerHeartbeatAt` and `schedulerHeartbeatStale`
 - `schedulerTicks`, one entry per tick (`jobs`, `reconcile`, `retention`,
-  `performance`, `keywords`, `presence-resources`) with `lastCompletedAt`,
-  `staleAfterSeconds` and `stale`
+  `performance`, `keywords`, `presence-resources`, `sweep`, `health`) with
+  `lastCompletedAt`, `staleAfterSeconds` and `stale`
 
 The owner/admin scope returns the same fields for one tenant plus `sync`,
 `webhooks`, `connections`, `publish24h`, `replyRejections30d` and
@@ -102,7 +112,8 @@ documented interval — one missed run is noise, a stopped tick is not — and i
 is served by the endpoint rather than hard-coded in the monitor, so an interval
 change moves the threshold with it. `naba:sweep` is deliberately absent: the
 sweep route holds no advisory lease, so nothing stamps a row for it and
-reporting one would be a permanent false alarm.
+reporting one would be a permanent false alarm. (Since 0046 the sweep's fleet
+enqueue does take `naba:sweep`, so `sweep` is now listed.)
 
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not
@@ -124,6 +135,19 @@ Treat a missing heartbeat as silent.
 | Refresh token cliff | `refreshTokensExpiringSoon > 0`                                             | ticket   |
 | Overdue purge       | `pendingPurgeAgeSeconds > 86400`, or `heldPurgeLocations` non-zero and flat | ticket   |
 | Reconcile stale     | `reconcileStalenessSeconds > 3600`                                          | ticket   |
+| Sweep stale         | `sweepStalenessSeconds > 172800`                                            | ticket   |
+| Reconcile behind    | `dueReconcileBacklog` rising for 15 minutes                                 | ticket   |
+| Quota pressure      | any `googleQuota[].blocked`, or a bucket throttled on consecutive scrapes   | ticket   |
+| Listing access lost | `listingsAccessLost > 0` (the tenant is also emailed)                       | ticket   |
+
+The health tick (`/api/cron/health`, every 15 minutes) evaluates the same
+conditions per tenant and emails owners and admins itself (see
+`docs/runbook.md`, "Notifications and alert email"); it also opens
+`platform_incident` rows and emails `OPS_ALERT_EMAILS` for a tick that used to
+complete and has stopped, and for Google rate limiting in the last 15
+minutes. A tick that has never completed is reported here but not emailed.
+The scrape and these rules remain the operator's view; the tick is what makes
+alerting work with nobody watching a dashboard.
 
 `heldPurgeLocations` is not a failure: a legal hold is meant to outrank the
 seven-day disconnect promise. It is a ticket because a number that never falls
@@ -149,6 +173,16 @@ web process.
 | `jobs.kinds_paused`          | warn  | A kill switch narrowed the claim. Carries the three flags and the kinds still being claimed; the heartbeat stays fresh, so this is the only signal that work is deliberately not happening.                                                                                                   |
 | `jobs.leases_reclaimed`      | warn  | `reclaim_expired_jobs()` returned rows whose lease outlived their holder, counted per kind. Costs no retry budget. Repeated reclaims of one kind mean items are outliving the lease (tick budget plus 60s), not that they are failing.                                                        |
 | `leases.heartbeat_failed`    | warn  | A tick completed but could not stamp its `ops_heartbeat` row, so it will read as stale. Liveness bookkeeping never fails the tick that succeeded.                                                                                                                                             |
+| `sync.recurring_enqueued`    | info  | A reconcile/performance/keywords cron fire armed the fleet: `organisations` with linked locations, `queued` rows created or re-armed. |
+| `jobs.recurring_failed`      | error | A recurring run threw before its own settle; it retries in a few minutes. |
+| `google.rate_budget_deferred` | warn | A request could not get a shared-budget slot before its deadline and was deferred as `google_rate_limited`. |
+| `google.rate_budget_unavailable` | warn | The budget could not be read within 2s; the request went ahead on local pacing (fail-open). |
+| `google.operator_configuration_error` | error | Google answered 403 with a project-level reason (API disabled, access not configured): an operator fault, not a tenant's. |
+| `google.connection.stale_rejection_ignored` | info | A rejection from an older credential generation, or after a disconnect, was dropped instead of flagging the connection. |
+| `google.risc_event`          | info  | A verified RISC event was applied; `matchedConnections` says how many connections it reached. |
+| `notifications.tick`         | info  | One health tick: incidents opened/resolved, deliveries sent/suppressed/failed, platform incidents. |
+| `notifications.delivery_failed` | warn | An alert email failed; `willRetry` says whether it is backed off or given up (after 5 attempts). |
+| `ops.platform_incident_opened` | warn/error | An operator incident opened; error when nobody could be emailed. |
 | `<tick>.organisation_failed` | error | One tenant failed and the walk carried on. A paused `GBP_PERFORMANCE_ENABLED` / `GBP_KEYWORDS_ENABLED` produces one of these per tenant per tick with `sync_paused`; that is the pause, not an incident.                                                                                      |
 
 ## Alert response

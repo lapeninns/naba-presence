@@ -35,7 +35,6 @@ describeDatabase("cron coverage of every organisation", () => {
   })
 
   afterAll(async () => {
-    await admin`delete from cron_cursor where name = 'reconcile'`
     await server.stop()
     await stub.stop()
     await destroyTenants(admin, organisations)
@@ -131,10 +130,12 @@ describeDatabase("cron coverage of every organisation", () => {
       status: "dead",
       due: null,
     })
-    expect((await sweepCheckpoint(recent.externalLocationId))[0]).toMatchObject({
-      status: "succeeded",
-      due: null,
-    })
+    expect((await sweepCheckpoint(recent.externalLocationId))[0]).toMatchObject(
+      {
+        status: "succeeded",
+        due: null,
+      }
+    )
 
     const [after] = await admin<{ beatAt: Date }[]>`
       select beat_at as "beatAt" from ops_heartbeat where name = 'sweep'
@@ -154,7 +155,8 @@ describeDatabase("cron coverage of every organisation", () => {
     }
     expect(
       ["pending", "running"].includes(
-        (await sweepCheckpoint(first.externalLocationId))[0]?.status ?? "pending"
+        (await sweepCheckpoint(first.externalLocationId))[0]?.status ??
+          "pending"
       )
     ).toBe(false)
     expect(
@@ -162,45 +164,185 @@ describeDatabase("cron coverage of every organisation", () => {
     ).toBe(true)
   }, 120_000)
 
-  it("resumes the reconcile walk where the previous cron fire stopped", async () => {
-    await linkedTenant()
-    await linkedTenant()
-    await admin`delete from cron_cursor where name = 'reconcile'`
-    const stored = async () => {
-      const [row] = await admin<{ cursor: string | null }[]>`
-        select organisation_cursor::text as cursor
-        from cron_cursor where name = 'reconcile'
-      `
-      return row?.cursor ?? null
-    }
+  /** Last successful reconcile per location, as the freshness model reads it. */
+  async function reconciledSince(externalLocationIds: string[], since: Date) {
+    const rows = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from sync_checkpoint
+      where external_location_id in ${admin(externalLocationIds)}
+        and sync_type = 'reconcile'
+        and last_succeeded_at >= ${since}
+    `
+    return rows[0]?.count ?? 0
+  }
 
-    const page = async (query = "") => {
-      const response = await cronGet(
-        `/api/sync/reconcile?maxOrganisations=1${query}`
+  it("enqueues reconcile for every organisation and the runner reaches them all", async () => {
+    const tenants = [
+      await linkedTenant(),
+      await linkedTenant(),
+      await linkedTenant(),
+    ]
+    const started = new Date()
+    const enqueue = await cronGet("/api/sync/reconcile?maxOrganisations=1")
+    expect(enqueue.status, await enqueue.clone().text()).toBe(200)
+    const body = (await enqueue.json()) as {
+      skipped: boolean
+      processed: number
+      nextCursor: null
+    }
+    // No page size applies any more: one fire covers the whole fleet.
+    expect(body.skipped).toBe(false)
+    expect(body.processed).toBeGreaterThanOrEqual(3)
+    expect(body.nextCursor).toBeNull()
+
+    for (let tick = 0; tick < 10; tick += 1) {
+      const ids = tenants.map((tenant) => tenant.externalLocationId)
+      if ((await reconciledSince(ids, started)) === ids.length) break
+      const run = await cronGet("/api/jobs/run")
+      expect(run.status, await run.clone().text()).toBe(200)
+    }
+    expect(
+      await reconciledSince(
+        tenants.map((tenant) => tenant.externalLocationId),
+        started
       )
-      expect(response.status, await response.clone().text()).toBe(200)
-      return (await response.json()) as { nextCursor: string | null }
+    ).toBe(3)
+    // The next run is booked on the 15-minute grid, not left empty.
+    const [next] = await admin<{ minutes: number }[]>`
+      select min(extract(epoch from (next_attempt_at - now())) / 60)::float as minutes
+      from sync_checkpoint
+      where external_location_id = ${tenants[0].externalLocationId}
+        and sync_type = 'reconcile'
+    `
+    expect(next.minutes).toBeGreaterThan(0)
+    expect(next.minutes).toBeLessThanOrEqual(15)
+  }, 180_000)
+
+  async function reconcileCheckpoint(externalLocationId: string) {
+    const [row] = await admin<
+      {
+        status: string
+        lastErrorCode: string | null
+        hoursUntilNext: number | null
+        succeeded: boolean
+      }[]
+    >`
+      select
+        status,
+        last_error_code as "lastErrorCode",
+        (extract(epoch from (next_attempt_at - now())) / 3600)::float
+          as "hoursUntilNext",
+        last_succeeded_at is not null as succeeded
+      from sync_checkpoint
+      where external_location_id = ${externalLocationId}
+        and sync_type = 'reconcile'
+    `
+    return row
+  }
+
+  async function runUntil(
+    done: () => Promise<boolean>,
+    ticks = 10
+  ): Promise<void> {
+    for (let tick = 0; tick < ticks; tick += 1) {
+      if (await done()) return
+      const run = await cronGet("/api/jobs/run")
+      expect(run.status, await run.clone().text()).toBe(200)
     }
+  }
 
-    const firstPage = await page()
-    expect(firstPage.nextCursor).not.toBeNull()
-    expect(await stored()).toBe(firstPage.nextCursor)
+  it("keeps re-checking an unverified listing and picks it up once Google verifies it", async () => {
+    const tenant = await linkedTenant()
+    await admin`
+      update external_location set verified = false
+      where id = ${tenant.externalLocationId}
+    `
+    let verifiedAtGoogle = false
+    stub.respond({ method: "GET", pathIncludes: "readMask=metadata" }, () => ({
+      status: 200,
+      json: { metadata: { hasVoiceOfMerchant: verifiedAtGoogle } },
+    }))
 
-    // The next bare fire starts after it, not at the head again.
-    const secondPage = await page()
-    expect(secondPage.nextCursor).not.toBeNull()
-    expect(secondPage.nextCursor! > firstPage.nextCursor!).toBe(true)
-    expect(await stored()).toBe(secondPage.nextCursor)
+    await cronGet("/api/sync/reconcile")
+    await runUntil(async () =>
+      Boolean(
+        (await reconcileCheckpoint(tenant.externalLocationId))?.lastErrorCode
+      )
+    )
+    // Not dead: the queue claims nothing dead, so that would stop checking
+    // the listing for good. It comes back in six hours instead.
+    const unverified = await reconcileCheckpoint(tenant.externalLocationId)
+    expect(unverified).toMatchObject({
+      status: "failed",
+      lastErrorCode: "location_not_verified",
+    })
+    expect(unverified.hoursUntilNext).toBeGreaterThan(5.9)
+    expect(unverified.hoursUntilNext).toBeLessThanOrEqual(6)
 
-    // A hand-run page with its own cursor does not move the scheduled walk.
-    await page(`&organisationCursor=${firstPage.nextCursor}`)
-    expect(await stored()).toBe(secondPage.nextCursor)
+    // The business verifies the listing; the next due check finds it.
+    verifiedAtGoogle = true
+    await admin`
+      update sync_checkpoint set next_attempt_at = now()
+      where external_location_id = ${tenant.externalLocationId}
+        and sync_type = 'reconcile'
+    `
+    await runUntil(
+      async () =>
+        (await reconcileCheckpoint(tenant.externalLocationId))?.status ===
+        "succeeded"
+    )
+    expect(await reconcileCheckpoint(tenant.externalLocationId)).toMatchObject({
+      status: "succeeded",
+      succeeded: true,
+    })
+    const [location] = await admin<{ verified: boolean }[]>`
+      select verified from external_location
+      where id = ${tenant.externalLocationId}
+    `
+    expect(location.verified).toBe(true)
+  }, 180_000)
 
-    // Fires that kept starting from the same cursor without finishing (killed
-    // at maxDuration, say) give it up and restart at the head, so one
-    // poisoned page cannot starve the rest of the fleet.
-    await admin`update cron_cursor set attempts = 3 where name = 'reconcile'`
-    const restarted = await page()
-    expect(restarted.nextCursor).toBe(firstPage.nextCursor)
+  it("re-checks a listing Google answered 404 for instead of retiring it", async () => {
+    const tenant = await linkedTenant()
+    stub.respond(
+      { method: "GET", pathIncludes: `${tenant.googleLocationName}/reviews` },
+      () => ({
+        status: 404,
+        json: { error: { code: 404, status: "NOT_FOUND" } },
+      })
+    )
+    await cronGet("/api/sync/reconcile")
+    await runUntil(async () =>
+      Boolean(
+        (await reconcileCheckpoint(tenant.externalLocationId))?.lastErrorCode
+      )
+    )
+    const state = await reconcileCheckpoint(tenant.externalLocationId)
+    expect(state.status).toBe("failed")
+    expect(state.hoursUntilNext).toBeGreaterThan(5.9)
+  }, 180_000)
+
+  it("does not claim a location whose login is waiting on a reconnect", async () => {
+    const tenant = await linkedTenant()
+    const [connection] = await admin<{ id: string }[]>`
+      select google_connection_id::text as id
+      from external_location where id = ${tenant.externalLocationId}
+    `
+    await admin`
+      insert into connection_task (
+        organisation_id, google_connection_id, task_type, status, reason_code
+      )
+      values (
+        ${tenant.owner.organisationId}, ${connection.id}, 'reconnect', 'open',
+        'invalid_grant'
+      )
+    `
+    await cronGet("/api/sync/reconcile")
+    stub.calls.length = 0
+    const run = await cronGet("/api/jobs/run")
+    expect(run.status).toBe(200)
+    expect(
+      stub.calls.some((call) => call.path.includes(tenant.googleLocationName))
+    ).toBe(false)
   }, 120_000)
 })

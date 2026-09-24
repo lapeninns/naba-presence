@@ -4,7 +4,7 @@ import {
   connectStartBodySchema,
   type ConnectStartResponse,
 } from "@/lib/contracts/connections"
-import { randomToken, signValue } from "@/lib/server/crypto"
+import { randomToken, signOAuthState } from "@/lib/server/crypto"
 import {
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleOAuthUrl,
@@ -21,16 +21,17 @@ export const POST = route({
   handler: async ({ session, body, tenant }) => {
     // Read through RLS: another organisation's connection id yields no hint,
     // not its owner's email.
-    const loginHint = body.reconnectConnectionId
+    const reconnect = body.reconnectConnectionId
       ? await tenant(async (sql) => {
-          const [row] = await sql<{ email: string | null }[]>`
-            select google_email as email
+          const [row] = await sql<{ id: string; email: string | null }[]>`
+            select id::text as id, google_email as email
             from google_connection
             where id = ${body.reconnectConnectionId!}
           `
-          return row?.email ?? null
+          return row ?? null
         })
       : null
+    const loginHint = reconnect?.email ?? null
     const nonce = randomToken(24)
     const verifier = randomToken(64)
     const statePayload = Buffer.from(
@@ -44,10 +45,12 @@ export const POST = route({
         // attacker-influenced.
         clientId: body.clientId,
         returnTo: safeOAuthReturn(body.returnTo),
+        // Only an id this organisation can see (read through RLS above).
+        reconnectConnectionId: reconnect?.id,
         expiresAt: Date.now() + 10 * 60 * 1000,
       })
     ).toString("base64url")
-    const signedState = `${statePayload}.${signValue(statePayload)}`
+    const signedState = `${statePayload}.${signOAuthState(statePayload)}`
     ;(await cookies()).set("naba_google_oauth", signedState, {
       httpOnly: true,
       sameSite: "lax",

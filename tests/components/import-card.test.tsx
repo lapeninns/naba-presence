@@ -12,7 +12,7 @@ const locationsMock = vi.fn()
 const importMock = vi.fn()
 vi.mock("@/lib/queries/use-connection-workspace", () => ({ useConnectionWorkspace: () => workspaceMock() }))
 vi.mock("@/lib/queries/use-google-accounts", () => ({ useGoogleAccounts: () => accountsMock() }))
-vi.mock("@/lib/queries/use-google-locations", () => ({ useGoogleLocations: () => locationsMock() }))
+vi.mock("@/lib/queries/use-google-locations", () => ({ useGoogleLocations: (accountName: string | null) => locationsMock(accountName) }))
 vi.mock("@/lib/queries/use-location-import", () => ({ useLocationImport: () => importMock() }))
 vi.mock("@/lib/api/locations", () => ({
   fetchManagementLocations: vi.fn(async () => ({ locations: [] })),
@@ -59,6 +59,38 @@ describe("ImportCard", () => {
     expect(screen.getByText("Riverside Rooms")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Import Riverside Rooms" }))
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ externalLocationId: "e1", confirmRelink: false }))
+  })
+
+  it("lets a login with several accounts import from each of them", async () => {
+    renderCard([discovered({})])
+    accountsMock.mockReturnValue({
+      query: {
+        data: {
+          accounts: [
+            { id: "a1", googleAccountName: "accounts/1", accountName: "Lapen North", isActive: true, googleConnectionId: "c1" },
+            { id: "a2", googleAccountName: "accounts/2", accountName: "Lapen South", isActive: true, googleConnectionId: "c1" },
+            { id: "a3", googleAccountName: "accounts/3", accountName: "Other login", isActive: true, googleConnectionId: "c2" },
+          ],
+        },
+      },
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <ImportCard clientId="client-1" connectionId="c1" />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    // Only this login's accounts, and the first is shown rather than a dead
+    // end asking to choose.
+    const switcher = screen.getAllByRole("tablist", { name: "Business Profile account" }).at(-1)!
+    expect(switcher).toHaveTextContent("Lapen North")
+    expect(switcher).toHaveTextContent("Lapen South")
+    expect(switcher).not.toHaveTextContent("Other login")
+    expect(locationsMock).toHaveBeenLastCalledWith("accounts/1")
+    fireEvent.click(screen.getAllByRole("tab", { name: "Lapen South" }).at(-1)!)
+    await waitFor(() => expect(locationsMock).toHaveBeenLastCalledWith("accounts/2"))
   })
 
   it("shows an empty state when discovery returns nothing", () => {

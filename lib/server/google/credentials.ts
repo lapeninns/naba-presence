@@ -17,6 +17,11 @@ import "server-only"
 export type AccessTokenOwner = {
   readonly organisationId: string
   readonly connectionId: string
+  /**
+   * The credential generation the token was issued under. A 401 on a token
+   * from before a reconnect must not flag the credential that replaced it.
+   */
+  readonly generation: number
 }
 
 // Access tokens live an hour; nothing here needs to outlive one.
@@ -43,7 +48,11 @@ export function accessTokenOwner(token: string): AccessTokenOwner | null {
     owners.delete(token)
     return null
   }
-  return { organisationId: owner.organisationId, connectionId: owner.connectionId }
+  return {
+    organisationId: owner.organisationId,
+    connectionId: owner.connectionId,
+    generation: owner.generation,
+  }
 }
 
 export function forgetAccessToken(token: string) {

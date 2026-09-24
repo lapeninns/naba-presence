@@ -45,6 +45,10 @@ type LinkRow = {
     "active" | "expired" | "revoked" | "error" | "disconnected" | null
   reconnectRequired: boolean | null
   googleEmail: string | null
+  connectionErrorCode: string | null
+  accessState: "ok" | "access_lost" | null
+  lastCheckedAt: Date | null
+  linkedAt: Date | null
 }
 
 export type CanonicalRow = {
@@ -216,6 +220,37 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
   return { at: new Date(row.at).toISOString(), status, area: row.area }
 }
 
+/** Reconcile runs every 15 minutes; an hour is three missed runs. */
+const FRESHNESS_WINDOW_MS = 60 * 60 * 1000
+
+/** The listing's three-state freshness, the same rules as a client's. */
+function listingFreshness(link: LinkRow): NonNullable<ListingSummary["freshness"]> {
+  const lastCheckedAt = link.lastCheckedAt?.toISOString() ?? null
+  const broken =
+    link.reconnectRequired ||
+    (link.connectionStatus !== null &&
+      link.connectionStatus !== "active" &&
+      link.connectionStatus !== "expired")
+  if (broken) {
+    return { state: "action_needed", reason: "reconnect_required", lastCheckedAt }
+  }
+  if (link.accessState === "access_lost") {
+    return { state: "action_needed", reason: "listing_access_lost", lastCheckedAt }
+  }
+  const baseline = link.lastCheckedAt ?? link.linkedAt
+  if (baseline && Date.now() - baseline.getTime() > FRESHNESS_WINDOW_MS) {
+    return {
+      state: "data_delayed",
+      reason: link.connectionErrorCode ? "google_unavailable" : "sync_delayed",
+      lastCheckedAt,
+    }
+  }
+  if (link.connectionErrorCode) {
+    return { state: "data_delayed", reason: "google_unavailable", lastCheckedAt }
+  }
+  return { state: "up_to_date", reason: null, lastCheckedAt }
+}
+
 /**
  * Summaries for every requested listing the session may see. Pass no ids for
  * the whole directory. Each table is read once for the whole set, so the
@@ -243,7 +278,18 @@ export async function readListingSummaries(
           and ct.task_type = 'reconnect'
           and ct.status = 'open'
       ) end as "reconnectRequired",
-      gc.google_email as "googleEmail"
+      gc.google_email as "googleEmail",
+      gc.last_error_code as "connectionErrorCode",
+      e.access_state as "accessState",
+      ll.created_at as "linkedAt",
+      (
+        -- Successful review checks only (0047): a failed sync never makes a
+        -- listing look fresh.
+        select max(sc.last_succeeded_at)
+        from sync_checkpoint sc
+        where sc.external_location_id = e.id
+          and sc.sync_type in ('reconcile', 'backfill', 'sweep', 'notification')
+      ) as "lastCheckedAt"
     from location l
     left join location_link ll on ll.location_id = l.id and ll.is_active
     left join external_location e on e.id = ll.external_location_id
@@ -388,6 +434,7 @@ export async function readListingSummaries(
     const menuCanonical = canonicalBy.get(`${link.locationId}:food_menus`)
     return {
       ...base,
+      freshness: link.linked ? listingFreshness(link) : undefined,
       connection: link.connectionStatus
         ? {
             status: link.connectionStatus,

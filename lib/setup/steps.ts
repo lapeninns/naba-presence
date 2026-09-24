@@ -125,8 +125,15 @@ export type SetupFacts = Pick<
   usableLogin: boolean
 }
 
+/**
+ * Connected for this client: a login attached to it. A working login
+ * elsewhere in the organisation does not count on its own - the accounts
+ * step saves against the client's login, so skipping the attach made every
+ * save there fail with account_out_of_scope. `usableLogin` only changes what
+ * the blocker asks for.
+ */
 function connected(facts: SetupFacts): boolean {
-  return facts.connection?.status === "active" || facts.usableLogin
+  return facts.connection?.status === "active"
 }
 
 /**
@@ -164,7 +171,10 @@ export function stepComplete(step: SetupStep, facts: SetupFacts): boolean {
 export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
   switch (step) {
     case "connect":
-      return connected(facts) ? null : "Connect a Google account to continue."
+      if (connected(facts)) return null
+      return facts.usableLogin
+        ? "Choose “Use this account”, or connect another Google account, to continue."
+        : "Connect a Google account to continue."
     case "account":
       return facts.accountsActive > 0
         ? null

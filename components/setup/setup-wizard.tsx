@@ -478,7 +478,13 @@ function StepBody({
         />
       )
     case "locations":
-      return <StepLocations clientId={clientId} clientName={clientName} />
+      return (
+        <StepLocations
+          clientId={clientId}
+          clientName={clientName}
+          connectionId={connectionId}
+        />
+      )
     case "backfill":
       return <StepBackfill clientName={clientName} />
     case "notifications":
