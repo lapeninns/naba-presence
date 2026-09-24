@@ -147,6 +147,34 @@ describe("inbox url state", () => {
     expect(filters).not.toHaveProperty("syncStatus")
   })
 
+  // "To: 31 July" is stored as 31 July's midnight; the list used to stop
+  // there and leave out the whole of the day it names.
+  it("sends a day-only To date as the start of the next day", () => {
+    const filters = toReviewsFilters(
+      parseInboxState(
+        new URLSearchParams(
+          "dateFrom=2026-07-01T00:00:00.000Z&dateTo=2026-07-31T00:00:00.000Z"
+        )
+      )
+    )
+    expect(filters.dateFrom).toBe("2026-07-01T00:00:00.000Z")
+    expect(filters.dateTo).toBe("2026-08-01T00:00:00.000Z")
+  })
+
+  it("leaves a precise To instant, and the age preset's bound, as they are", () => {
+    expect(
+      toReviewsFilters(
+        parseInboxState(new URLSearchParams("dateTo=2026-07-31T15:30:00.000Z"))
+      ).dateTo
+    ).toBe("2026-07-31T15:30:00.000Z")
+    const now = Date.parse("2026-07-15T00:20:00.000Z")
+    expect(
+      toReviewsFilters(parseInboxState(new URLSearchParams("age=over7d")), {
+        now,
+      }).dateTo
+    ).toBe("2026-07-08T00:00:00.000Z")
+  })
+
   it("round-trips the age preset through the URL", () => {
     const state = parseInboxState(new URLSearchParams("age=7d"))
     expect(state.age).toBe("7d")
@@ -188,7 +216,8 @@ describe("inbox url state", () => {
       { now: Date.parse("2026-07-15T14:37:12.480Z") }
     )
     expect(filters.dateFrom).toBe("2026-07-01T00:00:00.000Z")
-    expect(filters.dateTo).toBe("2026-07-31T00:00:00.000Z")
+    // The whole of 31 July: the To day is sent as the next day's start.
+    expect(filters.dateTo).toBe("2026-08-01T00:00:00.000Z")
   })
 
   it("lets a single explicit bound win, without half-expanding the preset", () => {

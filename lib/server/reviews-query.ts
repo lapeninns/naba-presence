@@ -218,7 +218,11 @@ export function buildInboxQuery(
           ? sql`and r.update_time >= ${filters.dateFrom}`
           : sql``
       }
-      ${filters.dateTo ? sql`and r.update_time <= ${filters.dateTo}` : sql``}
+      ${
+        // Exclusive: the inbox sends the start of the day after the one
+        // picked (lib/inbox/url-state.ts), so the picked day is whole.
+        filters.dateTo ? sql`and r.update_time < ${filters.dateTo}` : sql``
+      }
       ${
         filters.cursor
           ? CURSOR_PREDICATE[filters.sort](sql, filters.cursor)
