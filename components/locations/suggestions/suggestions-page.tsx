@@ -2,11 +2,12 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import { CircleAlertIcon, CircleCheckIcon, RefreshCwIcon } from "lucide-react"
+import Link from "next/link"
 
 import { LocationTab } from "@/components/locations/location-tab"
 import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
@@ -19,6 +20,7 @@ import {
   useRefreshImportReview,
 } from "@/lib/queries/use-import-review"
 import { useProfile } from "@/lib/queries/use-location-profile"
+import { cn } from "@/lib/utils"
 
 /**
  * Everything Google has changed that NabaPresence has not accepted yet.
@@ -158,7 +160,23 @@ function SuggestionsView({
           icon={<CircleCheckIcon />}
           titleAs="h2"
           title="Suggested updates aren’t checked for this listing"
-          description="NabaPresence isn’t comparing this listing with Google for suggested updates, so there is nothing to review here."
+          description="NabaPresence isn’t comparing this listing with Google for suggested updates, so there is nothing to review here. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs."
+          action={
+            <>
+              <Link
+                href={listingHref(locationId, "profile")}
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Open the business profile
+              </Link>
+              <Link
+                href={listingHref(locationId, "menu")}
+                className={cn(buttonVariants({ variant: "ghost" }))}
+              >
+                Open the food menu
+              </Link>
+            </>
+          }
         />
       </div>
     )
