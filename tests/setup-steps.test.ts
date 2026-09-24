@@ -103,10 +103,14 @@ describe("stepperState", () => {
 describe("furthestReachable", () => {
   it("stops at the first required step whose work is missing", () => {
     expect(furthestReachable(facts)).toBe("connect")
-    expect(furthestReachable({ ...facts, usableLogin: true })).toBe("account")
-    expect(
-      furthestReachable({ ...facts, usableLogin: true, accountsActive: 1 })
-    ).toBe("locations")
+    const attached = {
+      ...facts,
+      connection: { id: "c1", status: "active" as const },
+    }
+    expect(furthestReachable(attached)).toBe("account")
+    expect(furthestReachable({ ...attached, accountsActive: 1 })).toBe(
+      "locations"
+    )
     expect(
       furthestReachable({
         ...facts,
@@ -131,11 +135,19 @@ describe("furthestReachable", () => {
     ).toBe("done")
   })
 
-  it("lets an agency login carry a client that has nothing linked yet", () => {
-    // The server only ties a login to a client through a linked listing, so a
-    // new client reads as unconnected until the listings step has run.
-    expect(stepBlocker("connect", { ...facts, usableLogin: true })).toBeNull()
+  it("asks for the agency login to be attached rather than skipping past it", () => {
+    // The accounts step saves against the client's own login, so an
+    // unattached agency login left every save there out of scope.
+    expect(stepBlocker("connect", { ...facts, usableLogin: true })).toMatch(
+      /Use this account/
+    )
     expect(stepBlocker("connect", facts)).toMatch(/Connect a Google account/)
+    expect(
+      stepBlocker("connect", {
+        ...facts,
+        connection: { id: "c1", status: "active" },
+      })
+    ).toBeNull()
   })
 
   it("treats a failed import as blocking, with a way forward", () => {
