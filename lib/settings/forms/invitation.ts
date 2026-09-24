@@ -22,6 +22,8 @@ export const invitationFormSchema = z.object({
     .transform((value) => value.toLowerCase()),
   role: z.enum(MEMBER_ROLES),
   canPublish: z.boolean().default(false),
+  /** Members and viewers only; left out means all clients. */
+  clientIds: z.array(z.string()).min(1).optional(),
 })
 
 export type InvitationFormValues = z.infer<typeof invitationFormSchema>

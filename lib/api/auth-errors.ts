@@ -68,6 +68,11 @@ const BY_CODE: Record<string, AuthMessage> = {
     title: "This invitation is for a different email address.",
     description: "Sign in with the address that received it.",
   },
+  invitation_scope_empty: {
+    title: "This invitation no longer gives access to anything.",
+    description:
+      "The clients it was for have no listings now. Ask an owner or admin for a new invitation.",
+  },
   support_session_forbidden: {
     title: "A support session cannot accept invitations.",
   },
