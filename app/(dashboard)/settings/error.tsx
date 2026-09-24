@@ -13,7 +13,7 @@ export default function SettingsError({
   return (
     <RouteErrorState
       title="This settings page hit an error"
-      description="Your other settings are unaffected and the rest of NabaPresence is still working. Try again, or go back to Home."
+      description="Your other settings are unaffected and the rest of NabaPresence is still working. Try again, or go back to the Inbox."
       onReset={reset}
     />
   )
