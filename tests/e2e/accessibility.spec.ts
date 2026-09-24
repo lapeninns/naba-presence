@@ -67,6 +67,11 @@ async function expectAccessible(page: Page, surface: string) {
   )
   const results = await new AxeBuilder({ page })
     .withTags(accessibilityTags)
+    // An open Base UI menu brackets its trigger and popup with zero-size
+    // `aria-hidden` focus guards whose only job is to pass Tab focus on to
+    // the real target. Axe's aria-hidden-focus reads them as hidden focusable
+    // content; nothing in them is ever focused or announced.
+    .exclude("[data-base-ui-focus-guard]")
     .analyze()
   expect(
     results.violations,
@@ -1015,29 +1020,16 @@ for (const theme of themes) {
 
         // One status surface, from lib/inbox/reply-state.ts: a confirmed
         // `published` reply with nothing newer in the composer is the only
-        // state that reads "Reply published". The old situation strip and its
-        // "Your reply is live on Google." sentence are gone, and so is
-        // `describeSituation` — asserting the strip by its slot keeps this
-        // pointed at the one place the pane is allowed to answer the question.
+        // state that reads "Live on Google". Asserting the strip by its slot
+        // keeps this pointed at the one place the pane answers the question.
         await expect(
           selectedReview.locator('[data-slot="reply-status-strip"]')
-        ).toHaveText("Reply published")
+        ).toHaveText("Live on Google")
 
-        // This fixture's draft and live reply are the same words, so the
-        // composer opens as a read-only summary: the reply as text, who wrote
-        // it, and no textarea until the operator chooses to edit.
+        // The editor is always open: the live words, editable in place.
         await expect(
-          selectedReview.getByRole("heading", {
-            name: "Published reply",
-            level: 3,
-          })
-        ).toBeVisible()
-        // The composer summary shows the words where they will appear.
-        await expect(
-          selectedReview
-            .getByRole("region", { name: "Published reply" })
-            .getByText("Thank you for your thoughtful review, Jordan.")
-        ).toBeVisible()
+          selectedReview.getByRole("textbox", { name: "Your reply" })
+        ).toHaveValue("Thank you for your thoughtful review, Jordan.")
         // What must stay absent is LiveReplyDisclosure's toggle: that section
         // shows Google's copy only when it disagrees with what the composer
         // holds, and this fixture's draft and reply are the same words.
@@ -1046,28 +1038,8 @@ for (const theme of themes) {
             name: /differs from the reply below/,
           })
         ).toBeHidden()
-        await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
-        await expect(
-          selectedReview.getByRole("textbox", { name: "Your reply" })
-        ).toBeHidden()
 
-        await selectedReview.getByRole("button", { name: "Edit reply" }).click()
-        await expect(
-          selectedReview.getByRole("textbox", { name: "Your reply" })
-        ).toHaveValue("Thank you for your thoughtful review, Jordan.")
-        // "In sync with Google" belongs to the editor, not the summary: it
-        // answers "does what I am typing still match Google?", which is only
-        // a question once the box is open.
-        await expect(
-          selectedReview.getByText("In sync with Google")
-        ).toBeVisible()
-        // The way back out of the editor is now an explicit control rather
-        // than an implicit collapse, so it has to be reachable.
-        await expect(
-          selectedReview.getByRole("button", { name: "Close editor" })
-        ).toBeVisible()
-
-        // AI generate is manual: Regenerate (draft already exists) + tone are
+        // AI generate is manual: Regenerate (there is text) + tone are
         // available, but nothing calls the LLM until the operator clicks.
         await expect(
           selectedReview.getByRole("button", { name: "Regenerate" })
@@ -1075,39 +1047,60 @@ for (const theme of themes) {
         await expect(
           selectedReview.getByRole("radiogroup", { name: "Reply tone" })
         ).toBeVisible()
-        // Verification is four check cards and a verdict line, always on the
-        // page, so "can I publish?" is answered before the composer. The h3
-        // is the bare word; the verdict is the caption beside it.
+        // Checks are said under the editor only when they fail or warn; a
+        // passed check draws nothing, and there is no checks panel.
         await expect(
           selectedReview.getByRole("heading", {
             name: "Verification",
             level: 3,
             exact: true,
           })
-        ).toBeVisible()
+        ).toHaveCount(0)
 
         // "Publish" is the wrong verb once a reply is live, and re-sending
         // identical text is a no-op the domain has no transition for — so the
-        // primary is "Update reply", disabled, with the reason on the page.
+        // primary is "Update reply", disabled.
         const primary = selectedReview.getByRole("button", {
           name: "Update reply",
         })
         await expect(primary).toBeVisible()
         await expect(primary).toBeDisabled()
-        await expect(selectedReview).toContainText(
-          "Edit the reply above to publish a change."
-        )
         await expect(
           selectedReview.getByRole("button", { name: "Review actions" })
         ).toBeVisible()
+        // History lives behind ⋯, not on the pane.
         await expect(
           selectedReview.getByRole("heading", { name: /^Activity/ })
-        ).toBeVisible()
+        ).toHaveCount(0)
         await page.waitForTimeout(500)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} review detail and editor`
         )
+
+        // ⋯ holds the listing, the history and the review's details. Each is
+        // reachable by keyboard, and Escape hands focus back to the trigger.
+        const more = selectedReview.getByRole("button", {
+          name: "More actions",
+        })
+        await more.focus()
+        await page.keyboard.press("Enter")
+        const moreMenu = page.getByRole("menu")
+        await expect(moreMenu).toBeVisible()
+        await expect(
+          moreMenu.getByRole("menuitem", { name: "Open listing" })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} review ⋯ menu`)
+        await moreMenu.getByRole("menuitem", { name: "History" }).click()
+        const history = page.getByRole("dialog", { name: "History" })
+        await expect(history).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} review history dialog`
+        )
+        await page.keyboard.press("Escape")
+        await expect(history).toBeHidden()
+        await expect(more).toBeFocused()
         if (viewport.name === "mobile") {
           await page.getByRole("button", { name: "Back to reviews" }).click()
           await expect(reviewList).toBeVisible()
