@@ -5,25 +5,50 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ImportCard } from "@/components/settings/import-card"
 import { Toaster } from "@/components/ui/toast"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
+import { fetchManagementLocations } from "@/lib/api/locations"
+import type { ManagementLocation } from "@/lib/contracts/location-links"
 
-const workspaceMock = vi.fn()
-const accountsMock = vi.fn()
-const locationsMock = vi.fn()
-const importMock = vi.fn()
-vi.mock("@/lib/queries/use-connection-workspace", () => ({ useConnectionWorkspace: () => workspaceMock() }))
-vi.mock("@/lib/queries/use-google-accounts", () => ({ useGoogleAccounts: () => accountsMock() }))
-vi.mock("@/lib/queries/use-google-locations", () => ({ useGoogleLocations: (accountName: string | null) => locationsMock(accountName) }))
-vi.mock("@/lib/queries/use-location-import", () => ({ useLocationImport: () => importMock() }))
+const {
+  assignLocationsToClient,
+  workspaceMock,
+  accountsMock,
+  locationsMock,
+  importMock,
+} = vi.hoisted(() => ({
+  assignLocationsToClient: vi.fn(async () => ({ assigned: ["loc-1"] })),
+  workspaceMock: vi.fn(),
+  accountsMock: vi.fn(),
+  locationsMock: vi.fn(),
+  importMock: vi.fn(),
+}))
+vi.mock("@/lib/queries/use-connection-workspace", () => ({
+  useConnectionWorkspace: () => workspaceMock(),
+}))
+vi.mock("@/lib/queries/use-google-accounts", () => ({
+  useGoogleAccounts: () => accountsMock(),
+}))
+vi.mock("@/lib/queries/use-google-locations", () => ({
+  useGoogleLocations: (accountName: string | null) =>
+    locationsMock(accountName),
+}))
+vi.mock("@/lib/queries/use-location-import", () => ({
+  useLocationImport: () => importMock(),
+}))
 vi.mock("@/lib/api/locations", () => ({
   fetchManagementLocations: vi.fn(async () => ({ locations: [] })),
   fetchLocations: vi.fn(async () => ({ locations: [] })),
 }))
-// ImportCard only ever renders behind /settings/connections, which the server
-// gates to owner/admin — so the directory it reads is always the management
-// view. The real useLocationDirectory runs underneath.
+vi.mock("@/lib/api/clients", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/clients")>()
+  return { ...actual, assignLocationsToClient }
+})
+// The directory is the management view: this card renders for owners and
+// admins. The real useLocationDirectory runs underneath.
 vi.mock("@/lib/queries/use-session", () => ({ useSessionRole: () => "owner" }))
 
-function discovered(overrides: Partial<DiscoveredLocation>): DiscoveredLocation {
+function discovered(
+  overrides: Partial<DiscoveredLocation>
+): DiscoveredLocation {
   return {
     id: "e1",
     accountName: "accounts/1",
@@ -35,16 +60,62 @@ function discovered(overrides: Partial<DiscoveredLocation>): DiscoveredLocation 
   }
 }
 
-function renderCard(locations: DiscoveredLocation[], link = { mutateAsync: vi.fn(async () => ({ link: {} })), isPending: false }) {
-  workspaceMock.mockReturnValue({ query: { data: { connections: [{ id: "c1", status: "active" }] } } })
-  accountsMock.mockReturnValue({ query: { data: { accounts: [{ id: "a1", googleAccountName: "accounts/1", isActive: true }] } } })
-  locationsMock.mockReturnValue({ data: { locations }, isPending: false, isError: false, refetch: vi.fn() })
-  importMock.mockReturnValue({ link, unlink: { mutate: vi.fn(), isPending: false } })
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function directoryRow(
+  overrides: Partial<ManagementLocation> = {}
+): ManagementLocation {
+  return {
+    locationId: "loc-1",
+    name: "Riverside Rooms",
+    address: null,
+    timezone: "Europe/London",
+    linkId: "link-1",
+    externalLocationId: "e1",
+    googleLocationName: "locations/1",
+    googleTitle: "Riverside Rooms",
+    verified: true,
+    clientId: null,
+    clientName: null,
+    ...overrides,
+  }
+}
+
+function renderCard(
+  locations: DiscoveredLocation[],
+  link = {
+    mutateAsync: vi.fn(async () => ({ link: {} })),
+    isPending: false,
+  },
+  clientId?: string
+) {
+  workspaceMock.mockReturnValue({
+    query: { data: { connections: [{ id: "c1", status: "active" }] } },
+  })
+  accountsMock.mockReturnValue({
+    query: {
+      data: {
+        accounts: [
+          { id: "a1", googleAccountName: "accounts/1", isActive: true },
+        ],
+      },
+    },
+  })
+  locationsMock.mockReturnValue({
+    data: { locations },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  })
+  importMock.mockReturnValue({
+    link,
+    unlink: { mutate: vi.fn(), isPending: false },
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <ImportCard />
+        <ImportCard clientId={clientId} />
       </Toaster>
     </QueryClientProvider>
   )
@@ -57,8 +128,15 @@ describe("ImportCard", () => {
     const mutateAsync = vi.fn(async () => ({ link: {} }))
     renderCard([discovered({})], { mutateAsync, isPending: false })
     expect(screen.getByText("Riverside Rooms")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Import Riverside Rooms" }))
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ externalLocationId: "e1", confirmRelink: false }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Import Riverside Rooms" })
+    )
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        externalLocationId: "e1",
+        confirmRelink: false,
+      })
+    )
   })
 
   it("lets a login with several accounts import from each of them", async () => {
@@ -96,5 +174,37 @@ describe("ImportCard", () => {
   it("shows an empty state when discovery returns nothing", () => {
     renderCard([])
     expect(screen.getByText("No locations to import")).toBeInTheDocument()
+  })
+
+  it("files an imported listing that is not under this client", async () => {
+    vi.mocked(fetchManagementLocations).mockResolvedValue({
+      locations: [directoryRow()],
+    })
+    renderCard([discovered({})], undefined, "client-1")
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "File Riverside Rooms under this client",
+      })
+    )
+    await waitFor(() =>
+      expect(assignLocationsToClient).toHaveBeenCalledWith("client-1", {
+        locationIds: ["loc-1"],
+        grantToClientMembers: true,
+      })
+    )
+    expect(await screen.findByText("Linked")).toBeInTheDocument()
+  })
+
+  it("keeps a listing already filed under this client as linked", async () => {
+    vi.mocked(fetchManagementLocations).mockResolvedValue({
+      locations: [
+        directoryRow({ clientId: "client-1", clientName: "Old Crown" }),
+      ],
+    })
+    renderCard([discovered({})], undefined, "client-1")
+    expect(await screen.findByText("Linked")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /File Riverside Rooms/ })
+    ).not.toBeInTheDocument()
   })
 })
