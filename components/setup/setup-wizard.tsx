@@ -81,6 +81,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const { query: connectionsQuery } = useConnectionWorkspace()
 
   const [agencyDirty, setAgencyDirty] = React.useState(false)
+  const saveBeforeContinue = React.useRef<(() => Promise<boolean>) | null>(null)
   const [checking, setChecking] = React.useState(false)
   const [attempt, setAttempt] = React.useState<{
     step: SetupStep
@@ -186,6 +187,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   const advance = async () => {
     setChecking(true)
+    // A step with unsaved work (the accounts picker) saves it first; a save
+    // that fails shows its reason inline in the step and Continue stays put.
+    const saveFirst = saveBeforeContinue.current
+    if (saveFirst && !(await saveFirst())) {
+      setChecking(false)
+      return
+    }
     // Re-read before deciding: the step's own card (accounts, listings,
     // import) saves through its own endpoint and does not refresh setup.
     const [fresh, logins] = await Promise.all([
@@ -345,6 +353,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   facts={facts}
                   connectionId={setup?.connection?.id ?? null}
                   onAgencyDirtyChange={setAgencyDirty}
+                  saveBeforeContinueRef={saveBeforeContinue}
                   onConnected={() => goTo("account")}
                 />
               </div>
@@ -456,6 +465,7 @@ function StepBody({
   facts,
   connectionId,
   onAgencyDirtyChange,
+  saveBeforeContinueRef,
   onConnected,
 }: {
   step: SetupStep
@@ -464,6 +474,7 @@ function StepBody({
   facts: SetupFacts
   connectionId: string | null
   onAgencyDirtyChange: (dirty: boolean) => void
+  saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
   onConnected: () => void
 }) {
   switch (step) {
@@ -485,6 +496,7 @@ function StepBody({
           clientName={clientName}
           clientId={clientId}
           connectionId={connectionId}
+          saveBeforeContinueRef={saveBeforeContinueRef}
         />
       )
     case "locations":

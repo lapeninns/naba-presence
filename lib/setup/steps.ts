@@ -207,7 +207,7 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
     case "account":
       return facts.accountsActive > 0
         ? null
-        : "Choose at least one Business Profile account and save your choice."
+        : "Choose at least one Business Profile account to continue."
     case "locations":
       return facts.locationsLinked > 0
         ? null

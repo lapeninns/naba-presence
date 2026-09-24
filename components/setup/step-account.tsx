@@ -18,21 +18,27 @@ function StepAccount({
   clientName,
   clientId,
   connectionId,
+  saveBeforeContinueRef,
 }: {
   clientName: string
   clientId: string
   connectionId: string | null
+  saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
 }) {
   return (
     <>
       <Alert variant="info" icon={<InfoIcon aria-hidden />}>
         <AlertTitle>One Google login can manage many accounts</AlertTitle>
         <AlertDescription>
-          Tick only the ones that belong to {clientName}, then save. The rest
-          stay available for other clients.
+          Tick only the ones that belong to {clientName}, then continue. The
+          rest stay available for other clients.
         </AlertDescription>
       </Alert>
-      <AccountPickerCard clientId={clientId} connectionId={connectionId} />
+      <AccountPickerCard
+        clientId={clientId}
+        connectionId={connectionId}
+        saveBeforeContinueRef={saveBeforeContinueRef}
+      />
     </>
   )
 }
