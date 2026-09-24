@@ -431,7 +431,11 @@ plan for months, and a paused project's hostname stops resolving: that was the
 `ENOTFOUND` / NXDOMAIN every DB-backed production request failed with. It was
 restored in September 2026. A free project pauses again after a week without
 activity; the every-minute cron keeps it busy, but move it to a paid plan
-before relying on it. No data is carried over from the local database, which
+before relying on it. The project still held the Prisma-era schema (25
+tables, 1,040 reviews, 3 July 2026); those objects were moved, not dropped,
+into the `legacy_prisma` schema, which the runtime role cannot use, after a
+dump to `archive/naba-presence-backups/googlereview-gbp-prisma-20260924-*.sql`.
+No data is carried over from the local database, which
 is shared with sibling projects and holds artifacts no committed migration
 defines. Organisations sign up again, reconnect Google, and the
 connect-callback backfill re-imports their reviews. The last local snapshot,
@@ -460,10 +464,11 @@ Provision in this order:
    `DATABASE_URL` uses the same pooler host with user
    `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
    `rolbypassrls` are false, `row_security` is `on`, and `show
-   statement_timeout` is `30s`. If the pooler dropped the startup parameters
-   from `lib/server/db.ts`, pin both timeouts on the role with `alter role
-   naba_runtime set statement_timeout = '30s'` and `set
-   idle_in_transaction_session_timeout = '60s'`.
+   statement_timeout` is `30s`. The Supabase session pooler drops the
+   startup parameters in `lib/server/db.ts`, so the script pins
+   `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`
+   on the role itself. Role settings apply only to new backends: after
+   (re)running the script, terminate the role's older pooled backends.
 4. Configure Supabase Auth on the same project: Site URL and redirect allow
    list for the production origin, the `supabase/templates/confirmation.html`
    and `recovery.html` templates, and custom SMTP (the built-in sender only
