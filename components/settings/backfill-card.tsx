@@ -34,8 +34,8 @@ const STATUS: Record<
 > = {
   not_started: { label: "Not started", tone: "neutral", dashed: true },
   pending: { label: "Queued", tone: "neutral", dashed: true },
-  running: { label: "Syncing…", tone: "info" },
-  succeeded: { label: "Synced", tone: "ok" },
+  running: { label: "Importing…", tone: "info" },
+  succeeded: { label: "Imported", tone: "ok" },
   failed: { label: "Failed", tone: "bad" },
   cancelled: { label: "Cancelled", tone: "neutral" },
 }
@@ -58,13 +58,13 @@ const BACKFILL_ERROR_COPY: Record<string, string> = {
   google_reconnect_required:
     "Google access has expired. Reconnect this account to continue.",
   sync_failed: "Google did not respond. It will retry automatically.",
-  job_failed: "The sync job failed unexpectedly. It will retry automatically.",
+  job_failed: "The import failed unexpectedly. It will retry automatically.",
 }
 
 function describeBackfillError(code: string): string {
   return (
     BACKFILL_ERROR_COPY[code] ??
-    "This sync could not complete. It will retry automatically."
+    "This import could not complete. It will retry automatically."
   )
 }
 
@@ -78,26 +78,45 @@ function attempts(count: number): string {
  * has tried, why it failed in plain words, and Cancel while it is still in
  * flight. The checkpoint reports no review counts, so there is no progress
  * bar: a percentage would be invented. Labelled rows under 720px.
+ *
+ * `externalLocationIds` scopes the card to one client's linked listings: only
+ * their rows show and Start imports only them. Without it the card covers
+ * every linked listing in the organisation.
  */
-export function BackfillCard() {
+export function BackfillCard({
+  externalLocationIds,
+}: {
+  externalLocationIds?: readonly string[]
+} = {}) {
   const { query, start, cancel } = useBackfill()
   const headingId = useId()
+  const scoped = externalLocationIds !== undefined
+  const nothingInScope = scoped && externalLocationIds.length === 0
 
   const header = (
     <SectionHeader
       id={headingId}
-      title="Backfill reviews"
-      description="Past reviews pulled from Google, per location. Failed imports retry on their own."
+      title="Import reviews"
+      description="Past reviews pulled from Google, per listing. Failed imports retry on their own."
       actions={
-        query.data ? (
+        query.data && !nothingInScope ? (
           <Button
             variant="secondary"
             size="sm"
             pending={start.isPending}
             pendingLabel="Starting…"
-            onClick={() => start.mutate({ maxPagesPerLocation: 10 })}
+            onClick={() =>
+              start.mutate(
+                scoped
+                  ? {
+                      externalLocationIds: [...externalLocationIds],
+                      maxPagesPerLocation: 10,
+                    }
+                  : { maxPagesPerLocation: 10 }
+              )
+            }
           >
-            Start sync
+            Start import
           </Button>
         ) : undefined
       }
@@ -120,8 +139,10 @@ export function BackfillCard() {
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
         <Alert variant="destructive">
-          <AlertTitle>We couldn’t load sync progress</AlertTitle>
-          <AlertDescription>{describeActionError(query.error)}</AlertDescription>
+          <AlertTitle>We couldn’t load import progress</AlertTitle>
+          <AlertDescription>
+            {describeActionError(query.error)}
+          </AlertDescription>
           <AlertActions>
             <Button
               variant="secondary"
@@ -137,17 +158,29 @@ export function BackfillCard() {
     )
   }
 
-  const items = query.data.progress.items
+  const inScope = scoped ? new Set(externalLocationIds) : null
+  const items = query.data.progress.items.filter(
+    (item) => !inScope || inScope.has(item.externalLocationId)
+  )
   const paused = isPausedError(start.error)
+  const startFailed = start.error && !paused ? start.error : null
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       {header}
       {paused ? (
         <Alert variant="warning">
-          <AlertTitle>Review sync is paused</AlertTitle>
+          <AlertTitle>Review import is paused</AlertTitle>
           <AlertDescription>
-            Sync is temporarily paused. Try again shortly.
+            Importing is temporarily paused. Try again shortly.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {startFailed ? (
+        <Alert variant="destructive">
+          <AlertTitle>The import didn’t start</AlertTitle>
+          <AlertDescription>
+            {describeActionError(startFailed)}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -155,15 +188,19 @@ export function BackfillCard() {
         <Card flush>
           <Empty
             icon={<History />}
-            title="No sync activity yet"
-            description="Import a location, then start a sync to pull its review history."
+            title={nothingInScope ? "No linked listings yet" : "No imports yet"}
+            description={
+              nothingInScope
+                ? "Link a listing first, then import its review history."
+                : "Start an import to pull each listing’s review history."
+            }
           />
         </Card>
       ) : (
-        <Table surface responsive aria-label="Sync progress by location">
+        <Table surface responsive aria-label="Import progress by listing">
           <TableHeader>
             <TableRow>
-              <TableHead>Location</TableHead>
+              <TableHead>Listing</TableHead>
               <TableHead numeric>Attempts</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>
@@ -181,10 +218,10 @@ export function BackfillCard() {
                   : null
               return (
                 <TableRow key={item.externalLocationId}>
-                  <TableCell label="Location">
+                  <TableCell label="Listing">
                     <span className="flex min-w-0 flex-col">
                       <span className="font-semibold [overflow-wrap:anywhere] text-ink">
-                        {item.locationName ?? "Location"}
+                        {item.locationName ?? "Listing"}
                       </span>
                       {failure || item.hasMorePages ? (
                         <span className="text-caption text-ink-muted">
@@ -192,23 +229,27 @@ export function BackfillCard() {
                             <span className="text-danger-ink">{failure}</span>
                           ) : null}
                           {failure && item.hasMorePages ? " · " : null}
-                          {item.hasMorePages ? "More to sync" : null}
+                          {item.hasMorePages ? "More to import" : null}
                         </span>
                       ) : null}
                     </span>
                   </TableCell>
                   <TableCell label="Attempts" numeric>
-                    <span className="sr-only">{attempts(item.attemptCount)}</span>
+                    <span className="sr-only">
+                      {attempts(item.attemptCount)}
+                    </span>
                     <span aria-hidden>{item.attemptCount}</span>
                   </TableCell>
-                  <TableCell label="Status">{statusPill(item.status)}</TableCell>
+                  <TableCell label="Status">
+                    {statusPill(item.status)}
+                  </TableCell>
                   <TableCell data-actions="" className="text-right">
                     {inFlight ? (
                       <Button
                         variant="ghost"
                         size="sm"
                         disabled={cancel.isPending}
-                        aria-label={`Cancel sync for ${item.locationName ?? "location"}`}
+                        aria-label={`Cancel import for ${item.locationName ?? "listing"}`}
                         onClick={() => cancel.mutate([item.externalLocationId])}
                       >
                         Cancel
