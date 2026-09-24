@@ -156,21 +156,12 @@ function DataTable<Row>({
                 key={id}
                 data-selected={isSelected || undefined}
                 interactive={Boolean(onRowClick)}
+                // A pointer convenience only. The row is not a tab stop: a
+                // focusable <tr> has no name of its own, so a keyboard user
+                // met an unnamed stop before the row's real link. Keyboard
+                // and screen-reader users open the row through the named
+                // link a clickable row must carry in one of its cells.
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                // A clickable row is also a keyboard target: Enter and Space
-                // open it, the same as the pointer does.
-                tabIndex={onRowClick ? 0 : undefined}
-                onKeyDown={
-                  onRowClick
-                    ? (event) => {
-                        if (event.target !== event.currentTarget) return
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault()
-                          onRowClick(row)
-                        }
-                      }
-                    : undefined
-                }
               >
                 {selection ? (
                   <TableCell

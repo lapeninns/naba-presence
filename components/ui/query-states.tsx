@@ -163,12 +163,15 @@ export function RouteErrorState({
   description,
   onReset,
   homeHref = "/inbox",
+  homeLabel = "Go to Inbox",
   className,
 }: {
   title: string
   description: ReactNode
   onReset: () => void
   homeHref?: string
+  /** Names where `homeHref` goes, e.g. "All clients". */
+  homeLabel?: string
   className?: string
 }) {
   return (
@@ -191,7 +194,7 @@ export function RouteErrorState({
           href={homeHref}
           className={cn(buttonVariants({ variant: "outline" }))}
         >
-          Go to Inbox
+          {homeLabel}
         </Link>
       </div>
     </div>

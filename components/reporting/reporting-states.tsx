@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { describeActionError } from "@/lib/errors/action-errors"
 
 type PanelVariant =
   "loading" | "empty" | "error" | "paused" | "off" | "collecting"
@@ -76,6 +77,7 @@ export function ReportingPanel({
   title,
   description,
   onRetry,
+  cause,
   framed = false,
   icon,
   action,
@@ -84,6 +86,12 @@ export function ReportingPanel({
   title?: string
   description?: string
   onRetry?: () => void
+  /**
+   * The error behind an `error` panel. Its real reason (signed out, no
+   * permission, the network, a timeout) replaces the generic sentence, the
+   * same wording every other surface gives through `describeActionError`.
+   */
+  cause?: unknown
   /** Draw the empty state on its own bordered card. */
   framed?: boolean
   /** Overrides the empty state's glyph (a lucide icon). */
@@ -114,7 +122,12 @@ export function ReportingPanel({
     return (
       <Alert variant="destructive">
         <AlertTitle>{title ?? COPY.error.title}</AlertTitle>
-        <AlertDescription>{description ?? COPY.error.description}</AlertDescription>
+        <AlertDescription>
+          {description ??
+            (cause === undefined
+              ? COPY.error.description
+              : `${describeActionError(cause)} Nothing was changed.`)}
+        </AlertDescription>
         {onRetry ? (
           <AlertActions>
             <Button variant="secondary" size="sm" onClick={onRetry}>

@@ -65,7 +65,8 @@ function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.De
  * The reference `.dialog-foot` bar: sunken surface under a hairline, pulled
  * to the panel's edges. Stacked full-width buttons on small screens (primary
  * on top, because it is last in source order and the column is reversed); a
- * right-aligned row from `sm` up with the primary on the right.
+ * right-aligned row from `sm` up with the primary on the right. Below `sm`
+ * it sticks to the bottom of the scrolling panel.
  */
 function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -73,6 +74,9 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
       data-slot="alert-dialog-footer"
       className={cn(
         "-mx-(--dlg-pad) mt-2 -mb-(--dlg-pad) flex flex-col-reverse gap-2 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) py-3 *:w-full sm:flex-row sm:flex-wrap sm:justify-end sm:*:w-auto",
+        // Sticky on a phone, so the answer stays on screen when the question
+        // (a long list of consequences, a checkbox) scrolls.
+        "max-sm:sticky max-sm:bottom-0 max-sm:z-10",
         className
       )}
       {...props}
