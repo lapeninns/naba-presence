@@ -247,6 +247,33 @@ describe("ListingsBoard", () => {
     })
   })
 
+  it("follows the top-bar switcher when it changes the address", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const { rerender } = render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("link", { name: "Harbour View" })
+    ).toBeInTheDocument()
+
+    search = "clientId=c1"
+    rerender(<ListingsBoard role="owner" />)
+    expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: /Old Crown Group/ })
+    ).toHaveAttribute("aria-pressed", "true")
+
+    search = ""
+    rerender(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("link", { name: "Harbour View" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /^All clients/ })
+    ).toHaveAttribute("aria-pressed", "true")
+  })
+
   it("keeps search, health and client in the URL and reads them back", async () => {
     search = "health=unpublished&clientId=c1&q=crown"
     stub({
@@ -261,15 +288,18 @@ describe("ListingsBoard", () => {
       ],
     })
     render(<ListingsBoard role="owner" />)
-    expect(screen.getByRole("searchbox", { name: "Search listings" })).toHaveValue("crown")
-    expect(screen.getByRole("link", { name: "Old Crown Girton" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("searchbox", { name: "Search listings" })
+    ).toHaveValue("crown")
+    expect(
+      screen.getByRole("link", { name: "Old Crown Girton" })
+    ).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
 
     await userEvent.click(screen.getByRole("tab", { name: /^All/ }))
-    expect(replace).toHaveBeenLastCalledWith(
-      "/listings?clientId=c1&q=crown",
-      { scroll: false }
-    )
+    expect(replace).toHaveBeenLastCalledWith("/listings?clientId=c1&q=crown", {
+      scroll: false,
+    })
   })
 
   it("says reviews were checked, not the whole listing", () => {

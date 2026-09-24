@@ -321,6 +321,68 @@ describe("AppShell", () => {
     ).toBeInTheDocument()
   })
 
+  it("has no client switcher for an agency with one client", async () => {
+    renderShell()
+    await screen.findByRole("link", { name: /Old Crown Group/ })
+    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+  })
+
+  it("puts the client switcher in the toolbar and carries the remembered client in the nav", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session} rememberedClientId="c2">
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    // The mocked page is an unscoped Inbox address: the switcher follows the
+    // address (the sync fills the remembered client in through the router),
+    // and the sidebar links already carry it.
+    const toolbar = screen.getAllByRole("banner")[0]!
+    expect(
+      await within(toolbar).findByRole("button", {
+        name: "Client: All clients",
+      })
+    ).toBeInTheDocument()
+    const primary = screen.getAllByRole("navigation", { name: "Primary" })[0]!
+    expect(
+      within(primary).getByRole("link", { name: "Inbox" })
+    ).toHaveAttribute("href", "/inbox?clientId=c2")
+    expect(
+      within(primary).getByRole("link", { name: "Reports" })
+    ).toHaveAttribute("href", "/reports?clientId=c2")
+    expect(
+      within(primary).getByRole("link", { name: "Clients" })
+    ).toHaveAttribute("href", "/clients")
+  })
+
+  it("offers Switch client commands in the palette", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    const user = userEvent.setup()
+    renderStubbedShell()
+    await screen.findByRole("button", { name: "Client: All clients" })
+    await user.click(
+      screen.getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
+    )
+    expect(
+      await screen.findByRole("option", {
+        name: "Switch client: Harbour Kitchen",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("option", { name: "Switch client: Old Crown Group" })
+    ).toBeInTheDocument()
+  })
+
   it("opens the mobile nav in a labelled sheet", async () => {
     const user = userEvent.setup()
     renderShell()

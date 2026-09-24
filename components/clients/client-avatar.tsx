@@ -56,6 +56,8 @@ function initialsFor(name: string) {
  * with whatever card the mark sits in.
  */
 const SIZES = {
+  /** Inline in a control: the top-bar client switcher and its menu. */
+  xs: "size-5 rounded-(--np-radius-tag) text-[10px]",
   sm: "size-8 rounded-(--np-radius-control) text-ui",
   lg: "size-12 rounded-(--np-radius-card) text-title",
   xl: "size-16 rounded-(--np-radius-panel) text-section",

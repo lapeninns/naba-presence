@@ -4,6 +4,7 @@ import {
   autoSelectId,
   mobilePaneFor,
   parseInboxState,
+  scopeInboxState,
   serializeInboxState,
   toReviewsFilters,
   hasActiveFilters,
@@ -149,7 +150,9 @@ describe("inbox url state", () => {
     // bookmark carrying them must fall back to the unfiltered queue rather
     // than silently narrow the list.
     const state = parseInboxState(
-      new URLSearchParams("verification=pass&publishStatus=failed&syncStatus=failed")
+      new URLSearchParams(
+        "verification=pass&publishStatus=failed&syncStatus=failed"
+      )
     )
     expect(hasActiveFilters(state)).toBe(false)
     const filters = toReviewsFilters(state)
@@ -290,5 +293,55 @@ describe("inbox url state", () => {
         isDesktop: true,
       })
     ).toBeNull()
+  })
+})
+
+describe("scopeInboxState", () => {
+  const locationClientIds = new Map<string, string | null>([
+    ["loc-a", "c1"],
+    ["loc-b", "c2"],
+    ["loc-unfiled", null],
+  ])
+  const state = parseInboxState(
+    new URLSearchParams(
+      "queue=failed&clientId=c1&locationId=loc-a,loc-b&rating=1,2&selected=rev-1"
+    )
+  )
+
+  it("keeps the queue and filters, and the venues of the new client only", () => {
+    const next = scopeInboxState(state, "c2", {
+      locationClientIds,
+      selectedClientId: "c1",
+    })
+    expect(next.clientId).toBe("c2")
+    expect(next.queue).toBe("failed")
+    expect(next.ratings).toEqual([1, 2])
+    expect(next.locationIds).toEqual(["loc-b"])
+  })
+
+  it("closes an open review of another client, and keeps one of this client", () => {
+    expect(
+      scopeInboxState(state, "c2", {
+        locationClientIds,
+        selectedClientId: "c1",
+      }).selected
+    ).toBeUndefined()
+    expect(
+      scopeInboxState(state, "c2", {
+        locationClientIds,
+        selectedClientId: "c2",
+      }).selected
+    ).toBe("rev-1")
+    // Not in the loaded list: its client is unknown, so it closes.
+    expect(
+      scopeInboxState(state, "c2", { locationClientIds }).selected
+    ).toBeUndefined()
+  })
+
+  it("widens to every client without dropping anything", () => {
+    const next = scopeInboxState(state, undefined, { locationClientIds })
+    expect(next.clientId).toBeUndefined()
+    expect(next.locationIds).toEqual(["loc-a", "loc-b"])
+    expect(next.selected).toBe("rev-1")
   })
 })

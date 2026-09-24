@@ -1,8 +1,4 @@
-import {
-  ageRange,
-  isReviewAge,
-  type ReviewAge,
-} from "@/lib/inbox/review-age"
+import { ageRange, isReviewAge, type ReviewAge } from "@/lib/inbox/review-age"
 import {
   DEFAULT_REVIEW_QUEUE,
   DEFAULT_REVIEW_SORT,
@@ -86,7 +82,9 @@ export function parseInboxState(params: URLSearchParams): InboxState {
     replyState: isReviewReplyState(rawReply) ? rawReply : undefined,
     dateFrom: params.get("dateFrom") ?? undefined,
     dateTo: params.get("dateTo") ?? undefined,
-    age: isReviewAge(params.get("age")) ? (params.get("age") as ReviewAge) : undefined,
+    age: isReviewAge(params.get("age"))
+      ? (params.get("age") as ReviewAge)
+      : undefined,
     selected: params.get("selected") ?? undefined,
   }
 }
@@ -111,6 +109,39 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
 }
 
 /**
+ * The Inbox moved to another client scope (the top-bar switcher, the
+ * Filters sheet's Client field, or the chip that removes it).
+ *
+ * The queue and every filter that is not about one client stay. Venues are
+ * narrowed to the ones that belong to the new client, because a venue of
+ * another client would leave an empty list that explains nothing; the open
+ * review stays only if it belongs to the new client (or the scope widened to
+ * every client). `locationClientIds` maps a venue to its client, and
+ * `selectedClientId` is the open review's client when the list has it.
+ */
+export function scopeInboxState(
+  state: InboxState,
+  clientId: string | undefined,
+  context: {
+    locationClientIds: ReadonlyMap<string, string | null>
+    selectedClientId?: string | null
+  }
+): InboxState {
+  if (!clientId) return { ...state, clientId: undefined }
+  return {
+    ...state,
+    clientId,
+    locationIds: state.locationIds.filter(
+      (id) => context.locationClientIds.get(id) === clientId
+    ),
+    selected:
+      state.selected && context.selectedClientId === clientId
+        ? state.selected
+        : undefined,
+  }
+}
+
+/**
  * Everything except queue and selection counts as an "active filter" for the
  * three-way empty-state distinction. Non-default sort is included so chips and
  * "Clear all" can reset it.
@@ -118,16 +149,16 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
 export function hasActiveFilters(state: InboxState): boolean {
   return Boolean(
     state.clientId ||
-      state.locationIds.length ||
-      state.assignee ||
-      state.ratings.length ||
-      state.written ||
-      state.search ||
-      state.replyState ||
-      state.dateFrom ||
-      state.dateTo ||
-      state.age ||
-      (state.sort && state.sort !== DEFAULT_REVIEW_SORT)
+    state.locationIds.length ||
+    state.assignee ||
+    state.ratings.length ||
+    state.written ||
+    state.search ||
+    state.replyState ||
+    state.dateFrom ||
+    state.dateTo ||
+    state.age ||
+    (state.sort && state.sort !== DEFAULT_REVIEW_SORT)
   )
 }
 

@@ -1,8 +1,13 @@
 import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
+import { useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  ClientScopeRoot,
+  usePageScopeHandler,
+} from "@/components/app-shell/client-context"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
@@ -318,6 +323,98 @@ describe("InboxView — client scope", () => {
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).toContain("clientId=c1")
     expect(replace.mock.calls[0][0]).toContain("queue=done")
+  })
+
+  // The top-bar switcher reaches the inbox through the shell's page handler.
+  function SwitchTo({ clientId }: { clientId: string | null }) {
+    const pageHandler = usePageScopeHandler()
+    const [result, setResult] = useState("")
+    return (
+      <>
+        <button
+          type="button"
+          onClick={async () => {
+            const applied = await pageHandler()?.(clientId)
+            setResult(String(applied))
+          }}
+        >
+          Switch to {clientId ?? "all clients"}
+        </button>
+        <output aria-label="Switch result">{result}</output>
+      </>
+    )
+  }
+
+  function renderScopedInbox(clientId: string | null) {
+    return render(
+      <QueryProvider>
+        <Toaster>
+          <ClientScopeRoot>
+            <InboxView />
+            <SwitchTo clientId={clientId} />
+          </ClientScopeRoot>
+        </Toaster>
+      </QueryProvider>
+    )
+  }
+
+  it("asks before the switcher closes a review with an unsaved reply", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams(
+      "selected=rev-1&clientId=c1&queue=failed"
+    )
+    renderScopedInbox("c2")
+    const textbox = await dirtyComposer(user)
+
+    await user.click(screen.getByRole("button", { name: "Switch to c2" }))
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    expect(replace).not.toHaveBeenCalled()
+    expect(textbox).toHaveValue("Seed extra")
+    expect(
+      screen.getByRole("status", { name: "Switch result" })
+    ).toHaveTextContent("false")
+
+    await user.click(screen.getByRole("button", { name: "Switch to c2" }))
+    await user.click(screen.getByRole("button", { name: "Discard" }))
+    expect(replace).toHaveBeenCalledTimes(1)
+    const href = replace.mock.calls[0][0] as string
+    expect(href).toContain("clientId=c2")
+    expect(href).toContain("queue=failed")
+    expect(href).not.toContain("selected=")
+    expect(
+      screen.getByRole("status", { name: "Switch result" })
+    ).toHaveTextContent("true")
+  })
+
+  it("widens to all clients without a prompt, keeping the open review", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    renderScopedInbox(null)
+    await dirtyComposer(user)
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to all clients" })
+    )
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(replace.mock.calls[0][0]).not.toContain("clientId=")
+  })
+
+  it("takes the Client chip through the same guarded path", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    renderInbox()
+    await dirtyComposer(user)
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove client filter" })
+    )
+    // Widening keeps the review, so nothing is asked.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
+    expect(replace.mock.calls[0][0]).not.toContain("clientId=")
   })
 
   it("scopes the queue counts to the client in view", () => {
