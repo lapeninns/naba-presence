@@ -5,9 +5,12 @@ import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const push = vi.fn()
+const replace = vi.fn()
+let search = ""
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
-  useSearchParams: () => new URLSearchParams(""),
+  useRouter: () => ({ push, replace }),
+  usePathname: () => "/listings",
+  useSearchParams: () => new URLSearchParams(search),
 }))
 vi.mock("next/link", () => ({
   default: ({
@@ -93,7 +96,11 @@ function stub({
   } as unknown as UseQueryResult<ListingSummary[]>)
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  replace.mockClear()
+  search = ""
+})
 
 const entries: locationsHook.DirectoryEntry[] = [
   {
@@ -205,6 +212,83 @@ describe("ListingsBoard", () => {
     expect(
       screen.queryByRole("link", { name: "Harbour View" })
     ).not.toBeInTheDocument()
+  })
+
+  it("orders worst health first across clients, or groups by client", async () => {
+    stub({
+      entries,
+      summaries: [
+        summary({ locationId: "l1" }),
+        summary({
+          locationId: "l2",
+          lastPublish: {
+            at: "2026-09-01T10:00:00Z",
+            status: "failed",
+            area: "hours",
+          },
+        }),
+        summary({ locationId: "l3", verified: true }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .filter((row) => !row.hasAttribute("data-group"))
+        .map((row) => within(row).getAllByRole("link")[0]!.textContent)
+    // Harbour View needs attention; Pier Cafe is unverified; Old Crown is fine.
+    expect(names()).toEqual(["Harbour View", "Pier Cafe", "Old Crown Girton"])
+
+    await userEvent.click(screen.getByRole("tab", { name: "By client" }))
+    expect(names()).toEqual(["Pier Cafe", "Harbour View", "Old Crown Girton"])
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
+      scroll: false,
+    })
+  })
+
+  it("keeps search, health and client in the URL and reads them back", async () => {
+    search = "health=unpublished&clientId=c1&q=crown"
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 1, observedAt: null },
+        }),
+        summary({ locationId: "l2" }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByRole("searchbox", { name: "Search listings" })).toHaveValue("crown")
+    expect(screen.getByRole("link", { name: "Old Crown Girton" })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
+
+    await userEvent.click(screen.getByRole("tab", { name: /^All/ }))
+    expect(replace).toHaveBeenLastCalledWith(
+      "/listings?clientId=c1&q=crown",
+      { scroll: false }
+    )
+  })
+
+  it("says reviews were checked, not the whole listing", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) =>
+        summary({
+          locationId: entry.id,
+          freshness: {
+            state: "up_to_date",
+            reason: null,
+            lastCheckedAt: new Date().toISOString(),
+          },
+        })
+      ),
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getAllByText(/^Reviews checked/).length).toBe(3)
+    expect(screen.queryByText(/nothing here asks Google/)).toBeNull()
   })
 
   it("keeps the filing control away from members", () => {
