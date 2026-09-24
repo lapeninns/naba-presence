@@ -71,7 +71,17 @@ export const GET = route({
               'publishStatus', rr.publish_status,
               'googleReplyState', rr.google_reply_state,
               'googlePolicyViolation', rr.google_policy_violation,
-              'googleReplyUpdatedAt', rr.google_reply_updated_at
+              'googleReplyUpdatedAt', rr.google_reply_updated_at,
+              -- The newest attempt's provider code, so a failed publish can
+              -- be worded by its cause (content refused, connection lost,
+              -- Google unavailable) instead of one sentence for all three.
+              'lastErrorCode', (
+                select pa.provider_error_code
+                from publish_attempt pa
+                where pa.review_reply_id = rr.id
+                order by pa.started_at desc
+                limit 1
+              )
             )
             from review_reply rr where rr.review_id = r.id
           ) as reply

@@ -4,6 +4,7 @@ import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
+import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import type { PrimaryAction } from "@/lib/inbox/reply-state"
 import type { ReviewDetail } from "@/lib/contracts/reviews"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
@@ -15,6 +16,12 @@ type Exception = {
   title: string
   description: string
   tone: "caution" | "attention"
+  /**
+   * Offer the way to Settings › Connections. Only when the cause is the
+   * connection: sending someone to reconnect over a reply Google refused, or
+   * over a timeout, sends them to fix the one thing that is not broken.
+   */
+  connectionLink?: boolean
 }
 
 /**
@@ -42,11 +49,37 @@ function describeException(
   const verdict = review.latestVerification?.verdict
 
   if (review.workflowStatus === "failed" || reply?.publishStatus === "failed") {
+    const cause = publishFailureCause(reply)
+    if (cause === "content") {
+      return {
+        title: "Publish failed",
+        description: reply?.googlePolicyViolation
+          ? `Google flagged this reply: ${reply.googlePolicyViolation}`
+          : "Google refused the reply as written. Edit the reply, then publish again.",
+        tone: "attention",
+      }
+    }
+    if (cause === "connection") {
+      return {
+        title: "Publish failed",
+        description:
+          "The Google connection for this listing stopped working, so the reply never reached Google. Reconnect it, then retry — the reply itself does not need to change.",
+        tone: "attention",
+        connectionLink: true,
+      }
+    }
+    if (cause === "transient") {
+      return {
+        title: "Publish failed",
+        description:
+          "Google did not answer in time. The reply is fine as it is — retry the publish.",
+        tone: "attention",
+      }
+    }
     return {
       title: "Publish failed",
-      description: reply?.googlePolicyViolation
-        ? `Google flagged this reply: ${reply.googlePolicyViolation}`
-        : "Google did not accept the last attempt. Edit the reply, then try again.",
+      description:
+        "Google did not accept the last attempt. Retry the publish; if it fails again, edit the reply.",
       tone: "attention",
     }
   }
@@ -67,6 +100,7 @@ function describeException(
       description:
         "This workspace has no active Google connection, so replies cannot reach Google until it is reconnected in Settings.",
       tone: "attention",
+      connectionLink: true,
     }
   }
 
@@ -170,9 +204,7 @@ function ReplyException({
   if (!exception) return null
   const Icon =
     exception.tone === "attention" ? CircleAlertIcon : TriangleAlertIcon
-  const connectionLink =
-    exception.title === "Google disconnected" ||
-    exception.title === "Publish failed"
+  const connectionLink = exception.connectionLink === true
 
   return (
     <aside

@@ -116,6 +116,29 @@ describe("ActionBar", () => {
     expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
   })
 
+  // Sending refused words again unchanged is not a retry.
+  it.each([
+    ["google_timeout", "Retry publish"],
+    ["INVALID_ARGUMENT", "Publish reply"],
+  ])("names the failed-publish button by its cause (%s)", (lastErrorCode, name) => {
+    stubHooks(
+      detailWith({
+        workflowStatus: "failed",
+        reply: {
+          id: "reply-1",
+          body: null,
+          publishStatus: "failed",
+          googleReplyState: null,
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: null,
+          lastErrorCode,
+        },
+      })
+    )
+    renderActionBar()
+    expect(screen.getByRole("button", { name })).toBeInTheDocument()
+  })
+
   // With the composer's save on offer, unsaved edits turn the main button into
   // the step that is actually next, rather than a Publish that cannot be used.
   it("offers Save & check in place of Publish while the composer holds edits", async () => {

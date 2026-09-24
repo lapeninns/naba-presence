@@ -497,6 +497,56 @@ describe("ReviewDetail", () => {
     ).not.toBeInTheDocument()
   })
 
+  // One sentence and a Settings link used to answer every failed publish.
+  // The link now appears only when the connection is the cause.
+  it.each([
+    [
+      "google_reconnect_required",
+      "Google connection for this listing stopped working",
+      true,
+    ],
+    ["INVALID_ARGUMENT", "Google refused the reply as written", false],
+    ["google_timeout", "Google did not answer in time", false],
+  ])(
+    "words a failed publish by its cause (%s)",
+    (lastErrorCode, sentence, link) => {
+      fakeDetail({
+        isPending: false,
+        isError: false,
+        data: reviewWith({
+          workflowStatus: "failed",
+          reply: {
+            id: "reply-1",
+            body: "We are sorry to hear that.",
+            publishStatus: "failed",
+            googleReplyState: null,
+            googlePolicyViolation: null,
+            googleReplyUpdatedAt: null,
+            lastErrorCode,
+          },
+        }),
+      })
+      const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+      const exception = container.querySelector<HTMLElement>(
+        '[data-slot="reply-exception"]'
+      )!
+      expect(exception).toHaveTextContent(sentence)
+      if (link) {
+        expect(
+          within(exception).getByRole("link", {
+            name: "Check Google connections",
+          })
+        ).toBeInTheDocument()
+      } else {
+        expect(
+          within(exception).queryByRole("link", {
+            name: "Check Google connections",
+          })
+        ).not.toBeInTheDocument()
+      }
+    }
+  )
+
   it("keeps a footer action skeleton while the detail is loading", () => {
     fakeDetail({ isPending: true, isError: false })
     const { container } = renderPane(

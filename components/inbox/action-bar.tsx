@@ -39,6 +39,7 @@ import { useDeleteReply } from "@/lib/queries/use-delete-reply"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
+import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import {
   isAdvancingOutcome,
   PRIMARY_ACTION_EVENT,
@@ -213,9 +214,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       : primary.reason
 
   // A failed publish is retried with the same verified draft: the same
-  // mutation, named for what it does from here.
+  // mutation, named for what it does from here. Not when Google refused the
+  // words — sending them again unchanged is not a retry, and the exception
+  // above says to edit them.
   const retry =
     review.workflowStatus === "failed" &&
+    publishFailureCause(review.reply) !== "content" &&
     (primary.kind === "publish" || primary.kind === "update")
 
   return (
