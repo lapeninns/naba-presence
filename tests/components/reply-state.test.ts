@@ -292,7 +292,7 @@ describe("derivePrimaryAction — availability and reasons", () => {
 describe("deriveReplyStatus", () => {
   it("asks for a reply when nothing has been written", () => {
     expect(deriveReplyStatus(input())).toMatchObject({
-      text: "No draft yet",
+      text: "No reply yet",
       short: "Needs reply",
       tone: "neutral",
     })
@@ -335,18 +335,37 @@ describe("deriveReplyStatus", () => {
     expect(
       deriveReplyStatus({ ...readyToPublish(), isDirty: true })
     ).toMatchObject({
-      text: "Unsaved changes · Save draft",
+      text: "Ready to publish",
+      note: "checked when you publish",
       short: "Unsaved changes",
       icon: "pen",
     })
   })
 
-  it("asks for a check when the saved draft has no verdict", () => {
+  it("names a publisher, not readiness, for unsaved edits nobody here can send", () => {
+    expect(
+      deriveReplyStatus({
+        ...readyToPublish(),
+        isDirty: true,
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: false,
+        },
+      })
+    ).toMatchObject({ text: "Publisher needed", icon: "lock" })
+  })
+
+  it("calls an unchecked draft ready, checked when you publish", () => {
     expect(
       deriveReplyStatus(
         input({ workflowStatus: "drafted", drafts: [draft("Unchecked")] })
       )
-    ).toMatchObject({ text: "Draft needs checking", short: "Check draft" })
+    ).toMatchObject({
+      text: "Ready to publish",
+      note: "checked when you publish",
+      short: "Check draft",
+    })
   })
 
   it("asks for a correction when the verdict failed", () => {
@@ -443,16 +462,20 @@ describe("deriveReplyStatus — what counts as published", () => {
   // Rule (a): only a confirmed `published` publish_status may read as
   // published. `accepted` means Google took the request and has not yet said
   // what became of it, and a `publish_requested` review is still in flight.
-  it("says Reply published only for a confirmed published publish_status", () => {
+  it("says Live on Google only for a confirmed published publish_status", () => {
     expect(deriveReplyStatus(settledReview("published"))).toMatchObject({
-      text: "Reply published",
+      text: "Live on Google",
       short: "Replied",
     })
   })
 
   it("says Sent to Google for an accepted reply, not published", () => {
     const status = deriveReplyStatus(settledReview("accepted"))
-    expect(status).toMatchObject({ text: "Sent to Google", short: "Sent" })
+    expect(status).toMatchObject({
+      text: "Sent to Google",
+      short: "Sent",
+      note: "not live until Google confirms",
+    })
     expect(status.text).not.toMatch(/published/i)
   })
 
@@ -606,17 +629,22 @@ describe("status and action agree", () => {
     const action = derivePrimaryAction(state)
     const status = deriveReplyStatus(state)
 
-    if (/Ready to (publish|update)$/.test(status.text)) {
+    if (/Ready to (publish|update)$/.test(status.text) && !status.note) {
       expect(action.enabled).toBe(true)
     }
 
     if (!action.enabled) {
-      expect(status.text).not.toMatch(/Ready to/)
+      // "Ready to …" over a ladder that says no is legitimate in exactly one
+      // shape: the text still has to be saved and checked, which the publish
+      // bar's one press does first — and the status says so.
+      if (/Ready to/.test(status.text)) {
+        expect(status.note).toBe("checked when you publish")
+      }
       // A published or sent status over a disabled button is legitimate in
       // exactly one shape: the reply is live and there is nothing newer to
       // send. Anything else would be claiming a state the button denies.
       if (
-        status.text === "Reply published" ||
+        status.text === "Live on Google" ||
         status.text === "Sent to Google"
       ) {
         expect(action.settled).toBe(true)
@@ -733,17 +761,20 @@ describe("deriveReplyStatus — the ladder names what actually blocks the action
     expect(derivePrimaryAction(state).enabled).toBe(true)
   })
 
-  it("asks a failed publish to be saved first once it has been edited", () => {
-    // Here dirtiness genuinely does block: `evaluatePublish` refuses until the
-    // draft is saved, so "Publish failed" would be true but useless. The
-    // failure keeps its own place in the exception block beneath the reply.
+  it("offers an edited failed publish as ready, checked when published", () => {
+    // `evaluatePublish` refuses until the draft is saved, and the bar's one
+    // press saves it first, so "Publish failed" would be true but useless.
+    // The failure keeps its own place in the exception block above the reply.
     const state = input({
       workflowStatus: "failed",
       reply: { body: "Thanks!", publishStatus: "failed" },
       drafts: [draft("Thanks so much!", "pass")],
       isDirty: true,
     })
-    expect(deriveReplyStatus(state).text).toBe("Unsaved changes · Save draft")
+    expect(deriveReplyStatus(state)).toMatchObject({
+      text: "Ready to publish",
+      note: "checked when you publish",
+    })
     const action = derivePrimaryAction(state)
     expect(action.enabled).toBe(false)
     expect(action.reason).toBe("Save your draft before publishing.")

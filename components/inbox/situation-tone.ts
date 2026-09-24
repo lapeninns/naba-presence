@@ -24,7 +24,7 @@ export const SITUATION_TONE_ICON: Record<
  *
  * There is no tint or capsule map any more. The Inbox spends strong colour on
  * the primary action and on the two exception tones; an ordinary status — "No
- * draft yet", "Ready to publish", "Reply published" — is quiet ink, so the
+ * reply yet", "Ready to publish", "Live on Google" — is quiet ink, so the
  * three rows on screen that do need attention are the ones that get it.
  */
 export const SITUATION_TONE_INK: Record<SituationTone, string> = {
@@ -52,7 +52,7 @@ export function replyStatusPill(status: ReplyStatus): {
   if (status.icon === "cloud" || status.icon === "loader") {
     return { tone: "info", dashed: false }
   }
-  if (status.text === "Reply published") return { tone: "ok", dashed: false }
+  if (status.text === "Live on Google") return { tone: "ok", dashed: false }
   if (status.icon === "check") return { tone: "accent", dashed: false }
   if (status.short === "Needs reply") return { tone: "neutral", dashed: true }
   return { tone: "neutral", dashed: false }

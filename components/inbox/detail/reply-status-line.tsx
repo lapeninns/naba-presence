@@ -72,7 +72,12 @@ function ReplyStatusLine({
           status.icon === "loader" && "animate-spin"
         )}
       />
-      <span className={variant === "row" ? "truncate" : undefined}>{text}</span>
+      <span className={variant === "row" ? "truncate" : undefined}>
+        {text}
+        {variant === "bar" && status.note ? (
+          <span className="font-normal text-ink-muted"> · {status.note}</span>
+        ) : null}
+      </span>
     </span>
   )
 }
