@@ -28,7 +28,8 @@ export default function PrivacyPage() {
         <p>
           NabaPresence helps businesses manage their Google Business Profiles:
           reading and replying to reviews and keeping listing details up to
-          date. It is operated by {legalName}, {registeredAddress} (“we”), which
+          date. It is operated by {legalName}
+          {registeredAddress ? `, ${registeredAddress}` : ""} (“we”), which
           is the controller of the personal data described here. For review and
           profile data we act on behalf of the business that connected its
           Google account.

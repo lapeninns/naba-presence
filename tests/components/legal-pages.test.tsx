@@ -39,6 +39,19 @@ describe("public legal pages", () => {
     expect(screen.getByText(new RegExp(escape(LEGAL_OPERATOR.legalName)))).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy")
   })
+
+  it("leaves out an empty registered address without stray punctuation", () => {
+    const { container: privacy } = render(<PrivacyPage />)
+    const { container: terms } = render(<TermsPage />)
+    for (const page of [privacy, terms]) {
+      const text = page.textContent ?? ""
+      if (LEGAL_OPERATOR.registeredAddress === "") {
+        expect(text).toContain(`operated by ${LEGAL_OPERATOR.legalName} `)
+        expect(text).not.toMatch(/\(\s*\)|,\s*\(/)
+      }
+      expect(text).not.toMatch(/\[[A-Z ]+\]/)
+    }
+  })
 })
 
 function escape(value: string) {
@@ -46,16 +59,33 @@ function escape(value: string) {
 }
 
 describe("assertLegalDetailsForProduction", () => {
-  it("fails a production build while operator details are placeholders", async () => {
+  const placeholders = { ...LEGAL_OPERATOR, legalName: "[LEGAL ENTITY NAME]" }
+
+  it("fails a production build while any operator detail is a placeholder", async () => {
     const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
       "@/lib/legal/operator"
     )
-    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "preview" })).not.toThrow()
-    expect(() => assertLegalDetailsForProduction({})).not.toThrow()
-    if (hasLegalPlaceholders()) {
-      expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).toThrow(
-        /placeholder operator details/
-      )
-    }
+    expect(hasLegalPlaceholders(placeholders)).toBe(true)
+    expect(() =>
+      assertLegalDetailsForProduction({ VERCEL_ENV: "production" }, placeholders)
+    ).toThrow(/placeholder operator details/)
+    // Previews and local builds render the brackets so the wording can be reviewed.
+    expect(() =>
+      assertLegalDetailsForProduction({ VERCEL_ENV: "preview" }, placeholders)
+    ).not.toThrow()
+    expect(() => assertLegalDetailsForProduction({}, placeholders)).not.toThrow()
+  })
+
+  it("treats an empty registered address as deliberate, not a placeholder", async () => {
+    const { hasLegalPlaceholders } = await import("@/lib/legal/operator")
+    expect(hasLegalPlaceholders({ ...LEGAL_OPERATOR, registeredAddress: "" })).toBe(false)
+  })
+
+  it("lets production publish the committed operator details", async () => {
+    const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
+      "@/lib/legal/operator"
+    )
+    expect(hasLegalPlaceholders()).toBe(false)
+    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).not.toThrow()
   })
 })
