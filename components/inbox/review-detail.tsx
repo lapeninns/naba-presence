@@ -30,6 +30,7 @@ import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { StarRating } from "@/components/inbox/star-rating"
+import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useIsDirty } from "@/components/inbox/dirty-context"
@@ -726,6 +727,15 @@ function ReviewThread({
           >
             {formatRelativeTime(review.createTime)}
           </time>
+          {wasEdited(review.createTime, review.updateTime) ? (
+            <time
+              dateTime={review.updateTime}
+              title={formatDateTime(review.updateTime, review.timezone)}
+              className="font-mono text-caption text-ink-muted tabular-nums"
+            >
+              · edited {formatRelativeTime(review.updateTime)}
+            </time>
+          ) : null}
           {/* Where the review came from, with the review it describes. */}
           <span className="-my-1 ml-auto">
             <ReviewMetadata review={review} />

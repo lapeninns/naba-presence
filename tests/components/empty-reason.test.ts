@@ -21,6 +21,14 @@ describe("emptyReason", () => {
     expect(emptyReason(facts({ totalOutsideFilters: 12 }))).toBe("filtered")
   })
 
+  it("recognises the first run once the client list has loaded empty", () => {
+    expect(emptyReason(facts({ noClients: true }))).toBe("no_clients")
+    // Rows behind a filter still outrank it.
+    expect(
+      emptyReason(facts({ noClients: true, hasActiveFilters: true }))
+    ).toBe("filtered")
+  })
+
   it("says it does not know rather than guessing, before clients load", () => {
     // The reassuring guess — "no reviews yet" — is the one thing that must not
     // happen here: nothing has been asked, so nothing can be asserted.

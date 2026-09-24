@@ -54,9 +54,12 @@ import {
   parseInboxState,
   serializeInboxState,
   toReviewsFilters,
+  VISIBLE_QUEUES,
+  visibleQueue,
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
+import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/reviews"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import {
   PRIMARY_ACTION_EVENT,
@@ -458,8 +461,11 @@ function InboxViewInner({
       // The clients this view already has in cache carry the import facts, so
       // the empty state can name which of the reasons it is instead of
       // guessing the reassuring one.
+      // The counts are already scoped to the client in view, so the client
+      // filter is the scope here rather than a filter hiding rows: an empty
+      // queue for one client is that client's queue being clear.
       const facts = {
-        hasActiveFilters: hasActiveFilters(state),
+        hasActiveFilters: hasActiveFilters({ ...state, clientId: undefined }),
         queue: state.queue,
         totalOutsideFilters: countsQuery.data?.total ?? 0,
         connection:
@@ -469,13 +475,37 @@ function InboxViewInner({
               ? ("connected" as const)
               : ("unknown" as const),
         clients: scopedClients,
+        noClients:
+          clientsQuery.isSuccess &&
+          (clientsQuery.data?.items ?? []).length === 0,
       }
+      // From an empty queue, the next one along that has work in it.
+      const current = visibleQueue(state.queue)
+      const start = current ? VISIBLE_QUEUES.indexOf(current) : -1
+      const next = [
+        ...VISIBLE_QUEUES.slice(start + 1),
+        ...VISIBLE_QUEUES.slice(0, Math.max(start, 0)),
+      ].find(
+        (queue) =>
+          queue !== current && (countsQuery.data?.byQueue[queue] ?? 0) > 0
+      )
       return (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <EmptyState
             reason={emptyReason(facts)}
             counts={emptyCounts(facts)}
             onClear={onClearFilters}
+            queue={state.queue}
+            nextQueue={
+              next
+                ? {
+                    label: REVIEW_QUEUE_LABELS[next],
+                    count: countsQuery.data?.byQueue[next] ?? 0,
+                    onSelect: () => onQueueChange(next),
+                  }
+                : undefined
+            }
+            canManageClients={role === "owner" || role === "admin"}
           />
         </div>
       )

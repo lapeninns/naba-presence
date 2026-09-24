@@ -5,6 +5,8 @@ export type EmptyReason =
   | "filtered"
   /** The queue itself is empty; nothing is filtered out. */
   | "queue_empty"
+  /** The organisation has no clients at all: nothing to import from yet. */
+  | "no_clients"
   /** A connection exists but needs reconnecting. */
   | "disconnected"
   /** No Google account is connected at all. */
@@ -31,6 +33,11 @@ export type EmptyFacts = {
   connection: "connected" | "disconnected" | "unknown"
   /** Clients in scope. Empty when the list has not loaded. */
   clients: Pick<ClientSummary, "backfill" | "lastSyncAt">[]
+  /**
+   * The client list has loaded and the organisation has none — the first
+   * run. Distinct from `clients: []`, which also means "not loaded yet".
+   */
+  noClients?: boolean
 }
 
 function sum(
@@ -72,6 +79,7 @@ export function emptyReason(facts: EmptyFacts): EmptyReason {
   if (facts.totalOutsideFilters > 0) {
     return facts.queue && facts.queue !== "all" ? "queue_empty" : "filtered"
   }
+  if (facts.noClients) return "no_clients"
   if (facts.connection === "disconnected") return "disconnected"
   if (facts.clients.length === 0) return "unknown"
 

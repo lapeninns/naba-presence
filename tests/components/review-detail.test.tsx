@@ -547,6 +547,36 @@ describe("ReviewDetail", () => {
     }
   )
 
+  // A reached stage carries a tick and the next one an empty ring: a bold
+  // ring used to read as the more "done" of the two, so "Drafted" looked
+  // reached on a review with no draft.
+  it("never draws a stage as reached when it has not been", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ workflowStatus: "new", drafts: [] }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
+    const [received, drafted] = within(lifecycle).getAllByRole("listitem")
+    expect(received.querySelector('[data-glyph="done"]')).not.toBeNull()
+    expect(drafted).toHaveAttribute("data-state", "current")
+    expect(drafted.querySelector('[data-glyph="done"]')).toBeNull()
+    expect(drafted).toHaveTextContent("next step")
+  })
+
+  it("notes when the reviewer edited the review after writing it", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ updateTime: "2026-08-02T10:00:00.000Z" }),
+    })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(
+      container.querySelector('time[datetime="2026-08-02T10:00:00.000Z"]')
+    ).toHaveTextContent(/edited/)
+  })
+
   it("keeps a footer action skeleton while the detail is loading", () => {
     fakeDetail({ isPending: true, isError: false })
     const { container } = renderPane(

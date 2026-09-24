@@ -16,6 +16,29 @@ import { cn } from "@/lib/utils"
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 /**
+ * The status words a queue already says. A row in Needs reply that reads
+ * "Needs reply" repeats the tab above it and pushes the pills that DO carry
+ * news ("Check needed", "Ready to publish") into the same grey.
+ */
+const QUEUE_SAYS: Record<string, readonly string[]> = {
+  needs_reply: ["Needs reply"],
+  // Only the aggregate tab: under "Waiting on: Me / Others" the pill still
+  // says whose turn it is, which the tab does not.
+  approval: ["Awaiting approval"],
+  publishing: ["Publishing"],
+  failed: ["Publish failed"],
+  done: ["Replied"],
+}
+
+/**
+ * Google moves a review's update time when the reviewer edits it. A minute's
+ * grace, so a create and a first sync a moment apart do not read as an edit.
+ */
+export function wasEdited(createTime: string, updateTime: string): boolean {
+  return Date.parse(updateTime) - Date.parse(createTime) > 60_000
+}
+
+/**
  * The way Mail dates a row: a gap for today ("4 min ago"), a date for
  * anything older, and the year only once it is not this year — so a backlog
  * from 2024 still says so instead of "2 years ago".
@@ -196,6 +219,10 @@ function ReviewList({
             : (review.reviewer.displayName ?? "Anonymous")
           const status = deriveReplyStatus(replyStateFromRow(review, queue))
           const pill = replyStatusPill(status)
+          const pillRepeatsQueue = Boolean(
+            queue && QUEUE_SAYS[queue]?.includes(status.short)
+          )
+          const edited = wasEdited(review.createTime, review.updateTime)
           const parsed = parseReviewText(
             review.text,
             review.detectedLanguageCode
@@ -257,12 +284,20 @@ function ReviewList({
                     <span className="min-w-0 truncate text-ui font-semibold text-ink">
                       {displayName}
                     </span>
+                    {/* When it was written, as the detail pane says — the two
+                        used to disagree, one showing the edit and the other
+                        the original. An edit is noted beside it. */}
                     <time
-                      dateTime={review.updateTime}
-                      title={formatDateTime(review.updateTime, timezone)}
+                      dateTime={review.createTime}
+                      title={
+                        edited
+                          ? `Written ${formatDateTime(review.createTime, timezone)} · edited ${formatDateTime(review.updateTime, timezone)}`
+                          : formatDateTime(review.createTime, timezone)
+                      }
                       className="ml-auto shrink-0 font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
                     >
-                      {listTime(review.updateTime, timezone)}
+                      {listTime(review.createTime, timezone)}
+                      {edited ? " · edited" : ""}
                     </time>
                   </span>
 
@@ -304,18 +339,20 @@ function ReviewList({
                         className="size-3.5 shrink-0 text-ink-muted"
                       />
                     ) : null}
-                    <StatusPill
-                      tone={pill.tone}
-                      dashed={pill.dashed}
-                      // The full sentence is the accessible name, so a reader
-                      // hears "Draft checked · Ready to publish" rather than
-                      // the abbreviation the row has room for.
-                      data-slot="reply-status"
-                      data-tone={status.tone}
-                      aria-label={status.text}
-                    >
-                      {status.short}
-                    </StatusPill>
+                    {pillRepeatsQueue ? null : (
+                      <StatusPill
+                        tone={pill.tone}
+                        dashed={pill.dashed}
+                        // The full sentence is the accessible name, so a
+                        // reader hears "Draft checked · Ready to publish"
+                        // rather than the abbreviation the row has room for.
+                        data-slot="reply-status"
+                        data-tone={status.tone}
+                        aria-label={status.text}
+                      >
+                        {status.short}
+                      </StatusPill>
+                    )}
                     {/* The non-colour half of the selection cue, for
                         greyscale, forced colours and screen readers. */}
                     {selected ? (
