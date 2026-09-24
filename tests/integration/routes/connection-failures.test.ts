@@ -857,6 +857,50 @@ describeDatabase("google connection failure handling", () => {
     expect(row).toEqual({ status: "disconnected", access: null, refresh: null })
   })
 
+  it("does not revoke a login another organisation still uses", async () => {
+    const mine = await seedRefreshableTenant()
+    const theirs = await seedRefreshableTenant()
+    // The same Google login connected in both organisations: Google revokes
+    // per login and project, so revoking for one would end the other's.
+    await admin`
+      update google_connection
+      set google_subject = ${mine.googleSubject}
+      where id = ${theirs.connectionId}
+    `
+    stub.reset()
+    stub.respond({ method: "POST", pathEndsWith: "/revoke" }, () => ({
+      status: 200,
+      json: {},
+    }))
+
+    const response = await fetch(
+      `${server.baseUrl}/api/google/connections/${mine.connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: mine.owner.cookie } }
+    )
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({ googleRevocation: "shared" })
+    expect(
+      stub.calls.filter((call) => call.path.endsWith("/revoke"))
+    ).toHaveLength(0)
+    const [row] = await admin<{ status: string; revocation: string | null }[]>`
+      select status, google_revocation_status as revocation
+      from google_connection where id = ${mine.connectionId}
+    `
+    expect(row).toEqual({ status: "disconnected", revocation: "shared" })
+    expect((await connectionState(theirs.connectionId))[0].status).toBe(
+      "active"
+    )
+
+    // Once no one else holds the login, the last disconnect revokes it.
+    const last = await fetch(
+      `${server.baseUrl}/api/google/connections/${theirs.connectionId}/disconnect`,
+      { method: "POST", headers: { cookie: theirs.owner.cookie } }
+    )
+    expect(last.status, await last.clone().text()).toBe(200)
+    expect(await last.json()).toMatchObject({ googleRevocation: "revoked" })
+  })
+
   it("still disconnects, and records it, when Google will not revoke", async () => {
     const { owner, connectionId } = await seedRefreshableTenant()
     stub.reset()
