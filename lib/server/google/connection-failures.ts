@@ -222,6 +222,54 @@ export async function persistConnectionFailure(
 }
 
 /**
+ * How recently the credential must have refreshed for a 401 to count as a
+ * rejection. A 401 on an older access token is most often just that token
+ * (revoked with a password reset, dropped by Google, cached past its life),
+ * and the stored refresh token settles the question on the next call.
+ */
+const UNAUTHENTICATED_ESCALATION_WINDOW = "10 minutes"
+
+/**
+ * A 401 from a Business Profile API. Rather than asking a person to reconnect
+ * on the first one, the access token is expired in place so the next call
+ * refreshes it: `invalid_grant` there is the real rejection, and a refresh
+ * that works is the recovery. Only a 401 on a token refreshed within
+ * UNAUTHENTICATED_ESCALATION_WINDOW is recorded as needing reconnect, since a
+ * second refresh would not help it.
+ *
+ * Returns "refresh" when the token was expired for a retry, "reconnect" when
+ * the rejection was recorded, and "stale" when the write lost a race
+ * (disconnected, or reconnected since this token was issued).
+ */
+export async function handleUnauthenticated(
+  credential: CredentialRef
+): Promise<"refresh" | "reconnect" | "stale"> {
+  const expired = await withTenant(
+    credential.organisationId,
+    (sql) => sql`
+      update google_connection
+      set
+        access_token_expires_at = now(),
+        last_error_code = 'google_unauthenticated',
+        last_error_at = now()
+      where id = ${credential.connectionId}
+        and status <> 'disconnected'
+        ${generationGuard(sql, credential.generation)}
+        and (
+          last_refresh_at is null
+          or last_refresh_at
+            < now() - ${UNAUTHENTICATED_ESCALATION_WINDOW}::interval
+        )
+      returning id
+    `
+  )
+  if (expired.length > 0) return "refresh"
+  return (await persistConnectionFailure(credential, "google_unauthenticated"))
+    ? "reconnect"
+    : "stale"
+}
+
+/**
  * A transient token failure (Google 5xx, timeout, rate limit, operator
  * fault), recorded for the Data delayed state and for operators. The status
  * is left alone so the connection stays loadable and the caller's own
