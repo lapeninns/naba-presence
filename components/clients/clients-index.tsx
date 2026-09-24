@@ -1,9 +1,12 @@
 "use client"
 
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   Building2Icon,
   CircleAlertIcon,
   FilterIcon,
+  InfoIcon,
   LockIcon,
   MapPinIcon,
   PlusIcon,
@@ -30,20 +33,54 @@ import {
 } from "@/components/ui/segmented-control"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
+import { useToastManager } from "@/components/ui/toast"
 import {
   clientHealthNote,
+  connectionNeedsReconnect,
   HEALTH_FILTERS,
   healthFilterMatches,
   healthLabel,
   healthTone,
   isHealthFilter,
+  type ClientHealth,
   type HealthFilter,
 } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
-import { useClients } from "@/lib/queries/use-clients"
+import { formatDate, formatNumber, formatRelativeTime } from "@/lib/format"
+import {
+  useArchivedClients,
+  useClientMutations,
+  useClients,
+} from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+
+/**
+ * The sections whose old addresses now land here (`?moved=<section>`), named
+ * the way the notice says them. Anything else still gets the notice, just
+ * without a name.
+ */
+const MOVED_SECTIONS: Record<string, string> = {
+  profile: "Profile",
+  photos: "Photos",
+  posts: "Posts",
+  hours: "Opening hours",
+  menu: "Menu",
+  menus: "Menu",
+  reviews: "Reviews",
+  locations: "Locations",
+  listings: "Listings",
+  performance: "Performance",
+}
+
+/** The notice for `?moved=`; null when the parameter is absent. */
+export function movedNotice(section: string | null | undefined): string | null {
+  if (section === null || section === undefined) return null
+  const name = MOVED_SECTIONS[section.toLowerCase()]
+  return name
+    ? `${name} moved — pick a client, then its listing.`
+    : "That page moved — pick a client, then its listing."
+}
 
 /**
  * Every client, ordered so the ones needing work come first.
@@ -52,28 +89,85 @@ import { cn } from "@/lib/utils"
  * by open work rather than alphabetically: a name-sorted list makes the
  * operator read all forty rows to find the two that matter.
  *
- * Reference `clients.html`: four health tiles, a health filter (kept in the
- * address as `?health=`) and a name search, then the table, which becomes
- * labelled rows on a narrow screen with health and the open-work link intact.
+ * Reference `clients.html`: four health tiles, a health filter and a name
+ * search, then the table, which becomes labelled rows on a narrow screen
+ * with health and the open-work link intact. The filter (`?health=`), the
+ * search (`?q=`) and the Archived view (`?view=archived`) live in the
+ * address, so a filtered list can be shared, reloaded and gone back to.
  */
 function ClientsIndex({ role }: { role: string | null }) {
-  const clients = useClients()
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
   const canCreate = role === "owner" || role === "admin"
-  const [query, setQuery] = React.useState("")
+  const archivedView = canCreate && params?.get("view") === "archived"
+  const clients = useClients()
+  const archived = useArchivedClients(canCreate)
 
   const rawHealth = params?.get("health") ?? null
   const health: HealthFilter = isHealthFilter(rawHealth) ? rawHealth : "all"
-  const setHealth = (next: string) => {
+  const urlQuery = params?.get("q") ?? ""
+  // The field keeps its own value so typing never waits on navigation; the
+  // address follows it, and a Back/Forward that changes `?q=` wins.
+  const [query, setQueryState] = React.useState(urlQuery)
+  const [syncedQuery, setSyncedQuery] = React.useState(urlQuery)
+  if (urlQuery !== syncedQuery) {
+    setSyncedQuery(urlQuery)
+    setQueryState(urlQuery)
+  }
+  const moved = movedNotice(params?.get("moved"))
+
+  const replaceParams = (mutate: (search: URLSearchParams) => void) => {
     const search = new URLSearchParams(params?.toString() ?? "")
-    if (next === "all") search.delete("health")
-    else search.set("health", next)
+    mutate(search)
     const qs = search.toString()
     router.replace(qs ? `${pathname}?${qs}` : (pathname ?? "/clients"), {
       scroll: false,
     })
+  }
+  const setHealth = (next: string) =>
+    replaceParams((search) => {
+      if (next === "all") search.delete("health")
+      else search.set("health", next)
+    })
+  const setQuery = (next: string) => {
+    setQueryState(next)
+    setSyncedQuery(next)
+    replaceParams((search) => {
+      if (next.trim()) search.set("q", next)
+      else search.delete("q")
+    })
+  }
+  const setView = (next: "archived" | null) =>
+    replaceParams((search) => {
+      if (next) search.set("view", next)
+      else search.delete("view")
+    })
+  const dismissMoved = () => replaceParams((search) => search.delete("moved"))
+
+  const notice = moved ? (
+    <Alert variant="info" icon={<InfoIcon strokeWidth={1.75} aria-hidden />}>
+      <AlertTitle>{moved}</AlertTitle>
+      <AlertActions>
+        <Button variant="secondary" size="sm" onClick={dismissMoved}>
+          Got it
+        </Button>
+      </AlertActions>
+    </Alert>
+  ) : null
+
+  if (archivedView) {
+    return (
+      <div className="flex flex-col gap-(--np-gap-section)">
+        {notice}
+        <ArchivedClients
+          query={archived}
+          onBack={() => setView(null)}
+          search={query}
+          onSearch={setQuery}
+        />
+      </div>
+    )
   }
 
   if (clients.isPending) return <ClientsSkeleton />
@@ -110,31 +204,45 @@ function ClientsIndex({ role }: { role: string | null }) {
     return a.name.localeCompare(b.name)
   })
   const unassigned = clients.data?.unassignedLocationCount ?? 0
+  const archivedCount = archived.data?.items.length ?? 0
+  const archivedLink =
+    canCreate && archivedCount > 0 ? (
+      <Button variant="ghost" size="sm" onClick={() => setView("archived")}>
+        <ArchiveIcon aria-hidden strokeWidth={1.75} />
+        Archived ({formatNumber(archivedCount)})
+      </Button>
+    ) : null
 
   if (all.length === 0) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
-        {canCreate ? (
-          <Empty
-            titleAs="h2"
-            icon={<Building2Icon />}
-            title="Set up your first client"
-            description="A client is a business you look after. Add one, then connect the Google account that manages its Business Profile."
-            action={
-              <Link href="/clients/new" className={cn(buttonVariants())}>
-                <PlusIcon aria-hidden />
-                New client
-              </Link>
-            }
-          />
-        ) : (
-          <Empty
-            titleAs="h2"
-            icon={<LockIcon />}
-            title="No clients shared with you yet"
-            description="An owner or admin chooses which clients you can see. Once they share one, it appears here with its reviews and listings."
-          />
-        )}
+      <div className="flex flex-col gap-(--np-gap-section)">
+        {notice}
+        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+          {canCreate ? (
+            <Empty
+              titleAs="h2"
+              icon={<Building2Icon />}
+              title="Set up your first client"
+              description="A client is a business you look after. Add one, then connect the Google account that manages its Business Profile."
+              action={
+                <>
+                  <Link href="/clients/new" className={cn(buttonVariants())}>
+                    <PlusIcon aria-hidden />
+                    New client
+                  </Link>
+                  {archivedLink}
+                </>
+              }
+            />
+          ) : (
+            <Empty
+              titleAs="h2"
+              icon={<LockIcon />}
+              title="No clients shared with you yet"
+              description="An owner or admin chooses which clients you can see. Once they share one, it appears here with its reviews and listings."
+            />
+          )}
+        </div>
       </div>
     )
   }
@@ -150,7 +258,8 @@ function ClientsIndex({ role }: { role: string | null }) {
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <HealthSummary clients={all} />
+      {notice}
+      <HealthSummary clients={all} active={health} onSelect={setHealth} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
@@ -193,10 +302,13 @@ function ClientsIndex({ role }: { role: string | null }) {
           >
             All clients
           </h2>
-          <p aria-live="polite" className="text-caption text-ink-muted">
-            {formatNumber(rows.length)} of {formatNumber(all.length)}{" "}
-            {all.length === 1 ? "client" : "clients"} · needing work first
-          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p aria-live="polite" className="text-caption text-ink-muted">
+              {formatNumber(rows.length)} of {formatNumber(all.length)}{" "}
+              {all.length === 1 ? "client" : "clients"} · needing work first
+            </p>
+            {archivedLink}
+          </div>
         </div>
 
         {rows.length === 0 ? (
@@ -213,15 +325,19 @@ function ClientsIndex({ role }: { role: string | null }) {
               description={
                 needle
                   ? "Check the spelling, or clear the search to see every client."
-                  : "Every client in this view is fine. Clear the filter to see the rest."
+                  : "No client is in this state right now. Clear the filter to see the rest."
               }
               action={
                 <Button
                   variant="secondary"
-                  onClick={() => {
-                    setQuery("")
-                    if (health !== "all") setHealth("all")
-                  }}
+                  onClick={() =>
+                    replaceParams((search) => {
+                      setQueryState("")
+                      setSyncedQuery("")
+                      search.delete("q")
+                      search.delete("health")
+                    })
+                  }
                 >
                   Clear filters
                 </Button>
@@ -360,55 +476,261 @@ function ClientsIndex({ role }: { role: string | null }) {
   )
 }
 
-/** Four counts across every client the session can see (reference `.sum-tile`). */
-function HealthSummary({ clients }: { clients: ClientSummary[] }) {
-  const count = (test: (client: ClientSummary) => boolean) =>
-    clients.filter(test).length
-  const tiles = [
-    {
-      key: "connected",
-      value: count((c) => c.health === "healthy" || c.health === "syncing"),
-      label: "Connected and syncing",
-      dot: <StatusPill variant="dot" tone="ok" />,
-    },
-    {
-      key: "attention",
-      value: count((c) => healthFilterMatches("attention", c.health)),
-      label: "Need attention",
-      dot: <StatusPill variant="dot" tone="warn" />,
-    },
-    {
-      key: "disconnected",
-      value: count((c) => c.health === "disconnected"),
-      label: "Disconnected from Google",
-      dot: <StatusPill variant="dot" tone="bad" />,
-    },
-    {
-      key: "not-set-up",
-      value: count((c) => c.health === "not_connected"),
-      label: "Setup unfinished",
-      dot: <StatusPill variant="dot" tone="neutral" dashed />,
-    },
-  ]
+/**
+ * The four health buckets, in the same words as the filter and the pills.
+ * They do not overlap, so they add up to every client, and each tile is the
+ * filter: pressing one shows exactly the clients it counted.
+ */
+const SUMMARY_TILES: Array<{
+  filter: Exclude<HealthFilter, "all">
+  health: ClientHealth
+}> = [
+  { filter: "disconnected", health: "disconnected" },
+  { filter: "attention", health: "attention" },
+  { filter: "healthy", health: "healthy" },
+  { filter: "not_connected", health: "not_connected" },
+]
+
+function HealthSummary({
+  clients,
+  active,
+  onSelect,
+}: {
+  clients: ClientSummary[]
+  active: HealthFilter
+  onSelect: (filter: HealthFilter) => void
+}) {
+  const importing = clients.filter((c) => c.health === "syncing").length
   return (
     <section
       aria-label="Health summary"
       className="grid grid-cols-2 gap-3 @min-[760px]:grid-cols-4"
     >
-      {tiles.map((tile) => (
-        <div
-          key={tile.key}
-          className="flex min-w-0 flex-col gap-0.5 rounded-(--np-radius-card) border border-line bg-surface px-3.5 py-3"
-        >
-          <span className="font-mono text-[22px] leading-7 font-semibold text-ink tabular-nums">
-            {formatNumber(tile.value)}
-          </span>
-          <span className="flex items-baseline gap-1.5 text-ui text-ink-muted">
-            <span className="shrink-0 translate-y-[-1px]">{tile.dot}</span>
-            {tile.label}
-          </span>
+      {SUMMARY_TILES.map((tile) => {
+        const value = clients.filter((c) =>
+          healthFilterMatches(tile.filter, c.health)
+        ).length
+        const pressed = active === tile.filter
+        return (
+          <button
+            key={tile.filter}
+            type="button"
+            aria-pressed={pressed}
+            // Pressing the shown filter again clears it.
+            onClick={() => onSelect(pressed ? "all" : tile.filter)}
+            className={cn(
+              "flex min-w-0 flex-col gap-0.5 rounded-(--np-radius-card) border bg-surface px-3.5 py-3 text-left focus-halo transition-[border-color,box-shadow] duration-(--np-duration-fast) hover:border-line-strong",
+              pressed ? "border-primary shadow-np-raised" : "border-line"
+            )}
+          >
+            <span className="font-mono text-[22px] leading-7 font-semibold text-ink tabular-nums">
+              {formatNumber(value)}
+            </span>
+            <span className="flex items-baseline gap-1.5 text-ui text-ink-muted">
+              <span className="shrink-0 translate-y-[-1px]">
+                <StatusPill
+                  variant="dot"
+                  tone={healthTone(tile.health)}
+                  dashed={tile.health === "not_connected"}
+                />
+              </span>
+              {healthLabel(tile.health)}
+            </span>
+            {tile.filter === "healthy" && importing > 0 ? (
+              <span className="text-caption text-ink-muted">
+                {formatNumber(importing)} importing
+              </span>
+            ) : null}
+          </button>
+        )
+      })}
+    </section>
+  )
+}
+
+/**
+ * Archived clients, each with Restore. Archiving hides a client everywhere
+ * else, so this is the one place to find it again.
+ */
+function ArchivedClients({
+  query,
+  onBack,
+  search,
+  onSearch,
+}: {
+  query: ReturnType<typeof useArchivedClients>
+  onBack: () => void
+  search: string
+  onSearch: (next: string) => void
+}) {
+  const { update } = useClientMutations()
+  const toast = useToastManager()
+  const [restoring, setRestoring] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const restore = async (client: ClientSummary) => {
+    setRestoring(client.id)
+    setError(null)
+    try {
+      await update.mutateAsync({ clientId: client.id, archived: false })
+      toast.add({
+        type: "success",
+        title: `${client.name} restored`,
+        description:
+          "It’s back in your lists. File its listings again from its settings.",
+      })
+    } catch (cause) {
+      setError(`${client.name} wasn’t restored. ${describeActionError(cause)}`)
+    } finally {
+      setRestoring(null)
+    }
+  }
+
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-title font-semibold text-ink">Archived clients</h2>
+        <p className="text-caption text-ink-muted">
+          Hidden from lists, filters and reports. Restore one to bring it back.
+        </p>
+      </div>
+      <Button variant="secondary" size="sm" onClick={onBack}>
+        Back to all clients
+      </Button>
+    </div>
+  )
+
+  if (query.isPending) {
+    return (
+      <section className="flex flex-col gap-3" aria-busy="true">
+        {header}
+        <p role="status" className="text-ui text-ink-muted">
+          Loading archived clients…
+        </p>
+        <Skeleton className="h-32 rounded-(--np-radius-card)" />
+      </section>
+    )
+  }
+  if (query.isError) {
+    return (
+      <section className="flex flex-col gap-3">
+        {header}
+        <Alert variant="destructive">
+          <AlertTitle>We couldn’t load archived clients</AlertTitle>
+          <AlertDescription>
+            {describeActionError(query.error)} Nothing was changed.
+          </AlertDescription>
+          <AlertActions>
+            <Button
+              variant="secondary"
+              size="sm"
+              pending={query.isFetching}
+              pendingLabel="Trying again…"
+              onClick={() => void query.refetch()}
+            >
+              Try again
+            </Button>
+          </AlertActions>
+        </Alert>
+      </section>
+    )
+  }
+
+  const needle = search.trim().toLowerCase()
+  const items = (query.data?.items ?? []).filter(
+    (client) => !needle || client.name.toLowerCase().includes(needle)
+  )
+
+  return (
+    <section className="flex flex-col gap-3" aria-label="Archived clients">
+      {header}
+      <div role="search" className="w-full min-w-0 @min-[640px]:w-80">
+        <SearchInput
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Filter archived clients"
+          aria-label="Filter archived clients by name"
+        />
+      </div>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>That didn’t work</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {items.length === 0 ? (
+        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+          <Empty
+            titleAs="h3"
+            icon={<ArchiveIcon />}
+            title={
+              needle
+                ? `No archived clients match “${search.trim()}”`
+                : "Nothing archived"
+            }
+            description={
+              needle
+                ? "Clear the search to see every archived client."
+                : "Clients you archive appear here, ready to restore."
+            }
+          />
         </div>
-      ))}
+      ) : (
+        <DataTable
+          caption="Archived clients, with when each was archived"
+          rows={items}
+          rowId={(client) => client.id}
+          surface
+          responsive
+          columns={[
+            {
+              id: "name",
+              header: "Client",
+              span: true,
+              label: "",
+              cell: (client) => (
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <ClientAvatar name={client.name} colour={client.colour} />
+                  <span className="font-semibold break-words text-ink">
+                    {client.name}
+                  </span>
+                </span>
+              ),
+            },
+            {
+              id: "archived",
+              header: "Archived",
+              cell: (client) => (
+                <span className="text-ui text-ink-muted">
+                  {client.archivedAt
+                    ? formatDate(client.archivedAt, "Europe/London")
+                    : "—"}
+                </span>
+              ),
+            },
+            {
+              id: "restore",
+              header: <span className="sr-only">Actions</span>,
+              label: "",
+              className: "text-right",
+              cell: (client) => (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label={`Restore ${client.name}`}
+                  pending={restoring === client.id}
+                  pendingLabel="Restoring…"
+                  disabled={restoring !== null && restoring !== client.id}
+                  onClick={() => void restore(client)}
+                >
+                  <ArchiveRestoreIcon aria-hidden strokeWidth={1.75} />
+                  Restore
+                </Button>
+              ),
+            },
+          ]}
+        />
+      )}
     </section>
   )
 }
@@ -448,10 +770,9 @@ function LoginCell({ client }: { client: ClientSummary }) {
   if (!first) {
     return <span className="text-ui text-ink-muted">No Google login yet</span>
   }
-  const broken = client.connections.filter(
-    (connection) =>
-      connection.reconnectRequired || connection.status !== "active"
-  ).length
+  // The same rule as the health word: an expired access token refreshes on
+  // its own and is not a login someone has to reconnect.
+  const broken = client.connections.filter(connectionNeedsReconnect).length
   return (
     <span className="flex min-w-0 flex-col text-ui">
       <span className="[overflow-wrap:anywhere] text-ink">
@@ -472,6 +793,11 @@ function LoginCell({ client }: { client: ClientSummary }) {
   )
 }
 
+/**
+ * The index's loading shape: four tiles, a line saying what is loading, and
+ * the list card. Exported so the route's `loading.tsx` draws exactly this
+ * instead of a copy that drifted.
+ */
 function ClientsSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
@@ -514,4 +840,4 @@ function NewClientButton() {
   )
 }
 
-export { ClientsIndex, NewClientButton }
+export { ClientsIndex, ClientsSkeleton, NewClientButton }

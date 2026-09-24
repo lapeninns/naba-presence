@@ -1,10 +1,10 @@
 "use client"
 
-import { CheckIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import * as React from "react"
 
+import { ClientColourField } from "@/components/clients/client-colour-field"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardFooter } from "@/components/ui/card"
@@ -22,21 +22,6 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
-
-/**
- * The client-mark colours on offer. These are DATA, not theme: the chosen hex
- * is stored on the client (the API accepts a six-digit hex) and drawn on its
- * mark everywhere, so they are listed as values rather than tokens. The chrome
- * around them (edge, ring, tick) is all tokens.
- */
-const COLOURS = [
-  { value: "#7A4E3B", name: "Umber" },
-  { value: "#3F5E52", name: "Pine" },
-  { value: "#4A4C7A", name: "Indigo" },
-  { value: "#6B4A6B", name: "Plum" },
-  { value: "#3E5B70", name: "Slate blue" },
-  { value: "#6E5A2E", name: "Olive" },
-]
 
 const NOTES_MAX = 2000
 
@@ -75,6 +60,7 @@ function NewClientForm() {
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       })
       toast.add({
+        type: "success",
         title: `${result.client.name} created`,
         description: "Next: connect its Google account.",
       })
@@ -123,42 +109,7 @@ function NewClientForm() {
               <FieldError />
             </Field>
 
-            <fieldset className="flex flex-col gap-1.5">
-              <legend className="text-ui leading-5 font-semibold text-ink">
-                Colour{" "}
-                <span className="font-normal text-ink-muted">(optional)</span>
-              </legend>
-              <p className="text-caption text-ink-muted">
-                Used on the client’s mark so it is recognisable in a long list.
-              </p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {COLOURS.map((option) => {
-                  const selected = colour === option.value
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setColour(selected ? null : option.value)}
-                      aria-pressed={selected}
-                      aria-label={`${option.name} (${option.value})`}
-                      style={{ backgroundColor: option.value }}
-                      className={cn(
-                        "flex size-8 items-center justify-center rounded-(--np-radius-control) border border-line text-primary-foreground focus-halo transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11",
-                        selected && "outline-2 outline-offset-2 outline-primary"
-                      )}
-                    >
-                      {selected ? (
-                        <CheckIcon
-                          aria-hidden
-                          className="size-4"
-                          strokeWidth={2}
-                        />
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-            </fieldset>
+            <ClientColourField value={colour} onChange={setColour} />
 
             <Field>
               <FieldLabel optional>Notes</FieldLabel>
@@ -169,7 +120,7 @@ function NewClientForm() {
                 maxLength={NOTES_MAX}
                 placeholder="Anything your team should know before replying for this client."
               />
-              <FieldCounter>
+              <FieldCounter count={notes.length} max={NOTES_MAX}>
                 {formatNumber(notes.length)} / {formatNumber(NOTES_MAX)}
               </FieldCounter>
             </Field>

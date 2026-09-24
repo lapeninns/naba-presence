@@ -114,17 +114,152 @@ const renderSettings = () =>
   )
 
 describe("ClientSettings", () => {
-  it("blocks archiving, in words, while listings are attached", async () => {
-    stub({ attached: true })
+  it("offers to unfile the listings and archive in one step", async () => {
+    // Archiving used to be blocked until every listing was removed by hand,
+    // one row at a time.
+    const fetchMock = stub({ attached: true })
     renderSettings()
     expect(
-      await screen.findByText(
-        "Archiving is blocked while listings are attached."
+      await screen.findByText(/still has its listing\. Archiving unfiles it/)
+    ).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("checkbox"))
+    const confirm = within(dialog).getByRole("button", {
+      name: "Unfile its listing and archive",
+    })
+    await waitFor(() => expect(confirm).toBeEnabled())
+    fireEvent.click(confirm)
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/clients"))
+    const patch = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "PATCH"
+    )
+    expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
+      archived: true,
+      detachLocations: true,
+    })
+    // The archive toast carries its own Undo.
+    expect(
+      await screen.findByRole("button", { name: "Undo" })
+    ).toBeInTheDocument()
+  })
+
+  it("undoes a removal from the toast", async () => {
+    const fetchMock = stub({ attached: true })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.includes("/api/session"))
+        return json({
+          session: {
+            userId: "u1",
+            organisationId: "o1",
+            organisationName: "Agency",
+            displayName: "Owner",
+            email: "owner@example.test",
+            role: "owner",
+            canPublish: true,
+          },
+        })
+      if (url.includes("/api/location-links"))
+        return json({ locations: [listing("c1")] })
+      if (
+        url.includes("/api/clients/c1/locations") &&
+        init?.method === "DELETE"
       )
+        return json({ unassigned: ["l1"] })
+      if (url.includes("/api/clients/c1/locations") && init?.method === "POST")
+        return json({ assigned: ["l1"] })
+      if (url.includes("/api/clients/c1"))
+        return json({ client, locations: [] })
+      return json({ items: [client], unassignedLocationCount: 0 })
+    })
+    renderSettings()
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Remove Old Crown Girton from this client",
+      })
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes("/api/clients/c1/locations") &&
+            init?.method === "POST"
+        )
+      ).toBe(true)
+    )
+    const refile = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).includes("/api/clients/c1/locations") &&
+        init?.method === "POST"
+    )
+    expect(JSON.parse(String(refile?.[1]?.body))).toEqual({
+      locationIds: ["l1"],
+      grantToClientMembers: false,
+    })
+  })
+
+  it("asks before filing more than five listings at once", async () => {
+    const unfiled = Array.from({ length: 6 }, (_, index) => ({
+      ...listing(null),
+      locationId: `00000000-0000-4000-8000-00000000000${index}`,
+      name: `Branch ${index}`,
+      address: {
+        addressLines: [`${index} High Street`],
+        locality: "Cambridge",
+      },
+    }))
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/api/session"))
+        return json({
+          session: {
+            userId: "u1",
+            organisationId: "o1",
+            organisationName: "Agency",
+            displayName: "Owner",
+            email: "owner@example.test",
+            role: "owner",
+            canPublish: true,
+          },
+        })
+      if (url.includes("/api/location-links"))
+        return json({ locations: unfiled })
+      if (url.includes("/api/clients/c1"))
+        return json({ client, locations: [] })
+      return json({ items: [client], unassignedLocationCount: 6 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    renderSettings()
+    // The address tells same-named branches apart, and the list filters.
+    expect(await screen.findByText(/3 High Street/)).toBeInTheDocument()
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Filter unfiled listings by name or address",
+      }),
+      { target: { value: "3 high" } }
+    )
+    expect(screen.queryByText("Branch 1")).not.toBeInTheDocument()
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Filter unfiled listings by name or address",
+      }),
+      { target: { value: "" } }
+    )
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Select all/ }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add 6 to this client" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByText(/File 6 listings under Old Crown Group/)
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Archive Old Crown Group" })
-    ).toHaveAttribute("aria-disabled", "true")
+      fetchMock.mock.calls.some(([, init]) => init?.method === "POST")
+    ).toBe(false)
   })
 
   it("asks for an acknowledgement before archiving an empty client", async () => {
@@ -177,10 +312,7 @@ describe("ClientSettings", () => {
       }
       if (url.includes("/api/clients/c1"))
         return archived
-          ? json(
-              { error: "client_not_found", message: "Not found" },
-              404
-            )
+          ? json({ error: "client_not_found", message: "Not found" }, 404)
           : json({ client, locations: [] })
       return json({})
     })
@@ -228,5 +360,32 @@ describe("ClientSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
     expect(await screen.findByText("Changes not saved")).toBeInTheDocument()
     expect(name).toHaveValue("Old Crown Pubs")
+  })
+
+  it("edits the colour with the details, and guards the unsaved change", async () => {
+    const fetchMock = stub({ attached: true })
+    renderSettings()
+    fireEvent.click(await screen.findByRole("button", { name: /^Pine/ }))
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+    // Leaving through the page's own link asks first.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    fireEvent.click(
+      screen.getByRole("link", { name: "Back to Old Crown Group" })
+    )
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() => expect(push).not.toHaveBeenCalled())
+    confirm.mockRestore()
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
+      ).toBe(true)
+    )
+    const patch = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "PATCH"
+    )
+    expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
+      colour: "#3F5E52",
+    })
   })
 })

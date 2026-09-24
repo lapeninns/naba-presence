@@ -4,6 +4,7 @@ export const queryKeys = {
   // client invalidates the index and each hub in one call.
   clientsAll: ["clients"] as const,
   clients: ["clients", "list"] as const,
+  clientsArchived: ["clients", "archived"] as const,
   client: (id: string) => ["clients", id] as const,
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
   connections: ["connections"] as const,

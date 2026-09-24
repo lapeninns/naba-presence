@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { ClientColourField } from "@/components/clients/client-colour-field"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -39,23 +40,50 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, SearchInput } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
-import { fetchClient } from "@/lib/api/clients"
-import type { ClientResponse } from "@/lib/contracts/clients"
+import {
+  assignLocationsToClient,
+  fetchClient,
+  updateClient,
+} from "@/lib/api/clients"
+import type { ClientResponse, ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { formatAddressLine } from "@/lib/locations/address"
 import { queryKeys } from "@/lib/queries/keys"
-import { useClient, useClientMutations } from "@/lib/queries/use-clients"
-import { useLocationDirectory } from "@/lib/queries/use-locations"
+import {
+  useClient,
+  useClientMutations,
+  useClients,
+} from "@/lib/queries/use-clients"
+import {
+  useLocationDirectory,
+  type DirectoryEntry,
+} from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
 const NOTES_MAX = 2000
+
+/**
+ * Filing more than this many listings at once asks first: a slip of "select
+ * all" in a long unfiled list would otherwise file a whole agency's
+ * backlog under one client.
+ */
+export const BULK_FILE_CONFIRM_THRESHOLD = 5
 
 const SECTIONS = [
   { id: "details", label: "Details" },
@@ -63,8 +91,14 @@ const SECTIONS = [
   { id: "archive", label: "Archive" },
 ]
 
+type ClientDetails = {
+  name: string
+  notes: string | null
+  colour: string | null
+}
+
 /**
- * Renaming, notes, which listings belong here, and archiving.
+ * Renaming, notes, colour, which listings belong here, and archiving.
  *
  * Listing assignment is the interesting half: listings arrive from Google
  * unassigned, and this is where they get filed. Assigning also extends access
@@ -121,10 +155,15 @@ function ClientSettings({ clientId }: { clientId: string }) {
 function SettingsHeader({
   clientId,
   name,
+  confirmLeave,
 }: {
   clientId: string
   name: string | null
+  /** Asks before leaving with unsaved details; resolves true to go. */
+  confirmLeave?: () => Promise<boolean>
 }) {
+  const router = useRouter()
+  const href = `/clients/${clientId}`
   return (
     <PageHeader
       title="Client settings"
@@ -132,8 +171,21 @@ function SettingsHeader({
       description="Rename the client, file its listings, or archive it."
       actions={
         <Link
-          href={`/clients/${clientId}`}
+          href={href}
           className={cn(buttonVariants({ variant: "secondary" }))}
+          onClick={
+            confirmLeave
+              ? (event) => {
+                  // A modified click opens a new tab and leaves this one,
+                  // edits included, where it is.
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return
+                  event.preventDefault()
+                  void confirmLeave().then((go) => {
+                    if (go) router.push(href)
+                  })
+                }
+              : undefined
+          }
         >
           {name ? `Back to ${name}` : "Back to client"}
         </Link>
@@ -151,14 +203,18 @@ function SettingsBody({
 }) {
   const role = useSessionRole()
   const directory = useLocationDirectory(role)
+  const clients = useClients()
   const { update, assignLocations, unassignLocations } = useClientMutations()
   const toast = useToastManager()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const leaveGuard = React.useRef<(() => Promise<boolean>) | null>(null)
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
-  const [removing, setRemoving] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState<string | null>(null)
   const [listingsError, setListingsError] = React.useState<string | null>(null)
+  const [unfiledQuery, setUnfiledQuery] = React.useState("")
+  const [confirmBulk, setConfirmBulk] = React.useState(false)
 
   const unassigned = (directory.data ?? []).filter(
     (location) => !location.clientId
@@ -166,9 +222,50 @@ function SettingsBody({
   const mine = (directory.data ?? []).filter(
     (location) => location.clientId === clientId
   )
+  const others = (clients.data?.items ?? []).filter(
+    (entry) => entry.id !== clientId
+  )
+  const needle = unfiledQuery.trim().toLowerCase()
+  const unfiledShown = needle
+    ? unassigned.filter((location) =>
+        `${location.name} ${formatAddressLine(location.address) ?? ""}`
+          .toLowerCase()
+          .includes(needle)
+      )
+    : unassigned
 
-  const remove = async (location: { id: string; name: string }) => {
-    setRemoving(location.id)
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clientsAll })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.locations })
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.locationsManagement,
+    })
+  }
+
+  /** Put listings back under a client, for an Undo. Grants were never removed. */
+  const refile = async (
+    targetClientId: string,
+    locationIds: string[],
+    done: string
+  ) => {
+    try {
+      await assignLocationsToClient(targetClientId, {
+        locationIds,
+        grantToClientMembers: false,
+      })
+      invalidate()
+      toast.add({ type: "success", title: done })
+    } catch (error) {
+      toast.add({
+        type: "error",
+        title: "That couldn’t be undone",
+        description: describeActionError(error),
+      })
+    }
+  }
+
+  const remove = async (location: DirectoryEntry) => {
+    setBusy(location.id)
     setListingsError(null)
     try {
       await unassignLocations.mutateAsync({
@@ -176,28 +273,68 @@ function SettingsBody({
         locationIds: [location.id],
       })
       toast.add({
+        type: "success",
         title: `${location.name} is now unfiled`,
         description: "Its reviews and Google link are unchanged.",
+        actionProps: {
+          children: "Undo",
+          onClick: () =>
+            void refile(
+              clientId,
+              [location.id],
+              `${location.name} is back under ${client.name}`
+            ),
+        },
       })
     } catch (error) {
       setListingsError(describeActionError(error))
     } finally {
-      setRemoving(null)
+      setBusy(null)
+    }
+  }
+
+  const move = async (location: DirectoryEntry, target: ClientSummary) => {
+    setBusy(location.id)
+    setListingsError(null)
+    try {
+      // Assigning to another client moves the listing: a listing belongs to
+      // one client, and the assign endpoint takes it from whichever held it.
+      await assignLocations.mutateAsync({
+        clientId: target.id,
+        locationIds: [location.id],
+      })
+      toast.add({
+        type: "success",
+        title: `${location.name} moved to ${target.name}`,
+        actionProps: {
+          children: "Undo",
+          onClick: () =>
+            void refile(
+              clientId,
+              [location.id],
+              `${location.name} is back under ${client.name}`
+            ),
+        },
+      })
+    } catch (error) {
+      setListingsError(describeActionError(error))
+    } finally {
+      setBusy(null)
     }
   }
 
   const assign = async () => {
     setListingsError(null)
+    setConfirmBulk(false)
+    const ids = [...selected]
     try {
-      await assignLocations.mutateAsync({
-        clientId,
-        locationIds: [...selected],
-      })
+      await assignLocations.mutateAsync({ clientId, locationIds: ids })
       toast.add({
+        type: "success",
         title:
-          selected.size === 1
+          ids.length === 1
             ? `1 listing filed under ${client.name}`
-            : `${selected.size} listings filed under ${client.name}`,
+            : `${formatNumber(ids.length)} listings filed under ${client.name}`,
       })
       setSelected(new Set())
     } catch (error) {
@@ -207,7 +344,11 @@ function SettingsBody({
 
   return (
     <>
-      <SettingsHeader clientId={clientId} name={client.name} />
+      <SettingsHeader
+        clientId={clientId}
+        name={client.name}
+        confirmLeave={() => leaveGuard.current?.() ?? Promise.resolve(true)}
+      />
       <div className="grid items-start gap-6 @min-[760px]:grid-cols-[minmax(11rem,13.75rem)_minmax(0,1fr)]">
         <nav
           aria-label="Client settings sections"
@@ -227,9 +368,12 @@ function SettingsBody({
         <div className="flex min-w-0 flex-col gap-6">
           <ClientDetailsForm
             client={client}
+            registerGuard={(guard) => {
+              leaveGuard.current = guard
+            }}
             onSave={async (input) => {
               await update.mutateAsync({ clientId, ...input })
-              toast.add({ title: "Client updated" })
+              toast.add({ type: "success", title: "Client updated" })
             }}
           />
 
@@ -300,12 +444,19 @@ function SettingsBody({
                     span: true,
                     label: "",
                     cell: (l) => (
-                      <Link
-                        href={`/listings/${l.id}`}
-                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-                      >
-                        {l.name}
-                      </Link>
+                      <span className="flex min-w-0 flex-col">
+                        <Link
+                          href={`/listings/${l.id}`}
+                          className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                        >
+                          {l.name}
+                        </Link>
+                        {formatAddressLine(l.address) ? (
+                          <span className="text-caption break-words text-ink-muted">
+                            {formatAddressLine(l.address)}
+                          </span>
+                        ) : null}
+                      </span>
                     ),
                   },
                   {
@@ -326,17 +477,27 @@ function SettingsBody({
                     label: "",
                     className: "text-right",
                     cell: (l) => (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        aria-label={`Remove ${l.name} from this client`}
-                        pending={removing === l.id}
-                        pendingLabel="Removing…"
-                        disabled={removing !== null && removing !== l.id}
-                        onClick={() => void remove(l)}
-                      >
-                        Remove
-                      </Button>
+                      <span className="inline-flex flex-wrap justify-end gap-2">
+                        {others.length > 0 ? (
+                          <MoveToClient
+                            location={l}
+                            clients={others}
+                            disabled={busy !== null}
+                            onMove={(target) => void move(l, target)}
+                          />
+                        ) : null}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          aria-label={`Remove ${l.name} from this client`}
+                          pending={busy === l.id}
+                          pendingLabel="Working…"
+                          disabled={busy !== null && busy !== l.id}
+                          onClick={() => void remove(l)}
+                        >
+                          Remove
+                        </Button>
+                      </span>
                     ),
                   },
                 ]}
@@ -362,41 +523,66 @@ function SettingsBody({
                   who already see every other listing of {client.name} get
                   access to the ones you add.
                 </p>
-                <div className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
-                  <DataTable
-                    caption="Listings with no client, available to add"
-                    rows={unassigned}
-                    rowId={(location) => location.id}
-                    responsive
-                    selection={{
-                      selected,
-                      onChange: setSelected,
-                      label: (location) => `Add ${location.name}`,
-                    }}
-                    columns={[
-                      {
-                        id: "name",
-                        header: "Listing",
-                        cell: (l) => (
-                          <span className="font-semibold break-words text-ink">
-                            {l.name}
-                          </span>
-                        ),
-                      },
-                      {
-                        id: "linked",
-                        header: "Google",
-                        cell: (l) =>
-                          l.linked ? (
-                            <StatusPill tone="ok">Linked</StatusPill>
-                          ) : (
-                            <StatusPill tone="neutral" dashed>
-                              Not linked
-                            </StatusPill>
-                          ),
-                      },
-                    ]}
+                <div role="search" className="w-full min-w-0 sm:w-80">
+                  <SearchInput
+                    value={unfiledQuery}
+                    onChange={(event) => setUnfiledQuery(event.target.value)}
+                    placeholder="Filter by name or address"
+                    aria-label="Filter unfiled listings by name or address"
                   />
+                </div>
+                <div className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+                  {unfiledShown.length === 0 ? (
+                    <p className="px-3.5 py-4 text-ui text-ink-muted">
+                      No unfiled listing matches “{unfiledQuery.trim()}”.
+                    </p>
+                  ) : (
+                    <DataTable
+                      caption="Listings with no client, available to add"
+                      rows={unfiledShown}
+                      rowId={(location) => location.id}
+                      responsive
+                      selection={{
+                        selected,
+                        onChange: setSelected,
+                        label: (location) => `Add ${location.name}`,
+                      }}
+                      columns={[
+                        {
+                          id: "name",
+                          header: "Listing",
+                          cell: (l) => (
+                            <span className="font-semibold break-words text-ink">
+                              {l.name}
+                            </span>
+                          ),
+                        },
+                        {
+                          // Two branches of one chain share a name; the
+                          // address is how they are told apart.
+                          id: "address",
+                          header: "Address",
+                          cell: (l) => (
+                            <span className="text-ui break-words text-ink-muted">
+                              {formatAddressLine(l.address) ?? "—"}
+                            </span>
+                          ),
+                        },
+                        {
+                          id: "linked",
+                          header: "Google",
+                          cell: (l) =>
+                            l.linked ? (
+                              <StatusPill tone="ok">Linked</StatusPill>
+                            ) : (
+                              <StatusPill tone="neutral" dashed>
+                                Not linked
+                              </StatusPill>
+                            ),
+                        },
+                      ]}
+                    />
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface-alt px-3.5 py-2.5">
                     <span
                       className="text-caption text-ink-muted"
@@ -412,7 +598,13 @@ function SettingsBody({
                       disabled={selected.size === 0}
                       pending={assignLocations.isPending}
                       pendingLabel="Adding…"
-                      onClick={() => void assign()}
+                      onClick={() => {
+                        if (selected.size > BULK_FILE_CONFIRM_THRESHOLD) {
+                          setConfirmBulk(true)
+                        } else {
+                          void assign()
+                        }
+                      }}
                     >
                       {selected.size === 0
                         ? "Add to this client"
@@ -420,6 +612,40 @@ function SettingsBody({
                     </Button>
                   </div>
                 </div>
+                <AlertDialog open={confirmBulk} onOpenChange={setConfirmBulk}>
+                  <AlertDialogContent>
+                    <AlertDialogTitle className="[overflow-wrap:anywhere]">
+                      File {formatNumber(selected.size)} listings under{" "}
+                      {client.name}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      They join {client.name}’s filters and reports, and
+                      teammates who see every other listing of {client.name} get
+                      access to them. You can remove any of them later.
+                    </AlertDialogDescription>
+                    <ul className="flex max-h-48 list-disc flex-col gap-1 overflow-y-auto pl-5 text-ui text-ink">
+                      {unassigned
+                        .filter((location) => selected.has(location.id))
+                        .map((location) => (
+                          <li key={location.id} className="break-words">
+                            {location.name}
+                          </li>
+                        ))}
+                    </ul>
+                    <AlertDialogFooter>
+                      <AlertDialogClose
+                        render={<Button variant="ghost">Cancel</Button>}
+                      />
+                      <Button
+                        pending={assignLocations.isPending}
+                        pendingLabel="Adding…"
+                        onClick={() => void assign()}
+                      >
+                        File {formatNumber(selected.size)} listings
+                      </Button>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             ) : directory.isSuccess ? (
               <p className="text-caption text-ink-muted">
@@ -430,16 +656,20 @@ function SettingsBody({
 
           <ArchiveSection
             client={client}
-            attached={directory.isSuccess ? mine.length : null}
+            attached={directory.isSuccess ? mine : null}
             pending={update.isPending}
-            onArchive={async () => {
+            onArchive={async (detach) => {
               try {
-                await update.mutateAsync({ clientId, archived: true })
+                await update.mutateAsync({
+                  clientId,
+                  archived: true,
+                  ...(detach.length > 0 ? { detachLocations: true } : {}),
+                })
               } catch (error) {
-                // `PATCH archived:true` answers with the client's summary,
-                // which the server no longer lists once it is archived, so a
-                // successful archive can arrive as an unparseable reply.
-                // Only a re-read decides: a not-found now means it took.
+                // An older server answered `PATCH archived:true` with a
+                // summary it no longer listed, so a successful archive could
+                // arrive as an unparseable reply. Only a re-read decides: a
+                // not-found now means it took.
                 if (!(await archiveConfirmed(clientId))) throw error
                 // The list only: this client's own query would now 404 and
                 // flash an error state on the way out.
@@ -448,8 +678,22 @@ function SettingsBody({
                 })
               }
               toast.add({
+                type: "success",
                 title: `${client.name} archived`,
-                description: "It’s hidden from lists and filters.",
+                description:
+                  detach.length > 0
+                    ? `Its ${detach.length === 1 ? "listing is" : `${formatNumber(detach.length)} listings are`} now unfiled. Restore it from Clients › Archived.`
+                    : "It’s hidden from lists and filters. Restore it from Clients › Archived.",
+                actionProps: {
+                  children: "Undo",
+                  onClick: () =>
+                    void undoArchive(clientId, detach, client.name).then(
+                      (message) => {
+                        invalidate()
+                        toast.add(message)
+                      }
+                    ),
+                },
               })
               router.push("/clients")
             }}
@@ -458,6 +702,33 @@ function SettingsBody({
       </div>
     </>
   )
+}
+
+/**
+ * Restores an archived client and re-files the listings the archive unfiled.
+ * Answers the toast to show, success or failure.
+ */
+async function undoArchive(
+  clientId: string,
+  detached: string[],
+  name: string
+): Promise<{ type: string; title: string; description?: string }> {
+  try {
+    await updateClient(clientId, { archived: false })
+    if (detached.length > 0) {
+      await assignLocationsToClient(clientId, {
+        locationIds: detached,
+        grantToClientMembers: false,
+      })
+    }
+    return { type: "success", title: `${name} restored` }
+  } catch (error) {
+    return {
+      type: "error",
+      title: `${name} wasn’t restored`,
+      description: `${describeActionError(error)} Restore it from Clients › Archived.`,
+    }
+  }
 }
 
 /**
@@ -478,6 +749,44 @@ async function archiveConfirmed(clientId: string): Promise<boolean> {
   }
 }
 
+/** "Move to…" another client, from a filed listing's row. */
+function MoveToClient({
+  location,
+  clients,
+  disabled,
+  onMove,
+}: {
+  location: DirectoryEntry
+  clients: ClientSummary[]
+  disabled: boolean
+  onMove: (target: ClientSummary) => void
+}) {
+  return (
+    <Select
+      value={null}
+      disabled={disabled}
+      onValueChange={(next: string | null) => {
+        const target = clients.find((entry) => entry.id === next)
+        if (target) onMove(target)
+      }}
+    >
+      <SelectTrigger
+        className="h-[30px] w-36 text-[12.5px] pointer-coarse:min-h-(--np-touch)"
+        aria-label={`Move ${location.name} to another client`}
+      >
+        <SelectValue>{() => "Move to…"}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {clients.map((entry) => (
+          <SelectItem key={entry.id} value={entry.id}>
+            {entry.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function ArchiveSection({
   client,
   attached,
@@ -486,14 +795,18 @@ function ArchiveSection({
 }: {
   client: ClientResponse["client"]
   /** Listings still filed here; null while the directory loads. */
-  attached: number | null
+  attached: DirectoryEntry[] | null
   pending: boolean
-  onArchive: () => Promise<void>
+  /** Archives, unfiling these listings first when there are any. */
+  onArchive: (detach: string[]) => Promise<void>
 }) {
   const [open, setOpen] = React.useState(false)
   const [acknowledged, setAcknowledged] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const blocked = attached === null || attached > 0
+  const loading = attached === null
+  const count = attached?.length ?? 0
+  const listingsPhrase =
+    count === 1 ? "its listing" : `its ${formatNumber(count)} listings`
 
   return (
     <section
@@ -507,7 +820,8 @@ function ArchiveSection({
         </h2>
         <p className="text-ui text-ink-muted">
           Archiving hides the client from lists and filters. Its listings’
-          review history is kept.
+          review history is kept, and you can restore it from Clients ›
+          Archived.
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -515,21 +829,14 @@ function ArchiveSection({
           id="client-archive-reason"
           className="min-w-0 flex-[1_1_16rem] text-ui"
         >
-          {attached === null ? (
+          {loading ? (
             <span className="text-ink-muted">Checking attached listings…</span>
-          ) : attached > 0 ? (
-            <>
-              <span className="font-semibold text-warning-ink">
-                Archiving is blocked while listings are attached.
-              </span>{" "}
-              <span className="text-ink-muted">
-                Remove{" "}
-                {attached === 1
-                  ? "its listing"
-                  : `its ${formatNumber(attached)} listings`}{" "}
-                above first, so no listing is left without a client.
-              </span>
-            </>
+          ) : count > 0 ? (
+            <span className="text-ink-muted">
+              {client.name} still has {listingsPhrase}. Archiving unfiles{" "}
+              {count === 1 ? "it" : "them"}, so no listing is left under a
+              hidden client.
+            </span>
           ) : (
             <span className="text-ink-muted">
               No listings are attached, so {client.name} can be archived.
@@ -539,9 +846,9 @@ function ArchiveSection({
         <Button
           variant="danger-outline"
           // A long client name wraps instead of pushing the card wider.
-          className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 whitespace-normal [overflow-wrap:anywhere]"
-          disabled={blocked}
-          focusableWhenDisabled={blocked}
+          className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 [overflow-wrap:anywhere] whitespace-normal"
+          disabled={loading}
+          focusableWhenDisabled={loading}
           aria-describedby="client-archive-reason"
           onClick={() => {
             setAcknowledged(false)
@@ -560,11 +867,20 @@ function ArchiveSection({
             Archive {client.name}?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {client.name} has no listings attached.
+            {count > 0
+              ? `${client.name} still has ${count === 1 ? "1 listing" : `${formatNumber(count)} listings`}.`
+              : `${client.name} has no listings attached.`}
           </AlertDialogDescription>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-ui text-ink">
             <li>It disappears from the Clients list, filters and reports.</li>
+            {count > 0 ? (
+              <li>
+                {count === 1 ? "Its listing becomes" : "Its listings become"}{" "}
+                unfiled. They stay linked to Google and keep their reviews.
+              </li>
+            ) : null}
             <li>Its notes and review history are kept.</li>
+            <li>You can restore it from Clients › Archived.</li>
           </ul>
           <Checkbox
             checked={acknowledged}
@@ -583,23 +899,23 @@ function ArchiveSection({
             />
             <Button
               variant="danger"
-              className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 whitespace-normal [overflow-wrap:anywhere]"
+              className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 [overflow-wrap:anywhere] whitespace-normal"
               disabled={!acknowledged}
               pending={pending}
               pendingLabel="Archiving…"
               onClick={async () => {
                 setError(null)
                 try {
-                  await onArchive()
+                  await onArchive((attached ?? []).map((entry) => entry.id))
                   setOpen(false)
                 } catch (cause) {
-                  // The server refuses while listings are attached; say what
-                  // to do rather than failing silently.
                   setError(describeActionError(cause))
                 }
               }}
             >
-              Archive {client.name}
+              {count > 0
+                ? `Unfile ${count === 1 ? "its listing" : `its ${formatNumber(count)} listings`} and archive`
+                : `Archive ${client.name}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -611,18 +927,39 @@ function ArchiveSection({
 function ClientDetailsForm({
   client,
   onSave,
+  registerGuard,
 }: {
   client: ClientResponse["client"]
-  onSave: (input: { name: string; notes: string | null }) => Promise<void>
+  onSave: (input: ClientDetails) => Promise<void>
+  /** Hands the page a way to ask before leaving with unsaved edits. */
+  registerGuard: (guard: () => Promise<boolean>) => void
 }) {
   const [name, setName] = React.useState(client.name)
   const [notes, setNotes] = React.useState(client.notes ?? "")
+  const [colour, setColour] = React.useState<string | null>(client.colour)
   const [nameError, setNameError] = React.useState<string | null>(null)
   const [saveError, setSaveError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
   const nameRef = React.useRef<HTMLInputElement>(null)
   const dirty =
-    name.trim() !== client.name || notes.trim() !== (client.notes ?? "")
+    name.trim() !== client.name ||
+    notes.trim() !== (client.notes ?? "") ||
+    (colour ?? null) !== (client.colour ?? null)
+
+  // Warns on a tab close or reload while edits are unsaved, and keeps them
+  // through a forced sign-out; the page's Back link asks through it too.
+  const { confirmDiscard } = useDirtyGuard({
+    key: `client-details:${client.id}`,
+    isDirty: dirty && !pending,
+    snapshot: () => JSON.stringify({ name, notes, colour }),
+    askConfirm: async () =>
+      window.confirm(
+        "You have unsaved changes to this client’s details. Leave without saving?"
+      ),
+  })
+  React.useEffect(() => {
+    registerGuard(confirmDiscard)
+  }, [registerGuard, confirmDiscard])
 
   return (
     <form
@@ -641,7 +978,11 @@ function ClientDetailsForm({
         setPending(true)
         try {
           // Values stay in the form when the save fails.
-          await onSave({ name: name.trim(), notes: notes.trim() || null })
+          await onSave({
+            name: name.trim(),
+            notes: notes.trim() || null,
+            colour,
+          })
         } catch (error) {
           setSaveError(describeActionError(error))
         } finally {
@@ -675,6 +1016,7 @@ function ClientDetailsForm({
             />
             <FieldError />
           </Field>
+          <ClientColourField value={colour} onChange={setColour} />
           <Field>
             <FieldLabel optional>Notes</FieldLabel>
             <Textarea
@@ -684,7 +1026,7 @@ function ClientDetailsForm({
               maxLength={NOTES_MAX}
               placeholder="Anything your team should know before replying for this client."
             />
-            <FieldCounter>
+            <FieldCounter count={notes.length} max={NOTES_MAX}>
               {formatNumber(notes.length)} / {formatNumber(NOTES_MAX)}
             </FieldCounter>
           </Field>
@@ -709,6 +1051,7 @@ function ClientDetailsForm({
               onClick={() => {
                 setName(client.name)
                 setNotes(client.notes ?? "")
+                setColour(client.colour)
                 setNameError(null)
                 setSaveError(null)
               }}
