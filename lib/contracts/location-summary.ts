@@ -90,6 +90,12 @@ export const listingSummarySchema = z.object({
       lastCheckedAt: z.string().nullable(),
     })
     .optional(),
+  /**
+   * Google's public Maps link for the listing, as last read from Google
+   * (the profile's `mapsUrl`), or null when none is on record. Optional so
+   * an older cached response still parses.
+   */
+  mapsUrl: z.string().nullable().optional(),
 })
 export type ListingSummary = z.infer<typeof listingSummarySchema>
 

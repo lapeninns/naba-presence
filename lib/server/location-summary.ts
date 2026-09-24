@@ -68,6 +68,8 @@ export type ProfileFieldRow = {
   baselineCanonicalHash: string | null
   baselineGoogleHash: string | null
   observedAt: Date
+  /** Google's Maps link for the listing, on the `mapsUrl` row only. */
+  mapsUrl?: string | null
 }
 
 export type MenuStateRow = {
@@ -330,7 +332,9 @@ export async function readListingSummaries(
           google_hash as "googleHash",
           baseline_canonical_hash as "baselineCanonicalHash",
           baseline_google_hash as "baselineGoogleHash",
-          observed_at as "observedAt"
+          observed_at as "observedAt",
+          case when field_key = 'mapsUrl' then google_value #>> '{}' end
+            as "mapsUrl"
         from profile_field_state
         where location_id = any(${idList}::uuid[])
       `,
@@ -464,6 +468,30 @@ export async function readListingSummaries(
         foodMenus: suggestionCounts.food_menus ?? 0,
       },
       lastPublish: toLastPublish(attemptBy.get(link.locationId)),
+      mapsUrl: googleMapsUrl(
+        (fieldsBy.get(link.locationId) ?? []).find(
+          (row) => row.fieldKey === "mapsUrl"
+        )?.mapsUrl
+      ),
     }
   })
+}
+
+/**
+ * The listing's public Maps link as Google last reported it, only when it
+ * is an https link on a Google host (it becomes an href in the UI).
+ */
+function googleMapsUrl(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname
+    const google =
+      /(^|\.)google\.[a-z.]+$/.test(host) ||
+      host === "maps.app.goo.gl" ||
+      host === "goo.gl"
+    return url.protocol === "https:" && google ? url.toString() : null
+  } catch {
+    return null
+  }
 }
