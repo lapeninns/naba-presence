@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { healthLabel, healthTone } from "@/lib/clients/health"
+import { settingsGatingFromRole } from "@/lib/settings/gating"
 import type { ClientHealth } from "@/lib/clients/health"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
@@ -45,10 +46,16 @@ const NAV_ITEMS = [
  * primary list stays four items long, and the disclosure opens itself
  * whenever one of them is the current page.
  */
-const MORE_ITEMS = [
-  { href: "/team", label: "Team", icon: Users },
+const MORE_ITEMS: readonly {
+  href: string
+  label: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  /** Owners and admins only; see `Nav`'s `role`. */
+  adminOnly?: boolean
+}[] = [
+  { href: "/team", label: "Team", icon: Users, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
-] as const
+]
 
 /** Recent clients shown beneath the Clients item. */
 const MAX_PINNED_CLIENTS = 6
@@ -142,6 +149,11 @@ function writeStoredMore(open: boolean) {
 /**
  * Open while Team or Settings is the current page, otherwise whatever the
  * operator last chose this session.
+ *
+ * On a More page the toggle still works: collapsing there is remembered for
+ * that page only (arriving on it again opens the group, so the current row
+ * is never hidden by a choice made elsewhere), and the collapsed row carries
+ * the current-page accent so the operator can still see where they are.
  */
 function useMoreOpen(pathname: string | null) {
   const active = isMoreActive(pathname)
@@ -150,15 +162,17 @@ function useMoreOpen(pathname: string | null) {
     readStoredMore,
     () => null
   )
+  const [collapsedOn, setCollapsedOn] = React.useState<string | null>(null)
 
-  const open = active || chosen === true
+  const open = active ? collapsedOn !== pathname : chosen === true
   const toggle = () => {
-    // Collapsing while a More page is current would hide the current page's
-    // own row, so the toggle is a no-op there; it reads as "already open".
-    if (active) return
+    if (active) {
+      setCollapsedOn(open ? pathname : null)
+      return
+    }
     writeStoredMore(!open)
   }
-  return { open, toggle }
+  return { open, toggle, currentInside: active && !open }
 }
 
 /**
@@ -244,6 +258,17 @@ function NavRow({
               {count}
             </span>
           ) : null}
+          {showCount && layout === "responsive" ? (
+            // The icon rail hides the count column, so the number rides on
+            // the icon as a badge there instead of disappearing.
+            <span
+              aria-hidden
+              data-slot="rail-count"
+              className="absolute top-0.5 left-1/2 ml-0.5 hidden h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none text-primary-foreground tabular-nums md:max-[1181px]:inline-flex"
+            >
+              {count > 99 ? "99+" : count}
+            </span>
+          ) : null}
         </Link>
       </RailTip>
       {showCount ? (
@@ -261,6 +286,7 @@ function Nav({
   needsReply,
   layout = "full",
   rail = false,
+  role,
 }: {
   onNavigate?: () => void
   clients?: NavClient[]
@@ -269,11 +295,24 @@ function Nav({
   layout?: NavLayout
   /** True while the responsive nav is drawn as the icon rail. */
   rail?: boolean
+  /**
+   * The session's role. Team is for owners and admins (the page answers
+   * everyone else with Access denied), so it is left out for the rest, the
+   * same rule the settings tabs apply. Undefined while unknown shows all.
+   */
+  role?: string | null
 }) {
   const pathname = usePathname()
   const pinned = clients.slice(0, MAX_PINNED_CLIENTS)
   const more = useMoreOpen(pathname)
   const moreListId = React.useId()
+  const moreCurrentId = React.useId()
+  const moreItems = MORE_ITEMS.filter(
+    (item) =>
+      role === undefined ||
+      item.adminOnly !== true ||
+      settingsGatingFromRole(role).canManageTeam
+  )
   const MoreIcon = more.open ? ChevronDown : ChevronRight
 
   return (
@@ -349,23 +388,35 @@ function Nav({
               type="button"
               aria-expanded={more.open}
               aria-controls={moreListId}
+              aria-describedby={more.currentInside ? moreCurrentId : undefined}
               onClick={more.toggle}
-              className={rowClass(layout)}
+              className={cn(
+                rowClass(layout),
+                more.currentInside && "text-accent-ink"
+              )}
             >
               <MoreIcon
-                className="size-4 shrink-0 text-ink-muted"
+                className={cn(
+                  "size-4 shrink-0",
+                  more.currentInside ? "text-accent-ink" : "text-ink-muted"
+                )}
                 strokeWidth={1.75}
                 aria-hidden
               />
               <span className={railLabel(layout)}>More</span>
             </button>
           </RailTip>
+          {more.currentInside ? (
+            <span id={moreCurrentId} hidden>
+              Contains the current page
+            </span>
+          ) : null}
           <ul
             id={moreListId}
             hidden={!more.open}
             className="mt-0.5 flex flex-col gap-0.5"
           >
-            {MORE_ITEMS.map((item) => (
+            {moreItems.map((item) => (
               <li key={item.href}>
                 <NavRow
                   href={item.href}

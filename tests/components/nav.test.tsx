@@ -173,4 +173,51 @@ describe("primary navigation", () => {
     expect(screen.getByRole("link", { name: "Listings" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument()
   })
+
+  it("carries the needs-reply count onto the rail icon as a badge", () => {
+    const { container } = render(<Nav layout="responsive" needsReply={140} />)
+    const badge = container.querySelector("[data-slot='rail-count']")
+    expect(badge).toHaveTextContent("99+")
+    expect(badge).toHaveAttribute("aria-hidden")
+  })
+
+  it("lets More collapse while one of its pages is current", async () => {
+    pathname.current = "/settings"
+    render(<Nav />)
+    const more = screen.getByRole("button", { name: "More" })
+    expect(more).toHaveAttribute("aria-expanded", "true")
+    await userEvent.click(more)
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    expect(more).toHaveAccessibleDescription("Contains the current page")
+    await userEvent.click(more)
+    expect(more).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("leaves Team out for members and viewers", async () => {
+    render(<Nav role="member" />)
+    await userEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
+  })
+
+  it("keeps Team for owners and admins", async () => {
+    render(<Nav role="admin" />)
+    await userEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
+  })
+})
+
+describe("command palette entries", () => {
+  it("hides owner/admin destinations from members", async () => {
+    const { paletteEntriesFor } =
+      await import("@/components/app-shell/command-palette")
+    const entries = [
+      { href: "/inbox", label: "Inbox", icon: () => null },
+      { href: "/team", label: "Team", icon: () => null, adminOnly: true },
+    ]
+    expect(paletteEntriesFor(entries, "viewer").map((e) => e.label)).toEqual([
+      "Inbox",
+    ])
+    expect(paletteEntriesFor(entries, "owner")).toHaveLength(2)
+  })
 })

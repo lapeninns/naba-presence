@@ -103,15 +103,18 @@ function SidebarNav({
   onNavigate,
   layout,
   rail,
+  role,
 }: {
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail: boolean
+  role: string | null
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
   return (
     <Nav
+      role={role}
       onNavigate={onNavigate}
       layout={layout}
       rail={rail}
@@ -139,6 +142,7 @@ function SidebarBody({
   session,
   sessionReady,
   organisationName,
+  role,
   onNavigate,
   layout,
   rail = false,
@@ -147,6 +151,7 @@ function SidebarBody({
   session: ShellSession | null
   sessionReady: boolean
   organisationName: string | null
+  role: string | null
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail?: boolean
@@ -184,7 +189,12 @@ function SidebarBody({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-3">
         {sessionReady ? (
-          <SidebarNav onNavigate={onNavigate} layout={layout} rail={rail} />
+          <SidebarNav
+            onNavigate={onNavigate}
+            layout={layout}
+            rail={rail}
+            role={role}
+          />
         ) : null}
       </div>
 
@@ -285,6 +295,7 @@ function AppShell({
   }).data?.session
   const organisationName =
     liveSession?.organisationName ?? session?.organisationName ?? null
+  const role = liveSession?.role ?? session?.role ?? null
   const pathname = usePathname()
   const rail = useMediaQuery(
     "(min-width: 768px) and (max-width: 1180.98px)",
@@ -327,6 +338,7 @@ function AppShell({
               session={session}
               sessionReady={sessionReady}
               organisationName={organisationName}
+              role={role}
               layout="responsive"
               rail={rail}
             />
@@ -342,6 +354,7 @@ function AppShell({
                 session={session}
                 sessionReady={sessionReady}
                 organisationName={organisationName}
+                role={role}
                 layout="full"
                 onNavigate={() => setMobileNavOpen(false)}
                 closeButton={closeButton}
