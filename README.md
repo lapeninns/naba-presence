@@ -156,19 +156,26 @@ deployment gate, the kill switches and the rollback unit.
 
 ## Validation
 
-The gate every change must pass, in this order:
+The gate every change must pass locally:
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration
+pnpm verify        # typecheck + lint + unit tests, no database: before every push
+pnpm verify:full   # verify + build + integration (needs the local Supabase stack)
 ```
 
-`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately.
+`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately. Run
+`verify:full` and the browser suites when a change touches server code, the
+database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
+runs `pnpm verify`.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
-contract applies only `0001_initial.sql`. CI separately runs `pnpm db:migrate`
-against PostgreSQL 17, creates a non-superuser runtime login with
-`pnpm db:runtime-role`, builds the standalone server, and runs the integration
-and browser suites through that runtime role.
+contract applies only `0001_initial.sql`. CI runs everything as a parallel
+graph behind one required check, `CI result`. It migrates PostgreSQL 17 from
+scratch and from `main`, creates a non-superuser runtime login with
+`pnpm db:runtime-role`, builds the standalone server, and runs the
+integration and browser suites through that runtime role. See
+[`docs/ci.md`](docs/ci.md) for the job graph, the migration rules and how to
+debug a red run.
 
 Development runs on Turbopack, the default bundler in Next.js 16. This note
 previously pinned both dev and build to the webpack path because Turbopack
