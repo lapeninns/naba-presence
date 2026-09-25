@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  # Keeps the SHA-pinned actions (and their `# vX.Y.Z` comments) current.
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: weekly
+    # Let a release age a week before adopting it (supply-chain cooldown).
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      next:
+        patterns: ["next", "eslint-config-next", "@next/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      test-tooling:
+        patterns: ["vitest", "@vitest/*", "@playwright/test", "@testing-library/*", "jsdom"]
+      types:
+        patterns: ["@types/*"]
+      dev-minor-patch:
+        dependency-type: development
+        update-types: [minor, patch]
