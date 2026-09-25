@@ -2,9 +2,22 @@
 
 ## Deployment gate
 
-Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
-`pnpm db:migrate`, and `pnpm db:status`. Run `pnpm test:integration` against a
-disposable PostgreSQL database with the documented runtime test role. Confirm
+CI's required check `CI result` covers lint, typecheck, unit tests, the
+build, migrations (append-only policy, from scratch, upgrade from `main`,
+concurrent runs), integration and e2e. Each runs against a disposable
+PostgreSQL 17 through the runtime test role. See `docs/ci.md`. Locally, run
+`pnpm verify:full` for the same checks minus e2e.
+
+Production migrations are **manual**: Vercel's build runs only
+`next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
+operator runs `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` and
+`pnpm db:status` from their own machine, using the direct or session-pooler
+(5432) URL; `db:migrate` refuses port 6543. Migrations must be expand-only
+(backward compatible with the live deployment). When the new code needs the
+new schema, migrate before merging. Destructive changes go in a later PR. The
+full procedure is in `docs/ci.md`, "Migrations".
+
+Confirm
 the Supabase project URL/publishable key, email confirmation and recovery
 templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub
 OIDC audience/service account, optional verification token, cron secret, and

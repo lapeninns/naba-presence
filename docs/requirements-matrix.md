@@ -68,7 +68,7 @@ this checkout has no Git remote, so real Actions run URLs remain blocked.
 | 1 | Cross-tenant SQL and HTTP reads/writes fail | `tests/integration/tenant-isolation.test.ts`; `tests/integration/routes/tenant-isolation-http.test.ts` |
 | 1 | Runtime queries cannot read unrestricted `app_user` PII | `tests/integration/app-user-isolation.test.ts` |
 | 1 | Production webhooks require strong authentication configuration | `tests/startup-safety.test.ts`; `tests/env-flags.test.ts` |
-| 1 | CI invokes auth, IDOR, role, and tenant-isolation route suites | `.github/workflows/ci.yml` `pnpm test:integration`; route evidence in `auth.test.ts`, `identity-hardening.test.ts`, `roles.test.ts`, and `tenant-isolation-http.test.ts` |
+| 1 | CI invokes auth, IDOR, role, and tenant-isolation route suites | `.github/workflows/ci.yml` job `Integration` (sharded, `pnpm test:integration`); route evidence in `auth.test.ts`, `identity-hardening.test.ts`, `roles.test.ts`, and `tenant-isolation-http.test.ts` |
 | 2 | Provider mutation intent is durable before the Google call | `tests/integration/routes/publish-lifecycle.test.ts` started-intent case |
 | 2 | A crash cannot produce an untracked successful mutation | `tests/integration/routes/publish-lifecycle.test.ts`; `tests/integration/routes/jobs-runner.test.ts` |
 | 2 | Ambiguous outcomes are reconciled before retry | `tests/integration/routes/publish-lifecycle.test.ts`; `tests/integration/routes/delete-lifecycle.test.ts` |
@@ -113,10 +113,12 @@ this checkout has no Git remote, so real Actions run URLs remain blocked.
 - CI seeds 100,000 reviews across 500 locations and asserts the warm P95
   cursor-page query remains below 1.5 seconds.
 
-Hosted CI run URLs: **BLOCKED — this checkout has no Git remote and nothing was
-pushed, so no GitHub Actions run exists to cite.** The workflow definition is
-`.github/workflows/ci.yml`; local results are recorded in the sprint plans and
-live-certification reports.
+Hosted CI run URLs: the workflow is `.github/workflows/ci.yml`, and its
+required check is `CI result` (see `docs/ci.md`). The first green run of the
+parallel graph is
+[36105562256](https://github.com/lapeninns/naba-presence/actions/runs/36105562256)
+(pull request #36). Cite the `main` push run for a release. Earlier local
+results are recorded in the sprint plans and live-certification reports.
 
 ## Release-only evidence
 
