@@ -444,7 +444,7 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     expect(
-      await screen.findByText(/Full access, including compliance and billing/)
+      await screen.findByText(/Full access, including the agency.s settings and team/)
     ).toBeInTheDocument()
   })
 

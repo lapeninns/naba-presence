@@ -67,6 +67,14 @@ export async function signOut(
   )
 }
 
+/**
+ * Ends the support impersonation the current cookie carries: records
+ * `support.impersonation.ended` and clears the session.
+ */
+export async function endImpersonation(): Promise<void> {
+  await apiFetch("/api/support/impersonation", { method: "DELETE" })
+}
+
 /** Accepts an invitation with the session the visitor already holds. */
 export async function acceptInvitation(token: string) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 
 import { AccountMenu } from "./account-menu"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
+import { ImpersonationBanner } from "./impersonation-banner"
 import { Nav } from "./nav"
 import { ReconnectBanner } from "./reconnect-banner"
 import { ShellOAuthReturn } from "./shell-oauth-return"
@@ -38,6 +39,9 @@ export type ShellSession = {
   email: string
   role: "owner" | "admin" | "member" | "viewer"
   canPublish: boolean
+  /** Set only inside a support impersonation session. */
+  supportActor?: string | null
+  impersonationReason?: string | null
 }
 
 /**
@@ -384,6 +388,13 @@ function AppShell({
               className="sticky top-0 z-30"
             />
 
+            {session?.supportActor ? (
+              <ImpersonationBanner
+                supportActor={session.supportActor}
+                customerName={session.displayName}
+                organisationName={session.organisationName}
+              />
+            ) : null}
             {sessionReady ? <ReconnectBanner /> : null}
             {sessionReady ? <ShellOAuthReturn /> : null}
 
