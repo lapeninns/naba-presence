@@ -78,6 +78,7 @@ describe("classifyProviderFailure", () => {
   ])("parks a connection-blocked %i %s instead of failing it", (status, code) => {
     const before = Date.now()
     const failure = classifyProviderFailure(new ApiError(status, code, "no"), 3)
+    const after = Date.now()
     expect(failure.status).toBe("retryable")
     expect(failure.retryable).toBe(true)
     expect(failure.terminal).toBe(false)
@@ -86,7 +87,8 @@ describe("classifyProviderFailure", () => {
     const wait = (failure.nextAttemptAt as Date).getTime() - before
     // Roughly 15 minutes, and unambiguously outside the provider back-off band.
     expect(wait).toBeGreaterThan(14 * 60_000)
-    expect(wait).toBeLessThanOrEqual(15 * 60_000)
+    // The clock may tick between `before` and the call, so allow that slack.
+    expect(wait).toBeLessThanOrEqual(15 * 60_000 + (after - before))
   })
 
   it("treats any other provider rejection as terminal", () => {
