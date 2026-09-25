@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   CheckIcon,
   CloudUploadIcon,
   MoreHorizontalIcon,
   RotateCwIcon,
   SendHorizonalIcon,
-  ShieldCheckIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
@@ -36,6 +35,8 @@ import { derivePrimaryAction, publishableDraft } from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
+import { useVerifyDraft } from "@/lib/queries/use-draft-mutations"
+import { ApiClientError } from "@/lib/api/client"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
@@ -47,8 +48,6 @@ import {
   type PublishPulseDetail,
 } from "@/lib/inbox/events"
 import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
-import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
-import { cn } from "@/lib/utils"
 
 const REJECT_NOTE_LIMIT = 2000
 
@@ -59,21 +58,25 @@ const PRIMARY_CLASS = "max-md:h-12 max-md:flex-1"
 /**
  * The pane's footer: one filled capsule for the irreversible step (publish,
  * submit, approve), a grey capsule for the way back (reject), and the rest
- * behind an ellipsis. Why a button is off is written next to it, not hidden
- * in a title attribute.
+ * behind an ellipsis. Why a button is off is said by the status line beside
+ * it, not hidden in a title attribute.
+ *
+ * Publish is one press: when the text on screen is not yet a checked draft,
+ * it saves it (the drafts route checks what it stores), stops if the check
+ * fails, and otherwise publishes the draft that save returned.
  */
 function ActionBar({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
-  const reasonId = useId()
   const publish = usePublishReview(reviewId)
+  const verify = useVerifyDraft(reviewId)
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
   const toasts = useToastManager()
-  // Live composer dirtiness (reactive; only this sibling re-renders on it), so
-  // Publish disables with "Save your draft before publishing" while the
-  // on-screen text differs from the persisted verified draft (LOCKED #4).
+  // Live composer dirtiness (reactive; only this sibling re-renders on it):
+  // with unsaved edits the persisted draft is not what is on screen.
   const isDirty = useIsDirty()
-  // While the reply holds unsaved edits, the composer offers its own save.
+  // While the text on screen is not a checked draft, the composer offers its
+  // own save, and Publish runs it first.
   const composerSave = useComposerSave()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -135,12 +138,50 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // only propagates into closures defined as expressions, not into hoisted
   // function declarations — see task-7-report.md for the minimal repro.
   const onPublish = async () => {
-    if (!verifiedDraft) return
+    // Save and check first when the text on screen is not a checked draft.
+    // A failed save or a failed check stops here; the composer says why.
+    const saved = composerSave ? await composerSave.save() : null
+    if (composerSave && !saved) return
+    if (saved?.verification.verdict === "fail") return
+    const draftId = saved?.draftId ?? verifiedDraft?.id
+    if (!draftId) return
     try {
-      const result = await publish.mutateAsync({
-        draftId: verifiedDraft.id,
-        expectedReviewUpdateTime: review.updateTime,
-      })
+      let result
+      try {
+        result = await publish.mutateAsync({
+          draftId,
+          // The Google review's own update time, which saving a draft does
+          // not touch; the server refuses the publish if Google changed the
+          // review.
+          expectedReviewUpdateTime: review.updateTime,
+        })
+      } catch (error) {
+        // The customer changed the review after this reply was checked. The
+        // one-press flow re-checks the same text against the review as it
+        // stands now and, if it still passes, publishes once more; there is
+        // no separate Re-verify control to send the operator to.
+        if (
+          !(error instanceof ApiClientError) ||
+          error.code !== "stale_draft_evidence"
+        ) {
+          throw error
+        }
+        const { verification } = await verify.mutateAsync(draftId)
+        if (verification.verdict === "fail") {
+          toasts.add({
+            title:
+              "The review changed and this reply no longer passes the checks. Edit it, then publish again.",
+            type: "error",
+          })
+          return
+        }
+        const fresh = await detail.refetch()
+        result = await publish.mutateAsync({
+          draftId,
+          expectedReviewUpdateTime:
+            fresh.data?.review.updateTime ?? review.updateTime,
+        })
+      }
       // Server-confirmed only (D7): the resolved status — never a thrown
       // ApiClientError — decides the toast, so a `rejected` (Google declined
       // the reply) or any other non-published outcome can never render as
@@ -196,22 +237,23 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // non-publisher's publish to `awaiting_approval` (lib/server/publishing.ts)
   // -- so onPublish/describeOutcomeToast are shared unchanged.
   const offerRequestApproval = primary.kind === "submit"
-  // The reason a button is off was previously only in `title` — invisible on
-  // touch, and to most keyboard and screen-reader users. It is now text.
-  // A publish already with Google: nothing to press until it answers. Said
-  // as what is happening, from the review's own status — never "Live".
+  // A publish already with Google: nothing to press until it answers.
   const inFlight = review.workflowStatus === "publish_requested"
-  // Unsaved edits in front of a publish or a submit: the next step is to save
-  // them and let the checks run, so that is what the main button does rather
-  // than sitting there disabled. An approval is decided on the saved reply
-  // whatever the composer holds, so it keeps its Approve.
-  const saveFirst = !inFlight && !awaitingApproval && composerSave !== null
-  const blockedReason = inFlight
-    ? "Sent to Google — waiting for Google to confirm."
-    : saveFirst
-      ? (composerSave.blockedReason ??
-        "Your edits are checked when you save. Then you can publish.")
-      : primary.reason
+  // Unsaved edits (or an unchecked draft) in front of a publish or a submit:
+  // the press saves and checks them first. An approval is decided on the
+  // saved reply whatever the composer holds, so it keeps its Approve.
+  const oneStep = !inFlight && !awaitingApproval && composerSave !== null
+  // The ladder blocks on unsaved edits because the saved draft is not what
+  // is on screen; one-step Publish saves them, so only the permission and
+  // the composer's own reasons (empty, too long) still apply.
+  const permitted = offerRequestApproval
+    ? review.capabilities.canRequestApproval
+    : review.capabilities.canPublish
+  const sendEnabled = oneStep
+    ? permitted && composerSave.blockedReason === null
+    : primary.enabled
+  const checking = (composerSave?.saving ?? false) || verify.isPending
+  const sending = checking || publish.isPending
 
   // A failed publish is retried with the same verified draft: the same
   // mutation, named for what it does from here. Not when Google refused the
@@ -220,22 +262,17 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const retry =
     review.workflowStatus === "failed" &&
     publishFailureCause(review.reply) !== "content" &&
+    !oneStep &&
     (primary.kind === "publish" || primary.kind === "update")
+
+  const shortcutHint = oneStep ? (
+    <Kbd aria-hidden className="ml-1 max-md:hidden pointer-coarse:hidden">
+      {saveShortcutLabel()}
+    </Kbd>
+  ) : null
 
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 max-md:w-full">
-      {blockedReason ? (
-        <p
-          id={reasonId}
-          className={cn(
-            "min-w-0 flex-[1_1_140px] text-caption text-ink-muted @2xl/detail:text-right",
-            TYPING_COLLAPSE_CLASS
-          )}
-        >
-          {blockedReason}
-        </p>
-      ) : null}
-
       <div className="flex flex-wrap items-center justify-end gap-2 max-md:w-full">
         {inFlight ? (
           <Button
@@ -246,38 +283,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           >
             Publishing…
           </Button>
-        ) : saveFirst ? (
-          <Button
-            ref={primaryRef}
-            className={PRIMARY_CLASS}
-            disabled={composerSave.blockedReason !== null}
-            pending={composerSave.saving}
-            pendingLabel="Saving and checking…"
-            aria-describedby={reasonId}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            onClick={composerSave.save}
-          >
-            <ShieldCheckIcon
-              aria-hidden
-              strokeWidth={1.75}
-              data-icon="inline-start"
-            />
-            Save & check
-            <Kbd
-              aria-hidden
-              className="ml-1 max-md:hidden pointer-coarse:hidden"
-            >
-              {saveShortcutLabel()}
-            </Kbd>
-          </Button>
         ) : awaitingApproval ? (
           <>
             <Button
               variant="secondary"
               className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
-              title={primary.reason}
-              aria-describedby={blockedReason ? reasonId : undefined}
               onClick={() => setRejectOpen(true)}
             >
               <XIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
@@ -287,8 +298,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               ref={primaryRef}
               className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
-              title={primary.reason}
-              aria-describedby={blockedReason ? reasonId : undefined}
               onClick={() => void onDecision("approve")}
             >
               <CheckIcon
@@ -303,9 +312,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           <Button
             ref={primaryRef}
             className={PRIMARY_CLASS}
-            disabled={!primary.enabled || publish.isPending}
-            title={blockedReason}
-            aria-describedby={blockedReason ? reasonId : undefined}
+            disabled={!sendEnabled}
+            pending={sending}
+            pendingLabel={checking ? "Checking…" : "Submitting…"}
             onClick={() => void onPublish()}
           >
             <SendHorizonalIcon
@@ -313,15 +322,16 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               strokeWidth={1.75}
               data-icon="inline-start"
             />
-            {publish.isPending ? "Submitting…" : "Submit for approval"}
+            Submit for approval
+            {shortcutHint}
           </Button>
         ) : (
           <Button
             ref={primaryRef}
             className={PRIMARY_CLASS}
-            disabled={!primary.enabled || publish.isPending}
-            title={blockedReason}
-            aria-describedby={blockedReason ? reasonId : undefined}
+            disabled={!sendEnabled}
+            pending={sending}
+            pendingLabel={checking ? "Checking…" : "Publishing…"}
             onClick={() => void onPublish()}
           >
             {retry ? (
@@ -337,11 +347,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 data-icon="inline-start"
               />
             )}
-            {publish.isPending
-              ? "Publishing…"
-              : retry
-                ? "Retry publish"
-                : primary.label}
+            {retry ? "Retry publish" : primary.label}
+            {shortcutHint}
           </Button>
         )}
 

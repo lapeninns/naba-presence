@@ -486,6 +486,20 @@ export const reviewDetailSchema = z.object({
     ),
     capabilities: reviewCapabilitiesSchema,
     latestVerification: latestVerificationSchema.nullable(),
+    /**
+     * The approver's rejection, while the reply it returned to draft is still
+     * a draft: the note the reject dialog asks for, and who wrote it. Null
+     * once the reply is resubmitted, approved or published. Optional so an
+     * older server (or a stubbed response) still parses.
+     */
+    lastRejection: z
+      .object({
+        note: z.string().nullable(),
+        decidedByName: z.string().nullable(),
+        decidedAt: z.string(),
+      })
+      .nullable()
+      .optional(),
   }),
 })
 export type ReviewDetail = z.infer<typeof reviewDetailSchema>

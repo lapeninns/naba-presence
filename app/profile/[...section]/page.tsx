@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation"
 
 import {
-  FLAT_SEGMENT_MAP,
   flatRouteTarget,
+  flatSegmentFor,
   type FlatRouteSearchParams,
 } from "@/lib/server/flat-route-redirect"
 
@@ -16,7 +16,7 @@ export default async function ProfileSectionRedirect({
 }): Promise<never> {
   const { section } = await params
   redirect(
-    await flatRouteTarget(FLAT_SEGMENT_MAP[section[0] ?? ""] ?? "", {
+    await flatRouteTarget(flatSegmentFor(section[0]), {
       searchParams: await searchParams,
       moved: "profile",
     })

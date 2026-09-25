@@ -16,6 +16,7 @@ import * as detailHook from "@/lib/queries/use-review-detail"
 import * as publishHook from "@/lib/queries/use-publish-review"
 import * as approvalHook from "@/lib/queries/use-approval-decision"
 import * as deleteHook from "@/lib/queries/use-delete-reply"
+import * as draftHook from "@/lib/queries/use-draft-mutations"
 import { PRIMARY_ACTION_EVENT, PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
@@ -56,16 +57,42 @@ function mutation(mutateAsync = vi.fn().mockResolvedValue({ status: "published" 
 
 afterEach(() => vi.restoreAllMocks())
 
-function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutation(), del = mutation()) {
-  vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({ data: detail } as UseQueryResult<ReviewDetail>)
+// The composer's save as the bar sees it: resolves the NEW draft and its
+// verdict.
+function oneStepSave(verdict: "pass" | "warn" | "fail" = "pass"): ComposerSave {
+  return {
+    save: vi.fn().mockResolvedValue({
+      draftId: "d2",
+      verification: { id: "v2", verdict, reasons: [] },
+    }),
+    blockedReason: null,
+    saving: false,
+  }
+}
+
+function stubHooks(
+  detail: ReviewDetail,
+  publish = mutation(),
+  approval = mutation(),
+  del = mutation(),
+  verify = mutation(
+    vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+  ),
+  refetched: ReviewDetail = detail
+) {
+  vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+    data: detail,
+    refetch: vi.fn().mockResolvedValue({ data: refetched }),
+  } as unknown as UseQueryResult<ReviewDetail>)
   vi.spyOn(publishHook, "usePublishReview").mockReturnValue(publish)
   vi.spyOn(approvalHook, "useApprovalDecision").mockReturnValue(approval)
   vi.spyOn(deleteHook, "useDeleteReply").mockReturnValue(del)
+  vi.spyOn(draftHook, "useVerifyDraft").mockReturnValue(verify)
 }
 
 // ActionBar calls useToastManager() (needs a <Toaster> ancestor) and useIsDirty()
 // (needs a DirtyGuardProvider). This host supplies both; `dirty` marks the
-// composer dirty so Publish must disable with the save-first reason.
+// composer dirty, and `save` is the save the composer offers the bar.
 function DirtyStamp({ dirty, save }: { dirty: boolean; save?: ComposerSave }) {
   useRegisterDirtyGuard(dirty, async () => true, save)
   return null
@@ -82,6 +109,49 @@ function renderActionBar(dirty = false, save?: ComposerSave) {
 }
 
 describe("ActionBar", () => {
+  // The review changed on Google after the reply was checked: publish answers
+  // stale_draft_evidence. One press re-checks the same draft against the
+  // review as it is now and, if it still passes, publishes once more.
+  it("re-checks a stale draft and publishes it again when it still passes", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi
+        .fn()
+        .mockRejectedValueOnce(new ApiClientError(409, "stale_draft_evidence", "x"))
+        .mockResolvedValueOnce({ status: "published" })
+    )
+    const verify = mutation(
+      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+    )
+    const fresh = detailWith({ updateTime: "2026-08-01T09:00:00.000Z" })
+    stubHooks(detailWith({}), publish, mutation(), mutation(), verify, fresh)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    await waitFor(() => expect(publish.mutateAsync).toHaveBeenCalledTimes(2))
+    expect(verify.mutateAsync).toHaveBeenCalledWith("d1")
+    expect(publish.mutateAsync).toHaveBeenLastCalledWith({
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-08-01T09:00:00.000Z",
+    })
+  })
+
+  it("does not publish a stale draft that fails the re-check", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi.fn().mockRejectedValue(new ApiClientError(409, "stale_draft_evidence", "x"))
+    )
+    const verify = mutation(
+      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "fail", reasons: [] } })
+    )
+    stubHooks(detailWith({}), publish, mutation(), mutation(), verify)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    expect(
+      await screen.findByText(/no longer passes the checks/)
+    ).toBeInTheDocument()
+    expect(publish.mutateAsync).toHaveBeenCalledTimes(1)
+  })
+
   it("enables Publish for a verified, publishable, clean review and posts the draft id", async () => {
     const user = userEvent.setup()
     const publish = mutation()
@@ -96,24 +166,30 @@ describe("ActionBar", () => {
     })
   })
 
-  it("disables Publish with a reason when the user cannot publish", () => {
+  it("disables Publish when the user cannot publish", () => {
     stubHooks(
       detailWith({
         capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
       })
     )
     renderActionBar()
-    const button = screen.getByRole("button", { name: "Publish reply" })
-    expect(button).toBeDisabled()
-    expect(button).toHaveAttribute("title", expect.stringContaining("permission to publish"))
+    expect(screen.getByRole("button", { name: "Publish reply" })).toBeDisabled()
   })
 
-  it("disables Publish with a save-first reason while the composer is dirty", () => {
+  it("keeps Publish off for unsaved edits the composer has not offered to save", () => {
     stubHooks(detailWith({}))
     renderActionBar(true)
-    const button = screen.getByRole("button", { name: "Publish reply" })
-    expect(button).toBeDisabled()
-    expect(button).toHaveAttribute("title", expect.stringContaining("Save your draft"))
+    expect(screen.getByRole("button", { name: "Publish reply" })).toBeDisabled()
+  })
+
+  it("keeps Publish off, even with edits, when the user cannot publish", () => {
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+      })
+    )
+    renderActionBar(true, oneStepSave())
+    expect(screen.getByRole("button", { name: "Publish reply" })).toBeDisabled()
   })
 
   // Sending refused words again unchanged is not a retry.
@@ -139,36 +215,83 @@ describe("ActionBar", () => {
     expect(screen.getByRole("button", { name })).toBeInTheDocument()
   })
 
-  // With the composer's save on offer, unsaved edits turn the main button into
-  // the step that is actually next, rather than a Publish that cannot be used.
-  it("offers Save & check in place of Publish while the composer holds edits", async () => {
+  // One press: save the text on screen (the drafts route checks what it
+  // stores), then publish the draft that save returned — never an older one.
+  it("saves, checks and publishes the edited text as the new draft in one press", async () => {
     const user = userEvent.setup()
-    const save = vi.fn()
-    stubHooks(detailWith({}))
-    renderActionBar(true, { save, blockedReason: null, saving: false })
-    expect(screen.queryByRole("button", { name: "Publish reply" })).not.toBeInTheDocument()
-    const button = screen.getByRole("button", { name: "Save & check" })
+    const publish = mutation()
+    const save = oneStepSave()
+    stubHooks(detailWith({}), publish)
+    renderActionBar(true, save)
+    const button = screen.getByRole("button", { name: /Publish reply/ })
     expect(button).toBeEnabled()
     await user.click(button)
-    expect(save).toHaveBeenCalledTimes(1)
+    expect(save.save).toHaveBeenCalledTimes(1)
+    expect(publish.mutateAsync).toHaveBeenCalledWith({
+      draftId: "d2",
+      expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
+    })
   })
 
-  it("says why Save & check is off when the text cannot be saved", () => {
+  it("publishes a warned draft, since a warning does not block", async () => {
+    const user = userEvent.setup()
+    const publish = mutation()
+    stubHooks(detailWith({}), publish)
+    renderActionBar(true, oneStepSave("warn"))
+    await user.click(screen.getByRole("button", { name: /Publish reply/ }))
+    expect(publish.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: "d2" })
+    )
+  })
+
+  it("does not publish when the check fails", async () => {
+    const user = userEvent.setup()
+    const publish = mutation()
+    const save = oneStepSave("fail")
+    stubHooks(detailWith({}), publish)
+    renderActionBar(true, save)
+    await user.click(screen.getByRole("button", { name: /Publish reply/ }))
+    expect(save.save).toHaveBeenCalledTimes(1)
+    expect(publish.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("does not publish when the save fails", async () => {
+    const user = userEvent.setup()
+    const publish = mutation()
+    const save: ComposerSave = {
+      save: vi.fn().mockResolvedValue(null),
+      blockedReason: null,
+      saving: false,
+    }
+    stubHooks(detailWith({}), publish)
+    renderActionBar(true, save)
+    await user.click(screen.getByRole("button", { name: /Publish reply/ }))
+    expect(save.save).toHaveBeenCalledTimes(1)
+    expect(publish.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("keeps Publish off, under its own name, when the text cannot be sent", () => {
     stubHooks(detailWith({}))
     renderActionBar(true, {
-      save: vi.fn(),
-      blockedReason: "Write the reply before saving it.",
-      saving: false,
+      ...oneStepSave(),
+      blockedReason: "Write the reply before publishing it.",
     })
-    expect(screen.getByRole("button", { name: "Save & check" })).toBeDisabled()
-    expect(screen.getByText("Write the reply before saving it.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Publish reply/ })).toBeDisabled()
+  })
+
+  // The button says what it is doing, never a bare spinner.
+  it("reads Checking… while the save runs", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true, { ...oneStepSave(), saving: true })
+    const button = screen.getByRole("button", { name: /Checking…/ })
+    expect(button).toHaveAttribute("aria-busy", "true")
   })
 
   it("keeps Approve for an approver whatever the composer holds", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
-    renderActionBar(true, { save: vi.fn(), blockedReason: null, saving: false })
+    renderActionBar(true, oneStepSave())
     expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Save & check" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Publish reply/ })).not.toBeInTheDocument()
   })
 
   // `a` clicks the bar's main button, so it can never do what the button, as
@@ -192,18 +315,6 @@ describe("ActionBar", () => {
     renderActionBar()
     window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
     expect(publish.mutateAsync).not.toHaveBeenCalled()
-  })
-
-  // A `title` attribute is invisible on touch and to most keyboard and
-  // screen-reader users, so the reason a button is off is now on the page and
-  // wired to the button it explains.
-  it("puts the reason a disabled action is unavailable on the page, not just in a title", () => {
-    stubHooks(detailWith({}))
-    renderActionBar(true)
-    const button = screen.getByRole("button", { name: "Publish reply" })
-    const reason = screen.getByText("Save your draft before publishing.")
-    expect(reason).toBeInTheDocument()
-    expect(button).toHaveAttribute("aria-describedby", reason.id)
   })
 
   // "Publish" is the wrong verb once something is already on Google.
@@ -231,7 +342,7 @@ describe("ActionBar", () => {
   // Re-sending identical text is a pointless round-trip the domain has no
   // transition for. The button holds its place — the composer edits the live
   // words directly, so it comes back the moment they change.
-  it("disables the primary, with a reason, when nothing differs from what is live", () => {
+  it("disables the primary when nothing differs from what is live", () => {
     stubHooks(
       detailWith({
         workflowStatus: "published",
@@ -249,18 +360,16 @@ describe("ActionBar", () => {
       })
     )
     renderActionBar()
-    const button = screen.getByRole("button", { name: "Update reply" })
-    expect(button).toBeDisabled()
-    const reason = screen.getByText("Edit the reply above to publish a change.")
-    expect(button).toHaveAttribute("aria-describedby", reason.id)
+    expect(screen.getByRole("button", { name: "Update reply" })).toBeDisabled()
     // Delete is still reachable.
     expect(screen.getByRole("button", { name: "Review actions" })).toBeInTheDocument()
   })
 
   // `replyWork` reads server state, so it still says "settled" while the
-  // composer holds unsaved edits. Telling someone to edit the reply they are
-  // already editing is the wrong instruction.
-  it("asks for a save, not an edit, once the composer is dirty on a live reply", () => {
+  // composer holds unsaved edits. The edited text is a change to send.
+  it("updates a live reply in one press once the composer holds edits", async () => {
+    const user = userEvent.setup()
+    const publish = mutation()
     stubHooks(
       detailWith({
         workflowStatus: "published",
@@ -275,16 +384,16 @@ describe("ActionBar", () => {
           googlePolicyViolation: null,
           googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
         },
-      })
+      }),
+      publish
     )
-    renderActionBar(true)
-    expect(screen.getByRole("button", { name: "Update reply" })).toBeDisabled()
-    expect(
-      screen.getByText("Save your draft before publishing.")
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText("Edit the reply above to publish a change.")
-    ).not.toBeInTheDocument()
+    renderActionBar(true, oneStepSave())
+    const button = screen.getByRole("button", { name: /Update reply/ })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(publish.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: "d2" })
+    )
   })
 
   // D2: a non-publisher in an approval-required org sees "Submit for
@@ -341,11 +450,26 @@ describe("ActionBar", () => {
       })
     )
     renderActionBar()
-    const button = screen.getByRole("button", { name: "Submit for approval" })
-    expect(button).toBeDisabled()
-    expect(button).toHaveAttribute(
-      "title",
-      expect.stringContaining("cannot be submitted for approval")
+    expect(
+      screen.getByRole("button", { name: "Submit for approval" })
+    ).toBeDisabled()
+  })
+
+  it("saves, checks and submits the edited text in one press", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi.fn().mockResolvedValue({ status: "awaiting_approval" })
+    )
+    stubHooks(
+      detailWith({
+        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+      }),
+      publish
+    )
+    renderActionBar(true, oneStepSave())
+    await user.click(screen.getByRole("button", { name: /Submit for approval/ }))
+    expect(publish.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: "d2" })
     )
   })
 

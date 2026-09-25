@@ -24,6 +24,12 @@ export const runtime = "nodejs"
  * The order is deliberate: if step 2 fails the caller keeps a working session
  * and the unreferenced new row simply expires, whereas the reverse order could
  * sign the user out on a transient failure.
+ *
+ * A support impersonation session may not switch. `createSession` here mints
+ * an ordinary session, so a switch would drop the support actor (audit
+ * attribution), the one-hour limit and the sign-out-everywhere guard from
+ * migration 0055. Support starts a new impersonation for the other
+ * organisation instead.
  */
 export const POST = route({
   body: sessionSwitchSchema,
@@ -33,6 +39,13 @@ export const POST = route({
     requestId,
     clientRequestId,
   }) => {
+    if (current.supportActor) {
+      throw new ApiError(
+        403,
+        "support_session_forbidden",
+        "A support session cannot switch organisation. Start a new impersonation instead."
+      )
+    }
     const switched = await withTenant(body.organisationId, async (sql) => {
       const memberships = await sql<
         { organisationId: string; name: string; role: Session["role"] }[]

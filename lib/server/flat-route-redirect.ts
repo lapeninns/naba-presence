@@ -64,11 +64,29 @@ export function withForwardedQuery(
 /** Old flat sub-path -> the location-workspace segment that replaced it. */
 export const FLAT_SEGMENT_MAP: Record<string, string> = {
   "": "",
+  profile: "profile",
   hours: "hours",
   menu: "menu",
   booking: "booking",
+  photos: "photos",
+  posts: "posts",
+  people: "people",
+  verification: "verification",
+  suggestions: "suggestions",
+  changes: "changes",
   // "Business details" was the flat name for Business Information, which the
   // rebuilt profile editor absorbs as sections.
   details: "profile",
   industry: "profile",
+}
+
+/**
+ * The workspace segment for an old `/profile/<section>`, or the overview for
+ * one this app never had. An own-property check, not a bare index: a plain
+ * object also answers `constructor`, `toString` and friends, which turned
+ * `/profile/constructor` into a redirect to `/listings/<id>/function Object()…`.
+ */
+export function flatSegmentFor(section: string | undefined): string {
+  const key = section ?? ""
+  return Object.hasOwn(FLAT_SEGMENT_MAP, key) ? FLAT_SEGMENT_MAP[key] : ""
 }

@@ -76,10 +76,6 @@ export const queryKeys = {
     ["members", userId, "client-access"] as const,
   invitations: ["invitations"] as const,
   invitation: (token: string) => ["invitation", token] as const,
-  privacyRequests: ["privacy-requests"] as const,
-  legalHolds: ["legal-holds"] as const,
-  operationsHealth: ["operations-health"] as const,
-  webhookFailures: ["webhook-failures"] as const,
   googleAccounts: (connectionId: string | null) =>
     ["google-accounts", connectionId] as const,
   googleLocations: (accountName: string | null) =>

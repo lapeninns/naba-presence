@@ -207,15 +207,30 @@ export type ReplyStatus = {
   short: string
   tone: SituationTone
   icon: ReplyStatusIcon
+  /** A muted qualifier after the sentence on the publish bar. */
+  note?: string
 }
 
 function status(
   text: string,
   short: string = text,
   tone: SituationTone = "neutral",
-  icon: ReplyStatusIcon = "circle"
+  icon: ReplyStatusIcon = "circle",
+  note?: string
 ): ReplyStatus {
-  return { text, short, tone, icon }
+  return note ? { text, short, tone, icon, note } : { text, short, tone, icon }
+}
+
+// Publish saves and checks the text first, so a reply that is written but not
+// yet checked is still ready: the check is part of the press.
+const CHECKED_ON_PUBLISH = "checked when you publish"
+
+function readyText(kind: PrimaryActionKind): string {
+  return kind === "update"
+    ? "Ready to update"
+    : kind === "submit"
+      ? "Ready to submit for approval"
+      : "Ready to publish"
 }
 
 const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
@@ -233,7 +248,7 @@ const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
  * The ordering is "what stops me acting, soonest first". Two rules are load
  * bearing and neither may be relaxed for a tidier ladder:
  *
- *  1. "Reply published" is reachable ONLY from `publish_status = 'published'`
+ *  1. "Live on Google" is reachable ONLY from `publish_status = 'published'`
  *     (via `replyWork`'s stricter sibling below). A queued or `accepted`
  *     provider request is in flight, not confirmed, and says so.
  *  2. Nothing here infers a state from the availability of an action. Being
@@ -279,16 +294,23 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
         )
   }
 
-  // Unsaved edits outrank a past failure: both `evaluatePublish` and
-  // `evaluateRequestApproval` block on `isDirty`, so saving is genuinely the
-  // next step, and the failure keeps its own place in the exception block
-  // beneath the reply.
+  // Unsaved edits outrank a past failure: the next press saves, checks and
+  // sends them, and the failure keeps its own place in the exception block
+  // beneath the reply. Someone who may neither publish nor ask for approval
+  // is told so rather than offered a step they cannot take.
   if (input.isDirty) {
+    if (
+      !input.capabilities.canPublish &&
+      !input.capabilities.canRequestApproval
+    ) {
+      return status("Publisher needed", "Publisher needed", "caution", "lock")
+    }
     return status(
-      "Unsaved changes · Save draft",
+      readyText(action.kind),
       "Unsaved changes",
       "neutral",
-      "pen"
+      "pen",
+      CHECKED_ON_PUBLISH
     )
   }
 
@@ -303,12 +325,18 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // has not yet told us what became of it.
   if (action.settled) {
     return publishStatus === "published"
-      ? status("Reply published", "Replied", "neutral", "check-circle")
-      : status("Sent to Google", "Sent", "neutral", "cloud")
+      ? status("Live on Google", "Replied", "neutral", "check-circle")
+      : status(
+          "Sent to Google",
+          "Sent",
+          "neutral",
+          "cloud",
+          "not live until Google confirms"
+        )
   }
 
   if (work.draftBody === null && work.liveBody === null) {
-    return status("No draft yet", "Needs reply")
+    return status("No reply yet", "Needs reply")
   }
 
   const verdict = input.verification?.verdict
@@ -322,7 +350,13 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   }
 
   if (!hasVerifiedDraft(input.drafts)) {
-    return status("Draft needs checking", "Check draft", "neutral", "circle")
+    return status(
+      readyText(action.kind),
+      "Check draft",
+      "neutral",
+      "circle",
+      CHECKED_ON_PUBLISH
+    )
   }
 
   if (!action.enabled) {

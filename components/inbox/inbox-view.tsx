@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { ArrowLeftIcon } from "lucide-react"
 
 import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
@@ -37,15 +37,9 @@ import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Kbd } from "@/components/ui/kbd"
 import { QueryStates } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -75,6 +69,7 @@ import {
 import type { ReviewRow } from "@/lib/api/reviews"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSession, useSessionRole } from "@/lib/queries/use-session"
@@ -126,6 +121,15 @@ function InboxViewInner({
   // Scoped to the client in view, so a queue's badge counts the rows that
   // queue will show. Unscoped, this is the key the page prefetches.
   const countsQuery = useReviewCounts({ clientId: state.clientId })
+  // The sidebar badge registers the same organisation-wide counts key in the
+  // shell before this page's HydrationBoundary runs, and TanStack defers
+  // hydrating an existing query to an effect. The server render and the
+  // first client render could therefore disagree on whether counts exist,
+  // which threw a hydration error on every inbox load. The queue tabs show
+  // their skeleton until hydration has finished, on both sides.
+  const hydrated = useHydrated()
+  const toolbarCounts = hydrated ? countsQuery.data : undefined
+  const toolbarCountsPending = !hydrated || countsQuery.isPending
   const clientsQuery = useClients()
   // Narrowed to the client in view when the inbox is filtered to one, so the
   // empty state describes the client the operator is looking at rather than
@@ -282,14 +286,6 @@ function InboxViewInner({
       updateState({ selected: undefined }, "replace")
     })()
   }, [dirtyGate, updateState])
-
-  const selectedIndex = state.selected
-    ? reviews.findIndex((review) => review.id === state.selected)
-    : -1
-  const hasPrevReview = selectedIndex > 0
-  const hasNextReview =
-    selectedIndex >= 0 &&
-    (selectedIndex < reviews.length - 1 || !!reviewsQuery.hasNextPage)
 
   // Resolves to the review it moved to, or null when it did not move.
   const onAdjacentReview = useCallback(
@@ -662,8 +658,8 @@ function InboxViewInner({
     >
       <InboxToolbar
         state={state}
-        counts={countsQuery.data}
-        countsPending={countsQuery.isPending}
+          counts={toolbarCounts}
+          countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
         clients={(clientsQuery.data?.items ?? []).map((client) => ({
           id: client.id,
@@ -775,53 +771,6 @@ function InboxViewInner({
     </section>
   )
 
-  // Up and down, because the queue they step through is a column (and `k`
-  // and `j` move the same way).
-  const navigation = (
-    <div className="flex items-center gap-0.5">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Previous review"
-              // The touch floor on a narrow screen too, as the head's other
-              // controls have (`icon-sm` already grows on a coarse pointer).
-              className="max-md:size-11"
-              disabled={!hasPrevReview}
-              onClick={() => void onAdjacentReview("prev")}
-            />
-          }
-        >
-          <ChevronUpIcon aria-hidden strokeWidth={1.75} />
-        </TooltipTrigger>
-        <TooltipContent>
-          Previous review <Kbd>K</Kbd>
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Next review"
-              className="max-md:size-11"
-              disabled={!hasNextReview || reviewsQuery.isFetchingNextPage}
-              onClick={() => void onAdjacentReview("next")}
-            />
-          }
-        >
-          <ChevronDownIcon aria-hidden strokeWidth={1.75} />
-        </TooltipTrigger>
-        <TooltipContent>
-          Next review <Kbd>J</Kbd>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  )
-
   const selectedRow = reviews.find((review) => review.id === state.selected)
 
   // The detail is mounted in exactly one place, so the composer's dirty guard
@@ -850,7 +799,6 @@ function InboxViewInner({
             <ArrowLeftIcon aria-hidden strokeWidth={1.75} />
           </Button>
         }
-        navigation={navigation}
         composer={<ReplyComposer reviewId={state.selected} />}
         actions={<ActionBar reviewId={state.selected} />}
       />

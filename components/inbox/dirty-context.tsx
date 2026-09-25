@@ -20,16 +20,27 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import type { Verification } from "@/lib/contracts/reviews"
 
 type ConfirmDiscardFn = () => Promise<boolean>
 
+/** What a composer save hands back: the new draft and its checks. */
+export type ComposerSaveResult = {
+  draftId: string
+  verification: Verification
+}
+
 /**
  * The composer's own save, offered to the publish bar while the reply holds
- * unsaved edits. The bar's primary button becomes "Save & check" and runs
- * exactly what the composer's Save draft (and ⌘↵) runs — one save, not two.
+ * unsaved edits. Publish runs it first, then publishes the draft it returns,
+ * so one press saves, checks and sends the text on screen.
  */
 export type ComposerSave = {
-  save: () => void
+  /**
+   * Saves and verifies the text on screen. Resolves null when the save did
+   * not happen or failed; the composer has already said why.
+   */
+  save: () => Promise<ComposerSaveResult | null>
   /** Why the text cannot be saved as it stands, or null when it can. */
   blockedReason: string | null
   saving: boolean
@@ -57,7 +68,7 @@ class DirtyStore {
     }
   }
   getIsDirty = () => this.gate.isDirty
-  getSave = () => (this.gate.isDirty ? this.gate.save : null)
+  getSave = () => this.gate.save
   confirmDiscard = () => this.gate.confirmDiscard()
   set = (gate: Gate) => {
     this.gate = gate
@@ -139,7 +150,8 @@ function useAskDiscardConfirm(): () => Promise<boolean> {
 }
 
 // The composer publishes its live dirtiness + confirm into the shared store,
-// and — when it has one — the save the publish bar may run on its behalf.
+// and — while the text on screen is not yet a checked draft — the save the
+// publish bar runs before it publishes.
 // `save.save` must be referentially stable, or every render re-registers.
 function useRegisterDirtyGuard(
   isDirty: boolean,
@@ -189,8 +201,8 @@ function useIsDirty(): boolean {
   )
 }
 
-// The publish bar's view of the composer's save: null unless the reply holds
-// unsaved edits and the composer offered a save.
+// The publish bar's view of the composer's save: null unless the composer
+// offered one (unsaved edits, or a saved draft that was never checked).
 function useComposerSave(): ComposerSave | null {
   const store = useContext(DirtyStoreContext)
   return useSyncExternalStore(

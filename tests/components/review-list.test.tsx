@@ -390,13 +390,13 @@ describe("ReviewList", () => {
       />
     )
 
-    expect(screen.getByLabelText("No draft yet")).toHaveTextContent(
+    expect(screen.getByLabelText("No reply yet")).toHaveTextContent(
       "Needs reply"
     )
     expect(
       screen.getByLabelText("Draft checked · Ready to publish")
     ).toHaveTextContent("Ready to publish")
-    expect(screen.getByLabelText("Reply published")).toHaveTextContent(
+    expect(screen.getByLabelText("Live on Google")).toHaveTextContent(
       "Replied"
     )
 

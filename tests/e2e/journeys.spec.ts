@@ -21,43 +21,48 @@ async function openReview(page: Page, text: string) {
 }
 
 /**
- * Get to a reply textbox this journey can type into.
- *
- * A review that already carries saved reply text opens as a read-only preview
- * behind an "Edit reply" button (components/inbox/reply-composer.tsx); a
- * freshly seeded one, with neither a draft nor a reply, offers the tone
- * starter, whose "Write my own reply" opens the empty editor. Waiting for
- * whichever is on screen covers both — and covers a retry, where the draft
- * the first attempt saved is still in the database.
+ * The reply textbox. The editor is always open (components/inbox/
+ * reply-composer.tsx), whether the review has no reply yet, a saved draft or
+ * a live reply — which also covers a retry, where the draft the first attempt
+ * saved is still in the database.
  */
-async function openReplyEditor(page: Page) {
-  const edit = page.getByRole("button", { name: "Edit reply" })
-  const writeOwn = page.getByRole("button", { name: "Write my own reply" })
+async function replyBox(page: Page) {
   const box = page.getByRole("textbox", { name: "Your reply" })
-  await expect(edit.or(writeOwn).or(box).first()).toBeVisible()
-  if (await edit.isVisible()) await edit.click()
-  else if (await writeOwn.isVisible()) await writeOwn.click()
   await expect(box).toBeVisible()
   return box
 }
 
-async function saveVerifiedDraft(page: Page, reviewId: string, body: string) {
-  const box = await openReplyEditor(page)
+/**
+ * Write the reply, then press Publish once: it saves and checks the text
+ * (`POST …/drafts`), then publishes the draft that save returned.
+ */
+async function writeAndPublish(page: Page, reviewId: string, body: string) {
+  const box = await replyBox(page)
   await box.fill(body)
+  // The pane's single status line (lib/inbox/reply-state.ts): written but not
+  // yet checked is still ready, because the press runs the check.
+  await expect(page.locator('[data-slot="reply-status-strip"]')).toContainText(
+    "Ready to publish"
+  )
   const saved = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" &&
       new URL(r.url()).pathname === `/api/reviews/${reviewId}/drafts`
   )
-  await page.getByRole("button", { name: "Save draft" }).click()
-  expect((await saved).status()).toBe(201)
-  // The pane's single status line (lib/inbox/reply-state.ts), asserted on the
-  // "Ready to publish" half only: a clean check and a check carrying a note
-  // read "Draft checked · …" and "Checked with a note · …" respectively, and
-  // both are a green light for the publish that follows.
-  await expect(page.locator('[data-slot="reply-status-strip"]')).toContainText(
-    "Ready to publish"
+  const published = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      new URL(r.url()).pathname === `/api/reviews/${reviewId}/publish`
   )
+  await page.getByRole("button", { name: /^Publish reply/ }).click()
+  expect((await saved).status()).toBe(201)
+  const response = await published
+  // The publish must carry the draft the press just saved, not an older one.
+  const savedDraft = (await (await saved).json()) as { draftId: string }
+  expect(response.request().postDataJSON()).toMatchObject({
+    draftId: savedDraft.draftId,
+  })
+  return response
 }
 
 test.describe("inbox critical journeys", () => {
@@ -105,22 +110,14 @@ test.describe("inbox critical journeys", () => {
     ).toHaveCount(0)
 
     await openReview(page, state.directReview.text)
-    await saveVerifiedDraft(
+    const published = await writeAndPublish(
       page,
       state.directReview.id,
       "Thank you for your thoughtful review. We are delighted you enjoyed your stay."
     )
-    const published = page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" &&
-        new URL(r.url()).pathname ===
-          `/api/reviews/${state.directReview.id}/publish`
-    )
-    await page.getByRole("button", { name: "Publish reply" }).click()
-    expect((await published).status()).toBe(200)
-    // The toast, specifically: the review's activity timeline gains a
-    // "Reply published" entry at the same moment, so a page-wide text match
-    // would be ambiguous.
+    expect(published.status()).toBe(200)
+    // The toast, specifically, so the assertion does not depend on anything
+    // else on the page reading the same words.
     await expect(
       page.locator('[data-slot="toast-title"]', { hasText: "Reply published" })
     ).toBeVisible()
@@ -139,19 +136,12 @@ test.describe("inbox critical journeys", () => {
     await useCookie(page, baseURL, state.approval.requesterCookie)
     await page.goto("/inbox")
     await openReview(page, state.approval.text)
-    await saveVerifiedDraft(
+    const requested = await writeAndPublish(
       page,
       state.approval.reviewId,
       "Thank you for sharing your experience. Our team appreciates your kind feedback."
     )
-    const requested = page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" &&
-        new URL(r.url()).pathname ===
-          `/api/reviews/${state.approval.reviewId}/publish`
-    )
-    await page.getByRole("button", { name: "Publish reply" }).click()
-    expect((await requested).status()).toBe(202)
+    expect(requested.status()).toBe(202)
     await expect(
       page.getByText("Submitted for approval", { exact: true })
     ).toBeVisible()
@@ -263,17 +253,14 @@ test.describe("inbox critical journeys", () => {
     await expect(publish).toBeDisabled()
     // The composer is READ-ONLY, not disabled: a viewer is meant to be able to
     // read and copy the reply (reply-composer.tsx sets `readOnly`, keeping the
-    // text selectable) and is told why in words. `not.toBeEditable()` is what
+    // text selectable) and is told why in words, by the exception above the
+    // review (detail/reply-exception.tsx). `not.toBeEditable()` is what
     // actually holds a viewer out of the box — `toBeDisabled()` is false for a
     // readonly control, so it was asserting nothing about this composer.
     await expect(
       page.getByRole("textbox", { name: "Your reply" })
     ).not.toBeEditable()
-    await expect(
-      page.getByText(
-        "You can read this reply, but you do not have permission to edit it."
-      )
-    ).toBeVisible()
+    await expect(page.getByText("View-only access")).toBeVisible()
   })
 
   test("dirty draft: switching reviews confirms before discarding edits", async ({
@@ -283,12 +270,10 @@ test.describe("inbox critical journeys", () => {
     const state = await readJourneyState()
     await useCookie(page, baseURL, state.cookie)
     await page.goto("/inbox?queue=all")
-    // Dirty the review that is never replied to: the publish journey above
-    // leaves `directReview` in sync with Google, and a settled reply renders
-    // as a read-only summary behind an "Edit reply" button
-    // (components/inbox/reply-composer.tsx) — no textbox to dirty.
+    // Dirty the review that is never replied to, so the edit is unambiguously
+    // unsaved whichever order these tests run in.
     await openReview(page, state.approvalReview.text)
-    await (await openReplyEditor(page)).fill("Unsaved edit in progress")
+    await (await replyBox(page)).fill("Unsaved edit in progress")
 
     // Switching away asks first. The inbox lives inside DirtyGuardProvider, so
     // the question is the in-app AlertDialog, never window.confirm.

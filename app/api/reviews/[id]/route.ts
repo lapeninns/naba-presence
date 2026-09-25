@@ -98,7 +98,29 @@ export const GET = route({
             )
             order by vr.created_at desc
             limit 1
-          ) as "latestVerification"
+          ) as "latestVerification",
+          -- The approver's reason for returning the reply, while it is still
+          -- the latest decision and the reply has not been resubmitted
+          -- (drafted, or re-checked after an edit). Without this the note the
+          -- reject dialog asks for was stored and never shown.
+          (
+            select json_build_object(
+              'note', ad.note,
+              'decidedByName', du.display_name,
+              'decidedAt', ad.created_at
+            )
+            from approval_decision ad
+            left join app_user du on du.id = ad.decided_by
+            where ad.review_id = r.id
+              and r.workflow_status in ('drafted', 'verified')
+              and ad.decision = 'rejected'
+              and ad.created_at = (
+                select max(ad2.created_at)
+                from approval_decision ad2
+                where ad2.review_id = r.id
+              )
+            limit 1
+          ) as "lastRejection"
         from review r
         join location l on l.id = r.location_id
         join external_location e on e.id = r.external_location_id
@@ -117,6 +139,10 @@ export const GET = route({
           u.display_name as "actorName",
           case
             when a.metadata = '{}'::jsonb then null
+            -- A rejection's note is the one detail the author needs.
+            when a.action = 'review.approval.rejected'
+              and nullif(a.metadata->>'note', '') is not null
+              then 'Note: ' || (a.metadata->>'note')
             else 'Additional audit details recorded'
           end as "metadataSummary"
         from audit_log a

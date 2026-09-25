@@ -123,31 +123,38 @@ describe("ReviewDetail", () => {
     expect(screen.getAllByText("Riverside").length).toBeGreaterThan(0)
   })
 
-  it("reads a one-star rating as singular, not '1 stars'", () => {
+  // Who, in one line under the name: stars, listing and when. No avatar, no
+  // client link, no "Google review" caption.
+  it("reads the rating in the head's meta line", () => {
     fakeDetail({
       isPending: false,
       isError: false,
-      data: reviewWith({ rating: 1 }),
+      data: reviewWith({ rating: 4 }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
-    expect(screen.getAllByLabelText("1 star").length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText("1 stars")).not.toBeInTheDocument()
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const meta = container.querySelector<HTMLElement>(
+      '[data-slot="review-meta"]'
+    )
+    expect(meta).not.toBeNull()
+    expect(within(meta!).getByRole("img")).toHaveAccessibleName(
+      "Rated 4 out of 5"
+    )
+    expect(meta).toHaveTextContent("Riverside")
+    expect(meta).not.toHaveTextContent("Google review")
   })
 
-  // The pane used to answer "where has this reply got to" three times over: a
-  // five-stage tracker, a situation strip and the footer button, each derived
-  // separately and each able to contradict the others. The lifecycle is back
-  // as a permanent strip (reference `.lifecycle`), but it is drawn from
-  // `deriveLifecycle` and is not a live region: the one spoken status is still
-  // the strip on the action bar.
-  it("keeps one status surface beside a lifecycle drawn from the review", () => {
+  // The pane used to answer "where has this reply got to" three times over.
+  // The footer status is the one spoken surface. The five-stage lifecycle
+  // is not drawn on the reply pane.
+  it("keeps one status surface and does not draw a lifecycle", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
     const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(
       container.querySelector('ol[aria-label="Reply progress"]')
     ).toBeNull()
-    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
-    expect(within(lifecycle).getAllByRole("listitem")).toHaveLength(5)
+    expect(
+      screen.queryByRole("list", { name: "Reply lifecycle" })
+    ).not.toBeInTheDocument()
     expect(screen.getAllByRole("status")).toHaveLength(1)
   })
 
@@ -296,9 +303,7 @@ describe("ReviewDetail", () => {
     })
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
-    // Named "Reply", not "Your reply": the composer inside it is its own
-    // region named by its heading, and two landmarks may not share a name.
-    const replySection = screen.getByRole("region", { name: "Reply" })
+    const replySection = screen.getByRole("region", { name: "Your reply" })
     expect(screen.getByRole("status")).toHaveTextContent("Approval required")
     expect(
       within(replySection).getByRole("button", {
@@ -313,7 +318,7 @@ describe("ReviewDetail", () => {
 
   // `accepted` means Google took the request and has not yet said what became
   // of it, which is a weaker claim than publication and reads as one. The
-  // ladder reaches "Reply published" from `published` alone.
+  // ladder reaches "Live on Google" from `published` alone.
   it("calls an accepted reply sent, not published", () => {
     fakeDetail({
       isPending: false,
@@ -333,8 +338,10 @@ describe("ReviewDetail", () => {
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
     const strip = screen.getByRole("status")
-    expect(strip).toHaveTextContent("Sent to Google")
-    expect(strip).not.toHaveTextContent("Reply published")
+    expect(strip).toHaveTextContent(
+      "Sent to Google · not live until Google confirms"
+    )
+    expect(strip).not.toHaveTextContent("Live on Google")
   })
 
   it("skips media rows that carry neither a thumbnail nor a video", () => {
@@ -429,21 +436,57 @@ describe("ReviewDetail", () => {
 
   // The four facts the header drops — the exact date, whether the Google
   // profile is verified, where the draft came from and who touched it — are
-  // still one click away rather than gone.
-  it("keeps the review's provenance behind the metadata control", async () => {
+  // still reachable from ⋯ rather than gone.
+  it("keeps the review's provenance behind ⋯ → Review details", async () => {
     const user = userEvent.setup()
     fakeDetail({ isPending: false, isError: false, data: detail })
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
+    await user.click(screen.getByRole("button", { name: "More actions" }))
     await user.click(
-      screen.getByRole("button", {
-        name: "Review details: date, Google profile and reply author",
-      })
+      await screen.findByRole("menuitem", { name: "Review details" })
     )
-    expect(screen.getByText("Review received")).toBeInTheDocument()
+    const dialog = await screen.findByRole("dialog", { name: "Review details" })
+    expect(within(dialog).getByText("Review received")).toBeInTheDocument()
     expect(screen.getByText("30 Jul, 11:00")).toBeInTheDocument()
     expect(screen.getByText("Google profile")).toBeInTheDocument()
     expect(screen.getByText("Riverside · verified")).toBeInTheDocument()
+  })
+
+  it("opens the review's history from ⋯ → History", async () => {
+    const user = userEvent.setup()
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        timeline: [
+          {
+            action: "review.draft.generated",
+            createdAt: "2026-07-30T10:05:00.000Z",
+            actorName: "Aman",
+            metadataSummary: null,
+          },
+        ],
+      }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+
+    // Not on the pane itself any more.
+    expect(screen.queryByText("Draft generated")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "History" }))
+    const dialog = await screen.findByRole("dialog", { name: "History" })
+    expect(within(dialog).getByText("Draft generated")).toBeInTheDocument()
+  })
+
+  it("links to the listing from ⋯", async () => {
+    const user = userEvent.setup()
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    expect(
+      await screen.findByRole("menuitem", { name: "Open listing" })
+    ).toHaveAttribute("href", "/listings/loc-1")
   })
 
   // The five-stage tracker used to be permanent chrome on every review,
@@ -483,17 +526,8 @@ describe("ReviewDetail", () => {
     expect(exception).toHaveAttribute("data-tone", "attention")
     expect(within(exception!).getByText("Publish failed")).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("Publish failed")
-
-    // The lifecycle is on screen for every review now, so a failed publish
-    // is visible where it happened: the Published stage, as failed.
-    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
-    const stages = within(lifecycle).getAllByRole("listitem")
-    expect(stages).toHaveLength(5)
-    expect(stages[4]).toHaveAttribute("data-state", "failed")
-    expect(stages[4]).toHaveTextContent("Google rejected it")
-    // And no second copy of the stages behind a disclosure.
     expect(
-      screen.queryByRole("button", { name: "Workflow details" })
+      screen.queryByRole("list", { name: "Reply lifecycle" })
     ).not.toBeInTheDocument()
   })
 
@@ -547,22 +581,23 @@ describe("ReviewDetail", () => {
     }
   )
 
-  // A reached stage carries a tick and the next one an empty ring: a bold
-  // ring used to read as the more "done" of the two, so "Drafted" looked
-  // reached on a review with no draft.
-  it("never draws a stage as reached when it has not been", () => {
+  it("does not draw a lifecycle on a review with no draft", () => {
     fakeDetail({
       isPending: false,
       isError: false,
       data: reviewWith({ workflowStatus: "new", drafts: [] }),
     })
     renderPane(<ReviewDetail reviewId="rev-1" />)
-    const lifecycle = screen.getByRole("list", { name: "Reply lifecycle" })
-    const [received, drafted] = within(lifecycle).getAllByRole("listitem")
-    expect(received.querySelector('[data-glyph="done"]')).not.toBeNull()
-    expect(drafted).toHaveAttribute("data-state", "current")
-    expect(drafted.querySelector('[data-glyph="done"]')).toBeNull()
-    expect(drafted).toHaveTextContent("next step")
+    expect(screen.getByRole("status")).toHaveTextContent("No reply yet")
+    expect(
+      screen.queryByRole("list", { name: "Reply lifecycle" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Verification" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: /^Activity/ })
+    ).not.toBeInTheDocument()
   })
 
   it("notes when the reviewer edited the review after writing it", () => {

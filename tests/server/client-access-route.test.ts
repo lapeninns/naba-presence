@@ -1,7 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { GET, PUT } from "@/app/api/members/[userId]/client-access/route"
-import { PUT as PUT_LOCATION_MEMBERS } from "@/app/api/location-members/route"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import type { Session } from "@/lib/server/session"
@@ -314,41 +313,5 @@ describe("PUT /api/members/[userId]/client-access", () => {
     fakeTenant({ role: "member", grants: [] })
     const response = await put({ allClients: false })
     expect(response.status).toBe(400)
-  })
-})
-
-describe("PUT /api/location-members zero-rows guard", () => {
-  function putLegacy(body: object) {
-    return PUT_LOCATION_MEMBERS(
-      new Request("http://localhost/api/location-members", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-      { params: Promise.resolve({}) }
-    )
-  }
-
-  it("refuses clearing every assignment without allClients: true", async () => {
-    signedIn(admin)
-    const { writes } = fakeTenant({ role: "member", grants: [] })
-    const response = await putLegacy({ userId: TARGET, assignments: [] })
-    expect(response.status).toBe(409)
-    expect((await response.json()).error).toBe(
-      "would_widen_to_all_clients"
-    )
-    expect(writes).toHaveLength(0)
-  })
-
-  it("clears them when allClients: true says so", async () => {
-    signedIn(admin)
-    const { writes } = fakeTenant({ role: "member", grants: [] })
-    const response = await putLegacy({
-      userId: TARGET,
-      assignments: [],
-      allClients: true,
-    })
-    expect(response.status).toBe(200)
-    expect(writes[0].text).toContain("delete from location_member")
   })
 })

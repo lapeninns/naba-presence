@@ -1,6 +1,6 @@
 /**
- * The save shortcut as this platform writes it. The composer's hint and the
- * publish bar's "Save & check" both show it, so they read from one place.
+ * The publish shortcut as this platform writes it. The publish bar shows it
+ * beside Publish while there is text to save and check.
  */
 export function saveShortcutLabel(): string {
   if (typeof navigator === "undefined") return "Ctrl+Enter"

@@ -3,8 +3,10 @@
  * webhook failure/replay endpoints the operations panel reads.
  *
  * Client-safe: no `server-only`, no `lib/server` imports. The audit-log
- * route parses its query with `auditLogQuerySchema`;
- * `lib/api/operations-health.ts` parses responses with the response schemas.
+ * route parses its query with `auditLogQuerySchema`. The response schemas
+ * describe the operations-health and audit-log routes, which are API-only:
+ * their Settings consoles were removed (components/settings/settings-nav.tsx),
+ * so no browser code parses them today.
  */
 import { z } from "zod"
 
