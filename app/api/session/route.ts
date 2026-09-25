@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 
 import type { SessionResponse } from "@/lib/contracts/session"
+import { writeAudit } from "@/lib/server/audit"
+import { withTenant } from "@/lib/server/db"
+import { log } from "@/lib/server/logger"
 import { route } from "@/lib/server/route"
 import {
   clearSession,
@@ -31,7 +34,36 @@ export const GET = route({
 export const DELETE = route({
   auth: "public",
   query: (searchParams) => ({ everywhere: searchParams.get("scope") === "all" }),
-  handler: async ({ query }) => {
+  handler: async ({ query, requestId, clientRequestId }) => {
+    // Signing out of a support impersonation ends it; record that, as
+    // DELETE /api/support/impersonation does, so the trail has an end for
+    // every start. Best effort: sign-out must succeed regardless.
+    const current = await getSession().catch(() => null)
+    if (current?.supportActor) {
+      await withTenant(current.organisationId, (sql) =>
+        writeAudit(sql, {
+          organisationId: current.organisationId,
+          action: "support.impersonation.ended",
+          subjectType: "user",
+          subjectId: current.userId,
+          requestId,
+          supportActor: current.supportActor,
+          impersonationReason: current.impersonationReason,
+          metadata: {
+            supportActor: current.supportActor,
+            reason: current.impersonationReason,
+            via: "sign_out",
+            clientRequestId,
+          },
+        })
+      ).catch((error: unknown) => {
+        log.error("support.impersonation.end_audit_failed", {
+          requestId,
+          organisationId: current.organisationId,
+          error,
+        })
+      })
+    }
     if (query.everywhere) await revokeAllSessions()
     else await clearSession()
     return new NextResponse(null, { status: 204 })

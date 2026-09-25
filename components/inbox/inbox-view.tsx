@@ -69,6 +69,7 @@ import {
 import type { ReviewRow } from "@/lib/api/reviews"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSession, useSessionRole } from "@/lib/queries/use-session"
@@ -120,6 +121,15 @@ function InboxViewInner({
   // Scoped to the client in view, so a queue's badge counts the rows that
   // queue will show. Unscoped, this is the key the page prefetches.
   const countsQuery = useReviewCounts({ clientId: state.clientId })
+  // The sidebar badge registers the same organisation-wide counts key in the
+  // shell before this page's HydrationBoundary runs, and TanStack defers
+  // hydrating an existing query to an effect. The server render and the
+  // first client render could therefore disagree on whether counts exist,
+  // which threw a hydration error on every inbox load. The queue tabs show
+  // their skeleton until hydration has finished, on both sides.
+  const hydrated = useHydrated()
+  const toolbarCounts = hydrated ? countsQuery.data : undefined
+  const toolbarCountsPending = !hydrated || countsQuery.isPending
   const clientsQuery = useClients()
   // Narrowed to the client in view when the inbox is filtered to one, so the
   // empty state describes the client the operator is looking at rather than
@@ -648,8 +658,8 @@ function InboxViewInner({
     >
       <InboxToolbar
         state={state}
-        counts={countsQuery.data}
-        countsPending={countsQuery.isPending}
+          counts={toolbarCounts}
+          countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
         clients={(clientsQuery.data?.items ?? []).map((client) => ({
           id: client.id,

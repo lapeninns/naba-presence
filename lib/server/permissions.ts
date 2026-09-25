@@ -42,8 +42,7 @@ import type { Session } from "@/lib/server/session"
 //   Three consequences follow from "no rows = every location":
 //   * Zero rows is a widening, never a removal. Every writer refuses a
 //     change that would leave a member or viewer with no rows unless the
-//     caller says `allClients: true` (client-access and location-members
-//     routes), and a scoped invitation whose clients have no listings left
+//     caller says `allClients: true` (the client-access route), and a scoped invitation whose clients have no listings left
 //     is refused at acceptance rather than accepted unscoped.
 //   * A listing filed under a client later reaches only the people who hold
 //     EVERY other listing of that client (extendClientHolders, called by

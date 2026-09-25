@@ -16,6 +16,7 @@ import * as detailHook from "@/lib/queries/use-review-detail"
 import * as publishHook from "@/lib/queries/use-publish-review"
 import * as approvalHook from "@/lib/queries/use-approval-decision"
 import * as deleteHook from "@/lib/queries/use-delete-reply"
+import * as draftHook from "@/lib/queries/use-draft-mutations"
 import { PRIMARY_ACTION_EVENT, PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
@@ -69,11 +70,24 @@ function oneStepSave(verdict: "pass" | "warn" | "fail" = "pass"): ComposerSave {
   }
 }
 
-function stubHooks(detail: ReviewDetail, publish = mutation(), approval = mutation(), del = mutation()) {
-  vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({ data: detail } as UseQueryResult<ReviewDetail>)
+function stubHooks(
+  detail: ReviewDetail,
+  publish = mutation(),
+  approval = mutation(),
+  del = mutation(),
+  verify = mutation(
+    vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+  ),
+  refetched: ReviewDetail = detail
+) {
+  vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+    data: detail,
+    refetch: vi.fn().mockResolvedValue({ data: refetched }),
+  } as unknown as UseQueryResult<ReviewDetail>)
   vi.spyOn(publishHook, "usePublishReview").mockReturnValue(publish)
   vi.spyOn(approvalHook, "useApprovalDecision").mockReturnValue(approval)
   vi.spyOn(deleteHook, "useDeleteReply").mockReturnValue(del)
+  vi.spyOn(draftHook, "useVerifyDraft").mockReturnValue(verify)
 }
 
 // ActionBar calls useToastManager() (needs a <Toaster> ancestor) and useIsDirty()
@@ -95,6 +109,49 @@ function renderActionBar(dirty = false, save?: ComposerSave) {
 }
 
 describe("ActionBar", () => {
+  // The review changed on Google after the reply was checked: publish answers
+  // stale_draft_evidence. One press re-checks the same draft against the
+  // review as it is now and, if it still passes, publishes once more.
+  it("re-checks a stale draft and publishes it again when it still passes", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi
+        .fn()
+        .mockRejectedValueOnce(new ApiClientError(409, "stale_draft_evidence", "x"))
+        .mockResolvedValueOnce({ status: "published" })
+    )
+    const verify = mutation(
+      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+    )
+    const fresh = detailWith({ updateTime: "2026-08-01T09:00:00.000Z" })
+    stubHooks(detailWith({}), publish, mutation(), mutation(), verify, fresh)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    await waitFor(() => expect(publish.mutateAsync).toHaveBeenCalledTimes(2))
+    expect(verify.mutateAsync).toHaveBeenCalledWith("d1")
+    expect(publish.mutateAsync).toHaveBeenLastCalledWith({
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-08-01T09:00:00.000Z",
+    })
+  })
+
+  it("does not publish a stale draft that fails the re-check", async () => {
+    const user = userEvent.setup()
+    const publish = mutation(
+      vi.fn().mockRejectedValue(new ApiClientError(409, "stale_draft_evidence", "x"))
+    )
+    const verify = mutation(
+      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "fail", reasons: [] } })
+    )
+    stubHooks(detailWith({}), publish, mutation(), mutation(), verify)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    expect(
+      await screen.findByText(/no longer passes the checks/)
+    ).toBeInTheDocument()
+    expect(publish.mutateAsync).toHaveBeenCalledTimes(1)
+  })
+
   it("enables Publish for a verified, publishable, clean review and posts the draft id", async () => {
     const user = userEvent.setup()
     const publish = mutation()

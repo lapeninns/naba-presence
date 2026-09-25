@@ -48,7 +48,7 @@ const ROLE_LABEL: Record<string, string> = {
 }
 
 const ROLE_EXPLANATION: Record<string, string> = {
-  owner: "Full access, including compliance and billing",
+  owner: "Full access, including the agency’s settings and team",
   admin: "Manages clients, connections and the team",
   member: "Replies to reviews and edits assigned clients",
   viewer: "Read-only",
@@ -132,10 +132,13 @@ function AccountMenu({
     enabled: Boolean(session),
     staleTime: 5 * 60 * 1000,
   })
-  const others =
-    organisations.data?.items.filter(
-      (item) => item.organisationId !== session?.organisationId
-    ) ?? []
+  // A support impersonation session may not switch (the route refuses it:
+  // a switch would mint an ordinary session and drop the support marks).
+  const others = session?.supportActor
+    ? []
+    : (organisations.data?.items.filter(
+        (item) => item.organisationId !== session?.organisationId
+      ) ?? [])
 
   const toast = useToastManager()
   const [confirmEverywhere, setConfirmEverywhere] = React.useState(false)

@@ -1,7 +1,7 @@
 /**
  * Plain words for the Google OAuth callback's redirect status.
  *
- * The callback (`app/api/google/connect/callback`) appends `google=connected`
+ * The callback (`app/api/auth/callback/google`) appends `google=connected`
  * on success and `google=error&status=<http status>&rid=<request id>` on
  * failure. The status is the only detail it carries, so this maps the same
  * numbers the connections page does; the request id is shown as-is so it can
