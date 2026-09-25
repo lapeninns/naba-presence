@@ -62,24 +62,31 @@ jobs:
             echo "ok=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          read -r cross draft author < <(gh pr view "$PR_NUMBER" -R "$REPO" \
-            --json isCrossRepository,isDraft,author \
-            --jq '"\(.isCrossRepository) \(.isDraft) \(.author.login)"')
+          read -r cross draft author sha < <(gh pr view "$PR_NUMBER" -R "$REPO" \
+            --json isCrossRepository,isDraft,author,headRefOid \
+            --jq '"\(.isCrossRepository) \(.isDraft) \(.author.login) \(.headRefOid)"')
           if [ "$cross" = true ] || [ "$draft" = true ] \
             || [ "$author" = dependabot ] || [ "$author" = 'app/dependabot' ]; then
             echo "Skipping review: cross-repo=$cross draft=$draft author=$author"
             echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Skipping review: unexpected head SHA '$sha'"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
           else
+            # Review exactly the commit that was checked, not whatever the
+            # branch points at by the time the checkout runs.
             echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check out pull request
         if: steps.guard.outputs.ok == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # pull_request checks out the merge ref by default; a comment run
-          # would otherwise check out the default branch.
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || '' }}
+          # pull_request checks out the merge ref by default. A comment run
+          # would otherwise check out the default branch, so it checks out the
+          # head commit the guard verified (a SHA, not the mutable PR ref).
+          ref: ${{ steps.guard.outputs.sha }}
           fetch-depth: 1
           persist-credentials: false
 
