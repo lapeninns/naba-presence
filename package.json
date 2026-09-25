@@ -25,7 +25,10 @@
     "lint": "eslint",
     "check:contrast": "node scripts/check-contrast.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test",
+    "verify:full": "pnpm verify && pnpm build && pnpm test:integration",
+    "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
