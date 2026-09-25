@@ -117,13 +117,19 @@ jobs:
           echo "Code jobs: $code"
 
   gate:
-    name: Gate
+    # Split three ways: on a 4-vCPU hosted runner the unit suite alone took
+    # ~3 minutes, so typecheck + lint + test in one job missed the target.
+    name: Gate (${{ matrix.part }})
     needs: plan
     if: needs.plan.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 10
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [typecheck + lint, unit 1/2, unit 2/2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,9 +137,17 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           cache: ${{ needs.plan.outputs.lane == 'hosted' && 'pnpm' || '' }}
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm test
+      - name: Typecheck
+        if: matrix.part == 'typecheck + lint'
+        run: pnpm typecheck
+      - name: Lint
+        if: matrix.part == 'typecheck + lint'
+        run: pnpm lint
+      - name: Unit tests
+        if: startsWith(matrix.part, 'unit ')
+        env:
+          PART: ${{ matrix.part }}
+        run: pnpm test --shard="${PART#unit }"
 
   build:
     name: Build
@@ -243,12 +257,20 @@ jobs:
         run: node scripts/ci/postgres.mjs stop
 
   integration:
-    name: Integration
+    # Two shards, each with its own cluster: one job took ~7.5 minutes of
+    # tests and was the critical path.
+    name: Integration (shard ${{ matrix.shard }}/2)
     needs: [plan, build]
     runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -264,7 +286,7 @@ jobs:
       - run: node scripts/ci/postgres.mjs start
       - run: pnpm db:migrate
       - run: pnpm db:runtime-role
-      - run: pnpm test:integration
+      - run: pnpm test:integration --shard="$SHARD/2"
       - name: Stop PostgreSQL
         if: always()
         run: node scripts/ci/postgres.mjs stop
