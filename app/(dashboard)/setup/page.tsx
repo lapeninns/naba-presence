@@ -1,4 +1,9 @@
-import { ArrowRightIcon, CircleCheckIcon, PlusIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  CircleCheckIcon,
+  Link2Icon,
+  PlusIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
@@ -72,34 +77,53 @@ export default async function SetupPage({
     )
   }
 
-  const unfinished = session
+  type ClientRow = {
+    id: string
+    name: string
+    colour: string | null
+    linked: number
+  }
+  // Every live client, with how many listings it has linked. "Add listings
+  // from Google" on /listings lands here without a client, so the existing
+  // clients have to be reachable too: listing only the unfinished ones left
+  // an agency whose clients were all set up with no way to add one more
+  // listing from that button.
+  const clients: ClientRow[] = session
     ? await withTenant(
         session.organisationId,
         (sql) =>
-          sql<{ id: string; name: string; colour: string | null }[]>`
-          select c.id::text as id, c.name, c.colour
-          from client c
-          where c.archived_at is null
-            -- "Unfinished" means no linked location: whatever else has been
-            -- filled in, a client with none is not yet doing anything.
-            and not exists (
-              select 1
+          sql<ClientRow[]>`
+          select
+            c.id::text as id,
+            c.name,
+            c.colour,
+            (
+              select count(*)::int
               from location l
               join location_link ll on ll.location_id = l.id and ll.is_active
               where l.client_id = c.id
-            )
+            ) as linked
+          from client c
+          where c.archived_at is null
+            and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
           order by c.created_at desc
-          limit 5
+          limit 200
         `
       )
     : []
+  // "Unfinished" means no linked location: whatever else has been filled in,
+  // a client with none is not yet doing anything.
+  const unfinished = clients.filter((entry) => entry.linked === 0).slice(0, 5)
+  const established = clients
+    .filter((entry) => entry.linked > 0)
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <PageFrame>
       <PageHeader
         title="Client setup"
         eyebrow="Clients"
-        description="Setup runs for one client at a time. Pick the one you’re working on."
+        description="Setup runs for one client at a time. Pick the one you’re working on, or add more listings to a client you already look after."
       />
       <section
         aria-labelledby="setup-waiting"
@@ -151,6 +175,52 @@ export default async function SetupPage({
           </ul>
         )}
       </section>
+      {established.length > 0 ? (
+        <section
+          aria-labelledby="setup-add-listings"
+          className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+        >
+          <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
+            <h2
+              id="setup-add-listings"
+              className="text-title font-semibold text-ink"
+            >
+              Add listings to a client
+            </h2>
+            <p className="text-ui text-ink-muted">
+              Link more of a client’s Google Business Profile locations.
+            </p>
+          </div>
+          <ul className="divide-y divide-line">
+            {established.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex flex-wrap items-center gap-3 px-(--np-card-pad) py-3.5"
+              >
+                <ClientAvatar name={entry.name} colour={entry.colour} />
+                <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
+                  <span className="text-body font-semibold break-words text-ink">
+                    {entry.name}
+                  </span>
+                  <span className="text-caption text-ink-muted">
+                    {entry.linked === 1
+                      ? "1 listing linked"
+                      : `${entry.linked} listings linked`}
+                  </span>
+                </div>
+                <Link
+                  href={`/setup?client=${entry.id}&step=locations`}
+                  aria-label={`Add listings to ${entry.name}`}
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  <Link2Icon aria-hidden />
+                  Add listings
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section
         aria-labelledby="setup-start-new"
         className="flex flex-wrap items-center justify-between gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"

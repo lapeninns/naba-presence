@@ -25,6 +25,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToastManager } from "@/components/ui/toast"
@@ -48,10 +55,20 @@ const PUBSUB_TOPIC_RE =
 export function NotificationsCard() {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
+  // The operator's own choice of login and account. Auto-selection only
+  // fills in when there is exactly one to choose; an agency login usually
+  // reaches several Business Profile accounts, and without a picker the card
+  // stayed on "Choose a Google account" with nothing to choose from.
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
+    string | null
+  >(null)
+  const [selectedAccountName, setSelectedAccountName] = useState<
+    string | null
+  >(null)
   const connectionId = deriveAutoSelection({
     connections: connections.map((c) => ({ id: c.id, status: c.status })),
     accounts: [],
-    selectedConnectionId: null,
+    selectedConnectionId,
     selectedAccountName: null,
   }).connectionId
   const accountsQuery = useGoogleAccounts(connectionId)
@@ -63,8 +80,9 @@ export function NotificationsCard() {
       isActive: a.isActive,
     })),
     selectedConnectionId: connectionId,
-    selectedAccountName: null,
+    selectedAccountName,
   }).accountName
+  const activeAccounts = accounts.filter((account) => account.isActive)
   const accountId =
     accounts.find((account) => account.googleAccountName === accountName)?.id ??
     null
@@ -78,28 +96,111 @@ export function NotificationsCard() {
   const [advancedOpen, setAdvancedOpen] = useState<boolean | null>(null)
   const topicRef = useRef<HTMLInputElement>(null)
 
+  // Unsaved edits belong to the account they were made for.
+  const resetEdits = () => {
+    setTopic(null)
+    setTypes(null)
+    setTopicError(null)
+  }
+
   const headingId = `${ids}-heading`
+  const choosers =
+    connections.length > 1 || activeAccounts.length > 1 ? (
+      <div className="flex flex-wrap gap-3 border-b border-line px-(--np-card-pad) py-3">
+        {connections.length > 1 ? (
+          <Field className="min-w-[14rem] flex-1">
+            <FieldLabel>Google login</FieldLabel>
+            <Select
+              value={connectionId ?? ""}
+              onValueChange={(value: string | null) => {
+                setSelectedConnectionId(value || null)
+                setSelectedAccountName(null)
+                resetEdits()
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string) =>
+                    connections.find((c) => c.id === value)?.googleEmail ??
+                    "Google login"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {connections.map((connection) => (
+                  <SelectItem key={connection.id} value={connection.id}>
+                    {connection.googleEmail ?? "Google login"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : null}
+        {activeAccounts.length > 1 ? (
+          <Field className="min-w-[14rem] flex-1">
+            <FieldLabel>Business Profile account</FieldLabel>
+            <Select
+              value={accountName ?? ""}
+              onValueChange={(value: string | null) => {
+                setSelectedAccountName(value || null)
+                resetEdits()
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string) =>
+                    activeAccounts.find(
+                      (account) => account.googleAccountName === value
+                    )?.accountName ?? "Choose an account"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {activeAccounts.map((account) => (
+                  <SelectItem
+                    key={account.googleAccountName}
+                    value={account.googleAccountName}
+                  >
+                    {account.accountName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : null}
+      </div>
+    ) : null
   const header = (
-    <CardHeader divided>
-      <CardTitle as="h2" id={headingId}>
-        Real-time notifications
-      </CardTitle>
-      <CardDescription>
-        Google can tell NabaPresence the moment a review arrives, instead of it
-        waiting for the next scheduled check. Without this, reviews still
-        arrive, just later.
-      </CardDescription>
-    </CardHeader>
+    <>
+      <CardHeader divided>
+        <CardTitle as="h2" id={headingId}>
+          Real-time notifications
+        </CardTitle>
+        <CardDescription>
+          Google can tell NabaPresence the moment a review arrives, instead of
+          it waiting for the next scheduled check. Without this, reviews still
+          arrive, just later.
+        </CardDescription>
+      </CardHeader>
+      {choosers}
+    </>
   )
 
   if (!accountId) {
     return (
       <Card flush aria-labelledby={headingId} role="region">
         {header}
-        <Empty
-          title="Choose a Google account"
-          description="Activate one of this login’s Business Profile accounts while setting up a client, then manage its notifications here."
-        />
+        {activeAccounts.length > 1 ? (
+          <Empty
+            title="Choose a Business Profile account"
+            description="Notifications are set per account. Pick one above to see and change what Google sends for it."
+          />
+        ) : (
+          <Empty
+            title="No active Google account"
+            description="Activate one of this login’s Business Profile accounts while setting up a client, then manage its notifications here."
+          />
+        )}
       </Card>
     )
   }
