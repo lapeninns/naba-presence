@@ -94,11 +94,33 @@ never renames a check either.
 
 CodeQL and Claude review are not required checks.
 
-The ruleset on `main` (deletion and non-fast-forward blocked, PR required
-with 0 approvals, `CI result` required with branches up to date, admin bypass
-only through a PR) is applied after this lands, as `lapeninns`. Merges are
-squash merges from an up-to-date branch, so the tree on `main` is the tree
-CI tested. The full graph still runs on the push to `main`: it is free on a
+**Ruleset "main protection"** (id `23895031`, applied 2026-09-25 as
+`lapeninns`). Source of truth: `.github/rulesets/main.json`.
+
+- Deletion and non-fast-forward pushes are blocked.
+- A PR is required, with 0 approvals.
+- `CI result` (GitHub Actions, integration 15368) is required, and the
+  branch must be up to date.
+- Admins can bypass only through a PR, so there are no direct pushes.
+
+Merges are squash merges from an up-to-date branch, so the tree on `main`
+is the tree CI tested.
+
+To change the ruleset, edit the JSON in a PR, then re-apply it and read it
+back:
+
+```bash
+gh api -X PUT repos/lapeninns/naba-presence/rulesets/23895031 --input .github/rulesets/main.json
+gh api repos/lapeninns/naba-presence/rules/branches/main
+```
+
+Repository Actions settings, also applied 2026-09-25:
+
+- Fork PR runs need approval from all external contributors
+  (`actions/permissions/fork-pr-contributor-approval`:
+  `all_external_contributors`).
+- The default `GITHUB_TOKEN` is read-only, and Actions cannot approve PRs
+  (`actions/permissions/workflow`). The full graph still runs on the push to `main`: it is free on a
 public repo, gives release-checklist run URLs, and writes the caches, which
 PRs can only read from `main`.
 
@@ -243,14 +265,17 @@ protection rules do not apply.
     (`VERCEL_GIT_PREVIOUS_SHA..VERCEL_GIT_COMMIT_SHA`) is docs-only.
   - Anything uncertain builds: an unknown `VERCEL_ENV`, no previous SHA, or a
     SHA outside Vercel's shallow clone.
-- **Recommended, not yet enabled:** Vercel **Deployment Checks** (Project →
+- **Recommended, not enabled yet (an owner dashboard task):** Vercel
+  **Deployment Checks** (Project →
   Settings → Deployment Checks) requiring the GitHub check `CI result`. The
   production domain is then assigned only after CI passes on that commit.
   Previews stay ungated. Deployment Checks gate promotion, not the build.
 
 ## 8. Self-hosted runner runbook
 
-Status: **not set up yet.** Every job runs on GitHub-hosted runners. Hosted
+Status: **not set up yet.** `scripts/ci/runner-setup.sh` is ready, but the
+owner has not run it on the Mac, and `SELF_HOSTED_ENABLED` is unset, so
+every job runs on GitHub-hosted runners. Hosted
 minutes are free for this public repo, so the Mac buys speed, not savings,
 and the hosted lane must always keep working.
 
@@ -286,7 +311,7 @@ A fork PR's `pull_request` run uses the fork's own workflow file, so a fork
 can write `runs-on: self-hosted` whatever `plan` says. The layers are:
 
 1. **Fork approval:** Settings → Actions → "Require approval for all external
-   contributors". **Never approve a fork run that changes `.github/**`**;
+   contributors". Applied (see [Required checks](#3-required-checks)). **Never approve a fork run that changes `.github/**`**;
    read the diff before approving any run.
 2. **Pre-job hook on the Mac** (`ACTIONS_RUNNER_HOOK_JOB_STARTED`). It refuses
    any job unless the repository is `lapeninns/naba-presence` and the event is
@@ -297,7 +322,8 @@ can write `runs-on: self-hosted` whatever `plan` says. The layers are:
 3. **Least privilege:** register the runner at repo level only, with the
    `naba-trusted` label. Run it as a dedicated non-admin macOS user
    `gh-runner` with no SSH keys, no `gh` auth, no keychain items and no access
-   to the owner's home folder. Set the default workflow token to read-only.
+   to the owner's home folder. The default workflow token is read-only
+   (applied).
 
 ### Install
 
@@ -364,8 +390,22 @@ review, or reopened. Pushes do not trigger it. To ask for another review:
 Drafts, fork PRs and Dependabot PRs are never reviewed. `issue_comment` runs
 always use the workflow from `main` and receive secrets even for a fork PR,
 so the comment path first checks the PR with `gh pr view` and stops if it is
-cross-repository, a draft or Dependabot's. Concurrency is set per PR at job
-level, so an unrelated comment cannot cancel a review in progress.
+cross-repository, a draft or Dependabot's. It then checks out the head SHA it
+verified, not the mutable `refs/pull/N/head`. Concurrency is set per PR at
+job level, so an unrelated comment cannot cancel a review in progress.
+
+**Known issues:**
+
+- **Reviews post nothing.** Every run since 2026-09-24 has ended after 2
+  turns with 5–32 permission denials, and has posted no comments. That
+  includes the review of the CI redesign PR (#36). The output is hidden, so
+  the denied tools are not visible. The likely fix is to widen `claude_args`
+  `--allowedTools` (for example `Read`, `Grep`, `Glob`, `Bash(git diff:*)`).
+  Confirm with one labelled review.
+- **Open CodeQL alert.** "Checkout of untrusted code in a privileged
+  context" on the comment path is accepted on purpose. Reviewing a PR means
+  checking it out, and only same-repo PRs commented on by owners, members or
+  collaborators get that far, and they can push anyway.
 
 ## 10. Nightly
 
