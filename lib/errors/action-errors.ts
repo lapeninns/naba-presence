@@ -101,7 +101,7 @@ const COPY: Record<string, string> = {
   approval_draft_changed:
     "This reply changed after you opened it. Read the current draft before approving or rejecting it.",
   stale_draft_evidence:
-    "This review changed since the draft was verified. Re-verify before publishing.",
+      "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:
     "Google may have applied the change. Check its status before retrying.",
   google_publish_failed: "Google rejected the reply. Please try again.",
@@ -350,6 +350,18 @@ const COPY: Record<string, string> = {
   // is usually there and simply running.
   replay_event_not_found:
     "That event can’t be replayed. Only failed and dead-lettered events can be, and one that is already running has to finish first.",
+
+  // ---- Google canonical codes ---------------------------------------------
+  // Passed through from Google by the listing routes (administration,
+  // industry). The status fallback read a Google 404 as "It may have been
+  // removed", as if the listing had vanished, when Google had only refused
+  // the account or resource named in the request.
+  NOT_FOUND:
+    "Google couldn’t find that account or listing. Check the details and try again. Nothing was changed.",
+  PERMISSION_DENIED:
+    "Google refused this change: the connected login doesn’t have permission for it. Nothing was changed.",
+  INVALID_ARGUMENT:
+    "Google didn’t accept those details. Check them and try again. Nothing was changed.",
 
   // ---- Client-side --------------------------------------------------------
   malformed_response:

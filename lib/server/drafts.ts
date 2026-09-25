@@ -64,7 +64,7 @@ const SEMANTIC_UNAVAILABLE: VerificationReason = {
   code: "semantic_verification_unavailable",
   severity: "warn",
   message:
-    "The AI verification pass could not run. Re-verify before publishing.",
+    "The AI verification pass could not run, so only the rule checks were applied. Read the reply carefully before publishing.",
 }
 
 /**

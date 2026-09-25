@@ -35,6 +35,8 @@ import { derivePrimaryAction, publishableDraft } from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
+import { useVerifyDraft } from "@/lib/queries/use-draft-mutations"
+import { ApiClientError } from "@/lib/api/client"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
@@ -66,6 +68,7 @@ const PRIMARY_CLASS = "max-md:h-12 max-md:flex-1"
 function ActionBar({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const publish = usePublishReview(reviewId)
+  const verify = useVerifyDraft(reviewId)
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
   const toasts = useToastManager()
@@ -143,12 +146,42 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     const draftId = saved?.draftId ?? verifiedDraft?.id
     if (!draftId) return
     try {
-      const result = await publish.mutateAsync({
-        draftId,
-        // The Google review's own update time, which saving a draft does not
-        // touch; the server refuses the publish if Google changed the review.
-        expectedReviewUpdateTime: review.updateTime,
-      })
+      let result
+      try {
+        result = await publish.mutateAsync({
+          draftId,
+          // The Google review's own update time, which saving a draft does
+          // not touch; the server refuses the publish if Google changed the
+          // review.
+          expectedReviewUpdateTime: review.updateTime,
+        })
+      } catch (error) {
+        // The customer changed the review after this reply was checked. The
+        // one-press flow re-checks the same text against the review as it
+        // stands now and, if it still passes, publishes once more; there is
+        // no separate Re-verify control to send the operator to.
+        if (
+          !(error instanceof ApiClientError) ||
+          error.code !== "stale_draft_evidence"
+        ) {
+          throw error
+        }
+        const { verification } = await verify.mutateAsync(draftId)
+        if (verification.verdict === "fail") {
+          toasts.add({
+            title:
+              "The review changed and this reply no longer passes the checks. Edit it, then publish again.",
+            type: "error",
+          })
+          return
+        }
+        const fresh = await detail.refetch()
+        result = await publish.mutateAsync({
+          draftId,
+          expectedReviewUpdateTime:
+            fresh.data?.review.updateTime ?? review.updateTime,
+        })
+      }
       // Server-confirmed only (D7): the resolved status — never a thrown
       // ApiClientError — decides the toast, so a `rejected` (Google declined
       // the reply) or any other non-published outcome can never render as
@@ -219,7 +252,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const sendEnabled = oneStep
     ? permitted && composerSave.blockedReason === null
     : primary.enabled
-  const checking = composerSave?.saving ?? false
+  const checking = (composerSave?.saving ?? false) || verify.isPending
   const sending = checking || publish.isPending
 
   // A failed publish is retried with the same verified draft: the same

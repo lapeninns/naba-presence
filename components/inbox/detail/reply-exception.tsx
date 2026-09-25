@@ -125,6 +125,21 @@ function describeException(
         }
   }
 
+  // An approver sent the reply back. The note they wrote in the reject dialog
+  // is the whole point of rejecting rather than editing, so the author sees
+  // it here until they resubmit.
+  if (review.lastRejection) {
+    const who = review.lastRejection.decidedByName ?? "An approver"
+    const note = review.lastRejection.note?.trim()
+    return {
+      title: "Sent back by the approver",
+      description: note
+        ? `${who} rejected this reply: “${note}” Edit it, then submit it again.`
+        : `${who} rejected this reply without a note. Edit it, then submit it again.`,
+      tone: "caution",
+    }
+  }
+
   if (action.kind === "submit") {
     return {
       title: "Approval required",
