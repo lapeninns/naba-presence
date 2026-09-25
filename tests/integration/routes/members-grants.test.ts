@@ -99,18 +99,16 @@ describeDatabase("member removal, location grants and the last owner", () => {
       await invite(owner, { email, canPublish: true }),
       randomUUID()
     )
-    const assignment = await fetch(`${server.baseUrl}/api/location-members`, {
-      method: "PUT",
-      headers: {
-        cookie: owner.cookie,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: accepted.userId,
-        assignments: [{ locationId: flagship, canPublish: true }],
-      }),
-    })
-    expect(assignment.status, await assignment.clone().text()).toBe(200)
+    // A per-location grant, seeded directly: the removal below is what is
+    // under test, not how the grant was made.
+    await admin`
+      insert into location_member (
+        organisation_id, location_id, user_id, can_publish
+      )
+      values (
+        ${owner.organisationId}, ${flagship}, ${accepted.userId}, true
+      )
+    `
 
     const removal = await fetch(`${server.baseUrl}/api/members`, {
       method: "DELETE",

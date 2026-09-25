@@ -9,6 +9,7 @@ vi.mock("@/lib/server/primary-location", () => ({
 
 import {
   flatRouteTarget,
+  flatSegmentFor,
   withForwardedQuery,
 } from "@/lib/server/flat-route-redirect"
 
@@ -46,5 +47,38 @@ describe("withForwardedQuery", () => {
     expect(withForwardedQuery("/clients", { moved: "x" }, "profile")).toBe(
       "/clients?moved=profile"
     )
+  })
+})
+
+describe("flatSegmentFor", () => {
+  it("maps every listing area an old /profile/<section> can name", () => {
+    for (const area of [
+      "profile",
+      "hours",
+      "menu",
+      "booking",
+      "photos",
+      "posts",
+      "people",
+      "verification",
+      "suggestions",
+      "changes",
+    ]) {
+      expect(flatSegmentFor(area)).toBe(area)
+    }
+    expect(flatSegmentFor("details")).toBe("profile")
+  })
+
+  it("sends an unknown section to the overview", () => {
+    expect(flatSegmentFor("nonsense")).toBe("")
+    expect(flatSegmentFor(undefined)).toBe("")
+  })
+
+  // A plain object answers inherited names too; indexing it turned
+  // /profile/constructor into /listings/<id>/function Object()...
+  it("never returns an inherited Object property", () => {
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(flatSegmentFor(name)).toBe("")
+    }
   })
 })
