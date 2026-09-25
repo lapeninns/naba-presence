@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   CircleAlertIcon,
+  CircleCheckIcon,
+  CircleIcon,
   InfoIcon,
   PenLineIcon,
   RotateCcwIcon,
@@ -34,6 +36,7 @@ import {
   REPLY_FOCUS_EVENT,
   REPLY_GENERATE_EVENT,
 } from "@/lib/inbox/events"
+import { greetingName, replyGuidance } from "@/lib/inbox/reply-guidance"
 import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
 import { replyWork } from "@/lib/inbox/review-situation"
 import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
@@ -354,6 +357,18 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       : []
   const showFail = verification?.verdict === "fail"
   const empty = body.trim() === ""
+  // Advice, ticked off as they type; never a gate — the verification above
+  // is the only check that can stop a publish.
+  const guidance = editable
+    ? replyGuidance({
+        body,
+        reviewerName: greetingName(
+          review.reviewerDisplayName,
+          review.reviewerIsAnonymous
+        ),
+        rating: review.rating,
+      })
+    : []
 
   const discardDialog = (
     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -415,7 +430,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </div>
   ) : null
 
-  // Tone applies to Generate, so it sits beside it.
+  // Tone applies to Generate, so it sits beside it, on the bar above the
+  // words: these are the prompt's controls, not part of the text.
   const toneControl = (
     <div
       role="radiogroup"
@@ -461,15 +477,56 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   return (
     <div data-slot="reply-composer" className="flex min-w-0 flex-col gap-2">
-      <label htmlFor={fieldId} className="text-ui font-semibold text-ink">
+      {/* The thread's "Reply as …" heading is the visible name; the field
+          keeps its own. */}
+      <label htmlFor={fieldId} className="sr-only">
         Your reply
       </label>
       {generateErrorNote}
 
       {/* One bordered card whose edge takes the focus ring while the
-          textarea inside is borderless, with the tone and Generate on a bar
-          beneath the words. */}
-      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface-sunken transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:shadow-[0_0_0_3px_var(--np-fill)] has-[[aria-invalid=true]]:border-danger-ink">
+          textarea inside is borderless: the tone and Generate docked on a
+          bar above the words, the guidance and length beneath them. */}
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:shadow-[0_0_0_3px_var(--np-fill)] has-[[aria-invalid=true]]:border-danger-ink">
+        <div
+          data-slot="composer-prompt-bar"
+          className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3"
+        >
+          <span
+            aria-hidden
+            className="text-caption text-ink-muted @max-[480px]/detail:hidden"
+          >
+            Tone
+          </span>
+          {toneControl}
+          <span aria-hidden className="flex-1" />
+          {editable && isDirty && seededBody !== "" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={generateOrSave.isPending}
+              onClick={() => {
+                setBody(seededBody)
+                setVerdictStale(false)
+              }}
+            >
+              <RotateCcwIcon aria-hidden data-icon="inline-start" />
+              Revert
+            </Button>
+          ) : null}
+          <Button
+            variant={empty ? "secondary" : "ghost"}
+            size="sm"
+            disabled={!canGenerate}
+            pending={generateOrSave.isPending && !saving}
+            pendingLabel="Writing…"
+            onClick={onGenerateClick}
+          >
+            <SparklesIcon aria-hidden data-icon="inline-start" />
+            {empty ? "Generate reply" : "Regenerate"}
+          </Button>
+        </div>
+
         <Textarea
           ref={textareaRef}
           id={fieldId}
@@ -482,6 +539,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             [
               showFail ? `${fieldId}-problem` : null,
               nearLimit || overLimit ? `${fieldId}-count` : null,
+              guidance.length > 0 ? `${fieldId}-guidance` : null,
             ]
               .filter(Boolean)
               .join(" ") || undefined
@@ -499,63 +557,80 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
             }
           }}
-          placeholder="Write a reply, or generate one below."
+          placeholder="Write a reply, or generate one in the chosen tone."
           className={cn(
-            "min-h-[128px] rounded-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            "min-h-[160px] rounded-none border-0 bg-transparent px-4 pt-3.5 pb-3 text-[15px] leading-relaxed shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
             generateOrSave.isPending && !saving && "animate-pulse"
           )}
         />
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-line px-2.5 py-2">
-          {toneControl}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={!canGenerate}
-            pending={generateOrSave.isPending && !saving}
-            pendingLabel="Writing…"
-            onClick={onGenerateClick}
+        {guidance.length > 0 || nearLimit || overLimit ? (
+          <div
+            data-slot="composer-foot"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5"
           >
-            <SparklesIcon aria-hidden data-icon="inline-start" />
-            {empty ? "Generate reply" : "Regenerate"}
-          </Button>
-          {editable && isDirty && seededBody !== "" ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={generateOrSave.isPending}
-              onClick={() => {
-                setBody(seededBody)
-                setVerdictStale(false)
-              }}
-            >
-              <RotateCcwIcon aria-hidden data-icon="inline-start" />
-              Revert
-            </Button>
-          ) : null}
-          <span aria-hidden className="flex-1" />
-          {nearLimit || overLimit ? (
-            <span
-              id={`${fieldId}-count`}
-              data-slot="length-note"
-              className={cn(
-                "text-caption",
-                overLimit ? "font-semibold text-danger-ink" : "text-warning-ink"
-              )}
-            >
-              {overLimit
-                ? `Over Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
-                : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
-            </span>
-          ) : null}
-          <span role="status" className="sr-only">
-            {overLimit
-              ? "Your reply is over Google's length limit."
-              : nearLimit
-                ? "Your reply is nearly at Google's length limit."
-                : ""}
-          </span>
-        </div>
+            {guidance.length > 0 ? (
+              <ul
+                id={`${fieldId}-guidance`}
+                aria-label="Reply guidance"
+                data-slot="reply-guidance"
+                className="m-0 flex min-w-0 flex-[1_1_auto] list-none flex-wrap items-center gap-x-3.5 gap-y-1 p-0 text-caption"
+              >
+                {guidance.map((item) => (
+                  <li
+                    key={item.id}
+                    data-met={item.met}
+                    className={cn(
+                      "inline-flex items-center gap-1.5",
+                      item.met ? "text-ink" : "text-ink-muted"
+                    )}
+                  >
+                    {item.met ? (
+                      <CircleCheckIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-success-ink"
+                      />
+                    ) : (
+                      <CircleIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-faint"
+                      />
+                    )}
+                    {item.label}
+                    <span className="sr-only">
+                      {item.met ? ": done" : ": not yet"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {nearLimit || overLimit ? (
+              <span
+                id={`${fieldId}-count`}
+                data-slot="length-note"
+                className={cn(
+                  "ml-auto text-caption",
+                  overLimit
+                    ? "font-semibold text-danger-ink"
+                    : "text-warning-ink"
+                )}
+              >
+                {overLimit
+                  ? `Over Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
+                  : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <span role="status" className="sr-only">
+          {overLimit
+            ? "Your reply is over Google's length limit."
+            : nearLimit
+              ? "Your reply is nearly at Google's length limit."
+              : ""}
+        </span>
       </div>
 
       {showFail ? (

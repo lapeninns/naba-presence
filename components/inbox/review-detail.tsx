@@ -11,9 +11,11 @@ import {
   MoreHorizontalIcon,
   PlayIcon,
   TriangleAlertIcon,
+  UserIcon,
 } from "lucide-react"
 import Link from "next/link"
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
@@ -38,10 +40,7 @@ import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
-import {
-  useComposerSave,
-  useIsDirty,
-} from "@/components/inbox/dirty-context"
+import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
@@ -51,7 +50,11 @@ import {
   type ReplyStateInput,
   type ReplyStatus,
 } from "@/lib/inbox/reply-state"
-import { describeReplyState, replyWork } from "@/lib/inbox/review-situation"
+import {
+  describeReplyState,
+  isLiveOnGoogle,
+  replyWork,
+} from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { useReplyPending } from "@/lib/queries/use-reply-pending"
@@ -106,21 +109,62 @@ function reviewerName(review: Review): string {
     : (review.reviewerDisplayName ?? "Anonymous")
 }
 
+function initialsOf(name: string): string {
+  // Whole characters, not UTF-16 halves, so a name that opens with an
+  // astral-plane letter or emoji keeps it intact.
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((part) => Array.from(part)[0] ?? "")
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
+}
+
+// The thread's rail: a 44px avatar column (32px in a narrow pane) beside the
+// words, so the review and the reply read as one conversation.
+const THREAD_ITEM_CLASS =
+  "grid grid-cols-[44px_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[32px_minmax(0,1fr)] @max-[480px]/detail:gap-x-3"
+const THREAD_AVATAR_CLASS =
+  "@max-[480px]/detail:size-8 @max-[480px]/detail:text-caption"
+
 /**
- * The pane's head: on a phone the way back to the list, then whose review
- * this is — the name and one meta line (stars, listing, when) — and a ⋯ menu
- * holding everything that is true but not part of replying: the listing, the
- * history and the review's details. It says nothing about the reply; the
- * reply's state is on the publish bar.
+ * Who wrote it: the Google profile photo when there is one, else initials;
+ * a person glyph for an anonymous reviewer. Decorative — the name beside it
+ * is the accessible identity.
  */
-function ReviewHead({
+function ReviewerAvatar({ review }: { review: Review }) {
+  const name = reviewerName(review)
+  return (
+    <Avatar size="lg" aria-hidden className={THREAD_AVATAR_CLASS}>
+      {!review.reviewerIsAnonymous && review.reviewerProfilePhotoUrl ? (
+        <AvatarImage
+          src={review.reviewerProfilePhotoUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+        />
+      ) : null}
+      <AvatarFallback>
+        {review.reviewerIsAnonymous ? (
+          <UserIcon aria-hidden strokeWidth={1.75} className="size-4" />
+        ) : (
+          initialsOf(name)
+        )}
+      </AvatarFallback>
+    </Avatar>
+  )
+}
+
+/**
+ * Whose review this is — the name and one meta line (stars, when, and that
+ * it is a Google review) — at the head of the thread. It says nothing about
+ * the reply; that is said once, at the head of the reply row.
+ */
+function ReviewerIdentity({
   review,
   focusHeading = false,
 }: {
   review: Review
-  /** Kept for the caller; the head no longer names the client. */
-  clientName?: string | null
-  clientId?: string | null
   focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
@@ -134,6 +178,58 @@ function ReviewHead({
     headingRef.current?.focus()
   }, [focusHeading])
 
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <h2
+        ref={headingRef}
+        tabIndex={-1}
+        data-slot="review-heading"
+        className="line-clamp-2 min-w-0 font-display text-[17px] leading-snug font-semibold break-words text-ink focus-visible:outline-none"
+      >
+        {displayName}
+      </h2>
+      <p
+        data-slot="review-meta"
+        className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-5 text-ink-muted"
+      >
+        {review.rating !== null ? (
+          <>
+            <Stars
+              value={review.rating}
+              size="sm"
+              label={`Rated ${review.rating} out of 5`}
+            />
+            <span aria-hidden>·</span>
+          </>
+        ) : null}
+        <time
+          dateTime={review.createTime}
+          title={formatDateTime(review.createTime, review.timezone)}
+          className="tabular-nums"
+        >
+          {formatRelativeTime(review.createTime)}
+        </time>
+        {wasEdited(review.createTime, review.updateTime) ? (
+          <time
+            dateTime={review.updateTime}
+            title={formatDateTime(review.updateTime, review.timezone)}
+            className="tabular-nums"
+          >
+            · edited {formatRelativeTime(review.updateTime)}
+          </time>
+        ) : null}
+        <span aria-hidden>·</span>
+        <span>Google review</span>
+      </p>
+    </div>
+  )
+}
+
+/**
+ * The ⋯ menu beside the reviewer: everything that is true but not part of
+ * replying — the listing, the history and the review's details.
+ */
+function ReviewMenu({ review }: { review: Review }) {
   // The dialogs open from menu items that unmount with the menu, so focus
   // is handed back to the ⋯ trigger when they close.
   const moreRef = useRef<HTMLButtonElement>(null)
@@ -142,49 +238,6 @@ function ReviewHead({
 
   return (
     <>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <h2
-          ref={headingRef}
-          tabIndex={-1}
-          data-slot="review-heading"
-          className="line-clamp-2 min-w-0 font-display text-xl leading-tight font-semibold break-words text-ink focus-visible:outline-none max-md:text-[18px]"
-        >
-          {displayName}
-        </h2>
-        <p
-          data-slot="review-meta"
-          className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-5 text-ink-muted"
-        >
-          {review.rating !== null ? (
-            <>
-              <Stars
-                value={review.rating}
-                size="sm"
-                label={`Rated ${review.rating} out of 5`}
-              />
-              <span aria-hidden>·</span>
-            </>
-          ) : null}
-          <span className="min-w-0 truncate">{review.locationName}</span>
-          <span aria-hidden>·</span>
-          <time
-            dateTime={review.createTime}
-            title={formatDateTime(review.createTime, review.timezone)}
-            className="tabular-nums"
-          >
-            {formatRelativeTime(review.createTime)}
-          </time>
-          {wasEdited(review.createTime, review.updateTime) ? (
-            <time
-              dateTime={review.updateTime}
-              title={formatDateTime(review.updateTime, review.timezone)}
-              className="tabular-nums"
-            >
-              · edited {formatRelativeTime(review.updateTime)}
-            </time>
-          ) : null}
-        </p>
-      </div>
       <DropdownMenu>
         <DropdownMenuTrigger
           ref={moreRef}
@@ -193,7 +246,7 @@ function ReviewHead({
               variant="ghost"
               size="icon-sm"
               aria-label="More actions"
-              className="shrink-0 max-md:size-11"
+              className="-mt-1 shrink-0 max-md:size-11"
             />
           }
         >
@@ -247,23 +300,19 @@ function ReviewHead({
  * The head's frame, shared by the loading, error and loaded pane so the
  * return-to-list control is the SAME element throughout: it takes focus
  * when a review opens on a phone, and a control that was swapped for a new
- * one when the review arrived would drop that focus.
+ * one when the review arrived would drop that focus. It holds nothing else —
+ * who wrote the review is at the head of the thread — so it is a phone-only
+ * row.
  */
-function HeadFrame({
-  leading,
-  children,
-}: {
-  leading?: ReactNode
-  children: ReactNode
-}) {
+function HeadFrame({ leading }: { leading?: ReactNode }) {
+  if (!leading) return null
   return (
-    <div className="shrink-0 border-b border-line">
+    <div className="shrink-0 border-b border-line md:hidden">
       <div
         data-slot="review-head"
-        className="flex min-w-0 items-center gap-3 px-4 py-3 max-md:gap-1.5 max-md:px-2 max-md:py-2.5"
+        className="flex min-w-0 items-center gap-1.5 px-2 py-2"
       >
-        {leading ? <div className="shrink-0 md:hidden">{leading}</div> : null}
-        {children}
+        <div className="shrink-0">{leading}</div>
       </div>
     </div>
   )
@@ -644,36 +693,91 @@ function ActionFooterSkeleton() {
 }
 
 /**
- * The review, then the reply: one column, the customer's words above the
- * place the answer is written.
+ * Where the reply will appear, said once at the head of the reply: private
+ * while it is a draft, and what Google holds once something was sent.
+ */
+function replyVisibility(review: Review): string {
+  const status = review.reply?.publishStatus ?? null
+  if (!review.reply || !status || status === "not_published") {
+    return "Private until you publish"
+  }
+  const label = describeReplyState(status).label
+  return isLiveOnGoogle(status) && replyWork(review).hasUnpublishedChanges
+    ? `${label} · your newer draft is not published yet`
+    : label
+}
+
+/**
+ * The review, then the reply: one conversation, the customer's words above
+ * the place the answer is written, joined by the rail between the two
+ * avatars.
  */
 function ReviewThread({
   review,
   composer,
+  focusHeading,
 }: {
   review: Review
   composer?: ReactNode
+  focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
 
   return (
-    <div data-slot="review-thread" className="flex flex-col gap-6">
+    <div data-slot="review-thread" className="flex flex-col">
       <article
         aria-label={`Review from ${displayName}`}
         data-slot="thread-review"
-        className="flex flex-col gap-3"
+        className={cn(THREAD_ITEM_CLASS, "pb-7")}
       >
-        <ReviewBody review={review} />
-        <ReviewMedia media={review.media} />
+        <div className="relative">
+          <ReviewerAvatar review={review} />
+          <span
+            aria-hidden
+            data-slot="thread-rail"
+            className="absolute top-[52px] bottom-2 left-1/2 w-px -translate-x-1/2 bg-line @max-[480px]/detail:top-10"
+          />
+        </div>
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <ReviewerIdentity review={review} focusHeading={focusHeading} />
+            <ReviewMenu review={review} />
+          </div>
+          <ReviewBody review={review} />
+          <ReviewMedia media={review.media} />
+        </div>
       </article>
 
       <section
         aria-label="Your reply"
         data-slot="thread-reply"
-        className="flex flex-col gap-3"
+        className={THREAD_ITEM_CLASS}
       >
-        <LiveReplyDisclosure review={review} />
-        {composer}
+        <div>
+          <Avatar
+            size="lg"
+            shape="square"
+            aria-hidden
+            className={cn("bg-ink text-canvas", THREAD_AVATAR_CLASS)}
+          >
+            <AvatarFallback>{initialsOf(review.locationName)}</AvatarFallback>
+          </Avatar>
+        </div>
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
+            <h3
+              data-slot="reply-heading"
+              className="min-w-0 text-[15px] leading-snug font-semibold break-words text-ink"
+            >
+              Reply as {review.locationName}
+            </h3>
+            <p className="text-[13px] leading-5 text-ink-muted">
+              {replyVisibility(review)}
+            </p>
+          </div>
+          <LiveReplyDisclosure review={review} />
+          {composer}
+        </div>
       </section>
     </div>
   )
@@ -695,17 +799,15 @@ const COLUMN_CLASS = "mx-auto flex w-full max-w-[760px] flex-col gap-5"
 
 function ReviewDetail({
   reviewId,
-  clientName,
-  clientId,
   leading,
   composer,
   actions,
   focusHeading = false,
 }: {
   reviewId: string
-  /** The client the review's location belongs to, from the list row. */
+  /** Accepted for compatibility; the pane no longer names the client. */
   clientName?: string | null
-  /** Its id, for the link to the client. */
+  /** Accepted for compatibility. */
   clientId?: string | null
   /** Accepted for compatibility; the pane no longer draws an avatar for it. */
   organisationName?: string
@@ -729,27 +831,7 @@ function ReviewDetail({
       aria-busy={pending || undefined}
       className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
     >
-      <HeadFrame leading={leading}>
-        {review ? (
-          <ReviewHead
-            review={review}
-            clientName={clientName}
-            clientId={clientId}
-            focusHeading={focusHeading}
-          />
-        ) : (
-          <>
-            {pending ? (
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-3 w-56 max-w-full" />
-              </div>
-            ) : (
-              <span className="flex-1" />
-            )}
-          </>
-        )}
-      </HeadFrame>
+      <HeadFrame leading={leading} />
 
       {/* One reading order, one scroll region: what is in the way, then the
           customer's words and the reply — with the publish bar pinned
@@ -758,7 +840,11 @@ function ReviewDetail({
         <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
           <div className={COLUMN_CLASS}>
             <ReplyExceptionSlot review={review} />
-            <ReviewThread review={review} composer={composer} />
+            <ReviewThread
+              review={review}
+              composer={composer}
+              focusHeading={focusHeading}
+            />
           </div>
         </div>
       ) : failed ? (
@@ -771,6 +857,13 @@ function ReviewDetail({
       ) : (
         <div className={SCROLL_CLASS}>
           <div className={COLUMN_CLASS}>
+            <div className={THREAD_ITEM_CLASS}>
+              <Skeleton className="size-11 rounded-(--np-radius-pill) @max-[480px]/detail:size-8" />
+              <div className="flex flex-col gap-1.5 pt-1">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-3 w-56 max-w-full" />
+              </div>
+            </div>
             <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
             <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
           </div>
