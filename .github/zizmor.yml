@@ -1,0 +1,6 @@
+rules:
+  # zizmor 1.30 prefers GitHub's `$/` self-repository syntax (July 2026), but
+  # actionlint 1.7.12 rejects it and loses the local action's input checks.
+  # Revisit once actionlint understands `$/`.
+  self-repository:
+    disable: true

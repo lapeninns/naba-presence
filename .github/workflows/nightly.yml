@@ -1,0 +1,43 @@
+name: Nightly
+
+# The full CI graph on main (full e2e including accessibility.spec.ts,
+# migrate-from-scratch and a full-history secret scan via `full: true`), plus
+# checks too slow or noisy for every pull request. A failed scheduled run
+# emails the repository owner by default.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ci:
+    name: CI
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+    # The ceiling for every job in ci.yml; each job there grants itself less.
+    permissions:
+      contents: read
+      pull-requests: read
+
+  audit:
+    name: Audit production dependencies
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Reads the lockfile only; no install needed.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm audit --prod --audit-level high
