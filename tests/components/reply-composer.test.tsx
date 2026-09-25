@@ -192,7 +192,7 @@ describe("ReplyComposer — the editor", () => {
     expect(textbox()).toHaveValue("")
     expect(textbox()).toHaveAttribute(
       "placeholder",
-      "Write a reply, or generate one below."
+      "Write a reply, or generate one in the chosen tone."
     )
     const tones = screen.getByRole("radiogroup", { name: "Reply tone" })
     for (const name of ["Warm", "Concise", "Empathetic"]) {
@@ -210,6 +210,32 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
+  // The tone and Generate are the prompt's controls, docked on a bar above
+  // the words rather than mixed into the text.
+  it("docks the tone and Generate above the editor", () => {
+    mount()
+    const bar = document.querySelector('[data-slot="composer-prompt-bar"]')
+    expect(bar).not.toBeNull()
+    expect(
+      within(bar as HTMLElement).getByRole("radiogroup", { name: "Reply tone" })
+    ).toBeInTheDocument()
+    expect(
+      bar!.compareDocumentPosition(textbox()) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("ticks the reply guidance off as they type, without blocking anything", async () => {
+    const user = userEvent.setup()
+    mount()
+    const guidance = screen.getByRole("list", { name: "Reply guidance" })
+    expect(textbox()).toHaveAccessibleDescription(/Under 1,000 characters/)
+    const length = within(guidance).getByText(/Under 1,000 characters/)
+    expect(length.closest("li")).toHaveAttribute("data-met", "false")
+
+    await user.type(textbox(), "Thank you for the kind words.")
+    expect(length.closest("li")).toHaveAttribute("data-met", "true")
+  })
+
   it("fills the box from Generate, in the chosen tone, without sending a body", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(
@@ -223,7 +249,9 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty("body")
     expect(textbox()).toHaveValue("AI drafted reply")
-    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Regenerate" })
+    ).toBeInTheDocument()
   })
 
   it("seeds the box from an existing draft, editable", () => {
@@ -311,7 +339,9 @@ describe("ReplyComposer — the editor", () => {
     mount({}, vi.fn().mockRejectedValue(new TypeError("offline")))
     await user.click(screen.getByRole("button", { name: "Generate reply" }))
     const alert = await screen.findByRole("alert")
-    await user.click(within(alert).getByRole("button", { name: "Write my own" }))
+    await user.click(
+      within(alert).getByRole("button", { name: "Write my own" })
+    )
     await waitFor(() => expect(textbox()).toHaveFocus())
   })
 
@@ -457,7 +487,10 @@ describe("ReplyComposer — the save Publish runs", () => {
     await user.clear(textbox())
     const probe = screen.getByRole("button", { name: "Probe save" })
     expect(probe).toBeDisabled()
-    expect(probe).toHaveAttribute("title", "Write the reply before publishing it.")
+    expect(probe).toHaveAttribute(
+      "title",
+      "Write the reply before publishing it."
+    )
   })
 
   it("says the text cannot be sent while it is over Google's limit", () => {

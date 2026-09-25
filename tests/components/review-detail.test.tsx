@@ -120,12 +120,59 @@ describe("ReviewDetail", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
     renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(screen.getByText("Slow service at breakfast.")).toBeInTheDocument()
-    expect(screen.getAllByText("Riverside").length).toBeGreaterThan(0)
+    // The reply is written as the listing, and says so at its head.
+    expect(
+      screen.getByRole("heading", { name: "Reply as Riverside", level: 3 })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "Your reply" })
+    ).toHaveTextContent("Private until you publish")
   })
 
-  // Who, in one line under the name: stars, listing and when. No avatar, no
-  // client link, no "Google review" caption.
-  it("reads the rating in the head's meta line", () => {
+  // One conversation: the reviewer's avatar joined by a rail to the
+  // listing's, the review above the reply.
+  it("draws the review and the reply as one thread", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const thread = container.querySelector<HTMLElement>(
+      '[data-slot="review-thread"]'
+    )
+    expect(thread).not.toBeNull()
+    const review = thread!.querySelector('[data-slot="thread-review"]')
+    const reply = thread!.querySelector('[data-slot="thread-reply"]')
+    expect(review?.querySelector('[data-slot="avatar"]')).toHaveTextContent(
+      "ST"
+    )
+    expect(review?.querySelector('[data-slot="thread-rail"]')).not.toBeNull()
+    expect(reply?.querySelector('[data-slot="avatar"]')).toHaveTextContent("R")
+    // Review first, then reply, in reading order.
+    expect(
+      review!.compareDocumentPosition(reply!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("gives an anonymous reviewer no initials", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ reviewerIsAnonymous: true }),
+    })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const avatar = container.querySelector(
+      '[data-slot="thread-review"] [data-slot="avatar"]'
+    )
+    expect(avatar).not.toBeNull()
+    expect(avatar!.textContent?.trim()).toBe("")
+    // A person glyph stands in for the initials.
+    expect(avatar!.querySelector("svg")).not.toBeNull()
+    expect(
+      screen.getByRole("heading", { name: "Anonymous", level: 2 })
+    ).toBeInTheDocument()
+  })
+
+  // Who, in one line under the name: stars, when, and that it is a Google
+  // review. The listing is named once, on the reply ("Reply as …").
+  it("reads the rating in the thread's meta line", () => {
     fakeDetail({
       isPending: false,
       isError: false,
@@ -139,8 +186,8 @@ describe("ReviewDetail", () => {
     expect(within(meta!).getByRole("img")).toHaveAccessibleName(
       "Rated 4 out of 5"
     )
-    expect(meta).toHaveTextContent("Riverside")
-    expect(meta).not.toHaveTextContent("Google review")
+    expect(meta).toHaveTextContent("Google review")
+    expect(meta).not.toHaveTextContent("Riverside")
   })
 
   // The pane used to answer "where has this reply got to" three times over.
@@ -174,8 +221,8 @@ describe("ReviewDetail", () => {
     expect(strip).toHaveTextContent("Draft checked · Ready to publish")
     expect(strip).toHaveAttribute("data-slot", "reply-status-strip")
 
-    // The identity header carries the reviewer, the rating, the venue and the
-    // age — and nothing about the reply's progress.
+    // The identity header carries the reviewer, the rating, the age and the
+    // source — and nothing about the reply's progress.
     const heading = screen.getByRole("heading", {
       name: "Sam Traveller",
       level: 2,
@@ -184,7 +231,7 @@ describe("ReviewDetail", () => {
     // Confirm we are looking at the identity row before asserting on what it
     // does not say, so a restructure cannot turn this into a check on an empty
     // wrapper that trivially passes.
-    expect(header).toHaveTextContent("Riverside")
+    expect(header).toHaveTextContent("Google review")
     expect(header).not.toHaveTextContent("Ready to publish")
   })
 
