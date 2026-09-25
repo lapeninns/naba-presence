@@ -301,6 +301,25 @@ can write `runs-on: self-hosted` whatever `plan` says. The layers are:
 
 ### Install
 
+**Use [`scripts/ci/runner-setup.sh`](../scripts/ci/runner-setup.sh).** It
+does steps 1–4 below plus a verify pass. It is idempotent and stops at the
+first error. Run it from a checkout, as the Mac's admin user; it asks for
+`sudo` itself. The registration token comes from `RUNNER_TOKEN`, or the script
+prompts for it. It passes the token to `config.sh` through stdin, never on a
+command line.
+
+```bash
+RUNNER_TOKEN="$(gh api -X POST repos/lapeninns/naba-presence/actions/runners/registration-token --jq .token)" \
+  bash scripts/ci/runner-setup.sh          # install or update, then verify
+bash scripts/ci/runner-setup.sh verify     # checks only
+```
+
+It pins actions/runner to a version and SHA256, then lets the runner update
+itself. It closes your home folder to other users (`chmod 700`), so jobs
+cannot read checkouts or `.env` files; set `NABA_KEEP_HOME_PERMS=1` to skip
+that. Re-run it after changing a hook's reference copy. The steps it
+automates:
+
 1. `brew install postgresql@17 gitleaks jq`. Create the `gh-runner` user.
 2. Two runner instances, `mac-1` and `mac-2`, in separate folders so
    integration and e2e run in parallel:
