@@ -38,6 +38,7 @@ import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
 import { replyWork } from "@/lib/inbox/review-situation"
 import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
+import { useReplyCardSlot } from "@/components/inbox/reply-card-slot"
 import type { LatestVerification } from "@/lib/api/reviews"
 import { cn } from "@/lib/utils"
 
@@ -75,6 +76,7 @@ function byteLength(value: string): number {
 function ReplyComposer({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const review = detail.data?.review
+  const cardSlot = useReplyCardSlot()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // What is live on Google, and what the newest saved draft says. The editor
@@ -548,14 +550,20 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                 : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
             </span>
           ) : null}
-          <span role="status" className="sr-only">
-            {overLimit
-              ? "Your reply is over Google's length limit."
-              : nearLimit
-                ? "Your reply is nearly at Google's length limit."
-                : ""}
-          </span>
+          {nearLimit || overLimit ? (
+            <span role="status" className="sr-only">
+              {overLimit
+                ? "Your reply is over Google's length limit."
+                : "Your reply is nearly at Google's length limit."}
+            </span>
+          ) : null}
         </div>
+
+        {cardSlot ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line px-2.5 py-2">
+            {cardSlot}
+          </div>
+        ) : null}
       </div>
 
       {showFail ? (

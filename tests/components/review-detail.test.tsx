@@ -6,6 +6,7 @@ import type { ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ReviewDetail } from "@/components/inbox/review-detail"
+import { useReplyCardSlot } from "@/components/inbox/reply-card-slot"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
@@ -28,6 +29,15 @@ function renderPane(ui: ReactElement) {
     defaultOptions: { queries: { retry: false } },
   })
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
+
+function Card() {
+  const slot = useReplyCardSlot()
+  return <div data-slot="reply-composer">{slot}</div>
+}
+
+function withCard() {
+  return <ReviewDetail reviewId="rev-1" composer={<Card />} />
 }
 
 const detail: ReviewDetailData = {
@@ -112,13 +122,13 @@ afterEach(() => vi.restoreAllMocks())
 describe("ReviewDetail", () => {
   it("renders a busy state while the detail query is pending", () => {
     fakeDetail({ isPending: true, isError: false })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
   it("renders the conversation and the reviewer's words", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     expect(screen.getByText("Slow service at breakfast.")).toBeInTheDocument()
     expect(screen.getAllByText("Riverside").length).toBeGreaterThan(0)
   })
@@ -131,7 +141,7 @@ describe("ReviewDetail", () => {
       isError: false,
       data: reviewWith({ rating: 4 }),
     })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
     const meta = container.querySelector<HTMLElement>(
       '[data-slot="review-meta"]'
     )
@@ -148,7 +158,7 @@ describe("ReviewDetail", () => {
   // is not drawn on the reply pane.
   it("keeps one status surface and does not draw a lifecycle", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
     expect(
       container.querySelector('ol[aria-label="Reply progress"]')
     ).toBeNull()
@@ -162,17 +172,15 @@ describe("ReviewDetail", () => {
   // (reference `.actionbar .ab-status`), not in the header: the header answers
   // "whose review is this", and the sentence here is the same
   // `deriveReplyStatus` wording the list row shows in its short form.
-  it("states the reply's status on the action bar, not in the header", () => {
+  it("states the reply's status on the reply card, not in the header", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
 
-    const footer = container.querySelector<HTMLElement>(
-      '[data-slot="composer-footer"]'
-    )
-    expect(footer).not.toBeNull()
-    const strip = within(footer!).getByRole("status")
+    expect(container.querySelector("footer")).toBeNull()
+    const strip = statusStrip(container)
     expect(strip).toHaveTextContent("Draft checked · Ready to publish")
-    expect(strip).toHaveAttribute("data-slot", "reply-status-strip")
+    const card = strip.closest('[data-slot="reply-composer"]')
+    expect(card).not.toBeNull()
 
     // The identity header carries the reviewer, the rating, the venue and the
     // age — and nothing about the reply's progress.
@@ -200,7 +208,7 @@ describe("ReviewDetail", () => {
         text: "(Translated by Google) The food is excellent. (Original) Si mangia benissimo.",
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     expect(screen.getByText("The food is excellent.")).toBeInTheDocument()
     expect(screen.queryByText(/Si mangia benissimo/)).not.toBeInTheDocument()
@@ -236,7 +244,7 @@ describe("ReviewDetail", () => {
         },
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     expect(
       screen.queryByRole("button", { name: /differs from the reply below/ })
     ).not.toBeInTheDocument()
@@ -262,7 +270,7 @@ describe("ReviewDetail", () => {
         },
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     // The lifecycle strip's Published stage says "Live on Google" as its own
     // meta line as well, so this is a "one or more" count.
@@ -301,7 +309,7 @@ describe("ReviewDetail", () => {
         },
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     const replySection = screen.getByRole("region", { name: "Your reply" })
     expect(screen.getByRole("status")).toHaveTextContent("Approval required")
@@ -335,7 +343,7 @@ describe("ReviewDetail", () => {
         },
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     const strip = screen.getByRole("status")
     expect(strip).toHaveTextContent(
@@ -365,7 +373,7 @@ describe("ReviewDetail", () => {
         ],
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     // Scoped to the media region: the pane can hold a second list — the
     // exception's lifecycle detail — and an unscoped count would silently
     // start asserting on whichever one came first.
@@ -392,7 +400,7 @@ describe("ReviewDetail", () => {
         ],
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     await user.click(
       screen.getByRole("button", { name: "Open Breakfast buffet" })
     )
@@ -424,7 +432,7 @@ describe("ReviewDetail", () => {
         ],
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     await user.click(
       screen.getByRole("button", { name: "Open Breakfast buffet" })
     )
@@ -440,7 +448,7 @@ describe("ReviewDetail", () => {
   it("keeps the review's provenance behind ⋯ → Review details", async () => {
     const user = userEvent.setup()
     fakeDetail({ isPending: false, isError: false, data: detail })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     await user.click(screen.getByRole("button", { name: "More actions" }))
     await user.click(
@@ -469,7 +477,7 @@ describe("ReviewDetail", () => {
         ],
       }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
 
     // Not on the pane itself any more.
     expect(screen.queryByText("Draft generated")).not.toBeInTheDocument()
@@ -482,7 +490,7 @@ describe("ReviewDetail", () => {
   it("links to the listing from ⋯", async () => {
     const user = userEvent.setup()
     fakeDetail({ isPending: false, isError: false, data: detail })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     await user.click(screen.getByRole("button", { name: "More actions" }))
     expect(
       await screen.findByRole("menuitem", { name: "Open listing" })
@@ -494,7 +502,7 @@ describe("ReviewDetail", () => {
   // when something is actually in the way, and only behind a disclosure.
   it("raises no exception for a review that is simply ready to publish", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
     expect(container.querySelector('[data-slot="reply-exception"]')).toBeNull()
     expect(
       screen.queryByRole("button", { name: "Workflow details" })
@@ -517,7 +525,7 @@ describe("ReviewDetail", () => {
         },
       }),
     })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
 
     const exception = container.querySelector<HTMLElement>(
       '[data-slot="reply-exception"]'
@@ -560,7 +568,7 @@ describe("ReviewDetail", () => {
           },
         }),
       })
-      const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+      const { container } = renderPane(withCard())
       const exception = container.querySelector<HTMLElement>(
         '[data-slot="reply-exception"]'
       )!
@@ -587,7 +595,7 @@ describe("ReviewDetail", () => {
       isError: false,
       data: reviewWith({ workflowStatus: "new", drafts: [] }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     expect(screen.getByRole("status")).toHaveTextContent("No reply yet")
     expect(
       screen.queryByRole("list", { name: "Reply lifecycle" })
@@ -606,13 +614,13 @@ describe("ReviewDetail", () => {
       isError: false,
       data: reviewWith({ updateTime: "2026-08-02T10:00:00.000Z" }),
     })
-    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const { container } = renderPane(withCard())
     expect(
       container.querySelector('time[datetime="2026-08-02T10:00:00.000Z"]')
     ).toHaveTextContent(/edited/)
   })
 
-  it("keeps a footer action skeleton while the detail is loading", () => {
+  it("does not show a publish footer while the detail is loading", () => {
     fakeDetail({ isPending: true, isError: false })
     const { container } = renderPane(
       <ReviewDetail
@@ -623,7 +631,7 @@ describe("ReviewDetail", () => {
     expect(
       screen.queryByRole("button", { name: "Publish reply" })
     ).not.toBeInTheDocument()
-    expect(container.querySelector("footer")).not.toBeNull()
+    expect(container.querySelector("footer")).toBeNull()
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
@@ -639,7 +647,7 @@ describe("ReviewDetail", () => {
     vi.useFakeTimers()
     try {
       fakeDetail({ isPending: false, isError: false, data: detail })
-      const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+      const { container } = renderPane(withCard())
       const strip = statusStrip(container)
       expect(strip).not.toHaveAttribute("data-pulse")
 
@@ -682,7 +690,7 @@ describe("ReviewDetail", () => {
       isError: false,
       data: reviewWith({ text: null }),
     })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
+    renderPane(withCard())
     expect(
       screen.getByText("A rating with no written review.")
     ).toBeInTheDocument()

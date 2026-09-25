@@ -658,8 +658,8 @@ function InboxViewInner({
     >
       <InboxToolbar
         state={state}
-          counts={toolbarCounts}
-          countsPending={toolbarCountsPending}
+        counts={toolbarCounts}
+        countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
         clients={(clientsQuery.data?.items ?? []).map((client) => ({
           id: client.id,

@@ -37,11 +37,8 @@ import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
-import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
-import {
-  useComposerSave,
-  useIsDirty,
-} from "@/components/inbox/dirty-context"
+import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
+import { ReplyCardSlotProvider } from "@/components/inbox/reply-card-slot"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
@@ -573,7 +570,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
  * fact stated twice, never two facts. When the button is off, this line is
  * where the reason is said.
  */
-function ReplyStatusStrip({ review }: { review: Review }) {
+export function ReplyStatusStrip({ review }: { review: Review }) {
   const [pulse, setPulse] = useState(false)
   const isDirty = useIsDirty()
   const mutating = useReplyPending(review.id)
@@ -635,18 +632,6 @@ function ReplyStatusStrip({ review }: { review: Review }) {
   )
 }
 
-function ActionFooterSkeleton() {
-  return (
-    <div className="flex flex-1 justify-end gap-2" aria-hidden>
-      <Skeleton className="h-(--np-control-h) w-40 max-md:w-full" />
-    </div>
-  )
-}
-
-/**
- * The review, then the reply: one column, the customer's words above the
- * place the answer is written.
- */
 function ReviewThread({
   review,
   composer,
@@ -679,15 +664,6 @@ function ReviewThread({
   )
 }
 
-// The publish bar (reference `.publish`) is sticky at the foot of the screen
-// on a phone or a short window, and a static last row of the pane where the
-// workspace is locked. A raised band rather than a dark one, so the accent
-// Publish button is the one strong thing in it.
-const FOOTER_CLASS =
-  "sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-b-[calc(var(--np-radius-card)-1px)] border-t border-line bg-surface-alt px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] max-md:rounded-none md:[@media(min-height:620px)]:static md:[@media(min-height:620px)]:pb-3"
-
-// Only this middle row scrolls. The thread keeps a reading measure and
-// centres in a wide pane.
 const SCROLL_CLASS =
   "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 md:[@media(min-height:620px)]:overflow-y-auto"
 
@@ -713,7 +689,7 @@ function ReviewDetail({
   leading?: ReactNode
   /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
-  /** The applicable primary action, pinned at the foot so it never scrolls away. */
+  /** Accepted so existing callers can pass it; the publish control lives on the reply card. */
   actions?: ReactNode
   /** Move focus to the reviewer's name once it loads (after an advance). */
   focusHeading?: boolean
@@ -724,81 +700,72 @@ function ReviewDetail({
   const pending = query.isPending
   const failed = !pending && (query.isError || !review)
 
-  return (
-    <div
-      aria-busy={pending || undefined}
-      className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
-    >
-      <HeadFrame leading={leading}>
-        {review ? (
-          <ReviewHead
-            review={review}
-            clientName={clientName}
-            clientId={clientId}
-            focusHeading={focusHeading}
-          />
-        ) : (
-          <>
-            {pending ? (
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-3 w-56 max-w-full" />
-              </div>
-            ) : (
-              <span className="flex-1" />
-            )}
-          </>
-        )}
-      </HeadFrame>
+  const slot = review ? (
+    <>
+      <ReplyStatusStrip review={review} />
+      {actions ? (
+        <div className="ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end">
+          {actions}
+        </div>
+      ) : null}
+    </>
+  ) : null
 
-      {/* One reading order, one scroll region: what is in the way, then the
+  return (
+    <ReplyCardSlotProvider value={slot}>
+      <div
+        aria-busy={pending || undefined}
+        className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
+      >
+        <HeadFrame leading={leading}>
+          {review ? (
+            <ReviewHead
+              review={review}
+              clientName={clientName}
+              clientId={clientId}
+              focusHeading={focusHeading}
+            />
+          ) : (
+            <>
+              {pending ? (
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-3 w-56 max-w-full" />
+                </div>
+              ) : (
+                <span className="flex-1" />
+              )}
+            </>
+          )}
+        </HeadFrame>
+
+        {/* One reading order, one scroll region: what is in the way, then the
           customer's words and the reply — with the publish bar pinned
           beneath. */}
-      {review ? (
-        <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
-          <div className={COLUMN_CLASS}>
-            <ReplyExceptionSlot review={review} />
-            <ReviewThread review={review} composer={composer} />
-          </div>
-        </div>
-      ) : failed ? (
-        <QueryError
-          title="We could not load this review."
-          cause={query.error}
-          onRetry={() => void query.refetch()}
-          className="p-(--np-card-pad)"
-        />
-      ) : (
-        <div className={SCROLL_CLASS}>
-          <div className={COLUMN_CLASS}>
-            <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
-            <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
-          </div>
-        </div>
-      )}
-
-      {review ? (
-        <footer data-slot="composer-footer" className={FOOTER_CLASS}>
-          <div
-            className={cn(
-              "flex min-w-0 items-center empty:hidden",
-              TYPING_COLLAPSE_CLASS
-            )}
-          >
-            <ReplyStatusStrip review={review} />
-          </div>
-          {actions ? (
-            <div className="ml-auto flex max-w-full min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end max-md:w-full max-md:flex-[1_1_100%]">
-              {actions}
+        {review ? (
+          <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
+            <div className={COLUMN_CLASS}>
+              <ReplyExceptionSlot review={review} />
+              <ReviewThread review={review} composer={composer} />
             </div>
-          ) : null}
-        </footer>
-      ) : pending && actions ? (
-        <footer className={FOOTER_CLASS}>
-          <ActionFooterSkeleton />
-        </footer>
-      ) : null}
-    </div>
+          </div>
+        ) : failed ? (
+          <QueryError
+            title="We could not load this review."
+            cause={query.error}
+            onRetry={() => void query.refetch()}
+            className="p-(--np-card-pad)"
+          />
+        ) : (
+          <div className={SCROLL_CLASS}>
+            <div className={COLUMN_CLASS}>
+              <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
+              <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
+            </div>
+          </div>
+        )}
+      </div>
+    </ReplyCardSlotProvider>
   )
 }
 
