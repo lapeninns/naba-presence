@@ -259,6 +259,20 @@ function ReviewMenu({ review }: { review: Review }) {
             <ExternalLinkIcon aria-hidden />
             Open listing
           </DropdownMenuItem>
+          {review.googleReplyUrl ? (
+            <DropdownMenuItem
+              render={
+                <a
+                  href={review.googleReplyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              }
+            >
+              <ExternalLinkIcon aria-hidden />
+              Open on Google
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
             <HistoryIcon aria-hidden />
             History

@@ -1,4 +1,4 @@
-import { CalendarDays, Tag } from "lucide-react"
+import { CalendarDays, Repeat, Tag } from "lucide-react"
 
 type Schedule = {
   startDate: string
@@ -33,12 +33,15 @@ export function PostPreview({
   eventTitle,
   schedule = null,
   actionLabel = "",
+  recurrence = "",
 }: {
   topicType: "STANDARD" | "EVENT" | "OFFER"
   summary: string
   eventTitle: string
   schedule?: Schedule | null
   actionLabel?: string
+  /** "Repeats weekly on Fri", or "" for a one-off. */
+  recurrence?: string
 }) {
   const Icon = topicType === "OFFER" ? Tag : CalendarDays
   const when = schedule
@@ -68,6 +71,12 @@ export function PostPreview({
             <p className="font-mono text-caption text-ink-muted tabular-nums">
               {when || "Dates not set"}
             </p>
+            {recurrence ? (
+              <p className="flex items-center gap-1.5 text-caption text-ink-muted">
+                <Repeat className="size-3.5 shrink-0" aria-hidden />
+                {recurrence}
+              </p>
+            ) : null}
           </div>
         ) : null}
         <p

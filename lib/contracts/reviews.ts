@@ -500,6 +500,12 @@ export const reviewDetailSchema = z.object({
       })
       .nullable()
       .optional(),
+    /**
+     * Google's `reviewReplyUrl`: where the review can be answered on Google
+     * itself. Read from the stored payload, so it is null once retention has
+     * cleared that. Optional so an older server still parses.
+     */
+    googleReplyUrl: z.string().nullable().optional(),
   }),
 })
 export type ReviewDetail = z.infer<typeof reviewDetailSchema>

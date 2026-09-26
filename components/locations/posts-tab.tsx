@@ -28,6 +28,10 @@ import {
   postStatus,
   type PostFilter,
 } from "@/lib/locations/post-display"
+import {
+  DEFAULT_TIMEZONE,
+  postRecurrence,
+} from "@/lib/locations/post-recurrence"
 import { usePosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
@@ -116,6 +120,7 @@ export function PostsTab({ locationId }: { locationId: string }) {
           locationId={locationId}
           posts={state.posts}
           writesEnabled={state.writesEnabled}
+          timezone={state.timezone ?? DEFAULT_TIMEZONE}
           reconciliationError={state.reconciliationError}
           caps={caps}
         />
@@ -128,12 +133,15 @@ function PostsList({
   locationId,
   posts,
   writesEnabled,
+  timezone,
   reconciliationError,
   caps,
 }: {
   locationId: string
   posts: Post[]
   writesEnabled: boolean
+  /** The listing's IANA timezone, for when a repeat ends. */
+  timezone: string
   reconciliationError: string | null
   caps: Parameters<typeof PostsActionBar>[0]["caps"]
 }) {
@@ -172,6 +180,7 @@ function PostsList({
         <PostComposerSheet
           locationId={locationId}
           disabledReason={composeReason}
+          timezone={timezone}
         />
       }
     >
@@ -243,6 +252,7 @@ function PostsList({
                 const status = postStatus(post)
                 const meta = [
                   postSchedule(post),
+                  postRecurrence(post.event, timezone),
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",
@@ -274,6 +284,7 @@ function PostsList({
                           post={post}
                           caps={caps}
                           writesEnabled={writesEnabled}
+                          timezone={timezone}
                         />
                       }
                     />

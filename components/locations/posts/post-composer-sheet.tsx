@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react"
 
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button } from "@/components/ui/button"
+import { ToggleChip } from "@/components/ui/chip"
 import {
   Field,
   FieldCounter,
@@ -36,7 +37,9 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { createPost, updatePost, type Post } from "@/lib/api/location-posts"
 import {
+  DAYS_OF_WEEK,
   LOCAL_POST_ACTION_TYPES,
+  type DayOfWeek,
   type LocalPostActionType,
   type LocalPostTopicType,
 } from "@/lib/contracts/location-posts"
@@ -46,6 +49,19 @@ import {
   type LocalPostFormValues,
 } from "@/lib/locations/forms/local-post"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
+import {
+  DEFAULT_TIMEZONE,
+  NO_RECURRENCE,
+  WEEKDAY_SHORT,
+  describeRecurrence,
+  googleRecurrence,
+  monthlyOptions,
+  recurrenceFields,
+  weekdayOf,
+  type MonthlyRepeat,
+  type PostRepeat,
+  type RecurrenceFields,
+} from "@/lib/locations/post-recurrence"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
@@ -53,6 +69,13 @@ const TOPICS: ReadonlyArray<{ value: LocalPostTopicType; label: string }> = [
   { value: "STANDARD", label: "Update" },
   { value: "EVENT", label: "Event" },
   { value: "OFFER", label: "Offer" },
+]
+
+const REPEATS: ReadonlyArray<{ value: PostRepeat; label: string }> = [
+  { value: "none", label: "Doesn’t repeat" },
+  { value: "daily", label: "Every day" },
+  { value: "weekly", label: "Every week" },
+  { value: "monthly", label: "Every month" },
 ]
 
 /** The summary limit the posts route parses with (`localPostInputSchema`). */
@@ -71,7 +94,7 @@ type Values = {
   terms: string
   action: LocalPostActionType | ""
   actionUrl: string
-}
+} & RecurrenceFields
 
 const EMPTY: Values = {
   topicType: "STANDARD",
@@ -86,10 +109,14 @@ const EMPTY: Values = {
   terms: "",
   action: "",
   actionUrl: "",
+  ...NO_RECURRENCE,
 }
 
 type Errors = Partial<
-  Record<"summary" | "eventTitle" | "dates" | "redeemUrl" | "actionUrl", string>
+  Record<
+    "summary" | "eventTitle" | "dates" | "repeat" | "redeemUrl" | "actionUrl",
+    string
+  >
 >
 
 function isHttpUrl(value: string) {
@@ -125,7 +152,10 @@ function formTime(value: unknown): string {
 }
 
 /** A saved post back into the composer's fields, for editing and previews. */
-export function postFormValues(post: Post): Values {
+export function postFormValues(
+  post: Post,
+  timeZone: string = DEFAULT_TIMEZONE
+): Values {
   const event = record(post.event)
   const schedule = record(event?.schedule)
   const offer = record(post.offer)
@@ -147,6 +177,7 @@ export function postFormValues(post: Post): Values {
     terms: text(offer?.termsConditions),
     action: action ?? "",
     actionUrl: text(cta?.url),
+    ...recurrenceFields(event, timeZone),
   }
 }
 
@@ -187,6 +218,12 @@ function validate(values: Values): Errors {
       if (end < start) errors.dates = "The end is before the start."
     }
   }
+  if (event && values.repeat !== "none") {
+    if (!values.startDate || !values.endDate)
+      errors.repeat = "A repeating post needs its first start and end dates."
+    else if (values.seriesEnd && values.seriesEnd < values.startDate)
+      errors.repeat = "The last repeat is before the first one."
+  }
   if (
     values.topicType === "OFFER" &&
     values.redeemUrl.trim() &&
@@ -203,7 +240,11 @@ function validate(values: Values): Errors {
 }
 
 /** The form values → the posts route's body, in Google's LocalPost shape. */
-function toCandidate(values: Values, post?: Post): Record<string, unknown> {
+function toCandidate(
+  values: Values,
+  timeZone: string,
+  post?: Post
+): Record<string, unknown> {
   const candidate: Record<string, unknown> = {
     topicType: values.topicType,
     summary: values.summary,
@@ -221,6 +262,8 @@ function toCandidate(values: Values, post?: Post): Record<string, unknown> {
       if (values.endTime) schedule.endTime = googleTime(values.endTime)
       event.schedule = schedule
     }
+    const recurrence = googleRecurrence(values, values.startDate, timeZone)
+    if (recurrence) event.recurrenceInfo = recurrence
     candidate.event = event
   }
   if (values.topicType === "OFFER") {
@@ -257,16 +300,19 @@ export function PostComposerSheet({
   locationId,
   disabledReason,
   post,
+  timezone = DEFAULT_TIMEZONE,
 }: {
   locationId: string
   disabledReason: string | null
   /** The saved draft or failed post to edit. Omit to write a new one. */
   post?: Post
+  /** The listing's IANA timezone: a repeat's last day ends at its midnight. */
+  timezone?: string
 }) {
   const editing = Boolean(post)
   const [open, setOpen] = useState(false)
   const [values, setValues] = useState<Values>(() =>
-    post ? postFormValues(post) : EMPTY
+    post ? postFormValues(post, timezone) : EMPTY
   )
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
@@ -275,15 +321,21 @@ export function PostComposerSheet({
   const pausedId = useId()
   const typeLabelId = useId()
   const datesId = useId()
+  const repeatId = useId()
+  const weekdaysLabelId = useId()
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
 
   const isDirty = post
-    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post))
-    : (Object.keys(EMPTY) as Array<keyof Values>).some(
-        (key) => key !== "topicType" && String(values[key]).trim().length > 0
-      )
+    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post, timezone))
+    : (Object.keys(EMPTY) as Array<keyof Values>).some((key) => {
+        if (key === "topicType") return false
+        const value = values[key]
+        return typeof value === "string"
+          ? value.trim() !== EMPTY[key]
+          : JSON.stringify(value) !== JSON.stringify(EMPTY[key])
+      })
   useDirtyGuard({
     key: post
       ? `location-posts-edit-${locationId}-${post.id}`
@@ -296,7 +348,7 @@ export function PostComposerSheet({
     // Each edit starts from the post as it is saved now, not from whatever
     // was typed and cancelled last time.
     if (next && post) {
-      setValues(postFormValues(post))
+      setValues(postFormValues(post, timezone))
       setErrors({})
       setServerError(null)
     }
@@ -334,13 +386,44 @@ export function PostComposerSheet({
   const event = values.topicType !== "STANDARD"
   const offer = values.topicType === "OFFER"
   const summaryLength = values.summary.length
+  const monthly = monthlyOptions(values.startDate)
+  const recurrenceText =
+    event && values.startDate
+      ? describeRecurrence(values, values.startDate)
+      : ""
+
+  function changeRepeat(next: PostRepeat) {
+    setValues((current) => ({
+      ...current,
+      repeat: next,
+      // Start a weekly repeat on the first run's own weekday, which is what
+      // Google does with no days chosen, so the chips show the truth.
+      weekdays:
+        next === "weekly" && current.weekdays.length === 0
+          ? [weekdayOf(current.startDate)].filter(
+              (day): day is DayOfWeek => day !== null
+            )
+          : current.weekdays,
+    }))
+  }
+
+  function toggleWeekday(day: DayOfWeek) {
+    setValues((current) => ({
+      ...current,
+      weekdays: current.weekdays.includes(day)
+        ? current.weekdays.filter((entry) => entry !== day)
+        : [...current.weekdays, day],
+    }))
+  }
 
   function submit() {
     const found = validate(values)
     setErrors(found)
     setAttempt((count) => count + 1)
     if (Object.keys(found).length > 0) return
-    const parsed = localPostFormSchema.safeParse(toCandidate(values, post))
+    const parsed = localPostFormSchema.safeParse(
+      toCandidate(values, timezone, post)
+    )
     if (!parsed.success) {
       setServerError(
         parsed.error.issues[0]?.message ?? "Please complete the post."
@@ -512,6 +595,132 @@ export function PostComposerSheet({
                   </fieldset>
                 ) : null}
 
+                {event ? (
+                  <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
+                    <legend className="sr-only">Repeat</legend>
+                    <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
+                      <Field>
+                        <FieldLabel>Repeats</FieldLabel>
+                        <Select
+                          value={values.repeat}
+                          onValueChange={(next) =>
+                            changeRepeat(next as PostRepeat)
+                          }
+                          disabled={disabled}
+                        >
+                          <SelectTrigger
+                            className="w-full"
+                            aria-invalid={errors.repeat ? true : undefined}
+                            aria-describedby={repeatId}
+                          >
+                            <SelectValue>
+                              {(value: string | null) =>
+                                REPEATS.find((entry) => entry.value === value)
+                                  ?.label ?? "Doesn’t repeat"
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {REPEATS.map((entry) => (
+                              <SelectItem key={entry.value} value={entry.value}>
+                                {entry.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      {values.repeat !== "none" ? (
+                        <Field>
+                          <FieldLabel optional>Last repeat</FieldLabel>
+                          <Input
+                            type="date"
+                            value={values.seriesEnd}
+                            min={values.startDate || undefined}
+                            onChange={(e) => set("seriesEnd", e.target.value)}
+                            disabled={disabled}
+                            aria-invalid={errors.repeat ? true : undefined}
+                            aria-describedby={repeatId}
+                          />
+                        </Field>
+                      ) : null}
+                    </div>
+                    {values.repeat === "weekly" ? (
+                      <div className="flex flex-col gap-1.5">
+                        <span
+                          id={weekdaysLabelId}
+                          className="text-ui font-semibold text-ink"
+                        >
+                          On
+                        </span>
+                        <div
+                          role="group"
+                          aria-labelledby={weekdaysLabelId}
+                          className="flex flex-wrap gap-2"
+                        >
+                          {DAYS_OF_WEEK.map((day) => (
+                            <ToggleChip
+                              key={day}
+                              pressed={values.weekdays.includes(day)}
+                              onClick={() => toggleWeekday(day)}
+                              disabled={disabled}
+                            >
+                              {WEEKDAY_SHORT[day]}
+                            </ToggleChip>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {values.repeat === "monthly" ? (
+                      <Field>
+                        <FieldLabel>Each month</FieldLabel>
+                        <Select
+                          value={
+                            monthly.some(
+                              (entry) => entry.value === values.monthly
+                            )
+                              ? values.monthly
+                              : "date"
+                          }
+                          onValueChange={(next) =>
+                            set("monthly", next as MonthlyRepeat)
+                          }
+                          disabled={disabled}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue>
+                              {(value: string | null) =>
+                                monthly.find((entry) => entry.value === value)
+                                  ?.label ?? monthly[0].label
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {monthly.map((entry) => (
+                              <SelectItem key={entry.value} value={entry.value}>
+                                {entry.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    ) : null}
+                    {errors.repeat ? (
+                      <p
+                        id={repeatId}
+                        role="alert"
+                        className="text-caption font-medium text-danger-ink"
+                      >
+                        {errors.repeat}
+                      </p>
+                    ) : values.repeat !== "none" ? (
+                      <p id={repeatId} className="text-caption text-ink-muted">
+                        {recurrenceText ||
+                          "Set the start date to see when it repeats."}
+                      </p>
+                    ) : null}
+                  </fieldset>
+                ) : null}
+
                 {offer ? (
                   <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
                     <Field>
@@ -645,6 +854,7 @@ export function PostComposerSheet({
                   actionLabel={
                     values.action ? POST_ACTION_LABEL[values.action] : ""
                   }
+                  recurrence={recurrenceText}
                 />
                 <span className="text-caption text-ink-muted">
                   An illustration. Google decides the final layout.

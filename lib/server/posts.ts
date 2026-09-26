@@ -285,7 +285,8 @@ async function settleStrandedLocalPosts(
       : stringOrNull(
           (post.intendedPayload
             ? matchLivePost(live, post.intendedPayload, claimed)
-            : undefined)?.name
+            : undefined
+          )?.name
         )
     if (name) {
       claimed.add(name)
@@ -460,13 +461,25 @@ async function loadPost(
   return post
 }
 
+/**
+ * The event as Google accepts it. A post read back from Google carries the
+ * output-only `recurringInstanceTime` of its latest repeat; sending that
+ * back on an edit is not ours to set.
+ */
+function providerEvent(event: LocalPost["event"]) {
+  if (!event) return event
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { recurringInstanceTime, ...writable } = event
+  return writable
+}
+
 function providerPayload(post: LocalPost) {
   return Object.fromEntries(
     Object.entries({
       languageCode: post.languageCode,
       summary: post.summary,
       callToAction: post.callToAction,
-      event: post.event,
+      event: providerEvent(post.event),
       offer: post.offer,
       media: post.media.length ? post.media : undefined,
       topicType: post.topicType,
@@ -488,9 +501,12 @@ export async function listLocalPosts(
         ? String(error.code)
         : "google_posts_reconciliation_failed"
   }
-  const posts = await withTenant(organisationId, async (sql) => {
+  const { posts, timezone } = await withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
-    return sql<PostListRow[]>`
+    const [location] = await sql<{ timezone: string }[]>`
+      select timezone from location where id = ${locationId}
+    `
+    const posts = await sql<PostListRow[]>`
       select
         id::text as id,
         topic_type as "topicType",
@@ -512,9 +528,11 @@ export async function listLocalPosts(
         and status <> 'deleted'
       order by updated_at desc
     `
+    return { posts, timezone: location?.timezone ?? "Europe/London" }
   })
   return {
     posts,
+    timezone,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "posts"),
     reconciliationError,
   }

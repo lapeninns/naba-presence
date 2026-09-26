@@ -316,9 +316,13 @@ export async function upsertGoogleReview(
           ${item.thumbnailUrl ? String(item.thumbnailUrl) : null},
           ${item.thumbnailLabel ? String(item.thumbnailLabel) : null},
           ${
-            mediaFormat === "VIDEO" && item.googleUrl
-              ? String(item.googleUrl)
-              : null
+            // Reviews carry `videoUrl`; the Media API's googleUrl and
+            // mediaFormat shape is kept for payloads stored before it.
+            item.videoUrl
+              ? String(item.videoUrl)
+              : mediaFormat === "VIDEO" && item.googleUrl
+                ? String(item.googleUrl)
+                : null
           }
         )
       `

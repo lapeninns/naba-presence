@@ -59,6 +59,39 @@ describe("PostsTab", () => {
     expect(within(sheet).getByRole("button", { name: "Save draft" })).toBeEnabled()
   })
 
+  it("sets a post to repeat weekly and shows the repeat on the list", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({
+            topicType: "EVENT",
+            event: {
+              title: "Quiz night",
+              schedule: {
+                startDate: { year: 2026, month: 10, day: 2 },
+                endDate: { year: 2026, month: 10, day: 2 },
+              },
+              recurrenceInfo: { weeklyPattern: { daysOfWeek: ["FRIDAY"] } },
+            },
+          }),
+        ],
+      }),
+      isPending: false, isError: false, error: null, refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByText(/Repeats weekly on Fri/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    const group = within(sheet).getByRole("group", { name: "On" })
+    expect(within(group).getByRole("button", { name: "Fri" })).toHaveAttribute("aria-pressed", "true")
+    await user.click(within(group).getByRole("button", { name: "Sat" }))
+    expect(within(sheet).getAllByText("Repeats weekly on Fri, Sat").length).toBeGreaterThan(0)
+    expect(within(sheet).getByRole("button", { name: "Save changes" })).toBeEnabled()
+  })
+
   it("shows a paused notice and blocks composing when posts are paused", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({ data: makeState({ writesEnabled: false }), isPending: false, isError: false, error: null, refetch: vi.fn() })
