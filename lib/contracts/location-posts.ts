@@ -220,6 +220,11 @@ export type PostRow = z.infer<typeof postRowSchema>
 /** GET `/posts`. */
 export const postsListResponseSchema = z.object({
   posts: z.array(postRowSchema),
+  /**
+   * The listing's IANA timezone: a repeat's last day ends at midnight
+   * there, not in UTC. Optional so an older server still parses.
+   */
+  timezone: z.string().optional(),
   writesEnabled: z.boolean(),
   reconciliationError: z.string().nullable(),
 })

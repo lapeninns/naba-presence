@@ -501,9 +501,12 @@ export async function listLocalPosts(
         ? String(error.code)
         : "google_posts_reconciliation_failed"
   }
-  const posts = await withTenant(organisationId, async (sql) => {
+  const { posts, timezone } = await withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
-    return sql<PostListRow[]>`
+    const [location] = await sql<{ timezone: string }[]>`
+      select timezone from location where id = ${locationId}
+    `
+    const posts = await sql<PostListRow[]>`
       select
         id::text as id,
         topic_type as "topicType",
@@ -525,9 +528,11 @@ export async function listLocalPosts(
         and status <> 'deleted'
       order by updated_at desc
     `
+    return { posts, timezone: location?.timezone ?? "Europe/London" }
   })
   return {
     posts,
+    timezone,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "posts"),
     reconciliationError,
   }

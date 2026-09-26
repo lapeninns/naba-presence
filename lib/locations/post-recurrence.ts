@@ -26,6 +26,9 @@ export type RecurrenceFields = {
   seriesEnd: string
 }
 
+/** Where a listing's timezone is unknown; the listings are UK venues. */
+export const DEFAULT_TIMEZONE = "Europe/London"
+
 export const NO_RECURRENCE: RecurrenceFields = {
   repeat: "none",
   weekdays: [],
@@ -136,13 +139,84 @@ export function monthlyOptions(
   return options
 }
 
+/** Minutes the zone is ahead of UTC at an instant (London in summer: 60). */
+function zoneOffsetMinutes(instant: number, timeZone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(instant))
+      .map((part) => [part.type, Number(part.value)])
+  )
+  const wall = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second
+  )
+  return Math.round((wall - Math.floor(instant / 1000) * 1000) / 60000)
+}
+
+/**
+ * The last second of `2026-07-31` on the listing's clock, as the UTC
+ * timestamp Google takes: `2026-07-31T22:59:59Z` in London's summer.
+ */
+export function endOfDayInZone(date: string, timeZone: string): string {
+  const [year, month, day] = date.split("-").map(Number)
+  const wall = Date.UTC(year, month - 1, day, 23, 59, 59)
+  // The offset at the guess, then again at the answer, which settles a day
+  // that a clock change crosses.
+  let instant = wall - zoneOffsetMinutes(wall, timeZone) * 60000
+  instant = wall - zoneOffsetMinutes(instant, timeZone) * 60000
+  return new Date(instant).toISOString().replace(".000Z", "Z")
+}
+
+/** A UTC timestamp → its `2026-07-31` date on the listing's clock. */
+export function dateInZone(timestamp: string, timeZone: string): string {
+  const instant = new Date(timestamp)
+  if (Number.isNaN(instant.getTime())) return ""
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant)
+}
+
+/**
+ * The monthly choice that applies to this start date. An option the start
+ * date no longer offers (the last Friday, after moving the start off it)
+ * falls back to its day of the month, which is what the composer shows.
+ */
+export function effectiveMonthly(
+  monthly: MonthlyRepeat,
+  startDate: string
+): MonthlyRepeat {
+  return monthlyOptions(startDate).some((option) => option.value === monthly)
+    ? monthly
+    : "date"
+}
+
 /** A saved post's `event.recurrenceInfo` back into the composer's fields. */
-export function recurrenceFields(event: unknown): RecurrenceFields {
+export function recurrenceFields(
+  event: unknown,
+  timeZone: string = DEFAULT_TIMEZONE
+): RecurrenceFields {
   const info = record(record(event)?.recurrenceInfo)
   if (!info) return NO_RECURRENCE
   const seriesEnd =
     typeof info.seriesEndTime === "string"
-      ? info.seriesEndTime.slice(0, 10)
+      ? dateInZone(info.seriesEndTime, timeZone)
       : ""
   if (record(info.dailyPattern)) {
     return { ...NO_RECURRENCE, repeat: "daily", seriesEnd }
@@ -182,7 +256,8 @@ export function recurrenceFields(event: unknown): RecurrenceFields {
  */
 export function googleRecurrence(
   fields: RecurrenceFields,
-  startDate: string
+  startDate: string,
+  timeZone: string = DEFAULT_TIMEZONE
 ): Record<string, unknown> | null {
   if (fields.repeat === "none") return null
   const info: Record<string, unknown> = {}
@@ -194,18 +269,21 @@ export function googleRecurrence(
   }
   if (fields.repeat === "monthly") {
     const start = parseDate(startDate)
-    if (fields.monthly === "date" || !start) {
+    const monthly = effectiveMonthly(fields.monthly, startDate)
+    if (monthly === "date" || !start) {
       info.monthlyPattern = { dayOfMonth: start?.getDate() ?? 1 }
     } else {
       info.monthlyPattern = {
         dayOfWeekOccurrence:
-          fields.monthly === "last" ? "LAST" : nthWeekdayOf(startDate),
+          monthly === "last" ? "LAST" : nthWeekdayOf(startDate),
       }
     }
   }
-  // The series ends at the close of its last day; Google takes a UTC
-  // timestamp, and the listings are UK venues.
-  if (fields.seriesEnd) info.seriesEndTime = `${fields.seriesEnd}T23:59:59Z`
+  // The series ends at the close of its last day on the listing's clock;
+  // Google takes that moment as a UTC timestamp.
+  if (fields.seriesEnd) {
+    info.seriesEndTime = endOfDayInZone(fields.seriesEnd, timeZone)
+  }
   return info
 }
 
@@ -243,8 +321,9 @@ export function describeRecurrence(
       break
     }
     case "monthly": {
+      const monthly = effectiveMonthly(fields.monthly, startDate)
       const option = monthlyOptions(startDate).find(
-        (entry) => entry.value === fields.monthly
+        (entry) => entry.value === monthly
       )
       text = option
         ? `Repeats monthly ${option.label.charAt(0).toLowerCase()}${option.label.slice(1)}`
@@ -257,10 +336,13 @@ export function describeRecurrence(
 }
 
 /** A saved post's repeat in words, for the list. */
-export function postRecurrence(event: unknown): string {
+export function postRecurrence(
+  event: unknown,
+  timeZone: string = DEFAULT_TIMEZONE
+): string {
   const schedule = record(record(event)?.schedule)
   return describeRecurrence(
-    recurrenceFields(event),
+    recurrenceFields(event, timeZone),
     isoDate(schedule?.startDate)
   )
 }

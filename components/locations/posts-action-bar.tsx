@@ -33,6 +33,10 @@ import {
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
+import {
+  DEFAULT_TIMEZONE,
+  postRecurrence,
+} from "@/lib/locations/post-recurrence"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
@@ -63,11 +67,14 @@ export function PostsActionBar({
   post,
   caps,
   writesEnabled,
+  timezone = DEFAULT_TIMEZONE,
 }: {
   locationId: string
   post: Post
   caps: LocationCapabilities | undefined
   writesEnabled: boolean
+  /** The listing's IANA timezone, for when a repeat ends. */
+  timezone?: string
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
@@ -140,7 +147,7 @@ export function PostsActionBar({
     post.status === "ambiguous" || post.status === "publishing"
 
   const editable = post.status === "draft" || post.status === "failed"
-  const preview = postFormValues(post)
+  const preview = postFormValues(post, timezone)
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -174,6 +181,7 @@ export function PostsActionBar({
           locationId={locationId}
           disabledReason={null}
           post={post}
+          timezone={timezone}
         />
       ) : null}
       {post.status === "ambiguous" ? (
@@ -265,6 +273,7 @@ export function PostsActionBar({
             actionLabel={
               preview.action ? POST_ACTION_LABEL[preview.action] : ""
             }
+            recurrence={postRecurrence(post.event, timezone)}
           />
           <AlertDialogFooter>
             <AlertDialogClose

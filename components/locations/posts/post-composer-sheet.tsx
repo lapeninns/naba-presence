@@ -50,6 +50,7 @@ import {
 } from "@/lib/locations/forms/local-post"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
 import {
+  DEFAULT_TIMEZONE,
   NO_RECURRENCE,
   WEEKDAY_SHORT,
   describeRecurrence,
@@ -151,7 +152,10 @@ function formTime(value: unknown): string {
 }
 
 /** A saved post back into the composer's fields, for editing and previews. */
-export function postFormValues(post: Post): Values {
+export function postFormValues(
+  post: Post,
+  timeZone: string = DEFAULT_TIMEZONE
+): Values {
   const event = record(post.event)
   const schedule = record(event?.schedule)
   const offer = record(post.offer)
@@ -173,7 +177,7 @@ export function postFormValues(post: Post): Values {
     terms: text(offer?.termsConditions),
     action: action ?? "",
     actionUrl: text(cta?.url),
-    ...recurrenceFields(event),
+    ...recurrenceFields(event, timeZone),
   }
 }
 
@@ -236,7 +240,11 @@ function validate(values: Values): Errors {
 }
 
 /** The form values → the posts route's body, in Google's LocalPost shape. */
-function toCandidate(values: Values, post?: Post): Record<string, unknown> {
+function toCandidate(
+  values: Values,
+  timeZone: string,
+  post?: Post
+): Record<string, unknown> {
   const candidate: Record<string, unknown> = {
     topicType: values.topicType,
     summary: values.summary,
@@ -254,7 +262,7 @@ function toCandidate(values: Values, post?: Post): Record<string, unknown> {
       if (values.endTime) schedule.endTime = googleTime(values.endTime)
       event.schedule = schedule
     }
-    const recurrence = googleRecurrence(values, values.startDate)
+    const recurrence = googleRecurrence(values, values.startDate, timeZone)
     if (recurrence) event.recurrenceInfo = recurrence
     candidate.event = event
   }
@@ -292,16 +300,19 @@ export function PostComposerSheet({
   locationId,
   disabledReason,
   post,
+  timezone = DEFAULT_TIMEZONE,
 }: {
   locationId: string
   disabledReason: string | null
   /** The saved draft or failed post to edit. Omit to write a new one. */
   post?: Post
+  /** The listing's IANA timezone: a repeat's last day ends at its midnight. */
+  timezone?: string
 }) {
   const editing = Boolean(post)
   const [open, setOpen] = useState(false)
   const [values, setValues] = useState<Values>(() =>
-    post ? postFormValues(post) : EMPTY
+    post ? postFormValues(post, timezone) : EMPTY
   )
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
@@ -317,7 +328,7 @@ export function PostComposerSheet({
     setValues((current) => ({ ...current, [key]: value }))
 
   const isDirty = post
-    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post))
+    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post, timezone))
     : (Object.keys(EMPTY) as Array<keyof Values>).some((key) => {
         if (key === "topicType") return false
         const value = values[key]
@@ -337,7 +348,7 @@ export function PostComposerSheet({
     // Each edit starts from the post as it is saved now, not from whatever
     // was typed and cancelled last time.
     if (next && post) {
-      setValues(postFormValues(post))
+      setValues(postFormValues(post, timezone))
       setErrors({})
       setServerError(null)
     }
@@ -410,7 +421,9 @@ export function PostComposerSheet({
     setErrors(found)
     setAttempt((count) => count + 1)
     if (Object.keys(found).length > 0) return
-    const parsed = localPostFormSchema.safeParse(toCandidate(values, post))
+    const parsed = localPostFormSchema.safeParse(
+      toCandidate(values, timezone, post)
+    )
     if (!parsed.success) {
       setServerError(
         parsed.error.issues[0]?.message ?? "Please complete the post."

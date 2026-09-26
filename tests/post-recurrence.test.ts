@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 
 import {
   NO_RECURRENCE,
+  dateInZone,
   describeRecurrence,
+  endOfDayInZone,
   googleRecurrence,
   monthlyOptions,
   nthWeekdayOf,
@@ -99,5 +101,66 @@ describe("post recurrence", () => {
       })
     ).toBe("Repeats monthly on the second Friday")
     expect(postRecurrence(null)).toBe("")
+  })
+
+  it("ends a series at midnight on the listing's clock, not UTC", () => {
+    // Winter London is UTC; summer London is an hour ahead.
+    expect(endOfDayInZone("2026-12-31", "Europe/London")).toBe(
+      "2026-12-31T23:59:59Z"
+    )
+    expect(endOfDayInZone("2026-07-31", "Europe/London")).toBe(
+      "2026-07-31T22:59:59Z"
+    )
+    // The day the clocks go back is 25 hours long; its end is still GMT.
+    expect(endOfDayInZone("2026-10-25", "Europe/London")).toBe(
+      "2026-10-25T23:59:59Z"
+    )
+    expect(endOfDayInZone("2026-07-31", "America/New_York")).toBe(
+      "2026-08-01T03:59:59Z"
+    )
+    expect(
+      googleRecurrence(
+        { ...NO_RECURRENCE, repeat: "daily", seriesEnd: "2026-07-31" },
+        "2026-07-01",
+        "Europe/London"
+      )
+    ).toEqual({ dailyPattern: {}, seriesEndTime: "2026-07-31T22:59:59Z" })
+  })
+
+  it("reads the series end back as the listing's date", () => {
+    expect(dateInZone("2026-07-31T22:59:59Z", "Europe/London")).toBe(
+      "2026-07-31"
+    )
+    // A UTC slice would read the day after.
+    expect(dateInZone("2026-08-01T03:59:59Z", "America/New_York")).toBe(
+      "2026-07-31"
+    )
+    expect(
+      recurrenceFields(
+        {
+          recurrenceInfo: {
+            dailyPattern: {},
+            seriesEndTime: "2026-08-01T03:59:59Z",
+          },
+        },
+        "America/New_York"
+      ).seriesEnd
+    ).toBe("2026-07-31")
+  })
+
+  it("falls back to the day of the month when the start date drops the choice", () => {
+    // "Last Friday" chosen on 30 Oct, then the start moved to 9 Oct: the
+    // composer shows "On day 9", so that is what is saved and described.
+    const fields = {
+      ...NO_RECURRENCE,
+      repeat: "monthly" as const,
+      monthly: "last" as const,
+    }
+    expect(googleRecurrence(fields, "2026-10-09")).toEqual({
+      monthlyPattern: { dayOfMonth: 9 },
+    })
+    expect(describeRecurrence(fields, "2026-10-09")).toBe(
+      "Repeats monthly on day 9"
+    )
   })
 })
