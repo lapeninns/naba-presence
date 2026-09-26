@@ -25,6 +25,12 @@ export const GET = route({
           r.update_time as "updateTime",
           r.has_media as "hasMedia",
           r.workflow_status as "workflowStatus",
+          -- Only an https link leaves as a link: the payload is Google's,
+          -- but the inbox renders this as an anchor.
+          case
+            when r.raw_payload->>'reviewReplyUrl' ~ '^https://'
+            then r.raw_payload->>'reviewReplyUrl'
+          end as "googleReplyUrl",
           l.id::text as "locationId",
           l.name as "locationName",
           l.timezone,

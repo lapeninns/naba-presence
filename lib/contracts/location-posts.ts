@@ -36,6 +36,27 @@ export const LOCAL_POST_STATUSES = [
 ] as const
 export type LocalPostStatus = (typeof LOCAL_POST_STATUSES)[number]
 
+/** Google's `DayOfWeek`, Monday first. */
+export const DAYS_OF_WEEK = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+] as const
+export type DayOfWeek = (typeof DAYS_OF_WEEK)[number]
+
+export const DAY_OF_WEEK_OCCURRENCES = [
+  "FIRST",
+  "SECOND",
+  "THIRD",
+  "FOURTH",
+  "LAST",
+] as const
+export type DayOfWeekOccurrence = (typeof DAY_OF_WEEK_OCCURRENCES)[number]
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -46,6 +67,40 @@ const callToActionSchema = z
     url: z.url().optional(),
   })
   .optional()
+
+/**
+ * Google's `LocalPostEvent.recurrenceInfo`: how an event or offer post
+ * repeats. Exactly one pattern; a monthly pattern names either a day of the
+ * month or which weekday occurrence (the weekday is the start date's).
+ */
+export const recurrenceInfoSchema = z
+  .object({
+    seriesEndTime: z.iso.datetime({ offset: true }).optional(),
+    dailyPattern: z.object({}).optional(),
+    weeklyPattern: z
+      .object({ daysOfWeek: z.array(z.enum(DAYS_OF_WEEK)).max(7).optional() })
+      .optional(),
+    monthlyPattern: z
+      .object({
+        dayOfMonth: z.number().int().min(1).max(31).optional(),
+        dayOfWeekOccurrence: z.enum(DAY_OF_WEEK_OCCURRENCES).optional(),
+      })
+      .refine(
+        (value) =>
+          (value.dayOfMonth === undefined) !==
+          (value.dayOfWeekOccurrence === undefined),
+        "A monthly repeat needs a day of the month or a weekday, not both."
+      )
+      .optional(),
+  })
+  .refine(
+    (value) =>
+      [value.dailyPattern, value.weeklyPattern, value.monthlyPattern].filter(
+        Boolean
+      ).length === 1,
+    "Choose how often the post repeats."
+  )
+export type RecurrenceInfo = z.infer<typeof recurrenceInfoSchema>
 
 /** POST `/posts` and PATCH `/posts/[postId]` body. */
 export const localPostInputSchema = z
@@ -77,6 +132,37 @@ export const localPostInputSchema = z
         path: ["event"],
         message: "Event details are required for event and offer posts.",
       })
+    }
+    if (value.event?.recurrenceInfo !== undefined) {
+      if (value.topicType === "STANDARD") {
+        context.addIssue({
+          code: "custom",
+          path: ["event", "recurrenceInfo"],
+          message: "Only event and offer posts can repeat.",
+        })
+      }
+      const recurrence = recurrenceInfoSchema.safeParse(
+        value.event.recurrenceInfo
+      )
+      for (const issue of recurrence.error?.issues ?? []) {
+        context.addIssue({
+          code: "custom",
+          path: ["event", "recurrenceInfo", ...issue.path.map(String)],
+          message: issue.message,
+        })
+      }
+      const schedule = value.event.schedule
+      const startDate =
+        schedule && typeof schedule === "object"
+          ? (schedule as Record<string, unknown>).startDate
+          : undefined
+      if (!startDate) {
+        context.addIssue({
+          code: "custom",
+          path: ["event", "schedule"],
+          message: "A repeating post needs a start date.",
+        })
+      }
     }
     if (value.topicType === "OFFER" && !value.offer) {
       context.addIssue({

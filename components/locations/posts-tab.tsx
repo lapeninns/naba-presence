@@ -28,6 +28,7 @@ import {
   postStatus,
   type PostFilter,
 } from "@/lib/locations/post-display"
+import { postRecurrence } from "@/lib/locations/post-recurrence"
 import { usePosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
@@ -243,6 +244,7 @@ function PostsList({
                 const status = postStatus(post)
                 const meta = [
                   postSchedule(post),
+                  postRecurrence(post.event),
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",

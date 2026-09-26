@@ -285,7 +285,8 @@ async function settleStrandedLocalPosts(
       : stringOrNull(
           (post.intendedPayload
             ? matchLivePost(live, post.intendedPayload, claimed)
-            : undefined)?.name
+            : undefined
+          )?.name
         )
     if (name) {
       claimed.add(name)
@@ -460,13 +461,25 @@ async function loadPost(
   return post
 }
 
+/**
+ * The event as Google accepts it. A post read back from Google carries the
+ * output-only `recurringInstanceTime` of its latest repeat; sending that
+ * back on an edit is not ours to set.
+ */
+function providerEvent(event: LocalPost["event"]) {
+  if (!event) return event
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { recurringInstanceTime, ...writable } = event
+  return writable
+}
+
 function providerPayload(post: LocalPost) {
   return Object.fromEntries(
     Object.entries({
       languageCode: post.languageCode,
       summary: post.summary,
       callToAction: post.callToAction,
-      event: post.event,
+      event: providerEvent(post.event),
       offer: post.offer,
       media: post.media.length ? post.media : undefined,
       topicType: post.topicType,

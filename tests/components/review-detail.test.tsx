@@ -536,6 +536,36 @@ describe("ReviewDetail", () => {
     ).toHaveAttribute("href", "/listings/loc-1")
   })
 
+  it("links to the review on Google from ⋯ when Google gave a reply link", async () => {
+    const user = userEvent.setup()
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        googleReplyUrl: "https://business.google.com/reviews/reply/abc",
+      }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    const link = await screen.findByRole("menuitem", { name: "Open on Google" })
+    expect(link).toHaveAttribute(
+      "href",
+      "https://business.google.com/reviews/reply/abc"
+    )
+    expect(link).toHaveAttribute("target", "_blank")
+  })
+
+  it("offers no Google link when the payload had none", async () => {
+    const user = userEvent.setup()
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    await screen.findByRole("menuitem", { name: "Open listing" })
+    expect(
+      screen.queryByRole("menuitem", { name: "Open on Google" })
+    ).not.toBeInTheDocument()
+  })
+
   // The five-stage tracker used to be permanent chrome on every review,
   // including the majority where nothing had gone wrong. It is now raised only
   // when something is actually in the way, and only behind a disclosure.
