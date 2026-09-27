@@ -33,8 +33,11 @@ const NOTES_MAX = 2000
  * the context to make sense. Asking for all of it up front would put a
  * fourteen-field form between the operator and a working client.
  */
-function NewClientForm() {
+function NewClientForm({ listingId }: { listingId?: string }) {
   const router = useRouter()
+  const returnPath = listingId
+    ? `/listings/${encodeURIComponent(listingId)}`
+    : null
   const toast = useToastManager()
   const { create } = useClientMutations()
   const [name, setName] = React.useState("")
@@ -62,11 +65,13 @@ function NewClientForm() {
       toast.add({
         type: "success",
         title: `${result.client.name} created`,
-        description: "Next: connect its Google account.",
+        description: returnPath
+          ? "Return to the listing and choose this client to file it."
+          : "Next: connect its Google account.",
       })
-      // Straight into setup: a client with no Google connection does nothing,
-      // and the next thing anyone wants is its reviews flowing.
-      router.push(`/setup?client=${result.client.id}&step=connect`)
+      router.push(
+        returnPath ?? `/setup?client=${result.client.id}&step=connect`
+      )
     } catch {
       // The alert below says what went wrong; the values stay in the form.
     }
@@ -133,7 +138,7 @@ function NewClientForm() {
             </span>
             <div className="flex flex-wrap gap-2">
               <Link
-                href="/clients"
+                href={returnPath ?? "/clients"}
                 className={cn(buttonVariants({ variant: "ghost" }))}
               >
                 Cancel
@@ -150,51 +155,59 @@ function NewClientForm() {
         </Card>
       </form>
 
-      <section
-        aria-labelledby="new-client-next"
-        className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface-alt p-(--np-card-pad)"
-      >
-        <h2 id="new-client-next" className="text-body font-semibold text-ink">
-          What happens next
-        </h2>
-        <ol className="flex flex-col gap-2.5 text-ui">
-          {[
-            [
-              "Connect Google.",
-              "Sign in to the Google account that manages this client’s Business Profile, or reuse one you’ve already connected.",
-            ],
-            [
-              "Link its listings.",
-              "Pick the locations that belong to this client. Their reviews start arriving once linked.",
-            ],
-            [
-              "Import past reviews.",
-              "Runs in the background. You can carry on while it works.",
-            ],
-          ].map(([title, detail], index) => (
-            <li
-              key={title}
-              className="grid grid-cols-[1.375rem_minmax(0,1fr)] gap-2.5"
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "grid size-[22px] place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
-                  index === 0
-                    ? "border-primary bg-accent-tint text-accent-ink"
-                    : "border-line-strong text-ink-muted"
-                )}
+      {returnPath ? (
+        <p className="text-ui text-ink-muted">
+          After creating the client, you’ll return to the listing. Choose the
+          new client under “File under…” to assign it. Creating a client does
+          not move any listings.
+        </p>
+      ) : (
+        <section
+          aria-labelledby="new-client-next"
+          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface-alt p-(--np-card-pad)"
+        >
+          <h2 id="new-client-next" className="text-body font-semibold text-ink">
+            What happens next
+          </h2>
+          <ol className="flex flex-col gap-2.5 text-ui">
+            {[
+              [
+                "Connect Google.",
+                "Sign in to the Google account that manages this client’s Business Profile, or reuse one you’ve already connected.",
+              ],
+              [
+                "Link its listings.",
+                "Pick the locations that belong to this client. Their reviews start arriving once linked.",
+              ],
+              [
+                "Import past reviews.",
+                "Runs in the background. You can carry on while it works.",
+              ],
+            ].map(([title, detail], index) => (
+              <li
+                key={title}
+                className="grid grid-cols-[1.375rem_minmax(0,1fr)] gap-2.5"
               >
-                {index + 1}
-              </span>
-              <span>
-                <strong className="font-semibold text-ink">{title}</strong>{" "}
-                <span className="text-ink-muted">{detail}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-      </section>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "grid size-[22px] place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
+                    index === 0
+                      ? "border-primary bg-accent-tint text-accent-ink"
+                      : "border-line-strong text-ink-muted"
+                  )}
+                >
+                  {index + 1}
+                </span>
+                <span>
+                  <strong className="font-semibold text-ink">{title}</strong>{" "}
+                  <span className="text-ink-muted">{detail}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   )
 }

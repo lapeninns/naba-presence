@@ -1,9 +1,20 @@
 "use client"
 
+import Link from "next/link"
 import { notFound } from "next/navigation"
+import * as React from "react"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageFrame } from "@/components/app-shell/page-frame"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { ApiClientError } from "@/lib/api/client"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useLocationDirectory,
@@ -30,8 +41,28 @@ function ListingGate({
   children: (entry: DirectoryEntry) => React.ReactNode
 }) {
   const directory = useLocationDirectory(role)
+  const entry = directory.data?.find((candidate) => candidate.id === locationId)
+  const retryRequested = React.useRef(false)
+  React.useEffect(() => {
+    if (entry && retryRequested.current) {
+      retryRequested.current = false
+      document.getElementById("main")?.focus()
+    }
+  }, [entry])
+  const errorPanel = directory.isError ? (
+    <DirectoryError
+      error={directory.error}
+      initial={!entry}
+      pending={directory.isFetching}
+      locationId={locationId}
+      retry={() => {
+        retryRequested.current = !entry
+        void directory.refetch()
+      }}
+    />
+  ) : null
 
-  if (directory.isPending) {
+  if (directory.isPending || (!entry && directory.isFetching)) {
     return (
       <PageFrame width="wide">
         <div className="flex flex-col gap-4" aria-busy="true">
@@ -56,16 +87,84 @@ function ListingGate({
     )
   }
 
-  const entry = directory.data?.find((candidate) => candidate.id === locationId)
   if (!entry) {
-    if (directory.data) notFound()
+    if (errorPanel) return <PageFrame width="wide">{errorPanel}</PageFrame>
+    if (directory.isSuccess) notFound()
     return null
   }
 
   return (
     <ClientScopeProvider clientId={entry.clientId ?? null}>
+      {errorPanel ? (
+        <div className="px-5 pt-6 md:px-(--np-page-pad-x)">{errorPanel}</div>
+      ) : null}
       {children(entry)}
     </ClientScopeProvider>
+  )
+}
+
+function DirectoryError({
+  error,
+  initial,
+  pending,
+  locationId,
+  retry,
+}: {
+  error: unknown
+  initial: boolean
+  pending: boolean
+  locationId: string
+  retry: () => void
+}) {
+  const titleRef = React.useRef<HTMLHeadingElement>(null)
+  React.useEffect(() => {
+    if (initial) titleRef.current?.focus()
+  }, [initial])
+  const status = error instanceof ApiClientError ? error.status : null
+  const Heading = initial ? "h1" : "h2"
+  return (
+    <Alert variant="destructive">
+      <AlertTitle>
+        <Heading ref={titleRef} tabIndex={-1} className="outline-none">
+          {initial
+            ? "We couldn’t load this listing"
+            : "We couldn’t refresh your listings"}
+        </Heading>
+      </AlertTitle>
+      <AlertDescription>
+        {status === 404
+          ? "The listing directory is unavailable. Try again to check this listing."
+          : describeActionError(error)}
+        {status === 403 ? " Ask an owner or admin to check your access." : null}
+        {!initial ? " The last loaded listing is still shown." : null}
+      </AlertDescription>
+      <AlertActions>
+        {status === 401 ? (
+          <Link
+            href={`/sign-in?next=${encodeURIComponent(`/listings/${locationId}`)}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Sign in again
+          </Link>
+        ) : status !== 403 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            pending={pending}
+            pendingLabel="Trying again…"
+            onClick={retry}
+          >
+            Try again
+          </Button>
+        ) : null}
+        <Link
+          href="/listings"
+          className={buttonVariants({ variant: "ghost", size: "sm" })}
+        >
+          Back to listings
+        </Link>
+      </AlertActions>
+    </Alert>
   )
 }
 
