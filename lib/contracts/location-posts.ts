@@ -214,6 +214,9 @@ export const postRowSchema = z.object({
   lastErrorCode: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  providerCreatedAt: z.string().nullable().optional(),
+  providerUpdatedAt: z.string().nullable().optional(),
+  localEditedAt: z.string().nullable().optional(),
 })
 export type PostRow = z.infer<typeof postRowSchema>
 

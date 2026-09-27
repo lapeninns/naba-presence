@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { postContentTimestamp } from "@/lib/locations/post-display"
 import { localPostInputSchema } from "@/lib/contracts/location-posts"
 
 describe("Local Posts validation", () => {
@@ -103,4 +104,36 @@ describe("Local Posts recurrence validation", () => {
       })
     ).toThrow(/Only event and offer/)
   })
+})
+
+describe("post content timestamps", () => {
+  const row = { googlePostName: "accounts/a/locations/l/localPosts/p", localEditedAt: "2026-09-27T12:00:00Z", status: "published" as const, googleState: "LIVE", lastErrorCode: null, updatedAt: "2026-09-27T12:00:00Z", providerUpdatedAt: "2026-08-02T09:00:00Z", providerCreatedAt: "2026-08-01T09:00:00Z" }
+  it("uses provider content time rather than reconciliation time", () => {
+    expect(postContentTimestamp(row)).toBe("2026-08-02T09:00:00Z")
+    expect(postContentTimestamp({ ...row, updatedAt: "2026-09-28T12:00:00Z" })).toBe("2026-08-02T09:00:00Z")
+  })
+  it("falls back to provider creation when update time is missing or malformed", () => {
+    expect(postContentTimestamp({ ...row, providerUpdatedAt: null })).toBe("2026-08-01T09:00:00Z")
+    expect(postContentTimestamp({ ...row, providerUpdatedAt: "not-a-date" })).toBe("2026-08-01T09:00:00Z")
+  })
+  it("does not invent a published date when neither provider time is valid", () => {
+    expect(postContentTimestamp({ ...row, providerUpdatedAt: undefined, providerCreatedAt: null })).toBeNull()
+  })
+  it("uses local edits for drafts but provider content dates for rejected Google posts", () => {
+    expect(postContentTimestamp({ ...row, status: "draft" })).toBe(row.updatedAt)
+    expect(postContentTimestamp({ ...row, status: "failed", googleState: "REJECTED", lastErrorCode: "google_post_rejected" })).toBe(row.providerUpdatedAt)
+  })
+})
+
+it("uses the authoring audit time for a reconciled draft and reports unavailable for an unaudited provider draft", () => {
+  const row = { status: "draft" as const, googleState: "REJECTED", googlePostName: "accounts/a/locations/l/localPosts/p", lastErrorCode: null, updatedAt: "2026-09-27T12:00:00Z", localEditedAt: "2026-09-26T09:00:00Z" }
+  expect(postContentTimestamp(row)).toBe("2026-09-26T09:00:00Z")
+  expect(postContentTimestamp({ ...row, localEditedAt: null })).toBeNull()
+  expect(postContentTimestamp({ ...row, localEditedAt: undefined })).toBeNull()
+})
+
+it("uses provider dates for an imported rejection with no authoring audit, but preserves failed local edits", () => {
+  const row = { status: "failed" as const, googleState: "REJECTED", googlePostName: "accounts/a/locations/l/localPosts/p", lastErrorCode: null, updatedAt: "2026-09-27T12:00:00Z", localEditedAt: null, providerUpdatedAt: "2026-08-02T09:00:00Z", providerCreatedAt: null }
+  expect(postContentTimestamp(row)).toBe("2026-08-02T09:00:00Z")
+  expect(postContentTimestamp({ ...row, lastErrorCode: "google_timeout", localEditedAt: "2026-09-26T09:00:00Z" })).toBe("2026-09-26T09:00:00Z")
 })
