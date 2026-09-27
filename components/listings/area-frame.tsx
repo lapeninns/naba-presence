@@ -1,6 +1,8 @@
 "use client"
 
 import {
+  CheckIcon,
+  ChevronDownIcon,
   DownloadIcon,
   GlobeIcon,
   SendIcon,
@@ -21,7 +23,13 @@ import {
 } from "@/components/editors/editor-status"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { SiblingSwitcher } from "@/components/listings/sibling-switcher"
-import { buttonVariants } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { TabNav, type TabNavItem } from "@/components/ui/tabs"
@@ -94,9 +102,9 @@ function areaUnavailableReason(
  * The area tabs: Overview plus every area this role may open, each a link.
  * The suggestions tab carries its real pending count from the DB-only
  * summary; an area this listing can't use is drawn muted with the reason.
- * The row scrolls sideways on a narrow screen (its edges fade while there
- * is more to see), and the current tab is scrolled into view on arrival so
- * the selected state is never off-screen.
+ * Desktop keeps its scrolling tab row. Smaller screens expose every area
+ * in a labelled menu of real links, preserving the editor's leave guard.
+ * Selection comes from the route, including browser back and forward.
  */
 function ListingAreaTabs({
   locationId,
@@ -131,7 +139,7 @@ function ListingAreaTabs({
     row.scrollLeft = Math.max(0, left)
   }, [current])
 
-  const items: TabNavItem[] = [
+  const items: (TabNavItem & { disabled?: boolean })[] = [
     {
       href: listingHref(locationId),
       label: "Overview",
@@ -142,6 +150,9 @@ function ListingAreaTabs({
       label: area.label,
       current: area.key === current,
       unavailableReason: areaUnavailableReason(caps, linked, area.capability),
+      disabled:
+        !linked ||
+        caps?.resources?.[area.capability ?? ""]?.state === "unavailable",
       badge:
         area.key === "suggestions" && pending > 0 ? (
           <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-(--np-radius-tag) bg-warning-tint px-1.5 font-mono text-[11px] font-semibold text-warning-ink tabular-nums">
@@ -152,13 +163,78 @@ function ListingAreaTabs({
     })),
   ]
 
+  const mobileItems: (TabNavItem & { disabled?: boolean })[] = [
+    ...items,
+    {
+      href: listingHref(locationId, "changes"),
+      label: "Review & publish",
+      current: current === "changes",
+    },
+  ]
+  const currentLabel =
+    current === "changes"
+      ? "Review & publish"
+      : current === "overview"
+        ? "Overview"
+        : listingArea(current).label
+
   return (
-    <TabNav
-      ref={navRef}
-      aria-label="Listing areas"
-      items={items}
-      data-slot="listing-area-tabs"
-    />
+    <>
+      <div className="lg:hidden" data-slot="listing-area-selector">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="secondary" className="w-full justify-between" />
+            }
+            aria-label={`Listing area: ${currentLabel}`}
+          >
+            <span className="min-w-0 truncate">
+              <span className="font-normal text-ink-muted">Area: </span>
+              {currentLabel}
+            </span>
+            <ChevronDownIcon aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="min-w-[min(22rem,calc(100vw-40px))]"
+          >
+            {mobileItems.map((item) => (
+              <DropdownMenuItem
+                key={item.href}
+                className="shrink-0"
+                render={
+                  <Link
+                    href={item.href}
+                    aria-current={item.current ? "page" : undefined}
+                  />
+                }
+                disabledReason={
+                  item.disabled ? item.unavailableReason : undefined
+                }
+              >
+                {item.current ? <CheckIcon aria-hidden /> : null}
+                <span className="min-w-0">
+                  {item.label}
+                  {!item.disabled && item.unavailableReason ? (
+                    <span className="mt-0.5 block text-caption text-ink-muted">
+                      {item.unavailableReason}
+                    </span>
+                  ) : null}
+                </span>
+                {item.badge}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <TabNav
+        ref={navRef}
+        aria-label="Listing areas"
+        items={items}
+        className="hidden lg:block"
+        data-slot="listing-area-tabs"
+      />
+    </>
   )
 }
 
@@ -183,7 +259,10 @@ function ReviewPublishLink({
     <Link
       href={listingHref(locationId, "changes")}
       data-slot="review-publish-link"
-      className={cn(buttonVariants({ className: "max-sm:col-span-2" }), className)}
+      className={cn(
+        buttonVariants({ className: "max-sm:col-span-2" }),
+        className
+      )}
     >
       <UploadIcon aria-hidden strokeWidth={1.75} />
       Review & publish ({formatNumber(pending)})
@@ -306,7 +385,7 @@ function ListingAreaHeader({
             strokeWidth={1.75}
             aria-hidden
           />
-          <span>{modelNote(area.model)}</span>
+          <span>{modelNote(area.model, area.key)}</span>
         </p>
       ) : null}
     </header>

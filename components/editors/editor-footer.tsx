@@ -1,5 +1,7 @@
 "use client"
 
+import { useId } from "react"
+
 import { CircleAlert, CircleCheck, Clock, Eye, Save, Undo2 } from "lucide-react"
 
 import { useReportEditorStatus } from "@/components/editors/editor-status"
@@ -54,6 +56,7 @@ function EditorFooter({
   onSave,
   saving = false,
   saveDisabledReason,
+  saveDescription,
   readOnlyReason,
   reviewLabel = "Review changes",
 }: {
@@ -79,6 +82,8 @@ function EditorFooter({
   saving?: boolean
   /** Why "Save here" is unavailable, when it is drawn but can't run. */
   saveDisabledReason?: string | null
+  /** Describes the scope of a partial local save, when this editor mixes models. */
+  saveDescription?: string
   /**
    * View-only: the bar keeps its place and says why nothing can change, with
    * no buttons.
@@ -86,6 +91,7 @@ function EditorFooter({
   readOnlyReason?: string | null
   reviewLabel?: string
 }) {
+  const saveDescriptionId = useId()
   const localEdits = canDiscard ?? isDirty
 
   // Tell the area header (AreaFrame) what this footer says, so its pill
@@ -178,6 +184,7 @@ function EditorFooter({
             <Button
               variant="ghost-dark"
               onClick={onSave}
+              aria-describedby={saveDescription ? saveDescriptionId : undefined}
               pending={saving}
               pendingLabel="Saving…"
               disabled={!localEdits || Boolean(saveDisabledReason)}
@@ -199,6 +206,9 @@ function EditorFooter({
         </>
       }
     >
+      {onSave && saveDescription ? (
+        <p id={saveDescriptionId} className="order-last w-full text-caption text-ink-muted-on-charcoal">{saveDescription}</p>
+      ) : null}
       {/* The reason only matters when there is something it is blocking;
           with nothing to publish the status line already says so. */}
       {(isDirty && disabledReason) || (localEdits && saveDisabledReason) ? (

@@ -364,7 +364,7 @@ describe("ListingsBoard", () => {
     expect(refetch).toHaveBeenCalled()
   })
 
-  it("keeps each row's health while the summaries are still loading", () => {
+  it("keeps known row problems and stays neutral while summaries are loading", () => {
     stub({ entries, summaries: [] })
     vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
       data: undefined,
@@ -373,6 +373,11 @@ describe("ListingsBoard", () => {
     render(<ListingsBoard role="owner" />)
     expect(screen.getByText("Checking each listing…")).toBeInTheDocument()
     const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
-    expect(within(crown).getByText("In sync")).toBeInTheDocument()
+    expect(within(crown).getByText("Not checked")).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("table")).queryByText("In sync")
+    ).not.toBeInTheDocument()
+    const cafe = screen.getByRole("row", { name: /Pier Cafe/ })
+    expect(within(cafe).getByText("Pending verification")).toBeInTheDocument()
   })
 })

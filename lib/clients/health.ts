@@ -21,6 +21,9 @@ export const CLIENT_HEALTH = [
   "attention",
   "syncing",
   "healthy",
+  "unchecked",
+  "partially_checked",
+  "unpublished",
 ] as const
 
 export type ClientHealth = (typeof CLIENT_HEALTH)[number]
@@ -51,12 +54,21 @@ export type ChecksInput = {
   accessLost: number
 }
 
+export type CanonicalChecks = {
+  total: number
+  checked: number
+  partial: number
+  attention: number
+  unpublished: number
+}
+
 export type ClientHealthInput = {
   connections: readonly ConnectionHealthInput[]
   linkedLocationCount: number
   /** Backfill state across this client's locations. */
   backfill: { running: number; failed: number }
   checks?: ChecksInput
+  canonicalChecks?: CanonicalChecks
   /** Injected so the calculation is deterministic in tests. */
   now?: Date
 }
@@ -137,10 +149,18 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
     }
   }
   if ((input.checks?.accessLost ?? 0) > 0) {
-    return { state: "action_needed", reason: "listing_access_lost", lastSuccessfulCheckAt }
+    return {
+      state: "action_needed",
+      reason: "listing_access_lost",
+      lastSuccessfulCheckAt,
+    }
   }
   if (input.backfill.failed > 0) {
-    return { state: "data_delayed", reason: "import_failed", lastSuccessfulCheckAt }
+    return {
+      state: "data_delayed",
+      reason: "import_failed",
+      lastSuccessfulCheckAt,
+    }
   }
   const baseline = input.checks?.stalestCheckAt
   const stale =
@@ -148,7 +168,9 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
     baseline !== undefined &&
     Number.isFinite(Date.parse(baseline)) &&
     now.getTime() - Date.parse(baseline) > FRESHNESS_WINDOW_MS
-  const degraded = input.connections.some((connection) => connection.lastErrorCode)
+  const degraded = input.connections.some(
+    (connection) => connection.lastErrorCode
+  )
   if (stale) {
     return {
       state: "data_delayed",
@@ -157,7 +179,11 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
     }
   }
   if (degraded) {
-    return { state: "data_delayed", reason: "google_unavailable", lastSuccessfulCheckAt }
+    return {
+      state: "data_delayed",
+      reason: "google_unavailable",
+      lastSuccessfulCheckAt,
+    }
   }
   return { state: "up_to_date", reason: null, lastSuccessfulCheckAt }
 }
@@ -167,7 +193,7 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
  * setup states that are not health at all (nothing linked yet; the first
  * import still running).
  *
- * `disconnected` is Action needed and `attention` is Data delayed; the
+ * `disconnected` is Action needed and `attention` is Needs attention; the
  * values keep their names so saved `?health=` filters and links still work.
  * Freshness comes from successful checks, never from token refreshes: a
  * quiet client whose checks succeed is up to date however long it has been
@@ -184,7 +210,18 @@ export function clientHealth(input: ClientHealthInput): ClientHealth {
   const freshness = clientFreshness(input)
   if (freshness.state === "action_needed") return "disconnected"
   if (freshness.state === "data_delayed") return "attention"
+  const compared = input.canonicalChecks
+  if (compared?.attention) return "attention"
+  if (compared?.unpublished) return "unpublished"
   if (backfill.running > 0) return "syncing"
+  if (
+    !compared ||
+    compared.total < linkedLocationCount ||
+    compared.checked !== compared.total
+  )
+    return compared && (compared.checked > 0 || compared.partial > 0)
+      ? "partially_checked"
+      : "unchecked"
   return "healthy"
 }
 
@@ -193,6 +230,9 @@ export type HealthTone =
   "healthy" | "attention" | "at-risk" | "pending" | "neutral"
 
 const TONES: Record<ClientHealth, HealthTone> = {
+  unchecked: "neutral",
+  partially_checked: "neutral",
+  unpublished: "pending",
   healthy: "healthy",
   syncing: "pending",
   attention: "attention",
@@ -206,9 +246,12 @@ export function healthTone(health: ClientHealth): HealthTone {
 
 /** Short label for a chip or a table cell. */
 const LABELS: Record<ClientHealth, string> = {
-  healthy: "Up to date",
+  unchecked: "Not checked",
+  partially_checked: "Partially checked",
+  unpublished: "Changes to publish",
+  healthy: "In sync",
   syncing: "Importing",
-  attention: "Data delayed",
+  attention: "Needs attention",
   disconnected: "Action needed",
   not_connected: "Not set up",
 }
@@ -223,12 +266,18 @@ export function healthLabel(health: ClientHealth): string {
  */
 export function healthDescription(health: ClientHealth): string {
   switch (health) {
+    case "unchecked":
+      return "The linked listings still need their profile, hours and available menu checked."
+    case "partially_checked":
+      return "Some linked listings or areas still need checking against Google."
+    case "unpublished":
+      return "Edits are saved on linked listings but have not been published to Google."
     case "healthy":
-      return "Reviews and profile data were checked with Google recently."
+      return "Applicable listing areas matched Google at their latest checks, and review checks are current."
     case "syncing":
       return "Importing this client's review history from Google."
     case "attention":
-      return "Google data is delayed. We retry on our own, so there is nothing for you to do."
+      return "A linked listing has changed on Google, a failed check, or delayed data. Open it to review what needs attention."
     case "disconnected":
       return "Someone needs to restore access before reviews can sync."
     case "not_connected":
@@ -252,7 +301,9 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
     return {
       tone: "at-risk",
       label:
-        action === 1 ? "1 client needs action" : `${action} clients need action`,
+        action === 1
+          ? "1 client needs action"
+          : `${action} clients need action`,
     }
   }
   if (delayed > 0) {
@@ -260,8 +311,8 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
       tone: "attention",
       label:
         delayed === 1
-          ? "1 client's data delayed"
-          : `${delayed} clients' data delayed`,
+          ? "1 client needs attention"
+          : `${delayed} clients need attention`,
     }
   }
   if (healths.some((health) => health === "syncing")) {
@@ -270,7 +321,18 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
   if (healths.every((health) => health === "not_connected")) {
     return { tone: "neutral", label: "Not connected yet" }
   }
-  return { tone: "healthy", label: "All clients up to date" }
+  if (healths.some((health) => health === "unpublished"))
+    return { tone: "pending", label: "Changes to publish" }
+  if (
+    healths.some(
+      (health) =>
+        health === "unchecked" ||
+        health === "partially_checked" ||
+        health === "not_connected"
+    )
+  )
+    return { tone: "neutral", label: "Some clients need checking" }
+  return { tone: "healthy", label: "All clients in sync" }
 }
 
 /**
@@ -291,6 +353,9 @@ export const HEALTH_FILTERS = [
   { value: "disconnected", label: LABELS.disconnected },
   { value: "attention", label: LABELS.attention },
   { value: "healthy", label: LABELS.healthy },
+  { value: "unchecked", label: LABELS.unchecked },
+  { value: "partially_checked", label: LABELS.partially_checked },
+  { value: "unpublished", label: LABELS.unpublished },
   { value: "not_connected", label: LABELS.not_connected },
 ] as const
 
@@ -315,6 +380,10 @@ export function healthFilterMatches(
       return health === "attention"
     case "disconnected":
       return health === "disconnected"
+    case "unchecked":
+    case "partially_checked":
+    case "unpublished":
+      return health === filter
     case "not_connected":
       return health === "not_connected"
   }
@@ -404,11 +473,17 @@ export function clientHealthNote(client: {
     case "attention":
       return client.backfill.failed > 0
         ? "Review import failed"
-        : "Google data is delayed"
+        : "A listing comparison or data check needs attention"
     case "syncing":
       return "Importing review history"
     case "not_connected":
       return "Setup unfinished"
+    case "unchecked":
+      return "Listing areas have not been compared"
+    case "partially_checked":
+      return "Some listing areas need checking"
+    case "unpublished":
+      return "Saved listing edits are waiting"
     case "healthy":
       return null
   }
@@ -430,6 +505,6 @@ export function freshnessSentence(freshness: ClientFreshness): string {
     case "sync_delayed":
       return "Checks are running late. We'll keep trying."
     case null:
-      return "Up to date."
+      return "Review checks are up to date."
   }
 }

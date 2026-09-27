@@ -22,12 +22,12 @@ function summary(overrides: Partial<ListingSummary> = {}): ListingSummary {
       reconnectRequired: false,
       googleEmail: "a@b.c",
     },
-    profile: { status: "in_sync", dirtyCount: 0, observedAt: null },
-    hours: { status: "in_sync", dirtyCount: 0, observedAt: null },
+    profile: { status: "in_sync", dirtyCount: 0, observedAt: new Date().toISOString() },
+    hours: { status: "in_sync", dirtyCount: 0, observedAt: new Date().toISOString() },
     menu: {
       status: "in_sync",
       dirtyCount: 0,
-      observedAt: null,
+      observedAt: new Date().toISOString(),
       eligible: true,
     },
     ...overrides,
@@ -133,11 +133,11 @@ describe("listingHealth", () => {
     ).toBe("unpublished")
   })
 
-  it("is healthy only when nothing else applies, and before the summary arrives", () => {
+  it("is healthy only with current comparisons and stays unchecked before the summary arrives", () => {
     expect(
       listingHealth({ linked: true, verified: true, summary: summary() })
     ).toBe("healthy")
-    expect(listingHealth({ linked: true, verified: true })).toBe("healthy")
+    expect(listingHealth({ linked: true, verified: true })).toBe("unchecked")
   })
 
   it("counts Google-side changes across areas and suggestions", () => {

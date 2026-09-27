@@ -12,6 +12,7 @@ import { formatNumber, formatRelativeTime } from "@/lib/format"
 import type { ListingArea, ListingAreaKey } from "@/lib/listings/areas"
 import {
   googleUnreachable,
+  comparisonCheck,
   syncStatusLabel,
   syncStatusTone,
   UNREACHABLE_LABEL,
@@ -44,7 +45,7 @@ export function uncheckedAreas(summary: ListingSummary): string[] {
       ? []
       : [{ name: "food menu", area: summary.menu }]),
   ]
-    .filter(({ area }) => area.status === "unknown")
+    .filter(({ area }) => comparisonCheck(area) !== "checked")
     .map(({ name }) => name)
 }
 
@@ -63,6 +64,20 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
     return {
       tone: "neutral",
       label: UNREACHABLE_LABEL,
+      line: area.observedAt
+        ? `Last compared with Google ${when(area.observedAt)}`
+        : "Not compared with Google yet",
+    }
+  const check = comparisonCheck(area)
+  if (!dirty && check !== "checked")
+    return {
+      tone: check === "failed" ? "attention" : "neutral",
+      label:
+        check === "failed"
+          ? "Couldn’t check"
+          : check === "stale"
+            ? "Check overdue"
+            : "Not checked yet",
       line: area.observedAt
         ? `Last compared with Google ${when(area.observedAt)}`
         : "Not compared with Google yet",

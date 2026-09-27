@@ -9,8 +9,13 @@ import {
   type SyncStatus,
   type SyncedArea,
 } from "@/lib/contracts/location-summary"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
-import { hashHours, type NormalizedHours } from "@/lib/domain/hours"
+import {
+  hashHours,
+  classifyHoursDrift,
+  type NormalizedHours,
+} from "@/lib/domain/hours"
 import {
   classifyProfileField,
   hashProfileValue,
@@ -18,6 +23,7 @@ import {
   type NormalizedProfile,
 } from "@/lib/domain/profile"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import type { HoursObservation } from "@/lib/server/hours-observations"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -73,6 +79,8 @@ export type ProfileFieldRow = {
 }
 
 export type MenuStateRow = {
+  googlePayload?: Array<Record<string, unknown>>
+  canonicalPayload?: Array<Record<string, unknown>>
   locationId: string
   eligible: boolean
   canonicalHash: string
@@ -94,32 +102,42 @@ function iso(value: Date | null | undefined): string | null {
   return value ? new Date(value).toISOString() : null
 }
 
-/**
- * Hours drift from what is stored: the canonical payload hashed now against
- * the hash the last publish pinned. Google's side is not stored for hours,
- * so the only verdicts available here are "edited since last publish" and
- * "matches the last publish"; a Google-side change surfaces when the hours
- * editor next reads, or through a suggested update.
- */
-export function hoursArea(row: CanonicalRow | undefined): SyncedArea {
-  if (!row) return { status: "unknown", dirtyCount: 0, observedAt: null }
+/** Uses persisted observation evidence; publication history never counts as a new check. */
+export function hoursArea(
+  row: CanonicalRow | undefined,
+  observation?: HoursObservation
+): SyncedArea {
+  if (!row)
+    return {
+      status: "unknown",
+      dirtyCount: 0,
+      observedAt: null,
+      ...(observation?.errorCode ? { checkStatus: "failed" as const } : {}),
+    }
   const canonicalHash = hashHours(row.payload as NormalizedHours)
-  if (!row.baselineCanonicalHash) {
-    // Never published from here. Revision 1 is the copy taken from Google
-    // when the editor first opened, so it matches Google by construction;
-    // any later revision is a local edit nothing has sent yet.
-    const edited = row.revision > 1
+  if (!observation?.googleHash || !observation.observedAt) {
+    const edited = row.baselineCanonicalHash
+      ? canonicalHash !== row.baselineCanonicalHash
+      : row.revision > 1
     return {
       status: edited ? "core_dirty" : "unknown",
       dirtyCount: edited ? 1 : 0,
-      observedAt: iso(row.lastReconciledAt),
+      observedAt: null,
+      ...(observation?.errorCode ? { checkStatus: "failed" as const } : {}),
     }
   }
-  const dirty = canonicalHash !== row.baselineCanonicalHash
+  const status = classifyHoursDrift({
+    canonicalHash,
+    googleHash: observation.googleHash,
+    baselineCanonicalHash: observation.comparisonCanonicalHash,
+    baselineGoogleHash: observation.comparisonGoogleHash,
+  })
   return {
-    status: dirty ? "core_dirty" : "in_sync",
-    dirtyCount: dirty ? 1 : 0,
-    observedAt: iso(row.lastReconciledAt),
+    status,
+    dirtyCount: status === "core_dirty" || status === "conflict" ? 1 : 0,
+    observedAt: iso(observation.observedAt),
+    checkStatus:
+      observation.errorCode || observation.blocked ? "failed" : "checked",
   }
 }
 
@@ -140,10 +158,14 @@ export function profileArea(
   let worst: SyncStatus = "in_sync"
   let dirtyCount = 0
   let observedAt: Date | null = null
+  let missingField = false
   for (const key of PROFILE_FIELD_KEYS) {
     const stored = byKey.get(key)
-    if (!stored) continue
-    if (!observedAt || stored.observedAt > observedAt)
+    if (!stored) {
+      missingField = true
+      continue
+    }
+    if (!observedAt || stored.observedAt < observedAt)
       observedAt = stored.observedAt
     const status = classifyProfileField({
       canonicalHash: hashProfileValue(payload[key] ?? null),
@@ -154,7 +176,12 @@ export function profileArea(
     if (status === "core_dirty" || status === "conflict") dirtyCount += 1
     worst = worse(worst, status)
   }
-  return { status: worst, dirtyCount, observedAt: iso(observedAt) }
+  return {
+    status: missingField && worst === "in_sync" ? "unknown" : worst,
+    dirtyCount,
+    observedAt: iso(observedAt),
+    ...(missingField ? { checkStatus: "unchecked" as const } : {}),
+  }
 }
 
 export function menuArea(
@@ -179,21 +206,29 @@ export function menuArea(
   // The menu publish is a whole-menu replacement, so its baseline is the
   // Google hash the last observation recorded: local differs from Google
   // means not on Google yet, unless Google itself moved since the baseline.
-  const localDiffers = canonicalHash !== state.googleHash
+  const comparison = state.googlePayload
+    ? compareMenuReplacement({
+        draft:
+          canonical && Array.isArray(canonical.payload)
+            ? canonical.payload
+            : (state.canonicalPayload ?? []),
+        google: state.googlePayload,
+      })
+    : null
+  const localDiffers = comparison
+    ? comparison.rows.length > 0
+    : canonicalHash !== state.googleHash
   const googleMoved =
     canonical?.baselineGoogleHash != null &&
     state.googleHash !== canonical.baselineGoogleHash
-  const status: SyncStatus =
-    localDiffers && googleMoved
+  const status: SyncStatus = localDiffers
+    ? googleMoved
       ? "conflict"
-      : localDiffers
-        ? "core_dirty"
-        : googleMoved
-          ? "google_dirty"
-          : "in_sync"
+      : "core_dirty"
+    : "in_sync"
   return {
     status,
-    dirtyCount: localDiffers ? 1 : 0,
+    dirtyCount: comparison ? comparison.rows.length : localDiffers ? 1 : 0,
     observedAt: iso(state.observedAt),
     eligible: state.eligible,
   }
@@ -226,7 +261,9 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
 const FRESHNESS_WINDOW_MS = 60 * 60 * 1000
 
 /** The listing's three-state freshness, the same rules as a client's. */
-function listingFreshness(link: LinkRow): NonNullable<ListingSummary["freshness"]> {
+function listingFreshness(
+  link: LinkRow
+): NonNullable<ListingSummary["freshness"]> {
   const lastCheckedAt = link.lastCheckedAt?.toISOString() ?? null
   const broken =
     link.reconnectRequired ||
@@ -234,10 +271,18 @@ function listingFreshness(link: LinkRow): NonNullable<ListingSummary["freshness"
       link.connectionStatus !== "active" &&
       link.connectionStatus !== "expired")
   if (broken) {
-    return { state: "action_needed", reason: "reconnect_required", lastCheckedAt }
+    return {
+      state: "action_needed",
+      reason: "reconnect_required",
+      lastCheckedAt,
+    }
   }
   if (link.accessState === "access_lost") {
-    return { state: "action_needed", reason: "listing_access_lost", lastCheckedAt }
+    return {
+      state: "action_needed",
+      reason: "listing_access_lost",
+      lastCheckedAt,
+    }
   }
   const baseline = link.lastCheckedAt ?? link.linkedAt
   if (baseline && Date.now() - baseline.getTime() > FRESHNESS_WINDOW_MS) {
@@ -248,7 +293,11 @@ function listingFreshness(link: LinkRow): NonNullable<ListingSummary["freshness"
     }
   }
   if (link.connectionErrorCode) {
-    return { state: "data_delayed", reason: "google_unavailable", lastCheckedAt }
+    return {
+      state: "data_delayed",
+      reason: "google_unavailable",
+      lastCheckedAt,
+    }
   }
   return { state: "up_to_date", reason: null, lastCheckedAt }
 }
@@ -307,6 +356,8 @@ export async function readListingSummaries(
     canonical,
     profileFields,
     menuStates,
+    observations,
+    reconcileStates,
     booking,
     photos,
     posts,
@@ -345,10 +396,35 @@ export async function readListingSummaries(
           eligible,
           canonical_hash as "canonicalHash",
           google_hash as "googleHash",
+          google_payload as "googlePayload",
+          canonical_payload as "canonicalPayload",
           observed_at as "observedAt"
         from food_menus_state
         where location_id = any(${idList}::uuid[])
       `,
+    sql<HoursObservation[]>`
+      select location_id::text as "locationId", observed_google_hash as "googleHash",
+        comparison_canonical_hash as "comparisonCanonicalHash", comparison_google_hash as "comparisonGoogleHash",
+        observed_at as "observedAt", observation_attempted_at as "attemptedAt",
+        case when status = 'failed' and last_error_code is distinct from 'proposal_raise_failed' and coalesce(reconciliation_started_at, last_attempt_at) > coalesce(observation_attempted_at, '-infinity'::timestamptz)
+          then coalesce(last_error_code, 'hours_check_failed') else observation_error_code end as "errorCode", comparison_blocked as blocked
+      from presence_resource_reconcile_state where location_id = any(${idList}::uuid[]) and resource = 'hours'
+    `,
+    sql<
+      {
+        locationId: string
+        resource: string
+        status: string
+        lastAttemptAt: Date
+        observationAttemptedAt: Date | null
+        observationErrorCode: string | null
+        reconciliationStartedAt: Date | null
+        lastErrorCode: string | null
+      }[]
+    >`
+      select location_id::text as "locationId", resource, status, last_attempt_at as "lastAttemptAt", observation_attempted_at as "observationAttemptedAt", observation_error_code as "observationErrorCode", reconciliation_started_at as "reconciliationStartedAt", last_error_code as "lastErrorCode"
+      from presence_resource_reconcile_state where location_id = any(${idList}::uuid[]) and resource in ('profile', 'foodMenus')
+    `,
     sql<CountRow[]>`
         select location_id::text as "locationId", count(*)::int as count
         from place_action_link
@@ -411,6 +487,12 @@ export async function readListingSummaries(
     list.push(row)
     fieldsBy.set(row.locationId, list)
   }
+  const observationsBy = new Map(
+    observations.map((row) => [row.locationId, row])
+  )
+  const reconcileBy = new Map(
+    reconcileStates.map((row) => [`${row.locationId}:${row.resource}`, row])
+  )
   const menuBy = new Map(menuStates.map((row) => [row.locationId, row]))
   const bookingBy = new Map(booking.map((row) => [row.locationId, row.count]))
   const photosBy = new Map(photos.map((row) => [row.locationId, row.count]))
@@ -437,6 +519,30 @@ export async function readListingSummaries(
     const postCounts = postsBy.get(link.locationId) ?? {}
     const suggestionCounts = suggestionsBy.get(link.locationId) ?? {}
     const menuCanonical = canonicalBy.get(`${link.locationId}:food_menus`)
+    function withCheck<T extends SyncedArea>(area: T, resource: string): T {
+      const check = reconcileBy.get(`${link.locationId}:${resource}`)
+      if (
+        check?.observationErrorCode ||
+        (check?.status === "failed" &&
+          check.lastErrorCode !== "proposal_raise_failed" &&
+          (check.reconciliationStartedAt ?? check.lastAttemptAt).getTime() >
+            (check.observationAttemptedAt?.getTime() ??
+              (area.observedAt ? Date.parse(area.observedAt) : 0)))
+      )
+        return { ...area, checkStatus: "failed" }
+      return area
+    }
+    const profile = withCheck(
+      profileArea(
+        canonicalBy.get(`${link.locationId}:profile`),
+        fieldsBy.get(link.locationId) ?? []
+      ),
+      "profile"
+    )
+    const menu = withCheck(
+      menuArea(menuCanonical, menuBy.get(link.locationId)),
+      "foodMenus"
+    )
     return {
       ...base,
       freshness: link.linked ? listingFreshness(link) : undefined,
@@ -447,12 +553,15 @@ export async function readListingSummaries(
             googleEmail: link.googleEmail,
           }
         : null,
-      profile: profileArea(
-        canonicalBy.get(`${link.locationId}:profile`),
-        fieldsBy.get(link.locationId) ?? []
+      profile,
+      hours: hoursArea(
+        canonicalBy.get(`${link.locationId}:hours`),
+        observationsBy.get(link.locationId)
       ),
-      hours: hoursArea(canonicalBy.get(`${link.locationId}:hours`)),
-      menu: menuArea(menuCanonical, menuBy.get(link.locationId)),
+      menu: {
+        ...menu,
+        eligible: menu.checkStatus === "failed" ? null : menu.eligible,
+      },
       booking: {
         count: bookingBy.get(link.locationId) ?? 0,
         observedAt: null,

@@ -142,7 +142,8 @@ export function listingHref(locationId: string, segment?: string): string {
 }
 
 /** What the model means for the operator, said once. */
-export function modelNote(model: ListingAreaModel): string {
+export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): string {
+  if (area === "profile") return "Save here keeps the name, description, phone and website. Other profile edits are published after review."
   switch (model) {
     case "canonical":
       return "Saved here first; nothing reaches Google until you review and publish."

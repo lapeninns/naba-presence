@@ -31,7 +31,6 @@ import {
   listingHealthLabel,
   listingHealthTone,
 } from "@/lib/listings/health"
-import { uncheckedAreas } from "@/lib/listings/area-state"
 import { areaForSegment, listingHref } from "@/lib/listings/areas"
 import { formatAddressLine } from "@/lib/locations/address"
 import type { DirectoryEntry } from "@/lib/queries/use-locations"
@@ -65,7 +64,10 @@ function OverviewAlerts({
       summary.connection.reconnectRequired)
   )
   const failed =
-    summary?.lastPublish?.status === "failed" ? summary.lastPublish : null
+    summary?.lastPublish?.status === "failed" ||
+    summary?.lastPublish?.status === "ambiguous"
+      ? summary.lastPublish
+      : null
   const failedArea = failed ? areaForSegment(failed.area) : undefined
   const unverified =
     entry.linked && summary !== undefined && !summary.verified && !disconnected
@@ -119,14 +121,17 @@ function OverviewAlerts({
     alerts.push(
       <Alert key="failed" variant="destructive">
         <AlertTitle>
-          The last{" "}
-          {failedArea ? failedArea.label.toLowerCase() : failed.area} publish
-          failed ·{" "}
+          {failed.status === "ambiguous"
+            ? "Google hasn’t confirmed the last"
+            : "The last"}{" "}
+          {failedArea ? failedArea.label.toLowerCase() : failed.area}{" "}
+          {failed.status === "ambiguous" ? "publish" : "publish failed"} ·{" "}
           {formatRelativeTime(failed.at)}
         </AlertTitle>
         <AlertDescription>
-          Nothing from that attempt is on Google. The saved copy here is kept,
-          and Activity has Google’s reason.
+          Some changes may already be on Google. The saved copy here is kept.
+          Open the area to compare the current Google listing before trying
+          again; Activity has the attempt details.
         </AlertDescription>
         {failedArea ? (
           <AlertActions>
@@ -136,7 +141,7 @@ function OverviewAlerts({
                 buttonVariants({ variant: "secondary", size: "sm" })
               )}
             >
-              Open {failedArea.label.toLowerCase()}
+              Check {failedArea.label.toLowerCase()}
             </Link>
           </AlertActions>
         ) : null}
@@ -213,11 +218,7 @@ function ListingOverview({
               description={
                 <>
                   {summary.data || !entry.linked
-                    ? health === "healthy" &&
-                      summary.data &&
-                      uncheckedAreas(summary.data).length > 0
-                      ? "Nothing is waiting. Some areas haven’t been compared with Google yet."
-                      : listingHealthDescription(health)
+                    ? listingHealthDescription(health)
                     : null}
                   {address ? ` ${address}.` : ""}
                 </>
@@ -257,6 +258,25 @@ function ListingOverview({
             />
 
             <section
+              aria-labelledby="listing-areas"
+              className="flex flex-col gap-3"
+            >
+              <SectionHeader
+                id="listing-areas"
+                title="Areas"
+                description="Check a problem, review changes or edit an area."
+              />
+              <AreaCards
+                locationId={locationId}
+                linked={entry.linked}
+                summary={summary.data}
+                summaryFailed={summaryFailed}
+                caps={caps.data}
+                canManageConsoles={canManageConsoles}
+              />
+            </section>
+
+            <section
               aria-labelledby="listing-health"
               className="flex flex-col gap-3"
             >
@@ -266,7 +286,7 @@ function ListingOverview({
                 description={
                   disconnected
                     ? "The connection is broken, so the rest is as of the last sync."
-                    : "Four facts that decide what to do next."
+                    : "Connection, comparison and publication details."
                 }
               />
               <HealthStrip
@@ -275,25 +295,6 @@ function ListingOverview({
                 clientId={entry.clientId ?? null}
                 summary={summary.data}
                 summaryFailed={summaryFailed}
-                canManageConsoles={canManageConsoles}
-              />
-            </section>
-
-            <section
-              aria-labelledby="listing-areas"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="listing-areas"
-                title="Areas"
-                description="Where each part of the listing stands. Open one to edit it."
-              />
-              <AreaCards
-                locationId={locationId}
-                linked={entry.linked}
-                summary={summary.data}
-                summaryFailed={summaryFailed}
-                caps={caps.data}
                 canManageConsoles={canManageConsoles}
               />
             </section>

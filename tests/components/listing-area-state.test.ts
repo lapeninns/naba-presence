@@ -86,7 +86,7 @@ describe("uncheckedAreas", () => {
     const checked = {
       status: "in_sync" as const,
       dirtyCount: 0,
-      observedAt: "2026-09-01T00:00:00Z",
+      observedAt: new Date().toISOString(),
     }
     const unknown = {
       status: "unknown" as const,

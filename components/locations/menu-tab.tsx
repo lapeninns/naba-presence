@@ -30,7 +30,7 @@ import { usePublishFlow } from "@/lib/editors/use-publish-flow"
 import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
-import { menuChangeRows } from "@/lib/locations/menu-diff"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -90,6 +90,7 @@ function MenuForm({
   // live so each one clears as it is fixed.
   const [checked, setChecked] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [focusProblems, setFocusProblems] = useState(false)
 
   // The menu as Google would receive it: the editor's typing state removed.
   const clean = useMemo(() => stripDraftKeys(draft), [draft])
@@ -98,24 +99,46 @@ function MenuForm({
     [checked, draft]
   )
 
-  const rows = useMemo(
-    () => menuChangeRows({ draft: clean, google: state.googleMenus }),
+  const comparison = useMemo(
+    () => compareMenuReplacement({ draft: clean, google: state.googleMenus }),
     [clean, state.googleMenus]
   )
 
+  const rows = comparison.rows
+  const [reviewed, setReviewed] = useState<{
+    menus: typeof clean
+    comparison: typeof comparison
+    revision: string
+    googleHash: string
+  } | null>(null)
   const saved = useRef<FoodMenusState | null>(null)
   const buildSteps = useCallback(
     () => [
       {
         key: "save",
         label: "Save the menu in NabaPresence",
+        kind: "local" as const,
         run: async () => {
-          expectSave()
-          await saveFoodMenus(locationId, {
-            expectedCanonicalRevision: state.canonicalResource.revision,
-            menus: clean,
+          if (!reviewed?.comparison.publishable)
+            throw new Error("Resolve the menu comparison before publishing.")
+          const result = await saveFoodMenus(locationId, {
+            expectedCanonicalRevision: reviewed.revision,
+            menus: reviewed.menus,
           })
-          saved.current = await fetchFoodMenus(locationId)
+          const fresh = await fetchFoodMenus(locationId)
+          if (
+            fresh.canonicalResource.revision !== result.revision ||
+            compareMenuReplacement({
+              draft: reviewed.menus,
+              google: fresh.canonicalMenus,
+            }).rows.length > 0
+          ) {
+            throw new Error(
+              "The saved menu changed after review. Keep your edits and review again."
+            )
+          }
+          expectSave()
+          saved.current = fresh
         },
       },
       {
@@ -123,21 +146,27 @@ function MenuForm({
         label: "Replace the food menu on Google",
         run: async () => {
           const fresh = saved.current
-          if (!fresh) throw new Error("The menu was not saved.")
+          if (!fresh || !reviewed) throw new Error("The menu was not saved.")
           await publishFoodMenus(locationId, {
             expectedCanonicalRevision: fresh.canonicalResource.revision,
             expectedCanonicalHash: fresh.canonicalHash,
-            expectedGoogleHash: fresh.googleHash,
+            expectedGoogleHash: reviewed.googleHash,
           })
         },
       },
     ],
-    [locationId, clean, state.canonicalResource.revision, expectSave]
+    [locationId, reviewed, expectSave]
   )
 
   const flow = usePublishFlow({
     steps: buildSteps,
-    invalidate: [queryKeys.locationMenu(locationId)],
+    invalidate: [
+      queryKeys.locationMenu(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
     successToast: "Menu published to Google",
     onSuccess: () => {
       setReviewOpen(false)
@@ -149,21 +178,30 @@ function MenuForm({
   // area note ("Saved here first") promised this; the footer never offered it.
   const save = useResourceMutation({
     mutationFn: () => {
-      expectSave()
       return saveFoodMenus(locationId, {
         expectedCanonicalRevision: state.canonicalResource.revision,
         menus: clean,
       })
     },
-    invalidate: [queryKeys.locationMenu(locationId)],
+    invalidate: [
+      queryKeys.locationMenu(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
     successToast: "Saved here. Not on Google until you publish.",
-    onSuccess: () => setServerError(null),
+    onSuccess: () => {
+      expectSave()
+      setServerError(null)
+    },
     onError: (_error, message) => setServerError(message),
   })
 
   function saveHere() {
     const found = validateMenu(draft)
     setChecked(true)
+    setFocusProblems(true)
     setAttempt((count) => count + 1)
     if (found.length > 0) return
     save.mutate()
@@ -181,20 +219,28 @@ function MenuForm({
         ? "Menu only on Google"
         : "No menu"
       : changeCount > 0
-      ? `${formatNumber(changeCount)} ${changeCount === 1 ? "change" : "changes"} not on Google`
-      : state.status === "in_sync" && !isDirty
-        ? noMenu
-          ? "No menu"
-          : "In sync with Google"
-        : undefined
+        ? `${isDirty ? "Unsaved here · " : "Saved here · "}${formatNumber(changeCount)} ${changeCount === 1 ? "change" : "changes"} not on Google`
+        : state.status === "in_sync" && !isDirty
+          ? noMenu
+            ? "No menu"
+            : "In sync with Google"
+          : undefined
 
   function review() {
     const found = validateMenu(draft)
     setChecked(true)
+    setFocusProblems(true)
     setAttempt((count) => count + 1)
     if (found.length > 0) return
     setServerError(null)
     flow.reset()
+    saved.current = null
+    setReviewed({
+      menus: clean,
+      comparison,
+      revision: state.canonicalResource.revision,
+      googleHash: state.googleHash,
+    })
     setReviewOpen(true)
   }
 
@@ -274,6 +320,7 @@ function MenuForm({
 
       <ValidationSummary
         errors={problems}
+        autoFocus={focusProblems}
         focusKey={attempt}
         title={
           problems.length === 1
@@ -317,9 +364,16 @@ function MenuForm({
       ) : (
         <MenuEditor
           menus={draft}
-          onChange={setDraft}
+          onChange={(next) => {
+            setFocusProblems(false)
+            setDraft(next)
+          }}
           disabled={disabled}
           problems={problems}
+          validationAttempt={attempt}
+          changedPaths={rows.flatMap((row) =>
+            row.draftPath ? [row.draftPath] : []
+          )}
         />
       )}
 
@@ -337,12 +391,20 @@ function MenuForm({
       <ReviewChangesSheet
         open={reviewOpen}
         onOpenChange={setReviewOpen}
-        rows={rows}
+        rows={reviewed?.comparison.rows ?? rows}
         locationName={state.location.name}
         onPublish={() => void flow.publish()}
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
+        publishDisabledReason={
+          publishReason ??
+          (reviewed &&
+          (reviewed.googleHash !== state.googleHash ||
+            reviewed.revision !== state.canonicalResource.revision)
+            ? "The menu changed since this review. Keep editing, then review again."
+            : undefined)
+        }
       />
     </EditorFrame>
   )

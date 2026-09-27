@@ -200,6 +200,7 @@ function ProfileEditor({
     setDraft: setValues,
     isDirty: valuesDirty,
     discard: discardValues,
+    expectSave: expectValuesSave,
   } = valuesDraft
   const [errors, setErrors] = useState<FieldErrors>({})
 
@@ -217,6 +218,7 @@ function ProfileEditor({
     setDraft: setListing,
     isDirty: listingDirty,
     discard: discardListing,
+    expectSave: expectListingSave,
   } = listingDraft
 
   const initialAttributes = useMemo(
@@ -236,6 +238,7 @@ function ProfileEditor({
     setDraft: setAttributes,
     isDirty: attributesDirty,
     discard: discardAttributes,
+    expectSave: expectAttributesSave,
   } = attributesDraft
 
   const listingUpdate = useMemo(
@@ -337,7 +340,7 @@ function ProfileEditor({
       list.push({
         key: "save",
         kind: "local",
-        label: "Save the details in NabaPresence",
+        label: "Save name, description, phone and website here",
         run: async () => {
           const parsed = profileFormSchema.parse(values)
           try {
@@ -345,6 +348,7 @@ function ProfileEditor({
               expectedCanonicalRevision: revision,
               values: toProfileValues(parsed),
             })
+            expectValuesSave()
           } catch (cause) {
             // A server validation error belongs on the field it names, not
             // only in the step's failure line.
@@ -386,8 +390,8 @@ function ProfileEditor({
       list.push({
         key: "listing",
         label: "Publish categories, address and status",
-        run: () =>
-          publishBusinessInformation(locationId, {
+        run: async () => {
+          await publishBusinessInformation(locationId, {
             updateMask: listingUpdate.updateMask,
             payload: businessInformationPayloadSchema.parse(
               listingUpdate.payload
@@ -395,21 +399,25 @@ function ProfileEditor({
             expectedGoogleHash:
               listingAfterProfile.current?.locationHash ??
               business.locationHash,
-          }),
+          })
+          expectListingSave()
+        },
       })
     }
     if (business && attributesUpdate.attributeMask.length > 0) {
       list.push({
         key: "attributes",
         label: "Publish attributes",
-        run: () =>
-          publishBusinessAttributes(locationId, {
+        run: async () => {
+          await publishBusinessAttributes(locationId, {
             attributeMask: attributesUpdate.attributeMask,
             attributes: attributesUpdate.attributes,
             expectedGoogleHash:
               listingAfterProfile.current?.attributesHash ??
               business.attributesHash,
-          }),
+          })
+          expectAttributesSave()
+        },
       })
     }
     return list
@@ -423,6 +431,9 @@ function ProfileEditor({
     listingUpdate,
     attributesUpdate,
     business,
+    expectValuesSave,
+    expectListingSave,
+    expectAttributesSave,
   ])
 
   const flow = usePublishFlow({
@@ -445,14 +456,16 @@ function ProfileEditor({
   // in the form (the profile no longer remounts on save) until published.
   const save = useResourceMutation({
     mutationFn: () => {
-      valuesDraft.expectSave()
       return saveProfile(locationId, {
         expectedCanonicalRevision: revision,
         values: toProfileValues(profileFormSchema.parse(values)),
       })
     },
     invalidate: [queryKeys.locationProfile(locationId)],
-    successToast: "Saved here. Not on Google until you publish.",
+    onSuccess: () => expectValuesSave(),
+    successToast: listingDirty || attributesDirty
+      ? "Name, description, phone and website saved here. Other profile edits still need review and publication."
+      : "Name, description, phone and website saved here. Not on Google until you publish.",
     onError: (cause) => {
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
@@ -619,7 +632,7 @@ function ProfileEditor({
   const saveReason =
     editReason ??
     (!valuesDirty && (listingDirty || attributesDirty)
-      ? "Categories, address, opening state and attributes go straight to Google when you publish; only the name, description, phone and website are saved here."
+      ? "These edits are not included in Save here. Review them, then publish to Google."
       : null)
 
   return (
@@ -644,6 +657,7 @@ function ProfileEditor({
           }}
           saving={save.isPending}
           saveDisabledReason={saveReason}
+          saveDescription="Save here keeps only the name, description, phone and website. Other profile edits stay unsaved until reviewed and published."
           disabledReason={blocked}
           // A role that can't edit gets the one view-only bar, not a row
           // of disabled buttons.
@@ -814,6 +828,7 @@ function ProfileEditor({
       <DiscardDialog
         open={discardOpen}
         onOpenChange={setDiscardOpen}
+        description="Unsaved name, description, phone and website edits return to the saved copy. Other profile edits return to the loaded Google values. Google is not changed."
         onConfirm={() => {
           discardValues()
           discardListing()
@@ -829,9 +844,6 @@ function ProfileEditor({
         rows={rows}
         locationName={profile.location.name}
         onPublish={() => {
-          valuesDraft.expectSave()
-          listingDraft.expectSave()
-          attributesDraft.expectSave()
           void flow.publish()
         }}
         publishing={flow.isPublishing}

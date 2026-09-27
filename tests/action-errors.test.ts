@@ -282,3 +282,7 @@ describe("predicates", () => {
     expect(isNotLinkedError(api(409, "profile_snapshot_stale"))).toBe(false)
   })
 })
+
+it("keeps direct single-action permission copy separate from publication flows", () => {
+  expect(describeActionError(api(403, "PERMISSION_DENIED"))).toContain("Nothing was changed.")
+})

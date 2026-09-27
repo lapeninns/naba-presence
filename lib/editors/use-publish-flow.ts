@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react"
 
 import { useToastManager } from "@/components/ui/toast"
-import { describeActionError } from "@/lib/errors/action-errors"
+import { describePublishStepError } from "@/lib/errors/action-errors"
 import { ApiClientError } from "@/lib/api/client"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 
@@ -106,7 +106,16 @@ export function usePublishFlow({
         }
         setResults([...running])
       } catch (cause) {
-        failure = describeActionError(cause)
+        const completed = running
+          .slice(0, index)
+          .filter((result) => result.status === "done" && !result.noop)
+        const progress = completed.some((result) => result.kind === "google")
+          ? " Earlier steps were sent to Google. Review the step results before retrying."
+          : completed.some((result) => result.kind === "local")
+            ? " Completed local saves are kept. No Google step completed successfully."
+            : ""
+        failure =
+          describePublishStepError(cause, step.kind ?? "google") + progress
         running[index] = {
           ...running[index],
           status: "failed",

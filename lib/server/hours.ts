@@ -1,11 +1,16 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
+import { ZodError } from "zod"
 
 import {
   buildGoogleHoursPatch,
   classifyHoursDrift,
   hashHours,
+  legacyHoursHash,
+  hasLegacyHoursBoundaries,
+  hoursBoundaryReconciliationRequired,
+  supportedHoursTypes,
   normalizeGoogleHours,
   type GoogleLocationHours,
   type NormalizedHours,
@@ -32,8 +37,10 @@ import {
 } from "@/lib/server/gbp-write"
 import {
   getGoogleLocation,
+  getGoogleHoursCategories,
   patchGoogleLocationHours,
 } from "@/lib/server/google"
+import { recordHoursObservation } from "@/lib/server/hours-observations"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
@@ -88,13 +95,65 @@ async function fetchGoogleHours(
   )) as GoogleLocationHours
 }
 
+type StoredHours = NormalizedHours & {
+  boundaryBaseline?: { legacyGoogleHash: string; observedGoogleHash: string }
+}
+
 async function readLiveHours(session: Session, locationId: string) {
   const linked = await linkedHoursLocation(session, locationId)
-  const accessToken = await linked.accessToken()
-  const googleLocation = await fetchGoogleHours(linked, accessToken)
+  const attemptedAt = new Date()
+  let accessToken: string
+  let googleLocation: GoogleLocationHours
+  try {
+    accessToken = await linked.accessToken()
+    googleLocation = await fetchGoogleHours(linked, accessToken)
+  } catch (error) {
+    await withTenant(session.organisationId, (sql) =>
+      recordHoursObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        attemptedAt,
+        outcome: "failed",
+        errorCode:
+          error instanceof ApiError ? error.code : "google_hours_read_failed",
+      })
+    )
+    throw error
+  }
+  const metadataWarnings: string[] = []
+  const categoryNames = [
+    googleLocation.categories?.primaryCategory,
+    ...(googleLocation.categories?.additionalCategories ?? []),
+  ].flatMap((category) => (category?.name ? [category.name] : []))
+  if (categoryNames.length > 0) {
+    try {
+      const categories = await getGoogleHoursCategories(
+        accessToken,
+        {
+          names: categoryNames,
+          languageCode: googleLocation.languageCode ?? "en",
+        },
+        { connectionKey: linked.googleConnectionId }
+      )
+      googleLocation = {
+        ...googleLocation,
+        categories: {
+          primaryCategory: categories[0],
+          additionalCategories: categories.slice(1),
+        },
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError) && !(error instanceof ZodError))
+        throw error
+      googleLocation = { ...googleLocation, categories: undefined }
+      metadataWarnings.push(
+        "Google service-type metadata could not be loaded. Existing services are preserved; adding services is unavailable until the lookup succeeds."
+      )
+    }
+  }
   const google = normalizeGoogleHours(googleLocation)
   const resource = await withTenant(session.organisationId, (sql) =>
-    ensureCanonicalResource<NormalizedHours>({
+    ensureCanonicalResource<StoredHours>({
       sql,
       organisationId: session.organisationId,
       locationId,
@@ -103,11 +162,38 @@ async function readLiveHours(session: Session, locationId: string) {
       actorUserId: session.userId,
     })
   )
-  const canonical = resource.payload
+  const { boundaryBaseline, ...canonical } = resource.payload
   const patch = buildGoogleHoursPatch({ canonical, googleLocation })
+  patch.warnings.push(...metadataWarnings)
   const canonicalHash = hashHours(canonical)
   const googleHash = hashHours(google)
+  const comparisonBaseline =
+    boundaryBaseline?.legacyGoogleHash === resource.baselineGoogleHash
+      ? boundaryBaseline
+      : hasLegacyHoursBoundaries(canonical) &&
+          resource.baselineGoogleHash === legacyHoursHash(google)
+        ? {
+            legacyGoogleHash: resource.baselineGoogleHash,
+            observedGoogleHash: googleHash,
+          }
+        : undefined
+  const observation = await withTenant(session.organisationId, (sql) =>
+    recordHoursObservation(sql, {
+      organisationId: session.organisationId,
+      locationId,
+      attemptedAt,
+      outcome: "observed",
+      canonicalHash,
+      googleHash,
+      baselineCanonicalHash: resource.baselineCanonicalHash,
+      baselineGoogleHash:
+        comparisonBaseline?.observedGoogleHash ?? resource.baselineGoogleHash,
+      blocked: patch.blockingIssues.length > 0,
+    })
+  )
   return {
+    observation,
+    comparisonBaseline,
     linked,
     accessToken,
     googleLocation,
@@ -120,8 +206,8 @@ async function readLiveHours(session: Session, locationId: string) {
     status: classifyHoursDrift({
       canonicalHash,
       googleHash,
-      baselineCanonicalHash: resource.baselineCanonicalHash,
-      baselineGoogleHash: resource.baselineGoogleHash,
+      baselineCanonicalHash: observation.comparisonCanonicalHash,
+      baselineGoogleHash: observation.comparisonGoogleHash,
     }),
   }
 }
@@ -175,6 +261,12 @@ export async function getHoursState(
     googleHash: live.googleHash,
     updateMask: live.patch.updateMask,
     warnings: live.patch.warnings,
+    supportedHoursTypes: supportedHoursTypes(live.googleLocation),
+    reconciliationRequired: hoursBoundaryReconciliationRequired(
+      live.canonical,
+      live.googleLocation
+    ),
+    publicationBlocked: live.patch.blockingIssues.length > 0,
     canPublish: live.linked.canPublish,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
     lastReconciledAt: live.resource.lastReconciledAt?.toISOString() ?? null,
@@ -203,6 +295,56 @@ export async function saveCanonicalHours(input: {
       "You cannot edit this location."
     )
   }
+  const stored = await withTenant(input.session.organisationId, async (sql) => {
+    const [row] = await sql<{ payload: StoredHours; revision: string }[]>`
+      select payload, revision::text as revision from presence_canonical_resource
+      where organisation_id = ${input.session.organisationId}
+        and location_id = ${input.locationId} and resource_type = 'hours'
+    `
+    return row
+  })
+  if (!stored || stored.revision !== input.expectedCanonicalRevision) {
+    throw new ApiError(
+      409,
+      "canonical_resource_stale",
+      "The canonical resource changed after it was loaded. Refresh and try again."
+    )
+  }
+  const existing = new Set(
+    stored.payload.moreHours.map((entry) => entry.hoursTypeId)
+  )
+  const added = input.hours.moreHours.filter(
+    (entry) => !existing.has(entry.hoursTypeId)
+  )
+  let boundaryBaseline = stored.payload.boundaryBaseline
+  if (added.length > 0 || hasLegacyHoursBoundaries(stored.payload)) {
+    try {
+      const live = await readLiveHours(input.session, input.locationId)
+      const supported = new Set([
+        ...supportedHoursTypes(live.googleLocation).map(
+          (type) => type.hoursTypeId
+        ),
+        ...live.google.moreHours.map((entry) => entry.hoursTypeId),
+      ])
+      if (added.some((entry) => !supported.has(entry.hoursTypeId))) {
+        throw new ApiError(
+          400,
+          "hours_service_type_unsupported",
+          "Only service types advertised by Google or already present on this listing can be added."
+        )
+      }
+      boundaryBaseline = live.comparisonBaseline
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      // An existing local schedule remains saveable during a Google outage.
+      // New service creation still requires a verified provider capability.
+      if (added.length > 0) throw error
+    }
+  }
+  const payload: StoredHours = {
+    ...input.hours,
+    ...(boundaryBaseline ? { boundaryBaseline } : {}),
+  }
   const resource = await withTenant(
     input.session.organisationId,
     async (sql) => {
@@ -212,7 +354,7 @@ export async function saveCanonicalHours(input: {
         locationId: input.locationId,
         resourceType: "hours",
         expectedRevision: input.expectedCanonicalRevision,
-        payload: input.hours,
+        payload,
       })
       await writeAudit(sql, {
         organisationId: input.session.organisationId,
@@ -263,6 +405,13 @@ function checkPublishSnapshot(
       409,
       "hours_snapshot_stale",
       "The schedule changed after review. Refresh first."
+    )
+  }
+  if (live.patch.blockingIssues.length > 0) {
+    throw new ApiError(
+      409,
+      "hours_reconciliation_required",
+      live.patch.blockingIssues.join(" ")
     )
   }
   if (live.status === "in_sync") return "in_sync"
@@ -339,15 +488,27 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
       verify: ({ readback }) => hashHours(readback) === live.canonicalHash,
       hash: hashHours,
     },
-    onSuccess: (sql, ctx) =>
-      reconcileCanonicalResource({
+    onSuccess: async (sql, ctx) => {
+      await reconcileCanonicalResource({
         sql,
         organisationId: session.organisationId,
         locationId,
         resourceType: "hours",
         canonicalHash: live.canonicalHash,
         googleHash: ctx.readbackHash as string,
-      }),
+      })
+      await recordHoursObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        attemptedAt: new Date(),
+        outcome: "observed",
+        canonicalHash: live.canonicalHash,
+        googleHash: ctx.readbackHash as string,
+        baselineCanonicalHash: live.canonicalHash,
+        baselineGoogleHash: ctx.readbackHash as string,
+        blocked: false,
+      })
+    },
     audit: (ctx) => ({
       action: "hours.publish.succeeded",
       subjectType: "hours_sync_attempt",

@@ -111,7 +111,7 @@ describe("ListingOverview", () => {
       screen.getByRole("heading", { level: 1, name: "Old Crown Girton" })
     ).toBeInTheDocument()
     expect(screen.getByText("Old Crown Group")).toBeInTheDocument()
-    expect(screen.getAllByText("In sync").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Not checked").length).toBeGreaterThan(0)
     const areas = screen.getByRole("region", { name: "Areas" })
     for (const area of [
       "Business profile",
@@ -129,7 +129,7 @@ describe("ListingOverview", () => {
     }
     expect(within(areas).getByText("27 of your photos")).toBeInTheDocument()
     expect(
-      within(areas).getByRole("link", { name: "Edit Opening hours" })
+      within(areas).getByRole("link", { name: "Check Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
     // Nothing to publish: no call to action in the header.
     expect(
@@ -250,6 +250,65 @@ describe("ListingOverview", () => {
     expect(
       screen.getByText(/The last food menu publish failed/)
     ).toBeInTheDocument()
+  })
+
+  it("puts actionable areas before secondary health details", () => {
+    stub({
+      summary: summary({
+        hours: {
+          status: "google_dirty",
+          dirtyCount: 0,
+          observedAt: new Date().toISOString(),
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const areas = screen.getByRole("region", { name: "Areas" })
+    const health = screen.getByRole("region", { name: "Health" })
+    expect(
+      areas.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("asks for a fresh comparison after a failed publish without denying partial success", () => {
+    stub({
+      summary: summary({
+        lastPublish: {
+          at: new Date().toISOString(),
+          status: "failed",
+          area: "profile",
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.queryByText(/Nothing from that attempt is on Google/)
+    ).toBeNull()
+    expect(
+      screen.getByText(/Some changes may already be on Google/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Check business profile" })
+    ).toHaveAttribute("href", "/listings/l1/profile")
+  })
+
+  it("provides a check action when the last publish outcome is unclear", () => {
+    stub({
+      summary: summary({
+        lastPublish: {
+          at: new Date().toISOString(),
+          status: "ambiguous",
+          area: "hours",
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="member" />)
+    expect(
+      screen.getByText(/Google hasn’t confirmed the last opening hours publish/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Check opening hours" })
+    ).toHaveAttribute("href", "/listings/l1/hours")
   })
 
   it("marks an area tab this listing can't use", () => {
