@@ -201,7 +201,8 @@ describe("large menu navigation", () => {
     const user = userEvent.setup()
     render(<Harness />)
     const search = screen.getByRole("searchbox", { name: "Search menu" })
-    await user.type(search, "Ingredients 33-8")
+    await user.click(search)
+    await user.paste("Ingredients 33-8")
     const description = screen.getByRole("textbox", {
       name: "Description — section 33, item 8",
     })
@@ -217,7 +218,8 @@ describe("large menu navigation", () => {
     const user = userEvent.setup()
     render(<Harness />)
     const search = screen.getByRole("searchbox", { name: "Search menu" })
-    await user.type(search, "Section 33")
+    await user.click(search)
+    await user.paste("Section 33")
     const section = screen.getByRole("textbox", { name: "Section 33 name" })
     await user.clear(section)
     await user.type(section, "New section")
