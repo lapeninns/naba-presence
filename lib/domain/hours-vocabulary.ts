@@ -259,7 +259,8 @@ export function semanticHours(value: NormalizedHours): NormalizedHours {
     })),
     special: value.special.map(({ endDate, ...period }) => ({
       ...period,
-      ...(endDate === undefined || endDate === period.effectiveDate
+      ...(period.isClosed ? { opensAt: null, closesAt: null } : {}),
+      ...(period.isClosed || endDate === undefined || endDate === period.effectiveDate
         ? {}
         : { endDate }),
     })),

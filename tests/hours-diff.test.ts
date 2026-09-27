@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest"
 import { hoursChangeRows } from "@/lib/locations/hours-diff"
 import { emptyHours } from "@/lib/locations/forms/hours"
+import { hashHours } from "@/lib/domain/hours"
 
 describe("complete hours replacement preview", () => {
+  it("ignores closed-day end dates in both the preview and comparison hash", () => {
+    const google = emptyHours()
+    google.special = [{ effectiveDate: "2026-12-24", endDate: "2026-12-26", isClosed: true, opensAt: null, closesAt: null }]
+    const draft = structuredClone(google)
+    draft.special[0].endDate = "2026-12-25"
+    expect(hoursChangeRows({ google, draft, canonical: google })).toEqual([])
+    expect(hashHours(draft)).toBe(hashHours(google))
+  })
   it("shows exact service times for a service-only edit", () => {
     const google = emptyHours()
     google.moreHours = [

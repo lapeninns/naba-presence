@@ -576,7 +576,7 @@ export function HoursEditor({
                     moreHours: [
                       ...value.moreHours,
                       { hoursTypeId: addType, periods: [] },
-                    ],
+                    ].sort((left, right) => left.hoursTypeId.localeCompare(right.hoursTypeId)),
                   })
                   setAddType("")
                 }}

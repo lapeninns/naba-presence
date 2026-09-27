@@ -6,6 +6,21 @@ import {
 import { emptyHours } from "@/lib/locations/forms/hours"
 
 describe("hours editor boundary validation", () => {
+  it("treats a closed special period as one day because Google ignores its end date", () => {
+    const hours = emptyHours()
+    hours.special = [{ effectiveDate: "2026-12-24", endDate: "2026-12-26", isClosed: true, opensAt: null, closesAt: null }]
+    expect(validateHours(hours)).toEqual([])
+    hours.special.push({ effectiveDate: "2026-12-26", endDate: "2026-12-26", isClosed: false, opensAt: "12:00", closesAt: "15:00" })
+    expect(validateHours(hours)).toEqual([])
+    hours.special[1].effectiveDate = "2026-12-24"
+    hours.special[1].endDate = "2026-12-24"
+    expect(validateHours(hours)).toContainEqual(expect.objectContaining({ fieldId: "special-1-date", message: expect.stringContaining("overlaps") }))
+    hours.special[1].effectiveDate = "2026-12-27"
+    hours.special[1].endDate = "2026-12-27"
+    expect(validateHours(hours)).toEqual([])
+    hours.special[0].endDate = "2026-12-23"
+    expect(validateHours(hours)).toEqual([])
+  })
   it.each(["25:00", "24:01", "noon", "9:61"])(
     "points malformed time %s at its editable field",
     (value) => {

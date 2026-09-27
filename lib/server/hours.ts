@@ -143,7 +143,12 @@ async function readLiveHours(session: Session, locationId: string) {
         },
       }
     } catch (error) {
-      if (!(error instanceof ApiError) && !(error instanceof ZodError))
+      if (
+        !(error instanceof ApiError) &&
+        !(error instanceof ZodError) &&
+        !(error instanceof TypeError) &&
+        !(error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))
+      )
         throw error
       googleLocation = { ...googleLocation, categories: undefined }
       metadataWarnings.push(
