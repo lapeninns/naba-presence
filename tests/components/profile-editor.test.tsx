@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -91,7 +92,7 @@ const BUSINESS = {
   },
 }
 
-function stubRoutes(overrides?: { caps?: unknown; business?: unknown }) {
+function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailure?: boolean }) {
   const fetchMock = vi.fn(async (...args: [RequestInfo, RequestInit?]) => {
     const url = String(args[0])
     if (url.includes("/capabilities"))
@@ -103,6 +104,7 @@ function stubRoutes(overrides?: { caps?: unknown; business?: unknown }) {
       })
     if (url.includes("/business-information"))
       return jsonResponse(overrides?.business ?? BUSINESS)
+    if (url.includes("/profile") && args[1]?.method === "PUT" && overrides?.saveFailure) return jsonResponse({ error: "http_error" }, 503)
     if (url.includes("/profile")) return jsonResponse(PROFILE)
     if (url.includes("/import-review"))
       return jsonResponse({ items: [], counts: {} })
@@ -126,7 +128,7 @@ describe("ProfileTab", () => {
     expect(
       await screen.findByRole("textbox", { name: "Business name" })
     ).toHaveValue("Camden Hotel")
-    expect(screen.getByText("Hotel")).toBeInTheDocument() // humanised, not the gcid
+    expect(await screen.findByText("Hotel")).toBeInTheDocument() // humanised, not the gcid
     expect(screen.queryByText(/gcid:/)).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Review changes" })
@@ -245,7 +247,7 @@ describe("ProfileTab save here", () => {
     // Each section says where its edits go.
     expect(screen.getAllByText("Saved here first").length).toBeGreaterThan(0)
     expect(
-      screen.getAllByText("Goes straight to Google").length
+      screen.getAllByText("Published after review").length
     ).toBeGreaterThan(0)
 
     await userEvent.click(screen.getByRole("button", { name: "Save here" }))
@@ -333,4 +335,197 @@ describe("ProfileTab while Google's half is still loading", () => {
       ).toBe(false)
     )
   })
+})
+
+describe("ProfileTab save and review boundaries", () => {
+  it("explains Save here scope and requires review for provider-only edits", async () => {
+    sessionStorage.clear()
+    const fetcher = stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const storeCode = await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() => expect(storeCode).toBeEnabled())
+    await userEvent.clear(storeCode)
+    await userEvent.type(storeCode, "CAMDEN-2")
+    const save = screen.getByRole("button", { name: "Save here" })
+    expect(save).toBeDisabled()
+    expect(save).toHaveAccessibleDescription(/name, description, phone and website/i)
+    expect(screen.getAllByText("Published after review").length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    const review = await screen.findByRole("dialog")
+    expect(within(review).getByText("CAMDEN-2")).toBeInTheDocument()
+    await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
+    expect(screen.getByDisplayValue("CAMDEN-2")).toBeInTheDocument()
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true)
+    const beforeUnload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(true)
+  })
+
+  it("reports the exact successful and failed steps after partial publication", async () => {
+    sessionStorage.clear()
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/business-information") && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body))
+        return body.operation === "update_attributes" ? jsonResponse({ error: "PERMISSION_DENIED" }, 403) : jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
+      }
+      if (url.includes("/business-information")) return jsonResponse(BUSINESS)
+      if (url.includes("/profile")) return jsonResponse(PROFILE)
+      return jsonResponse({ items: [], counts: {} })
+    })
+    vi.stubGlobal("fetch", fetcher)
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const storeCode = await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() => expect(storeCode).toBeEnabled())
+    await userEvent.clear(storeCode)
+    await userEvent.type(storeCode, "CAMDEN-2")
+    await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    const review = await screen.findByRole("dialog")
+    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    expect(await within(review).findByRole("button", { name: "Try again" })).toBeInTheDocument()
+    const progress = within(review).getByRole("list", { name: "Publish progress" })
+    expect(progress).toHaveTextContent("Publish categories, address and status")
+    expect(progress).toHaveTextContent("Sent to Google")
+    expect(progress).toHaveTextContent("Publish attributes")
+    expect(progress).toHaveTextContent("Failed")
+    expect(review).toHaveTextContent("Earlier steps were sent to Google.")
+    expect(review).not.toHaveTextContent("Nothing was changed")
+    expect(await within(screen.getByRole("region", { name: "Notifications" })).findByText(/Earlier steps were sent to Google/)).toBeVisible()
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(2)
+  })
+})
+
+it("keeps provider edits unsaved after a successful local save and discards only unsaved values", async () => {
+  sessionStorage.clear()
+  let saved = false
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    const url = String(input)
+    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (url.includes("/business-information")) return jsonResponse(BUSINESS)
+    if (url.includes("/profile") && init?.method === "PUT") { saved = true; return jsonResponse({ saved: true, revision: "4" }) }
+    if (url.includes("/profile")) return jsonResponse(saved ? { profile: { ...PROFILE.profile, canonicalResource: { ...PROFILE.profile.canonicalResource, revision: "4" }, fields: PROFILE.profile.fields.map((entry) => entry.key === "name" ? { ...entry, canonicalValue: "Camden House", status: "core_dirty" } : entry) } } : PROFILE)
+    return jsonResponse({ items: [], counts: {} })
+  })
+  vi.stubGlobal("fetch", fetcher)
+  renderWithProviders(<ProfileTab locationId="loc-1" />)
+  const storeCode = await screen.findByDisplayValue("CAMDEN-1")
+  await waitFor(() => expect(storeCode).toBeEnabled())
+  await userEvent.clear(storeCode)
+  await userEvent.type(storeCode, "CAMDEN-2")
+  const name = screen.getByRole("textbox", { name: "Business name" })
+  await userEvent.clear(name)
+  await userEvent.type(name, "Camden House")
+  await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+  expect(await screen.findByText(/Other profile edits still need review and publication/)).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled())
+  const beforeUnload = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(beforeUnload)
+  expect(beforeUnload.defaultPrevented).toBe(true)
+  await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+  await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
+  expect(screen.getByDisplayValue("CAMDEN-1")).toBeInTheDocument()
+  expect(screen.getByRole("textbox", { name: "Business name" })).toHaveValue("Camden House")
+  expect(fetcher.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1)
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH" || init?.method === "POST")).toBe(false)
+})
+
+
+it("retains local edits and reload protection when Save here fails", async () => {
+  sessionStorage.clear()
+  stubRoutes({ saveFailure: true })
+  renderWithProviders(<ProfileTab locationId="loc-1" />)
+  const name = await screen.findByRole("textbox", { name: "Business name" })
+  await waitFor(() => expect(name).toBeEnabled())
+  await userEvent.clear(name)
+  await userEvent.type(name, "Unsaved business name")
+  await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+  expect(await screen.findByText(/temporarily unavailable/)).toBeInTheDocument()
+  expect(name).toHaveValue("Unsaved business name")
+  expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
+  const beforeUnload = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(beforeUnload)
+  expect(beforeUnload.defaultPrevented).toBe(true)
+})
+
+function RefreshProfileFixture() {
+  const client = useQueryClient()
+  return <button onClick={() => void client.invalidateQueries()}>Refresh fixture</button>
+}
+
+it.each(["save", "review"])("preserves dirty name after failed %s and colleague revision", async (action) => {
+  sessionStorage.clear()
+  let external = false
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const url = String(input)
+    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (url.includes("/business-information")) return jsonResponse(BUSINESS)
+    if (url.includes("/profile") && init?.method === "PUT") return jsonResponse({ error: "http_error" }, 503)
+    if (url.includes("/profile")) return jsonResponse(external ? { profile: { ...PROFILE.profile, canonicalResource: { ...PROFILE.profile.canonicalResource, revision: "4" }, fields: PROFILE.profile.fields.map((entry) => entry.key === "name" ? { ...entry, canonicalValue: "Colleague name" } : entry) } } : PROFILE)
+    return jsonResponse({ items: [], counts: {} })
+  }))
+  renderWithProviders(<><ProfileTab locationId="loc-1" /><RefreshProfileFixture /></>)
+  const name = await screen.findByRole("textbox", { name: "Business name" })
+  await waitFor(() => expect(name).toBeEnabled())
+  await userEvent.clear(name)
+  await userEvent.type(name, "My unsaved name")
+  if (action === "save") {
+    await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+    await screen.findByText(/temporarily unavailable/)
+  } else {
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    const review = await screen.findByRole("dialog")
+    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    await within(review).findByRole("button", { name: "Try again" })
+    await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
+  }
+  external = true
+  await userEvent.click(screen.getByRole("button", { name: "Refresh fixture" }))
+  await screen.findByRole("button", { name: "Load theirs" })
+  expect(name).toHaveValue("My unsaved name")
+  const beforeUnload = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(beforeUnload)
+  expect(beforeUnload.defaultPrevented).toBe(true)
+})
+
+it.each(["listing", "attributes"])("preserves failed %s edits after partial flow and later Google snapshot", async (failedStep) => {
+  sessionStorage.clear()
+  let external = false
+  let listingSent = false
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const url = String(input)
+    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (url.includes("/business-information") && init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body))
+      if (failedStep === "listing" || body.operation === "update_attributes") return jsonResponse({ error: "PERMISSION_DENIED" }, 403)
+      listingSent = true
+      return jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
+    }
+    if (url.includes("/business-information")) return jsonResponse({ businessInformation: { ...BUSINESS.businessInformation, location: { ...BUSINESS.businessInformation.location, storeCode: listingSent ? "CAMDEN-2" : external ? "COLLEAGUE" : "CAMDEN-1" }, locationHash: listingSent ? "e".repeat(64) : external ? "f".repeat(64) : BUSINESS.businessInformation.locationHash, attributesHash: external ? "f".repeat(64) : BUSINESS.businessInformation.attributesHash } })
+    if (url.includes("/profile")) return jsonResponse(PROFILE)
+    return jsonResponse({ items: [], counts: {} })
+  }))
+  renderWithProviders(<><ProfileTab locationId="loc-1" /><RefreshProfileFixture /></>)
+  const store = await screen.findByDisplayValue("CAMDEN-1")
+  await waitFor(() => expect(store).toBeEnabled())
+  await userEvent.clear(store)
+  await userEvent.type(store, "CAMDEN-2")
+  await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
+  await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+  const review = await screen.findByRole("dialog")
+  await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+  await within(review).findByRole("button", { name: "Try again" })
+  await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
+  external = true
+  await userEvent.click(screen.getByRole("button", { name: "Refresh fixture" }))
+  await screen.findByRole("button", { name: "Load theirs" })
+  expect(screen.getByRole("switch", { name: /Wi-Fi/ })).toBeChecked()
+  expect(store).toHaveValue("CAMDEN-2")
+  if (listingSent) {
+    await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
+    expect(store).toHaveValue("CAMDEN-2")
+    expect(screen.getByRole("switch", { name: /Wi-Fi/ })).not.toBeChecked()
+  }
 })

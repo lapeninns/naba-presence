@@ -20,7 +20,7 @@ import {
 } from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
-import type { ChangeRow } from "@/components/editors/change-diff"
+import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
 import { ActivityDrawer } from "@/components/editors/activity-drawer"
 import { ListingAreaHeader } from "@/components/listings/area-frame"
 import { ListingGate } from "@/components/listings/listing-gate"
@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { DiffView } from "@/components/ui/diff-view"
 import { Empty } from "@/components/ui/empty"
 import {
   PublishSteps,
@@ -43,10 +42,9 @@ import { SectionHeader } from "@/components/ui/section-header"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { StatusPill } from "@/components/ui/status-pill"
-import { fetchHours, publishHours } from "@/lib/api/location-hours"
-import { fetchFoodMenus, publishFoodMenus } from "@/lib/api/location-menu"
+import { publishHours } from "@/lib/api/location-hours"
+import { publishFoodMenus } from "@/lib/api/location-menu"
 import {
-  fetchProfile,
   runProfileOperation,
   type ProfileFieldKey,
 } from "@/lib/api/location-profile"
@@ -61,7 +59,7 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
 import { hoursChangeRows } from "@/lib/locations/hours-diff"
-import { menuChangeRows } from "@/lib/locations/menu-diff"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
@@ -108,6 +106,7 @@ type AreaReview = {
   rows: ChangeRow[]
   needsAck: boolean
   steps: PublishStep[]
+  blockedReason?: string
 }
 
 /**
@@ -150,20 +149,14 @@ function useProfileReview(locationId: string, enabled: boolean) {
                 .map((row) => row.field.toLowerCase())
                 .join(", ")}`,
               run: async () => {
-                const fresh = await fetchProfile(locationId)
-                const selected = fresh.fields
-                  .filter(
-                    (f) => PUBLISHABLE.includes(f.key) && f.status !== "in_sync"
-                  )
-                  .map((f) => f.key)
-                if (selected.length === 0) return NOTHING_TO_SEND
+                const selected = fields.map((field) => field.key)
                 await runProfileOperation(locationId, {
                   direction: "to_google",
                   confirmation: "publish_nabapresence_profile_to_google",
                   selectedFields: selected,
-                  expectedCanonicalRevision: fresh.canonicalResource.revision,
-                  expectedCanonicalHash: fresh.canonicalHash,
-                  expectedGoogleHash: fresh.googleHash,
+                  expectedCanonicalRevision: profile.canonicalResource.revision,
+                  expectedCanonicalHash: profile.canonicalHash,
+                  expectedGoogleHash: profile.googleHash,
                   confirmOverwriteGoogleChanges: needsAck,
                 })
               },
@@ -189,31 +182,37 @@ function useHoursReview(locationId: string, enabled: boolean) {
       draft: hours.canonical,
       google: hours.google,
       canonical: hours.canonical,
+      supportedHoursTypes: hours.supportedHoursTypes,
     }).map((row) => ({
       ...row,
       state: needsAck ? ("conflict" as const) : ("changed" as const),
     }))
+    const blockedReason = hours.reconciliationRequired
+      ? "Open the hours editor to review and save the missing closing boundaries before publishing."
+      : hours.publicationBlocked
+        ? "Open the hours editor to resolve its schedule warnings before publishing."
+        : undefined
     return {
+      blockedReason,
       key: "hours",
       label: "Opening hours",
       rows,
       needsAck,
       steps:
-        hours.updateMask.length > 0
+        !blockedReason && hours.updateMask.length > 0
           ? [
               {
                 key: "hours",
                 label: "Opening hours",
                 run: async () => {
-                  const fresh = await fetchHours(locationId)
-                  if (fresh.updateMask.length === 0) return NOTHING_TO_SEND
-                  await publishHours(locationId, {
-                    expectedCanonicalRevision: fresh.canonicalResource.revision,
-                    expectedCanonicalHash: fresh.canonicalHash,
-                    expectedGoogleHash: fresh.googleHash,
-                    approvedUpdateMask: fresh.updateMask,
+                  const result = await publishHours(locationId, {
+                    expectedCanonicalRevision: hours.canonicalResource.revision,
+                    expectedCanonicalHash: hours.canonicalHash,
+                    expectedGoogleHash: hours.googleHash,
+                    approvedUpdateMask: hours.updateMask,
                     confirmOverwriteGoogleChanges: needsAck,
                   })
+                  if (result.status === "in_sync") return NOTHING_TO_SEND
                 },
               },
             ]
@@ -228,30 +227,30 @@ function useMenuReview(locationId: string, enabled: boolean) {
   const review = useMemo<AreaReview | null>(() => {
     if (!enabled || !query.data) return null
     const state = query.data
-    const rows = menuChangeRows({
+    const comparison = compareMenuReplacement({
       draft: state.canonicalMenus as Array<Record<string, unknown>>,
       google: state.googleMenus as Array<Record<string, unknown>>,
     })
+    const rows = comparison.rows
     return {
       key: "menu",
       label: "Food menu",
       rows,
       needsAck: false,
       steps:
-        state.status === "in_sync"
+        rows.length === 0 || !comparison.publishable
           ? []
           : [
               {
                 key: "menu",
                 label: "Food menu · replaces the menu on Google",
                 run: async () => {
-                  const fresh = await fetchFoodMenus(locationId)
-                  if (fresh.status === "in_sync") return NOTHING_TO_SEND
-                  await publishFoodMenus(locationId, {
-                    expectedCanonicalRevision: fresh.canonicalResource.revision,
-                    expectedCanonicalHash: fresh.canonicalHash,
-                    expectedGoogleHash: fresh.googleHash,
+                  const result = await publishFoodMenus(locationId, {
+                    expectedCanonicalRevision: state.canonicalResource.revision,
+                    expectedCanonicalHash: state.canonicalHash,
+                    expectedGoogleHash: state.googleHash,
                   })
+                  if (result.status === "in_sync") return NOTHING_TO_SEND
                 },
               },
             ],
@@ -322,7 +321,10 @@ function AreaSection({
             {label}
           </h2>
           {review ? (
-            review.rows.length === 0 ? (
+            review.blockedReason ? (
+              <StatusPill tone="attention">Needs review</StatusPill>
+            ) : review.rows.length === 0 && review.blockedReason ? null : review
+                .rows.length === 0 ? (
               <StatusPill tone="healthy">In sync with Google</StatusPill>
             ) : conflict ? (
               <StatusPill tone="attention">Google changed too</StatusPill>
@@ -350,8 +352,8 @@ function AreaSection({
       {include && review && review.rows.length > 0 ? (
         <div className="border-b border-line bg-surface-alt px-4 py-2.5">
           <Checkbox
-            checked={include.checked}
-            disabled={include.disabled}
+            checked={include.checked && !review.blockedReason}
+            disabled={include.disabled || Boolean(review.blockedReason)}
             onCheckedChange={(checked) => include.onChange(Boolean(checked))}
             label={`Include ${label.toLowerCase()} in this publish`}
             description={
@@ -363,6 +365,12 @@ function AreaSection({
         </div>
       ) : null}
       <div className="flex flex-col gap-3 p-4">
+        {review?.blockedReason ? (
+          <Alert variant="warning">
+            <AlertTitle>Hours need review before publishing</AlertTitle>
+            <AlertDescription>{review.blockedReason}</AlertDescription>
+          </Alert>
+        ) : null}
         {error ? (
           <div role="alert" className="flex flex-wrap items-center gap-3">
             <p className="min-w-0 flex-[1_1_16rem] text-ui text-ink">
@@ -395,13 +403,8 @@ function AreaSection({
           </p>
         ) : (
           <>
-            <DiffView
-              rows={review.rows.map((row) => ({
-                field: row.field,
-                before: row.before,
-                after: row.after,
-                state: row.state === "conflict" ? "conflict" : "changed",
-              }))}
+            <ChangeDiff
+              rows={review.rows}
               caption={`Changes to publish for ${label}`}
             />
             <p className="text-caption text-ink-muted">
@@ -460,7 +463,7 @@ function toStepRows(
         label: step.label,
         state: "failed",
         errorCode: step.code,
-        detail: `${step.message ?? "Google didn’t accept this change."} Nothing from this step is on Google; the saved copy is kept.`,
+        detail: `${step.message ?? "Google didn’t accept this change."} This step did not finish with a confirmed result. Check Google before retrying; the saved copy is kept.`,
         action: onRetry ? (
           <Button
             ref={retryRef}
@@ -532,9 +535,13 @@ function ReviewPublish({
     (review): review is AreaReview => review !== null
   )
   const reviews = allReviews.filter(
-    (review) => !excluded.includes(review.key)
+    (review) => !excluded.includes(review.key) && !review.blockedReason
   )
-  const includedAreas = areas.filter((area) => !excluded.includes(area))
+  const includedAreas = areas.filter(
+    (area) =>
+      !excluded.includes(area) &&
+      !allReviews.find((review) => review.key === area)?.blockedReason
+  )
   const rows = reviews.reduce((sum, review) => sum + review.rows.length, 0)
   const needsAck = reviews.some((review) => review.needsAck)
   const ackFields = reviews.flatMap((review) =>
@@ -542,6 +549,15 @@ function ReviewPublish({
       .filter((row) => row.state === "conflict")
       .map((row) => row.field)
   )
+  const unresolved = reviews.flatMap((review) =>
+    review.rows.filter((row) => row.blocking)
+  )
+  const reviewSignature = JSON.stringify(reviews.map((review) => review.rows))
+  const [ackSignature, setAckSignature] = useState(reviewSignature)
+  if (ackSignature !== reviewSignature) {
+    setAckSignature(reviewSignature)
+    setAcknowledged(false)
+  }
   const steps = reviews.flatMap((review) => review.steps)
   const loading =
     (areas.includes("profile") && profile.query.isPending) ||
@@ -598,13 +614,16 @@ function ReviewPublish({
         ? "Wait until every area has been read from Google."
         : unreadable.length > 0
           ? `Couldn’t read ${AREA_LABEL[unreadable[0]!].toLowerCase()} from Google. Try again above first.`
-          : includedAreas.length === 0
-            ? "Include at least one area to publish."
-            : steps.length === 0
-            ? "Nothing is left to publish."
-            : needsAck && !acknowledged
-              ? "Confirm the Google change first."
-              : undefined
+          : unresolved.length > 0
+            ? "Resolve the menu comparison before publishing."
+            : includedAreas.length === 0
+              ? (allReviews.find((review) => review.blockedReason)
+                  ?.blockedReason ?? "Include at least one area to publish.")
+              : steps.length === 0
+                ? "Nothing is left to publish."
+                : needsAck && !acknowledged
+                  ? "Confirm the Google change first."
+                  : undefined
 
   const publish = () => void flow.publish()
   const retry = flow.error && !flow.isPublishing ? publish : null
@@ -777,12 +796,22 @@ function ReviewPublish({
                 )
               })}
 
+              {unresolved.length > 0 ? (
+                <Alert variant="warning">
+                  <AlertTitle>
+                    Resolve this comparison before publishing
+                  </AlertTitle>
+                  <AlertDescription>
+                    {[
+                      ...new Set(unresolved.map((row) => row.explanation)),
+                    ].join(" ")}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               {needsAck ? (
                 <Alert variant="warning">
                   <AlertTitle>
-                    Google changed {listFields(ackFields)} after{" "}
-                    {ackFields.length === 1 ? "it was" : "they were"} edited
-                    here
+                    Google holds a different version of {listFields(ackFields)}
                   </AlertTitle>
                   <AlertDescription>
                     Publishing replaces Google’s{" "}
@@ -829,9 +858,9 @@ function ReviewPublish({
                     }”`}
                   </AlertTitle>
                   <AlertDescription>
-                    Nothing from that step is on Google. The steps after it were
-                    not sent, and your saved copy is kept. Retry when you are
-                    ready, or edit the area first.
+                    This step did not finish with a confirmed result. The steps
+                    after it were not sent, and your saved copy is kept. Check
+                    Google and review again before retrying.
                   </AlertDescription>
                 </Alert>
               ) : null}

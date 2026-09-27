@@ -34,6 +34,7 @@ import {
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
 import { getGoogleLocation, patchGoogleLocationProfile } from "@/lib/server/google"
+import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
@@ -127,6 +128,7 @@ async function persistObservedFields(input: {
   context: ProfileContext
   canonicalRevision: string
   fields: ReturnType<typeof fieldComparisons>
+  attemptedAt: Date
 }) {
   await withTenant(input.organisationId, async (sql) => {
     for (const field of input.fields) {
@@ -135,7 +137,7 @@ async function persistObservedFields(input: {
         insert into profile_field_state (
           organisation_id, location_id, external_location_id, field_key, policy, status,
           canonical_value, google_value, canonical_hash, google_hash,
-          baseline_canonical_hash, baseline_google_hash, canonical_revision, last_reconciled_at
+          baseline_canonical_hash, baseline_google_hash, canonical_revision, last_reconciled_at, observed_at
         ) values (
           ${input.organisationId}, ${input.context.locationId}, ${input.context.externalLocationId},
           ${field.key}, ${field.policy}, ${field.status},
@@ -143,16 +145,17 @@ async function persistObservedFields(input: {
           ${field.canonicalHash}, ${field.googleHash},
           ${establishBaseline ? field.canonicalHash : null},
           ${establishBaseline ? field.googleHash : null}, ${input.canonicalRevision},
-          ${establishBaseline ? new Date() : null}
+          ${establishBaseline ? new Date() : null}, ${input.attemptedAt}
         ) on conflict (organisation_id, location_id, field_key) do update set
           policy = excluded.policy, status = excluded.status,
           canonical_value = excluded.canonical_value, google_value = excluded.google_value,
           canonical_hash = excluded.canonical_hash, google_hash = excluded.google_hash,
           baseline_canonical_hash = coalesce(profile_field_state.baseline_canonical_hash, excluded.baseline_canonical_hash),
           baseline_google_hash = coalesce(profile_field_state.baseline_google_hash, excluded.baseline_google_hash),
-          canonical_revision = excluded.canonical_revision, observed_at = now(),
+          canonical_revision = excluded.canonical_revision, observed_at = excluded.observed_at,
           snapshot_expires_at = now() + interval '30 days',
           last_reconciled_at = coalesce(profile_field_state.last_reconciled_at, excluded.last_reconciled_at)
+        where excluded.observed_at > profile_field_state.observed_at
       `
     }
   })
@@ -174,11 +177,30 @@ async function fetchGoogleProfile(
 async function readLiveProfile(session: Session, locationId: string) {
   const context = await withTenant(session.organisationId, (sql) =>
     loadLinkedLocation(sql, session, locationId, {
-      notLinked: { message: "Link this location to Google before managing its profile." },
+      notLinked: {
+        message: "Link this location to Google before managing its profile.",
+      },
     })
   )
-  const accessToken = await context.accessToken()
-  const googleLocation = await fetchGoogleProfile(context, accessToken)
+  const attemptedAt = new Date()
+  let accessToken: string
+  let googleLocation: GoogleLocationProfile
+  try {
+    accessToken = await context.accessToken()
+    googleLocation = await fetchGoogleProfile(context, accessToken)
+  } catch (error) {
+    await withTenant(session.organisationId, (sql) =>
+      recordResourceObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        resource: "profile",
+        attemptedAt,
+        errorCode:
+          error instanceof ApiError ? error.code : "google_profile_read_failed",
+      })
+    )
+    throw error
+  }
   const google = normalizeGoogleProfile(googleLocation)
   const resource = await withTenant(session.organisationId, (sql) =>
     ensureCanonicalResource<NormalizedProfile>({
@@ -192,6 +214,7 @@ async function readLiveProfile(session: Session, locationId: string) {
   )
   const canonical = resource.payload
   return {
+    attemptedAt,
     context,
     accessToken,
     googleLocation,
@@ -222,13 +245,26 @@ export async function readProfileStateBundle(
     readLiveProfile(session, locationId),
     loadStoredStates(session.organisationId, locationId),
   ])
-  const fields = fieldComparisons({ canonical: live.canonical, google: live.google, stored })
+  const fields = fieldComparisons({
+    canonical: live.canonical,
+    google: live.google,
+    stored,
+  })
   await persistObservedFields({
     organisationId: session.organisationId,
     context: live.context,
     canonicalRevision: live.resource.revision,
+    attemptedAt: live.attemptedAt,
     fields,
   })
+  await withTenant(session.organisationId, (sql) =>
+    recordResourceObservation(sql, {
+      organisationId: session.organisationId,
+      locationId,
+      resource: "profile",
+      attemptedAt: live.attemptedAt,
+    })
+  )
   const latestAttempt = await withTenant(session.organisationId, async (sql) => {
     const [row] = await sql<{
       id: string

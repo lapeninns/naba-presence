@@ -62,12 +62,17 @@ export function useKeepFocusClear(
       const barTop = footer
         ? footer.getBoundingClientRect().top
         : Number.POSITIVE_INFINITY
-      const limit = Math.min(barTop, viewportBottom) - GAP
+      const scroller = scrollParent(target)
+      const scrollBottom = scroller
+        ? scroller.getBoundingClientRect().top +
+          scroller.clientTop +
+          scroller.clientHeight
+        : Number.POSITIVE_INFINITY
+      const limit = Math.min(barTop, viewportBottom, scrollBottom) - GAP
       let delta = 0
       if (rect.bottom > limit) delta = rect.bottom - limit
       else if (rect.top < TOP_CLEARANCE) delta = rect.top - TOP_CLEARANCE
       if (delta === 0) return
-      const scroller = scrollParent(target)
       if (scroller) scroller.scrollBy({ top: delta })
       else window.scrollBy({ top: delta })
     }

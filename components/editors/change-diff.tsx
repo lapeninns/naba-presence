@@ -16,6 +16,11 @@ export type ChangeRow = {
    * publishing overwrites someone else's edit.
    */
   state?: "changed" | "conflict"
+  /** An unresolved comparison must be resolved before publication. */
+  blocking?: boolean
+  explanation?: string
+  /** Set only when an observed baseline proves the timing of a Google edit. */
+  observedAfterEditing?: boolean
 }
 
 /**

@@ -166,11 +166,11 @@ describe("ClientsIndex", () => {
     })
     expect(action).toHaveTextContent("1")
     expect(
-      within(summary).getByRole("button", { name: /Data delayed/ })
+      within(summary).getByRole("button", { name: /Needs attention/ })
     ).toHaveTextContent("1")
     // Importing clients are up to date; their pill says Importing.
     expect(
-      within(summary).getByRole("button", { name: /Up to date/ })
+      within(summary).getByRole("button", { name: /In sync/ })
     ).toHaveTextContent("1 importing")
     fireEvent.click(action)
     expect(replace).toHaveBeenCalledWith("/clients?health=disconnected", {

@@ -3,6 +3,7 @@ import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { HoursEditor } from "@/components/locations/hours-editor"
+import { validateHours } from "@/lib/editors/hours-presentation"
 import { emptyHours } from "@/lib/locations/forms/hours"
 import type { NormalizedHours } from "@/lib/api/location-hours"
 
@@ -12,6 +13,45 @@ function Harness() {
 }
 
 describe("HoursEditor special hours", () => {
+  it("marks and describes a malformed special closing time without invalidating its valid opening time", () => {
+    const value = emptyHours()
+    value.special = [
+      {
+        effectiveDate: "2099-12-24",
+        isClosed: false,
+        opensAt: "10:00",
+        closesAt: "24:01",
+      },
+    ]
+    const issues = validateHours(value)
+    const closingIssue = issues.find(
+      (issue) => issue.fieldId === "special-0-closes"
+    )
+    if (!closingIssue)
+      throw new Error("Expected a closing-time validation issue")
+    expect(issues.some((issue) => issue.fieldId === "special-0-opens")).toBe(
+      false
+    )
+    render(
+      <HoursEditor
+        value={value}
+        onChange={vi.fn()}
+        disabled={false}
+        errors={Object.fromEntries(
+          issues.map((issue) => [issue.fieldId, issue.message])
+        )}
+      />
+    )
+    const closes = screen.getByLabelText("Special date 1 closes")
+    expect(closes).toHaveAttribute("aria-invalid", "true")
+    expect(closes).toHaveAccessibleDescription(closingIssue.message)
+    expect(screen.getByText(closingIssue.message)).toBeVisible()
+    expect(screen.getByLabelText("Special date 1 opens")).not.toHaveAttribute(
+      "aria-invalid",
+      "true"
+    )
+  })
+
   it("never logs a duplicate-key warning when two rows share the same effectiveDate", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     render(<Harness />)
@@ -114,5 +154,138 @@ describe("HoursEditor day switch and special-day order", () => {
     expect(closes).toHaveAccessibleDescription(
       "Opening and closing times are the same."
     )
+  })
+})
+
+describe("HoursEditor service and boundary preservation", () => {
+  it("keeps two distinct services visible and edits only the selected schedule", () => {
+    const initial = emptyHours()
+    initial.moreHours = [
+      {
+        hoursTypeId: "KITCHEN",
+        periods: [
+          {
+            dayOfWeek: 1,
+            closeDayOfWeek: 1,
+            opensAt: "12:00",
+            closesAt: "15:00",
+          },
+        ],
+      },
+      {
+        hoursTypeId: "BAR",
+        periods: [
+          {
+            dayOfWeek: 0,
+            closeDayOfWeek: 1,
+            opensAt: "18:00",
+            closesAt: "02:00",
+          },
+        ],
+      },
+    ]
+    const change = vi.fn()
+    render(
+      <HoursEditor
+        value={initial}
+        onChange={change}
+        disabled={false}
+        supportedHoursTypes={[
+          { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+          { hoursTypeId: "BAR", displayName: "Bar" },
+        ]}
+      />
+    )
+    expect(
+      screen.getByLabelText("Bar Sunday period 1 closing day")
+    ).toHaveValue("1")
+    fireEvent.change(screen.getByLabelText("Kitchen Monday period 1 closes"), {
+      target: { value: "16:00" },
+    })
+    const next: NormalizedHours = change.mock.calls[0][0]
+    expect(next.moreHours[1]).toEqual(initial.moreHours[1])
+    expect(next.moreHours[0].periods[0]).toMatchObject({
+      closesAt: "16:00",
+      closeDayOfWeek: 1,
+    })
+  })
+
+  it("shows unknown services read-only while retaining them on a venue edit", () => {
+    const initial = emptyHours()
+    initial.moreHours = [
+      {
+        hoursTypeId: "UNKNOWN_SERVICE",
+        periods: [
+          {
+            dayOfWeek: 0,
+            closeDayOfWeek: 1,
+            opensAt: "18:00",
+            closesAt: "02:00",
+          },
+        ],
+      },
+    ]
+    const change = vi.fn()
+    render(<HoursEditor value={initial} onChange={change} disabled={false} />)
+    expect(
+      screen.getByLabelText("UNKNOWN_SERVICE Sunday period 1 opens")
+    ).toBeDisabled()
+    fireEvent.click(screen.getByRole("switch", { name: "Monday open" }))
+    expect(change.mock.calls[0][0].moreHours).toEqual(initial.moreHours)
+    expect(screen.queryByRole("button", { name: /Remove UNKNOWN/ })).toBeNull()
+  })
+
+  it("shows 24:00 and special end dates without clearing their values", () => {
+    const initial = emptyHours()
+    initial.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "00:00", closesAt: "24:00", closeDayOfWeek: 1 }],
+    }
+    initial.special = [
+      {
+        effectiveDate: "2099-12-31",
+        endDate: "2100-01-01",
+        isClosed: false,
+        opensAt: "18:00",
+        closesAt: "02:00",
+      },
+    ]
+    const change = vi.fn()
+    render(<HoursEditor value={initial} onChange={change} disabled={false} />)
+    expect(screen.getByLabelText("Monday period 1 closes")).toHaveValue("24:00")
+    expect(screen.getByLabelText("Special date 1 closing date")).toHaveValue(
+      "2100-01-01"
+    )
+    fireEvent.change(screen.getByLabelText("Monday period 1 opens"), {
+      target: { value: "01:00" },
+    })
+    expect(change.mock.calls[0][0].special).toEqual(initial.special)
+  })
+
+  it("offers only supported IDs for creation and requires explicit removal confirmation", () => {
+    const initial = emptyHours()
+    initial.moreHours = [{ hoursTypeId: "KITCHEN", periods: [] }]
+    const change = vi.fn()
+    render(
+      <HoursEditor
+        value={initial}
+        onChange={change}
+        disabled={false}
+        supportedHoursTypes={[
+          { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+          { hoursTypeId: "BAR", displayName: "Bar" },
+        ]}
+      />
+    )
+    expect(screen.getByRole("option", { name: "Bar" })).toHaveValue("BAR")
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Kitchen schedule" })
+    )
+    expect(change).not.toHaveBeenCalled()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove schedule from draft" })
+    )
+    expect(change.mock.calls[0][0].moreHours).toEqual([])
   })
 })

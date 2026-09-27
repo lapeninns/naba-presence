@@ -25,9 +25,10 @@ import { cn } from "@/lib/utils"
  * Keyboard safety: a field that takes focus under the pinned bar (or under
  * a phone keyboard) is scrolled clear of it — see `useKeepFocusClear`.
  *
- * The footer is pinned: it sticks 12px above the bottom of the nearest
+ * On screens at least 620px tall, the footer sticks 12px above the bottom of the nearest
  * scrolling pane, as a floating dark bar. The frame leaves room under the
- * last field so the bar never covers it at the end of the scroll.
+ * last field so the bar never covers it at the end of the scroll. Short
+ * screens use normal document flow so the action bar cannot cover the form.
  */
 function EditorFrame({
   title,
@@ -73,10 +74,7 @@ function EditorFrame({
     <section
       ref={ref}
       data-slot="editor-frame"
-      className={cn(
-        "flex flex-col gap-5",
-        className
-      )}
+      className={cn("flex flex-col gap-5", className)}
     >
       {titleHidden ? <h2 className="sr-only">{title}</h2> : null}
       {showHead ? (
@@ -122,7 +120,7 @@ function EditorFrame({
       {footer ? (
         <div
           data-slot="editor-frame-footer"
-          className="sticky bottom-3 z-20 mt-auto"
+          className="mt-auto [@media(min-height:620px)]:sticky [@media(min-height:620px)]:bottom-3 [@media(min-height:620px)]:z-20"
         >
           {footer}
         </div>

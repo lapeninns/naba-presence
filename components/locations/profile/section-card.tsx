@@ -37,7 +37,7 @@ export function LabelRow({
  * profile mixes two models: the name, description, phone and website are
  * saved in NabaPresence first ("Save here" keeps them without touching
  * Google), while categories, address, opening state and attributes have no
- * NabaPresence copy and go straight to Google when published.
+ * NabaPresence copy and are sent only after review and publication.
  */
 export type SaveModel = "here" | "google"
 
@@ -50,7 +50,7 @@ export function SaveModelTag({ model }: { model: SaveModel }) {
       className="inline-flex items-center gap-1 rounded-(--np-radius-tag) border border-line bg-surface-alt px-1.5 text-[11.5px] leading-[18px] font-medium text-ink-secondary"
     >
       <Icon className="size-3" strokeWidth={2} aria-hidden />
-      {model === "here" ? "Saved here first" : "Goes straight to Google"}
+      {model === "here" ? "Saved here first" : "Published after review"}
     </span>
   )
 }

@@ -120,3 +120,16 @@ describe("PostsTab", () => {
     expect(within(screen.getByRole("article")).getByText("Awaiting approval")).toBeInTheDocument()
   })
 })
+
+it("shows unavailable dates for legacy published posts and orders by content time", () => {
+  usePostsMock.mockReturnValue({ data: makeState({ posts: [
+    post({ id: "old", summary: "Older content recently reconciled", status: "published", googleState: "LIVE", providerUpdatedAt: "2026-08-01T00:00:00Z", updatedAt: "2026-09-27T00:00:00Z" }),
+    post({ id: "new", summary: "Newer content", status: "published", googleState: "LIVE", providerUpdatedAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-02T00:00:00Z" }),
+    post({ id: "missing", summary: "Provider date missing", status: "published", providerCreatedAt: null, providerUpdatedAt: "bad" }),
+  ] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+  useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+  renderTab()
+  expect(screen.getByText("Date unavailable")).toBeInTheDocument()
+  const summaries = screen.getAllByText(/^(Newer content|Older content recently reconciled|Provider date missing)$/)
+  expect(summaries.map((element) => element.textContent)).toEqual(["Newer content", "Older content recently reconciled", "Provider date missing"])
+})

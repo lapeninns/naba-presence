@@ -10,13 +10,16 @@ import { formatNumber, formatRelativeTime } from "@/lib/format"
 import { uncheckedAreas } from "@/lib/listings/area-state"
 import {
   googleChangedCount,
+  listingHealth,
+  listingHealthLabel,
+  listingHealthTone,
   UNREACHABLE_LABEL,
   unpublishedCount,
 } from "@/lib/listings/health"
 import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
 
-const GRID = "grid grid-cols-1 gap-3 @[460px]:grid-cols-2 @[980px]:grid-cols-4"
+const GRID = "grid grid-cols-2 gap-2 @[640px]:gap-3 @[980px]:grid-cols-4"
 
 /**
  * One fact as a tile (reference `.stat.tile`): the question in muted UI
@@ -40,7 +43,7 @@ function Tile({
     <div
       data-slot="health-tile"
       data-tile={id}
-      className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-4"
+      className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
     >
       <p className="text-ui font-medium text-ink-muted">{label}</p>
       <div className="flex min-h-[26px] flex-wrap items-center gap-1.5">
@@ -56,7 +59,10 @@ function capitalise(text: string): string {
   return text ? text[0]!.toUpperCase() + text.slice(1) : text
 }
 
-const ACTION = cn(buttonVariants({ variant: "secondary", size: "sm" }))
+const ACTION = cn(
+  buttonVariants({ variant: "secondary", size: "sm" }),
+  "h-auto min-h-8 max-w-full py-1.5 text-center whitespace-normal"
+)
 
 /**
  * Four facts about the listing that decide what to do next: whether Google
@@ -112,7 +118,7 @@ function HealthStrip({
         {[0, 1, 2, 3].map((index) => (
           <div
             key={index}
-            className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4"
+            className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
           >
             <Skeleton className="h-3.5 w-1/2" />
             <Skeleton className="h-[22px] w-2/5" />
@@ -134,6 +140,7 @@ function HealthStrip({
   const changed = googleChangedCount(summary)
   const last = summary.lastPublish
   const unchecked = uncheckedAreas(summary)
+  const health = listingHealth({ linked, summary })
   // Without a working login for this listing nothing here was checked
   // recently, whatever the last comparison said.
   const unreachable = linked && (connectionBroken || accessLost)
@@ -221,8 +228,10 @@ function HealthStrip({
           unpublished === 0 && changed === 0 ? (
             unreachable ? (
               <StatusPill tone="neutral">{UNREACHABLE_LABEL}</StatusPill>
-            ) : unchecked.length > 0 ? (
-              <StatusPill tone="neutral">Nothing waiting</StatusPill>
+            ) : health !== "healthy" ? (
+              <StatusPill tone={listingHealthTone(health)}>
+                {listingHealthLabel(health)}
+              </StatusPill>
             ) : (
               <StatusPill tone="healthy">In sync</StatusPill>
             )
@@ -249,12 +258,12 @@ function HealthStrip({
               ? "Saved here, not yet on Google. Google can’t be checked until the connection is fixed."
               : "Google can’t be checked until the connection is fixed, so this may be out of date."
             : unpublished > 0
-            ? "Saved here, not yet on Google"
-            : changed > 0
-              ? "Google changed something since the last publish"
-              : unchecked.length > 0
-                ? `Not compared with Google yet: ${unchecked.join(", ")}`
-                : "What is here matches what customers see"
+              ? "Saved here, not yet on Google"
+              : changed > 0
+                ? "Google differs from the saved listing"
+                : unchecked.length > 0
+                  ? `Current comparison needed: ${unchecked.join(", ")}`
+                  : "Applicable areas matched Google at their latest checks"
         }
         action={
           unpublished > 0 ? (

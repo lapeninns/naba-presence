@@ -1128,7 +1128,7 @@ for (const theme of themes) {
         const controls = await mockReviewWorkspace(page)
         await page.goto("/inbox")
         await expect(
-          page.getByText("All clients up to date", { exact: true })
+          page.getByText("All clients in sync", { exact: true })
         ).toBeVisible()
         controls.failClients()
         await page.clock.fastForward("00:01:05")

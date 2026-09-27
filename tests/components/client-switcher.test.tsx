@@ -123,7 +123,7 @@ describe("ClientSwitcher", () => {
     expect(options[0]).toHaveAccessibleName("All clients")
     expect(options[0]).toHaveAttribute("aria-checked", "true")
     // The mark is decoration; the health word is read after the name.
-    expect(options[1]).toHaveAccessibleName("Old Crown, Up to date")
+    expect(options[1]).toHaveAccessibleName("Old Crown, In sync")
     expect(options[2]).toHaveAccessibleName("Harbour Kitchen, Action needed")
   })
 
@@ -284,7 +284,7 @@ describe("ClientSwitcher", () => {
     await user.type(search, "client e")
     const matches = screen.getAllByRole("option")
     expect(matches).toHaveLength(1)
-    expect(matches[0]).toHaveAccessibleName("Client E, Up to date")
+    expect(matches[0]).toHaveAccessibleName("Client E, In sync")
     await user.keyboard("{Enter}")
     expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c5", {
       scroll: false,

@@ -64,6 +64,15 @@ export const clientSummarySchema = clientSchema.extend({
   linkedCount: z.number().int().nonnegative(),
   verifiedCount: z.number().int().nonnegative(),
   health: clientHealthSchema,
+  canonicalChecks: z
+    .object({
+      total: z.number().int().nonnegative(),
+      checked: z.number().int().nonnegative(),
+      partial: z.number().int().nonnegative(),
+      attention: z.number().int().nonnegative(),
+      unpublished: z.number().int().nonnegative(),
+    })
+    .optional(),
   connections: z.array(clientConnectionSchema),
   openWork: z.object({
     needsReply: z.number().int().nonnegative(),
@@ -127,7 +136,12 @@ export type ClientCreateInput = z.infer<typeof clientCreateSchema>
 
 export const clientUpdateSchema = z
   .object({
-    name: z.string().trim().min(1, "Give the client a name").max(120).optional(),
+    name: z
+      .string()
+      .trim()
+      .min(1, "Give the client a name")
+      .max(120)
+      .optional(),
     colour: colourSchema.nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     archived: z.boolean().optional(),
@@ -153,7 +167,9 @@ export const clientAssignLocationsSchema = z.object({
    */
   grantToClientMembers: z.boolean().default(true),
 })
-export type ClientAssignLocationsInput = z.infer<typeof clientAssignLocationsSchema>
+export type ClientAssignLocationsInput = z.infer<
+  typeof clientAssignLocationsSchema
+>
 
 export const clientIdParamsSchema = z.object({ clientId: z.uuid() })
 
@@ -216,10 +232,12 @@ export type ClientSetupResponse = z.infer<typeof clientSetupResponseSchema>
 export function nextIncompleteStep(
   setup: Omit<ClientSetup, "nextStep" | "clientId" | "hasClient">
 ): SetupStep {
-  if (!setup.connection || setup.connection.status !== "active") return "connect"
+  if (!setup.connection || setup.connection.status !== "active")
+    return "connect"
   if (setup.accountsActive === 0) return "account"
   if (setup.locationsLinked === 0) return "locations"
-  if (setup.backfill === "not_started" || setup.backfill === "failed") return "backfill"
+  if (setup.backfill === "not_started" || setup.backfill === "failed")
+    return "backfill"
   if (!setup.notificationsEnabled) return "notifications"
   if (!setup.teamInvited) return "team"
   return "done"

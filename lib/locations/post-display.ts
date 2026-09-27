@@ -164,6 +164,17 @@ export function postImageUrl(post: Pick<PostRow, "media">): string | null {
   return null
 }
 
+/** Content time is distinct from the database row's reconciliation time. */
+export function postContentTimestamp(post: Pick<PostRow,
+  "status" | "googleState" | "googlePostName" | "lastErrorCode" | "updatedAt" | "localEditedAt" | "providerUpdatedAt" | "providerCreatedAt"
+>): string | null {
+  const providerContent = post.status === "published" || (post.status === "failed" && post.googleState === "REJECTED" && (post.lastErrorCode === "google_post_rejected" || post.localEditedAt === null))
+  const candidates = providerContent
+    ? [post.providerUpdatedAt, post.providerCreatedAt]
+    : [post.localEditedAt === undefined && !post.googlePostName ? post.updatedAt : post.localEditedAt]
+  return candidates.find((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value))) ?? null
+}
+
 /** "20 Sep 2026, 16:40" for the row's last change. */
 export function formatPostTimestamp(value: string): string {
   const date = new Date(value)

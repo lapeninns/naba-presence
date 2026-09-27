@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { areaState, suggestionCount } from "@/lib/listings/area-state"
+import { comparisonCheck } from "@/lib/listings/health"
 import {
   listingHref,
   visibleListingAreas,
@@ -111,10 +112,21 @@ function AreaCards({
   const waiting = suggestionCount(summary)
   const areas = visibleListingAreas(canManageConsoles)
     .filter((area) => (area.key === "suggestions" ? waiting > 0 : true))
-    // Waiting suggestions are the one decision on this page: first.
-    .sort((a, b) =>
-      a.key === "suggestions" ? -1 : b.key === "suggestions" ? 1 : 0
-    )
+    .sort((a, b) => {
+      const priority = (area: ListingArea) => {
+        if (area.key === "suggestions") return 0
+        if (!summary) return 4
+        const tone = areaState(area.key, summary).tone
+        return tone === "at-risk"
+          ? 1
+          : tone === "attention"
+            ? 2
+            : tone === "pending"
+              ? 3
+              : 4
+      }
+      return priority(a) - priority(b)
+    })
 
   if (!summary && !summaryFailed) {
     return (
@@ -134,9 +146,16 @@ function AreaCards({
           : area.capability
             ? resourceDisabledReason(caps, area.capability, true)
             : null
+        const capability = caps?.resources?.[area.capability ?? ""]
         const readOnly =
-          Boolean(blocked) &&
-          caps?.resources?.[area.capability ?? ""]?.state === "readOnly"
+          capability?.state === "readOnly" ||
+          (capability?.state === "blocked" &&
+            ["publish_not_allowed", "publishing_paused"].includes(
+              capability.reasonCode ?? ""
+            )) ||
+          (!blocked &&
+            area.model === "canonical" &&
+            caps?.canEditCanonical === false)
 
         if (blocked && !readOnly) {
           return (
@@ -154,8 +173,28 @@ function AreaCards({
           )
         }
 
-        const verb =
-          area.key === "suggestions" ? "Review" : readOnly ? "View" : "Edit"
+        const synced =
+          summary &&
+          (area.key === "profile" ||
+            area.key === "hours" ||
+            area.key === "menu")
+            ? summary[area.key]
+            : null
+        const needsReview =
+          area.key === "suggestions" ||
+          synced?.status === "core_dirty" ||
+          synced?.status === "conflict" ||
+          synced?.status === "google_dirty"
+        const verb = needsReview
+          ? "Review"
+          : readOnly ||
+              (area.key === "menu" && summary?.menu.eligible === false)
+            ? "View"
+            : !summary ||
+                (synced && comparisonCheck(synced) !== "checked") ||
+                ["photos", "posts", "people", "verification"].includes(area.key)
+              ? "Check"
+              : "Edit"
         const action = (
           <Link
             href={listingHref(locationId, area.segment)}
@@ -202,9 +241,21 @@ function AreaCards({
             emphasis={area.key === "suggestions"}
             pill={<StatusPill tone={state.tone}>{state.label}</StatusPill>}
             line={
-              state.line ?? (
-                <span className="text-ink-muted">Nothing to add</span>
-              )
+              <>
+                {state.line ?? (
+                  <span className="text-ink-muted">Nothing to add</span>
+                )}
+                {area.key === "photos" ? (
+                  <span className="mt-1 block text-caption text-ink-muted">
+                    Owner photos on Google, including uploads outside this app.
+                  </span>
+                ) : null}
+                {area.key === "posts" ? (
+                  <span className="mt-1 block text-caption text-ink-muted">
+                    Posts on Google, including posts created outside this app.
+                  </span>
+                ) : null}
+              </>
             }
             action={action}
           />

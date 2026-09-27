@@ -15,12 +15,16 @@ import type {
 import { nextIncompleteStep } from "@/lib/contracts/clients"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import { readListingSummaries } from "@/lib/server/location-summary"
+import { listingHealth } from "@/lib/listings/health"
+import type { CanonicalChecks } from "@/lib/clients/health"
 import type { Session } from "@/lib/server/session"
 
 type SummaryRow = Omit<
   ClientSummary,
   "health" | "connections" | "freshness" | "checks"
 > & {
+  locationIds: string[] | null
   connections: ClientConnection[] | null
   checks: NonNullable<ClientSummary["checks"]>
 }
@@ -129,6 +133,7 @@ export async function listClientSummaries(
       counts.location_count::int as "locationCount",
       counts.linked_count::int as "linkedCount",
       counts.verified_count::int as "verifiedCount",
+      counts.location_ids as "locationIds",
       json_build_object(
         'needsReply', work.needs_reply::int,
         'awaitingApproval', work.awaiting_approval::int,
@@ -150,6 +155,7 @@ export async function listClientSummaries(
     from client c
     left join lateral (
       select
+        array_agg(l.id::text) filter (where ll.id is not null) as location_ids,
         count(*) as location_count,
         count(*) filter (where ll.id is not null) as linked_count,
         count(*) filter (where e.verified) as verified_count
@@ -263,22 +269,65 @@ export async function listClientSummaries(
       and ${visibilityPredicate(sql, session, sql`l.id`)}
   `
 
+  const ids = rows.flatMap((row) => row.locationIds ?? [])
+  const listingSummaries = ids.length
+    ? await readListingSummaries(sql, session, ids)
+    : []
+  const healthBy = new Map(
+    listingSummaries.map((summary) => [
+      summary.locationId,
+      listingHealth({
+        linked: summary.linked,
+        verified: summary.verified,
+        summary,
+      }),
+    ])
+  )
   return {
-    items: rows.map(toSummary),
+    items: rows.map((row) => {
+      const canonicalChecks: CanonicalChecks = {
+        total: row.linkedCount,
+        checked: 0,
+        partial: 0,
+        attention: 0,
+        unpublished: 0,
+      }
+      for (const id of row.locationIds ?? []) {
+        const health = healthBy.get(id)
+        if (health === "healthy") canonicalChecks.checked++
+        else if (health === "partially_checked") canonicalChecks.partial++
+        else if (health === "unpublished") canonicalChecks.unpublished++
+        else if (
+          health === "attention" ||
+          health === "disconnected" ||
+          health === "access_lost" ||
+          health === "pending_verification"
+        )
+          canonicalChecks.attention++
+      }
+      return toSummary(row, canonicalChecks)
+    }),
     unassignedLocationCount: unassigned?.count ?? 0,
   }
 }
 
-function toSummary(row: SummaryRow): ClientSummary {
+function toSummary(
+  row: SummaryRow,
+  canonicalChecks: CanonicalChecks
+): ClientSummary {
+  const { locationIds, ...summaryRow } = row
+  void locationIds
   const connections = row.connections ?? []
   const input = {
     connections,
     linkedLocationCount: row.linkedCount,
     backfill: { running: row.backfill.running, failed: row.backfill.failed },
     checks: row.checks,
+    canonicalChecks,
   }
   return {
-    ...row,
+    ...summaryRow,
+    canonicalChecks,
     connections,
     health: clientHealth(input),
     freshness: clientFreshness(input),
@@ -288,13 +337,14 @@ function toSummary(row: SummaryRow): ClientSummary {
 /** The one place a summary row becomes a health word. */
 export function healthFor(
   row: Pick<ClientSummary, "connections" | "linkedCount" | "backfill"> &
-    Partial<Pick<ClientSummary, "checks">>
+    Partial<Pick<ClientSummary, "checks" | "canonicalChecks">>
 ): ClientHealth {
   return clientHealth({
     connections: row.connections,
     linkedLocationCount: row.linkedCount,
     backfill: { running: row.backfill.running, failed: row.backfill.failed },
     checks: row.checks,
+    canonicalChecks: row.canonicalChecks,
   })
 }
 
