@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import { captureLodging as capture, captureLodgingDialog } from "./helpers/lodging-capture"
+import { captureLodging as capture, captureLodgingDialog, lodgingSheet } from "./helpers/lodging-capture"
 import { startLodgingBackend } from "./helpers/lodging-backend"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
@@ -25,7 +25,7 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await expect(footer.getByRole("button", { name: "Save here", exact: true })).toBeDisabled()
     await capture(page, info, "explicit-no")
     await footer.getByRole("button", { name: "Review lodging draft", exact: true }).click()
-    const review = page.getByRole("dialog", { name: "Review changes" })
+    const review = page.getByRole("dialog", { name: lodgingSheet })
     await expect(review.getByText("Parking · Parking available", { exact: true })).toBeVisible()
     await expect(review.getByRole("row").filter({ has: page.getByText("Parking · Parking available", { exact: true }) }).getByText("Not set", { exact: true })).toBeVisible()
     expect(fixture.writes()).toHaveLength(0)
@@ -51,7 +51,7 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await expect(editor(page).getByRole("combobox", { name: "Pets allowed", exact: true })).toHaveText("Yes")
     await capture(page, info, "selected-suggestion")
     await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
-    await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible()
+    await expect(page.getByRole("dialog", { name: lodgingSheet })).toBeVisible()
     const [review] = await backend.admin`select payload, update_mask from gbp_change_set where organisation_id = ${fixture.owner.organisationId} and resource_type = 'lodging' order by created_at desc limit 1`
     expect(review.payload).toMatchObject({ property: { roomsCount: 24 }, pets: { petsAllowed: true } })
     expect(review.update_mask).toEqual(["metadata.updateTime", "pets.petsAllowed", "property.roomsCount"])
@@ -77,7 +77,7 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await search(page, "Checkin time")
     await editor(page).getByLabel("Check-in time", { exact: true }).fill("00:00")
     await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
-    await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible()
+    await expect(page.getByRole("dialog", { name: lodgingSheet })).toBeVisible()
     const [review] = await backend.admin`select payload, update_mask from gbp_change_set where organisation_id = ${fixture.owner.organisationId} and resource_type = 'lodging' order by created_at desc limit 1`
     expect(review.payload).toMatchObject({ policies: { checkinTime: { hours: 0, minutes: 0 } }, services: { languagesSpoken: [{ languageCode: "en", spoken: true }, { languageCode: "fr", spoken: true }] } })
     expect(review.update_mask).toEqual(["metadata.updateTime", "policies.checkinTime", "services.languagesSpoken"])
@@ -110,7 +110,7 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await editor(page).getByRole("combobox", { name: "Pets allowed", exact: true }).click()
     await page.getByRole("option", { name: "Yes", exact: true }).click()
     await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
-    const dialog = page.getByRole("dialog", { name: "Review changes" })
+    const dialog = page.getByRole("dialog", { name: lodgingSheet })
     await dialog.getByRole("button", { name: "Approve lodging changes", exact: true }).click()
     await dialog.getByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }).check()
     await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
@@ -119,10 +119,13 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await backend.admin`update gbp_change_set set approval_expires_at = now() - interval '1 hour' where id = ${reviewId}`
     await fixture.disconnect(); await page.reload()
     const saved = page.getByRole("region", { name: "Saved lodging work", exact: true })
+    await expect(saved.getByText(/^Lodging details for /).first()).toBeVisible()
     await saved.getByRole("button", { name: "Open lodging outcome", exact: true }).click()
     await expect(dialog.getByText("Independently confirmed", { exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toHaveCount(0)
     await expect(dialog.locator("time").last()).toBeVisible()
+    await expect(page.getByRole("dialog", { name: "Saved lodging outcome" })).toBeVisible()
+    await expect(dialog.getByText(/fresh preview|Approval expired/)).toHaveCount(0)
     await captureLodgingDialog(page, info, "disconnected-expired-outcome")
     expect(fixture.writes()).toHaveLength(1)
   })

@@ -1,10 +1,14 @@
-import { screen, waitFor } from "@testing-library/react"
+import { QueryClient } from "@tanstack/react-query"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { AdministrationProvider } from "@/components/locations/administration/context"
 import { DangerZone } from "@/components/locations/administration/danger-zone"
 import { LifecycleWorkspace, useLifecycleContext } from "@/components/locations/administration/lifecycle-workspace"
+import { formatInstant } from "@/components/editors/change-diff"
+import { ApiClientError } from "@/lib/api/client"
 import * as lifecycle from "@/lib/api/google-lifecycle"
+import { queryKeys } from "@/lib/queries/keys"
 import { lifecycleAttemptFixture, lifecycleFixtureId as id, lifecycleReviewFixture } from "../helpers/lifecycle-review"
 import { renderWithProviders } from "../helpers/render"
 
@@ -80,4 +84,97 @@ describe("typed reviewed lifecycle workflow", () => {
     expect(lifecycle.refreshLifecycleAttempt).toHaveBeenCalledExactlyOnceWith(id, id)
     expect(lifecycle.executeLifecycle).toHaveBeenCalledTimes(1)
   })
+  it("shows reviewed instants in local time, human role names and the place ID as secondary detail", async () => {
+    render(); await approve()
+    const panel = screen.getByRole("region", { name: "Review managed-location deletion" })
+    expect(panel).not.toHaveTextContent(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+    expect(panel).not.toHaveTextContent(/OWNER|MANAGER/)
+    expect(within(panel).getByText(/accounts\/source · Owner/)).toBeInTheDocument()
+    expect(within(panel).getByText("Google place ID: ChIJ_owned_fixture")).toBeInTheDocument()
+    const observed = within(panel).getByText(formatInstant("2026-09-30T08:00:00.000Z"))
+    expect(observed.tagName).toBe("TIME"); expect(observed).toHaveAttribute("dateTime", "2026-09-30T08:00:00.000Z")
+    expect(within(panel).getByText(/^Approval expires/)).toBeInTheDocument()
+  })
+  it("shows the observation time locally on the outcome and refreshes the listing header state once confirmed", async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries")
+    render(); await consentAndSend()
+    const panel = await screen.findByRole("region", { name: "Saved lifecycle outcome" })
+    expect(panel).not.toHaveTextContent(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+    expect(within(panel).getByText(formatInstant("2026-09-30T08:01:00.000Z"))).toHaveAttribute("dateTime", "2026-09-30T08:01:00.000Z")
+    const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
+    expect(keys).toContain(JSON.stringify(queryKeys.listingSummary(id)))
+    expect(keys).toContain(JSON.stringify(queryKeys.listingSummaries))
+    expect(keys).toContain(JSON.stringify(queryKeys.locations))
+    invalidate.mockRestore()
+  })
+  it("does not refresh the listing header state for an unresolved outcome", async () => {
+    vi.mocked(lifecycle.executeLifecycle).mockResolvedValue({ ...lifecycleAttemptFixture(), confirmationState: "unresolved", postcondition: "unresolved" })
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries")
+    render(); await consentAndSend(); await screen.findByText("Independent confirmation unresolved")
+    expect(invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))).not.toContain(JSON.stringify(queryKeys.listingSummary(id)))
+    invalidate.mockRestore()
+  })
+  it("states a server-reported approval expiry as past, in local time, and starts a fresh review in place", async () => {
+    vi.mocked(lifecycle.executeLifecycle).mockRejectedValue(new ApiClientError(409, "approval_expired", "This review expired. Generate a new review."))
+    render(); await consentAndSend()
+    const panel = screen.getByRole("region", { name: "Review managed-location deletion" })
+    expect(await within(panel).findByText(/This approval has expired, so the request can no longer be sent/)).toBeInTheDocument()
+    const expiry = within(panel).getByText(/^Approval expired · checked/)
+    const checked = within(expiry).getByText((_, element) => element?.tagName === "TIME")
+    expect(checked.getAttribute("dateTime")).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(checked).toHaveTextContent(formatInstant(checked.getAttribute("dateTime") ?? ""))
+    expect(panel).not.toHaveTextContent(/Approval expires/)
+    expect(within(panel).queryByText("Create a fresh lifecycle review before sending.")).not.toBeInTheDocument()
+    expect(within(panel).getByRole("button", { name: "Send approved deletion" })).toBeDisabled()
+    await userEvent.click(within(panel).getByRole("button", { name: "Start a fresh review" }))
+    expect(await screen.findByRole("button", { name: "Approve lifecycle request" })).toBeEnabled()
+    expect(lifecycle.previewLifecycle).toHaveBeenLastCalledWith(id, { operation: "delete_location", payload: {} })
+    expect(lifecycle.previewLifecycle).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/This approval has expired/)).not.toBeInTheDocument()
+    expect(lifecycle.executeLifecycle).toHaveBeenCalledTimes(1)
+  })
+  it("states a review whose deadline has passed with its recorded local time", async () => {
+    const expiredAt = "2026-01-01T12:00:00.000Z", review = lifecycleReviewFixture()
+    vi.mocked(lifecycle.previewLifecycle).mockResolvedValue({ ...review, changeSet: { ...review.changeSet, expiresAt: expiredAt } })
+    render()
+    await userEvent.click(screen.getByRole("button", { name: "Delete this location" }))
+    await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
+    const panel = await screen.findByRole("region", { name: "Review managed-location deletion" })
+    const expiry = within(panel).getByText(/^Review expired/)
+    expect(within(expiry).getByText(formatInstant(expiredAt))).toHaveAttribute("dateTime", expiredAt)
+    expect(within(panel).getByText(/This review has expired, so the request can no longer be approved/)).toBeInTheDocument()
+    expect(within(panel).getByRole("button", { name: "Approve lifecycle request" })).toBeDisabled()
+    expect(within(panel).getByRole("button", { name: "Start a fresh review" })).toBeEnabled()
+  })
+  it.each([
+    ["destination_management_required", /The destination account's access on Google changed since this review/],
+    ["google_baseline_stale", /The destination or source account's access on Google changed since this review/],
+  ])("explains %s on a transfer, marks the reviewed role as not current and offers a fresh review", async (code, message) => {
+    await transferDrift(code, message)
+  })
 })
+async function transferDrift(code: string, message: RegExp) {
+  const request = { operation: "transfer_location" as const, payload: { destinationAccount: "accounts/destination" } }
+  const review = lifecycleReviewFixture(request)
+  vi.mocked(lifecycle.previewLifecycle).mockResolvedValue(review)
+  vi.mocked(lifecycle.approveLifecycle).mockResolvedValue({ ...review, changeSet: { ...review.changeSet, approvedBy: id } })
+  vi.mocked(lifecycle.executeLifecycle).mockRejectedValue(new ApiClientError(409, code, "Access changed."))
+  render()
+  await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+  await userEvent.type(screen.getByLabelText("Destination Google account"), "accounts/destination")
+  await userEvent.click(screen.getByRole("button", { name: "Continue to transfer review" }))
+  await userEvent.click(await screen.findByRole("button", { name: "Approve lifecycle request" }))
+  const send = await screen.findByRole("button", { name: "Send approved transfer" })
+  const panel = screen.getByRole("region", { name: "Review account transfer" })
+  expect(within(panel).getByText("accounts/destination · Manager")).toBeInTheDocument()
+  await userEvent.type(screen.getByLabelText("Type the listing name: Camden Hotel"), "Camden Hotel")
+  await userEvent.click(screen.getByRole("checkbox")); await userEvent.click(send)
+  expect(await within(panel).findByText(message)).toBeInTheDocument()
+  expect(within(panel).getByText("accounts/destination · Manager at review, no longer current")).toBeInTheDocument()
+  expect(within(panel).queryByText("Create a fresh lifecycle review before sending.")).not.toBeInTheDocument()
+  expect(send).toBeDisabled()
+  await userEvent.click(within(panel).getByRole("button", { name: "Start a fresh review" }))
+  await waitFor(() => expect(lifecycle.previewLifecycle).toHaveBeenCalledTimes(2))
+  expect(lifecycle.previewLifecycle).toHaveBeenLastCalledWith(id, request)
+  expect(await within(panel).findByText("accounts/destination · Manager")).toBeInTheDocument()
+}

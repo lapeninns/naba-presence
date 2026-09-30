@@ -29,8 +29,13 @@ async function capture(
 }
 async function dialogCapture(page: Page, info: TestInfo, name: string) {
   // Axe must see the settled dialog, not its opening fade.
-  await page.waitForFunction(() => [...document.querySelectorAll('[role="dialog"], [data-slot="dialog-overlay"], [data-slot="sheet-overlay"]')]
-    .every((element) => getComputedStyle(element).opacity === "1"))
+  await page.waitForFunction(() =>
+    [
+      ...document.querySelectorAll(
+        '[role="dialog"], [data-slot="dialog-overlay"], [data-slot="sheet-overlay"]'
+      ),
+    ].every((element) => getComputedStyle(element).opacity === "1")
+  )
   expect(
     (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
       .violations
@@ -136,6 +141,29 @@ for (const width of [375, 768, 1280])
           page.getByRole("heading", { name: heading, exact: true })
         ).toBeVisible()
       }
+      // Scheduler rows carry readable names and the schedule each is judged
+      // against, never the internal tick keys.
+      const jobs = page.getByRole("list", { name: "Scheduled jobs" })
+      for (const label of [
+        "Job runner",
+        "Review check",
+        "Listing sync",
+        "Performance metrics",
+        "Full review sweep",
+        "Search keywords",
+        "Data retention clean-up",
+        "Health checks",
+      ]) {
+        await expect(jobs.getByText(label, { exact: true })).toBeVisible()
+      }
+      for (const key of ["jobs", "presence-resources", "retention"]) {
+        await expect(jobs.getByText(key, { exact: true })).toHaveCount(0)
+      }
+      await expect(
+        jobs.getByText(
+          "Expected every minute · stale after 5 minutes without a run"
+        )
+      ).toBeVisible()
       await expect(
         page.getByRole("button", { name: /Retry .*failed email/ })
       ).toBeDisabled()
@@ -173,7 +201,11 @@ for (const width of [375, 768, 1280])
       await sheet.getByLabel("Local time").fill("01:30")
       await sheet.getByLabel("Times").fill("3")
       await expect(
-        sheet.getByText(/Clocks go back: this time happens twice that day, so it runs once, at the earlier of the two/).first()
+        sheet
+          .getByText(
+            /Clocks go back: this time happens twice that day, so it runs once, at the earlier of the two/
+          )
+          .first()
       ).toBeVisible()
       await dialogCapture(page, info, "schedule-preview")
       await sheet
@@ -212,7 +244,11 @@ for (const width of [375, 768, 1280])
       await page.getByRole("tab", { name: "Agenda", exact: true }).click()
       for (let step = 0; step < 14; step += 1) {
         // Wait for this period's answer before deciding to move on.
-        await expect(page.getByText(/No scheduled publications in this period|Fixture Inn 1/).first()).toBeVisible()
+        await expect(
+          page
+            .getByText(/No scheduled publications in this period|Fixture Inn 1/)
+            .first()
+        ).toBeVisible()
         if (await page.getByText("Fixture Inn 1").first().isVisible()) break
         await page.getByRole("button", { name: "Next period" }).click()
       }

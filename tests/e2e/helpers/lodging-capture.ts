@@ -1,9 +1,11 @@
 import { expect, type Page, type TestInfo } from "@playwright/test"
 import AxeBuilder from "@axe-core/playwright"
 
+// The sheet is titled as a review until a request is recorded, then as its outcome.
+export const lodgingSheet = /^(Review changes|Saved lodging outcome)$/
 export const lodgingEditor = (page: Page) => page.getByRole("region", { name: "Lodging details", exact: true })
 export async function captureLodgingDialog(page: Page, info: TestInfo, name: string) {
-  const dialog = page.getByRole("dialog", { name: "Review changes" })
+  const dialog = page.getByRole("dialog", { name: lodgingSheet })
   await expect(dialog).toBeVisible()
   await expect.poll(() => dialog.evaluate((element) => getComputedStyle(element).opacity)).toBe("1")
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])

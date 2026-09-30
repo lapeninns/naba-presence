@@ -76,7 +76,9 @@ for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, (
   test("blocks destination role drift after approval without sending", async ({ page }, info) => {
     const fixture = await backend.lifecycleFixture(page), send = await prepare(page, fixture, true, info)
     fixture.lifecycleState.destinationRole = "SITE_MANAGER"; await send.click()
-    await expect(reviewPanel(page).getByText("Create a fresh lifecycle review before sending.")).toBeVisible()
+    await expect(reviewPanel(page).getByText(/The destination or source account's access on Google changed since this review/)).toBeVisible()
+    await expect(reviewPanel(page).getByText(/at review, no longer current/).first()).toBeVisible()
+    await expect(reviewPanel(page).getByRole("button", { name: "Start a fresh review" })).toBeEnabled()
     await expect(send).toBeDisabled(); expect(fixture.lifecycleWrites()).toHaveLength(0)
     await captureVerificationSection(page, info, { name: "destination-drift-blocked", section: "lifecycle-review-title" })
   })
@@ -98,7 +100,10 @@ for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, (
     const fixture = await backend.lifecycleFixture(page), send = await prepare(page, fixture, false, info)
     const reviewId = await fixture.reviewId("location_lifecycle")
     await backend.admin`update gbp_change_set set approval_expires_at = now() - interval '1 hour' where id = ${reviewId}`
-    await send.click(); await expect(reviewPanel(page).getByText("Create a fresh lifecycle review before sending.")).toBeVisible()
+    await send.click(); await expect(reviewPanel(page).getByText(/This approval has expired, so the request can no longer be sent/)).toBeVisible()
+    await expect(reviewPanel(page).getByText(/^Approval expired · checked /)).toBeVisible()
+    await expect(reviewPanel(page).getByText(/Approval expires/)).toHaveCount(0)
+    await expect(reviewPanel(page).getByRole("button", { name: "Start a fresh review" })).toBeEnabled()
     expect(fixture.lifecycleWrites()).toHaveLength(0)
     await captureVerificationSection(page, info, { name: "expired-approval-blocked", section: "lifecycle-review-title" })
   })

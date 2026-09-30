@@ -16,8 +16,10 @@ async function capture(page: Page, info: TestInfo, name: string) {
 async function review(page: Page) {
   await page.locator("#section-services").getByRole("textbox", { name: "Description", exact: true }).fill("Follow-up appointment")
   await page.getByRole("button", { name: "Review service changes", exact: true }).click()
-  return page.getByRole("dialog", { name: "Review service changes" })
+  return page.getByRole("dialog", { name: serviceSheet })
 }
+// The sheet is titled as a review until a request is recorded, then as its outcome.
+const serviceSheet = /^(Review service changes|Saved service outcome)$/
 for (const width of [375, 768, 1280]) test.describe(`Healthcare general services at ${width}px`, () => {
   test.use({ viewport: { width, height: 1100 } })
   test("shows provider category attributes and an explicit retail product handoff without a food-menu substitute", async ({ page }, info) => {
@@ -83,17 +85,21 @@ for (const width of [375, 768, 1280]) test.describe(`Healthcare general services
     await dialog.getByRole("button", { name: "Send approved service changes", exact: true }).click()
     await expect(dialog.getByText(/The send response is unavailable/)).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Send approved service changes", exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole("button", { name: "Read saved service outcome", exact: true })).toBeEnabled()
+    await expect(dialog.getByRole("button", { name: "Keep editing", exact: true })).toBeEnabled()
     await capture(page, info, "lost-response")
     await dialog.getByRole("button", { name: "Read saved service outcome", exact: true }).click()
     await expect(dialog.getByText("Independently confirmed", { exact: true })).toBeVisible()
     expect(fixture.writes()).toHaveLength(1)
     await fixture.disconnect(); await page.reload()
     await expect(page.getByRole("region", { name: "Saved service work", exact: true }).getByRole("button", { name: "Open service outcome", exact: true })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Saved service work", exact: true }).getByText(/^Services for /).first()).toBeVisible()
     await captureServicesPanel(page, info, "disconnected-index", 'section[aria-label="Saved service work"]')
     await page.getByRole("region", { name: "Saved service work", exact: true }).getByRole("button", { name: "Open service outcome", exact: true }).click()
-    const restored = page.getByRole("dialog", { name: "Review service changes" })
+    const restored = page.getByRole("dialog", { name: "Saved service outcome" })
     await expect(restored.getByText("Independently confirmed", { exact: true })).toBeVisible()
     await expect(restored.getByRole("button", { name: "Send approved service changes", exact: true })).toHaveCount(0)
+    await expect(restored.getByText(/fresh preview|Approval expired/)).toHaveCount(0)
     expect(fixture.writes()).toHaveLength(1)
     await capture(page, info, "disconnected-saved")
   })

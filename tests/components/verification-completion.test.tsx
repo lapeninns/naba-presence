@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AdministrationProvider } from "@/components/locations/administration/context"
@@ -35,6 +35,63 @@ function fixture(verifications: readonly ObservedVerification[] = [request], blo
 async function preview(pin = "001234") { await userEvent.type(screen.getByLabelText("PIN from Google"), pin); await userEvent.click(screen.getByRole("button", { name: "Review PIN completion" })); await screen.findByRole("button", { name: "Approve PIN completion" }) }
 async function approve() { await preview(); await userEvent.click(screen.getByRole("button", { name: "Approve PIN completion" })); await screen.findByLabelText("Re-enter reviewed PIN") }
 async function send(pin = "001234") { await userEvent.type(screen.getByLabelText("Re-enter reviewed PIN"), pin); await userEvent.click(screen.getByRole("checkbox", { name: "Submit the reviewed PIN to this exact Google verification request." })); await userEvent.click(screen.getByRole("button", { name: "Send approved PIN" })) }
+
+const requested = new Date(request.createTime ?? "").toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+const described = `Text message verification, requested ${requested}`
+
+describe("PIN completion presentation", () => {
+  it("describes pending and reviewed requests in words, keeping Google's resource name as a secondary reference", async () => {
+    fixture()
+    const pendingList = screen.getByRole("list", { name: "Pending verification requests" })
+    expect(within(pendingList).getByText(described)).toBeInTheDocument()
+    expect(within(pendingList).getByText(`Google reference: ${request.name}`)).toHaveClass("break-all", "text-ink-muted")
+    expect(within(pendingList).queryByText(request.name)).not.toBeInTheDocument()
+    await approve()
+    const row = screen.getByText("Verification request", { selector: "dt" }).parentElement
+    expect(row).not.toBeNull()
+    expect(within(row as HTMLElement).getByText(described)).toBeInTheDocument()
+    expect(within(row as HTMLElement).getByText(`Google reference: ${request.name}`)).toHaveClass("break-all")
+  })
+  it("reports merchant standing in plain language", async () => {
+    fixture(); await approve(); await send()
+    expect(await screen.findByText("Google hasn't yet confirmed you can manage this listing")).toBeInTheDocument()
+    expect(screen.queryByText(/voice of merchant/i)).not.toBeInTheDocument()
+  })
+  it("never lists or presents a lost send as an approved review", async () => {
+    vi.mocked(executeGoogleVerificationCompletion).mockRejectedValue(new TypeError("lost send"))
+    vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [{ ...workflow, approvedBy: locationId }], nextCursor: null })
+    fixture(); await approve(); await send()
+    expect(await screen.findByText(/result of sending this approved PIN is unknown/)).toBeInTheDocument()
+    expect(screen.queryByText("This PIN completion is approved.")).not.toBeInTheDocument()
+    const saved = screen.getByRole("region", { name: "Saved PIN completions" })
+    expect(await within(saved).findByText("Text message · Send outcome unknown")).toBeInTheDocument()
+    expect(within(saved).queryByText(/Approved review/)).not.toBeInTheDocument()
+  })
+  it("lists an approval the server refused as no longer valid", async () => {
+    vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [{ ...workflow, approvedBy: locationId }], nextCursor: null })
+    vi.mocked(executeGoogleVerificationCompletion).mockRejectedValue(new ApiClientError(409, "approval_actor_access_changed", "private echo"))
+    fixture(); await approve(); await send()
+    const saved = screen.getByRole("region", { name: "Saved PIN completions" })
+    expect(await within(saved).findByText("Text message · Approval no longer valid")).toBeInTheDocument()
+    expect(within(saved).queryByText(/Approved review/)).not.toBeInTheDocument()
+  })
+  it.each(["policy_changed", "actor_access_changed", "credential_changed", "review_unreadable"] as const)("lists a saved approval invalidated by %s as no longer valid", async (reviewReason) => {
+    vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [{ ...workflow, approvedBy: locationId, reviewReason }], nextCursor: null })
+    fixture([])
+    expect(await screen.findByText("Text message · Approval no longer valid")).toBeInTheDocument()
+    expect(screen.queryByText(/Approved review/)).not.toBeInTheDocument()
+  })
+  it("lists a recorded attempt with an unknown execution as an unknown send outcome", async () => {
+    vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [{ ...workflow, approvedBy: locationId, attempt: { id: reviewId, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", observedAt: null } }], nextCursor: null })
+    fixture([])
+    expect(await screen.findByText("Text message · Send outcome unknown")).toBeInTheDocument()
+  })
+  it("lets the rejected-PIN recovery label wrap on narrow screens", async () => {
+    vi.mocked(executeGoogleVerificationCompletion).mockResolvedValue({ ...attempt, status: "failed", executionState: "rejected", confirmationState: "unrecorded", error: "completion_rejected" })
+    fixture(); await approve(); await send()
+    expect(await screen.findByRole("button", { name: "Check Google, then review a corrected PIN" })).toHaveClass("whitespace-normal", "h-auto", "max-w-full")
+  })
+})
 
 describe("reviewed PIN completion", () => {
   it("clears preview credentials, requires approval and re-entry, and keeps leading zeros", async () => {
@@ -130,7 +187,7 @@ describe("reviewed PIN completion", () => {
     vi.mocked(executeGoogleVerificationCompletion).mockResolvedValue({ ...attempt, status: "failed", executionState: "rejected", confirmationState: "unrecorded", error: "completion_rejected" })
     fixture(); await approve(); await send()
     expect(await screen.findByText("Google rejected the request")).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Review a corrected PIN after checking Google state" }))
+    await userEvent.click(screen.getByRole("button", { name: "Check Google, then review a corrected PIN" }))
     expect(screen.getByLabelText("PIN from Google")).toHaveValue("")
     expect(executeGoogleVerificationCompletion).toHaveBeenCalledTimes(1)
   })

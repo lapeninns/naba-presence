@@ -4,6 +4,8 @@ import { startPlaceActionsBackend } from "./helpers/place-actions-backend"
 import { captureServicesPanel } from "./helpers/services-capture"
 import { seedMemberUser } from "../integration/helpers/tenant"
 let backend: Awaited<ReturnType<typeof startPlaceActionsBackend>>
+// The sheet is titled as a review until a request is recorded, then as its outcome.
+const actionLinkSheet = /^(Review action link change|Saved action link outcome)$/
 test.beforeAll(async () => {
   backend = await startPlaceActionsBackend()
 })
@@ -39,10 +41,7 @@ async function prepare(page: Page) {
   await page
     .getByRole("button", { name: "Review action link", exact: true })
     .click()
-  return page.getByRole("dialog", {
-    name: "Review action link change",
-    exact: true,
-  })
+  return page.getByRole("dialog", { name: actionLinkSheet })
 }
 for (const width of [375, 768, 1280])
   test.describe(`Reviewed action links at ${width}px`, () => {
@@ -134,6 +133,12 @@ for (const width of [375, 768, 1280])
           exact: true,
         })
       ).toBeDisabled()
+      await expect(
+        dialog.getByRole("columnheader", { name: "Before (reviewed)" })
+      ).toBeVisible()
+      await expect(
+        dialog.getByRole("columnheader", { name: "On Google now" })
+      ).toHaveCount(0)
       await capture(page, info, "metadata-drift")
     })
     test("recovers a lost response and discovers its expired saved outcome while disconnected", async ({
@@ -175,6 +180,15 @@ for (const width of [375, 768, 1280])
           exact: true,
         })
       ).toHaveCount(0)
+      await expect(
+        dialog.getByRole("button", {
+          name: "Read saved action link outcome",
+          exact: true,
+        })
+      ).toBeEnabled()
+      await expect(
+        dialog.getByRole("button", { name: "Keep editing", exact: true })
+      ).toBeEnabled()
       await capture(page, info, "lost-response")
       await dialog
         .getByRole("button", {
@@ -200,6 +214,9 @@ for (const width of [375, 768, 1280])
           exact: true,
         })
       ).toBeEnabled()
+      await expect(
+        saved.getByText("Add Shop online link", { exact: true })
+      ).toBeVisible()
       await captureServicesPanel(
         page,
         info,
@@ -214,6 +231,9 @@ for (const width of [375, 768, 1280])
           .getByRole("dialog")
           .getByText("Independently confirmed", { exact: true })
       ).toBeVisible()
+      await expect(
+        page.getByRole("dialog").getByText(/fresh preview|Approval expired/)
+      ).toHaveCount(0)
       await capture(page, info, "expired-disconnected-outcome")
       expect(f.writes()).toHaveLength(1)
     })
@@ -388,10 +408,7 @@ for (const width of [375, 768, 1280])
         "managed-links-editor",
         "#section-action-links"
       )
-      const sheet = page.getByRole("dialog", {
-        name: "Review action link change",
-        exact: true,
-      })
+      const sheet = page.getByRole("dialog", { name: actionLinkSheet })
       async function approveAndSend() {
         await sheet
           .getByRole("button", {
@@ -490,6 +507,13 @@ for (const width of [375, 768, 1280])
       expect(f.state.links.map((link) => link.name)).toEqual(
         expect.arrayContaining([`${base}/partner`, `${base}/future`])
       )
+      await expect(
+        page.getByRole("dialog", { name: "Saved action link outcome" })
+      ).toBeVisible()
+      await expect(
+        sheet.getByText("Remove this link", { exact: true })
+      ).toHaveCount(0)
+      await expect(sheet.getByText("Removed", { exact: true })).toBeVisible()
       await capture(page, info, "removal-confirmed")
     })
     test("shows a failed review preparation inside the dialog that started it", async ({
@@ -537,10 +561,7 @@ for (const width of [375, 768, 1280])
       await link.focus()
       await page.keyboard.type("https://shop.example.test/keyboard")
       await page.keyboard.press("Enter")
-      const sheet = page.getByRole("dialog", {
-        name: "Review action link change",
-        exact: true,
-      })
+      const sheet = page.getByRole("dialog", { name: actionLinkSheet })
       await expect(
         sheet.getByText(
           "A different current owner or administrator must approve this exact change.",

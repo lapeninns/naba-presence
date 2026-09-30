@@ -59,6 +59,10 @@ describe("explicit lodging approval and consent", () => {
     expect(await dialog.findByText(/The send response is unavailable/)).toBeInTheDocument()
     expect(lock).toHaveBeenLastCalledWith(true)
     expect(dialog.queryByRole("button", { name: "Send approved lodging changes" })).not.toBeInTheDocument()
+    // The guidance names an action the sheet lets the user take.
+    expect(screen.getByRole("dialog", { name: "Saved lodging outcome" })).toBeInTheDocument()
+    expect(dialog.getByRole("button", { name: "Read saved lodging outcome" })).toBeEnabled()
+    expect(dialog.getByRole("button", { name: "Keep editing" })).toBeEnabled()
     await userEvent.click(dialog.getByRole("button", { name: "Read saved lodging outcome" }))
     expect(await dialog.findByText("Independently confirmed")).toBeInTheDocument()
     expect(dialog.getByText("Google acknowledgement unknown")).toBeInTheDocument()

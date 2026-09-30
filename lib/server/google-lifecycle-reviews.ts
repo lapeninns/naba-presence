@@ -37,7 +37,15 @@ export async function assertLifecycleCurrent(session: Session, locationId: strin
   const payload = reviewedLifecyclePayloadSchema.parse(review.changeSet.payload)
   const { linked, baseline } = await observeLifecycleBaseline(session, locationId, payload.request)
   if (payload.connectionId !== linked.connectionId || payload.credentialGeneration !== linked.credentialGeneration) throw new ApiError(409, "google_connection_changed", "The Google connection changed after review. Create a fresh lifecycle review.")
-  if (stableGoogleHash(lifecycleBaselineState(baseline)) !== review.changeSet.baselineHash) throw new ApiError(409, "google_baseline_stale", "Google account access or location membership changed after review. Create a fresh lifecycle review.")
+  const state = lifecycleBaselineState(baseline)
+  if (stableGoogleHash(state) !== review.changeSet.baselineHash) {
+    // Name the destination when only its access or inventory moved, so the
+    // reviewer is told which account to check before reviewing again.
+    const reviewed = lifecycleBaselineState(review.baseline)
+    const onlyDestination = stableGoogleHash({ ...state, destination: null }) === stableGoogleHash({ ...reviewed, destination: null })
+    if (onlyDestination) throw new ApiError(409, "google_destination_changed", "The destination account's access or locations on Google changed after review. Create a fresh lifecycle review.")
+    throw new ApiError(409, "google_baseline_stale", "Google account access or location membership changed after review. Create a fresh lifecycle review.")
+  }
   requireEligibility(payload.request, baseline)
   return { linked, payload }
 }

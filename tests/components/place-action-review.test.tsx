@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { usePlaceActionReview } from "@/components/locations/place-actions/use-place-action-review"
 import { PlaceActionApprovalSheet } from "@/components/locations/place-actions/place-action-approval-sheet"
+import { SavedPlaceActionWork, placeActionWorkLabel } from "@/components/locations/place-actions/saved-place-action-work"
 import { renderWithProviders } from "../helpers/render"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 
@@ -62,5 +63,60 @@ describe("explicit Place Actions approval and recovery", () => {
     await userEvent.click(dialog.getByRole("button", { name: "Read saved action link outcome" }))
     expect(await dialog.findByText("Independently confirmed")).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1)
+  })
+  it("never offers a lost-response recovery it cannot act on: in flight is pending, settled is enabled", async () => {
+    let failSend: (error: Error) => void = () => {}, finishRead: (value: Response) => void = () => {}, sent = false
+    const fetchMock = vi.fn<typeof fetch>((_url, init) => {
+      if (init?.method === "POST") { sent = true; return new Promise((_, reject) => { failSend = reject }) }
+      if (sent) return new Promise((resolve) => { finishRead = resolve })
+      return Promise.resolve(response({ error: "place_action_attempt_not_found", message: "No attempt." }, 404))
+    })
+    vi.stubGlobal("fetch", fetchMock); renderWithProviders(<Harness approved />)
+    await userEvent.click(screen.getByRole("button", { name: "Open action review" }))
+    const dialog = within(screen.getByRole("dialog", { name: "Review action link change" }))
+    await waitFor(() => expect(dialog.getByRole("checkbox")).toBeEnabled())
+    await userEvent.click(dialog.getByRole("checkbox")); await userEvent.click(dialog.getByRole("button", { name: "Send approved action link change" }))
+    // In flight: the sheet says it is sending, not that the response is lost.
+    expect(await dialog.findByText(/Sending to Google/)).toBeInTheDocument()
+    expect(dialog.queryByText(/The send response is unavailable/)).not.toBeInTheDocument()
+    expect(dialog.getByRole("button", { name: "Sending…" })).toHaveAttribute("aria-busy", "true")
+    failSend(new Error("Lost response"))
+    const lost = await screen.findByText(/The send response is unavailable/)
+    const outcome = within(screen.getByRole("dialog", { name: "Saved action link outcome" }))
+    expect(lost).toBeInTheDocument()
+    expect(outcome.getByRole("button", { name: "Read saved action link outcome" })).toBeEnabled()
+    expect(outcome.getByRole("button", { name: "Keep editing" })).toBeEnabled()
+    await userEvent.click(outcome.getByRole("button", { name: "Read saved action link outcome" }))
+    expect(await outcome.findByRole("button", { name: "Reading saved outcome…" })).toHaveAttribute("aria-busy", "true")
+    expect(outcome.queryByText(/The send response is unavailable/)).not.toBeInTheDocument()
+    finishRead(response({ attempt: saved }))
+    expect(await outcome.findByText("Independently confirmed")).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1)
+  })
+})
+
+describe("saved action link work", () => {
+  const removal: GbpChangeSet = { ...review, approvedBy: "owner", targetResourceName: "locations/stub-5a0c7a1e-0000-4000-8000-000000000000", expiresAt: "2020-01-01T21:04:00Z",
+    payload: { ...review.payload, request: { operation: "delete", name: "locations/fixture/placeActionLinks/2" } },
+    baseline: { ...review.baseline, links: [{ name: "locations/fixture/placeActionLinks/2", uri: "https://shop.example.test/old", placeActionType: "SHOP_ONLINE", isPreferred: false, providerType: "MERCHANT", isEditable: true, createTime: null, updateTime: null }] } }
+
+  it("labels saved work in the customer's words", () => {
+    expect(placeActionWorkLabel(review)).toEqual({ title: "Add Shop online link", uri: "https://shop.example.test/products" })
+    expect(placeActionWorkLabel(removal)).toEqual({ title: "Remove Shop online link", uri: "https://shop.example.test/old" })
+  })
+
+  it("titles cards by link, keeps the resource secondary, and says an approval expired in local time", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url) => String(url).includes("capabilities")
+      ? response({ capabilities: { canEditCanonical: true, canPublish: false } })
+      : response({ items: [{ changeSet: removal, attemptId: null }], nextCursor: null })))
+    function Saved() { return <SavedPlaceActionWork locationId="fixture" workflow={usePlaceActionReview("fixture")} /> }
+    renderWithProviders(<Saved />)
+    const region = within(await screen.findByRole("region", { name: "Saved action link work" }))
+    expect(await region.findByText("Remove Shop online link")).toBeInTheDocument()
+    expect(region.getByText("https://shop.example.test/old")).toBeInTheDocument()
+    expect(region.getByText(/^Google target: locations\/stub-/)).toHaveClass("text-ink-muted", "break-all")
+    expect(region.getByText(/Approval expired/)).toBeInTheDocument()
+    expect(region.queryByText(/2020-01-01T21:04/)).not.toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2020-01-01T21:04:00Z"]')).not.toBeNull()
   })
 })

@@ -216,7 +216,7 @@ describe("AccessTab (danger zone)", () => {
     await userEvent.click(continueButton)
 
     expect(await screen.findByText(/can change your management access/)).toBeInTheDocument()
-    expect(screen.getByText(/accounts\/999 · MANAGER/)).toBeInTheDocument()
+    expect(screen.getByText(/accounts\/999 · Manager/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Approve lifecycle request" }))
     const confirm = await screen.findByRole("button", { name: "Send approved transfer" })
     expect(confirm).toBeDisabled()
@@ -345,7 +345,7 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.queryByText("This location was deleted from Google")).not.toBeInTheDocument()
   })
 
-  it("shows the roster as updating and disables row actions until Google's list after a confirmed change arrives", async () => {
+  it("hides pre-change roster rows behind an updating status until Google's list after a confirmed change arrives", async () => {
     const request = { operation: "delete_admin", payload: { name: "locations/camden/admins/2" } }
     const confirmed = { id: accessReviewId, reviewId: accessReviewId, payloadHash: "a".repeat(64), request, target: "locations/camden/admins/2", status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_absent", pendingInvitation: null, error: null }
     let reads = 0
@@ -367,8 +367,15 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(await screen.findByText("Reviewed administrator no longer listed")).toBeInTheDocument()
     expect(await screen.findByText(/Updating from Google… Counts refresh/)).toBeInTheDocument()
     expect(screen.queryByText(/2 people/)).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeDisabled()
-    expect(screen.getByRole("combobox", { name: /role for manager@camden\.test/i })).toBeDisabled()
+    // No stale row is presented as current access: no "Has access", no role
+    // badge, no row controls, only an updating status in their place.
+    expect(screen.getByText(/Updating people with access from Google after the confirmed change/)).toBeInTheDocument()
+    expect(screen.getByText(/Updating pending invitations from Google/)).toBeInTheDocument()
+    expect(screen.queryByText("manager@camden.test")).not.toBeInTheDocument()
+    expect(screen.queryByText("Has access")).not.toBeInTheDocument()
+    expect(screen.queryByText("Manager")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: /role for manager@camden\.test/i })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
     expect(reads).toBe(2)
     release?.()
@@ -376,6 +383,50 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.queryByText(/Updating from Google/)).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+  })
+
+  it("keeps the roster hidden and offers a retry when Google's list after a confirmed change cannot be read", async () => {
+    const request = { operation: "delete_admin", payload: { name: "locations/camden/admins/2" } }
+    const confirmed = { id: accessReviewId, reviewId: accessReviewId, payloadHash: "a".repeat(64), request, target: "locations/camden/admins/2", status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_absent", pendingInvitation: null, error: null }
+    let reads = 0
+    stubRoster({
+      administration: () => {
+        reads += 1
+        if (reads === 1) return jsonResponse(ADMIN)
+        if (reads === 2) return jsonResponse({ error: "http_error" }, 503)
+        return jsonResponse({ administration: { ...ADMIN.administration, locationAdmins: available({ admins: [{ admin: "owner@camden.test", role: "PRIMARY_OWNER" }] }) } })
+      },
+      accessItems: [{ reviewId: accessReviewId, createdAt: "2026-09-30T08:00:00.000Z", request, attemptId: accessReviewId, executionState: "accepted", confirmationState: "confirmed" }],
+      accessAttempt: confirmed,
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: "Open outcome" }))
+    expect(await screen.findByText(/Counts unavailable · Google’s list after the confirmed change could not be read/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText("manager@camden.test")).not.toBeInTheDocument()
+    expect(screen.queryByText("Has access")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    await userEvent.click(screen.getAllByRole("button", { name: "Read Google’s list again" })[0])
+    expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+  })
+
+  it("puts the role select back on Google's listed role once a different role is saved for review", async () => {
+    stubRoster({ administration: () => jsonResponse(ADMIN) })
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) => String(input).includes("/administration-access-reviews") && init?.method === "POST"
+      ? jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
+      : original(input, init))
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    const select = await screen.findByRole("combobox", { name: /role for manager@camden\.test/i })
+    await userEvent.click(select)
+    await userEvent.click(await screen.findByRole("option", { name: "Owner" }))
+    await waitFor(() => expect(select).toHaveTextContent("Owner"))
+    await userEvent.click(screen.getByRole("button", { name: "Review role change" }))
+    expect(await screen.findByText("Proposed role")).toBeInTheDocument()
+    // The review carries the proposed Owner role; the row still reads Google's listed Manager.
+    await waitFor(() => expect(select).toHaveTextContent("Manager"))
+    expect(screen.getByRole("button", { name: "Review role change" })).toBeDisabled()
   })
 })
 

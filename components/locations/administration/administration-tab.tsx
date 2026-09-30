@@ -30,7 +30,7 @@ import { AdministrationProvider, useAdministrationSection } from "./context"
 import { DangerZone } from "./danger-zone"
 import { CreateAdminDialog, InvitationsList } from "./invitations"
 import { AdministrationDenied, type ConsoleKind } from "./administration-denied"
-import { AdministrationAccessWorkspace, useAdministrationAccess } from "./access-workspace"
+import { AdministrationAccessWorkspace, StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
 import { lifecycleEndedReason, lifecycleEndedTitle } from "./lifecycle-ended"
 import { LifecycleWorkspace, useLifecycleContext } from "./lifecycle-workspace"
 
@@ -284,9 +284,10 @@ function plural(count: number, one: string, many: string) {
  * before a confirmed change says it is being read again.
  */
 function PeopleSummary({ state, locationId }: { state: AdministrationState; locationId: string }) {
-  const { rosterUpdating } = useAdministrationAccess()
+  const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
   const client = useQueryClient()
   if (rosterUpdating) return <span role="status">Updating from Google… Counts refresh when Google’s current list arrives.</span>
+  if (rosterUnavailable) return <span role="status">Counts unavailable · Google’s list after the confirmed change could not be read</span>
   const peopleFailed = Boolean(state.locationAdmins.error || state.accountAdmins.error)
   const invitationsFailed = Boolean(state.invitations.error)
   const people = peopleFailed
@@ -306,9 +307,21 @@ function PeopleSummary({ state, locationId }: { state: AdministrationState; loca
   return <>{`${people} · ${invitations} · ${source}`}</>
 }
 
+/** The empty account-admin list, unless it was read before a confirmed change. */
+function NoAccountAdmins() {
+  const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
+  if (rosterUpdating || rosterUnavailable) return <StaleRosterPlaceholder what="account admins" />
+  return (
+    <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
+      No account-level admins.
+    </p>
+  )
+}
+
 function InvitationsSummary({ state }: { state: AdministrationState }) {
-  const { rosterUpdating } = useAdministrationAccess()
+  const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
   if (rosterUpdating) return <>Updating from Google…</>
+  if (rosterUnavailable) return <>Count unavailable</>
   if (state.invitations.error) return <>Count unavailable</>
   return <>{`${countOf(state.invitations, "invitations")} waiting`}</>
 }
@@ -385,9 +398,7 @@ export function AccessTab({
               <Sub title="Account admins" result={state.accountAdmins}>
                 {(data) =>
                   asArray(asRecord(data).accountAdmins).length === 0 ? (
-                    <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
-                      No account-level admins.
-                    </p>
+                    <NoAccountAdmins />
                   ) : (
                     <AdminsSection
                       data={data}

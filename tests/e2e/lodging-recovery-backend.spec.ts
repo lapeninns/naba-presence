@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import { startLodgingBackend } from "./helpers/lodging-backend"
-import { captureLodgingDialog, lodgingEditor } from "./helpers/lodging-capture"
+import { captureLodgingDialog, lodgingEditor, lodgingSheet } from "./helpers/lodging-capture"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
 test.beforeAll(async () => { backend = await startLodgingBackend() })
@@ -12,7 +12,7 @@ async function approved(page: Page) {
   await lodgingEditor(page).getByRole("combobox", { name: "Pets allowed", exact: true }).click()
   await page.getByRole("option", { name: "Yes", exact: true }).click()
   await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
-  const dialog = page.getByRole("dialog", { name: "Review changes" })
+  const dialog = page.getByRole("dialog", { name: lodgingSheet })
   await dialog.getByRole("button", { name: "Approve lodging changes", exact: true }).click()
   await dialog.getByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }).check()
   return { fixture, dialog }
@@ -26,6 +26,8 @@ for (const width of [375, 768, 1280]) test.describe(`Lodging recovery at ${width
     await expect(dialog.getByRole("alert")).toBeVisible()
     await expect(dialog.getByText("This review needs a fresh preview before sending.", { exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toBeDisabled()
+    await expect(dialog.getByRole("columnheader", { name: "Before (reviewed)", exact: true })).toBeVisible()
+    await expect(dialog.getByRole("columnheader", { name: "On Google now", exact: true })).toHaveCount(0)
     await captureLodgingDialog(page, info, "baseline-drift")
     expect(fixture.writes()).toHaveLength(0)
   })
@@ -39,6 +41,8 @@ for (const width of [375, 768, 1280]) test.describe(`Lodging recovery at ${width
     await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
     await expect.poll(() => intercepted).toBe(true)
     await expect(dialog.getByText("The send response is unavailable. Read the saved outcome before another write.", { exact: true })).toBeVisible()
+    await expect(dialog.getByRole("button", { name: "Read saved lodging outcome", exact: true })).toBeEnabled()
+    await expect(dialog.getByRole("button", { name: "Keep editing", exact: true })).toBeEnabled()
     await captureLodgingDialog(page, info, "lost-response")
     await dialog.getByRole("button", { name: "Read saved lodging outcome", exact: true }).click()
     await expect(dialog.getByText("Accepted by Google", { exact: true })).toBeVisible()

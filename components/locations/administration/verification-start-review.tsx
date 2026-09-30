@@ -38,7 +38,7 @@ export function VerificationStartReview({ review, busy, active, blocked, uncerta
       <p className="text-ui text-ink-secondary">{change.requiresSecondApprover ? "A different authorised owner or admin must approve this exact request. They can find it under Saved verification requests." : "Approve the exact destination and context before sending."}</p>
       <Button className="self-start" disabled={busy || blocked || !change.canApprove} onClick={onApprove}>Approve verification request</Button>
     </> : !active ? <Button variant="secondary" className="self-start" disabled={busy} onClick={onActivate}>Continue approved verification start</Button> : <>
-      <p role="status" className="text-ui">This request is approved.</p>
+      <p role="status" className="text-ui">{uncertain && !busy ? "The result of sending this approved request is unknown. Check the saved request outcome before any other action." : "This request is approved."}</p>
       <Checkbox label="Send this exact approved verification request to Google." checked={confirmed} disabled={busy || blocked || uncertain} onCheckedChange={setConfirmed} />
       <ActionBar sticky={false} safeArea={false} label="Approved verification request actions"
         status={busy ? "Request action in progress. Wait for a response." : blocked ? "Sending is unavailable. Resolve the review or access issue before continuing." : uncertain ? "Check the saved outcome before sending again." : !confirmed ? "Confirm the exact approved request before sending." : "Send only this exact approved request to Google."}

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, within, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ServiceWorkspaceProvider, SavedServiceWorkspace } from "@/components/locations/profile/sections/service-workspace"
@@ -23,6 +23,18 @@ describe("saved general service discovery", () => {
     expect(document.querySelector('time[datetime="2026-09-30T10:01:00Z"]')).toHaveTextContent(/30 Sep/)
     expect(screen.queryByRole("button", { name: "Send approved service changes" })).not.toBeInTheDocument()
     expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true)
+  })
+  it("titles saved work for people and says an expired approval in local time", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url) => String(url).includes("capabilities")
+      ? response({ capabilities: { canEditCanonical: true, canPublish: false } })
+      : response({ items: [{ changeSet: { ...review, targetResourceName: "locations/stub-5a0c7a1e" }, attemptId: null }], nextCursor: null })))
+    renderWithProviders(<ServiceWorkspaceProvider locationId="fixture"><SavedServiceWorkspace locationId="fixture" /></ServiceWorkspaceProvider>)
+    const region = within(await screen.findByRole("region", { name: "Saved service work" }))
+    expect(await region.findByText("Services for Fixture Clinic")).toBeInTheDocument()
+    expect(region.getByText("Google target: locations/stub-5a0c7a1e")).toHaveClass("text-ink-muted", "break-all")
+    expect(region.getByText(/Approval expired/)).toBeInTheDocument()
+    expect(region.queryByText(/2020-01-01T12:00/)).not.toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2020-01-01T12:00:00Z"]')).not.toBeNull()
   })
   it("does not request privileged saved work without managerial access", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => response({ capabilities: { canEditCanonical: false, canPublish: false } }))

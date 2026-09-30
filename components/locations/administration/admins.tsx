@@ -26,7 +26,7 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 import { AdminsTable, type AdminRow } from "./admins-table"
 import { useAdministrationSection } from "./context"
-import { useAdministrationAccess } from "./access-workspace"
+import { StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
 
 export const EDITABLE_ROLES = ["OWNER", "MANAGER"] as const
 
@@ -71,6 +71,11 @@ export function AdminsSection({
   scope?: "location" | "account"
 }) {
   const admins = asArray(asRecord(data)[scope === "account" ? "accountAdmins" : "admins"]).map(toAdminRow)
+  const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
+  // Rows read before a confirmed change no longer describe Google; never show
+  // them as current access while the list is read again.
+  if (rosterUpdating || rosterUnavailable)
+    return <StaleRosterPlaceholder what={scope === "account" ? "account admins" : "people with access"} />
   return (
     <AdminsTable
       admins={admins}
@@ -113,7 +118,14 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
     currentRole && (EDITABLE_ROLES as readonly string[]).includes(currentRole)
       ? currentRole
       : "MANAGER"
-  const [role, setRole] = useResetOnRevision(initialRole, initialRole)
+  // The select shows Google's listed role. A role chosen for review is carried
+  // by the saved review, so a new selection, a confirmed change or a newer
+  // Google list puts the select back on the listed role rather than leaving
+  // a reviewed-but-unlisted role beside the listed badge.
+  const [role, setRole] = useResetOnRevision(
+    initialRole,
+    `${initialRole}:${access.selectionRevision}:${access.confirmedAt ?? ""}`
+  )
 
   const update = useResourceMutation({
     mutationFn: () => {

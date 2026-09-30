@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { useVerificationExpiry } from "@/components/locations/administration/use-verification-expiry"
 import { DiffView } from "@/components/ui/diff-view"
 import { formatDateTime } from "@/lib/format"
 
@@ -38,21 +39,30 @@ export type ChangeRow = {
  *   Google shows now.
  * - `confirmed`: an independent observation matched the request, so the
  *   right column is what Google shows, as of that observation.
+ * - `drifted`: nothing sent, but Google changed after the review (or the
+ *   review otherwise went stale), so the left column is only the reviewed
+ *   baseline and the right one what this review would have published.
  */
-export type ChangeDiffPhase = "review" | "sent" | "confirmed"
+export type ChangeDiffPhase = "review" | "sent" | "confirmed" | "drifted"
 
 type OutcomeLike = {
   readonly confirmationState?: string | null
   readonly observedAt?: string | null
 }
 
-/** The diff phase for an approval sheet's saved outcome. */
+/**
+ * The diff phase for an approval sheet's saved outcome. `drifted` is the
+ * review's stale flag: a pre-send check found Google no longer matches the
+ * reviewed baseline, so it cannot be called "On Google now".
+ */
 export function outcomePhase(
   outcome: OutcomeLike | null | undefined,
-  uncertain = false
+  uncertain = false,
+  drifted = false
 ): ChangeDiffPhase {
   if (outcome?.confirmationState === "confirmed") return "confirmed"
-  return outcome || uncertain ? "sent" : "review"
+  if (outcome || uncertain) return "sent"
+  return drifted ? "drifted" : "review"
 }
 
 function viewerZone() {
@@ -77,6 +87,20 @@ export function ReviewTime({ value }: { readonly value: string }) {
     <time dateTime={value} title={value}>
       {formatInstant(value)}
     </time>
+  )
+}
+
+/**
+ * An approval deadline in the viewer's local time, worded for whether it has
+ * already passed: "Approval expires 1 Oct, 21:04" or "Approval expired …".
+ */
+export function ApprovalExpiry({ expiresAt }: { readonly expiresAt: string }) {
+  const expired = useVerificationExpiry(expiresAt)
+  return (
+    <>
+      {expired ? "Approval expired" : "Approval expires"}{" "}
+      <ReviewTime value={expiresAt} />
+    </>
   )
 }
 
@@ -107,6 +131,8 @@ export function changeDiffLabels(
     }
   if (phase === "sent")
     return { beforeLabel: "Before (reviewed)", afterLabel: "Sent" }
+  if (phase === "drifted")
+    return { beforeLabel: "Before (reviewed)", afterLabel: "Would publish" }
   return { beforeLabel: "On Google now", afterLabel: "After publishing" }
 }
 

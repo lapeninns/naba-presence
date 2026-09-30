@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { VerificationCompletionReview as CompletionReview } from "@/lib/contracts/google-verification-completion-review"
-import { verificationMethodName } from "./verification-method"
+import { VerificationRequestReference, verificationMethodName, verificationRequestDescription } from "./verification-method"
 import { ReviewExpiry } from "./review-expiry"
 import { useVerificationExpiry } from "./use-verification-expiry"
 import { VerificationPinField } from "./verification-pin-field"
@@ -22,14 +22,14 @@ export function VerificationCompletionReview({ review, busy, active, blocked, un
     <h3 className="text-title font-semibold">Review PIN completion</h3>
     <p className="text-ui text-ink-secondary">Approval binds the PIN entered during preview to this exact pending request. The PIN is not displayed or restored. Nothing is sent to Google until the approved PIN is re-entered and submitted.</p>
     <dl className="divide-y divide-line rounded-(--np-radius-card) border border-line">
-      {[["Listing", change.locationName], ["Method", verificationMethodName(review.payload.method)], ["Verification request", review.payload.name], ["Reviewed request phase", "Pending with Google"]].map(([label, value]) => <div key={label} className="grid min-w-0 gap-1 p-3 sm:grid-cols-2"><dt className="text-caption text-ink-muted">{label}</dt><dd className="text-ui break-words">{value}</dd></div>)}
+      {([["Listing", change.locationName], ["Method", verificationMethodName(review.payload.method)], ["Verification request", <>{verificationRequestDescription(review.payload.method, review.verification.createTime)}<VerificationRequestReference name={review.payload.name} /></>], ["Reviewed request phase", "Pending with Google"]] satisfies readonly (readonly [string, ReactNode])[]).map(([label, value]) => <div key={label} className="grid min-w-0 gap-1 p-3 sm:grid-cols-2"><dt className="text-caption text-ink-muted">{label}</dt><dd className="min-w-0 text-ui break-words">{value}</dd></div>)}
     </dl>
     <ReviewExpiry expiresAt={change.expiresAt} approved={Boolean(change.approvedBy)} clockExpired={clockExpired} reportedExpired={reportedExpired} />
     {expired ? <p role="status" className="text-ui text-danger-ink">{change.approvedBy ? "This PIN approval has expired and the PIN can no longer be submitted." : "This PIN review has expired."} Check current Google state before a fresh preview.</p> : freshReviewRequired ? <p role="alert" className="text-ui text-danger-ink">The PIN or Google state no longer matches this review. Create a fresh PIN review and approval.</p> : !change.approvedBy ? <>
       <p className="text-ui text-ink-secondary">{change.requiresSecondApprover ? "A different authorised owner or admin must approve this exact request. They can find it under Saved PIN completions." : "Approve this exact PIN completion before submitting to Google."}</p>
       <Button className="self-start" disabled={busy || blocked || !change.canApprove} onClick={onApprove}>Approve PIN completion</Button>
     </> : !active ? <Button variant="secondary" className="self-start" disabled={busy} onClick={onActivate}>Continue approved PIN completion</Button> : <>
-      <p role="status" className="text-ui">This PIN completion is approved.</p>
+      <p role="status" className="text-ui">{uncertain && !busy ? "The result of sending this approved PIN is unknown. Check the saved PIN outcome before any other action." : "This PIN completion is approved."}</p>
       <Checkbox label="Submit the reviewed PIN to this exact Google verification request." checked={confirmed} disabled={busy || blocked || uncertain} onCheckedChange={setConfirmed} />
       <VerificationPinField name={review.payload.name} blocked={blocked || uncertain} busy={busy} reentry confirmed={confirmed} onSubmit={onExecute} />
     </>}

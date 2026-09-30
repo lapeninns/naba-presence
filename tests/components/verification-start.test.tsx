@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AdministrationProvider } from "@/components/locations/administration/context"
@@ -82,6 +82,17 @@ describe("reviewed verification start", () => {
     expect(await screen.findByText("Google accepted the request")).toBeInTheDocument()
     expect(fetchGoogleVerificationAttempt).toHaveBeenCalledExactlyOnceWith(id, id)
     expect(executeGoogleVerification).toHaveBeenCalledTimes(1)
+  })
+  it("lists a lost send as an unknown outcome and never says the request is approved", async () => {
+    vi.mocked(executeGoogleVerification).mockRejectedValue(new TypeError("lost response"))
+    vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [{ reviewId: id, createdAt: "2026-09-30T01:00:00Z", operation: "start_verification", method: "EMAIL", payloadHash: hash, requestedBy: id, approvedBy: id, requiresSecondApprover: false, expiresAt: "2099-01-01T00:00:00Z", canApprove: false, reviewReason: null, attempt: null }], nextCursor: null })
+    render(); await approve(); await userEvent.click(screen.getByRole("checkbox", { name: "Send this exact approved verification request to Google." }))
+    await userEvent.click(screen.getByRole("button", { name: "Send approved verification request" }))
+    expect(await screen.findByText(/result of sending this approved request is unknown/)).toBeInTheDocument()
+    expect(screen.queryByText("This request is approved.")).not.toBeInTheDocument()
+    const saved = screen.getByRole("region", { name: "Saved verification requests" })
+    expect(await within(saved).findByText("Email · Send outcome unknown")).toBeInTheDocument()
+    expect(within(saved).queryByText(/Approved review/)).not.toBeInTheDocument()
   })
   it("keeps an active slow send distinct from an unavailable response", async () => {
     let finish: (value: VerificationAttempt) => void = () => { throw new Error("Send has not started") }

@@ -1,3 +1,4 @@
+import { formatInstant } from "@/components/editors/change-diff"
 import type { LifecycleAttempt } from "@/lib/contracts/google-lifecycle-review"
 
 /**
@@ -48,7 +49,7 @@ export function lifecycleEndedTitle(ended: LifecycleEnded): string {
 
 export function lifecycleEndedReason(ended: LifecycleEnded): string {
   const when = ended.observedAt
-    ? ` (checked ${new Date(ended.observedAt).toLocaleString("en-GB")})`
+    ? ` (checked ${formatInstant(ended.observedAt)})`
     : ""
   return ended.operation === "delete_location"
     ? `Google independently confirmed that this location was deleted from the managed account${when}. Access changes are no longer available for it here.`

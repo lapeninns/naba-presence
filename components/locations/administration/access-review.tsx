@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { AdministrationAccessReview } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
+import { AccessTarget } from "./access-target"
 import { ReviewExpiry } from "./review-expiry"
 import { useVerificationExpiry } from "./use-verification-expiry"
 
@@ -17,11 +18,14 @@ export function AccessReview({ review, busy, blocked, uncertain, stale, onApprov
   const [confirmed, setConfirmed] = useState(false)
   const expired = useVerificationExpiry(review.changeSet.expiresAt)
   const request = review.request, payload = request.payload, change = review.changeSet
-  const rows = [["Listing", change.locationName], ["Action", ACCESS_OPERATION_LABELS[request.operation]], ["Google target", review.target]]
   const baseline = z.object({ rows: z.array(z.record(z.string(), z.unknown())) }).safeParse(change.baseline)
-  const previous = "name" in payload && baseline.success ? baseline.data.rows.find((row) => row.name === payload.name) : undefined
+  const listed = baseline.success ? baseline.data.rows : []
+  const rows: Array<[string, ReactNode]> = [["Listing", change.locationName], ["Action", ACCESS_OPERATION_LABELS[request.operation]], ["Google target", <AccessTarget key="target" request={request} target={review.target} rows={listed} />]]
+  const previous = "name" in payload ? listed.find((row) => row.name === payload.name) : undefined
+  const invitation = request.operation === "accept_invitation" || request.operation === "decline_invitation"
   if (previous) {
-    rows.push(["Current role", typeof previous.role === "string" ? adminRoleLabel(previous.role) : "Not supplied by Google"])
+    // An invitation's role is what Google offers, not access anyone holds yet.
+    rows.push([invitation ? "Invited role" : "Current role", typeof previous.role === "string" ? adminRoleLabel(previous.role) : "Not supplied by Google"])
     if (typeof previous.admin === "string") rows.push(["Current administrator", previous.admin])
     if (typeof previous.pendingInvitation === "boolean") rows.push(["Current invitation", previous.pendingInvitation ? "Acceptance pending" : "No pending administrator invitation"])
   }

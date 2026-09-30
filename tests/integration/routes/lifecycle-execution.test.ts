@@ -105,7 +105,9 @@ describeDatabase("reviewed Google location lifecycle execution", { timeout: 30_0
     const body = { expectedPayloadHash: saved.changeSet.payloadHash }
     expect((await fixture.request(`/${saved.changeSet.id}`, "POST", body)).status).toBe(200)
     fixture.state.destinationRole = "SITE_MANAGER"
-    expect((await fixture.request(`/${saved.changeSet.id}/execute`, "POST", body)).status).toBe(409)
+    const blocked = await fixture.request(`/${saved.changeSet.id}/execute`, "POST", body)
+    expect(blocked.status).toBe(409)
+    expect(await blocked.json()).toMatchObject({ error: "google_destination_changed" })
     expect(fixture.writes()).toHaveLength(0)
     expect(fixture.state.source.map((location) => location.name)).toEqual([fixture.linked.googleLocationName])
   })

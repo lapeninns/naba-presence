@@ -43,7 +43,7 @@ for (const width of [375, 768, 1280]) {
       await capturePin(page, info, "rejected")
       await panel.getByRole("button", { name: "Refresh saved outcome" }).click()
       expect(fixture.completionWrites()).toHaveLength(1)
-      await panel.getByRole("button", { name: "Review a corrected PIN after checking Google state" }).click()
+      await panel.getByRole("button", { name: "Check Google, then review a corrected PIN" }).click()
       await previewPin(page, "009999")
       await panel.getByRole("button", { name: "Approve PIN completion" }).click()
       backend.google.respond({ method: "POST", pathEndsWith: `${fixture.name}:complete` }, () => { fixture.setPhase("COMPLETED"); return { status: 200, json: { verification: fixture.verification() } } })

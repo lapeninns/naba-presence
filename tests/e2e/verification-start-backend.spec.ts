@@ -54,7 +54,7 @@ for (const width of [375, 768, 1280]) {
       await page.keyboard.press("Enter")
       await expect(panel.getByText("Google accepted the request", { exact: true })).toBeVisible()
       await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
-      await expect(panel.getByText("Google does not report voice of merchant", { exact: true })).toBeVisible()
+      await expect(panel.getByText("Google hasn't yet confirmed you can manage this listing", { exact: true })).toBeVisible()
       expect(fixture.writes()).toHaveLength(1)
       expect(fixture.writes()[0].body).toEqual({ method, languageCode: "en-GB", ...(method === "EMAIL" ? { emailAddress: "operations@example.test" } : method === "PHONE_CALL" || method === "SMS" ? { phoneNumber: "+44 20 0000 0001" } : method === "ADDRESS" ? { mailerContact: "Fixture Manager", context: { address: fixture.address } } : {}) })
       const writeIndex = backend.google.calls.findIndex((call) => call.path.endsWith(":verify"))

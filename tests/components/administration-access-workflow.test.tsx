@@ -42,6 +42,38 @@ describe("administration review, consent and saved outcome controls", () => {
     expect(screen.getByText("Independently confirmed")).toBeInTheDocument()
     expect(access.executeAdministrationAccess).toHaveBeenCalledExactlyOnceWith(id, id, review.changeSet.payloadHash)
   })
+  it("describes the Google target for people and keeps the exact resource name as a secondary reference", async () => {
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    expect(await screen.findByText("New invitation for new@example.test on this listing")).toBeInTheDocument()
+    const reference = screen.getByText("Google reference: locations/camden/admins")
+    expect(reference).toHaveClass("text-caption", "text-ink-muted", "break-all")
+    expect(screen.queryByText("locations/camden/admins", { exact: true })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "Approve access request" }))
+    await userEvent.click(await screen.findByRole("checkbox"))
+    await userEvent.click(screen.getByRole("button", { name: "Send approved access request" }))
+    await screen.findByText("Independently confirmed")
+    expect(screen.getByText("New invitation for new@example.test on this listing")).toBeInTheDocument()
+    expect(screen.getByText("Google reference: locations/camden/admins")).toBeInTheDocument()
+  })
+  it("names the listed administrator for a removal and labels an invitation's role as offered, not held", async () => {
+    const removal = administrationReviewFixture({ operation: "delete_admin", payload: { name: "locations/camden/admins/manager" } })
+    const listedAdmin = { ...removal, changeSet: { ...removal.changeSet, baseline: { collection: "locations/camden/admins", rows: [{ name: "locations/camden/admins/manager", admin: "manager@example.test", role: "MANAGER" }] } } }
+    vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(listedAdmin)
+    const view = render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    expect(await screen.findByText("Administrator manager@example.test on this listing")).toBeInTheDocument()
+    expect(screen.getByText("Google reference: locations/camden/admins/manager")).toBeInTheDocument()
+    expect(screen.getByText("Current role")).toBeInTheDocument()
+    view.unmount()
+
+    const accept = administrationReviewFixture({ operation: "accept_invitation", payload: { name: "accounts/stub-1/invitations/pending" } })
+    const invited = { ...accept, changeSet: { ...accept.changeSet, baseline: { collection: "accounts/stub-1/invitations", rows: [{ name: "accounts/stub-1/invitations/pending", role: "MANAGER", targetLocation: { locationName: "Camden Hotel" } }] } } }
+    vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(invited)
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    expect(await screen.findByText("Invitation to manage Camden Hotel")).toBeInTheDocument()
+    expect(screen.getByText("Google reference: accounts/stub-1/invitations/pending")).toBeInTheDocument()
+    expect(screen.getByText("Invited role")).toBeInTheDocument()
+    expect(screen.queryByText("Current role")).not.toBeInTheDocument()
+  })
   it("clears consent when the same saved approved review is reopened", async () => {
     vi.mocked(access.fetchAdministrationAccessWorkflows).mockResolvedValue({ items: [{ reviewId: id, createdAt: review.observedAt, request: review.request, attemptId: null, executionState: null, confirmationState: null }], nextCursor: null })
     render(); await approve(); await userEvent.click(screen.getByRole("checkbox"))

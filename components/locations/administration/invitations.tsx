@@ -39,11 +39,14 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 import { EDITABLE_ROLES } from "./admins"
 import { useAdministrationSection } from "./context"
-import { useAdministrationAccess } from "./access-workspace"
+import { StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
 
 // --- Pending invitations ---------------------------------------------------
 export function InvitationsList({ data }: { data: unknown }) {
   const invitations = asArray(asRecord(data).invitations)
+  const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
+  if (rosterUpdating || rosterUnavailable)
+    return <StaleRosterPlaceholder what="pending invitations" />
   if (invitations.length === 0) {
     return (
       <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">

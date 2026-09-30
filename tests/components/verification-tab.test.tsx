@@ -64,7 +64,7 @@ describe("independent verification workspace", () => {
     const fetchMock = vi.fn<typeof fetch>(); vi.stubGlobal("fetch", fetchMock)
     try {
       fixture()
-      expect(await screen.findByText("Google does not report voice of merchant")).toBeInTheDocument()
+      expect(await screen.findByText("Google hasn't yet confirmed you can manage this listing")).toBeInTheDocument()
       expect(screen.getByRole("heading", { name: "Start a new verification" })).toBeInTheDocument()
       expect(screen.getByLabelText("PIN from Google")).toBeEnabled()
       expect(screen.queryByText(/Edits publish normally/)).not.toBeInTheDocument()
@@ -159,6 +159,7 @@ describe("independent verification workspace", () => {
     expect(await screen.findByText("Another Google method")).toBeInTheDocument()
     expect(screen.getByText("Google method code: FUTURE_METHOD")).toBeInTheDocument()
     expect(screen.queryByText("FUTURE METHOD")).not.toBeInTheDocument()
+    expect(screen.getByRole("table", { name: "Google verification request history" })).toHaveTextContent(`Google reference: ${request.name}`)
   })
   it("never lists an expired approved review as approved", async () => {
     vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(async (_id, query) => ({ workflows: query?.operation === "complete" ? [

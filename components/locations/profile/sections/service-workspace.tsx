@@ -13,7 +13,7 @@ import { googleServiceItemsSchema, serviceCategoryId, type GoogleServiceCategory
 import { servicePriceText } from "@/lib/locations/forms/services"
 import { useServiceReview } from "./use-service-review"
 import { ServiceApprovalSheet } from "./service-approval-sheet"
-import { ReviewTime } from "@/components/editors/change-diff"
+import { ApprovalExpiry } from "@/components/editors/change-diff"
 import { categoryLabel } from "@/lib/locations/console-labels"
 
 type Workspace = ReturnType<typeof useServiceReview> & { setConfirmedHandler: (handler: ((change: GbpChangeSet) => void) | null) => void }
@@ -54,8 +54,9 @@ export function SavedServiceWorkspace({ locationId }: { readonly locationId: str
     <h3 className="text-title font-semibold text-ink">Saved service work</h3>
     <p className="text-ui text-ink-muted">Recorded service outcomes remain available when Google cannot be read. Expired approvals cannot be sent again.</p>
     {query.isPending ? <p role="status">Loading saved service work…</p> : query.isError ? <p role="alert">Saved service work could not be loaded. <Button size="sm" variant="secondary" onClick={() => void query.refetch()}>Retry saved service work</Button></p> : items.length === 0 ? <p className="text-ui text-ink-muted">No saved service requests.</p> : items.map((item) => <div key={item.changeSet.id} className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3">
-      <p className="break-all text-ui text-ink">{item.changeSet.targetResourceName}</p>
-      <p className="text-caption text-ink-muted">{item.attemptId ? "Request outcome recorded" : item.changeSet.approvedBy ? "Approved request" : "Awaiting approval"} · Approval expires <ReviewTime value={item.changeSet.expiresAt} /></p>
+      <p className="text-ui font-semibold text-ink">Services for {item.changeSet.locationName}</p>
+      {item.changeSet.targetResourceName ? <p className="break-all text-caption text-ink-muted">Google target: {item.changeSet.targetResourceName}</p> : null}
+      <p className="text-caption text-ink-muted">{item.attemptId ? "Request outcome recorded" : <>{item.changeSet.approvedBy ? "Approved request" : "Awaiting approval"} · <ApprovalExpiry expiresAt={item.changeSet.expiresAt} /></>}</p>
       <Button size="sm" variant="secondary" disabled={workflow.busy || workflow.unresolved && workflow.review?.id !== item.changeSet.id} onClick={() => workflow.restore(item.changeSet)}>{item.attemptId ? "Open service outcome" : "Open service review"}</Button>
     </div>)}
     {query.hasNextPage ? <Button variant="secondary" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>Load more service work</Button> : null}

@@ -13,8 +13,16 @@ import {
   replayWebhookEvent,
   retryNotificationDeliveries,
 } from "@/lib/api/operations"
-import type { OperationsHealth } from "@/lib/contracts/operations"
+import type {
+  OperationsHealth,
+  SchedulerTick,
+} from "@/lib/contracts/operations"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
+import {
+  describeSchedule,
+  isTickStale,
+  scheduledJobInfo,
+} from "@/lib/operations/job-labels"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 
@@ -212,6 +220,54 @@ export function OperationsView() {
   )
 }
 
+/**
+ * One row per scheduled tick: a readable name and purpose, when it last
+ * completed, and the schedule it is judged against, so "Stale" always comes
+ * with the reason. Staleness uses each tick's own threshold from the server.
+ */
+function SchedulerTicks({ ticks }: { ticks: SchedulerTick[] }) {
+  const now = new Date()
+  return (
+    <ul
+      aria-label="Scheduled jobs"
+      className="flex flex-col divide-y divide-line border-t border-line"
+    >
+      {ticks.map((tick) => {
+        const info = scheduledJobInfo(tick.name)
+        const stale = isTickStale(tick, now)
+        const last = tick.lastCompletedAt
+          ? `Last run ${ago(tick.lastCompletedAt)}`
+          : "Never completed"
+        return (
+          <li
+            key={tick.name}
+            data-job={tick.name}
+            className="flex flex-col gap-1 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-ui font-medium text-ink">{info.label}</span>
+              <span className="text-caption text-ink-muted">
+                {info.purpose}
+              </span>
+            </div>
+            <div className="flex min-w-0 shrink-0 flex-col gap-0.5 sm:items-end sm:text-right">
+              <span className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
+                <StatusPill tone={stale ? "bad" : "ok"}>
+                  {stale ? "Stale" : "On schedule"}
+                </StatusPill>
+                <span>{last}</span>
+              </span>
+              <span className="text-caption text-ink-muted">
+                {describeSchedule(info, tick.staleAfterSeconds)}
+              </span>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function HealthSections({
   data,
   retrying,
@@ -239,12 +295,7 @@ function HealthSections({
           </span>
         </p>
         {data.schedulerTicks.length ? (
-          <Figures
-            rows={data.schedulerTicks.map((tick) => [
-              tick.name,
-              `${tick.stale ? "Stale · " : ""}${tick.lastCompletedAt ? ago(tick.lastCompletedAt) : "Never completed"}`,
-            ])}
-          />
+          <SchedulerTicks ticks={data.schedulerTicks} />
         ) : null}
       </Section>
       <Section

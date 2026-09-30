@@ -40,3 +40,34 @@ export function VerificationMethodCode({
     </span>
   ) : null
 }
+
+const requestTimeFormat: Intl.DateTimeFormatOptions = {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+}
+
+/** A verification request in words: its method and when Google says it was requested. */
+export function verificationRequestDescription(
+  method: string | null | undefined,
+  createTime: string | null | undefined
+): string {
+  const when = createTime
+    ? `requested ${new Date(createTime).toLocaleString("en-GB", requestTimeFormat)}`
+    : "request time not reported by Google"
+  return `${verificationMethodName(method)} verification, ${when}`
+}
+
+/** Google's exact resource name for a request, as secondary detail only. */
+export function VerificationRequestReference({
+  name,
+}: {
+  readonly name: string
+}) {
+  return (
+    <span className="block font-mono text-caption break-all text-ink-muted">
+      Google reference: {name}
+    </span>
+  )
+}
