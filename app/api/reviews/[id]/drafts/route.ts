@@ -208,7 +208,7 @@ export const POST = route({
           ${language},
           ${input.businessContext},
           ${DRAFT_POLICY_VERSION},
-          ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
+          ${source === "ai" ? getServerEnv().WORKERS_AI_MODEL : null},
           'pending',
           ${session.userId}
         )

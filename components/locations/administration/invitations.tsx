@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { runAdministrationOperation } from "@/lib/api/location-administration"
+import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
 import { createAdminSchema } from "@/lib/locations/forms/administration"
 import {
@@ -39,6 +39,7 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 import { EDITABLE_ROLES } from "./admins"
 import { useAdministrationSection } from "./context"
+import { useAdministrationAccess } from "./access-workspace"
 
 // --- Pending invitations ---------------------------------------------------
 export function InvitationsList({ data }: { data: unknown }) {
@@ -71,17 +72,18 @@ type InvitationResponse = "accept_invitation" | "decline_invitation"
 
 function InvitationRow({ invitation }: { invitation: RawRecord }) {
   const { locationId, writeBlocked } = useAdministrationSection()
+  const access = useAdministrationAccess()
   const name = asString(invitation.name)
   const role = asString(invitation.role)
 
   const respond = useResourceMutation({
     mutationFn: (operation: InvitationResponse) =>
-      runAdministrationOperation(locationId, { operation, payload: { name } }),
+      access.preview(administrationAccessRequestSchema.parse({ operation, payload: { name } })),
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: (_data, operation) =>
       operation === "accept_invitation"
-        ? "Invitation accepted"
-        : "Invitation declined",
+        ? "Invitation acceptance review saved"
+        : "Invitation decline review saved",
   })
   // Both buttons share one mutation, keyed by `operation` — so only the
   // clicked button's label/pending state should change, not both. `variables`
@@ -99,18 +101,18 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
             size="sm"
             variant="secondary"
             onClick={() => respond.mutate("decline_invitation")}
-            disabled={writeBlocked || !name || respond.isPending}
+            disabled={writeBlocked || !name || respond.isPending || access.busy || Boolean(access.unresolved)}
           >
             {pendingOperation === "decline_invitation"
-              ? "Declining…"
-              : "Decline"}
+              ? "Reviewing…"
+              : "Review decline"}
           </Button>
           <Button
             size="sm"
             onClick={() => respond.mutate("accept_invitation")}
-            disabled={writeBlocked || !name || respond.isPending}
+            disabled={writeBlocked || !name || respond.isPending || access.busy || Boolean(access.unresolved)}
           >
-            {pendingOperation === "accept_invitation" ? "Accepting…" : "Accept"}
+            {pendingOperation === "accept_invitation" ? "Reviewing…" : "Review acceptance"}
           </Button>
         </>
       }
@@ -129,7 +131,8 @@ const ADMIN_SCOPE_LABELS: Record<string, string> = {
 }
 
 export function CreateAdminDialog() {
-  const { locationId, disabled, publishReason } = useAdministrationSection()
+  const { locationId, publishReason, writeBlocked } = useAdministrationSection()
+  const access = useAdministrationAccess()
   const [open, setOpen] = useState(false)
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
@@ -146,13 +149,13 @@ export function CreateAdminDialog() {
   const create = useResourceMutation({
     mutationFn: () => {
       const values = createAdminSchema.parse({ scope, admin: email, role })
-      return runAdministrationOperation(locationId, {
+      return access.preview(administrationAccessRequestSchema.parse({
         operation: "create_admin",
         payload: values,
-      })
+      }))
     },
     invalidate: [queryKeys.locationAdministration(locationId)],
-    successToast: "Invitation sent",
+    successToast: "Administrator invitation review saved",
     onSuccess: () => {
       setOpen(false)
       setEmail("")
@@ -167,7 +170,7 @@ export function CreateAdminDialog() {
         if (!next) setEmail("")
       }}
     >
-      <DialogTrigger render={<Button disabled={disabled} />}>
+      <DialogTrigger render={<Button disabled={writeBlocked || access.busy || Boolean(access.unresolved)} />}>
         <UserPlusIcon aria-hidden data-icon="inline-start" />
         Add administrator
       </DialogTrigger>
@@ -254,10 +257,10 @@ export function CreateAdminDialog() {
           <Button
             onClick={() => create.mutate()}
             disabled={
-              !parsed.success || Boolean(publishReason) || create.isPending
+              !parsed.success || Boolean(publishReason) || create.isPending || access.busy || Boolean(access.unresolved)
             }
           >
-            {create.isPending ? "Sending…" : "Send invitation"}
+            {create.isPending ? "Reviewing…" : "Review invitation"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -104,6 +104,7 @@ function MenuForm({
   )
 
   const saved = useRef<FoodMenusState | null>(null)
+  const reviewedGoogleHash = state.googleHash
   const buildSteps = useCallback(
     () => [
       {
@@ -124,15 +125,18 @@ function MenuForm({
         run: async () => {
           const fresh = saved.current
           if (!fresh) throw new Error("The menu was not saved.")
+          // Pinned to the Google menu the change rows were reviewed against,
+          // not re-read after saving: a Google change while the review was
+          // open is refused as stale instead of silently replaced.
           await publishFoodMenus(locationId, {
             expectedCanonicalRevision: fresh.canonicalResource.revision,
             expectedCanonicalHash: fresh.canonicalHash,
-            expectedGoogleHash: fresh.googleHash,
+            expectedGoogleHash: reviewedGoogleHash,
           })
         },
       },
     ],
-    [locationId, clean, state.canonicalResource.revision, expectSave]
+    [locationId, clean, state.canonicalResource.revision, expectSave, reviewedGoogleHash]
   )
 
   const flow = usePublishFlow({

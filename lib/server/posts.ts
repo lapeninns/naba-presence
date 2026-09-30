@@ -104,11 +104,16 @@ async function fetchLiveLocalPosts(linked: LinkedLocation) {
       { connectionKey: linked.googleConnectionId }
     )
     live.push(...(response.localPosts ?? []))
-    if (!response.nextPageToken || seenTokens.has(response.nextPageToken)) break
+    if (!response.nextPageToken) return live
+    // A partial list must never reach reconciliation: any post missing from
+    // it would be marked deleted here while it is still live on Google.
+    if (seenTokens.has(response.nextPageToken)) {
+      throw new ApiError(502, "google_posts_incomplete", "Google repeated a posts page. The list was not refreshed.")
+    }
     seenTokens.add(response.nextPageToken)
     pageToken = response.nextPageToken
   }
-  return live
+  throw new ApiError(502, "google_posts_incomplete", "Google returned more post pages than the safety limit. The list was not refreshed.")
 }
 
 /**
@@ -586,10 +591,18 @@ export async function updateLocalPostDraft(
   locationId: string,
   postId: string,
   input: LocalPostInput,
-  requestId: string
+  requestId: string,
+  /** The version the editor loaded; a later change by someone else is refused. */
+  expectedUpdatedAt?: string
 ) {
   return withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
+    if (expectedUpdatedAt) {
+      const [current] = await sql<{ changed: boolean }[]>`
+        select date_trunc('milliseconds', updated_at) <> ${expectedUpdatedAt}::timestamptz as changed
+        from gbp_local_post where id = ${postId} and location_id = ${locationId}`
+      if (current?.changed) throw new ApiError(409, "post_changed", "Someone else changed this post after you opened it. Reload it before saving.")
+    }
     const [post] = await sql<{ id: string; status: string }[]>`
       update gbp_local_post
       set
@@ -819,7 +832,13 @@ export async function requestOrPublishLocalPost(input: {
       }
     }
   )
-  if (!canPublish) {
+  // The organisation's two-person policy applies to publishers too, as it
+  // does for review replies: a direct publish becomes a request for approval.
+  const needsSecondPerson = post.requireTwoPersonApproval && !input.approval
+  if (input.approval && post.status !== "awaiting_approval") {
+    throw new ApiError(409, "approval_not_pending", "This post is not awaiting approval.")
+  }
+  if (!canPublish || needsSecondPerson) {
     await withTenant(input.organisationId, async (sql) => {
       const [requested] = await sql<{ id: string }[]>`
         update gbp_local_post
@@ -856,6 +875,28 @@ export async function requestOrPublishLocalPost(input: {
     )
   }
   return publishLocalPost({ ...input, linked, post })
+}
+
+/**
+ * A scheduled occurrence's publish (lib/server/publication-schedule-runner.ts).
+ * The runner has already rechecked the schedule's approval, the approver's
+ * current publish grant and the policy; this applies the same kill switch,
+ * link check, idempotency key and readback as a manual publish. The approver
+ * is the actor, as they are for an approved manual publish.
+ */
+export async function publishScheduledLocalPost(input: {
+  organisationId: string
+  session: Session
+  locationId: string
+  postId: string
+  requestId: string
+}) {
+  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+  const { linked, post } = await withTenant(input.organisationId, async (sql) => ({
+    linked: await loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED),
+    post: await loadPost(sql, input.locationId, input.postId),
+  }))
+  return publishLocalPost({ ...input, approval: true, linked, post })
 }
 
 async function publishLocalPost(input: {
@@ -1056,7 +1097,7 @@ export async function deleteLocalPost(input: {
   })
   const googlePostName = post.googlePostName
   try {
-    await runGbpWrite<void, never, LocalPostAttemptIntent>({
+    await runGbpWrite<void, { deleted: boolean }, LocalPostAttemptIntent>({
       organisationId: input.organisationId,
       actorUserId: input.session.userId,
       requestId: input.requestId,
@@ -1074,13 +1115,37 @@ export async function deleteLocalPost(input: {
       onExisting: "replay",
       failureCode: "google_post_failed",
       mutate: async () => {
-        await deleteGoogleLocalPost(
-          await linked.accessToken(),
-          googlePostName,
-          { connectionKey: linked.googleConnectionId }
-        )
+        try {
+          await deleteGoogleLocalPost(
+            await linked.accessToken(),
+            googlePostName,
+            { connectionKey: linked.googleConnectionId }
+          )
+        } catch (error) {
+          // A retry after a lost response finds the post already gone.
+          if (error instanceof ApiError && error.status === 404) return
+          throw error
+        }
       },
-      onAmbiguous: "fail",
+      // An unknown outcome is settled by reading the post: absent is deleted.
+      onAmbiguous: "readback",
+      readback: {
+        read: async () => {
+          try {
+            await getGoogleLocalPost(await linked.accessToken(), googlePostName, { connectionKey: linked.googleConnectionId })
+            return { deleted: false }
+          } catch (error) {
+            if (error instanceof ApiError && error.status === 404) return { deleted: true }
+            throw error
+          }
+        },
+        verify: ({ readback }) => readback.deleted === true,
+        mismatch: {
+          status: 502,
+          code: "google_post_delete_unconfirmed",
+          message: "Google still lists this post, so it was not deleted.",
+        },
+      },
       audit: (ctx) => ({
         action: "post.deleted",
         subjectType: "local_post",

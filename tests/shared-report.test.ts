@@ -99,7 +99,7 @@ beforeAll(async () => {
     );
     create table sync_checkpoint (
       external_location_id uuid not null, sync_type text not null,
-      status text not null, last_error_code text
+      status text not null, last_error_code text, last_succeeded_at timestamptz
     );
 
     insert into organisation (id, name) values ('${ORG}', 'Harbour Agency');
@@ -334,7 +334,9 @@ describe("each narrowing holds on its own", () => {
       NOW
     )
     expect(presence.state).toBe("no_link")
-    expect(presence.totals.CALL_CLICKS).toBe(0)
+    // Nothing in scope: missing, never a manufactured zero.
+    expect(presence.totals.CALL_CLICKS).toBeNull()
+    expect(presence.coverage).toEqual({ eligible: 0, reporting: 0, unavailable: 0, stale: 0, pending: 0 })
   })
 })
 

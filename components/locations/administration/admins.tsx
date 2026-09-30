@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { runAdministrationOperation } from "@/lib/api/location-administration"
+import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
 import { updateAdminSchema } from "@/lib/locations/forms/administration"
 import {
@@ -26,7 +26,7 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 import { AdminsTable, type AdminRow } from "./admins-table"
 import { useAdministrationSection } from "./context"
-import { runDangerZoneOperation } from "./danger-zone"
+import { useAdministrationAccess } from "./access-workspace"
 
 export const EDITABLE_ROLES = ["OWNER", "MANAGER"] as const
 
@@ -64,11 +64,13 @@ export function ownerLockReason(
 export function AdminsSection({
   data,
   caption,
+  scope = "location",
 }: {
   data: unknown
   caption?: string
+  scope?: "location" | "account"
 }) {
-  const admins = asArray(asRecord(data).admins).map(toAdminRow)
+  const admins = asArray(asRecord(data)[scope === "account" ? "accountAdmins" : "admins"]).map(toAdminRow)
   return (
     <AdminsTable
       admins={admins}
@@ -103,7 +105,8 @@ function AdminRowActions({ admin }: { admin: AdminRow }) {
 }
 
 function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
-  const { locationId, disabled, writeBlocked } = useAdministrationSection()
+  const { locationId, writeBlocked } = useAdministrationSection()
+  const access = useAdministrationAccess()
   const name = admin.name
   const currentRole = admin.role
   const initialRole =
@@ -115,13 +118,13 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
   const update = useResourceMutation({
     mutationFn: () => {
       const values = updateAdminSchema.parse({ name, role })
-      return runAdministrationOperation(locationId, {
+      return access.preview(administrationAccessRequestSchema.parse({
         operation: "update_admin",
         payload: values,
-      })
+      }))
     },
     invalidate: [queryKeys.locationAdministration(locationId)],
-    successToast: "Administrator role updated",
+    successToast: "Administrator role review saved",
   })
 
   // Google does not allow changing the primary owner's role here, and a row
@@ -133,7 +136,7 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
       <Select
         value={role}
         onValueChange={(value: string | null) => value && setRole(value)}
-        disabled={disabled}
+        disabled={writeBlocked}
       >
         <SelectTrigger
           className="w-32"
@@ -155,32 +158,26 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
         size="sm"
         variant="secondary"
         onClick={() => update.mutate()}
-        disabled={writeBlocked || role === currentRole || update.isPending}
+        disabled={writeBlocked || role === currentRole || update.isPending || access.busy || Boolean(access.unresolved)}
       >
-        {update.isPending ? "Saving…" : "Update role"}
+        {update.isPending ? "Reviewing…" : "Review role change"}
       </Button>
     </span>
   )
 }
 
-// This is one of the three destructive Google operations in the danger zone
-// (spec §11, D9) - it is deliberately row-level rather than living in the
-// danger-zone section, since "which admin" only makes sense in the context
-// of that row. It still goes through the same two-layer gate as
-// transfer/delete: the DangerZoneDialog's typed-location-name confirmation,
-// AND the exact backend confirmation literal (runDangerZoneOperation ->
-// runAdministrationOperation attaches ADMINISTRATION_CONFIRMATIONS.delete_admin).
 function RemoveAdminAction({ admin }: { admin: AdminRow }) {
   const { locationId, locationName, writeBlocked } = useAdministrationSection()
+  const access = useAdministrationAccess()
   const name = admin.name
   const currentRole = admin.role
   const [open, setOpen] = useState(false)
 
   const remove = useResourceMutation({
     mutationFn: () =>
-      runDangerZoneOperation(locationId, "delete_admin", { name }),
+      access.preview(administrationAccessRequestSchema.parse({ operation: "delete_admin", payload: { name } })),
     invalidate: [queryKeys.locationAdministration(locationId)],
-    successToast: "Administrator removed",
+    successToast: "Administrator removal review saved",
     onSuccess: () => setOpen(false),
   })
 
@@ -196,7 +193,7 @@ function RemoveAdminAction({ admin }: { admin: AdminRow }) {
         variant="ghost"
         aria-label={`Remove ${admin.admin ?? name}`}
         onClick={() => setOpen(true)}
-        disabled={writeBlocked || !locationName}
+        disabled={writeBlocked || !locationName || access.busy || Boolean(access.unresolved)}
       >
         Remove
       </Button>
@@ -204,9 +201,9 @@ function RemoveAdminAction({ admin }: { admin: AdminRow }) {
         open={open}
         onOpenChange={setOpen}
         title="Remove this administrator?"
-        description={`${admin.admin ?? "This person"} loses access to manage this business on Google straight away. Replies and edits they already made stay.`}
+        description={`Review removing ${admin.admin ?? "this person"} from Google access. Approval and sending follow the review. Their earlier replies and edits stay.`}
         expectedName={locationName}
-        confirmLabel="Remove administrator"
+        confirmLabel="Review administrator removal"
         pending={remove.isPending}
         onConfirm={() => remove.mutate()}
       />

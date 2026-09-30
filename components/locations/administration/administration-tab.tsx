@@ -1,50 +1,34 @@
 "use client"
 
-import {
-  CopyIcon,
-  LockIcon,
-  RefreshCwIcon,
-  ShieldCheckIcon,
-  ShieldIcon,
-  UnplugIcon,
-} from "lucide-react"
+import { ShieldIcon, UnplugIcon } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { useState } from "react"
 
 import { LocationTab } from "@/components/locations/location-tab"
 import {
   Alert,
-  AlertActions,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { Empty } from "@/components/ui/empty"
 import { SectionHeader } from "@/components/ui/section-header"
 import type { AdministrationState } from "@/lib/api/location-administration"
-import { listingHref } from "@/lib/listings/areas"
-import { GATED_SECTION_TITLE } from "@/lib/locations/gating"
-import { asArray, asRecord, asStringArray } from "@/lib/locations/google-values"
+import { asArray, asRecord } from "@/lib/locations/google-values"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
+import { queryKeys } from "@/lib/queries/keys"
 import { useAdministration } from "@/lib/queries/use-location-administration"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
-import { cn } from "@/lib/utils"
 
 import { AdminsSection } from "./admins"
 import { AdministrationProvider } from "./context"
 import { DangerZone } from "./danger-zone"
 import { CreateAdminDialog, InvitationsList } from "./invitations"
-import {
-  PendingVerifications,
-  StartVerification,
-  VerificationHistory,
-  pendingVerifications,
-} from "./verification"
-import {
-  GoogleUpdateSummary,
-  VoiceOfMerchantSummary,
-} from "./voice-of-merchant"
+import { AdministrationDenied, type ConsoleKind } from "./administration-denied"
+import { AdministrationAccessWorkspace, useAdministrationAccess } from "./access-workspace"
+import { lifecycleEndedReason, lifecycleEndedTitle } from "./lifecycle-ended"
+import { LifecycleWorkspace, useLifecycleContext } from "./lifecycle-workspace"
+
+export { VerificationTab } from "./verification-tab"
 
 /**
  * One `{ data, error }` sub-resource without a card of its own: the honest
@@ -84,87 +68,6 @@ function Sub({
   return <>{children(result.data)}</>
 }
 
-type ConsoleKind = "people" | "verification"
-
-const DENIED_COPY: Record<ConsoleKind, { title: string; why: string }> = {
-  people: {
-    title: "Only owners and admins can see who has access",
-    why: "People with access on Google decide who can change or delete the listing, so this page is limited to owners and admins.",
-  },
-  verification: {
-    title: "Only owners and admins can manage verification",
-    why: "Verification decides who Google trusts to speak for the business, so starting or completing it is limited to owners and admins.",
-  },
-}
-
-/**
- * The page a member or viewer sees instead of a console. It never fires the
- * owner/admin-only GET. "Copy an access request" copies a sentence to the
- * clipboard for the person to paste to an owner or admin; nothing is sent.
- */
-function AdministrationDenied({
-  kind,
-  locationId,
-  locationName,
-}: {
-  kind: ConsoleKind
-  locationId: string
-  locationName: string
-}) {
-  const copy = DENIED_COPY[kind]
-  const [copied, setCopied] = useState<"idle" | "copied" | "manual">("idle")
-  const area = kind === "people" ? "People with access" : "Verification"
-  const request = `Hi — could you give me access to ${area}${locationName ? ` for ${locationName}` : ""} in NabaPresence? It’s limited to owners and admins.`
-
-  return (
-    <div className="rounded-(--np-radius-card) border border-line bg-surface">
-      <Empty
-        icon={<LockIcon />}
-        titleAs="h2"
-        title={copy.title}
-        description={`${GATED_SECTION_TITLE}. ${copy.why}`}
-        action={
-          <>
-            <Link
-              href={listingHref(locationId)}
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              Back to listing
-            </Link>
-            <Button
-              variant="ghost"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(request)
-                  setCopied("copied")
-                } catch {
-                  setCopied("manual")
-                }
-              }}
-            >
-              <CopyIcon aria-hidden />
-              Copy an access request
-            </Button>
-          </>
-        }
-      />
-      <p
-        role="status"
-        className={cn(
-          "px-5 text-center text-caption break-words text-ink-muted",
-          copied !== "idle" && "-mt-4 pb-8"
-        )}
-      >
-        {copied === "copied"
-          ? "Copied. Paste it to an owner or admin — nothing was sent."
-          : copied === "manual"
-            ? `Copy this and send it to an owner or admin: “${request}”`
-            : ""}
-      </p>
-    </div>
-  )
-}
-
 /**
  * The Google-side administration data, shared by the two segments that split
  * out of the old "Administration" console.
@@ -196,6 +99,8 @@ function AdministrationShell({
   // second network round trip; a caller-supplied `locationName` (used by
   // tests) always wins.
   const role = useSessionRole()
+  const lifecycle = useLifecycleContext()
+  const lifecycleReason = lifecycle?.ended ? lifecycleEndedReason(lifecycle.ended) : lifecycle?.busy ? "A lifecycle action is in progress. Wait for its saved response before another Google change." : lifecycle?.unresolved ? "Resolve the saved lifecycle outcome before another Google change." : null
   const directoryQuery = useLocationDirectory(role)
   const caps = useLocationCapabilities(locationId)
   const resolvedLocationName =
@@ -226,12 +131,12 @@ function AdministrationShell({
           locationId={locationId}
           locationName={resolvedLocationName}
           disabled={disabled}
-          publishReason={editReason ?? publishReason}
+          publishReason={editReason ?? publishReason ?? lifecycleReason}
         >
           {children({
             state,
             editReason,
-            publishReason,
+            publishReason: publishReason ?? lifecycleReason,
             locationName: resolvedLocationName,
           })}
         </AdministrationProvider>
@@ -254,8 +159,66 @@ function WritesBlocked({ reason }: { reason: string | null }) {
   )
 }
 
+/**
+ * The one notice for a location this account no longer manages: a confirmed
+ * deletion or transfer. Otherwise the shared "changes are paused" line.
+ */
+function AccessNotice({ editReason, publishReason }: { editReason: string | null; publishReason: string | null }) {
+  const ended = useLifecycleContext()?.ended
+  if (ended)
+    return (
+      <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
+        <AlertTitle>{lifecycleEndedTitle(ended)}</AlertTitle>
+        <AlertDescription>
+          {lifecycleEndedReason(ended)} The people listed below were read from
+          Google before this change and may no longer apply.
+        </AlertDescription>
+      </Alert>
+    )
+  return <WritesBlocked reason={editReason ? null : publishReason} />
+}
+
 function countOf(result: { data: unknown }, key: string): number {
   return asArray(asRecord(result.data)[key]).length
+}
+
+function plural(count: number, one: string, many: string) {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * The roster header line. A failed Google read shows the count as
+ * unavailable, never as 0, and never claims a successful read; a roster read
+ * before a confirmed change says it is being read again.
+ */
+function PeopleSummary({ state, locationId }: { state: AdministrationState; locationId: string }) {
+  const { rosterUpdating } = useAdministrationAccess()
+  const client = useQueryClient()
+  if (rosterUpdating) return <span role="status">Updating from Google… Counts refresh when Google’s current list arrives.</span>
+  const peopleFailed = Boolean(state.locationAdmins.error || state.accountAdmins.error)
+  const invitationsFailed = Boolean(state.invitations.error)
+  const people = peopleFailed
+    ? "People count unavailable"
+    : plural(countOf(state.locationAdmins, "admins") + countOf(state.accountAdmins, "accountAdmins"), "person", "people")
+  const invitations = invitationsFailed
+    ? "invitation count unavailable"
+    : plural(countOf(state.invitations, "invitations"), "invitation", "invitations")
+  const readAt = client.getQueryState(queryKeys.locationAdministration(locationId))?.dataUpdatedAt
+  const source = peopleFailed && invitationsFailed
+    ? "Google could not be read"
+    : peopleFailed || invitationsFailed
+      ? "Part of this list could not be read from Google"
+      : readAt
+        ? `Read from Google at ${new Date(readAt).toLocaleTimeString("en-GB")}`
+        : "Read from Google when this page opened"
+  return <>{`${people} · ${invitations} · ${source}`}</>
+}
+
+function InvitationsSummary({ state }: { state: AdministrationState }) {
+  const { rosterUpdating } = useAdministrationAccess()
+  if (rosterUpdating) return <>Updating from Google…</>
+  if (state.invitations.error) return <>Count unavailable</>
+  return <>{`${countOf(state.invitations, "invitations")} waiting`}</>
 }
 
 /** Who may edit this listing on Google, and the operations that end it. */
@@ -267,19 +230,16 @@ export function AccessTab({
   locationName?: string
 }) {
   return (
+    <LifecycleWorkspace locationId={locationId} locationName={locationName}>
     <AdministrationShell
       kind="people"
       locationId={locationId}
       locationName={locationName}
     >
       {({ state, editReason, publishReason }) => {
-        const people =
-          countOf(state.locationAdmins, "admins") +
-          countOf(state.accountAdmins, "admins")
-        const invitations = countOf(state.invitations, "invitations")
         return (
-          <div className="flex flex-col gap-6">
-            <WritesBlocked reason={editReason ? null : publishReason} />
+          <AdministrationAccessWorkspace><div className="flex flex-col gap-6">
+            <AccessNotice editReason={editReason} publishReason={publishReason} />
 
             <p className="text-caption text-ink-muted">
               These are the people Google lets manage this listing. Who can see
@@ -307,7 +267,7 @@ export function AccessTab({
               <SectionHeader
                 id="people-location"
                 title="People with access on Google"
-                description={`${people} ${people === 1 ? "person" : "people"} · ${invitations} ${invitations === 1 ? "invitation" : "invitations"} · Read from Google when this page opened`}
+                description={<PeopleSummary state={state} locationId={locationId} />}
                 actions={<CreateAdminDialog />}
               />
               <Sub title="Location admins" result={state.locationAdmins}>
@@ -332,13 +292,14 @@ export function AccessTab({
               />
               <Sub title="Account admins" result={state.accountAdmins}>
                 {(data) =>
-                  asArray(asRecord(data).admins).length === 0 ? (
+                  asArray(asRecord(data).accountAdmins).length === 0 ? (
                     <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
                       No account-level admins.
                     </p>
                   ) : (
                     <AdminsSection
                       data={data}
+                      scope="account"
                       caption="People with access to the whole Google account"
                     />
                   )
@@ -354,7 +315,7 @@ export function AccessTab({
                 as="h3"
                 id="people-invitations"
                 title="Pending invitations"
-                description={`${invitations} waiting`}
+                description={<InvitationsSummary state={state} />}
               />
               <Sub title="Invitations" result={state.invitations}>
                 {(data) => <InvitationsList data={data} />}
@@ -362,230 +323,10 @@ export function AccessTab({
             </section>
 
             <DangerZone />
-          </div>
+          </div></AdministrationAccessWorkspace>
         )
       }}
     </AdministrationShell>
-  )
-}
-
-type VerificationMode = "verified" | "pending" | "unverified" | "unsupported"
-
-/**
- * Reads Google's verification state again (a GET; nothing is sent to Google
- * but the question). The page otherwise only reads it when it opens.
- */
-function CheckVerificationAgain({ locationId }: { locationId: string }) {
-  const administration = useAdministration(locationId)
-  return (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={() => void administration.refetch()}
-      pending={administration.isFetching}
-      pendingLabel="Checking with Google…"
-    >
-      <RefreshCwIcon aria-hidden />
-      Check with Google again
-    </Button>
-  )
-}
-
-/** Whether Google trusts this listing, and how to prove it again. */
-export function VerificationTab({
-  locationId,
-  locationName,
-}: {
-  locationId: string
-  locationName?: string
-}) {
-  return (
-    <AdministrationShell
-      kind="verification"
-      locationId={locationId}
-      locationName={locationName}
-    >
-      {({ state, editReason, publishReason, locationName: name }) => {
-        const voice = asRecord(state.voice.data)
-        const verified = voice.hasVoiceOfMerchant === true
-        const history = asRecord(state.verifications.data)
-        const pending = pendingVerifications(history).length > 0
-        const options = asArray(
-          asRecord(state.verificationOptions.data).options
-        )
-        const updatePaths = asStringArray(
-          asRecord(asRecord(state.googleUpdated.data).diffMask).paths
-        )
-        const mode: VerificationMode = verified
-          ? "verified"
-          : pending
-            ? "pending"
-            : options.length > 0 || state.verificationOptions.error
-              ? "unverified"
-              : "unsupported"
-
-        return (
-          <div className="flex flex-col gap-6">
-            <WritesBlocked reason={editReason ? null : publishReason} />
-
-            <section
-              aria-labelledby="verification-status"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="verification-status"
-                title="How Google sees this listing"
-                description="Read from Google when this page opened"
-              />
-              <div className="flex flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
-                <Sub title="Google recognises you as the owner" result={state.voice}>
-                  {(data) => <VoiceOfMerchantSummary data={asRecord(data)} />}
-                </Sub>
-                <div className="flex flex-col gap-0.5 px-4 py-3">
-                  <span className="text-body text-ink">What it affects</span>
-                  <span className="text-caption text-ink-muted">
-                    {verified
-                      ? "Edits publish normally, and posts and the food menu are available."
-                      : "Some edits won’t show to customers, and some areas stay unavailable, until Google verifies the listing."}
-                  </span>
-                </div>
-                {updatePaths.length > 0 || state.googleUpdated.error ? (
-                  <Sub title="Suggested updates" result={state.googleUpdated}>
-                    {(data) => <GoogleUpdateSummary data={asRecord(data)} />}
-                  </Sub>
-                ) : null}
-              </div>
-            </section>
-
-            {mode === "verified" ? (
-              <div className="rounded-(--np-radius-card) border border-line bg-surface">
-                <Empty
-                  className="py-8"
-                  tone="ok"
-                  icon={<ShieldCheckIcon />}
-                  title={`Google has verified ${name || "this listing"}`}
-                  description="Nothing to do here. If Google asks for verification again, it shows on the overview and here."
-                />
-              </div>
-            ) : null}
-
-            {mode === "pending" ? (
-              <section
-                aria-labelledby="verification-pin"
-                className="flex flex-col gap-3"
-              >
-                <SectionHeader
-                  id="verification-pin"
-                  title="Enter the PIN from Google"
-                  description="Google sent a PIN for the attempt below"
-                />
-                <PendingVerifications data={history} />
-              </section>
-            ) : null}
-
-            {mode === "unsupported" ? (
-              <Alert variant="warning">
-                <AlertTitle>
-                  Google has no verification methods for this listing right now
-                </AlertTitle>
-                <AlertDescription>
-                  This happens when a listing was edited recently, is under
-                  review by Google, or qualifies for bulk verification. Nothing
-                  needs undoing; check again in a few days.
-                </AlertDescription>
-                <AlertActions>
-                  <CheckVerificationAgain locationId={locationId} />
-                </AlertActions>
-              </Alert>
-            ) : null}
-
-            {mode !== "unsupported" ? (
-              <section
-                aria-labelledby="verification-start"
-                className="flex flex-col gap-3"
-              >
-                <SectionHeader
-                  id="verification-start"
-                  title="Start a new verification"
-                  description={
-                    mode === "verified"
-                      ? "Only needed if Google asks you to verify again."
-                      : mode === "pending"
-                        ? "Starting another attempt replaces the PIN on its way."
-                        : "The methods Google offers for this listing today."
-                  }
-                />
-                <Sub
-                  title="Verification options"
-                  result={state.verificationOptions}
-                >
-                  {(data) => (
-                    <div className="rounded-(--np-radius-card) border border-line bg-surface p-4">
-                      <StartVerification data={asRecord(data)} />
-                    </div>
-                  )}
-                </Sub>
-              </section>
-            ) : null}
-
-            {/* PIN advice only helps while a PIN can come: with no methods
-                there is nothing to wait for or start again. */}
-            {mode === "pending" || mode === "unverified" ? (
-              <section
-                aria-labelledby="verification-guidance"
-                className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-4"
-              >
-                <h2
-                  id="verification-guidance"
-                  className="text-title font-semibold text-ink"
-                >
-                  If the PIN doesn’t arrive
-                </h2>
-                <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-ui text-ink-secondary">
-                  <li>
-                    Check where Google is sending it. If the phone number or
-                    address is wrong, correct it in{" "}
-                    <Link
-                      href={listingHref(locationId, "profile")}
-                      className="rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline"
-                    >
-                      Business profile
-                    </Link>{" "}
-                    and publish before starting again.
-                  </li>
-                  <li>
-                    For a phone call or text message, wait ten minutes, then
-                    start again with the same method.
-                  </li>
-                  <li>
-                    For a postcard, wait at least 14 days before asking for
-                    another; a new request cancels the old PIN.
-                  </li>
-                </ol>
-              </section>
-            ) : null}
-
-            <section
-              aria-labelledby="verification-history"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="verification-history"
-                title="History"
-                description="Every attempt Google has on record"
-              />
-              <Sub title="Verification history" result={state.verifications}>
-                {(data) => (
-                  <VerificationHistory
-                    data={asRecord(data)}
-                    includePending={false}
-                  />
-                )}
-              </Sub>
-            </section>
-          </div>
-        )
-      }}
-    </AdministrationShell>
+    </LifecycleWorkspace>
   )
 }

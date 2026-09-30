@@ -42,27 +42,39 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
 
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)}>
-      <ol className="flex min-w-0 items-center gap-1.5 text-ui">
+      <ol className="flex min-w-0 max-w-full items-center gap-1.5 text-ui">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1
           return (
             <li
               key={`${crumb.label}-${index}`}
+              data-slot={isLast ? "breadcrumb-current" : "breadcrumb-ancestor"}
+              // Every crumb may shrink, so the trail never overflows its nav:
+              // at 768px it shares the strip with the switcher and the health
+              // pill, and ancestors that refused to shrink pushed the current
+              // page out of the nav and under the pill. The ancestors give
+              // way first (a far larger shrink weight), each truncating with
+              // an ellipsis; the current crumb truncates only once they are
+              // spent, and its full name stays in `title`.
               className={cn(
                 "flex min-w-0 items-center gap-1.5",
-                !isLast && "shrink-0 max-md:hidden"
+                isLast ? "shrink" : "shrink-[100] max-md:hidden"
               )}
             >
               {index > 0 ? (
-                <span aria-hidden className="text-line-strong max-md:hidden">
+                <span
+                  aria-hidden
+                  className="shrink-0 text-line-strong max-md:hidden"
+                >
                   /
                 </span>
               ) : null}
               {isLast || !crumb.href ? (
                 <span
                   aria-current={isLast ? "page" : undefined}
+                  title={crumb.label}
                   className={cn(
-                    "truncate",
+                    "min-w-0 truncate",
                     isLast ? "font-semibold text-ink" : "text-ink-muted"
                   )}
                 >
@@ -71,7 +83,8 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
               ) : (
                 <Link
                   href={crumb.href}
-                  className="max-w-[16rem] truncate rounded-sm text-ink-muted underline-offset-3 focus-halo hover:text-ink hover:underline focus-visible:outline-none"
+                  title={crumb.label}
+                  className="max-w-[16rem] min-w-0 truncate rounded-sm text-ink-muted underline-offset-3 focus-halo hover:text-ink hover:underline focus-visible:outline-none"
                 >
                   {crumb.label}
                 </Link>

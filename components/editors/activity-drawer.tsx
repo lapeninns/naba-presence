@@ -35,11 +35,11 @@ function ActivityDrawer({ locationId }: { locationId: string }) {
         <SheetHeader>
           <SheetTitle>Recent activity</SheetTitle>
           <SheetDescription>
-            Changes published to Google for this location.
+            Google change attempts and confirmation results for this location.
           </SheetDescription>
         </SheetHeader>
         <SheetBody>
-          {open ? <LocationActivityPanel locationId={locationId} /> : null}
+          {open ? <LocationActivityPanel key={locationId} locationId={locationId} /> : null}
         </SheetBody>
       </SheetContent>
     </Sheet>

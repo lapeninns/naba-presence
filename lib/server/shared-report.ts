@@ -190,9 +190,12 @@ export async function loadSharedClientReport(
             totals: Object.fromEntries(
               GOOGLE_PERFORMANCE_METRICS.map((metric) => [
                 metric,
-                Number(presence.totals[metric] ?? 0),
+                presence.totals[metric] ?? null,
               ])
-            ) as Record<GooglePerformanceMetric, number>,
+            ) as Record<GooglePerformanceMetric, number | null>,
+            previous: presence.previous ?? null,
+            fetchedAt: presence.fetchedAt,
+            coverage: presence.coverage,
             series: presence.series.map((point) => ({
               date: point.date,
               metrics: Object.fromEntries(

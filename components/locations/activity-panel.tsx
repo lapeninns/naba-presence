@@ -9,6 +9,10 @@ import { Timeline, type TimelineTone } from "@/components/ui/timeline"
 import type { LocationActivityState } from "@/lib/contracts/location-activity"
 import { formatNumber } from "@/lib/format"
 import { useLocationActivity } from "@/lib/queries/use-location-activity"
+import { confirmIndustry } from "@/lib/api/location-industry"
+import { confirmBusinessInformation } from "@/lib/api/location-business-information"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+import { queryKeys } from "@/lib/queries/keys"
 
 const PAGE_SIZE = 10
 
@@ -31,16 +35,20 @@ function statusPillTone(status: string): "ok" | "bad" | "outline" {
 
 export function LocationActivityPanel({ locationId }: { locationId: string }) {
   const [page, setPage] = useState(1)
+  const [cursors, setCursors] = useState<Record<number, string>>({})
   // The page is part of the query key, so the resource hook closes over it.
   // It always calls the same hook, which is all the shell requires.
   function useActivityPage(id: string) {
-    return useLocationActivity(id, { page, pageSize: PAGE_SIZE })
+    return useLocationActivity(id, { page, pageSize: PAGE_SIZE, cursor: cursors[page] })
   }
 
   return (
     <LocationTab locationId={locationId} useResource={useActivityPage}>
       {({ data: activity }) => (
-        <ActivityList activity={activity} page={page} onPageChange={setPage} />
+        <ActivityList locationId={locationId} activity={activity} page={page} onPageChange={(next) => {
+          if (next > page && activity.nextCursor) setCursors((current) => ({ ...current, [next]: activity.nextCursor ?? "" }))
+          setPage(next)
+        }} />
       )}
     </LocationTab>
   )
@@ -51,10 +59,12 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
  * the rows need no card of their own; the separators do the work.
  */
 function ActivityList({
+  locationId,
   activity,
   page,
   onPageChange,
 }: {
+  locationId: string
   activity: LocationActivityState
   page: number
   onPageChange: (next: number) => void
@@ -88,6 +98,7 @@ function ActivityList({
                   <StatusPill tone={statusPillTone(item.status)}>
                     {humanise(item.status)}
                   </StatusPill>
+                  {activity.canManage && (item.resourceType === "lodging" || item.resourceType === "business_info" || item.resourceType === "attributes") && (item.canConfirm || (item.resourceType === "lodging" && item.status === "ambiguous")) ? <ConfirmManagementButton locationId={locationId} mutationId={item.sourceId ?? item.id} resourceType={item.resourceType} /> : null}
                 </span>
               ),
               meta: [
@@ -96,6 +107,9 @@ function ActivityList({
                   ? item.updateMask.map(humanise).join(", ")
                   : null,
                 item.lastErrorCode ? humanise(item.lastErrorCode) : null,
+                item.historicalReason ?? null,
+                item.executionState && item.executionState !== "unrecorded" ? `Request ${humanise(item.executionState).toLowerCase()}` : null,
+                item.confirmationState && item.confirmationState !== "unrecorded" ? `Google confirmation: ${humanise(item.confirmationState).toLowerCase()}` : null,
               ]
                 .filter(Boolean)
                 .join(" · "),
@@ -126,8 +140,8 @@ function ActivityList({
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={page >= pageCount}
-                onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+                disabled={activity.nextCursor === undefined ? page >= pageCount : activity.nextCursor === null}
+                onClick={() => onPageChange(page + 1)}
               >
                 Next
               </Button>
@@ -137,4 +151,18 @@ function ActivityList({
       )}
     </section>
   )
+}
+
+function ConfirmManagementButton({ locationId, mutationId, resourceType }: { locationId: string; mutationId: string; resourceType: "lodging" | "business_info" | "attributes" }) {
+  const confirmation = useResourceMutation({
+    mutationFn: () => resourceType === "lodging" ? confirmIndustry(locationId, mutationId) : confirmBusinessInformation(locationId, mutationId),
+    invalidate: [queryKeys.locationActivity(locationId).slice(0, -1), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
+    successToast: (result) => result.confirmationState === "confirmed" ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google` : null,
+  })
+  return <span className="inline-flex items-center gap-2">
+    <Button size="sm" variant="outline" disabled={confirmation.isPending} onClick={() => confirmation.mutate()}>
+      {confirmation.isPending ? "Checking Google…" : "Check Google confirmation"}
+    </Button>
+    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
+  </span>
 }

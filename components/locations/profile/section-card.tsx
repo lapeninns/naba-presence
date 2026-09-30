@@ -37,9 +37,22 @@ export function LabelRow({
  * profile mixes two models: the name, description, phone and website are
  * saved in NabaPresence first ("Save here" keeps them without touching
  * Google), while categories, address, opening state and attributes have no
- * NabaPresence copy and go straight to Google when published.
+ * NabaPresence draft: each change is reviewed and approved as an exact
+ * request, then sent to Google directly. Nothing reaches Google unreviewed,
+ * so the tag must not say "straight to Google".
  */
 export type SaveModel = "here" | "google"
+
+export const SAVE_MODEL_LABEL: Record<SaveModel, string> = {
+  here: "Saved here first",
+  google: "No draft · reviewed, then sent to Google",
+}
+
+export const SAVE_MODEL_DETAIL: Record<SaveModel, string> = {
+  here: "Saved in NabaPresence first; nothing reaches Google until you review and publish.",
+  google:
+    "No NabaPresence draft: each change is reviewed and approved, then sent to Google directly.",
+}
 
 export function SaveModelTag({ model }: { model: SaveModel }) {
   const Icon = model === "here" ? ShieldCheckIcon : GlobeIcon
@@ -47,10 +60,12 @@ export function SaveModelTag({ model }: { model: SaveModel }) {
     <span
       data-slot="save-model"
       data-model={model}
+      title={SAVE_MODEL_DETAIL[model]}
       className="inline-flex items-center gap-1 rounded-(--np-radius-tag) border border-line bg-surface-alt px-1.5 text-[11.5px] leading-[18px] font-medium text-ink-secondary"
     >
       <Icon className="size-3" strokeWidth={2} aria-hidden />
-      {model === "here" ? "Saved here first" : "Goes straight to Google"}
+      {SAVE_MODEL_LABEL[model]}
+      <span className="sr-only">. {SAVE_MODEL_DETAIL[model]}</span>
     </span>
   )
 }

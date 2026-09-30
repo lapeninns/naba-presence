@@ -9,6 +9,18 @@ export const queryKeys = {
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
   clientReportShares: (id: string) => ["clients", id, "report-shares"] as const,
   connections: ["connections"] as const,
+  // Operational notifications: the per-viewer list and unread count, and the
+  // viewer's own preferences. Rooted together so a read or resolve refreshes both.
+  notificationsAll: ["operational-notifications"] as const,
+  notifications: (filter: string) => ["operational-notifications", "list", filter] as const,
+  notificationPreferences: ["operational-notifications", "preferences"] as const,
+  operationsHealth: ["operations", "health"] as const,
+  postSchedules: (locationId: string) => ["locations", locationId, "post-schedules"] as const,
+  bulkChanges: ["bulk-changes"] as const,
+  bulkChange: (id: string) => ["bulk-changes", id] as const,
+  scheduleOccurrencesAll: ["schedule-occurrences"] as const,
+  scheduleOccurrences: (params: Record<string, string | undefined>) => ["schedule-occurrences", params] as const,
+  webhookFailures: ["operations", "webhook-failures"] as const,
   settings: ["settings"] as const,
   // Rooted at "location-directory", NOT "locations": React Query invalidation
   // is prefix-matched, so a directory key of ["locations"] would shadow every

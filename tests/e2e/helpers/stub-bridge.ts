@@ -521,7 +521,7 @@ export default async function startJourneyBridge(config: FullConfig) {
       { method: "GET", pathIncludes: `${primaryAccountName}/admins` },
       () => ({
         status: 200,
-        json: { admins: [{ name: `${primaryAccountName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
+        json: { accountAdmins: [{ name: `${primaryAccountName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
       })
     )
     stub.respond(

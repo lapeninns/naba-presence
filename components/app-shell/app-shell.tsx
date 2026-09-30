@@ -337,7 +337,7 @@ function AppShell({
     // content scrolls inside its own column instead of stretching the sidebar.
     <TooltipProvider>
       <ClientScopeRoot rememberedClientId={rememberedClientId}>
-        <div className="flex h-svh bg-canvas text-ink">
+        <div className="flex h-svh bg-canvas text-ink print:block print:h-auto print:bg-white">
           <a
             href="#main"
             className="fixed top-[-60px] left-3 z-[100] rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground no-underline focus:top-3 focus:shadow-np-pop focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
@@ -347,7 +347,7 @@ function AppShell({
 
           <aside
             aria-label="Sidebar"
-            className="hidden w-(--np-rail-width) shrink-0 flex-col overflow-hidden bg-canvas shadow-[inset_-1px_0_0_var(--np-line)] min-[1181px]:w-(--np-sidebar-width) md:flex"
+            className="hidden w-(--np-rail-width) shrink-0 flex-col overflow-hidden bg-canvas shadow-[inset_-1px_0_0_var(--np-line)] min-[1181px]:w-(--np-sidebar-width) md:flex print:hidden!"
           >
             <SidebarBody
               session={session}
@@ -379,13 +379,13 @@ function AppShell({
 
           {/* The scroll column. The toolbar sticks to its top and the page
             passes beneath it; a workspace frame fills the remainder. */}
-          <div className="flex min-h-0 min-w-0 flex-1 scroll-pt-[calc(var(--np-toolbar-h)+8px)] flex-col overflow-x-hidden overflow-y-auto">
+          <div className="flex min-h-0 min-w-0 flex-1 scroll-pt-[calc(var(--np-toolbar-h)+8px)] flex-col overflow-x-hidden overflow-y-auto print:block print:overflow-visible">
             <Topbar
               onOpenNav={() => setMobileNavOpen(true)}
               navOpen={mobileNavOpen}
               navToggleRef={navToggleRef}
               sessionReady={sessionReady}
-              className="sticky top-0 z-30"
+              className="sticky top-0 z-30 print:hidden"
             />
 
             {session?.supportActor ? (

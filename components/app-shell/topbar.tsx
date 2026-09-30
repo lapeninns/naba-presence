@@ -14,6 +14,7 @@ import {
   useCommandPalette,
 } from "./command-palette"
 import { ContextHealthChip } from "./context-health-chip"
+import { NotificationsLink } from "./notifications-link"
 
 /**
  * The toolbar: the 56px strip above the content column that the page scrolls
@@ -71,6 +72,7 @@ function Toolbar({
       )}
 
       {sessionReady ? <ContextHealthChip /> : null}
+      {sessionReady ? <NotificationsLink /> : null}
       {sessionReady ? (
         <CommandPaletteButton onClick={() => palette.setOpen(true)} />
       ) : null}

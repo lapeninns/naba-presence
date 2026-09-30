@@ -67,13 +67,16 @@ describe("Google transport", () => {
     vi.restoreAllMocks()
   })
 
-  it("retries a safe request when Google is temporarily unavailable", async () => {
+  it.each([
+    "https://mybusiness.googleapis.com/v4/example",
+    "https://businessprofileperformance.googleapis.com/v1/locations/1:fetchMultiDailyMetricsTimeSeries",
+  ])("retries a supported safe request %s when Google is temporarily unavailable", async (url) => {
     // Given: a provider that succeeds after one retryable response.
     const { googleRequest } = await import("@/lib/server/google")
 
     // When: a safe request crosses the real HTTP transport.
     const result = await googleRequest<{ readonly ok: boolean }>(
-      "https://mybusiness.googleapis.com/v4/example",
+      url,
       "access-token",
       {},
       { maxAttempts: 2, timeoutMs: 1000 }
@@ -102,5 +105,31 @@ describe("Google transport", () => {
     // Then: ambiguity is surfaced without a second provider write.
     await expect(request).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
     expect(calls).toBe(1)
+  })
+
+  it.each([
+    "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings",
+    "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights",
+    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/healthProviderAttributes",
+    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/insuranceNetworks",
+    "https://mybusinessqanda.googleapis.com/v1/locations/1/questions",
+    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers",
+    "https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights",
+    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights",
+    "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate",
+    "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation",
+  ])("rejects retired resource %s before any provider request", async (url) => {
+    // Given: an old caller still constructing a retired resource URL.
+    const { googleRequest } = await import("@/lib/server/google")
+
+    // When: the request enters the shared transport, including its test proxy.
+    const request = googleRequest(url, "access-token", {}, { maxAttempts: 1 })
+
+    // Then: it returns a stable unsupported outcome without network activity.
+    await expect(request).rejects.toMatchObject({
+      status: 410,
+      code: "provider_capability_retired",
+    })
+    expect(calls).toBe(0)
   })
 })

@@ -36,10 +36,10 @@ export function createPost(id: string, input: LocalPostInputValues) {
   })
 }
 
-export function updatePost(id: string, postId: string, input: LocalPostInputValues): Promise<UpdatePostResult> {
+export function updatePost(id: string, postId: string, input: LocalPostInputValues, expectedUpdatedAt?: string): Promise<UpdatePostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}`, {
     method: "PATCH",
-    body: input,
+    body: expectedUpdatedAt ? { ...input, expectedUpdatedAt } : input,
     schema: postUpdateResponseSchema,
   })
 }

@@ -13,6 +13,14 @@ const REASON_COPY: Record<string, string> = {
   permission_denied: "You do not have permission for this section.",
   publishing_paused: "Publishing to Google is currently unavailable.",
   publish_not_allowed: "You do not have permission to publish this location to Google.",
+  reconnect_required: "Reconnect this Google account to continue.",
+  verification_required: "Complete Google verification before publishing.",
+  location_ineligible: "Google does not support this action for this location.",
+  provider_capability_retired: "Google has retired this capability. Historical records are read-only.",
+  eligibility_unknown: "Google eligibility has not been confirmed. Refresh the listing to check.",
+  managed_in_google: "Manage this information directly in Google, then refresh this listing.",
+  provider_read_only: "Google provides this information as read-only.",
+  immutable_after_creation: "This value can only be set when the Google listing is created.",
 }
 
 export function reasonCodeMessage(reasonCode: string | undefined): string | null {

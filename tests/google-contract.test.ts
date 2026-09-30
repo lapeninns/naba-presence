@@ -138,18 +138,18 @@ describe("Google API request contracts", () => {
   it("uses field masks and validateOnly for Profile preflight", () => {
     const request = googleLocationProfilePatchRequest({
       locationName: "locations/456",
-      updateMask: ["title", "profile", "phoneNumbers"],
+      updateMask: ["title", "profile.description", "phoneNumbers"],
       validateOnly: true,
       payload: {
         title: "Old Crown Girton",
         profile: { description: "Local food and ales" },
-        phoneNumbers: { primaryPhone: "+44 1223 000000" },
+        phoneNumbers: { primaryPhone: "+44 1223 000000", additionalPhones: [] },
       },
     })
     const url = new URL(request.url)
     expect(request.init.method).toBe("PATCH")
     expect(url.searchParams.get("updateMask")).toBe(
-      "title,profile,phoneNumbers"
+      "title,profile.description,phoneNumbers"
     )
     expect(url.searchParams.get("validateOnly")).toBe("true")
     expect(JSON.parse(String(request.init.body))).toMatchObject({

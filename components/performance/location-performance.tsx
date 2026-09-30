@@ -5,7 +5,7 @@ import { useState } from "react"
 
 import { KpiTile } from "@/components/ui/kpi-tile"
 import { SectionHeader } from "@/components/ui/section-header"
-import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
+import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { reportTileGridClassName } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
@@ -152,11 +152,7 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
           />
         ) : (
           <>
-            <FetchedAtCaption
-              iso={presence.data.freshThrough}
-              timezone="UTC"
-              prefix="Google figures as at"
-            />
+            <PresenceProvenance data={presence.data} />
             <UnavailableAlert
               codes={presence.data.unavailableReasons}
               title="Some figures could not be refreshed"

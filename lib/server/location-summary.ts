@@ -41,6 +41,7 @@ type LinkRow = {
   locationId: string
   linked: boolean
   verified: boolean
+  lifecycleEnded: string | null
   connectionStatus:
     "active" | "expired" | "revoked" | "error" | "disconnected" | null
   reconnectRequired: boolean | null
@@ -285,6 +286,15 @@ export async function readListingSummaries(
       e.access_state as "accessState",
       ll.created_at as "linkedAt",
       (
+        -- The latest independently confirmed deletion, or transfer whose
+        -- local link was not moved: this account no longer manages it.
+        select m.operation from gbp_management_mutation m
+        where m.location_id = l.id and m.resource_type = 'location_lifecycle'
+          and m.confirmation_state = 'confirmed'
+          and (m.operation = 'delete_location' or m.local_reconciliation_state <> 'applied')
+        order by m.created_at desc limit 1
+      ) as "lifecycleEnded",
+      (
         -- Successful review checks only (0047): a failed sync never makes a
         -- listing look fresh.
         select max(sc.last_succeeded_at)
@@ -440,6 +450,7 @@ export async function readListingSummaries(
     return {
       ...base,
       freshness: link.linked ? listingFreshness(link) : undefined,
+      lifecycleEnded: link.lifecycleEnded === "delete_location" || link.lifecycleEnded === "transfer_location" ? link.lifecycleEnded : null,
       connection: link.connectionStatus
         ? {
             status: link.connectionStatus,

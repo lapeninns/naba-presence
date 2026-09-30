@@ -152,7 +152,8 @@ export function PerformanceView() {
   const empty = client && client.locationCount === 0
 
   return (
-    <div className="flex flex-col gap-(--np-gap-section)">
+    // Browser "Save as PDF": controls drop out, figures and charts stay whole.
+    <div className="flex flex-col gap-(--np-gap-section) print:gap-6 print:[&_button]:hidden print:[&_figure]:break-inside-avoid print:[&_section]:break-inside-avoid">
       {/* The client scope belongs above the tabs: it applies to all three, and
           picking it per tab would let two of them disagree about whose numbers
           are on screen. */}

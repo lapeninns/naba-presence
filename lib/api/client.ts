@@ -47,6 +47,8 @@ export class ApiClientError extends Error {
 export type RequestOptions = {
   signal?: AbortSignal
   background?: boolean
+  /** One token per user intent, resent unchanged after a lost response. */
+  idempotencyKey?: string
 }
 
 type ApiFetchOptions<T> = RequestOptions & {
@@ -117,11 +119,17 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions<T> = {}
 ): Promise<T> {
-  const { method = "GET", body, schema, signal, background = false } = options
+  const { method = "GET", body, schema, signal, background = false, idempotencyKey } = options
   const response = await fetch(path, {
     method,
     signal,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers:
+      body === undefined && !idempotencyKey
+        ? undefined
+        : {
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+            ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+          },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const payload = await readPayload(response)

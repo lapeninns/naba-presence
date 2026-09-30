@@ -129,6 +129,25 @@ export const operationsHealthSchema = z.object({
   schedulerHeartbeatAt: z.string().nullable(),
   schedulerHeartbeatStale: z.boolean().default(false),
   schedulerTicks: z.array(schedulerTickSchema).default([]),
+  /**
+   * Write attempts across every store whose Google outcome is not settled
+   * (ambiguous, or awaiting independent confirmation), oldest first.
+   */
+  unresolvedWrites: z
+    .array(z.object({ family: z.string(), count: z.number(), oldestAt: z.string().nullable() }))
+    .default([]),
+  /**
+   * Notification email evidence. Accepted is the provider taking the message;
+   * delivered is a receiving server accepting it; neither means it was read.
+   */
+  notificationDeliveries: z
+    .object({
+      queued: z.number(),
+      oldestQueuedAt: z.string().nullable(),
+      states7d: z.array(z.object({ state: z.string(), count: z.number() })),
+      retryable: z.number(),
+    })
+    .default({ queued: 0, oldestQueuedAt: null, states7d: [], retryable: 0 }),
 })
 export type OperationsHealth = z.infer<typeof operationsHealthSchema>
 

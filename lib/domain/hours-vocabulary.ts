@@ -104,10 +104,11 @@ function normalizeTime(value: GoogleTime | undefined): string | null {
     if (!match) return null
     return `${match[1].padStart(2, "0")}:${match[2]}`
   }
-  if (!value || !Number.isInteger(value.hours)) return null
-  return `${String(value.hours).padStart(2, "0")}:${String(
-    Number.isInteger(value.minutes) ? value.minutes : 0
-  ).padStart(2, "0")}`
+  if (!value) return null
+  const hours = value.hours === undefined ? 0 : value.hours
+  const minutes = value.minutes === undefined ? 0 : value.minutes
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 24 || minutes < 0 || minutes > 59 || (hours === 24 && minutes !== 0)) return null
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
 }
 
 function dayNumber(value: string | undefined): number | null {

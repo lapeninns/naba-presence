@@ -111,6 +111,12 @@ describe("PostsActionBar", () => {
     const client = renderBar({ post: post({ status: "awaiting_approval" }) })
 
     await userEvent.click(screen.getByRole("button", { name: "Approve" }))
+    // Approving publishes, so the approver sees the post first.
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText("Approve and publish this post?")).toBeInTheDocument()
+    expect(within(dialog).getByText("Preview")).toBeInTheDocument()
+    expect(api.decidePostApproval).not.toHaveBeenCalled()
+    await userEvent.click(within(dialog).getByRole("button", { name: "Approve and publish" }))
     expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
     expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve")
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)

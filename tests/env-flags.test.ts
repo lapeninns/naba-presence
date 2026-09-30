@@ -152,20 +152,46 @@ describe("per-surface GBP kill switches", () => {
 })
 
 describe("provider timeouts", () => {
-  it("defaults the OpenAI timeout to thirty seconds", () => {
-    expect(serverEnvSchema.parse({ ...baseEnv }).OPENAI_TIMEOUT_MS).toBe(30_000)
+  it("defaults the Workers AI timeout to thirty seconds", () => {
+    expect(serverEnvSchema.parse({ ...baseEnv }).WORKERS_AI_TIMEOUT_MS).toBe(
+      30_000
+    )
     expect(
-      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "45000" })
-        .OPENAI_TIMEOUT_MS
+      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "45000" })
+        .WORKERS_AI_TIMEOUT_MS
     ).toBe(45_000)
   })
 
-  it("rejects an OpenAI timeout that could outlast the transaction holding it", () => {
+  it("rejects a Workers AI timeout that could outlast the transaction holding it", () => {
     expect(() =>
-      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "60000" })
+      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "60000" })
     ).toThrow()
     expect(() =>
-      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "0" })
+      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "0" })
+    ).toThrow()
+  })
+})
+
+describe("Workers AI configuration", () => {
+  it("uses Cloudflare-hosted GLM for both drafting and verification", () => {
+    const env = serverEnvSchema.parse(baseEnv)
+    expect(env.WORKERS_AI_MODEL).toBe("@cf/zai-org/glm-5.3-flash")
+    expect(env.WORKERS_AI_BASE_URL).toBe("https://api.cloudflare.com")
+    expect(env.WORKERS_AI_API_TOKEN).toBeUndefined()
+  })
+
+  it("rejects third-party model routing and malformed account IDs", () => {
+    expect(() =>
+      serverEnvSchema.parse({
+        ...baseEnv,
+        WORKERS_AI_MODEL: "openai/gpt-5-mini",
+      })
+    ).toThrow()
+    expect(() =>
+      serverEnvSchema.parse({
+        ...baseEnv,
+        WORKERS_AI_ACCOUNT_ID: "../another-account",
+      })
     ).toThrow()
   })
 })
@@ -245,7 +271,9 @@ describe(".env.example", () => {
     const schemaKeys = new Set(Object.keys(serverEnvSchema.shape))
     const orphans = [...documented].filter(
       (key) =>
-        !schemaKeys.has(key) && !schedulerOnly.has(key) && !routeBudgets.has(key)
+        !schemaKeys.has(key) &&
+        !schedulerOnly.has(key) &&
+        !routeBudgets.has(key)
     )
     expect(orphans).toEqual([])
   })

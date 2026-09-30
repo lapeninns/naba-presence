@@ -50,6 +50,8 @@ type UploadStatus =
 
 type UploadEntry = {
   key: string
+  /** Sent as Idempotency-Key; kept after a lost response so a retry cannot upload twice. */
+  intent: string
   file: File
   status: UploadStatus
   progress: number
@@ -149,13 +151,20 @@ export function AddPhotoDialog({
   }, [entries])
   useEffect(() => () => revoke(held.current), [])
 
+  const urlIntent = useRef<string | null>(null)
   const addUrl = useResourceMutation<MediaMutationResult>({
-    mutationFn: () =>
-      createMediaFromUrl(locationId, {
-        mediaFormat: "PHOTO",
-        category,
-        sourceUrl: url,
-      }),
+    mutationFn: async () => {
+      urlIntent.current ??= crypto.randomUUID()
+      try {
+        const result = await createMediaFromUrl(locationId, { mediaFormat: "PHOTO", category, sourceUrl: url }, urlIntent.current)
+        urlIntent.current = null
+        return result
+      } catch (error) {
+        // Only a definite server answer frees the token; a lost response keeps it.
+        if (error instanceof ApiClientError && error.status !== 0) urlIntent.current = null
+        throw error
+      }
+    },
     invalidate: onAdded,
     successToast: (result) =>
       result.status === "succeeded"
@@ -189,6 +198,7 @@ export function AddPhotoDialog({
       const error = checkFile(file)
       return {
         key: `${Date.now()}-${index}-${file.name}`,
+        intent: crypto.randomUUID(),
         file,
         status: error ? "invalid" : "ready",
         progress: 0,
@@ -212,7 +222,7 @@ export function AddPhotoDialog({
       form.set("category", category)
       try {
         const result = await uploadMediaFile(locationId, form, (fraction) =>
-          patch(entry.key, { progress: fraction })
+          patch(entry.key, { progress: fraction }), entry.intent
         )
         succeeded += 1
         patch(entry.key, {
@@ -222,6 +232,9 @@ export function AddPhotoDialog({
       } catch (error) {
         failed += 1
         patch(entry.key, {
+          // A lost response keeps the token so a retry finds the first upload;
+          // a definite answer frees the next attempt to be a new upload.
+          ...(error instanceof ApiClientError && error.status === 0 ? {} : { intent: crypto.randomUUID() }),
           status: "failed",
           error: describeActionError(error),
           code: error instanceof ApiClientError ? error.code : undefined,

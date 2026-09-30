@@ -47,12 +47,6 @@ const optionalSecret = (minimumLength: number) =>
     z.string().min(minimumLength).optional()
   )
 
-const optionalTextWithDefault = (fallback: string) =>
-  z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().min(1).default(fallback)
-  )
-
 const urlWithDefault = (fallback: string) =>
   z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -125,16 +119,24 @@ export const serverEnvSchema = z.object({
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
-  OPENAI_API_KEY: optionalText,
-  OPENAI_ORG_ID: optionalText,
-  OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
-  OPENAI_MODEL_VERIFY: optionalTextWithDefault("gpt-5-mini"),
-  OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
+  WORKERS_AI_API_TOKEN: optionalText,
+  WORKERS_AI_ACCOUNT_ID: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[a-f0-9]{32}$/)
+      .optional()
+  ),
+  WORKERS_AI_MODEL: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.literal("@cf/zai-org/glm-5.3-flash").default("@cf/zai-org/glm-5.3-flash")
+  ),
+  WORKERS_AI_BASE_URL: urlWithDefault("https://api.cloudflare.com"),
   // Capped below the connection's idle_in_transaction_session_timeout (60s,
   // lib/server/db.ts) so a slow provider can never outlast a transaction the
   // request still holds; Postgres would kill the backend mid-statement and the
   // caller would see an opaque 500 instead of a provider timeout.
-  OPENAI_TIMEOUT_MS: z.coerce
+  WORKERS_AI_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .positive()
@@ -220,6 +222,10 @@ export const serverEnvSchema = z.object({
   EMAIL_API_KEY: optionalText,
   EMAIL_FROM: optionalText,
   EMAIL_API_BASE_URL: urlWithDefault("https://api.resend.com"),
+  // Signing secret (whsec_…) for Resend delivery webhooks at
+  // /api/webhooks/email. Unset: the receiver answers 404 and delivery
+  // evidence stops at provider acceptance.
+  EMAIL_WEBHOOK_SECRET: optionalText,
   // Where infrastructure alerts (stale cron heartbeats) go.
   OPS_ALERT_EMAILS: emailList,
   LISTING_STALE_AFTER_HOURS: z.coerce.number().int().min(1).max(168).default(6),

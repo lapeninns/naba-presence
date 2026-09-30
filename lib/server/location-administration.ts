@@ -10,10 +10,8 @@ import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   createGoogleLocation,
-  deleteGoogleLocation,
   getGoogleUpdatedLocation,
   googleAccountManagementApi,
-  googleVerificationApi,
   GoogleMutationAmbiguousError,
   patchGoogleLocation,
   searchGoogleLocations,
@@ -84,39 +82,11 @@ export async function loadLocationAdministration(
   )
   const options = { connectionKey: linked.connectionId }
   const [
-    voice,
-    verifications,
-    verificationOptions,
     updated,
     locationAdmins,
     accountAdmins,
     invitations,
   ] = await Promise.all([
-    safe(() =>
-      googleVerificationApi(
-        token,
-        { path: `${linked.googleLocationName}/VoiceOfMerchantState` },
-        options
-      )
-    ),
-    safe(() =>
-      googleVerificationApi(
-        token,
-        { path: `${linked.googleLocationName}/verifications?pageSize=100` },
-        options
-      )
-    ),
-    safe(() =>
-      googleVerificationApi(
-        token,
-        {
-          path: `${linked.googleLocationName}:fetchVerificationOptions`,
-          method: "POST",
-          payload: { languageCode: "en" },
-        },
-        options
-      )
-    ),
     safe(() =>
       getGoogleUpdatedLocation(
         token,
@@ -148,11 +118,6 @@ export async function loadLocationAdministration(
     ),
   ])
   for (const [resourceType, resourceName, result] of [
-    [
-      "verification",
-      `${linked.googleLocationName}/VoiceOfMerchantState`,
-      voice,
-    ],
     ["google_update", `${linked.googleLocationName}:getGoogleUpdated`, updated],
     ["location_admin", `${linked.googleLocationName}/admins`, locationAdmins],
     ["account_admin", `${linked.accountName}/admins`, accountAdmins],
@@ -170,9 +135,9 @@ export async function loadLocationAdministration(
     }
   }
   return {
-    voice,
-    verifications,
-    verificationOptions,
+    voice: { data: null, error: "verification_workflow_moved" },
+    verifications: { data: null, error: "verification_workflow_moved" },
+    verificationOptions: { data: null, error: "verification_workflow_moved" },
     googleUpdated: updated,
     locationAdmins,
     accountAdmins,
@@ -193,6 +158,15 @@ export async function mutateLocationAdministration(input: {
   payload: Record<string, unknown>
   requestId: string
 }): Promise<AdministrationMutationResult> {
+  if (input.operation === "start_verification" || input.operation === "complete_verification") {
+    throw new ApiError(409, "verification_review_required", "Open Verification to review and approve this request before sending it to Google.")
+  }
+  if (["create_admin", "update_admin", "delete_admin", "accept_invitation", "decline_invitation"].includes(input.operation)) {
+    throw new ApiError(409, "administration_review_required", "Open People with access to review and approve the exact administrator or invitation before sending it to Google.")
+  }
+  if (input.operation === "transfer_location" || input.operation === "delete_location") {
+    throw new ApiError(409, "lifecycle_review_required", "Review and approve the exact account transfer or managed-location deletion before sending it to Google.")
+  }
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish)
     throw new ApiError(
@@ -211,9 +185,7 @@ export async function mutateLocationAdministration(input: {
     typeof input.payload.name === "string"
       ? input.payload.name
       : linked.googleLocationName
-  const resourceType = input.operation.includes("verification")
-    ? "verification"
-    : input.operation.includes("admin")
+  const resourceType = input.operation.includes("admin")
       ? input.payload.scope === "account"
         ? "account_admin"
         : "location_admin"
@@ -234,87 +206,7 @@ export async function mutateLocationAdministration(input: {
   if (attempt.idempotent) return attempt
   try {
     let response: unknown
-    if (input.operation === "start_verification") {
-      response = await googleVerificationApi(
-        token,
-        {
-          path: `${linked.googleLocationName}:verify`,
-          method: "POST",
-          payload: input.payload,
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "complete_verification") {
-      response = await googleVerificationApi(
-        token,
-        {
-          path: `${String(input.payload.name)}:complete`,
-          method: "POST",
-          payload: { pin: input.payload.pin },
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "create_admin") {
-      const parent =
-        input.payload.scope === "account"
-          ? linked.accountName
-          : linked.googleLocationName
-      response = await googleAccountManagementApi(
-        token,
-        {
-          path: `${parent}/admins`,
-          method: "POST",
-          payload: {
-            admin: input.payload.admin,
-            role: input.payload.role,
-            ...(input.payload.account
-              ? { account: input.payload.account }
-              : {}),
-          },
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "update_admin") {
-      response = await googleAccountManagementApi(
-        token,
-        {
-          path: String(input.payload.name),
-          method: "PATCH",
-          updateMask: ["role"],
-          payload: { name: input.payload.name, role: input.payload.role },
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "delete_admin") {
-      response = await googleAccountManagementApi(
-        token,
-        { path: String(input.payload.name), method: "DELETE" },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (
-      input.operation === "accept_invitation" ||
-      input.operation === "decline_invitation"
-    ) {
-      response = await googleAccountManagementApi(
-        token,
-        {
-          path: `${String(input.payload.name)}:${input.operation === "accept_invitation" ? "accept" : "decline"}`,
-          method: "POST",
-          payload: {},
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "transfer_location") {
-      response = await googleAccountManagementApi(
-        token,
-        {
-          path: `${linked.googleLocationName}:transfer`,
-          method: "POST",
-          payload: { destinationAccount: input.payload.destinationAccount },
-        },
-        { connectionKey: linked.connectionId, mutation: true }
-      )
-    } else if (input.operation === "create_location") {
+    if (input.operation === "create_location") {
       const location = input.payload.location as Record<string, unknown>
       // Google dedupes locations.create by this parameter, so it identifies
       // the location being created rather than this HTTP request: a retry
@@ -350,10 +242,6 @@ export async function mutateLocationAdministration(input: {
         },
         { connectionKey: linked.connectionId }
       )
-    } else if (input.operation === "delete_location") {
-      response = await deleteGoogleLocation(token, linked.googleLocationName, {
-        connectionKey: linked.connectionId,
-      })
     } else {
       const updateMask = input.payload.updateMask as string[]
       const payload = input.payload.location as Record<string, unknown>
@@ -399,14 +287,15 @@ export async function mutateLocationAdministration(input: {
     })
     return { id: attempt.id, status: "succeeded", response, idempotent: false }
   } catch (error) {
+    const failure = error
     await settleGbpMutation({
       organisationId: input.session.organisationId,
       mutationId: attempt.id,
       status:
-        error instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed",
-      errorCode: mutationErrorCode(error, `${input.operation}_failed`),
+        failure instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed",
+      errorCode: mutationErrorCode(failure, `${input.operation}_failed`),
     })
-    throw error
+    throw failure
   }
 }
 

@@ -7,7 +7,8 @@ import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 
 import { sendEmail } from "./email"
-import { renderIncidentEmail, type IncidentKind } from "./messages"
+import { renderDigestEmail, renderIncidentEmail, type IncidentKind } from "./messages"
+import { canSeeIncident, effectiveMode, loadNotificationMembers, loadPreferences, type ScopedIncident } from "./recipients"
 
 /**
  * Turns an organisation's current state into incidents (0050), and new
@@ -25,7 +26,7 @@ import { renderIncidentEmail, type IncidentKind } from "./messages"
  * an evaluation can neither see nor notify another tenant.
  */
 
-type Finding = { subjectId: string; summary: Record<string, unknown> }
+type Finding = { subjectId: string; summary: Record<string, unknown>; locationId?: string | null }
 
 export type OrganisationEvaluation = {
   opened: number
@@ -44,11 +45,12 @@ async function syncIncidents(
   for (const finding of findings) {
     const [row] = await sql<{ id: string; inserted: boolean }[]>`
       insert into notification_incident (
-        organisation_id, kind, subject_type, subject_id, summary
+        organisation_id, kind, subject_type, subject_id, summary, location_id
       )
       values (
         ${organisationId}, ${kind}, ${subjectType}, ${finding.subjectId},
-        ${sql.json(JSON.parse(JSON.stringify(finding.summary)))}
+        ${sql.json(JSON.parse(JSON.stringify(finding.summary)))},
+        ${finding.locationId ?? null}
       )
       on conflict (organisation_id, kind, subject_id) where status = 'open'
       do update set last_seen_at = now(), summary = excluded.summary
@@ -68,24 +70,34 @@ async function syncIncidents(
   return { openedIds, resolved: resolved.length }
 }
 
-/** Owners and admins at the time of queueing; the send re-checks. */
-async function queueDeliveries(
+/**
+ * Immediate email for everyone who can see a newly opened incident and has
+ * immediate email for its kind (explicitly or by default). Digest choices are
+ * collected later by buildDigests; the send re-checks access and preference.
+ */
+export async function queueDeliveries(
   sql: TransactionSql,
   organisationId: string,
   incidentIds: string[]
 ) {
   if (incidentIds.length === 0) return 0
-  const queued = await sql`
-    insert into notification_delivery (organisation_id, incident_id, recipient_user_id)
-    select ${organisationId}, i.id, m.user_id
-    from notification_incident i
-    cross join member m
-    where i.id in ${sql(incidentIds)}
-      and m.role in ('owner', 'admin')
-    on conflict (incident_id, recipient_user_id, channel) do nothing
-    returning id
-  `
-  return queued.length
+  const incidents = await sql<ScopedIncident[]>`
+    select id::text as id, kind, location_id::text as "locationId"
+    from notification_incident where id in ${sql(incidentIds)}`
+  const members = [...(await loadNotificationMembers(sql)).values()]
+  const preferences = await loadPreferences(sql)
+  let queued = 0
+  for (const incident of incidents) {
+    const recipients = members.filter((member) => canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "immediate")
+    if (!recipients.length) continue
+    const rows = await sql`
+      insert into notification_delivery (organisation_id, incident_id, recipient_user_id)
+      select ${organisationId}, ${incident.id}, unnest(${recipients.map((member) => member.userId)}::uuid[])
+      on conflict (incident_id, recipient_user_id, channel) do nothing
+      returning id`
+    queued += rows.length
+  }
+  return queued
 }
 
 const REVIEW_SYNC_TYPES = ["reconcile", "backfill", "sweep", "notification"]
@@ -132,8 +144,8 @@ export async function evaluateOrganisation(
     )
 
     // One listing the login can no longer reach.
-    const accessLost = await sql<{ subjectId: string; title: string }[]>`
-      select e.id::text as "subjectId", e.title
+    const accessLost = await sql<{ subjectId: string; title: string; locationId: string }[]>`
+      select e.id::text as "subjectId", e.title, ll.location_id::text as "locationId"
       from external_location e
       join location_link ll on ll.external_location_id = e.id and ll.is_active
       where e.access_state = 'access_lost'
@@ -147,6 +159,7 @@ export async function evaluateOrganisation(
         accessLost.map((row) => ({
           subjectId: row.subjectId,
           summary: { title: row.title },
+          locationId: row.locationId,
         }))
       )
     )
@@ -156,11 +169,12 @@ export async function evaluateOrganisation(
     // reconnect, or a listing that lost access, already has its own
     // incident; a second one for the same cause would only be noise.
     const stale = await sql<
-      { subjectId: string; title: string; lastSuccessAt: Date | null }[]
+      { subjectId: string; title: string; lastSuccessAt: Date | null; locationId: string }[]
     >`
       select
         e.id::text as "subjectId",
         e.title,
+        ll.location_id::text as "locationId",
         chk.last_success as "lastSuccessAt"
       from external_location e
       join location_link ll on ll.external_location_id = e.id and ll.is_active
@@ -195,6 +209,7 @@ export async function evaluateOrganisation(
             lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
             staleAfterHours: staleHours,
           },
+          locationId: row.locationId,
         }))
       )
     )
@@ -234,7 +249,7 @@ export async function evaluateOrganisation(
     const lowRated = await sql<{ id: string }[]>`
       insert into notification_incident (
         organisation_id, kind, subject_type, subject_id, status, resolved_at,
-        summary
+        summary, location_id
       )
       select
         r.organisation_id,
@@ -243,7 +258,8 @@ export async function evaluateOrganisation(
         r.id::text,
         'resolved',
         now(),
-        jsonb_build_object('rating', r.star_rating, 'title', e.title)
+        jsonb_build_object('rating', r.star_rating, 'title', e.title),
+        ll.location_id
       from review r
       join external_location e on e.id = r.external_location_id
       join location_link ll on ll.external_location_id = e.id and ll.is_active
@@ -272,11 +288,27 @@ export type DeliveryOutcome = {
   failed: number
 }
 
+type ClaimedDelivery = {
+  id: string
+  attempts: number
+  userId: string
+  incidentId: string | null
+  kind: string | null
+  locationId: string | null
+  summary: Record<string, unknown> | null
+  digestIncidentIds: string[] | null
+}
+
 /**
  * Send what is due. Each delivery is claimed (attempt counted, next attempt
  * pushed out) in a committed write BEFORE the provider is called, so a crash
- * mid-send can at worst delay a retry, never send twice in the same run; the
- * settle afterwards is conditional on the row still being pending.
+ * mid-send can at worst delay a retry; the settle afterwards is conditional
+ * on the row still being pending. Every send carries the delivery's own
+ * idempotency key, so a retry after a lost response cannot send twice.
+ *
+ * At send time the recipient must still be a member who can see the
+ * incident's location and still want this email: a revoked member, a removed
+ * location assignment or a changed preference suppresses it.
  */
 export async function deliverPending(
   organisationId: string,
@@ -287,16 +319,7 @@ export async function deliverPending(
   const claimed = await withTenant(
     organisationId,
     (sql) =>
-      sql<
-        {
-          id: string
-          attempts: number
-          kind: IncidentKind
-          summary: Record<string, unknown>
-          email: string | null
-          stillAdmin: boolean
-        }[]
-      >`
+      sql<ClaimedDelivery[]>`
       with due as (
         select d.id
         from notification_delivery d
@@ -309,43 +332,63 @@ export async function deliverPending(
       claimed as (
         update notification_delivery d
         set attempts = d.attempts + 1,
-            next_attempt_at = now() + interval '10 minutes'
+            next_attempt_at = now() + interval '10 minutes',
+            idempotency_key = coalesce(d.idempotency_key, 'notification-delivery/' || d.id::text)
         from due
         where d.id = due.id
-        returning d.id, d.attempts, d.incident_id, d.recipient_user_id
+        returning d.id, d.attempts, d.incident_id, d.digest_id, d.recipient_user_id
       )
       select
         c.id::text as id,
         c.attempts,
+        c.recipient_user_id::text as "userId",
+        c.incident_id::text as "incidentId",
         i.kind,
+        i.location_id::text as "locationId",
         i.summary,
-        u.email,
-        exists (
-          select 1 from member m
-          where m.user_id = c.recipient_user_id
-            and m.role in ('owner', 'admin')
-        ) as "stillAdmin"
+        (select array_agg(x::text) from unnest(g.incident_ids) x) as "digestIncidentIds"
       from claimed c
-      join notification_incident i on i.id = c.incident_id
-      left join app_user u on u.id = c.recipient_user_id
+      left join notification_incident i on i.id = c.incident_id
+      left join notification_digest g on g.id = c.digest_id
     `
   )
+  if (!claimed.length) return outcome
+  const { members, preferences, digestIncidents } = await withTenant(organisationId, async (sql) => {
+    const digestIds = [...new Set(claimed.flatMap((delivery) => delivery.digestIncidentIds ?? []))]
+    return {
+      members: await loadNotificationMembers(sql),
+      preferences: await loadPreferences(sql),
+      digestIncidents: digestIds.length
+        ? await sql<(ScopedIncident & { summary: Record<string, unknown> })[]>`
+            select id::text as id, kind, location_id::text as "locationId", summary
+            from notification_incident where id in ${sql(digestIds)}`
+        : [],
+    }
+  })
   for (const delivery of claimed) {
     let status: "sent" | "suppressed" | "failed" | "pending"
     let errorCode: string | null = null
     let providerMessageId: string | null = null
-    if (!delivery.stillAdmin || !delivery.email) {
+    const member = members.get(delivery.userId)
+    const message = (() => {
+      if (!member) return { suppressed: "recipient_not_member" } as const
+      if (!member.email) return { suppressed: "recipient_has_no_email" } as const
+      if (delivery.incidentId && delivery.kind) {
+        const incident = { id: delivery.incidentId, kind: delivery.kind, locationId: delivery.locationId }
+        if (!canSeeIncident(member, incident)) return { suppressed: "recipient_access_revoked" } as const
+        if (effectiveMode(preferences, member, delivery.kind, "email") !== "immediate") return { suppressed: "recipient_preference_off" } as const
+        return { email: renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl) }
+      }
+      const visible = digestIncidents.filter((incident) => (delivery.digestIncidentIds ?? []).includes(incident.id)
+        && canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "digest")
+      if (!visible.length) return { suppressed: "digest_empty_after_recheck" } as const
+      return { email: renderDigestEmail(visible, appUrl) }
+    })()
+    if ("suppressed" in message) {
       status = "suppressed"
-      errorCode = delivery.stillAdmin
-        ? "recipient_has_no_email"
-        : "recipient_not_admin"
+      errorCode = message.suppressed ?? null
     } else {
-      const message = renderIncidentEmail(
-        delivery.kind,
-        delivery.summary,
-        appUrl
-      )
-      const result = await sendEmail({ to: delivery.email, ...message })
+      const result = await sendEmail({ to: member!.email!, ...message.email }, { idempotencyKey: `notification-delivery/${delivery.id}` })
       if (result.status === "sent") {
         status = "sent"
         providerMessageId = result.providerMessageId
@@ -361,6 +404,10 @@ export async function deliverPending(
       }
     }
     outcome[status === "pending" ? "failed" : status] += 1
+    // A network failure may still have reached the provider: its final state
+    // is unknown, not failed. A provider refusal is failed.
+    const deliveryState = status === "sent" ? "accepted" : status === "suppressed" ? "suppressed"
+      : status === "failed" ? (errorCode === "email_network_error" ? "unknown" : "failed") : "queued"
     await withTenant(
       organisationId,
       (sql) => sql`
@@ -370,6 +417,8 @@ export async function deliverPending(
         last_error_code = ${errorCode},
         provider_message_id = ${providerMessageId},
         sent_at = ${status === "sent" ? sql`now()` : null},
+        delivery_state = case when delivery_state = 'queued' then ${deliveryState} else delivery_state end,
+        delivery_state_at = case when delivery_state = 'queued' then now() else delivery_state_at end,
         next_attempt_at = ${
           status === "pending"
             ? sql`now() + (${2 ** delivery.attempts} * interval '1 minute')`
@@ -389,4 +438,49 @@ export async function deliverPending(
     }
   }
   return outcome
+}
+
+/** Local hour from which a day's digest is built. */
+export const DIGEST_HOUR = 8
+
+/**
+ * One digest per recipient per local day (organisation timezone), holding the
+ * unread incidents opened since that recipient's previous digest (or the last
+ * 24 hours) whose kinds they chose to receive by digest. Unique per day, so
+ * repeated cron runs build it once.
+ */
+export async function buildDigests(organisationId: string, now: Date = new Date()): Promise<number> {
+  return withTenant(organisationId, async (sql) => {
+    const [organisation] = await sql<{ timezone: string | null }[]>`select default_timezone as timezone from organisation limit 1`
+    const timezone = organisation?.timezone || "Europe/London"
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" })
+      .formatToParts(now).map((part) => [part.type, part.value]))
+    if (Number(parts.hour) < DIGEST_HOUR) return 0
+    const digestDate = `${parts.year}-${parts.month}-${parts.day}`
+    const members = [...(await loadNotificationMembers(sql)).values()]
+    const preferences = await loadPreferences(sql)
+    let built = 0
+    for (const member of members) {
+      const [existing] = await sql`select 1 from notification_digest where user_id = ${member.userId} and digest_date = ${digestDate}::date`
+      if (existing) continue
+      const [previous] = await sql<{ createdAt: Date }[]>`select created_at as "createdAt" from notification_digest where user_id = ${member.userId} order by digest_date desc limit 1`
+      const since = previous?.createdAt ?? new Date(now.getTime() - 86_400_000)
+      const candidates = await sql<ScopedIncident[]>`
+        select i.id::text as id, i.kind, i.location_id::text as "locationId"
+        from notification_incident i
+        where i.opened_at > ${since} and i.opened_at <= ${now}
+          and not exists (select 1 from notification_recipient_state r where r.incident_id = i.id and r.user_id = ${member.userId})
+        order by i.opened_at limit 200`
+      const chosen = candidates.filter((incident) => canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "digest")
+      if (!chosen.length) continue
+      const [digest] = await sql<{ id: string }[]>`
+        insert into notification_digest (organisation_id, user_id, digest_date, incident_ids)
+        values (${organisationId}, ${member.userId}, ${digestDate}::date, ${chosen.map((incident) => incident.id)}::uuid[])
+        on conflict (organisation_id, user_id, digest_date) do nothing returning id::text as id`
+      if (!digest) continue
+      await sql`insert into notification_delivery (organisation_id, digest_id, recipient_user_id) values (${organisationId}, ${digest.id}, ${member.userId})`
+      built += 1
+    }
+    return built
+  })
 }

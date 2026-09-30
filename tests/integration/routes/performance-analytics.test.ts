@@ -105,7 +105,8 @@ describeDatabase("Google Performance analytics", () => {
     expect(isolated.status).toBe(200)
     expect(await isolated.json()).toMatchObject({
       state: "no_link",
-      totals: { CALL_CLICKS: 0 },
+      // Nothing in scope is missing data, never a manufactured zero (WP9).
+      totals: { CALL_CLICKS: null },
     })
 
     calls = 18

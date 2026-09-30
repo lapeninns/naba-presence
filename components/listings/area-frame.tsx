@@ -67,6 +67,7 @@ const MODEL_ICON: Record<
   canonical: ShieldCheckIcon,
   google_direct: GlobeIcon,
   lifecycle: SendIcon,
+  reviewed: ShieldCheckIcon,
   inbound: DownloadIcon,
 }
 
@@ -306,7 +307,7 @@ function ListingAreaHeader({
             strokeWidth={1.75}
             aria-hidden
           />
-          <span>{modelNote(area.model)}</span>
+          <span>{modelNote(area.model, area.key)}</span>
         </p>
       ) : null}
     </header>
@@ -402,7 +403,7 @@ function AreaFrameBody({
   const pill =
     status !== undefined ? (
       status
-    ) : editorPill ? (
+    ) : areaKey === "verification" ? null : editorPill ? (
       <StatusPill tone={editorPill.tone} data-slot="area-editor-status">
         {editorPill.label}
       </StatusPill>

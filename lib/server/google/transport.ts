@@ -1,6 +1,7 @@
 import "server-only"
 
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
+import { retiredGoogleCapability, retiredGoogleMessage } from "@/lib/domain/google-support"
 
 import {
   classifyMutationFailure,
@@ -248,6 +249,10 @@ export async function googleRequest<T>(
     timeoutMs?: number
   } = {}
 ): Promise<T> {
+  const retired = retiredGoogleCapability(url)
+  if (retired) {
+    throw new ApiError(410, "provider_capability_retired", retiredGoogleMessage(retired))
+  }
   const mode = options.mode ?? "safe"
   const maxAttempts = mode === "mutation" ? 1 : (options.maxAttempts ?? 5)
   const timeoutMs =

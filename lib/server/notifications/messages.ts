@@ -5,19 +5,16 @@
  * name or the text of their review.
  */
 
-export type IncidentKind =
-  | "connection_reconnect"
-  | "listing_access_lost"
-  | "listing_stale"
-  | "low_rating_review"
-  | "connection_owner_left"
+import { NOTIFICATION_EVENT_LABELS, isNotificationEventKind, type NotificationEventKind } from "@/lib/domain/notification-preferences"
+
+export type IncidentKind = NotificationEventKind
 
 function text(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback
 }
 
 const FOOTER =
-  "You receive this because you are an owner or admin of this organisation in NabaPresence."
+  "You receive this because of your NabaPresence notification settings. Change them in Settings, Notifications."
 
 export function renderIncidentEmail(
   kind: IncidentKind,
@@ -100,6 +97,44 @@ export function renderIncidentEmail(
         ].join("\n"),
       }
     }
+    default:
+      return renderOperationalEmail(kind, summary, link)
+  }
+}
+
+/**
+ * The operational events (WP8). Wording states what is known: a sent change
+ * with no confirmed result is "unresolved", never "failed" or "done".
+ */
+function renderOperationalEmail(kind: NotificationEventKind, summary: Record<string, unknown>, link: (path: string) => string) {
+  const title = text(summary.title, "A listing")
+  const where = typeof summary.locationId === "string" ? link(`/listings/${summary.locationId}`) : link("/listings")
+  const label = NOTIFICATION_EVENT_LABELS[kind].label
+  const detail: Partial<Record<NotificationEventKind, string>> = {
+    publication_failed: `A change to ${title} was not published. Nothing further will be sent automatically.`,
+    publication_unresolved: `A change to ${title} was sent, but Google's result is not confirmed yet. It will not be sent again automatically; check its saved outcome.`,
+    schedule_missed: `A scheduled post for ${title} did not publish in time and will not publish late.`,
+    schedule_blocked: `A scheduled post for ${title} cannot run until someone reviews it.`,
+    bulk_completed_with_failures: "A multi-location change finished with some locations failed. Successful locations keep their changes.",
+    verification_changed: `The Google verification state of ${title} changed.`,
+    suggestions_available: `Google suggested changes to ${title}. Nothing is applied until you review it.`,
+    resource_stale: `Part of ${title} has not refreshed from Google recently.`,
+  }
+  return {
+    subject: `${label}: ${title}`,
+    text: [detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description, `Open: ${where}`, "", FOOTER].join("\n"),
+  }
+}
+
+/** A day's digest: one line per incident, no provider error bodies or personal data. */
+export function renderDigestEmail(incidents: ReadonlyArray<{ kind: string; summary: Record<string, unknown> }>, appUrl: string) {
+  const lines = incidents.map((incident) => {
+    const label = isNotificationEventKind(incident.kind) ? NOTIFICATION_EVENT_LABELS[incident.kind].label : "Update"
+    return `- ${label}: ${text(incident.summary.title, "a listing")}`
+  })
+  return {
+    subject: `NabaPresence daily summary: ${incidents.length} ${incidents.length === 1 ? "update" : "updates"}`,
+    text: ["Updates since your last summary:", ...lines, "", `Notifications: ${new URL("/notifications", appUrl).toString()}`, "", FOOTER].join("\n"),
   }
 }
 

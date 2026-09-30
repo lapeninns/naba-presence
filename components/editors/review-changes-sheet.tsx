@@ -79,11 +79,18 @@ function ReviewChangesSheet({
   }
 
   const blocked =
-    (conflicts.length > 0 && !acknowledged) || Boolean(publishDisabledReason)
+    (conflicts.length > 0 && !acknowledged) || Boolean(publishDisabledReason) || results?.some((step) => step.code === "google_confirmation_required")
   const failedAt = results?.findIndex((step) => step.status === "failed") ?? -1
   const failed = failedAt !== -1
   const laterSteps = failed && results ? results.length - failedAt - 1 : 0
   const steps = results ? stepsView(results) : []
+  // Once any Google request went out, the left column is the reviewed
+  // baseline rather than what Google holds now.
+  const sent = Boolean(
+    results?.some(
+      (step) => step.kind !== "local" && step.status === "done" && !step.noop
+    )
+  )
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -101,6 +108,7 @@ function ReviewChangesSheet({
           <ChangeDiff
             rows={rows}
             caption={`Changes to publish for ${locationName}`}
+            phase={sent ? "sent" : "review"}
           />
 
           {conflicts.length > 0 ? (
@@ -147,7 +155,7 @@ function ReviewChangesSheet({
               {failed
                 ? [
                     error,
-                    failedAt > 0 ? "The steps above it went through." : null,
+                    results?.slice(0, failedAt).some((step) => step.status === "done" && !step.noop) ? "Completed steps remain recorded." : null,
                     laterSteps > 0 ? "Nothing after it was sent." : null,
                   ]
                     .filter(Boolean)
@@ -231,6 +239,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         id: step.key,
         label: step.label,
         state: "failed",
+        stateLabel: step.code === "google_confirmation_required" ? "Not confirmed" : undefined,
         detail: step.message,
         errorCode: step.code,
       }
@@ -240,7 +249,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       state: failedAt !== -1 && index > failedAt ? "skipped" : "pending",
       stateLabel:
         failedAt !== -1 && index > failedAt
-          ? "Not sent — an earlier step failed"
+          ? results[failedAt].code === "google_confirmation_required" ? "Not sent — an earlier step needs confirmation" : "Not sent — an earlier step failed"
           : undefined,
     }
   })

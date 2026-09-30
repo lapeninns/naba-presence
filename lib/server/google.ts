@@ -16,6 +16,7 @@ export {
   googleLocations,
   listGoogleAttributeMetadata,
   listGoogleCategories,
+  batchGetGoogleCategories,
   patchGoogleLocation,
   patchGoogleLocationAttributes,
   patchGoogleLocationHours,
@@ -69,7 +70,7 @@ export {
   listGooglePlaceActionLinks,
   patchGooglePlaceActionLink,
 } from "@/lib/server/google/place-actions"
-export type { GooglePlaceActionLink } from "@/lib/server/google/place-actions"
+export type { GooglePlaceActionCollection, GooglePlaceActionLink, GoogleUnsupportedPlaceActionLink } from "@/lib/server/google/place-actions"
 export {
   createGoogleLocalPost,
   deleteGoogleLocalPost,

@@ -1,6 +1,7 @@
 "use client"
 
 import { ImportCard } from "@/components/settings/import-card"
+import { OnboardingDrafts } from "./onboarding-drafts"
 
 /**
  * Link this client's Google listings.
@@ -13,11 +14,13 @@ function StepLocations({
   clientId,
   clientName,
   connectionId,
+  onDirtyChange,
 }: {
   clientId: string
   clientName: string
   /** The login this client's setup attached. */
   connectionId: string | null
+  onDirtyChange: (dirty: boolean) => void
 }) {
   return (
     <>
@@ -26,6 +29,7 @@ function StepLocations({
         to another client keeps its review history when you move it.
       </p>
       <ImportCard clientId={clientId} connectionId={connectionId} />
+      <OnboardingDrafts clientId={clientId} connectionId={connectionId} onDirtyChange={onDirtyChange} />
     </>
   )
 }

@@ -258,13 +258,44 @@ describeDatabase("retention purge", () => {
       )
     `
 
+    await admin`
+      insert into gbp_change_set (
+        organisation_id, location_id, google_account_id, connection_id,
+        target_resource_name, resource_type, requested_by, payload,
+        payload_hash, update_mask, baseline, baseline_hash,
+        require_two_person_approval, expires_at
+      )
+      select ${owner.organisationId}, ${linked.locationId}, id,
+        ${connection.connectionId}, 'locations/retention-test', 'lodging',
+        ${owner.userId}, '{}'::jsonb, 'payload-hash', array['pets.petsAllowed'],
+        '{}'::jsonb, 'baseline-hash', false, now() - interval '1 day'
+      from google_account where organisation_id = ${owner.organisationId}
+        and google_connection_id = ${connection.connectionId}
+    `
+
+    await admin`
+      insert into google_onboarding_draft (id, organisation_id, google_account_id, account_name, connection_id, requested_by, payload, payload_hash, expires_at)
+      select ${randomUUID()}, ${owner.organisationId}, id, google_account_name,
+        ${connection.connectionId}, ${owner.userId}, '{}'::jsonb, 'draft-hash', now() - interval '1 day'
+      from google_account where organisation_id = ${owner.organisationId}
+        and google_connection_id = ${connection.connectionId}
+    `
+    await admin`
+      insert into google_onboarding_review (organisation_id, draft_id, revision, match_request_id, frozen, review_hash, requested_by, require_two_person_approval, validation_request_id, validation_response)
+      select ${owner.organisationId}, id, revision, ${randomUUID()}, '{}'::jsonb, 'review-hash',
+        ${owner.userId}, false, ${randomUUID()}, '{}'::jsonb
+      from google_onboarding_draft where organisation_id = ${owner.organisationId}
+    `
     const first = entryFor(await runRetention(), owner.organisationId)
     expect(first).toMatchObject({
       googleMediaPayloads: 1,
       managementMutations: 1,
+      managementChangeSets: 1,
+      onboardingDrafts: 1,
       resourceSnapshots: 1,
       appSessions: 1,
     })
+    expect(await admin`select id from google_onboarding_review where organisation_id = ${owner.organisationId}`).toHaveLength(0)
 
     const second = entryFor(await runRetention(), owner.organisationId)
     const repeated = Object.entries(second).filter(

@@ -81,6 +81,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const { query: connectionsQuery } = useConnectionWorkspace()
 
   const [agencyDirty, setAgencyDirty] = React.useState(false)
+  const [onboardingDirty, setOnboardingDirty] = React.useState(false)
   const saveBeforeContinue = React.useRef<(() => Promise<boolean>) | null>(null)
   const [checking, setChecking] = React.useState(false)
   const [attempt, setAttempt] = React.useState<{
@@ -121,6 +122,10 @@ function SetupWizard({ clientId }: { clientId: string }) {
     return `/setup?${next}`
   }
   const goTo = (step: SetupStep) => {
+    if (current === "locations" && onboardingDirty) {
+      setAttempt({ step: current, message: "Save your business draft before changing setup steps, or use Saved drafts to discard your edits.", key: Date.now() })
+      return
+    }
     setAttempt(null)
     setStepsOpen(false)
     router.replace(hrefFor(step), { scroll: false })
@@ -186,6 +191,10 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const importing = current === "backfill" && facts.backfill === "running"
 
   const advance = async () => {
+    if (current === "locations" && onboardingDirty) {
+      setAttempt({ step: current, message: "Save your business draft before continuing, or use Saved drafts to discard your edits.", key: Date.now() })
+      return
+    }
     setChecking(true)
     // A step with unsaved work (the accounts picker) saves it first; a save
     // that fails shows its reason inline in the step and Continue stays put.
@@ -353,6 +362,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   facts={facts}
                   connectionId={setup?.connection?.id ?? null}
                   onAgencyDirtyChange={setAgencyDirty}
+                  onOnboardingDirtyChange={setOnboardingDirty}
                   saveBeforeContinueRef={saveBeforeContinue}
                   onConnected={() => goTo("account")}
                 />
@@ -465,6 +475,7 @@ function StepBody({
   facts,
   connectionId,
   onAgencyDirtyChange,
+  onOnboardingDirtyChange,
   saveBeforeContinueRef,
   onConnected,
 }: {
@@ -474,6 +485,7 @@ function StepBody({
   facts: SetupFacts
   connectionId: string | null
   onAgencyDirtyChange: (dirty: boolean) => void
+  onOnboardingDirtyChange: (dirty: boolean) => void
   saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
   onConnected: () => void
 }) {
@@ -505,6 +517,7 @@ function StepBody({
           clientId={clientId}
           clientName={clientName}
           connectionId={connectionId}
+          onDirtyChange={onOnboardingDirtyChange}
         />
       )
     case "backfill":

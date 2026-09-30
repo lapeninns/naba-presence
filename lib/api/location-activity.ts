@@ -19,6 +19,7 @@ export function fetchLocationActivity(
   const query = new URLSearchParams()
   if (params.page) query.set("page", String(params.page))
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
   const suffix = query.size ? `?${query}` : ""
   return apiFetch(`/api/locations/${id}/activity${suffix}`, {
     schema: locationActivityResponseSchema,

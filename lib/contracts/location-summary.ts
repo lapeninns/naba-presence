@@ -47,6 +47,8 @@ export const listingSummarySchema = z.object({
   locationId: z.string(),
   linked: z.boolean(),
   verified: z.boolean(),
+  /** A confirmed deletion, or a transfer not relinked here: no longer managed by this account. */
+  lifecycleEnded: z.enum(["delete_location", "transfer_location"]).nullable().optional(),
   connection: z
     .object({
       status: z.enum(["active", "expired", "revoked", "error", "disconnected"]),

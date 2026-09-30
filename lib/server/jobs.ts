@@ -68,6 +68,8 @@ import {
 import { syncDuePerformance } from "@/lib/server/performance"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
+import { runDueSchedules, type ScheduleTickSummary } from "@/lib/server/publication-schedule-runner"
+import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
 
 /**
  * What the runner knows how to do. The last three are recurring
@@ -105,6 +107,10 @@ export type JobSummary = {
   dead: number
   /** Recurring reconcile, performance and keyword runs. */
   recurring: number
+  /** Scheduled post publication, when publishing is on. */
+  schedules?: ScheduleTickSummary
+  /** Bulk listing children, when publishing is on. */
+  bulk?: BulkTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -904,6 +910,21 @@ export async function runDueJobs(options: {
     await runPool(batch, env.JOBS_CONCURRENCY, deadline, (job) =>
       runJob(job, tick)
     )
+  }
+
+  // Scheduled post publication shares the tick, its budget and the same
+  // lease-and-reap model (claim_due_publication_schedules). Paused with
+  // publishing, like the other kinds that reach Google on a user's behalf.
+  if (env.JOBS_ENABLED && env.PUBLISH_ENABLED) {
+    // Bulk listing children, then scheduled posts, on what is left of the budget.
+    summary.bulk = await runDueBulkChildren({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
+    summary.schedules = await runDueSchedules({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
   }
 
   return summary

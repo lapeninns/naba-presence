@@ -236,6 +236,21 @@ async function retain({
             returning id
           `
         )
+        const onboardingDrafts = await purge(
+          deletesEnabled,
+          () => sql`delete from google_onboarding_draft where expires_at <= now() returning id`
+        )
+        // A reviewed Place Action attempt outlives its review (it is written
+        // later) and restricts deletion, so the review waits for it.
+        const managementChangeSets = await purge(
+          deletesEnabled,
+          () => sql`
+            delete from gbp_change_set c
+            where c.expires_at <= now()
+              and not exists (select 1 from place_action_mutation m where m.change_set_id = c.id)
+            returning c.id
+          `
+        )
         // The snapshot is a cache keyed per resource and rebuilt on the next
         // read, and payload is jsonb NOT NULL, so it is deleted rather than
         // nulled out the way the sibling payload columns are.
@@ -414,6 +429,8 @@ async function retain({
           placeActionMutations,
           mediaMutations,
           managementMutations,
+          managementChangeSets,
+          onboardingDrafts,
           resourceSnapshots,
           profileSnapshots: profileSnapshots.count,
           profileAttempts,

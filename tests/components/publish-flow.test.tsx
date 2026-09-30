@@ -24,6 +24,37 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe("usePublishFlow", () => {
+  it.each([
+    { status: "succeeded", confirmationState: "confirmed", executionState: "unknown" },
+    { status: "succeeded" },
+  ])("continues after a successful result: %j", async (outcome) => {
+    const later = vi.fn()
+    const { result } = renderHook(() => usePublishFlow({ steps: () => [
+      { key: "listing", label: "Listing", run: async () => ({ id: "attempt-1", idempotent: true, ...outcome }) },
+      { key: "attributes", label: "Attributes", run: later },
+    ] }), { wrapper })
+    await act(async () => { expect(await result.current.publish()).toBe(true) })
+    expect(later).toHaveBeenCalledOnce()
+  })
+  it.each([
+    { status: "ambiguous", executionState: "unknown", confirmationState: "unresolved" },
+    { status: "succeeded", executionState: "accepted", confirmationState: "pending" },
+  ])("stops when the recorded outcome is not confirmed: %j", async (outcome) => {
+    const later = vi.fn()
+    const completed = vi.fn()
+    const { result } = renderHook(() => usePublishFlow({
+      steps: () => [
+        { key: "listing", label: "Listing", run: async () => ({ id: "attempt-1", idempotent: false, ...outcome }) },
+        { key: "attributes", label: "Attributes", run: later },
+      ],
+      onSuccess: completed,
+    }), { wrapper })
+    await act(async () => { expect(await result.current.publish()).toBe(false) })
+    expect(later).not.toHaveBeenCalled()
+    expect(completed).not.toHaveBeenCalled()
+    expect(result.current.results[0]).toMatchObject({ status: "failed", code: "google_confirmation_required" })
+    expect(result.current.error).toContain("Activity")
+  })
   it("runs the steps in order and reports each one", async () => {
     const order: string[] = []
     const steps: PublishStep[] = [
@@ -129,6 +160,22 @@ describe("usePublishFlow no-op steps", () => {
 })
 
 describe("ReviewChangesSheet", () => {
+  it("keeps an unresolved outcome visible and prevents immediate resubmission", async () => {
+    const publish = vi.fn()
+    renderWithProviders(<ReviewChangesSheet open onOpenChange={() => {}} rows={[{ field: "Opening date", before: "March 2000", after: "Not set" }]}
+      locationName="Old Crown" onPublish={publish} error="Check Activity before publishing again."
+      results={[
+        { key: "listing", label: "Opening date", status: "failed", code: "google_confirmation_required" },
+        { key: "attributes", label: "Attributes", status: "pending" },
+      ]} />)
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByText("Not confirmed")).toBeInTheDocument()
+    expect(within(sheet).getByText("Not sent — an earlier step needs confirmation")).toBeInTheDocument()
+    const retry = within(sheet).getByRole("button", { name: "Try again" })
+    expect(retry).toBeDisabled()
+    await userEvent.click(retry)
+    expect(publish).not.toHaveBeenCalled()
+  })
   const conflictRows = [
     {
       field: "Phone",

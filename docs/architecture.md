@@ -615,3 +615,425 @@ Identifiers already migrated alongside the design-system replacement stay in
 their new form (do not rename back): the local database `nabapresence`, the
 Supabase local project id `nabapresence`, and harness/bootstrap addresses
 (`harness-…@nabapresence.test`, `local-owner@nabapresence.local`).
+
+## Provider support evidence
+
+`lib/domain/google-support.ts` is the versioned retirement catalogue. The shared
+Google transport refuses retired endpoints before quota acquisition or network
+dispatch; old industry mutations also fail before an attempt is persisted.
+Historical activity keeps its original status and adds a retirement explanation.
+
+`lib/domain/google-capabilities.ts` adds field-level Business Information
+classifications. API support, observed eligibility, local validation permission
+and positive write eligibility are separate values. The response contains the
+catalogue version, documentation check date and location observation time.
+The current service-write guard uses the same catalogue metadata flag after a
+fresh baseline read. Ordinary field writes retain their validate-only step.
+See [provider support](google-provider-support.md) for current coverage and
+[programme acceptance](gbp-operations-acceptance.md) for uncompleted families;
+these additions do not yet complete the action catalogue or shared approvals.
+
+## Management execution and confirmation evidence
+
+Migration `0058_management_confirmation` adds execution and confirmation states,
+independent readback JSON, observation time and confirmation error to the existing
+tenant-scoped `gbp_management_mutation` table. Existing records start as
+`unrecorded`; historical success is not converted into independent confirmation.
+These columns share the parent record's 180-day expiry, tenant isolation and
+retention/legal-hold classification. The confirmation payload is provider data
+and must be handled with the same access and erasure rules as `google_response`.
+
+Lodging uses `lib/server/gbp-confirmation.ts`: one mutation, then an independent
+read matching the requested update-mask paths. Accepted execution can remain
+unresolved. An ambiguous response can be confirmed by readback while execution
+remains unknown. Only the readback is cached as an observation. Missing boolean
+values are not treated as false. Public Search/Maps display is not inferred.
+
+A location/resource advisory lock serialises the unresolved-attempt check and
+attempt creation. Confirmation recovery uses the same lock on a dedicated
+connection, allowing the runtime pool to contain only one connection without
+deadlocking nested tenant work. Recovery validates the original Google target
+and performs only reads. Its outcomes are appended to the audit log.
+
+Apply this additive migration before deploying these readers/writers. Rolling
+back application code can leave the evidence columns in place. Other write
+families and automatic confirmation jobs remain programme work.
+
+Migration `0059_gbp_change_sets` adds lodging reviews with frozen payload, mask,
+Google baseline, target/account/connection, initiating user and approval policy.
+The runtime role can update only the approval actor/time; it cannot rewrite
+reviewed content. Reviews expire for approval after 24 hours and are retained
+for 180 days under the existing tenant retention sweep. Approval checks current
+membership and enforces the organisation's two-person policy. Publication checks
+them again, re-reads Google, and rejects changed baselines, policy or targets.
+The required lodging assertion timestamp is part of the displayed, frozen payload.
+
+Publication holds the location/resource lock across preflight, execution and
+readback. A unique attempt reference binds each change set to one execution;
+repeating the same approved intent returns its recorded outcome without sending
+another Google mutation. A distinct intent cannot bypass an unresolved attempt.
+Migrations `0060` and `0061` extend these reviews to business-information and
+attribute writes. Other write families still require the same approval boundary.
+
+Account onboarding has no linked location at the start. Migrations `0062` through
+`0064` therefore add tenant-scoped draft, review and creation records rather than
+requiring a synthetic location. Draft targets and provider request UUIDs are
+immutable. Revision checks and search identities reject concurrent edits and late
+matching responses. Reviews freeze the draft, matching evidence and creation
+decision after provider validation; approval follows the current two-person policy.
+
+Saved-draft service metadata and chain discovery use the selected account and
+connection without a linked location. Both check the expected revision, obtain
+fresh provider account proof and recheck local account/client/connection access
+and payload hash after discovery. Services retain category, language and country
+context; nonempty new services require fresh category support before validation
+and creation. Chain discovery returns exact provider resources, with malformed
+or duplicate identities rejected. Neither metadata read authorises publication.
+Saved-draft accessible-match discovery also obtains fresh account proof and lists
+every account location page, up to 100 pages of 100 resources. Malformed pages,
+duplicate resource names, repeated tokens or an unfinished page limit are errors;
+they never become an empty or inaccessible result. Correlation uses an exact
+nested Location resource name or exact provider metadata place ID. Search resource
+prefixes and business titles are not converted into location identities, and an
+ownership URL does not imply lack of access. The response distinguishes accessible,
+not accessible, ambiguous and identity-unconfirmed matches. Revision/hash, search
+identity, search observation time, client/connection access and creation-started
+state are checked before and after discovery. Discovery creates no local mapping
+and authorises no link. Migration `0065` adds separate immutable local match-link
+reviews, with a composite tenant/draft foreign key, forced RLS and approval-only
+runtime updates. Reviews freeze exact resource readback, draft/search identities,
+account/connection/client, proposed local name and existing mapping conflicts.
+Approval refreshes account membership and the selected resource, then rechecks
+draft, actors, mapping state and current two-person policy under the draft lock.
+Unknown provider verification remains null rather than false. Reviews expire for
+approval after 24 hours and cascade with the parent draft's 180-day retention.
+No provider create/validation call represents local-link review. Migration `0066`
+adds forced-RLS local-link operation records, immutable review identity/hash and
+generation-bound retries. A parent-draft lock and cross-table exclusion triggers
+serialize creation against pending/completed local links. The mapper transaction
+commits local/provider mapping, routing, client-holder grants, sync checkpoint,
+audit and result together. Failed transactions roll back those mapping effects;
+the separate durable claim records failure and supports guarded retry. Status
+restoration settles abandoned pending claims after two minutes. A duplicate
+submission whose discovery finishes after the first claim restores that exact
+review/hash's recorded result. Setup restores the operation before draft actions,
+then exposes revision/search-bound discovery, exact mapping review, policy-aware
+approval, explicit execution confirmation and outcome recovery. Shared Zod API
+adapters treat only the explicit no-operation response as absence; permission,
+missing-draft and status-service errors block new actions. Review IDs restore
+from the setup URL. Unsaved mapping decisions guard navigation and competing
+creation; status restoration after submission keeps actions disabled until the
+recorded outcome is available. Provider confirmation/initial sync is not inferred
+from a local linked result.
+Setup forms preserve service and relationship siblings and omit only explicitly
+removed values. Unfinished service/relationship/hours entries block save, matching
+and review. Creation hours retain provider opening and closing weekdays, explicit
+special dates and overnight end dates rather than flattening them through the
+linked-listing normalized editor. Closed special dates omit provider-ignored
+end dates/times. Reviews show exact periods alongside proposed IDs, relationship
+types and service prices. Independent hours readback compares the period set,
+normalizing omitted zero times, false closure flags and same-date end defaults
+without accepting changed days, dates, times or missing periods.
+Additional creation hours retain exact provider type IDs and one period set per
+type. The shared saved-category metadata query supplies supported types; category
+context edits disable additions while preserving saved schedules. Validation and
+creation both refresh support across every proposed category. Readback compares
+type identity and period sets without depending on provider ordering. Review puts
+the exact ID in the value so display-label styling cannot change its appearance.
+Independent relationship confirmation compares child sets by place ID and type,
+allowing provider reordering while rejecting missing, changed or duplicate children.
+
+Creation claims one durable record per draft under the draft row lock. It checks
+current matches and approval before the provider call, then persists the returned
+resource identity before readback or local linking. Execution, confirmation and
+linking have separate states. Duplicate submissions read the existing record.
+Unknown outcomes without a provider resource remain unresolved; no name-based
+identity inference or automatic retransmission is permitted. Draft editing and
+rematching are locked after a claim to prevent changing a started request's payload.
+
+Known-resource recovery performs provider GETs and a separate local transaction.
+That transaction creates the local listing, exact external link, webhook route,
+client grant extensions and initial backfill checkpoint. Conflicting names or
+existing mappings roll it back without losing the provider outcome. The operator
+can retry local linking with a distinct local name. Setup/recovery UI and broader
+activity/notification integration remain incomplete. These additive migrations
+must precede application deployment; reverting application code leaves the durable
+outcome records available for recovery. Records cascade with draft retention.
+
+The location activity reader projects management, hours, profile, menus, links,
+media, posts and review-reply attempts with `UNION ALL` under tenant RLS. It
+checks current location access and existence before reading. Each ID includes
+the source prefix; `sourceId` retains the original attempt ID for recovery.
+No attempt tables are consolidated. Missing historical actors remain null,
+and legacy success states are not upgraded to independent confirmation.
+
+Activity supports the existing page/pageSize interface and an optional cursor.
+The cursor binds to a location and orders by timestamp plus source-prefixed ID.
+It retains PostgreSQL microseconds so ties and same-millisecond attempts are
+not skipped. The client follows returned cursors, with page-number fallback
+for older responses. Future bulk and schedule stores must join this projection
+when those workflows are implemented.
+
+`lib/contracts/operational-events.ts` defines the next operational event
+boundary: versioned tenant/target/source identity, enumerated reasons and
+distinct execution, confirmation and recovery events. It excludes raw provider
+bodies and verification credentials. Recovery retains the original subject
+identity; new optional email categories require explicit enablement. These
+contracts are not yet incident producers. Extend `notification_incident` and
+`notification_delivery`, with recipient preferences/access checks, when wiring
+them into execution; do not create another incident store.
+
+Reviewed verification credentials cross a transient boundary in
+`lib/server/google-verification-transient.ts`. Completion accepts the selected
+listing's exact resource and a bounded PIN; the executor sends it only after
+checking its approved commitment. Typed response identity/state/time fields and
+static failure copy exclude arbitrary provider echoes. The legacy administration
+start/completion handler now rejects requests with `verification_review_required`
+before resolving a connection or creating an attempt. Access-page reads retain
+null compatibility fields with `verification_workflow_moved` and make no
+verification calls or raw verification snapshot writes.
+
+Migration 0069 projects legacy, unreviewed verification payloads onto a bounded
+identity/outcome allowlist and redacts old verification snapshots/audit metadata.
+It preserves ledger identities, actors, outcomes, timestamps and retention,
+leaves reviewed attempts and encrypted review bytes unchanged, and restores the
+snapshot timestamp and append-only audit triggers within its transaction. Runtime
+permissions and forced RLS remain unchanged. Deployment and live acceptance of
+this cleanup remain distinct from isolated migration tests.
+
+`lib/contracts/google-verification-options.ts` and the location-scoped
+`verification-options` GET/POST route add typed fresh discovery. Private
+service-context addresses require a currently confirmed customer-only business;
+they are not cached or persisted. Unknown business type/editability stays null.
+Normalised choices retain multiple offered destinations and bind stable identity
+to resource, language and context hash. Unsupported/unreadable destination data
+does not become a usable method. The pure destination matcher supplies
+review/execution validation; it does not authorise a write. The internal start
+UI uses reviewed, freshly rechecked choices; full method-specific
+browser acceptance remains pending.
+
+Migration `0067_verification_start_reviews` adds encrypted private payloads to the
+existing review store and a `verification_start` resource kind. Public review
+records bind the exact start input and context/choice hashes; private service
+context and postal choice data live together in authenticated ciphertext.
+`google-verification-reviews.ts` restores and validates the immutable proposal,
+then fresh discovery precedes approval. Location-scoped typed preview/read/approve
+routes preserve manager permissions, two-person approval, target identity and a
+20-minute expiry. Existing review resources retain a 24-hour expiry and null
+private payload. Approval-only UPDATE grants leave reviewed bytes immutable.
+These review routes do not execute Google writes; a separate executor is described
+below. Migration of the existing start UI and reviewed PIN completion remain
+required before this workflow is complete.
+
+`google-verification-state.ts` now provides independent read-only observation
+through the typed `verification-state` GET and client adapter. Verification
+resource identity/method/state/time fields are projected through a strict boundary;
+private provider echoes never enter snapshots or audit data. Complete pagination
+is bounded to 20 pages and fails honestly for malformed, foreign or duplicate
+resources, repeated tokens or limit exhaustion. Merchant standing/recommended
+action is a separate observation and can be unavailable while history is readable.
+Missing booleans and unfamiliar enum values remain unknown. Current manager
+membership, target, account, connection and credential generation are checked
+before and after reading Google. The observer does not settle attempts directly;
+the executor below persists its independent results. The internal verification
+workspace now uses this typed observation rather than the administration bundle.
+
+`google-verification-execution.ts` now connects approved start reviews to the
+existing management attempt store and settlement helpers. The review baseline
+includes credential generation and a hash of independently observed verification
+history/merchant state. A location advisory lock and review-derived attempt key
+guard the single provider request. Current approval/policy/scope/flags and fresh
+baseline are rechecked; competing unresolved work and pending/unknown/inappropriate
+merchant state block another start. A typed execute/status/refresh route restores
+the durable attempt without reissuing it. Independent confirmation requires the
+exact returned verification identity/method and a known request phase; lost
+identity remains unknown even when the business later gains merchant standing.
+Status/recovery do not depend on review expiry or old policy/flags. Saved status
+can be read while disconnected; failed refresh retains prior confirmed evidence
+with its old observation time and an explicit refresh-unavailable marker.
+Public attempt/audit data contains no private service context or provider echoes.
+Internal start/completion controls now use reviewed execution and distinct
+request/merchant-state feedback. Legacy administration start/completion requests
+return `verification_review_required` before provider or ledger work. Migration
+0069 redacts legacy credential echoes while retaining known outcomes and
+historical identity, scope, actors, timestamps and retention state. Its isolated
+fresh/upgrade tests do not establish production migration activation.
+
+`google-verification-completion-reviews.ts` now provides scoped PIN-completion
+preview, restore and approval. It independently establishes the exact pending
+request and a supported PIN method, freezes that sanitized request and credential
+generation, and rechecks them at approval. Migration 0068 extends the existing
+review store; its forced RLS, retention/legal holds and immutable runtime payload
+grants are retained. Completion reviews expire after twenty minutes.
+The PIN stays transient. An encrypted random HMAC key and commitment bind the
+normalized PIN and exact verification name; the ordinary payload contains a hash
+of the randomized encrypted bytes. Neither the public review nor restored private
+binding contains the PIN. Execution must receive the same PIN again and compare
+the commitment before any provider write. Private-byte rotation invalidates this
+short-lived review and requires a fresh preview; accepted encryption-key rotation
+without rewriting its bytes keeps it readable. The existing administration UI
+still requires migration to the approved execution path below.
+
+The approved completion executor now shares the start executor's location lock,
+durable attempt/status projection and independent observer. It rechecks the exact
+approval, transient PIN binding, pending baseline, current managers/policy/target/
+connection/generation and publishing flags before claiming a completion attempt.
+The unresolved-work guard can be scoped to complete_verification plus its exact
+resource, including legacy attempts; unrelated lost start identity does not block
+completion of an independently known pending resource. Google receives only the
+transient PIN. Repeated execution returns the recorded attempt and never sends
+another request, including after rejection or an uncertain response.
+
+Completion confirmation reads the exact reviewed resource and method. COMPLETED
+settles success; FAILED settles a confirmed terminal failure; PENDING/unknown or
+mismatched identity/method remains unresolved. A lost completion response can be
+recovered against the already-known target, while execution stays unknown rather
+than pretending an acknowledgement was received. Merchant standing remains a
+separate observation. Saved status and read-only recovery survive review expiry,
+policy changes, paused writes and disconnect; prior confirmed evidence/time is
+retained when a later read fails. The typed response adds an optional operation
+and completion-specific error codes. Internal administration UI migration and
+historical credential cleanup remain required before full verification closure.
+
+The location-scoped `verification-workflows` GET and typed client provide a
+credential-free index over start/completion reviews and their recorded attempts.
+Current manager/location access and linked account/connection/resource scope
+apply; disconnection does not erase saved outcomes. Operation/stage/expiry
+filters are bound into the cursor along with the linked scope. Defaults exclude
+expired unexecuted reviews but retain all recorded attempts. Review creation
+time and UUID determine order, so creating an attempt does not move its review.
+Only safe identifiers, method, approval eligibility/reason and execution/
+confirmation summaries are returned. Detail, approval and execution still run
+their own authoritative preflight; index eligibility is advisory.
+
+Workflow and unified activity cursors preserve PostgreSQL microseconds by binding
+timestamps as text before casting to timestamptz. Direct timestamp parameters
+pass through postgres.js Date conversion and lose sub-millisecond precision;
+regressions seed exact text timestamps and assert exact ordered identifiers.
+
+The internal verification workspace no longer loads the legacy administration
+bundle. A known owner/admin session mounts independently scoped capabilities,
+typed Google observation and saved workflow queries. Capability errors or missing
+per-resource write availability fail closed; Google observation failure also
+blocks new sends, while saved reviews and attempts remain available under their
+own server authority. A session refresh failure removes privileged controls even
+when cached role data exists. Changing location remounts transient state.
+
+Merchant standing, business authority, exact request phase and public display are
+separate observations. The shared verification header suppresses its DB-derived
+Verified/Not verified fallback, leaving current claims to the typed dated section.
+Completion/history controls consume typed observations directly; the raw adapter
+is retained only for existing read compatibility. Preview PIN entry clears before
+the action; approved re-entry uses the shared action bar. No PIN is stored in
+query or mutation caches, URLs, browser storage, saved workflow rows or activity
+through these new reviewed controls. Historical credential cleanup and legacy
+endpoint retirement remain separate release gates.
+
+START and PIN controllers share the verification workspace's synchronous
+in-flight claim and active approved-workflow key. Only the selected approved
+workflow renders its send surface. Switching keys remounts consent and PIN
+re-entry controls, clearing transient input while retaining saved reviews in
+the controllers. Both families stay disabled during an active action. A finished
+unavailable response exposes read-only exact-attempt recovery. An authoritative
+absent attempt clears uncertainty before restoring the review; expired or stale
+approval never becomes reusable through that recovery. The current local
+39-case START and 57-case PIN/combined/drift/recovery matrix and two independent
+complete visual reviews are recorded in the programme acceptance register.
+
+## Reviewed administrator and invitation access
+
+Administrator invitation, role update/removal and invitation acceptance/decline
+use the `administration_access` review family. The frozen payload binds exact
+account/location scope, target, collection, credential generation and baseline.
+Approval and send are separate UI actions; current actor, policy, expiry,
+credentials, target and Google baseline are rechecked before a durable attempt.
+An account-wide advisory claim serializes these operations across its locations.
+Legacy direct access writes return `administration_review_required` before
+token, provider or attempt work. Primary ownership assignment and last-owner
+removal/demotion are blocked pending dedicated ownership handling.
+
+The typed workflow index uses microsecond-preserving keyset pagination. Saved
+outcomes distinguish acknowledgement from independently observed postcondition;
+pending administrator invitations do not mean accepted access. Invitation
+acceptance requires the exact reviewed account and role to be independently
+accessible; location-invitation absence alone remains unresolved. Recovery reads
+the exact attempt and observes Google without resending. A lost acknowledgement
+stays unknown even when the postcondition is confirmed. Failed reads retain the
+prior proof and its date. Active or uncertain access requests also block adjacent
+lifecycle writes. The local 31 backend and 126 browser cases, immutable source
+and capture manifest, and two independent complete image reviews are recorded in
+the acceptance register; deployment and live provider acceptance remain separate.
+
+## Reviewed Place Actions (2026-09-30)
+
+Action-link writes go through `app/api/locations/[id]/place-action-reviews/**`
+only; the legacy `/place-actions` POST, PATCH and DELETE return 409
+`place_action_review_required` before any Google call. A review freezes the
+exact request, connection, credential generation, target and the full Google
+baseline (supported action types, editable links and read-only
+`unsupportedLinks` of types this release does not model). Approval and sending
+are separate; one attempt per review is claimed in `place_action_mutation`
+(0073, intent immutable by trigger). Acceptance and independent collection
+readback are recorded separately; a confirmed outcome is settled and never
+downgraded by later Google edits. Writes serialise per Google account with
+access and lifecycle changes (`google-account-change-lock.ts`,
+`requireNoUnresolvedAccountChange`). Outcomes are reported as operational events
+(`publication_failed`, `publication_unresolved`, `publication_confirmed`).
+
+## Operational notifications (WP8, 0074)
+
+Incidents (`notification_incident`) are conditions re-derived by the health
+tick or events recorded through `recordOperationalEvent`, one open incident per
+`operationalSubjectKey`. Location-scoped incidents carry `location_id` and reach
+any member who can see that location; account and organisation incidents stay
+owner/admin only. Reading is per person (`notification_recipient_state`) and
+never resolves; conditions clear themselves and managers resolve events.
+Preferences store only explicit choices; defaults preserve the original
+owner/admin immediate emails and make every digest category opt-in. Each send
+rechecks membership, location access and preference, and carries a stable
+`Idempotency-Key` (`notification-delivery/<id>`). Delivery evidence
+(`delivery_state`) is separate from the send queue and moves only forward via
+signed Resend webhooks (`record_email_delivery_event`, replay-safe by Svix id).
+Owners and admins see scheduler, sync, queued work, unresolved writes and email
+evidence at `/settings/operations`; retry requeues only refused sends or unknown
+ones still inside the provider's idempotency window.
+
+## Scheduled post publication (WP7, 0075)
+
+A `post_publication_schedule` freezes a post's content, the location, an IANA
+timezone, a bounded local rule (`lib/domain/publication-schedule.ts`) and any
+explicit event-date offsets; approval binds its payload hash and revision.
+Approval materialises future occurrences once (`unique (schedule_id,
+schedule_revision, intended_at)`). The job tick claims due schedules with a
+lease (`claim_due_publication_schedules`), rechecks approval, policy, requester
+and approver grants, connection and kill switches, publishes at most the latest
+occurrence inside 24 hours (older ones are missed), never publishes ended event
+or offer content, and creates one post row per occurrence so a retry reuses the
+same publish idempotency key. An ambiguous publish blocks the schedule; nothing
+is resubmitted automatically. Edits create a new revision and cancel pending
+occurrences. Spring-forward times run at the first valid local time; repeated
+autumn times run once, at the earlier instant; absent month days are skipped.
+
+## Bulk listing changes (WP6, 0076)
+
+A preview freezes up to 100 explicit location ids; a batch naming any listing
+the requester cannot see is refused without saying which. Each listing gets a
+frozen plan (`lib/server/bulk-listing-targets.ts`): eligibility or skip reason,
+the current Google value, the merged value (`lib/domain/bulk-merge.ts`: only the
+chosen dates, hours type or attributes change) and its update mask. Approval
+binds the preview hash and requires acknowledging skipped listings. Execution
+queues children claimed by the job tick (`claim_due_bulk_children`, fair per
+organisation). Each child rechecks the approver's grant and the policy, reads
+Google, succeeds without writing when the change is already there, writes once
+when the baseline is unchanged, and otherwise records a conflict needing a new
+preview. Readback confirms; interrupted children become ambiguous and a retry
+re-reads before any write, so succeeded children are never replayed. Cancelling
+stops only queued children.
+
+## Reporting provenance (WP9)
+
+`loadPresenceReport` returns null (not zero) for a metric Google sent no rows
+for, an equal-length previous window, oldest/newest successful fetch times
+separate from the data-through date, and coverage counts (eligible, reporting,
+unavailable, stale, not yet fetched). Daily metric dates are Google's own; they
+are never shifted. Share links carry the same provenance.

@@ -21,6 +21,22 @@ describe("listing areas", () => {
     expect(listingArea("posts").model).toBe("lifecycle")
     expect(listingArea("suggestions").model).toBe("inbound")
     expect(modelNote("google_direct")).toMatch(/straight away/)
+    expect(listingArea("verification").model).toBe("reviewed")
+    expect(listingArea("people").model).toBe("reviewed")
+    expect(modelNote("reviewed", "people")).toMatch(
+      /Administrator and invitation changes are reviewed and approved/
+    )
+    expect(modelNote("reviewed")).toMatch(/approve it, then send/)
+    expect(modelNote("reviewed")).toMatch(/confirmation is checked separately/)
+  })
+
+  it("never tells the booking tab its changes go to Google straight away", () => {
+    const area = listingArea("booking")
+    const note = modelNote(area.model, area.key)
+    expect(note).not.toMatch(/straight away/)
+    expect(note).toMatch(
+      /review each link change, approve it, then send it to Google as a separate step/
+    )
   })
 
   it("hides the consoles from members", () => {

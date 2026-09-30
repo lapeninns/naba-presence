@@ -177,6 +177,12 @@ export function areaState(
       }
     }
     case "people":
+      if (summary.lifecycleEnded)
+        return {
+          tone: "attention",
+          label: summary.lifecycleEnded === "delete_location" ? "Deleted from Google" : "Moved to another account",
+          line: "This account no longer manages the listing on Google",
+        }
       return {
         tone: "neutral",
         label: "On Google",
