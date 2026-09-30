@@ -28,5 +28,5 @@ create policy google_onboarding_creation_isolation on google_onboarding_creation
 grant select, insert, delete on google_onboarding_creation to naba_app_runtime;
 grant update (execution_state, confirmation_state, link_state, provider_resource_name, provider_response, confirmation_response, confirmation_observed_at, location_id, error_code, updated_at) on google_onboarding_creation to naba_app_runtime;
 
-insert into schema_migration (version) values ('0064_google_onboarding_creation') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0065_google_onboarding_creation') on conflict (version) do nothing;
 commit;

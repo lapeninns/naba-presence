@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
+import { z } from "zod"
 
 import {
   localPostInputSchema,
@@ -77,6 +78,12 @@ const postPublishInProgress = () =>
     POST_PUBLISH_IN_PROGRESS.code,
     POST_PUBLISH_IN_PROGRESS.message
   )
+
+const providerTimeSchema = z.iso.datetime({ offset: true })
+const providerTimeOrNull = (value: unknown): string | null => {
+  const parsed = providerTimeSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
 
 const stringOrNull = (value: unknown) =>
   typeof value === "string" ? value : null
@@ -157,8 +164,8 @@ async function upsertLiveLocalPost(
       ${state === "REJECTED" ? "failed" : "published"}, ${name}, ${state},
       ${stringOrNull(post.searchUrl)},
       ${jsonColumn(sql, post)}, now() + interval '30 days',
-      ${stringOrNull(post.createTime)},
-      ${stringOrNull(post.updateTime)}
+      ${providerTimeOrNull(post.createTime)},
+      ${providerTimeOrNull(post.updateTime)}
     ) on conflict (organisation_id, google_post_name) do update set
       google_state = excluded.google_state,
       google_search_url = excluded.google_search_url,
@@ -411,9 +418,12 @@ async function reconcileLocalPosts(
  * `Date`, which `NextResponse.json` serialises to the ISO strings the
  * contract declares.
  */
-type PostListRow = Omit<PostRow, "createdAt" | "updatedAt"> & {
+type PostListRow = Omit<PostRow, "createdAt" | "updatedAt" | "providerCreatedAt" | "providerUpdatedAt" | "localEditedAt"> & {
   createdAt: Date
   updatedAt: Date
+  providerCreatedAt: Date | null
+  providerUpdatedAt: Date | null
+  localEditedAt: Date | null
 }
 
 type LocalPost = {
@@ -512,6 +522,14 @@ export async function listLocalPosts(
       select timezone from location where id = ${locationId}
     `
     const posts = await sql<PostListRow[]>`
+      with local_edits as (
+        select subject_id, max(created_at) as edited_at
+        from audit_log
+        where organisation_id = ${organisationId}
+          and subject_type = 'local_post'
+          and action in ('post.draft.created', 'post.updated')
+        group by subject_id
+      )
       select
         id::text as id,
         topic_type as "topicType",
@@ -527,11 +545,19 @@ export async function listLocalPosts(
         google_search_url as "googleSearchUrl",
         last_error_code as "lastErrorCode",
         created_at as "createdAt",
-        updated_at as "updatedAt"
+        updated_at as "updatedAt",
+        provider_create_time as "providerCreatedAt",
+        provider_update_time as "providerUpdatedAt",
+        local_edits.edited_at as "localEditedAt"
       from gbp_local_post
+      left join local_edits on local_edits.subject_id = gbp_local_post.id::text
       where location_id = ${locationId}
         and status <> 'deleted'
-      order by updated_at desc
+      order by case
+        when status = 'published' or (status = 'failed' and google_state = 'REJECTED' and (last_error_code = 'google_post_rejected' or local_edits.edited_at is null))
+          then coalesce(provider_update_time, provider_create_time)
+        else local_edits.edited_at
+      end desc nulls last, id
     `
     return { posts, timezone: location?.timezone ?? "Europe/London" }
   })
@@ -694,8 +720,8 @@ async function markPostPublished(
       google_search_url = ${stringOrNull(response.searchUrl)},
       provider_payload = ${jsonColumn(sql, response)},
       provider_payload_expires_at = now() + interval '30 days',
-      provider_create_time = ${stringOrNull(response.createTime)},
-      provider_update_time = ${stringOrNull(response.updateTime)},
+      provider_create_time = ${providerTimeOrNull(response.createTime)},
+      provider_update_time = ${providerTimeOrNull(response.updateTime)},
       last_error_code = ${rejected ? "google_post_rejected" : null},
       publish_lease_expires_at = null
     where id = ${postId}

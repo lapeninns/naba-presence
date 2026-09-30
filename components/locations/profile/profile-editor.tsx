@@ -248,6 +248,7 @@ function ProfileEditor({
     setDraft: setValues,
     isDirty: valuesDirty,
     discard: discardValues,
+    expectSave: expectValuesSave,
   } = valuesDraft
   const [errors, setErrors] = useState<FieldErrors>({})
 
@@ -266,6 +267,7 @@ function ProfileEditor({
     setDraft: setListing,
     isDirty: listingDirty,
     discard: discardListing,
+    expectSave: expectListingSave,
   } = listingDraft
 
   const initialAttributes = useMemo(
@@ -285,6 +287,7 @@ function ProfileEditor({
     setDraft: setAttributes,
     isDirty: attributesDirty,
     discard: discardAttributes,
+    expectSave: expectAttributesSave,
   } = attributesDraft
 
   const listingUpdate = useMemo(
@@ -387,7 +390,7 @@ function ProfileEditor({
       list.push({
         key: "save",
         kind: "local",
-        label: "Save the details in NabaPresence",
+        label: "Save name, description, phone and website here",
         run: async () => {
           const parsed = profileFormSchema.parse(values)
           try {
@@ -395,6 +398,7 @@ function ProfileEditor({
               expectedCanonicalRevision: revision,
               values: toProfileValues(parsed),
             })
+            expectValuesSave()
           } catch (cause) {
             // A server validation error belongs on the field it names, not
             // only in the step's failure line.
@@ -441,7 +445,9 @@ function ProfileEditor({
             updateMask: approved.updateMask, payload: approved.payload,
             expectedGoogleHash: approved.baselineHash, changeSetId: approved.id,
           })
-          return publishBusinessInformation(locationId, change)
+          const result = await publishBusinessInformation(locationId, change)
+          expectListingSave()
+          return result
         },
       })
     }
@@ -456,7 +462,9 @@ function ProfileEditor({
             attributeMask: approved.updateMask, attributes: approved.payload.attributes,
             expectedGoogleHash: approved.baselineHash, changeSetId: approved.id,
           })
-          return publishBusinessAttributes(locationId, change)
+          const result = await publishBusinessAttributes(locationId, change)
+          expectAttributesSave()
+          return result
         },
       })
     }
@@ -470,6 +478,9 @@ function ProfileEditor({
     needsAck,
     listingReview,
     attributeReview,
+    expectValuesSave,
+    expectListingSave,
+    expectAttributesSave,
   ])
 
   const flow = usePublishFlow({
@@ -492,14 +503,16 @@ function ProfileEditor({
   // in the form (the profile no longer remounts on save) until published.
   const save = useResourceMutation({
     mutationFn: () => {
-      valuesDraft.expectSave()
       return saveProfile(locationId, {
         expectedCanonicalRevision: revision,
         values: toProfileValues(profileFormSchema.parse(values)),
       })
     },
     invalidate: [queryKeys.locationProfile(locationId)],
-    successToast: "Saved here. Not on Google until you publish.",
+    onSuccess: () => expectValuesSave(),
+    successToast: listingDirty || attributesDirty
+      ? "Name, description, phone and website saved here. Other profile edits still need review and publication."
+      : "Name, description, phone and website saved here. Not on Google until you publish.",
     onError: (cause) => {
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
@@ -738,6 +751,7 @@ function ProfileEditor({
           }}
           saving={save.isPending}
           saveDisabledReason={(serviceStatus.dirty || lodgingDirty) && !valuesDirty ? "Services and lodging are saved through their own review." : saveReason}
+          saveDescription="Save here keeps only the name, description, phone and website. Other profile edits are reviewed and approved, then sent to Google."
           disabledReason={lodgingOnly ? lodgingWork?.draftStatus.blocked : rows.length === 0 && serviceStatus.dirty ? serviceStatus.blocked : blocked}
           // A role that can't edit gets the one view-only bar, not a row
           // of disabled buttons.
@@ -932,7 +946,7 @@ function ProfileEditor({
       <DiscardDialog
         open={discardOpen}
         onOpenChange={setDiscardOpen}
-        description="Unsaved edits return to their loaded values. Google is not affected."
+        description="Unsaved name, description, phone and website edits return to the saved copy. Other profile edits return to the loaded Google values. Google is not changed."
         announce={!lodgingDirty}
         onConfirm={() => {
           discardValues()

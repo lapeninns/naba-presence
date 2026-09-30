@@ -158,5 +158,5 @@ end $$;
 revoke all on function record_email_delivery_event(text, text, text, timestamptz) from public;
 grant execute on function record_email_delivery_event(text, text, text, timestamptz) to naba_app_runtime;
 
-insert into schema_migration(version) values ('0074_operational_notifications') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0075_operational_notifications') on conflict (version) do nothing;
 commit;

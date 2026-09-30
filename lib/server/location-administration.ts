@@ -1,6 +1,7 @@
 import "server-only"
 
 import type {
+  AdministrationFailure,
   AdministrationMutationResult,
   AdministrationOperation,
   AdministrationState,
@@ -63,9 +64,29 @@ async function safe<T>(operation: () => Promise<T>) {
   try {
     return { data: await operation(), error: null }
   } catch (error) {
+    let failure: AdministrationFailure = "unknown"
+    if (error instanceof ApiError) {
+      if (
+        error.status === 401 ||
+        error.reconnectRequired ||
+        error.code === "insufficient_scope"
+      )
+        failure = "reconnect_required"
+      else if (error.status === 403) failure = "permission_denied"
+      else if (error.status === 404) failure = "not_found"
+      else if (error.status === 429 || error.status >= 500)
+        failure = "transient"
+    } else if (
+      error instanceof TypeError ||
+      (error instanceof Error &&
+        (error.name === "AbortError" || error.name === "TimeoutError"))
+    ) {
+      failure = "transient"
+    }
     return {
       data: null,
-      error: error instanceof Error ? error.message : "Google request failed.",
+      error: "This Google resource could not be loaded.",
+      failure,
     }
   }
 }

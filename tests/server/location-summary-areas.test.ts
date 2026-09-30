@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import { hashFoodMenus } from "@/lib/domain/food-menus"
 import { hashHours, type NormalizedHours } from "@/lib/domain/hours"
-import { hashProfileValue, type NormalizedProfile } from "@/lib/domain/profile"
+import {
+  hashProfileValue,
+  PROFILE_FIELD_KEYS,
+  type NormalizedProfile,
+} from "@/lib/domain/profile"
 import {
   hoursArea,
   menuArea,
@@ -54,7 +58,7 @@ describe("hoursArea", () => {
     })
   })
 
-  it("compares against the baseline the last publish pinned", () => {
+  it("preserves local dirty evidence but never calls an old publication a new check", () => {
     const pinned = hashHours(hours)
     expect(
       hoursArea(
@@ -64,7 +68,7 @@ describe("hoursArea", () => {
           baselineGoogleHash: pinned,
         })
       )
-    ).toMatchObject({ status: "in_sync", dirtyCount: 0 })
+    ).toMatchObject({ status: "unknown", dirtyCount: 0 })
     expect(
       hoursArea(
         canonical({
@@ -74,6 +78,33 @@ describe("hoursArea", () => {
         })
       )
     ).toMatchObject({ status: "core_dirty", dirtyCount: 1 })
+  })
+  it("classifies persisted Google drift and local edits against the sticky comparison anchor", () => {
+    const baseline = hashHours(hours)
+    const observation = {
+      locationId: "l1",
+      googleHash: "google-changed",
+      comparisonCanonicalHash: baseline,
+      comparisonGoogleHash: baseline,
+      observedAt: new Date(),
+      attemptedAt: new Date(),
+      errorCode: null,
+      blocked: false,
+    }
+    expect(hoursArea(canonical({}), observation).status).toBe("google_dirty")
+    const changed = structuredClone(hours)
+    changed.regular[0].periods[0].closesAt = "16:00"
+    expect(
+      hoursArea(canonical({ payload: changed, revision: 2 }), observation)
+        .status
+    ).toBe("conflict")
+    expect(
+      hoursArea(canonical({}), { ...observation, errorCode: "failed" })
+    ).toMatchObject({
+      status: "google_dirty",
+      checkStatus: "failed",
+      observedAt: observation.observedAt.toISOString(),
+    })
   })
 })
 
@@ -145,6 +176,22 @@ describe("profileArea", () => {
     ]
     expect(profileArea(row, fields).status).toBe("conflict")
   })
+  it("requires every field and reports the oldest successful observation", () => {
+    const row = canonical({ resourceType: "profile", payload })
+    const all = PROFILE_FIELD_KEYS.map((key) =>
+      field(key, payload[key], {
+        canonical: payload[key],
+        google: payload[key],
+      })
+    )
+    expect(profileArea(row, all).status).toBe("in_sync")
+    expect(profileArea(row, all.slice(1))).toMatchObject({
+      status: "unknown",
+      checkStatus: "unchecked",
+    })
+    all[0].observedAt = new Date("2026-08-01T00:00:00Z")
+    expect(profileArea(row, all).observedAt).toBe("2026-08-01T00:00:00.000Z")
+  })
 })
 
 describe("menuArea", () => {
@@ -200,5 +247,62 @@ describe("menuArea", () => {
       baselineGoogleHash: "the-hash-google-had-when-we-last-published",
     })
     expect(menuArea(row, state({})).status).toBe("conflict")
+  })
+})
+
+describe("menu summary outbound consistency", () => {
+  it("counts the same field rows as review for saved edits", () => {
+    const google = [
+      {
+        labels: [{ displayName: "Menu" }],
+        sections: [
+          {
+            labels: [{ displayName: "Starters" }],
+            items: [{ labels: [{ displayName: "Soup", description: "A" }] }],
+          },
+        ],
+      },
+    ]
+    const local = [
+      {
+        labels: [{ displayName: "Lunch" }],
+        sections: [
+          {
+            labels: [{ displayName: "Starters" }],
+            items: [{ labels: [{ displayName: "Soup", description: "B" }] }],
+          },
+        ],
+      },
+    ]
+    expect(
+      menuArea(canonical({ resourceType: "food_menus", payload: local }), {
+        locationId: "l1",
+        eligible: true,
+        canonicalHash: hashFoodMenus(google),
+        googleHash: hashFoodMenus(google),
+        googlePayload: google,
+        observedAt: new Date("2026-09-01T10:00:00Z"),
+      })
+    ).toMatchObject({ status: "core_dirty", dirtyCount: 2 })
+  })
+  it("reports equal menus in sync even when both moved since an old publication", () => {
+    const menu = [{ sections: [] }]
+    expect(
+      menuArea(
+        canonical({
+          resourceType: "food_menus",
+          payload: menu,
+          baselineGoogleHash: "old",
+        }),
+        {
+          locationId: "l1",
+          eligible: true,
+          canonicalHash: hashFoodMenus(menu),
+          googleHash: hashFoodMenus(menu),
+          googlePayload: menu,
+          observedAt: new Date("2026-09-01T10:00:00Z"),
+        }
+      )
+    ).toMatchObject({ status: "in_sync", dirtyCount: 0 })
   })
 })

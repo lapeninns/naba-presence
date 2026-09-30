@@ -66,6 +66,7 @@ function ReviewChangesSheet({
   /** Why publishing can't run right now (paused, no permission). */
   publishDisabledReason?: string | null
 }) {
+  const unresolved = rows.filter((row) => row.blocking)
   const conflicts = rows.filter((row) => row.state === "conflict")
   const [acknowledged, setAcknowledged] = React.useState(false)
   // A fresh sheet asks again. Carrying the tick over from a previous review
@@ -79,7 +80,11 @@ function ReviewChangesSheet({
   }
 
   const blocked =
-    (conflicts.length > 0 && !acknowledged) || Boolean(publishDisabledReason) || results?.some((step) => step.code === "google_confirmation_required")
+    (conflicts.length > 0 && !acknowledged) ||
+    unresolved.length > 0 ||
+    rows.length === 0 ||
+    Boolean(publishDisabledReason) ||
+    results?.some((step) => step.code === "google_confirmation_required")
   const failedAt = results?.findIndex((step) => step.status === "failed") ?? -1
   const failed = failedAt !== -1
   const laterSteps = failed && results ? results.length - failedAt - 1 : 0
@@ -111,12 +116,29 @@ function ReviewChangesSheet({
             phase={sent ? "sent" : "review"}
           />
 
+          {unresolved.length > 0 ? (
+            <Alert variant="warning" role="status">
+              <AlertTitle>Resolve this comparison before publishing</AlertTitle>
+              <AlertDescription>
+                {[
+                  ...new Set(
+                    unresolved.map(
+                      (row) =>
+                        row.explanation ??
+                        "Some entries cannot be matched reliably."
+                    )
+                  ),
+                ].join(" ")}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {conflicts.length > 0 ? (
             <Alert variant="warning" role="status">
               <AlertTitle>
-                {conflicts.length === 1
-                  ? `Google changed ${conflicts[0].field} after you started editing`
-                  : `Google changed ${conflicts.length} of these fields after you started editing`}
+                {conflicts.every((row) => row.observedAfterEditing)
+                  ? "Google changed after you started editing"
+                  : "Google holds a different version"}
               </AlertTitle>
               <AlertDescription className="flex flex-col gap-2.5">
                 <span>

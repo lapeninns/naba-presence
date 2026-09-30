@@ -14,6 +14,7 @@ import { EditorFrame } from "@/components/editors/editor-frame"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { HoursEditor } from "@/components/locations/hours-editor"
 import { LocationTab } from "@/components/locations/location-tab"
+import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
@@ -22,11 +23,10 @@ import {
   saveHours,
   type HoursState,
 } from "@/lib/api/location-hours"
+import { reconcileLegacyHoursBoundaries } from "@/lib/domain/hours-vocabulary"
+import { ApiClientError } from "@/lib/api/client"
 import { editorGate } from "@/lib/editors/gate"
-import {
-  specialChangeRows,
-  validateHours,
-} from "@/lib/editors/hours-presentation"
+import { validateHours } from "@/lib/editors/hours-presentation"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   NOTHING_TO_SEND,
@@ -78,7 +78,8 @@ export function HoursTab({ locationId }: { locationId: string }) {
 function isEmptySchedule(hours: HoursState["google"]) {
   return (
     hours.regular.every((day) => day.isClosed || day.periods.length === 0) &&
-    hours.special.length === 0
+    hours.special.length === 0 &&
+    hours.moreHours.length === 0
   )
 }
 
@@ -101,6 +102,14 @@ function HoursForm({
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewed, setReviewed] = useState<{
+    hours: HoursState
+    draft: HoursState["canonical"]
+    dirty: boolean
+    needsAck: boolean
+    rows: ReturnType<typeof hoursChangeRows>
+  } | null>(null)
+  const [reconciling, setReconciling] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   // Validation shows after the first save or review attempt, then follows
@@ -124,19 +133,20 @@ function HoursForm({
       google: hours.google,
       canonical: hours.canonical,
     }
-    const all = [
-      ...hoursChangeRows(input)
-        .filter((row) => row.field !== "Special hours")
-        .map((row) => ({ ...row, key: `day-${row.field}` })),
-      ...specialChangeRows(input),
-    ]
-    // A row differs from the saved copy whenever a schedule was saved here
-    // and not yet published; that is only "changed on Google" when the
-    // server says Google moved (google_dirty / conflict).
+    const all = hoursChangeRows({
+      ...input,
+      supportedHoursTypes: hours.supportedHoursTypes,
+    })
     return needsAck
-      ? all
-      : all.map((row) => ({ ...row, state: "changed" as const }))
-  }, [draft, hours.google, hours.canonical, needsAck])
+      ? all.map((row) => ({ ...row, state: "conflict" as const }))
+      : all
+  }, [
+    draft,
+    hours.google,
+    hours.canonical,
+    hours.supportedHoursTypes,
+    needsAck,
+  ])
 
   /**
    * Save then publish, behind one button. The publish call needs the revision
@@ -147,19 +157,38 @@ function HoursForm({
   const saved = useRef<HoursState | null>(null)
   const buildSteps = useCallback((): PublishStep[] => {
     saved.current = null
+    if (!reviewed) return []
+    const snapshot = reviewed
     const steps: PublishStep[] = []
-    if (isDirty) {
+    if (snapshot.dirty) {
       steps.push({
         key: "save",
         kind: "local",
         label: "Save the schedule in NabaPresence",
         run: async () => {
-          expectSave()
-          await saveHours(locationId, {
-            expectedCanonicalRevision: hours.canonicalResource.revision,
-            hours: draft,
+          const response = await saveHours(locationId, {
+            expectedCanonicalRevision:
+              snapshot.hours.canonicalResource.revision,
+            hours: snapshot.draft,
           })
-          saved.current = await fetchHours(locationId)
+          const fresh = await fetchHours(locationId)
+          if (
+            fresh.canonicalResource.revision !== response.revision ||
+            fresh.googleHash !== snapshot.hours.googleHash ||
+            hoursChangeRows({
+              draft: snapshot.draft,
+              google: fresh.canonical,
+              canonical: fresh.canonical,
+            }).length > 0
+          ) {
+            throw new ApiClientError(
+              409,
+              "hours_review_stale",
+              "The schedule changed after review. Close this review, refresh, and review the current versions before publishing."
+            )
+          }
+          expectSave()
+          saved.current = fresh
         },
       })
     }
@@ -167,7 +196,7 @@ function HoursForm({
       key: "publish",
       label: "Publish opening hours to Google",
       run: async () => {
-        const fresh = saved.current ?? hours
+        const fresh = saved.current ?? snapshot.hours
         // An empty mask means the saved schedule already matches Google —
         // nothing left to send, and the publish route would reject it.
         if (fresh.updateMask.length === 0) return NOTHING_TO_SEND
@@ -176,29 +205,42 @@ function HoursForm({
           expectedCanonicalHash: fresh.canonicalHash,
           expectedGoogleHash: fresh.googleHash,
           approvedUpdateMask: fresh.updateMask,
-          confirmOverwriteGoogleChanges: needsAck,
+          confirmOverwriteGoogleChanges: snapshot.needsAck,
         })
       },
     })
     return steps
-  }, [locationId, draft, hours, isDirty, needsAck, expectSave])
+  }, [locationId, reviewed, expectSave])
 
   const flow = usePublishFlow({
     steps: buildSteps,
-    invalidate: [queryKeys.locationHours(locationId)],
+    invalidate: [
+      queryKeys.locationHours(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
     successToast: "Opening hours sent to Google",
     onSuccess: () => setReviewOpen(false),
   })
 
   const save = useResourceMutation({
-    mutationFn: () => {
-      expectSave()
-      return saveHours(locationId, {
+    mutationFn: async () => {
+      const result = await saveHours(locationId, {
         expectedCanonicalRevision: hours.canonicalResource.revision,
         hours: draft,
       })
+      expectSave()
+      return result
     },
-    invalidate: [queryKeys.locationHours(locationId)],
+    invalidate: [
+      queryKeys.locationHours(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
     successToast: "Saved here. Not on Google until you publish.",
     onSuccess: () => setFormError(null),
     onError: (_error, message) => setFormError(message),
@@ -222,10 +264,22 @@ function HoursForm({
   function review() {
     if (!checkDraft()) return
     flow.reset()
+    setReviewed({
+      hours: structuredClone(hours),
+      draft: structuredClone(draft),
+      dirty: isDirty,
+      needsAck,
+      rows: structuredClone(rows),
+    })
     setReviewOpen(true)
   }
 
-  const publishReason = editReason ?? gateReason
+  const publishReason =
+    editReason ??
+    gateReason ??
+    (hours.publicationBlocked || hours.reconciliationRequired
+      ? "Resolve the hours warnings and save the corrected schedule before publishing."
+      : undefined)
   const gate = editorGate({
     caps,
     resource: "hours",
@@ -278,7 +332,7 @@ function HoursForm({
         <CapabilityBanner
           tone="warning"
           title="Google holds a different schedule"
-          description="Someone changed these hours on Google since NabaPresence last saved them. Review changes shows both; publishing replaces Google’s."
+          description="The saved schedule and Google differ. Review both versions before deciding which hours to publish."
         />
       ) : null}
 
@@ -337,12 +391,53 @@ function HoursForm({
         </Alert>
       ))}
 
+      {hours.reconciliationRequired ? (
+        <Alert variant="warning">
+          <AlertTitle>Confirm saved closing days</AlertTitle>
+          <AlertDescription>
+            Some older periods did not store their ending day or date. Check
+            Google’s current boundaries, review them here, and save. Any period
+            with edited times must be confirmed manually.
+          </AlertDescription>
+          {!disabled ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={reconciling}
+              onClick={async () => {
+                setReconciling(true)
+                try {
+                  const fresh = await fetchHours(locationId)
+                  setDraft((current) =>
+                    reconcileLegacyHoursBoundaries(current, fresh.google)
+                  )
+                  setFormError(null)
+                } catch (error) {
+                  if (!(error instanceof Error)) throw error
+                  setFormError(
+                    "Google’s current closing boundaries could not be loaded. Your draft is unchanged. Try again."
+                  )
+                } finally {
+                  setReconciling(false)
+                }
+              }}
+            >
+              {reconciling
+                ? "Checking Google…"
+                : "Match Google closing boundaries"}
+            </Button>
+          ) : null}
+        </Alert>
+      ) : null}
+
       <HoursEditor
         value={draft}
         onChange={setDraft}
         disabled={disabled}
         google={hours.google}
         errors={fieldErrors}
+        supportedHoursTypes={hours.supportedHoursTypes}
       />
 
       <DiscardDialog
@@ -359,7 +454,7 @@ function HoursForm({
       <ReviewChangesSheet
         open={reviewOpen}
         onOpenChange={setReviewOpen}
-        rows={rows}
+        rows={reviewed?.rows ?? rows}
         locationName={hours.location.name}
         onPublish={() => void flow.publish()}
         publishing={flow.isPublishing}

@@ -4,6 +4,26 @@ Programme started 2026-09-29. The supplied "Complete Google Business Profile
 Operations" brief is the scope. This register is an execution ledger, not a
 release announcement. Existing functionality is not automatically accepted.
 
+## 2026-09-30 integration branch `feat/gbp-operations-programme`
+
+All uncommitted programme work (both Codex goals and the Claude continuation)
+is committed on `feat/gbp-operations-programme` and merged with `origin/main`
+at `2dc4db1` (PR #48, listing correctness). PR #48 had already added
+`0058_hours_observations`, so this programme's unmerged migrations moved up
+by one: `0058_management_confirmation` … `0076_bulk_listing_operations` are
+now `0059_management_confirmation` … `0077_bulk_listing_operations`, with their
+`schema_migration` versions updated to match. Migration names in older entries
+below are historical. Any local database migrated under the old names must be
+recreated before reuse.
+
+After the merge: typecheck and lint pass; 3,109 unit/component tests pass
+(830 conditional skips). The DB-backed integration suite, browser suites and
+standalone build have **not** been rerun on the merged tree. Visual pass A
+on `OiPiXqdondoLfQRj-umCl` is a REJECT (blockers in batches 1–4 and 6–11, listed
+in `.omo/evidence/operations-programme-2026-09-30/visual-OiPi/`). That evidence
+stays local and is not in the branch. None of this is deployment or
+live-provider evidence.
+
 ## 2026-09-30 takeover: reviewed administration access in progress
 
 Latest combined automatic candidate `Cjqt2NwvqI0olT6sJL4qS` passes production

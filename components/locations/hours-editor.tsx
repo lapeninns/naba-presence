@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { selectTriggerClassName } from "@/components/ui/select"
 import { SectionHeader } from "@/components/ui/section-header"
 import {
   segmentedItemClassName,
@@ -29,12 +30,12 @@ import {
   dayOf,
   describeSpecialEntry,
   formatSpecialDate,
-  hoursFieldId,
+  hoursFieldId as baseHoursFieldId,
   sameDay,
   withSplitPeriod,
 } from "@/lib/editors/hours-presentation"
 import { DAY_LABELS } from "@/lib/locations/forms/hours"
-import { describeDay } from "@/lib/locations/hours-diff"
+import { describeDay, serviceWeek } from "@/lib/locations/hours-diff"
 import { cn } from "@/lib/utils"
 
 type Day = NormalizedHours["regular"][number]
@@ -55,7 +56,8 @@ function specialOrder(special: NormalizedHours["special"]): number[] {
   return special
     .map((entry, index) => ({ date: entry.effectiveDate, index }))
     .sort((a, b) => {
-      if (!a.date || !b.date) return !a.date && !b.date ? a.index - b.index : a.date ? -1 : 1
+      if (!a.date || !b.date)
+        return !a.date && !b.date ? a.index - b.index : a.date ? -1 : 1
       return a.date < b.date ? -1 : a.date > b.date ? 1 : a.index - b.index
     })
     .map(({ index }) => index)
@@ -107,6 +109,10 @@ export function HoursEditor({
   disabled,
   google,
   errors = {},
+  supportedHoursTypes = [],
+  scheduleName = "Regular hours",
+  serviceId,
+  weeklyOnly = false,
 }: {
   value: NormalizedHours
   onChange: (next: NormalizedHours) => void
@@ -114,7 +120,28 @@ export function HoursEditor({
   /** What Google holds, for the per-day "Changed" marks. */
   google?: NormalizedHours
   errors?: Record<string, string>
+  supportedHoursTypes?: ReadonlyArray<{
+    hoursTypeId: string
+    displayName: string
+  }>
+  scheduleName?: string
+  serviceId?: string
+  weeklyOnly?: boolean
 }) {
+  const fieldId = (id: string) =>
+    serviceId ? `service-${encodeURIComponent(serviceId)}-${id}` : id
+  const hoursFieldId = {
+    ...baseHoursFieldId,
+    dayOpen: (day: number) => fieldId(baseHoursFieldId.dayOpen(day)),
+    opens: (day: number, index: number) =>
+      fieldId(baseHoursFieldId.opens(day, index)),
+    closes: (day: number, index: number) =>
+      fieldId(baseHoursFieldId.closes(day, index)),
+    ends: (day: number, index: number) =>
+      fieldId(baseHoursFieldId.ends(day, index)),
+  }
+  const [addType, setAddType] = useState("")
+  const [removeType, setRemoveType] = useState<string | null>(null)
   const headingId = useId()
   const specialHeadingId = useId()
   const [copyFrom, setCopyFrom] = useState<number | null>(null)
@@ -167,13 +194,15 @@ export function HoursEditor({
       <section aria-labelledby={headingId} className="flex flex-col gap-2.5">
         <SectionHeader
           id={headingId}
-          title="Regular hours"
-          description="Up to three periods a day, for a split between lunch and evening."
+          title={scheduleName}
+          description="Use 24-hour times. Choose the closing day explicitly for overnight hours; 24:00 means midnight at the end of that day."
         />
         <ul className="@container/week divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
           {WEEK_ORDER.map((dayOfWeek) => {
             const day = dayOf(value, dayOfWeek)
-            const label = DAY_LABELS[dayOfWeek]
+            const label = serviceId
+              ? `${scheduleName} ${DAY_LABELS[dayOfWeek]}`
+              : DAY_LABELS[dayOfWeek]
             const changed = google
               ? !sameDay(day, dayOf(google, dayOfWeek))
               : false
@@ -186,7 +215,7 @@ export function HoursEditor({
                 className={cn(
                   "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-4 py-3",
                   "@[700px]/week:grid-cols-[7rem_8rem_minmax(0,1fr)_auto]",
-                  changed && "shadow-[inset_3px_0_0_var(--np-info-solid)]"
+                  changed && "bg-fill"
                 )}
               >
                 <span className="flex min-h-(--np-control-h) flex-col justify-center">
@@ -217,7 +246,13 @@ export function HoursEditor({
                           periods:
                             remembered && remembered.length > 0
                               ? remembered.map((p) => ({ ...p }))
-                              : [{ opensAt: "09:00", closesAt: "17:00" }],
+                              : [
+                                  {
+                                    opensAt: "09:00",
+                                    closesAt: "17:00",
+                                    closeDayOfWeek: dayOfWeek,
+                                  },
+                                ],
                         })
                       } else {
                         if (day.periods.length > 0)
@@ -242,7 +277,9 @@ export function HoursEditor({
                   ) : (
                     day.periods.map((period, index) => {
                       const opensId = hoursFieldId.opens(dayOfWeek, index)
-                      const message = errors[opensId]
+                      const message =
+                        errors[opensId] ??
+                        errors[hoursFieldId.ends(dayOfWeek, index)]
                       const errorId = `${opensId}-error`
                       return (
                         <div
@@ -251,7 +288,9 @@ export function HoursEditor({
                         >
                           <Input
                             id={opensId}
-                            type="time"
+                            type="text"
+                            inputMode="text"
+                            placeholder="HH:MM"
                             aria-label={`${label} period ${index + 1} opens`}
                             aria-invalid={message ? true : undefined}
                             aria-describedby={message ? errorId : undefined}
@@ -274,7 +313,9 @@ export function HoursEditor({
                           </span>
                           <Input
                             id={hoursFieldId.closes(dayOfWeek, index)}
-                            type="time"
+                            type="text"
+                            inputMode="text"
+                            placeholder="HH:MM"
                             aria-label={`${label} period ${index + 1} closes`}
                             aria-invalid={message ? true : undefined}
                             aria-describedby={message ? errorId : undefined}
@@ -292,6 +333,52 @@ export function HoursEditor({
                             }
                             className={TIME_CLASS}
                           />
+                          <select
+                            id={hoursFieldId.ends(dayOfWeek, index)}
+                            aria-label={`${label} period ${index + 1} closing day`}
+                            aria-invalid={message ? true : undefined}
+                            aria-describedby={message ? errorId : undefined}
+                            className={cn(selectTriggerClassName, "max-w-full")}
+                            disabled={disabled}
+                            value={
+                              period.closeDayOfWeek === undefined &&
+                              period.closesAt <= period.opensAt
+                                ? ""
+                                : String(period.closeDayOfWeek ?? dayOfWeek)
+                            }
+                            onChange={(event) =>
+                              setDay({
+                                ...day,
+                                periods: day.periods.map((p, pi) =>
+                                  pi === index
+                                    ? {
+                                        ...p,
+                                        closeDayOfWeek: Number(
+                                          event.target.value
+                                        ),
+                                      }
+                                    : p
+                                ),
+                              })
+                            }
+                          >
+                            <option value="" disabled>
+                              Choose closing day
+                            </option>
+                            {Array.from({ length: 7 }, (_, offset) => {
+                              const end = (dayOfWeek + offset) % 7
+                              return (
+                                <option key={end} value={end}>
+                                  {offset === 0
+                                    ? "Same day"
+                                    : offset === 1
+                                      ? "Next day"
+                                      : `Following ${DAY_LABELS[end]}`}
+                                  {offset < 2 ? ` (${DAY_LABELS[end]})` : ""}
+                                </option>
+                              )
+                            })}
+                          </select>
                           {!disabled && day.periods.length > 1 ? (
                             <Button
                               type="button"
@@ -319,7 +406,9 @@ export function HoursEditor({
                     id={`${hoursFieldId.dayOpen(dayOfWeek)}-error`}
                     message={dayError}
                   />
-                  {!disabled && !day.isClosed && canSplit(day.periods) ? (
+                  {!disabled &&
+                  !day.isClosed &&
+                  canSplit(day.periods, dayOfWeek) ? (
                     <div>
                       <Button
                         type="button"
@@ -329,7 +418,7 @@ export function HoursEditor({
                         onClick={() =>
                           setDay({
                             ...day,
-                            periods: withSplitPeriod(day.periods),
+                            periods: withSplitPeriod(day.periods, dayOfWeek),
                           })
                         }
                       >
@@ -361,230 +450,456 @@ export function HoursEditor({
         </ul>
       </section>
 
-      <section
-        aria-labelledby={specialHeadingId}
-        className="@container/special flex flex-col gap-2.5"
-      >
-        <SectionHeader
-          id={specialHeadingId}
-          title="Special hours"
-          description="Bank holidays, Christmas and one-off closures. These override the regular week on that date."
-        />
-        {value.special.length > 0 ? (
-          <ul className="flex flex-col gap-2">
-            {specialOrder(value.special).map((index) => {
-              const entry = value.special[index]!
-              const dateId = hoursFieldId.specialDate(index)
-              const opensId = hoursFieldId.specialOpens(index)
-              const closesId = hoursFieldId.specialCloses(index)
-              const message = errors[dateId] ?? errors[opensId]
-              const past = Boolean(
-                entry.effectiveDate && entry.effectiveDate < today
-              )
-              const errorId = `special-${index}-error`
-              const googleEntry = google?.special.find(
-                (other) => other.effectiveDate === entry.effectiveDate
-              )
-              const changed = google
-                ? !googleEntry ||
-                  describeSpecialEntry(googleEntry) !==
-                    describeSpecialEntry(entry)
-                : false
-              const date = entry.effectiveDate
-                ? new Date(`${entry.effectiveDate}T12:00:00`)
-                : null
-              const validDate = date && !Number.isNaN(date.getTime())
-              return (
-                <li
-                  key={specialKeys[index]}
-                  data-past={past || undefined}
-                  className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-x-4 gap-y-2 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 @[520px]/special:grid-cols-[3.5rem_minmax(0,1fr)_auto]"
-                >
-                  <span
-                    aria-hidden
-                    className="w-14 overflow-hidden rounded-[10px] border border-line bg-surface text-center"
-                  >
-                    <span className="block bg-fill py-0.5 font-mono text-[10.5px] tracking-[0.06em] text-ink-secondary uppercase">
-                      {validDate
-                        ? date.toLocaleDateString("en-GB", { month: "short" })
-                        : "Date"}
-                    </span>
-                    <span
-                      className={cn(
-                        "block font-mono text-[20px] leading-[30px] font-semibold tabular-nums",
-                        !validDate && "text-ink-muted"
-                      )}
-                    >
-                      {validDate ? date.getDate() : "–"}
-                    </span>
-                  </span>
-
-                  <div className="flex min-w-0 flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <Input
-                        id={dateId}
-                        type="date"
-                        aria-label={`Special date ${index + 1}`}
-                        aria-invalid={errors[dateId] ? true : undefined}
-                        aria-describedby={message ? errorId : undefined}
-                        value={entry.effectiveDate}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          setSpecial(
-                            value.special.map((s, i) =>
-                              i === index
-                                ? { ...s, effectiveDate: event.target.value }
-                                : s
-                            )
-                          )
+      {!weeklyOnly ? (
+        <section aria-label="Service hours" className="flex flex-col gap-4">
+          <SectionHeader
+            title="Service hours"
+            description="Separate schedules for the services this listing supports. Special dates below apply to the venue, not individual services."
+          />
+          {value.moreHours.length === 0 ? (
+            <p className="text-ui text-ink-muted">
+              No service schedules are saved.
+            </p>
+          ) : null}
+          {value.moreHours.map((entry) => {
+            const metadata = supportedHoursTypes.find(
+              (type) => type.hoursTypeId === entry.hoursTypeId
+            )
+            const observed = google?.moreHours.find(
+              (other) => other.hoursTypeId === entry.hoursTypeId
+            )
+            return (
+              <div key={entry.hoursTypeId} className="flex flex-col gap-2">
+                <HoursEditor
+                  value={{
+                    regular: serviceWeek(entry),
+                    special: [],
+                    moreHours: [],
+                  }}
+                  google={
+                    observed
+                      ? {
+                          regular: serviceWeek(observed),
+                          special: [],
+                          moreHours: [],
                         }
-                        className="w-42 tabular-nums"
-                      />
-                      <div
-                        role="group"
-                        aria-label={`Special date ${index + 1} hours`}
-                        className={cn(segmentedTrackClassName, "w-auto")}
+                      : undefined
+                  }
+                  onChange={(next) =>
+                    onChange({
+                      ...value,
+                      moreHours: value.moreHours.map((other) =>
+                        other.hoursTypeId === entry.hoursTypeId
+                          ? {
+                              ...other,
+                              periods: next.regular.flatMap((day) =>
+                                day.periods.map((period) => ({
+                                  ...period,
+                                  dayOfWeek: day.dayOfWeek,
+                                }))
+                              ),
+                            }
+                          : other
+                      ),
+                    })
+                  }
+                  disabled={disabled || !metadata}
+                  errors={errors}
+                  weeklyOnly
+                  serviceId={entry.hoursTypeId}
+                  scheduleName={metadata?.displayName ?? entry.hoursTypeId}
+                />
+                <p className="text-caption text-ink-muted">
+                  {entry.hoursTypeId}
+                  {metadata
+                    ? ""
+                    : " · Google has not confirmed this service type. Its saved schedule is preserved and shown read-only."}
+                </p>
+                {!disabled && metadata ? (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setRemoveType(entry.hoursTypeId)}
+                    >
+                      <Trash2 aria-hidden />
+                      Remove {metadata.displayName} schedule
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+          {!disabled &&
+          supportedHoursTypes.some(
+            (type) =>
+              !value.moreHours.some(
+                (entry) => entry.hoursTypeId === type.hoursTypeId
+              )
+          ) ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Service schedule to add"
+                className={cn(selectTriggerClassName, "max-w-full")}
+                value={addType}
+                onChange={(event) => setAddType(event.target.value)}
+              >
+                <option value="">Choose a service</option>
+                {supportedHoursTypes
+                  .filter(
+                    (type) =>
+                      !value.moreHours.some(
+                        (entry) => entry.hoursTypeId === type.hoursTypeId
+                      )
+                  )
+                  .map((type) => (
+                    <option key={type.hoursTypeId} value={type.hoursTypeId}>
+                      {type.displayName}
+                    </option>
+                  ))}
+              </select>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!addType}
+                onClick={() => {
+                  if (
+                    !supportedHoursTypes.some(
+                      (type) => type.hoursTypeId === addType
+                    )
+                  )
+                    return
+                  onChange({
+                    ...value,
+                    moreHours: [
+                      ...value.moreHours,
+                      { hoursTypeId: addType, periods: [] },
+                    ].sort((left, right) => left.hoursTypeId.localeCompare(right.hoursTypeId)),
+                  })
+                  setAddType("")
+                }}
+              >
+                <Plus aria-hidden />
+                Add service schedule
+              </Button>
+            </div>
+          ) : null}
+          <Dialog
+            open={removeType !== null}
+            onOpenChange={(open) => !open && setRemoveType(null)}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove service schedule?</DialogTitle>
+                <DialogDescription>
+                  Remove{" "}
+                  {supportedHoursTypes.find(
+                    (type) => type.hoursTypeId === removeType
+                  )?.displayName ?? removeType}{" "}
+                  from this draft. Review and publish to remove it from Google.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setRemoveType(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    onChange({
+                      ...value,
+                      moreHours: value.moreHours.filter(
+                        (entry) => entry.hoursTypeId !== removeType
+                      ),
+                    })
+                    setRemoveType(null)
+                  }}
+                >
+                  Remove schedule from draft
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </section>
+      ) : null}
+
+      {!weeklyOnly ? (
+        <section
+          aria-labelledby={specialHeadingId}
+          className="@container/special flex flex-col gap-2.5"
+        >
+          <SectionHeader
+            id={specialHeadingId}
+            title="Special hours"
+            description="Bank holidays, Christmas and one-off closures. These override the regular week on that date."
+          />
+          {value.special.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {specialOrder(value.special).map((index) => {
+                const entry = value.special[index]!
+                const dateId = hoursFieldId.specialDate(index)
+                const opensId = hoursFieldId.specialOpens(index)
+                const closesId = hoursFieldId.specialCloses(index)
+                const message =
+                  errors[dateId] ??
+                  errors[closesId] ??
+                  errors[opensId] ??
+                  errors[hoursFieldId.specialEnd(index)]
+                const past = Boolean(
+                  entry.effectiveDate && entry.effectiveDate < today
+                )
+                const errorId = `special-${index}-error`
+                const googleEntry = google?.special.find(
+                  (other) => other.effectiveDate === entry.effectiveDate
+                )
+                const changed = google
+                  ? !googleEntry ||
+                    describeSpecialEntry(googleEntry) !==
+                      describeSpecialEntry(entry)
+                  : false
+                const date = entry.effectiveDate
+                  ? new Date(`${entry.effectiveDate}T12:00:00`)
+                  : null
+                const validDate = date && !Number.isNaN(date.getTime())
+                return (
+                  <li
+                    key={specialKeys[index]}
+                    data-past={past || undefined}
+                    className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-x-4 gap-y-2 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 @[520px]/special:grid-cols-[3.5rem_minmax(0,1fr)_auto]"
+                  >
+                    <span
+                      aria-hidden
+                      className="w-14 overflow-hidden rounded-[10px] border border-line bg-surface text-center"
+                    >
+                      <span className="block bg-fill py-0.5 font-mono text-[10.5px] tracking-[0.06em] text-ink-secondary uppercase">
+                        {validDate
+                          ? date.toLocaleDateString("en-GB", { month: "short" })
+                          : "Date"}
+                      </span>
+                      <span
+                        className={cn(
+                          "block font-mono text-[20px] leading-[30px] font-semibold tabular-nums",
+                          !validDate && "text-ink-muted"
+                        )}
                       >
-                        {(["closed", "custom"] as const).map((mode) => {
-                          const pressed =
-                            mode === "closed" ? entry.isClosed : !entry.isClosed
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              aria-pressed={pressed}
-                              disabled={disabled}
-                              className={cn(
-                                segmentedItemClassName,
-                                "flex-none disabled:opacity-50",
-                                pressed && segmentedThumbClassName
-                              )}
-                              onClick={() =>
-                                setSpecial(
-                                  value.special.map((s, i) =>
-                                    i !== index
-                                      ? s
-                                      : mode === "closed"
-                                        ? {
-                                            ...s,
-                                            isClosed: true,
-                                            opensAt: null,
-                                            closesAt: null,
-                                          }
-                                        : {
-                                            ...s,
-                                            isClosed: false,
-                                            opensAt: s.opensAt ?? "09:00",
-                                            closesAt: s.closesAt ?? "17:00",
-                                          }
+                        {validDate ? date.getDate() : "–"}
+                      </span>
+                    </span>
+
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <Input
+                          id={dateId}
+                          type="date"
+                          aria-label={`Special date ${index + 1}`}
+                          aria-invalid={errors[dateId] ? true : undefined}
+                          aria-describedby={message ? errorId : undefined}
+                          value={entry.effectiveDate}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            setSpecial(
+                              value.special.map((s, i) =>
+                                i === index
+                                  ? {
+                                      ...s,
+                                      effectiveDate: event.target.value,
+                                      ...(s.endDate === s.effectiveDate
+                                        ? { endDate: event.target.value }
+                                        : {}),
+                                    }
+                                  : s
+                              )
+                            )
+                          }
+                          className="w-42 tabular-nums"
+                        />
+                        <div
+                          role="group"
+                          aria-label={`Special date ${index + 1} hours`}
+                          className={cn(segmentedTrackClassName, "w-auto")}
+                        >
+                          {(["closed", "custom"] as const).map((mode) => {
+                            const pressed =
+                              mode === "closed"
+                                ? entry.isClosed
+                                : !entry.isClosed
+                            return (
+                              <button
+                                key={mode}
+                                type="button"
+                                aria-pressed={pressed}
+                                disabled={disabled}
+                                className={cn(
+                                  segmentedItemClassName,
+                                  "flex-none disabled:opacity-50",
+                                  pressed && segmentedThumbClassName
+                                )}
+                                onClick={() =>
+                                  setSpecial(
+                                    value.special.map((s, i) =>
+                                      i !== index
+                                        ? s
+                                        : mode === "closed"
+                                          ? {
+                                              ...s,
+                                              isClosed: true,
+                                              opensAt: null,
+                                              closesAt: null,
+                                            }
+                                          : {
+                                              ...s,
+                                              isClosed: false,
+                                              endDate:
+                                                s.endDate ?? s.effectiveDate,
+                                              opensAt: s.opensAt ?? "09:00",
+                                              closesAt: s.closesAt ?? "17:00",
+                                            }
+                                    )
                                   )
-                                )
-                              }
-                            >
-                              {mode === "closed" ? "Closed" : "Custom hours"}
-                            </button>
-                          )
-                        })}
+                                }
+                              >
+                                {mode === "closed" ? "Closed" : "Custom hours"}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {changed ? <ChangedMark /> : null}
+                        {past ? (
+                          <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-caption font-semibold text-ink-secondary">
+                            Past
+                          </span>
+                        ) : null}
                       </div>
-                      {changed ? <ChangedMark /> : null}
-                      {past ? (
-                        <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-caption font-semibold text-ink-secondary">
-                          Past
-                        </span>
+
+                      {!entry.isClosed ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            id={opensId}
+                            type="text"
+                            inputMode="text"
+                            placeholder="HH:MM"
+                            aria-label={`Special date ${index + 1} opens`}
+                            aria-invalid={errors[opensId] ? true : undefined}
+                            aria-describedby={message ? errorId : undefined}
+                            value={entry.opensAt ?? ""}
+                            disabled={disabled}
+                            onChange={(event) =>
+                              setSpecial(
+                                value.special.map((s, i) =>
+                                  i === index
+                                    ? { ...s, opensAt: event.target.value }
+                                    : s
+                                )
+                              )
+                            }
+                            className={TIME_CLASS}
+                          />
+                          <span aria-hidden className="text-ink-muted">
+                            –
+                          </span>
+                          <Input
+                            id={closesId}
+                            type="text"
+                            inputMode="text"
+                            placeholder="HH:MM"
+                            aria-label={`Special date ${index + 1} closes`}
+                            aria-invalid={
+                              errors[closesId] || errors[opensId]
+                                ? true
+                                : undefined
+                            }
+                            aria-describedby={message ? errorId : undefined}
+                            value={entry.closesAt ?? ""}
+                            disabled={disabled}
+                            onChange={(event) =>
+                              setSpecial(
+                                value.special.map((s, i) =>
+                                  i === index
+                                    ? { ...s, closesAt: event.target.value }
+                                    : s
+                                )
+                              )
+                            }
+                            className={TIME_CLASS}
+                          />
+                          <Input
+                            id={hoursFieldId.specialEnd(index)}
+                            type="date"
+                            aria-label={`Special date ${index + 1} closing date`}
+                            aria-invalid={
+                              errors[hoursFieldId.specialEnd(index)]
+                                ? true
+                                : undefined
+                            }
+                            aria-describedby={message ? errorId : undefined}
+                            value={entry.endDate ?? entry.effectiveDate}
+                            disabled={disabled}
+                            className="w-42 tabular-nums"
+                            onChange={(event) =>
+                              setSpecial(
+                                value.special.map((s, i) =>
+                                  i === index
+                                    ? { ...s, endDate: event.target.value }
+                                    : s
+                                )
+                              )
+                            }
+                          />
+                        </div>
                       ) : null}
+
+                      <span className="text-caption text-ink-muted">
+                        {entry.effectiveDate
+                          ? `${formatSpecialDate(entry.effectiveDate)}${entry.isClosed ? " · closed all day" : ""}${past ? " · already passed, so customers no longer see it" : ""}`
+                          : "Choose the date this applies to."}
+                      </span>
+                      <FieldProblem id={errorId} message={message} />
                     </div>
 
-                    {!entry.isClosed ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Input
-                          id={opensId}
-                          type="time"
-                          aria-label={`Special date ${index + 1} opens`}
-                          aria-invalid={errors[opensId] ? true : undefined}
-                          aria-describedby={message ? errorId : undefined}
-                          value={entry.opensAt ?? ""}
-                          disabled={disabled}
-                          onChange={(event) =>
-                            setSpecial(
-                              value.special.map((s, i) =>
-                                i === index
-                                  ? { ...s, opensAt: event.target.value }
-                                  : s
-                              )
-                            )
-                          }
-                          className={TIME_CLASS}
-                        />
-                        <span aria-hidden className="text-ink-muted">
-                          –
-                        </span>
-                        <Input
-                          id={closesId}
-                          type="time"
-                          aria-label={`Special date ${index + 1} closes`}
-                          aria-invalid={errors[opensId] ? true : undefined}
-                          aria-describedby={message ? errorId : undefined}
-                          value={entry.closesAt ?? ""}
-                          disabled={disabled}
-                          onChange={(event) =>
-                            setSpecial(
-                              value.special.map((s, i) =>
-                                i === index
-                                  ? { ...s, closesAt: event.target.value }
-                                  : s
-                              )
-                            )
-                          }
-                          className={TIME_CLASS}
-                        />
+                    {!disabled ? (
+                      <div className="col-span-2 @[520px]/special:col-span-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="-ml-2.5 @[520px]/special:ml-0"
+                          onClick={() => removeSpecial(index)}
+                        >
+                          <Trash2 aria-hidden />
+                          Remove
+                        </Button>
                       </div>
                     ) : null}
-
-                    <span className="text-caption text-ink-muted">
-                      {entry.effectiveDate
-                        ? `${formatSpecialDate(entry.effectiveDate)}${entry.isClosed ? " · closed all day" : ""}${past ? " · already passed, so customers no longer see it" : ""}`
-                        : "Choose the date this applies to."}
-                    </span>
-                    <FieldProblem id={errorId} message={message} />
-                  </div>
-
-                  {!disabled ? (
-                    <div className="col-span-2 @[520px]/special:col-span-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="-ml-2.5 @[520px]/special:ml-0"
-                        onClick={() => removeSpecial(index)}
-                      >
-                        <Trash2 aria-hidden />
-                        Remove
-                      </Button>
-                    </div>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3 text-caption text-ink-muted">
-            No special days yet. Holidays and one-off closures go here.
-          </p>
-        )}
-        {!disabled ? (
-          <div>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={addSpecial}
-            >
-              <CalendarPlus aria-hidden />
-              Add a special day
-            </Button>
-          </div>
-        ) : null}
-      </section>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3 text-caption text-ink-muted">
+              No special days yet. Holidays and one-off closures go here.
+            </p>
+          )}
+          {!disabled ? (
+            <div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={addSpecial}
+              >
+                <CalendarPlus aria-hidden />
+                Add a special day
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <CopyDaysDialog
         from={copyFrom}
@@ -600,7 +915,18 @@ export function HoursEditor({
                 ? {
                     dayOfWeek: day.dayOfWeek,
                     isClosed: source.isClosed,
-                    periods: source.periods.map((p) => ({ ...p })),
+                    periods: source.periods.map((p) => ({
+                      ...p,
+                      ...(p.closeDayOfWeek === undefined
+                        ? {}
+                        : {
+                            closeDayOfWeek:
+                              (day.dayOfWeek +
+                                ((p.closeDayOfWeek - source.dayOfWeek + 7) %
+                                  7)) %
+                              7,
+                          }),
+                    })),
                   }
                 : day
             ),

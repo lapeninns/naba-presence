@@ -149,6 +149,7 @@ export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): strin
   // each change is prepared, reviewed and approved, then sent separately.
   if (area === "booking") return "No draft is kept here: review each link change, approve it, then send it to Google as a separate step."
   if (area === "people") return "Administrator and invitation changes are reviewed and approved before sending. Google's acknowledgement and independent access confirmation are separate."
+  if (area === "profile") return "Save here keeps the name, description, phone and website. Other profile edits are published after review."
   switch (model) {
     case "canonical":
       return "Saved here first; nothing reaches Google until you review and publish."

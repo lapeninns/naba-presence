@@ -13,7 +13,7 @@ create index gbp_management_mutation_confirmation_idx
   on gbp_management_mutation (organisation_id, created_at, id)
   where confirmation_state in ('pending', 'unresolved');
 
-insert into schema_migration (version) values ('0058_management_confirmation')
+insert into schema_migration (version) values ('0059_management_confirmation')
 on conflict (version) do nothing;
 
 commit;

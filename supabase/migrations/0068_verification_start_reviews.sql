@@ -17,5 +17,5 @@ alter table gbp_change_set add constraint gbp_verification_private_payload_check
 
 -- Existing forced tenant RLS, review retention/legal holds, and approval-only
 -- UPDATE grants apply. The encrypted context is immutable for the runtime role.
-insert into schema_migration (version) values ('0067_verification_start_reviews') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0068_verification_start_reviews') on conflict (version) do nothing;
 commit;

@@ -20,6 +20,11 @@ export type ChangeRow = {
    * the same text are treated as unchanged when no state is given.
    */
   state?: "changed" | "conflict" | "unchanged"
+  /** An unresolved comparison must be resolved before publication. */
+  blocking?: boolean
+  explanation?: string
+  /** Set only when an observed baseline proves the timing of a Google edit. */
+  observedAfterEditing?: boolean
 }
 
 /**

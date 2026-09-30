@@ -29,5 +29,5 @@ create policy google_onboarding_draft_isolation on google_onboarding_draft
 grant select, insert, delete on google_onboarding_draft to naba_app_runtime;
 grant update (revision, payload, payload_hash, match_result, match_request_id, updated_at) on google_onboarding_draft to naba_app_runtime;
 
-insert into schema_migration (version) values ('0062_google_onboarding_drafts') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0063_google_onboarding_drafts') on conflict (version) do nothing;
 commit;

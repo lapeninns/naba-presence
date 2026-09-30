@@ -112,5 +112,5 @@ end $$;
 revoke all on function claim_due_publication_schedules(integer, integer, integer) from public;
 grant execute on function claim_due_publication_schedules(integer, integer, integer) to naba_app_runtime;
 
-insert into schema_migration(version) values ('0075_post_publication_schedules') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0076_post_publication_schedules') on conflict (version) do nothing;
 commit;

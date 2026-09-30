@@ -580,7 +580,7 @@ the guard.
 
 ## Service metadata preflight
 
-Apply migration `0060_business_information_change_sets` before deploying the
+Apply migration `0061_business_information_change_sets` before deploying the
 service approval endpoints. Business Information PUT saves a review with the
 exact payload, update mask and current Google hash. POST accepts its
 `changeSetId` and `expectedPayloadHash` for approval; every location-update PATCH must carry

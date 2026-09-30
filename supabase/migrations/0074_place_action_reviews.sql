@@ -55,5 +55,5 @@ end $$;
 create trigger reviewed_place_action_intent before insert or update on place_action_mutation
   for each row execute function protect_reviewed_place_action();
 
-insert into schema_migration(version) values ('0073_place_action_reviews') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0074_place_action_reviews') on conflict (version) do nothing;
 commit;

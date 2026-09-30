@@ -60,13 +60,15 @@ function renderTab() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return render(
+  const tree = () => (
     <QueryClientProvider client={client}>
       <Toaster>
         <MenuTab locationId="loc-1" />
       </Toaster>
     </QueryClientProvider>
   )
+  const view = render(tree())
+  return { ...view, rerenderTab: () => view.rerender(tree()) }
 }
 
 afterEach(() => {
@@ -153,5 +155,162 @@ describe("MenuTab", () => {
     expect(
       screen.getByText("This location can’t have a food menu", { exact: false })
     ).toBeInTheDocument()
+  })
+})
+
+describe("reviewed menu preconditions", () => {
+  it("keeps the reviewed Google hash when saving before publication", async () => {
+    const user = userEvent.setup()
+    const state = makeMenus()
+    useMenuMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    vi.spyOn(menuApi, "saveFoodMenus").mockResolvedValue({
+      saved: true,
+      revision: "5",
+    })
+    vi.spyOn(menuApi, "fetchFoodMenus").mockResolvedValue(
+      makeMenus({
+        canonicalResource: { revision: "5", updatedAt: "today" },
+        googleHash: "changed-after-review",
+      })
+    )
+    const publish = vi
+      .spyOn(menuApi, "publishFoodMenus")
+      .mockResolvedValue({ status: "published" })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    await user.click(screen.getByRole("button", { name: "Publish to Google" }))
+    await waitFor(() => expect(publish).toHaveBeenCalled())
+    expect(publish.mock.calls[0]?.[1].expectedGoogleHash).toBe("gh")
+  })
+})
+
+describe("menu draft preservation across revisions", () => {
+  it("preserves dirty edits after a failed save and a colleague revision", async () => {
+    const user = userEvent.setup()
+    useMenuMock.mockReturnValue({
+      data: makeMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    const save = vi
+      .spyOn(menuApi, "saveFoodMenus")
+      .mockRejectedValue(new Error("Save failed"))
+    const view = renderTab()
+    const name = screen.getByDisplayValue("Soup")
+    await user.clear(name)
+    await user.type(name, "My soup")
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
+    )
+    useMenuMock.mockReturnValue({
+      data: makeMenus({
+        canonicalResource: { revision: "5", updatedAt: "later" },
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    view.rerenderTab()
+    expect(screen.getByDisplayValue("My soup")).toBeInTheDocument()
+    expect(
+      screen.getByText("Someone else saved this menu while you were editing")
+    ).toBeInTheDocument()
+  })
+  it("cleans its own verified published revision including price typing keys", async () => {
+    const user = userEvent.setup()
+    useMenuMock.mockReturnValue({
+      data: makeMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    let fresh = makeMenus()
+    vi.spyOn(menuApi, "saveFoodMenus").mockImplementation(
+      async (_id, input) => {
+        fresh = makeMenus({
+          canonicalMenus: input.menus,
+          googleMenus: input.menus,
+          canonicalResource: { revision: "5", updatedAt: "later" },
+          status: "in_sync",
+        })
+        return { saved: true, revision: "5" }
+      }
+    )
+    vi.spyOn(menuApi, "fetchFoodMenus").mockImplementation(async () => fresh)
+    const publish = vi
+      .spyOn(menuApi, "publishFoodMenus")
+      .mockResolvedValue({ status: "published" })
+    const view = renderTab()
+    const price = screen.getByDisplayValue("6.50")
+    await user.clear(price)
+    await user.type(price, "7.00")
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    await user.click(screen.getByRole("button", { name: "Publish to Google" }))
+    await waitFor(() => expect(publish).toHaveBeenCalled())
+    useMenuMock.mockReturnValue({
+      data: fresh,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    view.rerenderTab()
+    expect(
+      screen.queryByText("Someone else saved this menu while you were editing")
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled()
+    expect(screen.getByDisplayValue("7")).toBeInTheDocument()
+  })
+  it("keeps typing focus after review and focuses errors only on another attempt", async () => {
+    const user = userEvent.setup()
+    useMenuMock.mockReturnValue({
+      data: makeMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    const search = screen.getByRole("searchbox", { name: "Search menu" })
+    await user.type(search, "Starters")
+    const section = screen.getByRole("textbox", { name: "Section 1 name" })
+    await user.clear(section)
+    expect(section).toHaveFocus()
+    expect(search).toHaveValue("Starters")
+    await user.type(section, "New section")
+    expect(section).toHaveFocus()
+    await user.clear(section)
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    expect(
+      screen.getByRole("alert", {
+        name: "1 problem to fix before saving or publishing",
+      })
+    ).toHaveFocus()
   })
 })

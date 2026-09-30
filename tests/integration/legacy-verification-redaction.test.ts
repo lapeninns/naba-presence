@@ -36,7 +36,7 @@ suite("legacy verification credential cleanup", () => {
     const [reviewBefore] = await admin`select * from gbp_change_set where id = ${review.id}`
     const [snapshotBefore] = await admin`select * from gbp_resource_snapshot where organisation_id = ${owner.organisationId}`
     const auditBefore = await admin`select * from audit_log where organisation_id = ${owner.organisationId} order by action`
-    const migration = await readFile(new URL("../../supabase/migrations/0069_legacy_verification_redaction.sql", import.meta.url), "utf8")
+    const migration = await readFile(new URL("../../supabase/migrations/0070_legacy_verification_redaction.sql", import.meta.url), "utf8")
     const body = migration.replace(/^begin;\s*/, "").replace(/commit;\s*$/, "")
     await expect(admin.begin(async (transaction) => {
       await transaction.unsafe(body.replace("update audit_log set metadata", "select 1 / 0;\nupdate audit_log set metadata"))

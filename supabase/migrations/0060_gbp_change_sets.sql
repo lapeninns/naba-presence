@@ -37,5 +37,5 @@ grant update (approved_by, approved_at) on gbp_change_set to naba_app_runtime;
 alter table gbp_management_mutation add column change_set_id uuid references gbp_change_set(id) on delete set null;
 create unique index gbp_management_mutation_change_set_idx on gbp_management_mutation (organisation_id, change_set_id) where change_set_id is not null;
 
-insert into schema_migration (version) values ('0059_gbp_change_sets') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0060_gbp_change_sets') on conflict (version) do nothing;
 commit;

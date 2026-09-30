@@ -98,5 +98,5 @@ end $$;
 revoke all on function claim_due_bulk_children(integer, integer, integer) from public;
 grant execute on function claim_due_bulk_children(integer, integer, integer) to naba_app_runtime;
 
-insert into schema_migration(version) values ('0076_bulk_listing_operations') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0077_bulk_listing_operations') on conflict (version) do nothing;
 commit;

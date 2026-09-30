@@ -3,13 +3,19 @@
 import { ShieldIcon, UnplugIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
+import { useEffect, useRef } from "react"
 
+import { SectionLoadError } from "@/components/locations/section-panel"
+import type { AdministrationFailure } from "@/lib/contracts/location-administration"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { LocationTab } from "@/components/locations/location-tab"
 import {
   Alert,
+  AlertActions,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { SectionHeader } from "@/components/ui/section-header"
 import type { AdministrationState } from "@/lib/api/location-administration"
 import { asArray, asRecord } from "@/lib/locations/google-values"
@@ -20,7 +26,7 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 
 import { AdminsSection } from "./admins"
-import { AdministrationProvider } from "./context"
+import { AdministrationProvider, useAdministrationSection } from "./context"
 import { DangerZone } from "./danger-zone"
 import { CreateAdminDialog, InvitationsList } from "./invitations"
 import { AdministrationDenied, type ConsoleKind } from "./administration-denied"
@@ -42,19 +48,27 @@ function Sub({
   children,
 }: {
   title: string
-  result: { data: unknown; error: string | null }
+  result: {
+    data: unknown
+    error: string | null
+    failure?: AdministrationFailure
+  }
   empty?: React.ReactNode
   children: (data: unknown) => React.ReactNode
 }) {
+  const retryHeading = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!result.error && retryHeading.current?.isConnected) {
+      retryHeading.current.tabIndex = -1
+      retryHeading.current.focus()
+      retryHeading.current = null
+    }
+  }, [result.error])
   if (result.error) {
-    return (
-      <Alert variant="warning">
-        <AlertDescription>
-          We couldn&apos;t load {title.toLowerCase()} from Google right now. Try
-          refreshing in a moment.
-        </AlertDescription>
-      </Alert>
-    )
+    return <AdministrationReadError title={title} failure={result.failure} onRetry={(button) => {
+      const heading = button.closest("section")?.querySelector("h2, h3, h4")
+      retryHeading.current = heading instanceof HTMLElement ? heading : null
+    }} />
   }
   if (result.data == null) {
     return (
@@ -66,6 +80,83 @@ function Sub({
     )
   }
   return <>{children(result.data)}</>
+}
+
+const ADMINISTRATION_RECOVERY: Record<AdministrationFailure, string> = {
+  permission_denied:
+    "Google denied access to this resource. Ask an owner of the Google account to check the connected login’s access. Waiting alone will not restore permission.",
+  reconnect_required:
+    "Google needs the connected login to sign in again or grant the required access. Check Google connections and reconnect that login.",
+  not_found:
+    "Google could not find this account or resource. Check that the connected login still manages the intended Google account.",
+  transient:
+    "Google is temporarily unreachable or limiting requests. Try again shortly.",
+  unknown:
+    "Google did not return this resource. Try again; if it keeps failing, ask an owner or admin to check the Google connection.",
+}
+
+function AdministrationReadError({
+  title,
+  failure,
+  onRetry,
+}: {
+  title: string
+  failure?: AdministrationFailure
+  onRetry: (button: HTMLButtonElement) => void
+}) {
+  const { locationId } = useAdministrationSection()
+  const query = useAdministration(locationId, { enabled: false })
+  return (
+    <SectionLoadError
+      title={title}
+      description={`We couldn’t load ${title.toLowerCase()}. ${ADMINISTRATION_RECOVERY[failure ?? "unknown"]}${query.isError ? ` The latest retry failed: ${describeActionError(query.error)}` : ""}`}
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        pending={query.isFetching}
+        pendingLabel={`Retrying ${title.toLowerCase()}…`}
+        onClick={(event) => { onRetry(event.currentTarget); void query.refetch() }}
+      >
+        Retry {title.toLowerCase()}
+      </Button>
+      <Link
+        href="/settings/connections"
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        Check Google connections
+      </Link>
+    </SectionLoadError>
+  )
+}
+
+function AdministrationRefreshError({ locationId }: { locationId: string }) {
+  const query = useAdministration(locationId, { enabled: false })
+  if (!query.isError) return null
+  return (
+    <Alert variant="warning">
+      <AlertDescription>
+        {describeActionError(query.error)} The last loaded details are still
+        shown.
+      </AlertDescription>
+      <AlertActions>
+        <Button
+          variant="outline"
+          size="sm"
+          pending={query.isFetching}
+          pendingLabel="Retrying…"
+          onClick={() => void query.refetch()}
+        >
+          Retry administration
+        </Button>
+      </AlertActions>
+    </Alert>
+  )
+}
+
+function useAdministrationWithCachedData(locationId: string) {
+  const query = useAdministration(locationId)
+  return { ...query, isError: query.isError && query.data === undefined }
 }
 
 /**
@@ -122,7 +213,7 @@ function AdministrationShell({
     <LocationTab
       locationId={locationId}
       loadingLabel={kind === "people" ? "people with access" : "verification"}
-      useResource={useAdministration}
+      useResource={useAdministrationWithCachedData}
       resource="administration"
       requires="canEditCanonical"
     >
@@ -133,6 +224,7 @@ function AdministrationShell({
           disabled={disabled}
           publishReason={editReason ?? publishReason ?? lifecycleReason}
         >
+          <AdministrationRefreshError locationId={locationId} />
           {children({
             state,
             editReason,

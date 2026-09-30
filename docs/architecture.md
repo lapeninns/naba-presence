@@ -635,7 +635,7 @@ these additions do not yet complete the action catalogue or shared approvals.
 
 ## Management execution and confirmation evidence
 
-Migration `0058_management_confirmation` adds execution and confirmation states,
+Migration `0059_management_confirmation` adds execution and confirmation states,
 independent readback JSON, observation time and confirmation error to the existing
 tenant-scoped `gbp_management_mutation` table. Existing records start as
 `unrecorded`; historical success is not converted into independent confirmation.
@@ -659,7 +659,7 @@ Apply this additive migration before deploying these readers/writers. Rolling
 back application code can leave the evidence columns in place. Other write
 families and automatic confirmation jobs remain programme work.
 
-Migration `0059_gbp_change_sets` adds lodging reviews with frozen payload, mask,
+Migration `0060_gbp_change_sets` adds lodging reviews with frozen payload, mask,
 Google baseline, target/account/connection, initiating user and approval policy.
 The runtime role can update only the approval actor/time; it cannot rewrite
 reviewed content. Reviews expire for approval after 24 hours and are retained
@@ -812,7 +812,7 @@ review/execution validation; it does not authorise a write. The internal start
 UI uses reviewed, freshly rechecked choices; full method-specific
 browser acceptance remains pending.
 
-Migration `0067_verification_start_reviews` adds encrypted private payloads to the
+Migration `0068_verification_start_reviews` adds encrypted private payloads to the
 existing review store and a `verification_start` resource kind. Public review
 records bind the exact start input and context/choice hashes; private service
 context and postal choice data live together in authenticated ciphertext.

@@ -25,6 +25,7 @@ export const syncedAreaSchema = z.object({
   dirtyCount: z.number().int().nonnegative(),
   /** When Google's side was last read, ISO 8601, or null if never. */
   observedAt: z.string().nullable(),
+  checkStatus: z.enum(["unchecked", "checked", "stale", "failed"]).optional(),
 })
 export type SyncedArea = z.infer<typeof syncedAreaSchema>
 

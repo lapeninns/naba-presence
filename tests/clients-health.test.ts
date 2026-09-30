@@ -34,6 +34,13 @@ const health = (overrides: Partial<Parameters<typeof clientHealth>[0]> = {}) =>
     linkedLocationCount: 2,
     backfill: { running: 0, failed: 0 },
     now: NOW,
+    canonicalChecks: {
+      total: 2,
+      checked: 2,
+      partial: 0,
+      attention: 0,
+      unpublished: 0,
+    },
     ...overrides,
   })
 
@@ -51,13 +58,18 @@ describe("clientHealth", () => {
     // task. Expired alone is the platform retrying a refresh (Degraded).
     expect(
       health({
-        connections: [connection({ status: "expired", reconnectRequired: true })],
+        connections: [
+          connection({ status: "expired", reconnectRequired: true }),
+        ],
       })
     ).toBe("disconnected")
     expect(
       health({
         connections: [
-          connection({ status: "expired", lastErrorCode: "google_token_unavailable" }),
+          connection({
+            status: "expired",
+            lastErrorCode: "google_token_unavailable",
+          }),
         ],
       })
     ).toBe("attention")
@@ -85,7 +97,9 @@ describe("clientHealth", () => {
   })
 
   it("judges freshness by successful checks, never by token refreshes", () => {
-    const longAgo = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const longAgo = new Date(
+      NOW.getTime() - 7 * 24 * 60 * 60 * 1000
+    ).toISOString()
     const recently = new Date(NOW.getTime() - 5 * 60 * 1000).toISOString()
     // A quiet client whose checks succeed is up to date however long it has
     // been since a refresh.
@@ -100,11 +114,17 @@ describe("clientHealth", () => {
       })
     ).toBe("healthy")
     // And a fresh refresh does not hide checks that stopped succeeding.
-    const stale = new Date(NOW.getTime() - FRESHNESS_WINDOW_MS - 1000).toISOString()
+    const stale = new Date(
+      NOW.getTime() - FRESHNESS_WINDOW_MS - 1000
+    ).toISOString()
     expect(
       health({
         connections: [connection({ lastRefreshAt: recently })],
-        checks: { stalestCheckAt: stale, lastSuccessfulCheckAt: stale, accessLost: 0 },
+        checks: {
+          stalestCheckAt: stale,
+          lastSuccessfulCheckAt: stale,
+          accessLost: 0,
+        },
       })
     ).toBe("attention")
   })
@@ -124,8 +144,14 @@ describe("clientFreshness", () => {
     expect(
       clientFreshness({
         ...base,
-        connections: [connection({ lastErrorCode: "google_token_unavailable" })],
-        checks: { stalestCheckAt: stale, lastSuccessfulCheckAt: stale, accessLost: 0 },
+        connections: [
+          connection({ lastErrorCode: "google_token_unavailable" }),
+        ],
+        checks: {
+          stalestCheckAt: stale,
+          lastSuccessfulCheckAt: stale,
+          accessLost: 0,
+        },
       })
     ).toEqual({
       state: "data_delayed",
@@ -136,7 +162,11 @@ describe("clientFreshness", () => {
       clientFreshness({
         ...base,
         connections: [connection({ lastErrorCode: "google_rate_limited" })],
-        checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 0 },
+        checks: {
+          stalestCheckAt: recently,
+          lastSuccessfulCheckAt: recently,
+          accessLost: 0,
+        },
       }).state
     ).toBe("data_delayed")
   })
@@ -145,7 +175,9 @@ describe("clientFreshness", () => {
     expect(
       clientFreshness({
         ...base,
-        connections: [connection({ status: "revoked", reconnectRequired: true })],
+        connections: [
+          connection({ status: "revoked", reconnectRequired: true }),
+        ],
       })
     ).toMatchObject({ state: "action_needed", reason: "reconnect_required" })
     expect(
@@ -165,7 +197,11 @@ describe("clientFreshness", () => {
   it("treats one listing's lost access apart from the login", () => {
     const result = clientFreshness({
       ...base,
-      checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 1 },
+      checks: {
+        stalestCheckAt: recently,
+        lastSuccessfulCheckAt: recently,
+        accessLost: 1,
+      },
     })
     expect(result).toMatchObject({
       state: "action_needed",
@@ -179,9 +215,17 @@ describe("clientFreshness", () => {
     expect(
       clientFreshness({
         ...base,
-        checks: { stalestCheckAt: recently, lastSuccessfulCheckAt: recently, accessLost: 0 },
+        checks: {
+          stalestCheckAt: recently,
+          lastSuccessfulCheckAt: recently,
+          accessLost: 0,
+        },
       })
-    ).toEqual({ state: "up_to_date", reason: null, lastSuccessfulCheckAt: recently })
+    ).toEqual({
+      state: "up_to_date",
+      reason: null,
+      lastSuccessfulCheckAt: recently,
+    })
   })
 })
 
@@ -221,16 +265,18 @@ describe("summariseHealth", () => {
     })
     expect(summariseHealth(["healthy", "attention"])).toEqual({
       tone: "attention",
-      label: "1 client's data delayed",
+      label: "1 client needs attention",
     })
   })
 
   it("reports the calm states plainly", () => {
     expect(summariseHealth(["healthy", "healthy"])).toEqual({
       tone: "healthy",
-      label: "All clients up to date",
+      label: "All clients in sync",
     })
-    expect(summariseHealth(["healthy", "syncing"]).label).toBe("Importing reviews")
+    expect(summariseHealth(["healthy", "syncing"]).label).toBe(
+      "Importing reviews"
+    )
     expect(summariseHealth([]).label).toBe("No clients yet")
     expect(summariseHealth(["not_connected"]).label).toBe("Not connected yet")
   })
@@ -262,9 +308,9 @@ describe("health filters", () => {
     }
   })
 
-  it("never tells a delayed client both to act and not to", () => {
-    expect(healthLabel("attention")).toBe("Data delayed")
-    expect(healthDescription("attention")).not.toMatch(/attention|action/i)
+  it("does not promise automatic recovery for canonical comparison problems", () => {
+    expect(healthLabel("attention")).toBe("Needs attention")
+    expect(healthDescription("attention")).not.toMatch(/nothing for you to do|retry on our own/i)
   })
 })
 

@@ -19,5 +19,5 @@ alter table gbp_change_set add constraint gbp_verification_completion_private_ch
 
 -- The encrypted random HMAC key and commitment contain no PIN. Existing forced
 -- RLS, immutable runtime payload grants, retention and legal holds still apply.
-insert into schema_migration (version) values ('0068_verification_completion_reviews') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0069_verification_completion_reviews') on conflict (version) do nothing;
 commit;

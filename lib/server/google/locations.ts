@@ -1,5 +1,7 @@
 import "server-only"
 
+import { z } from "zod"
+
 import {
   googleAttributeMetadataRequest,
   googleAccountsRequest,
@@ -252,4 +254,42 @@ export function searchGoogleLocations(
     request.init,
     options
   )
+}
+
+const hoursCategoryResponseSchema = z.object({
+  categories: z
+    .array(
+      z.object({
+        name: z.string().optional(),
+        moreHoursTypes: z
+          .array(
+            z.object({
+              hoursTypeId: z.string(),
+              displayName: z.string().optional(),
+              localizedDisplayName: z.string().optional(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .optional(),
+})
+
+export async function getGoogleHoursCategories(
+  accessToken: string,
+  input: { names: string[]; languageCode: string },
+  options: { connectionKey?: string } = {}
+) {
+  const params = new URLSearchParams({
+    languageCode: input.languageCode,
+    view: "FULL",
+  })
+  for (const name of input.names) params.append("names", name)
+  const response = await googleRequest<unknown>(
+    `https://mybusinessbusinessinformation.googleapis.com/v1/categories:batchGet?${params}`,
+    accessToken,
+    {},
+    options
+  )
+  return hoursCategoryResponseSchema.parse(response).categories ?? []
 }

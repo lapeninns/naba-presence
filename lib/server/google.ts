@@ -10,6 +10,7 @@ export {
   createGoogleLocation,
   deleteGoogleLocation,
   getGoogleLocation,
+  getGoogleHoursCategories,
   getGoogleLocationAttributes,
   getGoogleUpdatedLocation,
   googleAccounts,

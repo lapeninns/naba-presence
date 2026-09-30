@@ -52,7 +52,7 @@ export default async function DashboardLayout({
     // round trips onto every full load of every dashboard page. Issued
     // together they cost the slowest one instead of the sum, and three
     // concurrent checkouts sit well inside DATABASE_POOL_MAX (10 by default).
-    const [connections, clients, rows] = await Promise.all([
+    const [connections, clients, rows] = await Promise.allSettled([
       listConnections(session),
       withTenant(session.organisationId, (sql) =>
         listClientSummaries(sql, session)
@@ -60,7 +60,11 @@ export default async function DashboardLayout({
       listLocationDirectoryRows(session),
     ])
 
-    queryClient.setQueryData(queryKeys.connections, { connections })
+    // Failed optional prefetches leave their cache empty so the client can
+    // show its error/retry state. Authentication above remains mandatory.
+    if (connections.status === "fulfilled") {
+      queryClient.setQueryData(queryKeys.connections, { connections: connections.value })
+    }
 
     // Hydrating the session is what makes the directory hydration below
     // actually land: useLocationDirectory picks its query key from the role,
@@ -76,21 +80,27 @@ export default async function DashboardLayout({
     // The sidebar pins recent clients and the topbar chip reports their
     // health, so the client list is shell furniture: hydrating it here is
     // what keeps the first paint from showing an empty nav that fills in.
-    queryClient.setQueryData(queryKeys.clients, clients)
-    if (
-      clients.items.length <= 1 ||
-      !clients.items.some((client) => client.id === rememberedClientId)
-    ) {
+    if (clients.status === "fulfilled") {
+      queryClient.setQueryData(queryKeys.clients, clients.value)
+      if (
+        clients.value.items.length <= 1 ||
+        !clients.value.items.some((client) => client.id === rememberedClientId)
+      ) {
+        rememberedClientId = null
+      }
+    } else {
       rememberedClientId = null
     }
 
     const management = session.role === "owner" || session.role === "admin"
-    queryClient.setQueryData(
-      management ? queryKeys.locationsManagement : queryKeys.locations,
-      management
-        ? toDirectoryEntriesFromManagement(projectManagement(rows))
-        : toDirectoryEntriesFromDefault(projectDefault(rows, session.role))
-    )
+    if (rows.status === "fulfilled") {
+      queryClient.setQueryData(
+        management ? queryKeys.locationsManagement : queryKeys.locations,
+        management
+          ? toDirectoryEntriesFromManagement(projectManagement(rows.value))
+          : toDirectoryEntriesFromDefault(projectDefault(rows.value, session.role))
+      )
+    }
   }
 
   return (

@@ -54,5 +54,5 @@ create trigger google_onboarding_creation_exclusion before insert on google_onbo
 create trigger google_onboarding_match_link_exclusion before insert or update of state on google_onboarding_match_link
   for each row execute function guard_google_onboarding_operation();
 
-insert into schema_migration (version) values ('0066_google_onboarding_match_link_operations') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0067_google_onboarding_match_link_operations') on conflict (version) do nothing;
 commit;

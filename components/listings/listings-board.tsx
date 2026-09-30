@@ -108,6 +108,8 @@ const HEALTH_ORDER: Record<ListingHealth, number> = {
   unpublished: 2,
   pending_verification: 3,
   not_linked: 4,
+  unchecked: 4,
+  partially_checked: 4,
   healthy: 5,
 }
 

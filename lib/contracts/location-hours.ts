@@ -21,7 +21,7 @@ export {
 export const hoursUpdateMaskSchema = z.enum(HOURS_UPDATE_MASKS)
 export const hoursDriftStatusSchema = z.enum(HOURS_DRIFT_STATUSES)
 
-const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+const timeSchema = z.string().regex(/^(?:([01]\d|2[0-3]):[0-5]\d|24:00)$/)
 const revisionSchema = z.string().regex(/^\d+$/)
 const hashSchema = z.string().length(64)
 
@@ -34,41 +34,83 @@ const hashSchema = z.string().length(64)
  * period caps, and the cross-field rules (closed <=> no periods, open special
  * days carry both times).
  */
-export const hoursInputSchema = z.object({
-  regular: z.array(z.object({
-    dayOfWeek: z.number().int().min(0).max(6),
-    isClosed: z.boolean(),
-    periods: z.array(z.object({ opensAt: timeSchema, closesAt: timeSchema })).max(3),
-  })).length(7),
-  special: z.array(z.object({
-    effectiveDate: z.iso.date(),
-    isClosed: z.boolean(),
-    opensAt: timeSchema.nullable(),
-    closesAt: timeSchema.nullable(),
-  })).max(366),
-  moreHours: z.array(z.object({
-    hoursTypeId: z.string().min(1).max(100),
-    periods: z.array(z.object({
-      dayOfWeek: z.number().int().min(0).max(6),
-      opensAt: timeSchema,
-      closesAt: timeSchema,
-    })).max(21),
-  })).max(20),
-}).superRefine((hours, context) => {
-  if (new Set(hours.regular.map((day) => day.dayOfWeek)).size !== 7) {
-    context.addIssue({ code: "custom", message: "Regular hours must contain each day exactly once." })
-  }
-  for (const [index, day] of hours.regular.entries()) {
-    if (day.isClosed !== (day.periods.length === 0)) {
-      context.addIssue({ code: "custom", path: ["regular", index], message: "Closed days cannot contain periods and open days require a period." })
+export const hoursInputSchema = z
+  .object({
+    regular: z
+      .array(
+        z.object({
+          dayOfWeek: z.number().int().min(0).max(6),
+          isClosed: z.boolean(),
+          periods: z.array(
+            z.object({
+              opensAt: timeSchema,
+              closesAt: timeSchema,
+              closeDayOfWeek: z.number().int().min(0).max(6).optional(),
+            })
+          ),
+        })
+      )
+      .length(7),
+    special: z.array(
+      z.object({
+        effectiveDate: z.iso.date(),
+        endDate: z.iso.date().optional(),
+        isClosed: z.boolean(),
+        opensAt: timeSchema.nullable(),
+        closesAt: timeSchema.nullable(),
+      })
+    ),
+    moreHours: z.array(
+      z.object({
+        hoursTypeId: z.string().min(1).max(100),
+        periods: z.array(
+          z.object({
+            dayOfWeek: z.number().int().min(0).max(6),
+            closeDayOfWeek: z.number().int().min(0).max(6).optional(),
+            opensAt: timeSchema,
+            closesAt: timeSchema,
+          })
+        ),
+      })
+    ),
+  })
+  .superRefine((hours, context) => {
+    if (
+      new Set(hours.moreHours.map((entry) => entry.hoursTypeId)).size !==
+      hours.moreHours.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["moreHours"],
+        message: "Each service identifier must appear only once.",
+      })
     }
-  }
-  for (const [index, period] of hours.special.entries()) {
-    if (!period.isClosed && (!period.opensAt || !period.closesAt)) {
-      context.addIssue({ code: "custom", path: ["special", index], message: "Open special hours require opening and closing times." })
+    if (new Set(hours.regular.map((day) => day.dayOfWeek)).size !== 7) {
+      context.addIssue({
+        code: "custom",
+        message: "Regular hours must contain each day exactly once.",
+      })
     }
-  }
-}) satisfies z.ZodType<NormalizedHours>
+    for (const [index, day] of hours.regular.entries()) {
+      if (day.isClosed !== (day.periods.length === 0)) {
+        context.addIssue({
+          code: "custom",
+          path: ["regular", index],
+          message:
+            "Closed days cannot contain periods and open days require a period.",
+        })
+      }
+    }
+    for (const [index, period] of hours.special.entries()) {
+      if (!period.isClosed && (!period.opensAt || !period.closesAt)) {
+        context.addIssue({
+          code: "custom",
+          path: ["special", index],
+          message: "Open special hours require opening and closing times.",
+        })
+      }
+    }
+  }) satisfies z.ZodType<NormalizedHours>
 
 export const saveHoursBodySchema = z.object({
   expectedCanonicalRevision: revisionSchema,
@@ -98,25 +140,50 @@ export type PublishHoursInput = Omit<PublishHoursBody, "confirmation">
  * re-validated against the save rules on read.
  */
 export const normalizedHoursSchema = z.object({
-  regular: z.array(z.object({
-    dayOfWeek: z.number(),
-    isClosed: z.boolean(),
-    periods: z.array(z.object({ opensAt: z.string(), closesAt: z.string() })),
-  })),
-  special: z.array(z.object({
-    effectiveDate: z.string(),
-    isClosed: z.boolean(),
-    opensAt: z.string().nullable(),
-    closesAt: z.string().nullable(),
-  })),
-  moreHours: z.array(z.object({
-    hoursTypeId: z.string(),
-    periods: z.array(z.object({ dayOfWeek: z.number(), opensAt: z.string(), closesAt: z.string() })),
-  })),
+  regular: z.array(
+    z.object({
+      dayOfWeek: z.number(),
+      isClosed: z.boolean(),
+      periods: z.array(
+        z.object({
+          opensAt: z.string(),
+          closesAt: z.string(),
+          closeDayOfWeek: z.number().optional(),
+        })
+      ),
+    })
+  ),
+  special: z.array(
+    z.object({
+      effectiveDate: z.string(),
+      endDate: z.string().optional(),
+      isClosed: z.boolean(),
+      opensAt: z.string().nullable(),
+      closesAt: z.string().nullable(),
+    })
+  ),
+  moreHours: z.array(
+    z.object({
+      hoursTypeId: z.string(),
+      periods: z.array(
+        z.object({
+          dayOfWeek: z.number(),
+          opensAt: z.string(),
+          closesAt: z.string(),
+          closeDayOfWeek: z.number().optional(),
+        })
+      ),
+    })
+  ),
 }) satisfies z.ZodType<NormalizedHours>
 
 export const hoursStateSchema = z.object({
-  location: z.object({ id: z.string(), name: z.string(), googleLocationName: z.string(), timezone: z.string() }),
+  location: z.object({
+    id: z.string(),
+    name: z.string(),
+    googleLocationName: z.string(),
+    timezone: z.string(),
+  }),
   canonicalResource: z.object({ revision: z.string(), updatedAt: z.string() }),
   status: hoursDriftStatusSchema,
   canonical: normalizedHoursSchema,
@@ -125,22 +192,32 @@ export const hoursStateSchema = z.object({
   googleHash: z.string(),
   updateMask: z.array(hoursUpdateMaskSchema),
   warnings: z.array(z.string()),
+  supportedHoursTypes: z
+    .array(z.object({ hoursTypeId: z.string(), displayName: z.string() }))
+    .optional(),
+  reconciliationRequired: z.boolean().optional(),
+  publicationBlocked: z.boolean().optional(),
   canPublish: z.boolean(),
   writesEnabled: z.boolean(),
   lastReconciledAt: z.string().nullable(),
-  latestAttempt: z.object({
-    id: z.string(),
-    status: z.string(),
-    createdAt: z.string(),
-    finishedAt: z.string().nullable(),
-  }).nullable(),
+  latestAttempt: z
+    .object({
+      id: z.string(),
+      status: z.string(),
+      createdAt: z.string(),
+      finishedAt: z.string().nullable(),
+    })
+    .nullable(),
 })
 export type HoursState = z.infer<typeof hoursStateSchema>
 
 export const hoursResponseSchema = z.object({ hours: hoursStateSchema })
 export type HoursResponse = z.infer<typeof hoursResponseSchema>
 
-export const saveHoursResponseSchema = z.object({ saved: z.literal(true), revision: z.string() })
+export const saveHoursResponseSchema = z.object({
+  saved: z.literal(true),
+  revision: z.string(),
+})
 export type SaveHoursResponse = z.infer<typeof saveHoursResponseSchema>
 
 export const publishHoursResponseSchema = z.object({

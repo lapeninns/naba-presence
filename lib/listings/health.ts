@@ -9,6 +9,7 @@
 import type {
   ListingSummary,
   SyncStatus,
+  SyncedArea,
 } from "@/lib/contracts/location-summary"
 import type { StatusTone } from "@/lib/ui/status-tone"
 
@@ -20,6 +21,8 @@ export const LISTING_HEALTH = [
   "attention",
   "unpublished",
   "healthy",
+  "unchecked",
+  "partially_checked",
 ] as const
 export type ListingHealth = (typeof LISTING_HEALTH)[number]
 
@@ -27,6 +30,37 @@ export type ListingHealthInput = {
   linked: boolean
   verified?: boolean | null
   summary?: ListingSummary | null
+}
+
+export const COMPARISON_FRESHNESS_MS = 60 * 60 * 1000
+
+export function comparisonCheck(
+  area: SyncedArea,
+  now = Date.now()
+): "unchecked" | "checked" | "stale" | "failed" {
+  if (area.checkStatus === "failed") return "failed"
+  if (
+    area.status === "unknown" ||
+    !area.observedAt ||
+    area.checkStatus === "unchecked"
+  )
+    return "unchecked"
+  const observed = Date.parse(area.observedAt)
+  if (
+    !Number.isFinite(observed) ||
+    now - observed > COMPARISON_FRESHNESS_MS ||
+    area.checkStatus === "stale"
+  )
+    return "stale"
+  return "checked"
+}
+
+export function canonicalAreas(summary: ListingSummary): SyncedArea[] {
+  return [
+    summary.profile,
+    summary.hours,
+    ...(summary.menu.eligible === false ? [] : [summary.menu]),
+  ]
 }
 
 const DIRTY: readonly SyncStatus[] = ["core_dirty", "conflict"]
@@ -41,7 +75,7 @@ export function unpublishedCount(summary: ListingSummary): number {
   )
 }
 
-/** Areas Google changed since we last published, plus pending suggestions. */
+/** Areas with observed Google drift, plus pending suggestions. */
 export function googleChangedCount(summary: ListingSummary): number {
   const areas = [summary.profile, summary.hours, summary.menu].filter((area) =>
     GOOGLE_CHANGED.includes(area.status)
@@ -98,9 +132,13 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   if (input.verified === false || summary?.verified === false) {
     return "pending_verification"
   }
-  if (!summary) return "healthy"
+  if (!summary) return "unchecked"
   if (
     summary.lastPublish?.status === "failed" ||
+    summary.lastPublish?.status === "ambiguous" ||
+    canonicalAreas(summary).some(
+      (area) => comparisonCheck(area) === "failed"
+    ) ||
     summary.posts.failed > 0 ||
     hasConflict(summary) ||
     googleChangedCount(summary) > 0
@@ -110,10 +148,20 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   if (unpublishedCount(summary) > 0 || summary.posts.awaitingApproval > 0) {
     return "unpublished"
   }
+  const checks = canonicalAreas(summary).map((area) => comparisonCheck(area))
+  if (
+    summary.freshness?.state === "data_delayed" ||
+    checks.some((check) => check !== "checked")
+  )
+    return checks.some((check) => check === "checked")
+      ? "partially_checked"
+      : "unchecked"
   return "healthy"
 }
 
 const TONES: Record<ListingHealth, StatusTone> = {
+  unchecked: "neutral",
+  partially_checked: "neutral",
   healthy: "healthy",
   unpublished: "pending",
   attention: "attention",
@@ -128,6 +176,8 @@ export function listingHealthTone(health: ListingHealth): StatusTone {
 }
 
 const LABELS: Record<ListingHealth, string> = {
+  unchecked: "Not checked",
+  partially_checked: "Partially checked",
   healthy: "In sync",
   unpublished: "Changes to publish",
   attention: "Needs attention",
@@ -144,12 +194,16 @@ export function listingHealthLabel(health: ListingHealth): string {
 /** One sentence: what is wrong and what to do. Never a provider code. */
 export function listingHealthDescription(health: ListingHealth): string {
   switch (health) {
+    case "unchecked":
+      return "Open the profile, hours and any available menu to compare them with Google."
+    case "partially_checked":
+      return "Some areas still need a current comparison with Google. Open them to check."
     case "healthy":
-      return "Everything here matches what customers see on Google."
+      return "The profile, hours and available menu matched Google at their latest checks."
     case "unpublished":
       return "Edits are saved here but not yet on Google. Review and publish them."
     case "attention":
-      return "Something needs a decision: a failed publish, a conflict, or a change Google made."
+      return "Review the failed check or publish, conflict, or change Google made."
     case "pending_verification":
       return "Google has not verified this listing yet, so some changes will not show."
     case "disconnected":
@@ -217,5 +271,14 @@ export function summariseListingHealth(
         ? "1 has changes to publish"
         : `${unpublished} have changes to publish`
     )
-  return parts.length ? parts.join(" · ") : "Every listing is in sync"
+  const unchecked = healths.filter(
+    (health) => health === "unchecked" || health === "partially_checked"
+  ).length
+  if (unchecked)
+    parts.push(`${unchecked} ${unchecked === 1 ? "needs" : "need"} checking`)
+  return parts.length
+    ? parts.join(" · ")
+    : healths.every((health) => health === "healthy")
+      ? "Every listing is in sync"
+      : "Some listings still need setup"
 }

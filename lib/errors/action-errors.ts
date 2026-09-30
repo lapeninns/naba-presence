@@ -440,6 +440,33 @@ export function describeActionError(
   return GENERIC_ERROR_COPY
 }
 
+/** Error copy for one step in a flow whose earlier writes may already have succeeded. */
+export function describePublishStepError(
+  error: unknown,
+  target: "local" | "google"
+): string {
+  if (
+    isTimeoutError(error) ||
+    (error instanceof DOMException &&
+      (error.name === "TimeoutError" || error.name === "AbortError"))
+  ) {
+    return target === "google"
+      ? "Google did not confirm this step. It may have applied the change; check Google before retrying."
+      : "NabaPresence did not confirm this save. It may have been saved; reload to check before retrying."
+  }
+  if (error instanceof ApiClientError) {
+    switch (error.code) {
+      case "PERMISSION_DENIED":
+        return "Google refused this change: the connected login doesn’t have permission for it."
+      case "NOT_FOUND":
+        return "Google couldn’t find that account or listing. Check the details and try again."
+      case "INVALID_ARGUMENT":
+        return "Google didn’t accept those details. Check them and try again."
+    }
+  }
+  return describeActionError(error)
+}
+
 /**
  * A wave-1 sub-resource returns 409 when the location has no active Google
  * link; tabs render a distinct "link this location first" state rather than

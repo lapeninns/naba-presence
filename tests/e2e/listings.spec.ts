@@ -99,7 +99,9 @@ test.describe("listings", () => {
     )
 
     // Opening an area is a focused page with the way back in its header.
-    await areas.getByRole("link", { name: "Edit Opening hours" }).click()
+    await areas
+      .getByRole("link", { name: "Check Opening hours", exact: true })
+      .click()
     await expect(page).toHaveURL(
       new RegExp(`/listings/${state.primaryLocationId}/hours$`)
     )

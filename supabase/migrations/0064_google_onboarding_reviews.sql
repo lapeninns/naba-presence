@@ -28,5 +28,5 @@ create policy google_onboarding_review_isolation on google_onboarding_review
 grant select, insert, delete on google_onboarding_review to naba_app_runtime;
 grant update (approved_by, approved_at) on google_onboarding_review to naba_app_runtime;
 
-insert into schema_migration (version) values ('0063_google_onboarding_reviews') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0064_google_onboarding_reviews') on conflict (version) do nothing;
 commit;

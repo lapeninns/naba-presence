@@ -378,3 +378,134 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
   })
 })
+
+describe("AccessTab partial read recovery", () => {
+  it("retries an account-admin failure while keeping listing admins visible", async () => {
+    let reads = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/capabilities"))
+        return jsonResponse({
+          capabilities: { canEditCanonical: true, canPublish: true },
+        })
+      if (url.includes("/administration")) {
+        reads += 1
+        return jsonResponse({
+          administration: {
+            ...ADMIN.administration,
+            accountAdmins:
+              reads === 1
+                ? {
+                    data: null,
+                    error: "private provider text",
+                    failure: "transient",
+                  }
+                : available({
+                    accountAdmins: [
+                      { admin: "account@test.invalid", role: "PRIMARY_OWNER" },
+                    ],
+                  }),
+          },
+        })
+      }
+      return jsonResponse({ locations: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    renderWithProviders(
+      <AccessTab locationId="loc-1" locationName="Camden Hotel" />
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Retry account admins" })
+    )
+    expect(screen.getByText("owner@camden.test")).toBeInTheDocument()
+    expect(await screen.findByText("account@test.invalid")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Account admins" })).toHaveFocus())
+    expect(screen.queryByText("private provider text")).not.toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET"
+      )
+    ).toBe(true)
+  })
+
+  it.each(["permission_denied", "reconnect_required"])(
+    "gives an actionable %s explanation rather than waiting advice",
+    async (failure) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (input) => {
+          if (String(input).includes("/capabilities"))
+            return jsonResponse({
+              capabilities: { canEditCanonical: true, canPublish: true },
+            })
+          if (String(input).includes("/administration"))
+            return jsonResponse({
+              administration: {
+                ...ADMIN.administration,
+                accountAdmins: {
+                  data: null,
+                  error: "private provider text",
+                  failure,
+                },
+              },
+            })
+          return jsonResponse({ locations: [] })
+        })
+      )
+      renderWithProviders(
+        <AccessTab locationId="loc-1" locationName="Camden Hotel" />
+      )
+      expect(
+        await screen.findByRole("link", { name: "Check Google connections" })
+      ).toHaveAttribute("href", "/settings/connections")
+      expect(
+        screen.queryByText(/refreshing in a moment/i)
+      ).not.toBeInTheDocument()
+      expect(screen.getByText("owner@camden.test")).toBeInTheDocument()
+    }
+  )
+})
+
+it("keeps successful listing admins visible when the retry request itself fails", async () => {
+  let reads = 0
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    if (String(input).includes("/capabilities"))
+      return jsonResponse({
+        capabilities: { canEditCanonical: true, canPublish: true },
+      })
+    if (String(input).includes("/administration")) {
+      reads += 1
+      if (reads > 1) return jsonResponse({ error: "http_error" }, 503)
+      return jsonResponse({
+        administration: {
+          ...ADMIN.administration,
+          accountAdmins: {
+            data: null,
+            error: "private provider text",
+            failure: "transient",
+          },
+        },
+      })
+    }
+    return jsonResponse({ locations: [] })
+  })
+  vi.stubGlobal("fetch", fetcher)
+  renderWithProviders(
+    <AccessTab locationId="loc-1" locationName="Camden Hotel" />
+  )
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Retry account admins" })
+  )
+  expect(
+    await screen.findByText(/last loaded details are still shown/i)
+  ).toBeInTheDocument()
+  expect(screen.getByText("owner@camden.test")).toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Retry account admins" })
+  ).toBeEnabled()
+  expect(
+    fetcher.mock.calls.every(
+      ([, init]) => !init?.method || init.method === "GET"
+    )
+  ).toBe(true)
+})

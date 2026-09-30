@@ -53,5 +53,5 @@ where action in ('google.start_verification', 'google.complete_verification');
 alter table audit_log enable trigger audit_log_no_update;
 drop function pg_temp.legacy_verification_public(jsonb);
 
-insert into schema_migration (version) values ('0069_legacy_verification_redaction') on conflict (version) do nothing;
+insert into schema_migration (version) values ('0070_legacy_verification_redaction') on conflict (version) do nothing;
 commit;

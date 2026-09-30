@@ -1,6 +1,6 @@
 "use client"
 
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertActions } from "@/components/ui/alert"
 import { Empty } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
@@ -30,14 +30,7 @@ export function SectionPanel({
   className?: string
 }) {
   if (result.error) {
-    return (
-      <Alert variant="warning" className={className}>
-        <AlertDescription>
-          We couldn&apos;t load {title.toLowerCase()} from Google right now. Try
-          refreshing in a moment.
-        </AlertDescription>
-      </Alert>
-    )
+    return <SectionLoadError title={title} className={className} />
   }
   if (result.data == null) {
     return (
@@ -68,5 +61,27 @@ export function SectionPanel({
         {children(result.data)}
       </div>
     </div>
+  )
+}
+
+export function SectionLoadError({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string
+  description?: string
+  children?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Alert variant="warning" className={className}>
+      <AlertDescription>
+        {description ??
+          `We couldn't load ${title.toLowerCase()} from Google right now. Try refreshing in a moment.`}
+      </AlertDescription>
+      {children ? <AlertActions>{children}</AlertActions> : null}
+    </Alert>
   )
 }

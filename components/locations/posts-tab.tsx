@@ -23,6 +23,7 @@ import {
   POST_FILTERS,
   POST_TOPIC_LABEL,
   postActionLabel,
+  postContentTimestamp,
   postEventTitle,
   postImageUrl,
   postNeedsAttention,
@@ -153,7 +154,11 @@ function PostsList({
     (post) => post.status === "published" && post.googleState === "LIVE"
   ).length
   const attention = posts.filter(postNeedsAttention).length
-  const shown = posts.filter((post) => matchesPostFilter(post, filter))
+  const shown = posts.filter((post) => matchesPostFilter(post, filter)).sort((a, b) => {
+    const aTime = postContentTimestamp(a)
+    const bTime = postContentTimestamp(b)
+    return (bTime ? Date.parse(bTime) : -Infinity) - (aTime ? Date.parse(aTime) : -Infinity) || a.id.localeCompare(b.id)
+  })
 
   const summary =
     attention > 0
@@ -252,13 +257,14 @@ function PostsList({
             <ul className="flex flex-col gap-3">
               {shown.map((post) => {
                 const status = postStatus(post)
+                const changedAt = postContentTimestamp(post)
                 const meta = [
                   postSchedule(post),
                   postRecurrence(post.event, timezone),
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",
-                  `Changed ${formatPostTimestamp(post.updatedAt)}`,
+                  changedAt ? `Changed ${formatPostTimestamp(changedAt)}` : "Date unavailable",
                 ]
                   .filter(Boolean)
                   .join(" · ")
