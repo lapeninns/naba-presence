@@ -39,14 +39,30 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
   it("renders metric tiles when ready", async () => {
     stub({ range: "28d", from: "a", to: "b", state: "ready", freshThrough: "2026-08-01", locations: [{ id: "l", name: "L" }], totals: { ...ZERO_TOTALS, CALL_CLICKS: 12, WEBSITE_CLICKS: 30 }, series: [{ date: "2026-08-01", metrics: { CALL_CLICKS: 12 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true })
     renderTab()
-    // "Calls" and "Website clicks" also name the actions chart's series (its
-    // legend and screen-reader table), so read the figure from the tile.
-    const callsLabel = (await screen.findAllByText("Calls")).find((node) =>
+    // "Call button taps" and "Website clicks" also name the actions chart's
+    // series (its legend and screen-reader table), so read the figure from the tile.
+    const callsLabel = (await screen.findAllByText("Call button taps")).find((node) =>
       node.closest("[data-slot=kpi-tile]")
     )
     expect(callsLabel).toBeDefined()
     const tile = callsLabel!.closest("[data-slot=kpi-tile]") as HTMLElement
     expect(within(tile).getByText("12")).toBeInTheDocument()
     expect(screen.getAllByText("Website clicks").length).toBeGreaterThan(0)
+  })
+  it("shows missing metrics as no data, compares the previous window and states coverage", async () => {
+    const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
+    stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "ready", freshThrough: "2026-08-29", locations: [{ id: "l", name: "L" }, { id: "m", name: "M" }],
+      totals: { ...totals, CALL_CLICKS: 0, WEBSITE_CLICKS: 30 }, series: [{ date: "2026-08-29", metrics: { CALL_CLICKS: 0, WEBSITE_CLICKS: 30 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
+      previous: { from: "2026-07-07", to: "2026-08-03", totals: { ...totals, WEBSITE_CLICKS: 20 } },
+      fetchedAt: { oldest: "2026-08-30T06:00:00.000Z", newest: "2026-08-30T06:00:00.000Z" },
+      coverage: { eligible: 2, reporting: 1, unavailable: 0, stale: 0, pending: 1 }, dateBasis: "google_daily" })
+    renderTab()
+    const tileFor = async (label: string) => (await screen.findAllByText(label)).find((node) => node.closest("[data-slot=kpi-tile]"))!.closest("[data-slot=kpi-tile]") as HTMLElement
+    expect(within(await tileFor("Call button taps")).getByText("0")).toBeInTheDocument()
+    expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
+    expect(within(await tileFor("Website clicks")).getByText(/\+10|10/)).toBeInTheDocument()
+    expect(screen.getByText(/1 of 2 locations reporting · 1 not fetched yet/)).toBeInTheDocument()
+    expect(screen.getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Download Google profile totals as CSV" })).toBeInTheDocument()
   })
 })

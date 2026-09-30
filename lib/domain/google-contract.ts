@@ -9,8 +9,10 @@ export function googleAccountsRequest(pageToken?: string) {
 
 export type GoogleLocationReadField =
   | "name"
+  | "languageCode"
   | "title"
   | "phoneNumbers"
+  | "adWordsLocationExtensions"
   | "profile"
   | "storefrontAddress"
   | "websiteUri"
@@ -400,7 +402,7 @@ export function googleLocationHoursPatchRequest(input: {
 
 export function googleLocationProfilePatchRequest(input: {
   locationName: string
-  updateMask: Array<"title" | "profile" | "phoneNumbers" | "websiteUri">
+  updateMask: Array<"title" | "profile" | "profile.description" | "phoneNumbers" | "websiteUri">
   validateOnly: boolean
   payload: Record<string, unknown>
 }) {
@@ -502,6 +504,19 @@ export function googleChainsSearchRequest(query: string) {
   const params = new URLSearchParams({ chainName: query, pageSize: "100" })
   return {
     url: `https://mybusinessbusinessinformation.googleapis.com/v1/chains:search?${params}`,
+    init: { method: "GET" },
+  } satisfies { url: string; init: RequestInit }
+}
+
+export function googleCategoriesBatchRequest(input: {
+  names: readonly string[]
+  languageCode: string
+  regionCode: string
+}) {
+  const params = new URLSearchParams({ languageCode: input.languageCode, regionCode: input.regionCode, view: "FULL" })
+  for (const name of new Set(input.names)) params.append("names", name)
+  return {
+    url: `https://mybusinessbusinessinformation.googleapis.com/v1/categories:batchGet?${params}`,
     init: { method: "GET" },
   } satisfies { url: string; init: RequestInit }
 }

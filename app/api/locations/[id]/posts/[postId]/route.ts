@@ -16,9 +16,11 @@ import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string(), postId: z.string() })
 
+const updateBodySchema = z.intersection(localPostInputSchema, z.object({ expectedUpdatedAt: z.iso.datetime().optional() }))
+
 export const PATCH = route({
   params: paramsSchema,
-  body: localPostInputSchema,
+  body: updateBodySchema,
   handler: async ({ session, params, body, requestId }) => {
     const { id, postId } = params
     const post = await updateLocalPostDraft(
@@ -27,7 +29,8 @@ export const PATCH = route({
       id,
       postId,
       body,
-      requestId
+      requestId,
+      body.expectedUpdatedAt
     )
     if (post.status === "published") {
       if (!gbpWritesEnabled(getServerEnv(), "posts")) {

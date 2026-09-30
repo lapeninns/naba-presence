@@ -351,7 +351,7 @@ describeDatabase("operational notifications", () => {
     ).toHaveLength(1)
   }, 120_000)
 
-  it("shows each tenant only its own incidents, and only to owners and admins", async () => {
+  it("shows each tenant only its own incidents, and account incidents only to owners and admins", async () => {
     const first = await tenantWithLogin()
     const second = await tenantWithLogin()
     await breakLogin(first.owner.organisationId, first.connectionId)
@@ -379,10 +379,14 @@ describeDatabase("operational notifications", () => {
     const member = await seedMemberUser(admin, {
       organisationId: first.owner.organisationId,
     })
-    const forbidden = await fetch(`${server.baseUrl}/api/notifications`, {
+    // Members get their own location-scoped list (WP8); the reconnect
+    // incident is account-level and stays with owners and admins.
+    const scoped = await fetch(`${server.baseUrl}/api/notifications`, {
       headers: { cookie: member.cookie },
     })
-    expect(forbidden.status).toBe(403)
+    expect(scoped.status).toBe(200)
+    const scopedBody = (await scoped.json()) as { incidents: { subjectId: string }[] }
+    expect(scopedBody.incidents.map((incident) => incident.subjectId)).not.toContain(first.connectionId)
   }, 120_000)
 
   it("alerts operators when a tick that used to run stops", async () => {

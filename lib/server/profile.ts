@@ -1,9 +1,11 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
+import { additionalPhonesMatch } from "@/lib/domain/business-information"
 
 import {
   buildGoogleProfilePatch,
+  hashGoogleProfile,
   classifyProfileField,
   hashProfile,
   hashProfileValue,
@@ -222,7 +224,7 @@ async function readLiveProfile(session: Session, locationId: string) {
     resource,
     canonical,
     canonicalHash: hashProfile(canonical),
-    googleHash: hashProfile(google),
+    googleHash: hashGoogleProfile(googleLocation, google),
   }
 }
 
@@ -519,7 +521,10 @@ async function prepareProfilePublish(input: PublishProfileInput) {
       message: "Google changed independently. Confirm the selected overwrite.",
     },
   })
-  const patch = buildGoogleProfilePatch({ canonical: live.canonical, selectedFields: selected })
+  if (selected.includes("phone") && !live.canonical.phone) {
+    throw new ApiError(422, "primary_phone_required", "Google requires a primary phone number. Set a primary number before publishing phone changes.")
+  }
+  const patch = buildGoogleProfilePatch({ canonical: live.canonical, selectedFields: selected, googlePhoneNumbers: live.googleLocation.phoneNumbers })
   if (!patch.updateMask.length) throw new ApiError(409, "profile_patch_empty", "The selected fields do not produce a Google patch.")
   return { selected, live, patch }
 }
@@ -569,22 +574,27 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
     // Profile keeps "fail" for now; hours uses "readback" and convergence on "readback" is intended.
     onAmbiguous: "fail",
     readback: {
-      read: async () =>
-        normalizeGoogleProfile(await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })),
+      read: async () => {
+        const location = await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })
+        return { location, profile: normalizeGoogleProfile(location) }
+      },
       verify: ({ readback }) =>
-        selected.every((key) => hashProfileValue(live.canonical[key]) === hashProfileValue(readback[key])),
-      hash: hashProfile,
+        selected.every((key) => hashProfileValue(live.canonical[key]) === hashProfileValue(readback.profile[key])) &&
+        (!selected.includes("phone") || additionalPhonesMatch(readback.location.phoneNumbers?.additionalPhones, live.googleLocation.phoneNumbers?.additionalPhones ?? [])),
+      hash: (readback) => hashGoogleProfile(readback.location, readback.profile),
       mismatch: { code: "google_readback_mismatch", message: "Google accepted the patch but read-back did not match." },
     },
-    onSuccess: (sql, ctx) =>
-      markFieldsPublished(sql, {
+    onSuccess: (sql, ctx) => {
+      if (!ctx.readback) throw new Error("Profile publication requires independent readback.")
+      return markFieldsPublished(sql, {
         organisationId,
         locationId: input.locationId,
         live,
         selected,
-        readback: ctx.readback as NormalizedProfile,
+        readback: ctx.readback.profile,
         readbackHash: ctx.readbackHash as string,
-      }),
+      })
+    },
     audit: (ctx) => ({
       action: "profile.publish.succeeded",
       subjectType: "profile_sync_attempt",

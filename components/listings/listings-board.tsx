@@ -14,6 +14,7 @@ import * as React from "react"
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import { SearchInput } from "@/components/ui/input"
@@ -42,6 +43,7 @@ import {
   unpublishedCount,
   type ListingHealth,
 } from "@/lib/listings/health"
+import { BULK_MAX_TARGETS } from "@/lib/domain/bulk-merge"
 import { listingHref } from "@/lib/listings/areas"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClients } from "@/lib/queries/use-clients"
@@ -213,9 +215,12 @@ const COLUMNS = [
 function BoardTable({
   children,
   busy = false,
+  selection,
 }: {
   children: React.ReactNode
   busy?: boolean
+  /** Owners and admins select listings for a bulk change. */
+  selection?: React.ReactNode
 }) {
   return (
     <Table surface responsive aria-busy={busy || undefined}>
@@ -224,6 +229,7 @@ function BoardTable({
       </caption>
       <TableHeader>
         <TableRow>
+          {selection ? <TableHead className="w-10">{selection}</TableHead> : null}
           {COLUMNS.map((column) => (
             <TableHead key={column}>{column}</TableHead>
           ))}
@@ -290,6 +296,15 @@ function ListingsBoard({ role }: { role: string | null }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const canManage = role === "owner" || role === "admin"
+  // Explicit listing ids for a bulk change. Filters only change what is shown;
+  // the bulk preview freezes exactly these ids.
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(() => new Set())
+  const toggle = (id: string, on: boolean) => setSelected((current) => {
+    const next = new Set(current)
+    if (on && next.size < BULK_MAX_TARGETS) next.add(id)
+    if (!on) next.delete(id)
+    return next
+  })
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
@@ -501,6 +516,16 @@ function ListingsBoard({ role }: { role: string | null }) {
         interactive
         onClick={() => router.push(listingHref(row.entry.id))}
       >
+        {canManage ? (
+          <TableCell label="Select" onClick={(event) => event.stopPropagation()}>
+            <Checkbox
+              checked={selected.has(row.entry.id)}
+              disabled={!selected.has(row.entry.id) && selected.size >= BULK_MAX_TARGETS}
+              onCheckedChange={(checked) => toggle(row.entry.id, checked === true)}
+              aria-label={`Select ${row.entry.name} for a bulk change`}
+            />
+          </TableCell>
+        ) : null}
         <TableCell label="Listing">
           <span className="flex min-w-0 flex-col">
             <Link
@@ -700,10 +725,19 @@ function ListingsBoard({ role }: { role: string | null }) {
           />
         </div>
       ) : (
-        <BoardTable>
+        <BoardTable
+          selection={canManage ? (
+            <Checkbox
+              checked={visible.length > 0 && visible.every((row) => selected.has(row.entry.id))}
+              disabled={visible.length > BULK_MAX_TARGETS}
+              onCheckedChange={(checked) => setSelected(checked === true ? new Set(visible.slice(0, BULK_MAX_TARGETS).map((row) => row.entry.id)) : new Set())}
+              aria-label={visible.length > BULK_MAX_TARGETS ? `Select up to ${BULK_MAX_TARGETS} listings individually` : "Select every listing shown"}
+            />
+          ) : undefined}
+        >
           {unfiled.length > 0 ? (
             <TableRow group>
-              <TableCell colSpan={COLUMNS.length}>
+              <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
                 Not filed under a client · {formatNumber(unfiled.length)}
               </TableCell>
             </TableRow>
@@ -711,7 +745,7 @@ function ListingsBoard({ role }: { role: string | null }) {
           {unfiled.map(renderRow)}
           {unfiled.length > 0 && filed.length > 0 ? (
             <TableRow group>
-              <TableCell colSpan={COLUMNS.length}>
+              <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
                 Filed under a client · {formatNumber(filed.length)}
               </TableCell>
             </TableRow>
@@ -719,6 +753,18 @@ function ListingsBoard({ role }: { role: string | null }) {
           {filed.map(renderRow)}
         </BoardTable>
       )}
+      {canManage && selected.size > 0 ? (
+        <div role="region" aria-label="Bulk change selection" className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3 shadow-np-pop">
+          <p className="text-ui text-ink" aria-live="polite">
+            <span className="font-semibold tabular-nums">{formatNumber(selected.size)}</span> selected
+            {selected.size >= BULK_MAX_TARGETS ? ` (the most one change can cover)` : ""}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear selection</Button>
+            <Link href={`/listings/bulk?ids=${[...selected].join(",")}`} className={buttonVariants({ size: "sm" })}>Prepare bulk change</Link>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

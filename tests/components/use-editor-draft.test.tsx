@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { __resetDraftSources, takeStashedDraft } from "@/lib/api/draft-stash"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
+import { parseServiceDraft, serviceDraftRows } from "@/lib/locations/forms/services"
 import { guardedHref, useLeaveGuard } from "@/lib/editors/use-leave-guard"
 
 beforeEach(() => {
@@ -24,6 +25,23 @@ function useDraft(props: Props) {
 }
 
 describe("useEditorDraft", () => {
+  it("validates service stashes and offers unfinished rows without replacing the server draft", () => {
+    const initial = serviceDraftRows([{ structuredServiceItem: { serviceTypeId: "repair" } }])
+    sessionStorage.setItem("naba:draft:services-test", JSON.stringify({ broken: true }))
+    const broken = renderHook(() => useEditorDraft({ initial, revision: "1", key: "services-test", parseStashed: parseServiceDraft }))
+    expect(broken.result.current.stashed).toBe(false)
+    expect(broken.result.current.draft).toEqual(initial)
+    broken.unmount()
+    const unfinished = [{ item: { freeFormServiceItem: { category: "gcid:plumber", label: { displayName: "" } } }, priceEdit: { mode: "set", amount: "12.", currency: "GBP" } }]
+    sessionStorage.setItem("naba:draft:services-test", JSON.stringify(unfinished))
+    const valid = renderHook(() => useEditorDraft({ initial, revision: "1", key: "services-test", parseStashed: parseServiceDraft }))
+    expect(valid.result.current.stashed).toBe(true)
+    expect(valid.result.current.draft).toEqual(initial)
+    act(() => valid.result.current.restoreStashed())
+    expect(valid.result.current.draft).toEqual(unfinished)
+    expect(valid.result.current.isDirty).toBe(true)
+  })
+
   it("follows a new revision when the draft is clean", () => {
     const { result, rerender } = renderHook(useDraft, {
       initialProps: { initial: { name: "A" }, revision: "1" },

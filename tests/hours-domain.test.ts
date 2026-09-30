@@ -31,6 +31,25 @@ const canonical: NormalizedHours = {
 }
 
 describe("standalone hours domain", () => {
+  it("preserves proto3 midnight and omitted hour values in every hours family", () => {
+    const period = { openDay: "MONDAY", closeDay: "MONDAY", openTime: {}, closeTime: { minutes: 30 } }
+    const google = normalizeGoogleHours({
+      regularHours: { periods: [period] },
+      specialHours: { specialHourPeriods: [{ startDate: { year: 2026, month: 12, day: 24 }, openTime: {}, closeTime: { minutes: 30 } }] },
+      moreHours: [{ hoursTypeId: "DELIVERY", periods: [period] }],
+    })
+    expect(google.regular[1]).toEqual({ dayOfWeek: 1, isClosed: false, periods: [{ opensAt: "00:00", closesAt: "00:30", closeDayOfWeek: 1 }] })
+    expect(google.special).toEqual([{ effectiveDate: "2026-12-24", endDate: "2026-12-24", isClosed: false, opensAt: "00:00", closesAt: "00:30" }])
+    expect(google.moreHours).toEqual([{ hoursTypeId: "DELIVERY", periods: [{ dayOfWeek: 1, opensAt: "00:00", closesAt: "00:30", closeDayOfWeek: 1 }] }])
+  })
+
+  it("distinguishes missing or invalid provider times from midnight", () => {
+    for (const openTime of [undefined, null, { hours: -1 }, { hours: 25 }, { hours: 24, minutes: 1 }, { hours: 1, minutes: 60 }, { hours: 1.5 }]) {
+      expect(normalizeGoogleHours({ regularHours: { periods: [{ openDay: "MONDAY", closeDay: "MONDAY", openTime, closeTime: { hours: 2 } }] } }).regular[1].periods).toEqual([])
+    }
+    expect(normalizeGoogleHours({ regularHours: { periods: [{ openDay: "MONDAY", closeDay: "MONDAY", openTime: {}, closeTime: { hours: 24 } }] } }).regular[1].periods).toEqual([{ opensAt: "00:00", closesAt: "24:00", closeDayOfWeek: 1 }])
+  })
+
   it("normalizes Google schedules to the canonical NabaPresence shape", () => {
     const google = normalizeGoogleHours({
       regularHours: {

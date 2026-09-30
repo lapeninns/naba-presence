@@ -125,12 +125,7 @@ export function googleHealthcareApi(
 
 export function patchGoogleLocationProfile(
   accessToken: string,
-  input: {
-    locationName: string
-    updateMask: Array<"title" | "profile" | "phoneNumbers" | "websiteUri">
-    validateOnly: boolean
-    payload: Record<string, unknown>
-  },
+  input: Parameters<typeof googleLocationProfilePatchRequest>[0],
   options: { connectionKey?: string; timeoutMs?: number } = {}
 ) {
   const request = googleLocationProfilePatchRequest(input)

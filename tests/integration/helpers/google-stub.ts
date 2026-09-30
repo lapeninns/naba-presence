@@ -5,6 +5,7 @@ export type GoogleStubCall = {
   method: string
   path: string
   body: unknown
+  headers?: Record<string, string | string[] | undefined>
 }
 
 export type GoogleStubResponse = {
@@ -13,7 +14,7 @@ export type GoogleStubResponse = {
   delayMs?: number
 }
 
-type Handler = (call: GoogleStubCall) => GoogleStubResponse
+type Handler = (call: GoogleStubCall) => GoogleStubResponse | Promise<GoogleStubResponse>
 type Matcher =
   | { method: string; pathIncludes: string; pathEndsWith?: undefined }
   | { method: string; pathIncludes?: undefined; pathEndsWith: string }
@@ -46,6 +47,7 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     const call: GoogleStubCall = {
       method: request.method ?? "GET",
       path: request.url ?? "/",
+      headers: request.headers,
       body: raw
         ? contentType.includes("application/json")
           ? JSON.parse(raw)
@@ -62,7 +64,7 @@ export async function startGoogleStub(): Promise<GoogleStub> {
           ? call.path.endsWith(candidate.pathEndsWith)
           : call.path.includes(candidate.pathIncludes))
     )
-    const result = rule ? rule.handler(call) : defaultResponse(call)
+    const result = rule ? await rule.handler(call) : defaultResponse(call)
     if (result.delayMs) {
       await Promise.race([
         new Promise((resolve) => setTimeout(resolve, result.delayMs)),

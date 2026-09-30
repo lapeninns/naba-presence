@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
+import { administrationReviewFixture } from "../helpers/administration-access-review"
+import { lifecycleAttemptFixture, lifecycleReviewFixture } from "../helpers/lifecycle-review"
+import { googleLifecycleRequestSchema } from "@/lib/contracts/google-lifecycle"
+import { lifecycleAttemptSchema } from "@/lib/contracts/google-lifecycle-review"
 import {
   AccessTab,
   VerificationTab,
@@ -19,14 +23,27 @@ const ADMIN = { administration: {
     { admin: "owner@camden.test", role: "PRIMARY_OWNER" },
     { name: "locations/camden/admins/2", admin: "manager@camden.test", role: "MANAGER" },
   ] }),
-  accountAdmins: available({ admins: [] }), invitations: available({ invitations: [] }),
+  accountAdmins: available({ accountAdmins: [] }), invitations: available({ invitations: [] }),
   accountName: "accounts/1", googleLocationName: "locations/camden", canManage: true, writesEnabled: true,
 } }
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function stub(caps: unknown) {
-  const fetchMock = vi.fn<typeof fetch>(async (input) => {
+  let lifecycleReview = lifecycleReviewFixture()
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
+    if (url.includes("/administration-lifecycle-reviews")) {
+      if (init?.method !== "POST") return jsonResponse({ items: [], nextCursor: null })
+      if (url.endsWith("/execute")) return jsonResponse({ attempt: lifecycleAttemptSchema.parse({ ...lifecycleAttemptFixture(), request: lifecycleReview.request, operation: lifecycleReview.request.operation, postcondition: lifecycleReview.request.operation === "transfer_location" ? "location_transferred_between_accounts" : "location_absent_from_managed_account" }) })
+      if (url.endsWith("/administration-lifecycle-reviews")) lifecycleReview = lifecycleReviewFixture(googleLifecycleRequestSchema.parse(JSON.parse(String(init.body))))
+      else lifecycleReview = { ...lifecycleReview, changeSet: { ...lifecycleReview.changeSet, approvedBy: "manager" } }
+      return jsonResponse({ review: lifecycleReview })
+    }
+    if (url.includes("/administration-access-workflows")) return jsonResponse({ items: [], nextCursor: null })
+    if (url.includes("/administration-access-reviews") && init?.method === "POST") return jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
+    if (url === "/api/session") return jsonResponse({ session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true } })
+    if (url.includes("/verification-state")) return jsonResponse({ locationId: "00000000-0000-4000-8000-000000000001", googleLocationName: "locations/camden", checkedAt: "2026-09-30T01:00:00Z", verifications: [], merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: false }, merchantError: null })
+    if (url.includes("/verification-workflows")) return jsonResponse({ workflows: [], nextCursor: null })
     if (url.includes("/capabilities")) return jsonResponse({ capabilities: caps })
     if (url.includes("/administration")) return jsonResponse(ADMIN)
     return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
@@ -52,6 +69,11 @@ describe("AccessTab (read + non-destructive)", () => {
     const patchGate = new Promise<void>((resolve) => { resolvePatch = resolve })
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
+      if (url.includes("/administration-access-workflows")) return jsonResponse({ items: [], nextCursor: null })
+      if (url.includes("/administration-access-reviews") && init?.method === "POST") {
+        await patchGate
+        return jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
+      }
       if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
       if (url.includes("/administration") && (init as RequestInit | undefined)?.method === "PATCH") {
         await patchGate
@@ -61,7 +83,7 @@ describe("AccessTab (read + non-destructive)", () => {
         return jsonResponse({
           administration: {
             ...ADMIN.administration,
-            invitations: available({ invitations: [{ name: "locations/camden/admins/pending-1", role: "MANAGER" }] }),
+            invitations: available({ invitations: [{ name: "accounts/1/invitations/pending-1", role: "MANAGER" }] }),
           },
         })
       }
@@ -70,64 +92,71 @@ describe("AccessTab (read + non-destructive)", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    const acceptButton = await screen.findByRole("button", { name: "Accept" })
-    const declineButton = screen.getByRole("button", { name: "Decline" })
+    const acceptButton = await screen.findByRole("button", { name: "Review acceptance" })
+    const declineButton = screen.getByRole("button", { name: "Review decline" })
 
     await userEvent.click(acceptButton)
 
     // Only the clicked (Accept) button flips to its pending label — Decline
     // stays showing its idle label, just disabled while the shared mutation
     // is in flight.
-    expect(await screen.findByRole("button", { name: "Accepting…" })).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Reviewing…" })).toBeInTheDocument()
     expect(declineButton).toBeInTheDocument()
     expect(declineButton).toBeDisabled()
     expect(screen.queryByRole("button", { name: "Declining…" })).not.toBeInTheDocument()
 
     resolvePatch?.()
-    await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review acceptance" })).toBeEnabled())
   })
 
-  it("create-admin sends the create_admin operation + confirmation", async () => {
+  it("create-admin saves the exact review without sending an access mutation", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /add administrator/i }))
     await userEvent.type(screen.getByLabelText(/email/i), "new@camden.test")
-    await userEvent.click(screen.getByRole("button", { name: /send invitation/i }))
+    await userEvent.click(screen.getByRole("button", { name: /review invitation/i }))
     await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      const patch = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/administration-access-reviews") && init?.method === "POST")
       const body = JSON.parse((patch![1] as RequestInit).body as string)
       expect(body.operation).toBe("create_admin")
-      expect(body.confirmation).toBe("invite_google_administrator")
+      expect(body).toEqual({ operation: "create_admin", payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" } })
     })
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 })
 
 describe("AccessTab (danger zone)", () => {
-  it("delete-location requires the typed name and sends the permanent-delete confirmation", async () => {
+  it("delete-location requires an exact review, approval, typed name and separate send consent", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
-    const confirm = screen.getByRole("button", { name: "Delete location" })
+    expect(screen.getByText(/business and customer reviews may remain on Search or Maps/)).toBeInTheDocument()
+    expect(screen.queryByText(/Google deletes its reviews/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Approve lifecycle request" }))
+    const confirm = await screen.findByRole("button", { name: "Send approved deletion" })
     expect(confirm).toBeDisabled()
-    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    await userEvent.type(screen.getByLabelText("Type the listing name: Camden Hotel"), "Camden Hotel")
+    expect(confirm).toBeDisabled()
+    await userEvent.click(screen.getByRole("checkbox", { name: "Send this exact approved lifecycle request to Google." }))
     expect(confirm).toBeEnabled()
     await userEvent.click(confirm)
     await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
-      const body = JSON.parse((patch![1] as RequestInit).body as string)
-      expect(body).toEqual({ operation: "delete_location", confirmation: "delete_google_location_permanently", payload: {} })
+      const sends = fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/execute") && init?.method === "POST")
+      expect(sends).toHaveLength(1)
+      expect(JSON.parse(String(sends[0][1]?.body))).toEqual({ expectedPayloadHash: "a".repeat(64) })
     })
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
   it("delete-location never wires to the app-side unlink route", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
-    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
-    await userEvent.click(screen.getByRole("button", { name: "Delete location" }))
+    await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
-      expect(String(patch?.[0])).toContain("/administration")
+      const review = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/administration-lifecycle-reviews") && init?.method === "POST")
+      expect(JSON.parse(String(review?.[1]?.body))).toEqual({ operation: "delete_location", payload: {} })
     })
     // The location directory query legitimately reads /api/location-links in
     // the background (unrelated to this action), but nothing about deleting
@@ -139,34 +168,34 @@ describe("AccessTab (danger zone)", () => {
     ).toBe(false)
   })
 
-  it("shows the never-undoable unlink note pointing at Connections", async () => {
+  it("keeps app unlinking distinct and points at Connections", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     expect(
-      await screen.findByText(/To stop managing a location without deleting it from Google, unlink it under/i)
+      await screen.findByText(/Unlink this app location under/i)
     ).toBeInTheDocument()
     const link = screen.getByRole("link", { name: /connections/i })
     expect(link).toHaveAttribute("href", "/settings/connections")
   })
 
-  it("remove-administrator requires the typed name and sends the remove-administrator confirmation", async () => {
+  it("remove-administrator requires the typed name and saves an exact review before any send", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /remove manager@camden\.test/i }))
-    const confirm = screen.getByRole("button", { name: "Remove administrator" })
+    const confirm = screen.getByRole("button", { name: "Review administrator removal" })
     expect(confirm).toBeDisabled()
     await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
     expect(confirm).toBeEnabled()
     await userEvent.click(confirm)
     await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
+      const patch = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/administration-access-reviews") && init?.method === "POST")
       const body = JSON.parse((patch![1] as RequestInit).body as string)
       expect(body).toEqual({
         operation: "delete_admin",
-        confirmation: "remove_google_administrator",
         payload: { name: "locations/camden/admins/2" },
       })
     })
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
   it("never offers to remove the primary owner", async () => {
@@ -176,7 +205,7 @@ describe("AccessTab (danger zone)", () => {
     expect(screen.queryByRole("button", { name: /remove owner@camden\.test/i })).not.toBeInTheDocument()
   })
 
-  it("transfer-location requires a destination account, shows the access-loss warning, then requires the typed name and sends the transfer confirmation", async () => {
+  it("transfer-location reviews an exact destination before approval, typed-name consent and a single send", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /transfer this location/i }))
@@ -186,21 +215,26 @@ describe("AccessTab (danger zone)", () => {
     expect(continueButton).toBeEnabled()
     await userEvent.click(continueButton)
 
-    expect(screen.getByText(/may lose the ability to manage it/i)).toBeInTheDocument()
-    const confirm = screen.getByRole("button", { name: "Transfer location" })
+    expect(await screen.findByText(/can change your management access/)).toBeInTheDocument()
+    expect(screen.getByText(/accounts\/999 · Manager/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Approve lifecycle request" }))
+    const confirm = await screen.findByRole("button", { name: "Send approved transfer" })
     expect(confirm).toBeDisabled()
-    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
+    await userEvent.type(screen.getByLabelText("Type the listing name: Camden Hotel"), "Camden Hotel")
+    expect(confirm).toBeDisabled()
+    await userEvent.click(screen.getByRole("checkbox", { name: "Send this exact approved lifecycle request to Google." }))
     expect(confirm).toBeEnabled()
     await userEvent.click(confirm)
     await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
-      const body = JSON.parse((patch![1] as RequestInit).body as string)
+      const review = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/administration-lifecycle-reviews") && init?.method === "POST")
+      const body = JSON.parse(String(review?.[1]?.body))
       expect(body).toEqual({
         operation: "transfer_location",
-        confirmation: "transfer_google_location",
         payload: { destinationAccount: "accounts/999" },
       })
     })
+    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/execute") && init?.method === "POST")).toHaveLength(1)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
   it("renders the danger zone as a section <h2> under the area's h1, never a second page heading", async () => {
@@ -232,6 +266,170 @@ describe("VerificationTab", () => {
   })
 })
 
+describe("AccessTab (roster truthfulness)", () => {
+  const lifecycleReviewId = "22222222-2222-4222-8222-222222222222"
+  const accessReviewId = "10000000-0000-4000-8000-000000000001"
+  const session = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true } }
+  function stubRoster({ administration, lifecycleItems = [], lifecycleAttempt, accessItems = [], accessAttempt }: {
+    administration: () => Promise<Response> | Response
+    lifecycleItems?: unknown[]; lifecycleAttempt?: unknown
+    accessItems?: unknown[]; accessAttempt?: unknown
+  }) {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/administration-lifecycle-reviews")) return url.endsWith("/execute") && lifecycleAttempt ? jsonResponse({ attempt: lifecycleAttempt }) : jsonResponse({ items: lifecycleItems, nextCursor: null })
+      if (url.includes("/administration-access-workflows")) return jsonResponse({ items: accessItems, nextCursor: null })
+      if (url.includes("/administration-access-reviews") && url.endsWith("/execute")) return jsonResponse({ attempt: accessAttempt })
+      if (url === "/api/session") return jsonResponse(session)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/administration")) return administration()
+      return jsonResponse({ items: [], nextCursor: null })
+    })
+    vi.stubGlobal("fetch", fetchMock); return fetchMock
+  }
+
+  it("shows unavailable counts, not zero, when the Google roster read fails", async () => {
+    const failed = { data: null, error: "google_unavailable" }
+    stubRoster({ administration: () => jsonResponse({ administration: { ...ADMIN.administration, locationAdmins: failed, accountAdmins: failed, invitations: failed } }) })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText("People count unavailable · invitation count unavailable · Google could not be read")).toBeInTheDocument()
+    expect(screen.getByText("Count unavailable")).toBeInTheDocument()
+    expect(screen.queryByText(/0 people/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/0 invitations/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Read from Google/)).not.toBeInTheDocument()
+  })
+
+  it("says which part failed when only the invitations read fails", async () => {
+    stubRoster({ administration: () => jsonResponse({ administration: { ...ADMIN.administration, invitations: { data: null, error: "google_unavailable" } } }) })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText("2 people · invitation count unavailable · Part of this list could not be read from Google")).toBeInTheDocument()
+  })
+
+  it("explains a confirmed deletion and disables every access write", async () => {
+    stubRoster({
+      administration: () => jsonResponse(ADMIN),
+      lifecycleItems: [{ reviewId: lifecycleReviewId, createdAt: "2026-09-30T08:00:00.000Z", request: { operation: "delete_location", payload: {} }, attemptId: lifecycleReviewId }],
+      lifecycleAttempt: { ...lifecycleAttemptFixture(), reviewId: lifecycleReviewId },
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText("This location was deleted from Google")).toBeInTheDocument()
+    expect(screen.getByText(/may no longer apply/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeDisabled()
+    expect(screen.getByRole("combobox", { name: /role for manager@camden\.test/i })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Delete this location" })).toBeDisabled()
+  })
+
+  it("explains a confirmed transfer that left this account", async () => {
+    const transfer = { operation: "transfer_location", payload: { destinationAccount: "accounts/999" } }
+    stubRoster({
+      administration: () => jsonResponse(ADMIN),
+      lifecycleItems: [{ reviewId: lifecycleReviewId, createdAt: "2026-09-30T08:00:00.000Z", request: transfer, attemptId: lifecycleReviewId }],
+      lifecycleAttempt: { ...lifecycleAttemptFixture(), reviewId: lifecycleReviewId, request: transfer, operation: "transfer_location", postcondition: "location_transferred_between_accounts" },
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText("This location moved to another Google account")).toBeInTheDocument()
+    expect(screen.getAllByText(/moved to accounts\/999/).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeDisabled()
+  })
+
+  it("keeps access writes available after a rejected lifecycle outcome", async () => {
+    stubRoster({
+      administration: () => jsonResponse(ADMIN),
+      lifecycleItems: [{ reviewId: lifecycleReviewId, createdAt: "2026-09-30T08:00:00.000Z", request: { operation: "delete_location", payload: {} }, attemptId: lifecycleReviewId }],
+      lifecycleAttempt: { ...lifecycleAttemptFixture(), reviewId: lifecycleReviewId, executionState: "rejected", confirmationState: "unrecorded", postcondition: "unresolved" },
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    await waitFor(() => expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeEnabled())
+    expect(screen.queryByText("This location was deleted from Google")).not.toBeInTheDocument()
+  })
+
+  it("hides pre-change roster rows behind an updating status until Google's list after a confirmed change arrives", async () => {
+    const request = { operation: "delete_admin", payload: { name: "locations/camden/admins/2" } }
+    const confirmed = { id: accessReviewId, reviewId: accessReviewId, payloadHash: "a".repeat(64), request, target: "locations/camden/admins/2", status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_absent", pendingInvitation: null, error: null }
+    let reads = 0
+    let release: (() => void) | undefined
+    const refreshed = new Promise<void>((resolve) => { release = resolve })
+    stubRoster({
+      administration: async () => {
+        reads += 1
+        if (reads === 1) return jsonResponse(ADMIN)
+        await refreshed
+        return jsonResponse({ administration: { ...ADMIN.administration, locationAdmins: available({ admins: [{ admin: "owner@camden.test", role: "PRIMARY_OWNER" }] }) } })
+      },
+      accessItems: [{ reviewId: accessReviewId, createdAt: "2026-09-30T08:00:00.000Z", request, attemptId: accessReviewId, executionState: "accepted", confirmationState: "confirmed" }],
+      accessAttempt: confirmed,
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText(/2 people · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "Open outcome" }))
+    expect(await screen.findByText("Reviewed administrator no longer listed")).toBeInTheDocument()
+    expect(await screen.findByText(/Updating from Google… Counts refresh/)).toBeInTheDocument()
+    expect(screen.queryByText(/2 people/)).not.toBeInTheDocument()
+    // No stale row is presented as current access: no "Has access", no role
+    // badge, no row controls, only an updating status in their place.
+    expect(screen.getByText(/Updating people with access from Google after the confirmed change/)).toBeInTheDocument()
+    expect(screen.getByText(/Updating pending invitations from Google/)).toBeInTheDocument()
+    expect(screen.queryByText("manager@camden.test")).not.toBeInTheDocument()
+    expect(screen.queryByText("Has access")).not.toBeInTheDocument()
+    expect(screen.queryByText("Manager")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: /role for manager@camden\.test/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    expect(reads).toBe(2)
+    release?.()
+    expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(screen.queryByText(/Updating from Google/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+  })
+
+  it("keeps the roster hidden and offers a retry when Google's list after a confirmed change cannot be read", async () => {
+    const request = { operation: "delete_admin", payload: { name: "locations/camden/admins/2" } }
+    const confirmed = { id: accessReviewId, reviewId: accessReviewId, payloadHash: "a".repeat(64), request, target: "locations/camden/admins/2", status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_absent", pendingInvitation: null, error: null }
+    let reads = 0
+    stubRoster({
+      administration: () => {
+        reads += 1
+        if (reads === 1) return jsonResponse(ADMIN)
+        if (reads === 2) return jsonResponse({ error: "http_error" }, 503)
+        return jsonResponse({ administration: { ...ADMIN.administration, locationAdmins: available({ admins: [{ admin: "owner@camden.test", role: "PRIMARY_OWNER" }] }) } })
+      },
+      accessItems: [{ reviewId: accessReviewId, createdAt: "2026-09-30T08:00:00.000Z", request, attemptId: accessReviewId, executionState: "accepted", confirmationState: "confirmed" }],
+      accessAttempt: confirmed,
+    })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    await userEvent.click(await screen.findByRole("button", { name: "Open outcome" }))
+    expect(await screen.findByText(/Counts unavailable · Google’s list after the confirmed change could not be read/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText("manager@camden.test")).not.toBeInTheDocument()
+    expect(screen.queryByText("Has access")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    await userEvent.click(screen.getAllByRole("button", { name: "Read Google’s list again" })[0])
+    expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+  })
+
+  it("puts the role select back on Google's listed role once a different role is saved for review", async () => {
+    stubRoster({ administration: () => jsonResponse(ADMIN) })
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) => String(input).includes("/administration-access-reviews") && init?.method === "POST"
+      ? jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
+      : original(input, init))
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    const select = await screen.findByRole("combobox", { name: /role for manager@camden\.test/i })
+    await userEvent.click(select)
+    await userEvent.click(await screen.findByRole("option", { name: "Owner" }))
+    await waitFor(() => expect(select).toHaveTextContent("Owner"))
+    await userEvent.click(screen.getByRole("button", { name: "Review role change" }))
+    expect(await screen.findByText("Proposed role")).toBeInTheDocument()
+    // The review carries the proposed Owner role; the row still reads Google's listed Manager.
+    await waitFor(() => expect(select).toHaveTextContent("Manager"))
+    expect(screen.getByRole("button", { name: "Review role change" })).toBeDisabled()
+  })
+})
+
 describe("AccessTab partial read recovery", () => {
   it("retries an account-admin failure while keeping listing admins visible", async () => {
     let reads = 0
@@ -254,7 +452,7 @@ describe("AccessTab partial read recovery", () => {
                     failure: "transient",
                   }
                 : available({
-                    admins: [
+                    accountAdmins: [
                       { admin: "account@test.invalid", role: "PRIMARY_OWNER" },
                     ],
                   }),

@@ -39,18 +39,20 @@ beforeEach(() => {
 })
 
 describe("primary navigation", () => {
-  it("offers four destinations and a More disclosure, and no Home", () => {
+  it("offers five destinations and a More disclosure, and no Home", () => {
     render(<Nav />)
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       "Inbox",
       "Listings",
       "Clients",
+      "Calendar",
       "Reports",
     ])
     for (const [label, href] of [
       ["Inbox", "/inbox"],
       ["Listings", "/listings"],
       ["Clients", "/clients"],
+      ["Calendar", "/calendar"],
       ["Reports", "/reports"],
     ]) {
       expect(screen.getByRole("link", { name: label })).toHaveAttribute(

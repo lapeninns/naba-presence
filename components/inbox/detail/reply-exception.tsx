@@ -93,6 +93,17 @@ function describeException(
     }
   }
 
+  // Accepted by Google but held for moderation: not public yet, and nothing
+  // for the operator to redo unless Google later rejects it.
+  if (reply?.googleReplyState === "PENDING") {
+    return {
+      title: "Google is reviewing this reply",
+      description:
+        "The reply reached Google and is waiting for Google’s moderation. Customers don’t see it until Google approves it; this updates after the next sync.",
+      tone: "caution",
+    }
+  }
+
   if (connection === "disconnected") {
     return {
       title: "Google disconnected",

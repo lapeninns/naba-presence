@@ -10,21 +10,26 @@ import { settingsGatingFromRole } from "@/lib/settings/gating"
 // administered a location from a page nowhere near it, and that now lives in
 // the location's own Access section.
 //
-// Compliance and Operations are gone too. Data-subject requests, legal holds
+// Compliance is gone too. Data-subject requests, legal holds
 // and record export are still served by `app/api/privacy/**` and
-// `app/api/legal-holds`, and sync health by `app/api/operations/health` —
-// owner/admin-gated on the server, where they were always authorised. What
-// they no longer have is a console in a product whose job is replying to
-// reviews.
+// `app/api/legal-holds`. Operations returned for owners and admins as the
+// operational recovery view (scheduler, sync freshness, queued work,
+// unresolved writes, email delivery) the GBP operations brief requires.
 const AREAS: {
   href: string
   label: string
   capability: "always" | "canManageConnections"
 }[] = [
   { href: "/settings", label: "Policy", capability: "always" },
+  { href: "/settings/notifications", label: "Notifications", capability: "always" },
   {
     href: "/settings/connections",
     label: "Google connections",
+    capability: "canManageConnections",
+  },
+  {
+    href: "/settings/operations",
+    label: "Operations",
     capability: "canManageConnections",
   },
 ]

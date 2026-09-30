@@ -26,9 +26,9 @@ describe("industryCapability", () => {
     expect(industryCapability(hotel)).toMatchObject({ lodging: true, any: true })
   })
 
-  it("asks when Google says the listing can operate health data", () => {
+  it("does not mount a second healthcare model from the legacy health-data flag", () => {
     const clinic = { metadata: { canOperateHealthData: true } }
-    expect(industryCapability(clinic)).toMatchObject({ health: true, any: true })
+    expect(industryCapability(clinic)).toMatchObject({ health: false, any: false })
   })
 
   it("treats a missing, null or non-object metadata as no capability", () => {

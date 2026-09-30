@@ -4,6 +4,10 @@ import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
+import { administrationReviewFixture } from "../helpers/administration-access-review"
+import { lifecycleReviewFixture } from "../helpers/lifecycle-review"
+import { googleLifecycleRequestSchema } from "@/lib/contracts/google-lifecycle"
+import { AdministrationAccessWorkspace } from "@/components/locations/administration/access-workspace"
 import { AdminsSection } from "@/components/locations/administration/admins"
 import {
   AdministrationProvider,
@@ -41,7 +45,7 @@ function renderSection(ui: ReactElement, section: Section = {}) {
       disabled={section.disabled ?? false}
       publishReason={section.publishReason ?? null}
     >
-      {ui}
+      {ui.type === AdminsSection || ui.type === InvitationsList || ui.type === CreateAdminDialog ? <AdministrationAccessWorkspace>{ui}</AdministrationAccessWorkspace> : ui}
     </AdministrationProvider>
   )
 }
@@ -57,6 +61,23 @@ function jsonResponse(body: unknown, status = 200) {
 function stubPatch(failWith?: { status: number; code: string }) {
   const bodies: Array<Record<string, unknown>> = []
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    if (String(input).includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (String(input).endsWith("/api/session")) return jsonResponse({ session: { userId: "owner", organisationId: "org", organisationName: "Fixture", displayName: "Owner", email: "owner@example.test", role: "owner", canPublish: true } })
+    if (String(input).includes("/administration-lifecycle-reviews")) {
+      if (init?.method === "POST") {
+        const request = googleLifecycleRequestSchema.parse(JSON.parse(String(init.body)))
+        bodies.push(request)
+        return jsonResponse({ review: lifecycleReviewFixture(request) })
+      }
+      return jsonResponse({ items: [], nextCursor: null })
+    }
+    if (String(input).includes("/administration-access-workflows")) return jsonResponse({ items: [], nextCursor: null })
+    if (String(input).includes("/administration-access-reviews") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body))
+      bodies.push(body)
+      return jsonResponse({ review: administrationReviewFixture(body) })
+    }
+    if (String(input).includes("/verification-workflows")) return jsonResponse({ workflows: [], nextCursor: null })
     if ((init as RequestInit | undefined)?.method === "PATCH") {
       bodies.push(JSON.parse((init as RequestInit).body as string))
       if (failWith)
@@ -161,124 +182,29 @@ describe("voice of merchant", () => {
 })
 
 describe("verification", () => {
-  it("starts a verification with the selected method and toasts", async () => {
+  it("offers reviewed PIN entry only for supported pending methods", () => {
     const patch = stubPatch()
-    renderSection(
-      <StartVerification
-        data={{
-          options: [
-            { verificationMethod: "EMAIL" },
-            { verificationMethod: "EMAIL" },
-          ],
-        }}
-      />
-    )
-    await userEvent.click(
-      screen.getByRole("button", { name: "Start verification" })
-    )
-    await waitFor(() => expect(patch.bodies).toHaveLength(1))
-    expect(patch.bodies[0]).toEqual({
-      operation: "start_verification",
-      confirmation: "start_google_location_verification",
-      payload: { method: "EMAIL", languageCode: "en" },
-    })
-    expect(await screen.findByText("Verification started")).toBeInTheDocument()
+    renderSection(<VerificationHistory data={{ verifications: [
+      { name: "locations/camden/verifications/1", method: "SMS", state: "PENDING" },
+      { name: "locations/camden/verifications/2", method: "VETTED_PARTNER", state: "PENDING" },
+    ] }} />)
+    expect(screen.getAllByLabelText("PIN from Google")).toHaveLength(1)
+    expect(screen.getByRole("button", { name: "Review PIN completion" })).toBeDisabled()
+    expect(screen.getByText(/This pending method cannot accept a PIN here/)).toBeInTheDocument()
+    expect(patch.bodies).toHaveLength(0)
   })
 
-  it("surfaces the humanised error copy, never the code, when Google pauses", async () => {
-    stubPatch({ status: 409, code: "publishing_paused" })
+  it("retains read-only method discovery behind the publish gate and explains why", () => {
+    stubPatch()
     renderSection(
-      <StartVerification
-        data={{ options: [{ verificationMethod: "EMAIL" }] }}
-      />
-    )
-    await userEvent.click(
-      screen.getByRole("button", { name: "Start verification" })
-    )
-    expect(
-      await screen.findByText(
-        "Publishing to Google is temporarily paused. Try again shortly."
-      )
-    ).toBeInTheDocument()
-    expect(screen.queryByText("publishing_paused")).not.toBeInTheDocument()
-  })
-
-  it("completes a pending verification only once a PIN is typed, then clears it", async () => {
-    const patch = stubPatch()
-    renderSection(
-      <VerificationHistory
-        data={{
-          verifications: [
-            {
-              name: "locations/camden/verifications/1",
-              method: "PHONE_CALL",
-              state: "PENDING",
-            },
-          ],
-        }}
-      />
-    )
-    const complete = screen.getByRole("button", {
-      name: "Complete verification",
-    })
-    expect(complete).toBeDisabled()
-    const pin = screen.getByLabelText("PIN")
-    await userEvent.type(pin, "123456")
-    expect(complete).toBeEnabled()
-    await userEvent.click(complete)
-    await waitFor(() => expect(patch.bodies).toHaveLength(1))
-    expect(patch.bodies[0]).toEqual({
-      operation: "complete_verification",
-      confirmation: "complete_google_location_verification",
-      payload: { name: "locations/camden/verifications/1", pin: "123456" },
-    })
-    await waitFor(() => expect(pin).toHaveValue(""))
-  })
-
-  it("keeps Google's refusal of a PIN beside the field and puts focus back in it", async () => {
-    stubPatch({ status: 400, code: "INVALID_ARGUMENT" })
-    renderSection(
-      <VerificationHistory
-        data={{
-          verifications: [
-            {
-              name: "locations/camden/verifications/1",
-              method: "SMS",
-              state: "PENDING",
-            },
-          ],
-        }}
-      />
-    )
-    const pin = screen.getByLabelText("PIN")
-    await userEvent.type(pin, "000000")
-    await userEvent.click(
-      screen.getByRole("button", { name: "Complete verification" })
-    )
-    await waitFor(() => expect(pin).toHaveAttribute("aria-invalid", "true"))
-    expect(pin).toHaveAccessibleDescription(
-      expect.stringContaining("Google didn’t accept this PIN. Nothing changed.")
-    )
-    expect(screen.getByText("INVALID_ARGUMENT")).toBeInTheDocument()
-    expect(pin).toHaveValue("000000")
-    expect(pin).toHaveFocus()
-    // Retyping clears Google's old answer.
-    await userEvent.type(pin, "1")
-    expect(pin).not.toHaveAttribute("aria-invalid")
-  })
-
-  it("disables the start button behind the publish gate and explains why", () => {
-    renderSection(
-      <StartVerification
-        data={{ options: [{ verificationMethod: "EMAIL" }] }}
-      />,
+      <StartVerification />,
       {
         publishReason: "Publishing to Google is currently unavailable.",
       }
     )
     expect(
-      screen.getByRole("button", { name: "Start verification" })
-    ).toBeDisabled()
+      screen.getByRole("button", { name: "Check available methods" })
+    ).toBeEnabled()
     expect(screen.getByRole("note")).toHaveTextContent(
       "Publishing to Google is currently unavailable."
     )
@@ -302,7 +228,7 @@ describe("admins", () => {
     expect(
       screen.getByRole("button", { name: "Remove manager@camden.test" })
     ).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Update role" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Review role change" })).toBeDisabled()
     expect(
       screen.queryByRole("button", { name: /remove owner@camden\.test/i })
     ).not.toBeInTheDocument()
@@ -318,7 +244,7 @@ describe("admins", () => {
     ).toBeDisabled()
   })
 
-  it("removes an administrator through the typed-name confirm and toasts", async () => {
+  it("saves an administrator removal review through the typed-name confirmation without sending", async () => {
     const patch = stubPatch()
     renderSection(<AdminsSection data={admins} />)
     await userEvent.click(
@@ -330,15 +256,15 @@ describe("admins", () => {
       "camden hotel"
     )
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove administrator" })
+      screen.getByRole("button", { name: "Review administrator removal" })
     )
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
       operation: "delete_admin",
-      confirmation: "remove_google_administrator",
       payload: { name: "locations/camden/admins/2" },
     })
-    expect(await screen.findByText("Administrator removed")).toBeInTheDocument()
+    expect(await screen.findByText("Administrator removal review saved")).toBeInTheDocument()
+    expect(patch.fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 })
 
@@ -349,20 +275,19 @@ describe("invitations", () => {
       <InvitationsList
         data={{
           invitations: [
-            { name: "locations/camden/admins/pending-1", role: "OWNER" },
+            { name: "accounts/1/invitations/pending-1", role: "OWNER" },
           ],
         }}
       />
     )
     expect(screen.getByText("Owner")).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Decline" }))
+    await userEvent.click(screen.getByRole("button", { name: "Review decline" }))
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
       operation: "decline_invitation",
-      confirmation: "decline_google_invitation",
-      payload: { name: "locations/camden/admins/pending-1" },
+      payload: { name: "accounts/1/invitations/pending-1" },
     })
-    expect(await screen.findByText("Invitation declined")).toBeInTheDocument()
+    expect(await screen.findByText("Invitation decline review saved")).toBeInTheDocument()
   })
 
   it("lists nothing to do when there are no invitations", () => {
@@ -376,7 +301,7 @@ describe("invitations", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Add administrator" })
     )
-    const send = screen.getByRole("button", { name: "Send invitation" })
+    const send = screen.getByRole("button", { name: "Review invitation" })
     expect(send).toBeDisabled()
     const email = screen.getByLabelText(/email/i)
     await userEvent.type(email, "not-an-email")
@@ -391,10 +316,9 @@ describe("invitations", () => {
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
       operation: "create_admin",
-      confirmation: "invite_google_administrator",
       payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" },
     })
-    expect(await screen.findByText("Invitation sent")).toBeInTheDocument()
+    expect(await screen.findByText("Administrator invitation review saved")).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
     )
@@ -408,6 +332,12 @@ describe("invitations", () => {
     expect(
       screen.getByRole("button", { name: "Add administrator" })
     ).toBeDisabled()
+  })
+  it("blocks the invitation trigger behind a shared unresolved Google-write gate", () => {
+    const patch = stubPatch()
+    renderSection(<CreateAdminDialog />, { disabled: false, publishReason: "Resolve the saved lifecycle outcome before another Google change." })
+    expect(screen.getByRole("button", { name: "Add administrator" })).toBeDisabled()
+    expect(patch.bodies).toHaveLength(0)
   })
 })
 
@@ -425,33 +355,22 @@ describe("danger zone", () => {
     expect(screen.getAllByRole("note")).toHaveLength(2)
   })
 
-  it("keeps the typed-name confirm inert until the name matches, then toasts the delete", async () => {
+  it("prepares an exact deletion review without a direct provider-write request", async () => {
     const patch = stubPatch()
     renderSection(<DangerZone />)
     await userEvent.click(
       screen.getByRole("button", { name: "Delete this location" })
     )
-    const confirm = screen.getByRole("button", { name: "Delete location" })
-    await userEvent.type(
-      screen.getByLabelText(/type the location's name/i),
-      "Camden Hote"
-    )
-    expect(confirm).toBeDisabled()
-    await userEvent.type(
-      screen.getByLabelText(/type the location's name/i),
-      "l"
-    )
-    expect(confirm).toBeEnabled()
-    await userEvent.click(confirm)
+    await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
       operation: "delete_location",
-      confirmation: "delete_google_location_permanently",
       payload: {},
     })
     expect(
-      await screen.findByText("Location deleted from Google")
+      await screen.findByRole("button", { name: "Approve lifecycle request" })
     ).toBeInTheDocument()
+    expect(patch.fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
   it("clears the destination account when the transfer dialog is cancelled", async () => {

@@ -184,15 +184,32 @@ export async function startGbpMutation(input: {
   expectedGoogleHash?: string
   updateMask?: string[]
   payload?: unknown
+  blockUnresolved?: boolean
+  unresolvedScope?: { readonly operation: string; readonly targetResourceName: string }
+  lockHeld?: boolean
+  changeSetId?: string
 }) {
   const key = gbpManagementIdempotencyKey(input)
   return withTenant(input.organisationId, async (sql) => {
+    if (input.blockUnresolved && !input.lockHeld) {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`${input.organisationId}:${input.locationId}:${input.resourceType}`}, 0))`
+    }
     const existing = await gbpManagementAttemptStore.find(sql, {
       organisationId: input.organisationId,
       key,
     })
     if (existing) {
       return { id: existing.id, status: existing.rawStatus, idempotent: true }
+    }
+    if (input.blockUnresolved) {
+      const [unresolved] = await sql<{ id: string }[]>`
+        select id from gbp_management_mutation
+        where location_id = ${input.locationId ?? null} and resource_type = ${input.resourceType}
+          and (${input.unresolvedScope === undefined} or (operation = ${input.unresolvedScope?.operation ?? null} and target_resource_name = ${input.unresolvedScope?.targetResourceName ?? null}))
+          and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved'))
+        limit 1
+      `
+      if (unresolved) throw new ApiError(409, "google_confirmation_unresolved", "An earlier change is awaiting Google confirmation. Resolve it before publishing another change.")
     }
     const created = await gbpManagementAttemptStore.start(sql, {
       organisationId: input.organisationId,
@@ -201,6 +218,7 @@ export async function startGbpMutation(input: {
       key,
       existing: null,
       intent: {
+        change_set_id: input.changeSetId ?? null,
         location_id: input.locationId ?? null,
         google_account_id: input.googleAccountId ?? null,
         resource_type: input.resourceType,

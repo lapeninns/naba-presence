@@ -88,7 +88,20 @@ export const placeActionsStateSchema = z.object({
   canPublish: z.boolean(),
   writesEnabled: z.boolean(),
   supportedTypes: z.array(z.enum(GOOGLE_PLACE_ACTION_TYPES)).readonly(),
+  unsupportedTypes: z.array(z.string()).optional(),
+  metadataObservedAt: z.iso.datetime().optional(),
   links: z.array(placeActionLinkSchema),
+  /** Well-formed Google links of an action type this release cannot edit; shown read-only with a Google handoff. */
+  unsupportedLinks: z
+    .array(
+      z.object({
+        name: z.string(),
+        providerType: z.string(),
+        uri: z.string(),
+        placeActionType: z.string(),
+      })
+    )
+    .optional(),
   latestMutation: placeActionMutationSummarySchema.nullable(),
 })
 export type PlaceActionsState = z.infer<typeof placeActionsStateSchema>

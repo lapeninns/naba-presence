@@ -1,0 +1,93 @@
+import { expect, test } from "@playwright/test"
+import { startVerificationBackend } from "./helpers/verification-backend"
+import { assertPinPrivacy, capturePin, pinPanel, reviewedPin, type VerificationBackend } from "./helpers/verification-pin-backend"
+import { captureVerificationStart } from "./helpers/verification-capture"
+
+let backend: VerificationBackend
+test.beforeAll(async () => { backend = await startVerificationBackend() })
+test.afterAll(async () => { await backend.stop() })
+test.beforeEach(async ({ context }) => {
+  await context.route("**/*", (route) => new URL(route.request().url()).origin === backend.server.baseUrl ? route.continue() : route.abort("blockedbyclient"))
+})
+
+for (const width of [375, 768, 1280]) {
+  test.describe(`PIN and combined journeys at ${width}px`, () => {
+    test.use({ viewport: { width, height: 1100 } })
+    for (const method of ["EMAIL", "PHONE_CALL", "SMS", "ADDRESS"] as const) {
+      test(`completes reviewed ${method} PIN with exact independent readback`, async ({ page }, info) => {
+        const fixture = await backend.fixture(page, method, true); await fixture.open()
+        backend.google.respond({ method: "POST", pathEndsWith: `${fixture.name}:complete` }, () => { fixture.setPhase("COMPLETED"); return { status: 200, json: { verification: { ...fixture.verification(), pin: reviewedPin }, token: reviewedPin } } })
+        const panel = pinPanel(page)
+        await expect(panel.getByLabel("PIN from Google")).toBeEnabled()
+        await capturePin(page, info, "pending")
+        await panel.getByLabel("PIN from Google").fill(reviewedPin)
+        await panel.getByRole("button", { name: "Review PIN completion" }).click()
+        await expect(panel.getByRole("button", { name: "Approve PIN completion" })).toBeEnabled()
+        await expect(panel.getByLabel("PIN from Google")).toHaveCount(0)
+        expect(fixture.completionWrites()).toHaveLength(0)
+        await capturePin(page, info, "review")
+        await panel.getByRole("button", { name: "Approve PIN completion" }).click()
+        await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
+        await expect(panel.getByRole("button", { name: "Send approved PIN" })).toBeDisabled()
+        await capturePin(page, info, "approved")
+        await panel.getByLabel("Re-enter reviewed PIN").fill(reviewedPin)
+        await panel.getByRole("checkbox").focus(); await page.keyboard.press("Space")
+        await panel.getByRole("button", { name: "Send approved PIN" }).focus()
+        await capturePin(page, info, "keyboard-ready")
+        await page.keyboard.press("Enter")
+        await expect(panel.getByText("Google accepted the request", { exact: true })).toBeVisible()
+        await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
+        await expect(panel.locator("dl > div").filter({ has: page.getByText("Verification request phase", { exact: true }) }).locator("dd")).toHaveText(/Completed with Google$/)
+        await expect(panel.getByText("Google hasn't yet confirmed you can manage this listing", { exact: true })).toBeVisible()
+        expect(fixture.completionWrites()).toHaveLength(1)
+        expect(fixture.completionWrites()[0].body).toEqual({ pin: reviewedPin })
+        const write = backend.google.calls.findIndex((call) => call.path.endsWith(":complete"))
+        expect(backend.google.calls.slice(write + 1).some((call) => call.method === "GET" && call.path.includes(`${fixture.linked.googleLocationName}/verifications`))).toBe(true)
+        await capturePin(page, info, "outcome")
+        await page.reload(); await panel.getByRole("button", { name: "Open saved outcome" }).click()
+        await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
+        const attempts = await backend.admin`select id from gbp_management_mutation where organisation_id = ${fixture.owner.organisationId}`
+        expect(attempts).toHaveLength(1); expect(fixture.completionWrites()).toHaveLength(1)
+        await assertPinPrivacy(backend, fixture)
+        expect(await page.evaluate(() => `${location.href} ${JSON.stringify(localStorage)} ${JSON.stringify(sessionStorage)}`)).not.toContain(reviewedPin)
+      })
+    }
+
+    test("restores both approved review families with one send surface and clears transient PIN on switching", async ({ page }, info) => {
+      const fixture = await backend.fixture(page); await fixture.open()
+      const start = page.locator('section[aria-labelledby="verification-start"]')
+      await start.getByRole("button", { name: "Check available methods" }).click()
+      await start.getByRole("radio").check()
+      await start.getByRole("button", { name: "Review verification request" }).click()
+      await start.getByRole("button", { name: "Approve verification request" }).click()
+      await expect(start.getByRole("button", { name: "Send approved verification request" })).toBeDisabled()
+      fixture.setPhase("PENDING")
+      const panel = pinPanel(page)
+      await panel.getByRole("button", { name: "Check current Google verification state" }).click()
+      await expect(panel.getByLabel("PIN from Google")).toBeEnabled()
+      await panel.getByLabel("PIN from Google").fill(reviewedPin)
+      await panel.getByRole("button", { name: "Review PIN completion" }).click()
+      await panel.getByRole("button", { name: "Approve PIN completion" }).click()
+      await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
+      await panel.getByLabel("Re-enter reviewed PIN").fill(reviewedPin)
+      await expect(page.locator('[data-slot="action-bar"]')).toHaveCount(1)
+      await start.getByRole("button", { name: "Continue approved verification start" }).click()
+      await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveCount(0)
+      await expect(page.locator('[data-slot="action-bar"]')).toHaveCount(1)
+      await captureVerificationStart(page, info, "combined-start-active")
+      await panel.getByRole("button", { name: "Continue approved PIN completion" }).click()
+      await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
+      await expect(panel.getByRole("checkbox")).not.toBeChecked()
+      await expect(page.locator('[data-slot="action-bar"]')).toHaveCount(1)
+      await capturePin(page, info, "combined-pin-active")
+      expect(fixture.writes()).toHaveLength(0); expect(fixture.completionWrites()).toHaveLength(0)
+      await page.reload()
+      await start.getByRole("button", { name: "Open saved review" }).click()
+      await panel.getByRole("button", { name: "Open saved review" }).click()
+      await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
+      await expect(page.locator('[data-slot="action-bar"]')).toHaveCount(1)
+      await expect(start.getByRole("button", { name: "Continue approved verification start" })).toBeVisible()
+      await assertPinPrivacy(backend, fixture)
+    })
+  })
+}

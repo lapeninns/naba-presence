@@ -538,7 +538,7 @@ test.describe("listings", () => {
     await confirm.click()
     expect((await deleted).status()).toBe(200)
     await expect(
-      page.getByText("Location deleted from Google", { exact: true })
+      page.getByText("Google deletion request acknowledged", { exact: true })
     ).toBeVisible()
   })
 })

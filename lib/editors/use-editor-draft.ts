@@ -73,12 +73,14 @@ export function useEditorDraft<T>({
   initial,
   revision,
   key,
+  parseStashed,
 }: {
   initial: T
   /** Token that changes when the SERVER value changes — usually a revision. */
   revision: unknown
   /** Stash key, unique per location and resource. */
   key: string
+  parseStashed?: (value: unknown) => T | null
 }): EditorDraft<T> {
   const [draft, setDraft] = useState(initial)
   // The server value the draft was last seeded from, and whether the next
@@ -123,7 +125,9 @@ export function useEditorDraft<T>({
     const raw = peekStashedDraft(key)
     if (raw === null) return null
     try {
-      return { value: JSON.parse(raw) as T }
+      const parsed: unknown = JSON.parse(raw)
+      const value = parseStashed ? parseStashed(parsed) : parsed as T
+      return value === null ? null : { value }
     } catch {
       // A corrupt stash is ignored, as if it had never been written.
       return null

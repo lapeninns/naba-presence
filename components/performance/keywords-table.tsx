@@ -18,7 +18,7 @@ import { formatKeywordImpressions } from "@/lib/reporting/keyword-impressions"
 export function keywordsCsv(keywords: KeywordRow[]): CsvCell[][] {
   return [
     [
-      "Rank",
+      "Position by impressions (not a search ranking)",
       "Search term",
       "Impressions (at least)",
       "Impressions (at most)",
@@ -46,7 +46,8 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
       <TableHeader>
         <TableRow>
           <TableHead numeric className="w-12">
-            #
+            <span aria-hidden>#</span>
+            <span className="sr-only">Position by impressions, not a search ranking</span>
           </TableHead>
           <TableHead>Search term</TableHead>
           <TableHead numeric>Impressions</TableHead>
@@ -57,7 +58,7 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
           <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
             <TableCell
               numeric
-              label="Rank"
+              label="Position"
               className="text-ink-muted @max-[720px]/table:col-span-1! @max-[720px]/table:row-start-2!"
             >
               {keyword.rank}

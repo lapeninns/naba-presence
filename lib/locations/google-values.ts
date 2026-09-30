@@ -18,6 +18,9 @@ import type {
   GoogleAttribute,
 } from "@/lib/contracts/location-business-information"
 import { categoryLabel, openStatusLabel } from "@/lib/locations/console-labels"
+import { openingDateLabel, type OpeningDateDraft } from "./forms/opening-date"
+import type { GoogleServiceArea } from "@/lib/domain/google-service-area"
+import { googleRelevantLocationSchema, type GoogleRelationship } from "@/lib/domain/google-relationships"
 
 export type RawRecord = Record<string, unknown>
 
@@ -109,17 +112,27 @@ export function describeAttributeValue(
   if (!metadata) return null
   switch (metadata.valueType) {
     case "BOOL":
-      return attribute?.values?.[0] === true ? "Yes" : "No"
+      return typeof attribute?.values?.[0] === "boolean" ? (attribute.values[0] ? "Yes" : "No") : "Not set"
     case "ENUM": {
-      const value = attribute?.repeatedEnumValue?.setValues?.[0]
-      if (!value) return "Not set"
+      const value = attribute?.values?.[0]
+      if (typeof value !== "string" || !value) return "Not set"
       return (
         enumOptionsFor(metadata).find((option) => option.value === value)
           ?.label ?? value
       )
     }
     case "URL":
-      return attribute?.uriValues?.[0]?.uri || "Not set"
+      return attribute?.uriValues?.map((value) => value.uri).join(", ") || "Not set"
+    case "REPEATED_ENUM": {
+      const selected = attribute?.repeatedEnumValue?.setValues ?? []
+      const unselected = attribute?.repeatedEnumValue?.unsetValues ?? []
+      if (!selected.length && !unselected.length) return "Not set"
+      const options = enumOptionsFor(metadata)
+      return [...new Set([...options.map((option) => option.value), ...selected, ...unselected])].map((value) => {
+        const label = options.find((option) => option.value === value)?.label ?? value
+        return `${label}: ${selected.includes(value) ? "Yes" : unselected.includes(value) ? "No" : "Not set"}`
+      }).join("; ")
+    }
     default:
       return null
   }
@@ -186,8 +199,11 @@ export type BusinessInformationDraft = {
   title: string
   description: string
   primaryPhone: string
+  additionalPhones?: string[]
+  adPhone?: string
   websiteUri: string
   openStatus: string
+  openingDate?: OpeningDateDraft | null
   storeCode: string
   labels: string[]
   primaryCategory: CategoryRef | null
@@ -196,21 +212,46 @@ export type BusinessInformationDraft = {
   locality: string
   postalCode: string
   regionCode: string
+  administrativeArea?: string
+  sublocality?: string
+  addressLanguageCode?: string
+  addressOrganization?: string
+  addressRecipients?: string[]
+  addressSortingCode?: string
+  serviceArea?: GoogleServiceArea
+  relationshipData?: GoogleRelationship
+  clearStorefrontAddress?: boolean
 }
 
 export const LOCATION_FIELD_LABELS: Record<BusinessMask, string> = {
   title: "Business name",
   profile: "Description",
   phoneNumbers: "Phone",
+  "storefrontAddress.languageCode": "Address language",
+  "storefrontAddress.organization": "Address organisation",
+  "storefrontAddress.recipients": "Address recipients",
+  "storefrontAddress.sortingCode": "Postal sorting code",
+  adWordsLocationExtensions: "Google Ads phone",
   websiteUri: "Website",
   storefrontAddress: "Address",
+  "storefrontAddress.addressLines": "Address lines",
+  "storefrontAddress.locality": "Town or city",
+  "storefrontAddress.postalCode": "Postcode",
+  "storefrontAddress.regionCode": "Country code",
+  "storefrontAddress.administrativeArea": "County or region",
+  "storefrontAddress.sublocality": "District or neighbourhood",
   categories: "Categories",
   serviceArea: "Service area",
   serviceItems: "Service items",
   labels: "Labels",
   storeCode: "Store code",
   openInfo: "Open status",
+  "openInfo.status": "Open status",
+  "openInfo.openingDate": "Opening date",
   relationshipData: "Relationship data",
+  "relationshipData.parentChain": "Chain affiliation",
+  "relationshipData.parentLocation": "Parent business",
+  "relationshipData.childrenLocations": "Child businesses",
 }
 
 export type GoogleDiffRow = {
@@ -223,10 +264,10 @@ export type GoogleDiffRow = {
 export function formatAddress(
   draft: Pick<
     BusinessInformationDraft,
-    "addressLines" | "locality" | "postalCode"
+    "addressLines" | "locality" | "postalCode" | "administrativeArea" | "sublocality"
   >
 ): string | null {
-  const parts = [...draft.addressLines, draft.locality, draft.postalCode]
+  const parts = [...draft.addressLines, draft.sublocality ?? "", draft.locality, draft.administrativeArea ?? "", draft.postalCode]
     .map((p) => p.trim())
     .filter(Boolean)
   return parts.length > 0 ? parts.join(", ") : null
@@ -271,9 +312,11 @@ export function locationDiffRows(
         return {
           key,
           label,
-          currentValue: initial.primaryPhone || null,
-          nextValue: draft.primaryPhone || null,
+          currentValue: [initial.primaryPhone, ...(initial.additionalPhones ?? [])].filter(Boolean).join(", ") || null,
+          nextValue: [draft.primaryPhone, ...(draft.additionalPhones ?? [])].filter(Boolean).join(", ") || null,
         }
+      case "adWordsLocationExtensions":
+        return { key, label, currentValue: initial.adPhone || null, nextValue: draft.adPhone || null }
       case "websiteUri":
         return {
           key,
@@ -282,12 +325,15 @@ export function locationDiffRows(
           nextValue: draft.websiteUri || null,
         }
       case "openInfo":
+      case "openInfo.status":
         return {
           key,
           label,
           currentValue: openStatusLabel(initial.openStatus),
           nextValue: openStatusLabel(draft.openStatus),
         }
+      case "openInfo.openingDate":
+        return { key, label, currentValue: openingDateLabel(initial.openingDate), nextValue: openingDateLabel(draft.openingDate) }
       case "storeCode":
         return {
           key,
@@ -314,10 +360,51 @@ export function locationDiffRows(
           key,
           label,
           currentValue: formatAddress(initial),
-          nextValue: formatAddress(draft),
+          nextValue: draft.clearStorefrontAddress ? null : formatAddress(draft),
         }
+      case "serviceArea":
+        return { key, label, currentValue: serviceAreaSummary(initial.serviceArea), nextValue: serviceAreaSummary(draft.serviceArea) }
+      case "relationshipData.parentChain":
+        return { key, label, currentValue: initial.relationshipData?.parentChain || null, nextValue: draft.relationshipData?.parentChain || null }
+      case "relationshipData.parentLocation":
+        return { key, label, currentValue: relatedLocationSummary(initial.relationshipData?.parentLocation), nextValue: relatedLocationSummary(draft.relationshipData?.parentLocation) }
+      case "relationshipData.childrenLocations":
+        return { key, label, currentValue: initial.relationshipData?.childrenLocations?.map(relatedLocationSummary).join("; ") || null, nextValue: draft.relationshipData?.childrenLocations?.map(relatedLocationSummary).join("; ") || null }
+      case "storefrontAddress.addressLines":
+        return { key, label, currentValue: initial.addressLines.join(", ") || null, nextValue: draft.addressLines.join(", ") || null }
+      case "storefrontAddress.locality":
+        return { key, label, currentValue: initial.locality || null, nextValue: draft.locality || null }
+      case "storefrontAddress.postalCode":
+        return { key, label, currentValue: initial.postalCode || null, nextValue: draft.postalCode || null }
+      case "storefrontAddress.regionCode":
+        return { key, label, currentValue: initial.regionCode || null, nextValue: draft.regionCode || null }
+      case "storefrontAddress.administrativeArea":
+        return { key, label, currentValue: initial.administrativeArea || null, nextValue: draft.administrativeArea || null }
+      case "storefrontAddress.sublocality":
+        return { key, label, currentValue: initial.sublocality || null, nextValue: draft.sublocality || null }
+      case "storefrontAddress.languageCode":
+        return { key, label, currentValue: initial.addressLanguageCode || null, nextValue: draft.addressLanguageCode || null }
+      case "storefrontAddress.organization":
+        return { key, label, currentValue: initial.addressOrganization || null, nextValue: draft.addressOrganization || null }
+      case "storefrontAddress.recipients":
+        return { key, label, currentValue: initial.addressRecipients?.join("; ") || null, nextValue: draft.addressRecipients?.join("; ") || null }
+      case "storefrontAddress.sortingCode":
+        return { key, label, currentValue: initial.addressSortingCode || null, nextValue: draft.addressSortingCode || null }
       default:
         return { key, label, currentValue: null, nextValue: null }
     }
   })
+}
+
+function serviceAreaSummary(area: GoogleServiceArea | undefined): string | null {
+  if (!area) return null
+  const type = area.businessType === "CUSTOMER_LOCATION_ONLY" ? "Customer locations only" : "Business and customer locations"
+  const places = area.places?.placeInfos.map((place) => `${place.placeName} (${place.placeId})`) ?? []
+  return [type, area.regionCode, ...places].filter(Boolean).join("; ")
+}
+
+function relatedLocationSummary(value: GoogleRelationship["parentLocation"]): string | null {
+  const parsed = googleRelevantLocationSchema.safeParse(value)
+  if (!parsed.success) return null
+  return `${parsed.data.placeId} (${parsed.data.relationType === "DEPARTMENT_OF" ? "Department" : "Independent business at the same address"})`
 }

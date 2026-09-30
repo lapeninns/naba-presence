@@ -7,6 +7,8 @@ import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostCard } from "@/components/locations/posts/post-card"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
+import { PostSchedules } from "@/components/locations/posts/post-schedules"
+import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -172,7 +174,7 @@ function PostsList({
       title="Posts"
       statusLabel={summary?.label}
       tone={summary?.tone}
-      description="Updates, events and offers that appear on the listing. Drafts stay here until you publish them; posts publish when you press Publish, as scheduling isn’t available."
+      description="Updates, events and offers that appear on the listing. Drafts stay here until you publish them, or until an approved schedule publishes them."
       // Every post write 503s while paused, so the banner is also the reason
       // for the disabled Delete (and Publish) on each post below.
       gateReason={
@@ -285,13 +287,18 @@ function PostsList({
                       problem={problem(post)}
                       lifecycle={lifecycle(post)}
                       actions={
-                        <PostsActionBar
-                          locationId={locationId}
-                          post={post}
-                          caps={caps}
-                          writesEnabled={writesEnabled}
-                          timezone={timezone}
-                        />
+                        <div className="flex flex-wrap items-center gap-1">
+                          <PostsActionBar
+                            locationId={locationId}
+                            post={post}
+                            caps={caps}
+                            writesEnabled={writesEnabled}
+                            timezone={timezone}
+                          />
+                          {caps?.canEditCanonical ? (
+                            <SchedulePostSheet locationId={locationId} post={post} timezone={timezone} />
+                          ) : null}
+                        </div>
                       }
                     />
                   </li>
@@ -301,6 +308,7 @@ function PostsList({
           )}
         </div>
       )}
+      <PostSchedules locationId={locationId} timezone={timezone} />
     </EditorFrame>
   )
 }

@@ -366,7 +366,7 @@ export function PostComposerSheet({
   const create = useResourceMutation({
     mutationFn: async (input: LocalPostFormValues): Promise<unknown> =>
       post
-        ? updatePost(locationId, post.id, input)
+        ? updatePost(locationId, post.id, input, post.updatedAt)
         : createPost(locationId, input),
     invalidate: [queryKeys.locationPosts(locationId)],
     successToast: post

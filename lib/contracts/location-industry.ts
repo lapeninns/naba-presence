@@ -1,6 +1,10 @@
 // Contract for /api/locations/[id]/industry. Client-safe: zod only.
 import { z } from "zod"
 
+import { GOOGLE_LODGING_UPDATE_PATHS } from "@/lib/domain/google-lodging"
+import { lodgingSchema } from "./google-lodging"
+import { gbpChangeSetSchema } from "./gbp-change-set"
+
 import { gbpMutationWithResponseResultSchema, sectionResultSchema } from "./gbp-management"
 
 export { sectionResultSchema, type SectionResult } from "./gbp-management"
@@ -17,6 +21,8 @@ export const industryStateSchema = z.object({
   insuranceNetworks: sectionResultSchema,
   canManage: z.boolean(),
   writesEnabled: z.boolean(),
+  lodgingHash: z.string().optional(),
+  lodgingChangeSets: z.array(gbpChangeSetSchema).optional(),
 })
 export type IndustryState = z.infer<typeof industryStateSchema>
 
@@ -49,8 +55,9 @@ export const industryMutationSchema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("update_lodging"),
     confirmation: z.literal(INDUSTRY_CONFIRMATION),
-    updateMask: freeformMask,
-    payload: freeformPayload,
+    updateMask: z.array(z.string().refine((path) => GOOGLE_LODGING_UPDATE_PATHS.has(path), "Select a supported writable lodging field.")).min(1),
+    payload: lodgingSchema,
+    changeSetId: z.uuid().optional(),
   }),
   z.object({
     operation: z.literal("update_business_calls"),
@@ -75,3 +82,5 @@ export type IndustryMutation = z.infer<typeof industryMutationSchema>
 
 export const industryMutationResultSchema = gbpMutationWithResponseResultSchema
 export type IndustryMutationResult = z.infer<typeof industryMutationResultSchema>
+
+export const industryConfirmationRequestSchema = z.object({ mutationId: z.uuid() })

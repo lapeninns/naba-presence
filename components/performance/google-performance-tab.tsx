@@ -4,7 +4,7 @@ import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
-import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
+import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
@@ -59,11 +59,7 @@ export function GooglePerformanceTab({
         // Only a real "as at" date: with nothing collected the panel below
         // already says so, and the caption would repeat it word for word.
         !presence.data?.freshThrough ? null : (
-          <FetchedAtCaption
-            iso={presence.data.freshThrough}
-            timezone="UTC"
-            prefix="Google figures as at"
-          />
+          <PresenceProvenance data={presence.data} />
         )
       }
       controls={

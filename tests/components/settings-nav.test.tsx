@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { cleanup, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { SettingsNav } from "@/components/settings/settings-nav"
@@ -27,14 +27,17 @@ describe("SettingsNav", () => {
     expect(screen.queryByRole("link", { name: "Listing" })).not.toBeInTheDocument()
   })
 
-  it("no longer offers Compliance or Operations consoles", () => {
-    // Data-subject requests, legal holds and sync health are still served by
-    // their owner/admin-gated API routes; what they lost is a console in a
-    // product whose job is replying to reviews.
+  it("offers Operations to owners and admins only, and no Compliance console", () => {
+    // Data-subject requests and legal holds are served by their gated API
+    // routes. Operations returned as the owner/admin recovery view the GBP
+    // operations brief requires (WP8).
     render(<SettingsNav role="owner" />)
-    for (const gone of ["Compliance", "Operations"]) {
-      expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument()
-    }
+    expect(screen.queryByRole("link", { name: "Compliance" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Operations" })).toBeInTheDocument()
+    cleanup()
+    render(<SettingsNav role="member" />)
+    expect(screen.queryByRole("link", { name: "Operations" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Notifications" })).toBeInTheDocument()
   })
 
   it("shows every area to an admin too", () => {

@@ -3,6 +3,7 @@ import type { TransactionSql } from "postgres"
 
 import type { OperationsHealth } from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { retryableDelivery } from "@/lib/server/notifications/retry"
 import { schedulerLiveness } from "@/lib/server/ops-liveness"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
@@ -482,6 +483,30 @@ export const GET = route({
           now() - interval '30 days'
       `
       const alerting = await tenantAlerting(sql)
+      const unresolvedWrites = await sql<OperationsHealth["unresolvedWrites"]>`
+        select family, count(*)::integer as count, min(created_at)::text as "oldestAt" from (
+          select 'links' as family, created_at from place_action_mutation
+            where status in ('started', 'ambiguous') or confirmation_state in ('pending', 'unresolved')
+          union all select coalesce(resource_type, 'management'), created_at from gbp_management_mutation
+            where status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved')
+          union all select 'hours', created_at from hours_sync_attempt where status = 'ambiguous'
+          union all select 'profile', created_at from profile_sync_attempt where status = 'ambiguous'
+          union all select 'menus', created_at from food_menus_sync_attempt where status = 'ambiguous'
+          union all select 'media', created_at from gbp_media_mutation where status = 'ambiguous'
+          union all select 'posts', created_at from gbp_local_post_attempt where status = 'ambiguous'
+          union all select 'reviews', started_at from publish_attempt where status = 'ambiguous'
+        ) unresolved group by family order by min(created_at)
+      `
+      const [queuedDeliveries] = await sql<{ queued: number; oldestQueuedAt: string | null; retryable: number }[]>`
+        select count(*) filter (where status = 'pending')::integer as queued,
+          min(created_at) filter (where status = 'pending')::text as "oldestQueuedAt",
+          count(*) filter (where ${retryableDelivery(sql)})::integer as retryable
+        from notification_delivery
+      `
+      const deliveryStates = await sql<{ state: string; count: number }[]>`
+        select delivery_state as state, count(*)::integer as count from notification_delivery
+        where created_at >= now() - interval '7 days' group by delivery_state order by delivery_state
+      `
       return {
         generatedAt: new Date().toISOString(),
         sync,
@@ -492,6 +517,8 @@ export const GET = route({
         providerTotalDivergence30d: providerDivergence.count,
         ...alerting,
         ...liveness,
+        unresolvedWrites,
+        notificationDeliveries: { ...queuedDeliveries, states7d: deliveryStates },
       } satisfies OperationsHealth
     })
     return NextResponse.json(health, {

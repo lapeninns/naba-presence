@@ -40,6 +40,22 @@ function renderTab() {
 afterEach(() => vi.clearAllMocks())
 
 describe("BookingTab", () => {
+  it("hands unknown future provider action types to Google without presenting confirmed ineligibility or an editor", () => {
+    useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: [], unsupportedTypes: ["FUTURE_ACTION"], links: [] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByRole("heading", { name: "Manage these action types in Google" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage action links in Google" })).toHaveAttribute("href", "https://business.google.com/")
+    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Google doesn’t offer action links for this listing")).not.toBeInTheDocument()
+  })
+  it("shows an observed empty location-specific action set without inventing enum-wide editors", () => {
+    useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: [], unsupportedTypes: [], links: [] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByRole("heading", { name: "Google doesn’t offer action links for this listing" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
+  })
   it("lists links, marks a non-editable provider link read-only, and shows no gate reason for a publisher", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
@@ -48,7 +64,7 @@ describe("BookingTab", () => {
     expect(screen.getByText("Managed by Google")).toBeInTheDocument()
     // The add button exists; it is only disabled until a link is typed (dirty),
     // and a publisher sees no permission gate note.
-    expect(screen.getByRole("button", { name: "Add booking link" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Review action link" })).toBeInTheDocument()
     expect(screen.queryByText("You do not have permission to publish this location to Google.")).not.toBeInTheDocument()
   })
 
@@ -56,7 +72,7 @@ describe("BookingTab", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Add booking link" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Review action link" })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
   })
 })

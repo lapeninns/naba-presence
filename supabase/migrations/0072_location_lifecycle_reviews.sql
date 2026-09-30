@@ -1,0 +1,20 @@
+begin;
+
+alter table gbp_change_set drop constraint gbp_change_set_resource_type_check;
+alter table gbp_change_set add constraint gbp_change_set_resource_type_check
+  check (resource_type in ('lodging', 'business_info', 'attributes', 'verification_start', 'verification_complete', 'administration_access', 'location_lifecycle'));
+alter table gbp_change_set add constraint gbp_lifecycle_payload_check
+  check (resource_type <> 'location_lifecycle' or coalesce((
+    jsonb_typeof(payload -> 'request') = 'object'
+    and payload -> 'request' ->> 'operation' in ('transfer_location', 'delete_location')
+    and jsonb_typeof(payload -> 'request' -> 'payload') = 'object'
+    and payload ->> 'connectionId' = connection_id::text
+    and jsonb_typeof(payload -> 'credentialGeneration') = 'number'
+    and (payload ->> 'credentialGeneration') ~ '^[0-9]+$'
+    and jsonb_typeof(payload -> 'observedAt') = 'string'
+    and private_payload is null
+    and update_mask = array[]::text[]
+  ), false));
+
+insert into schema_migration (version) values ('0072_location_lifecycle_reviews') on conflict (version) do nothing;
+commit;
