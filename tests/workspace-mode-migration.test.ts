@@ -6,7 +6,7 @@ import { sessionSchema } from "@/lib/contracts/session"
 
 describe("Workspace mode migration", () => {
   const migration = readFileSync(
-    join(process.cwd(), "supabase/migrations/0060_workspace_mode.sql"),
+    join(process.cwd(), "supabase/migrations/0061_workspace_mode.sql"),
     "utf8"
   )
 
@@ -28,7 +28,7 @@ describe("Workspace mode migration", () => {
   it("records its version in one transaction", () => {
     expect(migration.trim().startsWith("begin;")).toBe(true)
     expect(migration.trim().endsWith("commit;")).toBe(true)
-    expect(migration).toContain("values ('0060_workspace_mode')")
+    expect(migration).toContain("values ('0061_workspace_mode')")
   })
 })
 
