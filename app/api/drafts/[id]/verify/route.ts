@@ -4,6 +4,7 @@ import {
   reviewIdParamsSchema,
   type VerifyResult,
 } from "@/lib/contracts/reviews"
+import { recordAiUsage } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
@@ -104,6 +105,19 @@ export const POST = route({
     const result = await tenant(async (sql) => {
       const current = await loadDraft(sql, id)
       await requireLocationAccess(sql, session, current.location_id)
+      if (semantic.usage && semantic.model) {
+        await recordAiUsage(sql, {
+          organisationId: session.organisationId,
+          kind: "verify",
+          credits: 0,
+          model: semantic.model,
+          usage: semantic.usage,
+          reviewId: current.review_id,
+          draftId: current.id,
+          requestId,
+          userId: session.userId,
+        })
+      }
       const verification = await verifyStoredDraft(sql, {
         draftId: current.id,
         body: current.body,

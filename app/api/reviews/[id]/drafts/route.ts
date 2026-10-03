@@ -12,7 +12,8 @@ import {
   isAllowedReviewTransition,
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
-import { generateReply } from "@/lib/server/ai"
+import { generateReply, type AiUsage } from "@/lib/server/ai"
+import { recordAiUsage } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
@@ -137,7 +138,12 @@ export const POST = route({
     const isRatingOnly = !review.review_text?.trim()
 
     // Phase two: no connection is held here.
-    const generated = input.body
+    const generated: {
+      reply: string
+      language: string
+      usage?: AiUsage
+      model?: string
+    } = input.body
       ? { reply: input.body, language }
       : isRatingOnly
         ? ratingOnlyReply(review.rating, language, review.reviewer_name)
@@ -214,6 +220,34 @@ export const POST = route({
         )
         returning id::text as id
       `
+      // Usage is recorded whatever happens to the draft below: the provider
+      // was paid for. Nothing here limits or refuses a call yet.
+      if (generated.usage && generated.model) {
+        await recordAiUsage(sql, {
+          organisationId: session.organisationId,
+          kind: "draft",
+          credits: 1,
+          model: generated.model,
+          usage: generated.usage,
+          reviewId: id,
+          draftId: draft.id,
+          requestId: correlationId,
+          userId: session.userId,
+        })
+      }
+      if (semantic.usage && semantic.model) {
+        await recordAiUsage(sql, {
+          organisationId: session.organisationId,
+          kind: "verify",
+          credits: 0,
+          model: semantic.model,
+          usage: semantic.usage,
+          reviewId: id,
+          draftId: draft.id,
+          requestId: `${correlationId}:verification`,
+          userId: session.userId,
+        })
+      }
       // `drafted` first: from `new` there is no edge straight to `verified`.
       await sql`
         update review

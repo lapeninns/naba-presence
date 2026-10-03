@@ -8,7 +8,11 @@ import {
   verificationVerdict,
   type VerificationReason,
 } from "@/lib/domain/verification"
-import { semanticVerification, type SemanticInput } from "@/lib/server/ai"
+import {
+  semanticVerification,
+  type AiUsage,
+  type SemanticInput,
+} from "@/lib/server/ai"
 import { sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
 
@@ -58,6 +62,9 @@ export function buildEvidenceHash(input: EvidenceInput): string {
 export type SemanticOutcome = {
   status: "ran" | "skipped" | "unavailable"
   reasons: VerificationReason[]
+  /** Provider usage when the call completed; recorded by the caller. */
+  usage?: AiUsage
+  model?: string
 }
 
 const SEMANTIC_UNAVAILABLE: VerificationReason = {
@@ -81,7 +88,12 @@ export async function runSemanticVerification(
   try {
     const result = await semanticVerification(input)
     return result.ran
-      ? { status: "ran", reasons: result.reasons }
+      ? {
+          status: "ran",
+          reasons: result.reasons,
+          usage: result.usage,
+          model: result.model,
+        }
       : { status: "skipped", reasons: [] }
   } catch (error) {
     // A provider that is down or rate-limiting must not lose the reply the
