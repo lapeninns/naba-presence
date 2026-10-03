@@ -285,3 +285,17 @@ describe("business-mode setup flow", () => {
     })
   })
 })
+
+import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
+
+describe("describeGoogleConnectStatus wording", () => {
+  it("says business, not agency, in business mode", () => {
+    expect(describeGoogleConnectStatus("403", null, "business")).toMatch(
+      /this business/
+    )
+    expect(describeGoogleConnectStatus("403", null, "business")).not.toMatch(
+      /agency|client/i
+    )
+    expect(describeGoogleConnectStatus("403")).toMatch(/this agency/)
+  })
+})

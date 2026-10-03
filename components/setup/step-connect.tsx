@@ -117,7 +117,11 @@ function StepConnect({
               <AlertDescription className="flex flex-col gap-1">
                 <span>
                   {startError ??
-                    describeGoogleConnectStatus(returnedStatus, returnedReason)}
+                    describeGoogleConnectStatus(
+                      returnedStatus,
+                      returnedReason,
+                      business ? "business" : "agency"
+                    )}
                 </span>
                 {!startError && requestId ? (
                   <span className="text-caption text-ink-muted">

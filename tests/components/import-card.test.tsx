@@ -14,13 +14,16 @@ const {
   accountsMock,
   locationsMock,
   importMock,
+  modeMock,
 } = vi.hoisted(() => ({
   assignLocationsToClient: vi.fn(async () => ({ assigned: ["loc-1"] })),
   workspaceMock: vi.fn(),
   accountsMock: vi.fn(),
   locationsMock: vi.fn(),
   importMock: vi.fn(),
+  modeMock: vi.fn(() => "agency"),
 }))
+vi.mock("@/lib/workspace/mode", () => ({ useWorkspaceMode: () => modeMock() }))
 vi.mock("@/lib/queries/use-connection-workspace", () => ({
   useConnectionWorkspace: () => workspaceMock(),
 }))
@@ -121,7 +124,10 @@ function renderCard(
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  modeMock.mockReturnValue("agency")
+})
 
 describe("ImportCard", () => {
   it("lists discovered locations and imports one on click", async () => {
@@ -253,5 +259,31 @@ describe("ImportCard", () => {
       externalLocationId: "e1",
       confirmRelink: false,
     })
+  })
+
+  it("never says client in business mode, and files only under the given home client", async () => {
+    modeMock.mockReturnValue("business")
+    vi.mocked(fetchManagementLocations).mockResolvedValue({
+      locations: [directoryRow({ clientId: "other", clientName: "Old Crown" })],
+    })
+    const { container } = renderCard([discovered({})], undefined, "home-1")
+    const button = await screen.findByRole("button", {
+      name: "Move Riverside Rooms to your business",
+    })
+    fireEvent.click(button)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog.textContent ?? "").not.toMatch(/client|agency|Old Crown/i)
+    fireEvent.click(screen.getByRole("button", { name: "Move here" }))
+    await waitFor(() =>
+      expect(assignLocationsToClient).toHaveBeenCalledWith(
+        "home-1",
+        expect.anything()
+      )
+    )
+    expect(container.textContent ?? "").not.toMatch(/client|agency/i)
+    const labels = Array.from(container.querySelectorAll("[aria-label]")).map(
+      (el) => el.getAttribute("aria-label")
+    )
+    expect(labels.join(" ")).not.toMatch(/client|agency/i)
   })
 })

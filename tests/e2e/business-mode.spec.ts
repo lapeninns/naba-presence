@@ -81,6 +81,8 @@ for (const step of [
   "notifications",
   "team",
   "done",
+  "client",
+  "connect&google=error&status=403",
 ]) {
   test(`/setup?step=${step} never says client or agency`, async ({
     page,
@@ -95,6 +97,10 @@ for (const step of [
     await expect(
       page.getByRole("heading", { name: "Setup", level: 1 })
     ).toBeVisible()
+    // The rail renders only once the setup query has resolved, so the step
+    // body below it is the loaded one and not the skeleton.
+    const rail = page.getByRole("list", { name: "Setup steps" })
+    await expect(rail).toBeVisible()
     const text = await page.locator("body").innerText()
     const scrubbed = ALLOWED.reduce(
       (current, allowed) => current.replace(allowed, ""),
@@ -102,10 +108,14 @@ for (const step of [
     )
     expect(scrubbed).not.toMatch(/\bclients?\b/i)
     expect(scrubbed).not.toMatch(/\bagency\b/i)
+    const names = await page
+      .locator("[aria-label]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("aria-label") ?? "")
+      )
+    expect(names.join("\n")).not.toMatch(/\bclients?\b|\bagency\b/i)
     // The business flow has no "Client" step in its rail.
-    await expect(
-      page.getByRole("list", { name: "Setup steps" }).getByRole("listitem")
-    ).toHaveCount(8)
+    await expect(rail.getByText(/^Client$/)).toHaveCount(0)
   })
 }
 
