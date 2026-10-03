@@ -7,6 +7,7 @@ import {
   auditExtendedGrants,
   extendClientHolders,
 } from "@/lib/server/client-access"
+import { businessHomeClientId } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
 import { requireClientAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
@@ -31,6 +32,16 @@ export const POST = route({
   handler: async ({ session, params, body, requestId, tenant }) => {
     const assigned = await tenant(async (sql) => {
       await requireClientAccess(sql, session, params.clientId)
+
+      // Business mode keeps every location under the home client.
+      const homeId = await businessHomeClientId(sql, session.organisationId)
+      if (homeId && homeId !== params.clientId) {
+        throw new ApiError(
+          409,
+          "home_client_required",
+          "Locations in a business workspace stay under the home client."
+        )
+      }
 
       const updated = await sql<{ id: string }[]>`
         update location
@@ -82,6 +93,20 @@ export const DELETE = route({
   body: clientAssignLocationsSchema.pick({ locationIds: true }),
   handler: async ({ session, params, body, requestId, tenant }) => {
     const unassigned = await tenant(async (sql) => {
+      await requireClientAccess(sql, session, params.clientId)
+
+      const [target] = await sql<{ isHome: boolean }[]>`
+        select is_home as "isHome" from client where id = ${params.clientId}
+      `
+      const homeId = await businessHomeClientId(sql, session.organisationId)
+      if (target?.isHome || homeId === params.clientId) {
+        throw new ApiError(
+          409,
+          "home_client_required",
+          "Locations cannot be unassigned from the home client."
+        )
+      }
+
       const rows = await sql<{ id: string }[]>`
         update location set client_id = null
          where client_id = ${params.clientId}
