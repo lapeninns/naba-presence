@@ -12,18 +12,21 @@ import { ImportCard } from "@/components/settings/import-card"
 function StepLocations({
   clientId,
   clientName,
+  business,
   connectionId,
 }: {
   clientId: string
   clientName: string
+  business: boolean
   /** The login this client's setup attached. */
   connectionId: string | null
 }) {
   return (
     <>
       <p className="text-ui text-ink-muted">
-        Listings you link here belong to {clientName}. A listing already linked
-        to another client keeps its review history when you move it.
+        {business
+          ? "Link the listings that belong to your business. A listing that was linked before keeps its review history."
+          : `Listings you link here belong to ${clientName}. A listing already linked to another client keeps its review history when you move it.`}
       </p>
       <ImportCard clientId={clientId} connectionId={connectionId} />
     </>

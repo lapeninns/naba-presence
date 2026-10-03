@@ -58,6 +58,7 @@ function renderStep(onConnected = vi.fn()) {
         <StepConnect
           clientId="client-1"
           clientName="Lapen Inns"
+          business={false}
           onConnected={onConnected}
         />
       </Toaster>

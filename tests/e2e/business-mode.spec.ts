@@ -70,6 +70,45 @@ for (const { path, heading } of PAGES) {
   })
 }
 
+// Each wizard step, by deep link. A step the data has not reached opens the
+// furthest reachable one, so this scans whichever steps the tenant can open.
+for (const step of [
+  "agency",
+  "connect",
+  "account",
+  "locations",
+  "backfill",
+  "notifications",
+  "team",
+  "done",
+]) {
+  test(`/setup?step=${step} never says client or agency`, async ({
+    page,
+    request,
+  }) => {
+    test.skip(
+      !(await isBusinessTenant(request)),
+      "The harness tenant is not in business mode."
+    )
+    await page.goto(`/setup?step=${step}`)
+    await page.waitForLoadState("networkidle")
+    await expect(
+      page.getByRole("heading", { name: "Setup", level: 1 })
+    ).toBeVisible()
+    const text = await page.locator("body").innerText()
+    const scrubbed = ALLOWED.reduce(
+      (current, allowed) => current.replace(allowed, ""),
+      text
+    )
+    expect(scrubbed).not.toMatch(/\bclients?\b/i)
+    expect(scrubbed).not.toMatch(/\bagency\b/i)
+    // The business flow has no "Client" step in its rail.
+    await expect(
+      page.getByRole("list", { name: "Setup steps" }).getByRole("listitem")
+    ).toHaveCount(8)
+  })
+}
+
 test("the client pages redirect a business to Listings and Settings", async ({
   page,
   request,

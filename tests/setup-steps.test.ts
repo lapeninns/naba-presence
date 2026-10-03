@@ -5,7 +5,10 @@ import {
   canVisit,
   furthestReachable,
   resolveStep,
+  setupStepDefinitions,
+  setupStepsFor,
   stepBlocker,
+  stepDefinition,
   stepIndex,
   stepNumber,
   stepperState,
@@ -221,5 +224,64 @@ describe("stepIndex", () => {
   it("orders the flow", () => {
     expect(stepIndex("agency")).toBeLessThan(stepIndex("connect"))
     expect(stepIndex("connect")).toBeLessThan(stepIndex("done"))
+  })
+})
+
+describe("business-mode setup flow", () => {
+  const ready = { ...facts, usableLogin: true }
+  const businessSteps = [
+    "agency",
+    "connect",
+    "account",
+    "locations",
+    "backfill",
+    "notifications",
+    "team",
+    "done",
+  ]
+
+  it("walks Business, Connect, Account, Locations, Backfill, Notifications, Team", () => {
+    expect(setupStepsFor("business")).toEqual(businessSteps)
+    // The agency flow is unchanged and keeps its client step.
+    expect(setupStepsFor("agency")).toContain("client")
+    expect(setupStepsFor()).toEqual(setupStepsFor("agency"))
+  })
+
+  it("turns the agency step into Business and numbers it as step 1", () => {
+    const business = stepDefinition("agency", "business")
+    expect(business.label).toBe("Business")
+    expect(business.description).toBe("Your business name and timezone.")
+    expect(stepNumber("agency", "business")).toEqual({ number: 1, total: 7 })
+    expect(stepNumber("connect", "business")).toEqual({ number: 2, total: 7 })
+    expect(stepNumber("done", "business")).toBeNull()
+    // In an agency it is still a preamble, outside the numbering.
+    expect(stepNumber("agency")).toBeNull()
+    expect(stepNumber("connect")).toEqual({ number: 1, total: 6 })
+  })
+
+  it("never uses the words client or agency in a business's copy", () => {
+    const words = setupStepDefinitions("business")
+      .map((step) => `${step.label} ${step.title} ${step.description}`)
+      .join(" ")
+    expect(words).not.toMatch(/client|agency/i)
+  })
+
+  it("leaves the client step out of the rail and treats it as unknown", () => {
+    const rail = stepperState("connect", ready, "business").map((s) => s.id)
+    expect(rail).toEqual(businessSteps)
+    // A stale `?step=client` link lands where the data is, without the
+    // "hasn't reached" note.
+    expect(resolveStep("client", "connect", ready, "business")).toEqual({
+      step: "connect",
+      redirected: null,
+    })
+  })
+
+  it("still holds the owner at the first unmet step", () => {
+    expect(furthestReachable(ready, "business")).toBe("connect")
+    expect(resolveStep("team", "connect", ready, "business")).toEqual({
+      step: "connect",
+      redirected: "team",
+    })
   })
 })
