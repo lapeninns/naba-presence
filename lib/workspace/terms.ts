@@ -63,6 +63,25 @@ export function workspaceTerms(mode: WorkspaceMode): WorkspaceTerms {
 }
 
 /**
+ * The same address without its `clientId` parameter, or null when it has
+ * none. A business has no client scope, so a stale or foreign `?clientId=`
+ * must not reach the pages that read it (reports, listings, inbox).
+ */
+export function withoutClientScopeParam(pathAndSearch: string): string | null {
+  const hashAt = pathAndSearch.indexOf("#")
+  const hash = hashAt === -1 ? "" : pathAndSearch.slice(hashAt)
+  const rest = hashAt === -1 ? pathAndSearch : pathAndSearch.slice(0, hashAt)
+  const queryAt = rest.indexOf("?")
+  if (queryAt === -1) return null
+  const path = rest.slice(0, queryAt)
+  const params = new URLSearchParams(rest.slice(queryAt + 1))
+  if (!params.has("clientId")) return null
+  params.delete("clientId")
+  const query = params.toString()
+  return `${path}${query ? `?${query}` : ""}${hash}`
+}
+
+/**
  * Where a client-layer address goes in business mode, or null when the path
  * is not one of them. `/clients/[id]/settings` is where a business keeps its
  * name and defaults, so it lands on Settings; everything else under

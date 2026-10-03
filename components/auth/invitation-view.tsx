@@ -177,8 +177,8 @@ function InvitationView({
         title={`Join ${data.organisationName}`}
         description={
           initialMode === "sign-in"
-            ? "Sign in with the invited address and you will be able to work on the clients this agency has given you."
-            : "Set a password and you will be able to work on the clients this agency has given you."
+            ? `Sign in with the invited address and you will be able to work on what ${data.organisationName} has given you access to.`
+            : `Set a password and you will be able to work on what ${data.organisationName} has given you access to.`
         }
       >
         <InvitationDetails
@@ -200,7 +200,7 @@ function InvitationView({
       title={`Join ${data.organisationName}`}
       description={
         viewer.email.trim().toLowerCase() === data.email.trim().toLowerCase()
-          ? "Accepting adds this agency to the account you are already signed in with."
+          ? `Accepting adds ${data.organisationName} to the account you are already signed in with.`
           : "This invitation belongs to a different account."
       }
     >

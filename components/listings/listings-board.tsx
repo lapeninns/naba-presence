@@ -730,7 +730,7 @@ function ListingsBoard({ role }: { role: string | null }) {
         </div>
       ) : (
         <BoardTable>
-          {unfiled.length > 0 ? (
+          {!business && unfiled.length > 0 ? (
             <TableRow group>
               <TableCell colSpan={COLUMNS.length}>
                 Not filed under a client · {formatNumber(unfiled.length)}
@@ -738,7 +738,7 @@ function ListingsBoard({ role }: { role: string | null }) {
             </TableRow>
           ) : null}
           {unfiled.map(renderRow)}
-          {unfiled.length > 0 && filed.length > 0 ? (
+          {!business && unfiled.length > 0 && filed.length > 0 ? (
             <TableRow group>
               <TableCell colSpan={COLUMNS.length}>
                 Filed under a client · {formatNumber(filed.length)}

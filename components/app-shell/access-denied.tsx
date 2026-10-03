@@ -14,8 +14,9 @@ import {
 import { buttonVariants } from "@/components/ui/button"
 import { useSession } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceTerms } from "@/lib/workspace/mode"
 
-import { ROLE_EXPLANATION, ROLE_LABEL } from "./account-menu"
+import { roleExplanation, ROLE_LABEL } from "./account-menu"
 
 /**
  * An explicit "you don't have access" page.
@@ -38,6 +39,7 @@ function AccessDenied({
   area: string
   whoCanHelp?: string
 }) {
+  const { orgLower } = useWorkspaceTerms()
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       <PageEmptyState
@@ -45,7 +47,7 @@ function AccessDenied({
         icon={<Lock strokeWidth={1.75} />}
         eyebrow="No access · 403"
         title="You don’t have access to this page"
-        description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your agency if you need it.`}
+        description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your ${orgLower} if you need it.`}
         action={
           <Link
             href="/inbox"
@@ -82,6 +84,7 @@ function SignedInAccessCards({
   const session = useSession().data?.session
   if (!session) return null
   const roleLabel = ROLE_LABEL[session.role] ?? session.role
+  const explanation = roleExplanation(session.role, session.workspaceMode)
   const request = `Hi, could you give me access to ${area} in NabaPresence? I'm ${session.displayName} (${session.email}), currently a ${roleLabel.toLowerCase()} in ${session.organisationName}.`
 
   return (
@@ -103,9 +106,9 @@ function SignedInAccessCards({
                   <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-[0.71875rem] font-medium tracking-[0.02em] text-ink-secondary uppercase">
                     {roleLabel}
                   </span>
-                  {ROLE_EXPLANATION[session.role] ? (
+                  {explanation ? (
                     <span className="text-caption text-ink-muted">
-                      {ROLE_EXPLANATION[session.role]}
+                      {explanation}
                     </span>
                   ) : null}
                 </span>

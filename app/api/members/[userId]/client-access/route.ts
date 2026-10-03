@@ -102,6 +102,7 @@ export const PUT = route({
       const catalogue = await loadClientCatalogue(sql)
       const plan = planClientAccess({
         role: member.role,
+        workspaceMode: session.workspaceMode,
         request: body,
         catalogue,
         current: before,

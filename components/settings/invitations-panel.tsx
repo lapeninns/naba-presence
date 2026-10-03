@@ -478,6 +478,12 @@ function InviteForm({
           disabled={create.isPending}
         />
       ) : null}
+      {business && (role === "member" || role === "viewer") ? (
+        <p className="text-caption text-ink-muted" data-slot="invite-location-note">
+          They’ll see all your locations, including ones you add later. After
+          they join, narrow this from Location access on their row in Team.
+        </p>
+      ) : null}
       {formError ? (
         <Alert variant="destructive">
           <AlertTitle>The invitation wasn’t created</AlertTitle>

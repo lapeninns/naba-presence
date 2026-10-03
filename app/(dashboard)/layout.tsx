@@ -23,6 +23,7 @@ import { listConnections } from "@/lib/server/connections"
 import { withTenant } from "@/lib/server/db"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
+import { redirectOutOfClientScope } from "@/lib/server/workspace-redirect"
 
 export default async function DashboardLayout({
   children,
@@ -38,6 +39,11 @@ export default async function DashboardLayout({
     const requested = (await headers()).get(REQUEST_PATH_HEADER)
     redirect(signInPathFor(requested))
   }
+
+  redirectOutOfClientScope(
+    session,
+    (await headers()).get(REQUEST_PATH_HEADER)
+  )
 
   const queryClient = makeQueryClient()
   // The client the operator last worked (lib/clients/scope.ts). Read here so

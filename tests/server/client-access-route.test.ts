@@ -23,7 +23,7 @@ const admin: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: ORG,
   organisationName: "Agency",
-  workspaceMode: "business",
+  workspaceMode: "agency",
   displayName: "Ada",
   email: "ada@example.test",
   role: "admin",
@@ -295,6 +295,17 @@ describe("PUT /api/members/[userId]/client-access", () => {
     })
     expect(response.status).toBe(404)
     expect((await response.json()).error).toBe("client_not_found")
+  })
+
+  it("refuses per-location grants in an agency workspace", async () => {
+    signedIn(admin)
+    const { writes } = fakeTenant({ role: "member", grants: [] })
+    const response = await put({
+      locations: [{ locationId: "00000000-0000-4000-8000-0000000000aa" }],
+    })
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("wrong_workspace_mode")
+    expect(writes).toHaveLength(0)
   })
 
   it("404s an unknown member", async () => {

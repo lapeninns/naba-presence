@@ -4,6 +4,8 @@ export type TrailInput = {
   pathname: string
   clients: { id: string; name: string }[]
   locations: { id: string; name: string; clientId?: string | null; clientName?: string | null }[]
+  /** Business mode has no client layer: no client crumbs, no /clients trail. */
+  mode?: "business" | "agency"
 }
 
 const LISTING_AREAS: Record<string, string> = {
@@ -44,7 +46,13 @@ const SETTINGS_SECTIONS: Record<string, string> = {
  *
  * Pure, so the mapping is testable without rendering anything.
  */
-export function breadcrumbTrail({ pathname, clients, locations }: TrailInput): Crumb[] {
+export function breadcrumbTrail({
+  pathname,
+  clients,
+  locations,
+  mode = "agency",
+}: TrailInput): Crumb[] {
+  const business = mode === "business"
   const segments = pathname.split("/").filter(Boolean)
   if (segments.length === 0) return []
   const [first, second, third] = segments
@@ -55,17 +63,21 @@ export function breadcrumbTrail({ pathname, clients, locations }: TrailInput): C
     const area = third ? LISTING_AREAS[third] : undefined
     return [
       { label: "Listings", href: "/listings" },
-      ...(location.clientId && location.clientName
-        ? [{ label: location.clientName, href: `/clients/${location.clientId}` }]
-        : // A listing nobody has filed yet says so, which is what the operator
-          // needs to know when they arrive here from a search.
-          [{ label: "Unfiled", href: "/listings" }]),
+      ...(business
+        ? []
+        : location.clientId && location.clientName
+          ? [{ label: location.clientName, href: `/clients/${location.clientId}` }]
+          : // A listing nobody has filed yet says so, which is what the operator
+            // needs to know when they arrive here from a search.
+            [{ label: "Unfiled", href: "/listings" }]),
       area
         ? { label: location.name, href: `/listings/${location.id}` }
         : { label: location.name },
       ...(area ? [{ label: area }] : []),
     ]
   }
+
+  if (business && first === "clients") return []
 
   if (first === "clients" && second) {
     if (second === "new") {

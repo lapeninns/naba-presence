@@ -167,11 +167,13 @@ export type ClientAccessPlan =
  */
 export function planClientAccess(input: {
   role: MemberRole
+  /** The grant shapes are mode-exclusive: locations in business, clients in agency. */
+  workspaceMode?: "business" | "agency"
   request: ClientAccessRequest
   catalogue: ClientCatalogueEntry[]
   current: AccessGrant[]
 }): ClientAccessPlan {
-  const { role, request, catalogue, current } = input
+  const { role, request, catalogue, current, workspaceMode } = input
   if (isManagerial(role)) {
     return {
       ok: false,
@@ -183,6 +185,22 @@ export function planClientAccess(input: {
   }
   if ("allClients" in request) {
     return { ok: true, allClients: true, rows: [] }
+  }
+  if (workspaceMode === "agency" && "locations" in request) {
+    return {
+      ok: false,
+      status: 409,
+      code: "wrong_workspace_mode",
+      message: "Access is granted a client at a time in an agency workspace.",
+    }
+  }
+  if (workspaceMode === "business" && "clients" in request) {
+    return {
+      ok: false,
+      status: 409,
+      code: "wrong_workspace_mode",
+      message: "Access is granted a location at a time in a business workspace.",
+    }
   }
 
   if ("locations" in request) {

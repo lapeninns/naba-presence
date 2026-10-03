@@ -31,9 +31,6 @@ export default async function ClientLayout({
   children: React.ReactNode
 }) {
   const { clientId } = await params
-  // Not an id at all: a not-found, not a database error surfacing as the
-  // error page (the uuid column would reject the comparison).
-  if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
   const session = await getSession()
   // Every page under here redirects a business on its own; the layout does
   // it too, from the requested path, so a nested route added later cannot
@@ -42,6 +39,10 @@ export default async function ClientLayout({
     session,
     (await headers()).get(REQUEST_PATH_HEADER) ?? `/clients/${clientId}`
   )
+  // Not an id at all: a not-found, not a database error surfacing as the
+  // error page (the uuid column would reject the comparison). After the
+  // business redirect, so an old bookmark still lands somewhere useful.
+  if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
 
   if (session) {
     const [client] = await withTenant(

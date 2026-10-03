@@ -9,7 +9,11 @@ import {
   type ClientCatalogueEntry,
 } from "@/lib/settings/client-access"
 import { accessSummary, roleDescriptions } from "@/lib/settings/roles"
-import { businessModeRedirect, workspaceTerms } from "@/lib/workspace/terms"
+import {
+  businessModeRedirect,
+  withoutClientScopeParam,
+  workspaceTerms,
+} from "@/lib/workspace/terms"
 
 describe("sessionSchema", () => {
   const base = {
@@ -231,5 +235,57 @@ describe("location access requests", () => {
         request: { locations: [{ locationId: L1 }] },
       })
     ).toMatchObject({ ok: false, code: "role_sees_all_clients" })
+  })
+})
+
+describe("withoutClientScopeParam", () => {
+  it.each([
+    ["/reports?clientId=abc", "/reports"],
+    ["/listings?clientId=abc&health=bad", "/listings?health=bad"],
+    ["/inbox?tab=x&clientId=abc#top", "/inbox?tab=x#top"],
+  ])("%s -> %s", (from, to) => {
+    expect(withoutClientScopeParam(from)).toBe(to)
+  })
+
+  it("leaves addresses without a clientId alone", () => {
+    expect(withoutClientScopeParam("/reports")).toBeNull()
+    expect(withoutClientScopeParam("/reports?range=30d")).toBeNull()
+  })
+})
+
+describe("planClientAccess workspace mode", () => {
+  const catalogue: ClientCatalogueEntry[] = [
+    { clientId: "c1", name: "Home", listingIds: ["l1", "l2"] },
+  ]
+  const base = { role: "member" as const, catalogue, current: [] as AccessGrant[] }
+
+  it("refuses a per-location grant in an agency workspace", () => {
+    expect(
+      planClientAccess({
+        ...base,
+        workspaceMode: "agency",
+        request: { locations: [{ locationId: "l1" }] },
+      })
+    ).toMatchObject({ ok: false, code: "wrong_workspace_mode" })
+  })
+
+  it("refuses a per-client grant in a business workspace", () => {
+    expect(
+      planClientAccess({
+        ...base,
+        workspaceMode: "business",
+        request: { clients: [{ clientId: "c1" }] },
+      })
+    ).toMatchObject({ ok: false, code: "wrong_workspace_mode" })
+  })
+
+  it("accepts a per-location grant in a business workspace", () => {
+    expect(
+      planClientAccess({
+        ...base,
+        workspaceMode: "business",
+        request: { locations: [{ locationId: "l1" }] },
+      })
+    ).toMatchObject({ ok: true })
   })
 })
