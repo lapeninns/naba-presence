@@ -90,10 +90,10 @@ describe("credit emails", () => {
   })
 })
 
-describe("migration 0059", () => {
+describe("migration 0060", () => {
   it("allows both credit incident kinds", () => {
     const sql = readFileSync(
-      join(process.cwd(), "supabase/migrations/0059_ai_credits.sql"),
+      join(process.cwd(), "supabase/migrations/0060_ai_credit_notifications.sql"),
       "utf8"
     )
     expect(sql).toContain("'ai_credits_low'")

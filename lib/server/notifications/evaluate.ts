@@ -258,9 +258,22 @@ export async function evaluateOrganisation(
 
     // The month's AI reply credits: a heads-up at 80%, a notice at 100%.
     // The period start is the subject, so each fires once per month; the
-    // 80% incident resolves when the 100% one takes over.
+    // 80% incident resolves when the 100% one takes over. Only settled
+    // credits count: a reservation can be released again, and a figure that
+    // can fall would resolve and reopen the incident, emailing twice.
     const credits = await getAiCredits(sql, organisationId)
-    const creditFindings = creditUsageFindings(credits)
+    const [settled] = await sql<{ used: number }[]>`
+      select coalesce(sum(credits), 0)::integer as used
+      from ai_usage
+      where organisation_id = ${organisationId}
+        and kind = 'draft'
+        and status = 'settled'
+        and period_start = ${credits.periodStart}::date
+    `
+    const creditFindings = creditUsageFindings({
+      ...credits,
+      used: settled?.used ?? 0,
+    })
     for (const kind of ["ai_credits_low", "ai_credits_exhausted"] as const) {
       record(
         await syncIncidents(

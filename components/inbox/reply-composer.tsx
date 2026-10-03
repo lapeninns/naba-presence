@@ -40,6 +40,7 @@ import { greetingName, replyGuidance } from "@/lib/inbox/reply-guidance"
 import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
 import { replyWork } from "@/lib/inbox/review-situation"
 import { describeCreditsLeft } from "@/lib/contracts/ai-credits"
+import { isAiCreditsExhausted } from "@/lib/api/ai-credits"
 import { useAiCredits } from "@/lib/queries/use-ai-credits"
 import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
@@ -102,6 +103,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const [generateError, setGenerateError] = useState<{
     message: string
     tone: Tone
+    creditsOut?: boolean
   } | null>(null)
   // Verification produced by THIS session's latest save or generate; until
   // then the persisted review.latestVerification stands.
@@ -254,6 +256,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     // What the box held, so a regenerate over it can be taken back.
     const previous = body
     setGenerateError(null)
+    // A stale balance can still allow the click; the server's 402 is the
+    // authority, and the refetch keeps the guard current afterwards.
+    if (creditsExhausted) return
     try {
       // No body → server runs AI (or rating-only template). Manual only.
       const result = await generateOrSave.mutateAsync({ tone: withTone })
@@ -285,6 +290,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           : {}),
       })
     } catch (error) {
+      if (isAiCreditsExhausted(error)) {
+        // Told apart from drafts_paused: the balance is spent, so there is
+        // nothing to retry. The mutation's settle step refetches the balance.
+        setGenerateError({ message: "", tone: withTone, creditsOut: true })
+        return
+      }
       setGenerateError({ message: describeActionError(error), tone: withTone })
     }
   }
@@ -425,17 +436,23 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       />
       <span className="min-w-0 flex-[1_1_200px]">
         <strong className="font-semibold">No reply was generated.</strong>{" "}
-        {generateError.message}
+        {generateError.creditsOut
+          ? aiCredits.data && creditsExhausted
+            ? describeCreditsLeft(aiCredits.data)
+            : "Out of AI credits for this month. You can still write a reply yourself."
+          : generateError.message}
       </span>
       <span className="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={generateOrSave.isPending}
-          onClick={() => void runGenerate(generateError.tone)}
-        >
-          Retry
-        </Button>
+        {generateError.creditsOut ? null : (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={generateOrSave.isPending}
+            onClick={() => void runGenerate(generateError.tone)}
+          >
+            Retry
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={writeOwn}>
           <PenLineIcon aria-hidden data-icon="inline-start" />
           Write my own
