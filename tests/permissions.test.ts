@@ -38,6 +38,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     userId: USER_ASSIGNED,
     organisationId: "org-1",
     organisationName: "Org",
+    workspaceMode: "business",
     displayName: "Test User",
     email: "test@example.test",
     role: "member",

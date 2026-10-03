@@ -20,6 +20,7 @@ export type Session = {
   userId: string
   organisationId: string
   organisationName: string
+  workspaceMode: "business" | "agency"
   displayName: string
   email: string
   role: "owner" | "admin" | "member" | "viewer"
@@ -68,6 +69,7 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         s.user_id::text as "userId",
         s.organisation_id::text as "organisationId",
         o.name as "organisationName",
+        o.workspace_mode as "workspaceMode",
         u.display_name as "displayName",
         u.email,
         m.role,

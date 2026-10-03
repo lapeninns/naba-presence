@@ -34,6 +34,7 @@ import type { Session } from "@/lib/server/session"
 const session: Session = {
   sessionId: "s1",
   organisationName: "Test",
+  workspaceMode: "business",
   displayName: "Test",
   email: "test@invalid.test",
   userId: "u1",

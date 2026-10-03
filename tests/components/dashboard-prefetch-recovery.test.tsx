@@ -28,7 +28,7 @@ function HydratedProbe() {
 }
 function json(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status }) }
 beforeEach(() => {
-  stubs.session.mockResolvedValue({ sessionId: "s1", userId: "u1", organisationId: "o1", organisationName: "Test", displayName: "Owner", email: "test@invalid.test", role: "owner", canPublish: true })
+  stubs.session.mockResolvedValue({ sessionId: "s1", userId: "u1", organisationId: "o1", organisationName: "Test", workspaceMode: "agency", displayName: "Owner", email: "test@invalid.test", role: "owner", canPublish: true })
   stubs.clients.mockResolvedValue({ items: [], unassignedLocationCount: 1 })
   stubs.connections.mockResolvedValue([])
   stubs.directory.mockResolvedValue([location])

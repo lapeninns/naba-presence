@@ -139,7 +139,7 @@ describe("triggerPerformanceSync", () => {
 
 describe("fetchSession", () => {
   it("parses the nullable session envelope including role", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ session: { userId: "u1", organisationId: "o1", organisationName: "Org", displayName: "Ada", email: "ada@example.test", role: "admin", canPublish: true } })))
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ session: { userId: "u1", organisationId: "o1", organisationName: "Org", workspaceMode: "agency", displayName: "Ada", email: "ada@example.test", role: "admin", canPublish: true } })))
     const result = await fetchSession()
     expect(result.session?.role).toBe("admin")
   })

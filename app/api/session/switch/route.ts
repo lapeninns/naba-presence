@@ -77,6 +77,7 @@ export const POST = route({
           s.user_id::text as "userId",
           s.organisation_id::text as "organisationId",
           o.name as "organisationName",
+          o.workspace_mode as "workspaceMode",
           u.display_name as "displayName",
           u.email,
           m.role,

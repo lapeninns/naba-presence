@@ -6,6 +6,7 @@ import {
   auditExtendedGrants,
   extendClientHolders,
 } from "@/lib/server/client-access"
+import { businessHomeClientId } from "@/lib/server/clients"
 import { withTenant } from "@/lib/server/db"
 
 export type AutomaticGoogleSetup =
@@ -156,6 +157,9 @@ export async function prepareAutomaticGoogleReviewSetup(
         limit 1
       `
       if (!existingLink) {
+        const targetClientId =
+          input.clientId ??
+          (await businessHomeClientId(sql, input.organisationId))
         const [prior] = await sql<{ clientId: string | null }[]>`
           select client_id::text as "clientId" from location where name = ${title}
         `
@@ -168,7 +172,7 @@ export async function prepareAutomaticGoogleReviewSetup(
             ${title},
             ${location.storefrontAddress ? sql.json(location.storefrontAddress) : null},
             'Europe/London',
-            ${input.clientId ?? null}
+            ${targetClientId}
           )
           on conflict (organisation_id, name) do update
           set
@@ -211,18 +215,18 @@ export async function prepareAutomaticGoogleReviewSetup(
         // Newly filed under the client: people who hold the rest of the
         // client get it too (lib/server/client-access.ts).
         if (
-          input.clientId &&
-          managedLocation.clientId === input.clientId &&
+          targetClientId &&
+          managedLocation.clientId === targetClientId &&
           !prior?.clientId
         ) {
           await auditExtendedGrants(sql, {
             organisationId: input.organisationId,
             actorUserId: input.userId,
-            clientId: input.clientId,
+            clientId: targetClientId,
             requestId: `${input.requestId}:access`,
             extended: await extendClientHolders(sql, {
               organisationId: input.organisationId,
-              clientId: input.clientId,
+              clientId: targetClientId,
               locationIds: [managedLocation.id],
             }),
           })

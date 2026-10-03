@@ -32,6 +32,8 @@ export async function createTestTenant(
   options: {
     role?: "owner" | "admin" | "member" | "viewer"
     canPublish?: boolean
+    /** Defaults to agency so the existing client-based suites keep working. */
+    workspaceMode?: "business" | "agency"
   } = {}
 ) {
   const organisationId = randomUUID()
@@ -39,13 +41,20 @@ export async function createTestTenant(
   const email = `harness-${organisationId.slice(0, 8)}@nabapresence.test`
   const token = randomBytes(32).toString("base64url")
   await admin`
-    insert into organisation (id, slug, name)
+    insert into organisation (id, slug, name, workspace_mode)
     values (
       ${organisationId},
       ${`harness-${organisationId.slice(0, 12)}`},
-      'Harness tenant'
+      'Harness tenant',
+      ${options.workspaceMode ?? "agency"}
     )
   `
+  if (options.workspaceMode === "business") {
+    await admin`
+      insert into client (organisation_id, name, slug, is_home)
+      values (${organisationId}, 'Harness tenant', 'harness-tenant', true)
+    `
+  }
   await admin`
     insert into app_user (id, email, display_name, default_organisation_id)
     values (${userId}, ${email}, 'Harness user', ${organisationId})
