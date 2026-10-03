@@ -61,5 +61,5 @@ begin
 end $$;
 
 insert into schema_migration (version)
-values ('0060_workspace_mode') on conflict (version) do nothing;
+values ('0061_workspace_mode') on conflict (version) do nothing;
 commit;
