@@ -15,12 +15,19 @@ import {
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
 import { AiOutputError, generateReply, type AiUsage } from "@/lib/server/ai"
+import {
+  releaseDraftCredit,
+  reserveDraftCredit,
+  settleDraftCredit,
+  tokenBackstopReached,
+} from "@/lib/server/ai-credits"
 import { recordAiUsageDetached } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
   runSemanticVerification,
   verifyStoredDraft,
+  type SemanticOutcome,
 } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -125,12 +132,37 @@ export const POST = route({
     // never hold a pooled connection idle in a transaction, or one AI incident
     // drains the pool for sign-in, the inbox and the job runner alike. This is
     // the intent -> provider -> settle shape lib/server/publishing uses.
-    const review = await tenant(async (sql) => {
-      const record = await loadReview(sql, id)
-      await requireLocationAccess(sql, session, record.location_id)
-      assertDraftable(record)
-      return record
-    })
+    // Allocated up front so the credit reservation can name the draft that
+    // phase three inserts.
+    const draftId = randomUUID()
+    // The reservation lives in this transaction too: only an AI-written draft
+    // (no typed body, a review with text) costs a credit.
+    const { review, reservationId, backstopReached } = await tenant(
+      async (sql) => {
+        const record = await loadReview(sql, id)
+        await requireLocationAccess(sql, session, record.location_id)
+        assertDraftable(record)
+        const needsModel = !input.body && Boolean(record.review_text?.trim())
+        const reservation = needsModel
+          ? await reserveDraftCredit(sql, {
+              organisationId: session.organisationId,
+              model: getServerEnv().OPENAI_MODEL_DRAFT,
+              reviewId: id,
+              draftId,
+              requestId: correlationId,
+              userId: session.userId,
+            })
+          : null
+        return {
+          review: record,
+          reservationId: reservation,
+          backstopReached: await tokenBackstopReached(
+            sql,
+            session.organisationId
+          ),
+        }
+      }
+    )
 
     const language =
       input.languageOverride ??
@@ -139,24 +171,9 @@ export const POST = route({
         : review.default_language)
     const isRatingOnly = !review.review_text?.trim()
 
-    // Phase two: no connection is held here.
-    // Allocated up front so the usage row (recorded outside the settle
-    // transaction) can name the draft that phase three inserts.
-    const draftId = randomUUID()
-    const draftUsage = (
-      usage: AiUsage,
-      model: string
-    ): Parameters<typeof recordAiUsageDetached>[1][number] => ({
-      organisationId: session.organisationId,
-      kind: "draft",
-      credits: 1,
-      model,
-      usage,
-      reviewId: id,
-      draftId,
-      requestId: correlationId,
-      userId: session.userId,
-    })
+    // Phase two: no connection is held here. A failed provider call releases
+    // the reservation (the customer does not pay); a billed but unreadable
+    // response keeps its tokens on the released row for the backstop.
     const generated: {
       reply: string
       language: string
@@ -175,32 +192,41 @@ export const POST = route({
             tone: input.tone,
             businessContext: input.businessContext,
           }).catch(async (error: unknown) => {
-            // A billed call whose output was unreadable still counts.
-            if (error instanceof AiOutputError && error.model) {
-              await recordAiUsageDetached(tenant, [
-                draftUsage(error.usage, error.model),
-              ])
+            if (reservationId) {
+              await releaseDraftCredit(tenant, {
+                id: reservationId,
+                usage: error instanceof AiOutputError ? error.usage : undefined,
+              })
             }
             throw error
           })
+    // Settle straight away: the provider was paid for whatever happens to the
+    // draft in phase three (a 409 from a concurrent sync, a later throw).
+    if (reservationId && generated.usage && generated.model) {
+      await settleDraftCredit(tenant, {
+        id: reservationId,
+        usage: generated.usage,
+        model: generated.model,
+        draftId,
+      })
+    }
     const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
-    const semantic = await runSemanticVerification({
-      body: generated.reply,
-      reviewText: review.review_text,
-      reviewerName: review.reviewer_name,
-      locationName: review.location_name,
-      rating: review.rating,
-      expectedLanguage: language,
-    })
+    // Past the token backstop semantic verification is skipped. The draft then
+    // stays `pending`, so it still cannot be published unverified.
+    const semantic: SemanticOutcome = backstopReached
+      ? { status: "skipped", reasons: [] }
+      : await runSemanticVerification({
+          body: generated.reply,
+          reviewText: review.review_text,
+          reviewerName: review.reviewer_name,
+          locationName: review.location_name,
+          rating: review.rating,
+          expectedLanguage: language,
+        })
 
-    // Usage is recorded here, in its own transaction, because the provider
-    // was paid for whatever happens to the draft in phase three (a 409 from a
-    // concurrent sync, a later throw). A ledger failure never fails the
-    // request. Nothing here limits or refuses a call yet.
+    // Verification usage is recorded in its own transaction; a ledger failure
+    // never fails the request.
     await recordAiUsageDetached(tenant, [
-      ...(generated.usage && generated.model
-        ? [draftUsage(generated.usage, generated.model)]
-        : []),
       ...(semantic.usage && semantic.model
         ? [
             {

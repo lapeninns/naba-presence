@@ -49,9 +49,34 @@ create policy tenant_isolation on ai_usage
 
 grant select, insert, update on ai_usage to naba_app_runtime;
 
--- null = use AI_MONTHLY_DRAFT_CREDITS (not read until the limits PR).
+-- null = use AI_MONTHLY_DRAFT_CREDITS.
 alter table organisation add column ai_monthly_draft_credits integer
   check (ai_monthly_draft_credits is null or ai_monthly_draft_credits >= 0);
+
+-- Reaper for the job tick: a process that died between reserve and settle
+-- leaves a 'reserved' row that would count against the allowance forever.
+-- Cross-tenant by design (like reclaim_expired_jobs), so SECURITY DEFINER.
+create or replace function release_stale_ai_reservations(p_minutes integer)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_released integer;
+begin
+  update ai_usage
+     set status = 'released', credits = 0, settled_at = now()
+   where status = 'reserved'
+     and created_at < now() - make_interval(mins => p_minutes);
+  get diagnostics v_released = row_count;
+  return v_released;
+end;
+$$;
+
+revoke all on function release_stale_ai_reservations(integer) from public;
+grant execute on function release_stale_ai_reservations(integer)
+  to naba_app_runtime;
 
 insert into schema_migration (version)
 values ('0059_ai_credits') on conflict (version) do nothing;

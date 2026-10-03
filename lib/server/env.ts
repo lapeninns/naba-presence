@@ -174,6 +174,15 @@ export const serverEnvSchema = z.object({
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
+  // Monthly AI-written drafts per organisation (one credit per draft); an
+  // organisation.ai_monthly_draft_credits override wins. The token backstop is
+  // a runaway-loop guard across draft and verify calls, not a product limit.
+  AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
+  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(20_000_000),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
