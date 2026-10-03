@@ -31,6 +31,12 @@ create table ai_usage (
 create index ai_usage_period_idx
   on ai_usage (organisation_id, period_start, kind, status);
 
+-- One row per provider call: a re-run settle step or a retried request must
+-- not double-record. Rows without a request_id are not constrained.
+create unique index ai_usage_request_uidx
+  on ai_usage (organisation_id, kind, request_id)
+  where request_id is not null;
+
 alter table ai_usage enable row level security;
 alter table ai_usage force row level security;
 create policy tenant_isolation on ai_usage

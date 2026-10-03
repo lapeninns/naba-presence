@@ -9,6 +9,7 @@ import {
   type VerificationReason,
 } from "@/lib/domain/verification"
 import {
+  AiOutputError,
   semanticVerification,
   type AiUsage,
   type SemanticInput,
@@ -103,7 +104,14 @@ export async function runSemanticVerification(
       error instanceof ApiError &&
       (error.status === 429 || error.status >= 500)
     ) {
-      return { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
+      // An unreadable 200 was still billed: carry its usage to the ledger.
+      return {
+        status: "unavailable",
+        reasons: [SEMANTIC_UNAVAILABLE],
+        ...(error instanceof AiOutputError
+          ? { usage: error.usage, model: error.model }
+          : {}),
+      }
     }
     throw error
   }

@@ -41,6 +41,21 @@ export type AiUsage = {
   outputTokens: number | null
 }
 
+/**
+ * A 200 response whose body could not be parsed or validated. The provider
+ * still billed the call, so the usage rides on the error for the caller to
+ * record.
+ */
+export class AiOutputError extends ApiError {
+  constructor(
+    message: string,
+    readonly usage: AiUsage,
+    public model?: string
+  ) {
+    super(502, "ai_invalid_output", message)
+  }
+}
+
 export function extractUsage(payload: Record<string, unknown>): AiUsage {
   const usage =
     payload.usage && typeof payload.usage === "object"
@@ -135,9 +150,15 @@ async function openAiStructured<T>(
       String(error.message ?? "The AI provider rejected the request.")
     )
   }
-  return {
-    value: validator.parse(JSON.parse(responseText(payload))),
-    usage: extractUsage(payload),
+  const usage = extractUsage(payload)
+  try {
+    return { value: validator.parse(JSON.parse(responseText(payload))), usage }
+  } catch {
+    throw new AiOutputError(
+      "The AI provider returned a reply we could not read.",
+      usage,
+      model
+    )
   }
 }
 

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 
@@ -12,8 +14,8 @@ import {
   isAllowedReviewTransition,
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
-import { generateReply, type AiUsage } from "@/lib/server/ai"
-import { recordAiUsage } from "@/lib/server/ai-usage"
+import { AiOutputError, generateReply, type AiUsage } from "@/lib/server/ai"
+import { recordAiUsageDetached } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
@@ -138,6 +140,23 @@ export const POST = route({
     const isRatingOnly = !review.review_text?.trim()
 
     // Phase two: no connection is held here.
+    // Allocated up front so the usage row (recorded outside the settle
+    // transaction) can name the draft that phase three inserts.
+    const draftId = randomUUID()
+    const draftUsage = (
+      usage: AiUsage,
+      model: string
+    ): Parameters<typeof recordAiUsageDetached>[1][number] => ({
+      organisationId: session.organisationId,
+      kind: "draft",
+      credits: 1,
+      model,
+      usage,
+      reviewId: id,
+      draftId,
+      requestId: correlationId,
+      userId: session.userId,
+    })
     const generated: {
       reply: string
       language: string
@@ -155,6 +174,14 @@ export const POST = route({
             language,
             tone: input.tone,
             businessContext: input.businessContext,
+          }).catch(async (error: unknown) => {
+            // A billed call whose output was unreadable still counts.
+            if (error instanceof AiOutputError && error.model) {
+              await recordAiUsageDetached(tenant, [
+                draftUsage(error.usage, error.model),
+              ])
+            }
+            throw error
           })
     const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
     const semantic = await runSemanticVerification({
@@ -165,6 +192,31 @@ export const POST = route({
       rating: review.rating,
       expectedLanguage: language,
     })
+
+    // Usage is recorded here, in its own transaction, because the provider
+    // was paid for whatever happens to the draft in phase three (a 409 from a
+    // concurrent sync, a later throw). A ledger failure never fails the
+    // request. Nothing here limits or refuses a call yet.
+    await recordAiUsageDetached(tenant, [
+      ...(generated.usage && generated.model
+        ? [draftUsage(generated.usage, generated.model)]
+        : []),
+      ...(semantic.usage && semantic.model
+        ? [
+            {
+              organisationId: session.organisationId,
+              kind: "verify" as const,
+              credits: 0,
+              model: semantic.model,
+              usage: semantic.usage,
+              reviewId: id,
+              draftId,
+              requestId: `${correlationId}:verification`,
+              userId: session.userId,
+            },
+          ]
+        : []),
+    ])
 
     // Phase three: settle. The review is re-read because a sync can land
     // while the provider is thinking, and the evidence hash has to describe
@@ -189,6 +241,7 @@ export const POST = route({
       })
       const [draft] = await sql<{ id: string }[]>`
         insert into draft (
+          id,
           organisation_id,
           review_id,
           source,
@@ -204,6 +257,7 @@ export const POST = route({
           created_by
         )
         values (
+          ${draftId},
           ${session.organisationId},
           ${id},
           ${source},
@@ -220,34 +274,6 @@ export const POST = route({
         )
         returning id::text as id
       `
-      // Usage is recorded whatever happens to the draft below: the provider
-      // was paid for. Nothing here limits or refuses a call yet.
-      if (generated.usage && generated.model) {
-        await recordAiUsage(sql, {
-          organisationId: session.organisationId,
-          kind: "draft",
-          credits: 1,
-          model: generated.model,
-          usage: generated.usage,
-          reviewId: id,
-          draftId: draft.id,
-          requestId: correlationId,
-          userId: session.userId,
-        })
-      }
-      if (semantic.usage && semantic.model) {
-        await recordAiUsage(sql, {
-          organisationId: session.organisationId,
-          kind: "verify",
-          credits: 0,
-          model: semantic.model,
-          usage: semantic.usage,
-          reviewId: id,
-          draftId: draft.id,
-          requestId: `${correlationId}:verification`,
-          userId: session.userId,
-        })
-      }
       // `drafted` first: from `new` there is no edge straight to `verified`.
       await sql`
         update review

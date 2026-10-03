@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 
 import { extractUsage } from "@/lib/server/ai"
-import { recordAiUsage } from "@/lib/server/ai-usage"
+import { recordAiUsage, recordAiUsageDetached } from "@/lib/server/ai-usage"
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/0059_ai_credits.sql"),
@@ -85,6 +85,50 @@ describe("0059 ai_usage", () => {
         period_ok: true,
       },
     ])
+  })
+
+  it("ignores a repeated request_id for the same kind", async () => {
+    const sql = (async (
+      strings: TemplateStringsArray,
+      ...values: unknown[]
+    ) => {
+      let text = strings[0]
+      values.forEach((_v, i) => {
+        text += "$" + (i + 1) + strings[i + 1]
+      })
+      return db.query(text, values)
+    }) as never
+    const input = {
+      organisationId: ORG,
+      kind: "verify" as const,
+      credits: 0,
+      model: "m",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      requestId: "req-1",
+    }
+    await recordAiUsage(sql, input)
+    await recordAiUsage(sql, input)
+    const { rows } = await db.query(
+      "select count(*)::int as n from ai_usage where request_id = 'req-1'"
+    )
+    expect(rows).toEqual([{ n: 1 }])
+  })
+
+  it("never throws when the ledger write fails", async () => {
+    const tenant = (async () => {
+      throw new Error("relation ai_usage does not exist")
+    }) as never
+    await expect(
+      recordAiUsageDetached(tenant, [
+        {
+          organisationId: ORG,
+          kind: "draft",
+          credits: 1,
+          model: "m",
+          usage: { inputTokens: null, outputTokens: null },
+        },
+      ])
+    ).resolves.toBeUndefined()
   })
 
   it("rejects an unknown kind", async () => {

@@ -4,7 +4,7 @@ import {
   reviewIdParamsSchema,
   type VerifyResult,
 } from "@/lib/contracts/reviews"
-import { recordAiUsage } from "@/lib/server/ai-usage"
+import { recordAiUsageDetached } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
@@ -102,22 +102,28 @@ export const POST = route({
       expectedLanguage: expectedLanguage(draft) ?? "en",
     })
 
-    const result = await tenant(async (sql) => {
-      const current = await loadDraft(sql, id)
-      await requireLocationAccess(sql, session, current.location_id)
-      if (semantic.usage && semantic.model) {
-        await recordAiUsage(sql, {
+    // The provider call was paid for; record it apart from the settle
+    // transaction so a 404 or a later throw cannot roll it back and a ledger
+    // failure cannot fail the verify.
+    if (semantic.usage && semantic.model) {
+      await recordAiUsageDetached(tenant, [
+        {
           organisationId: session.organisationId,
           kind: "verify",
           credits: 0,
           model: semantic.model,
           usage: semantic.usage,
-          reviewId: current.review_id,
-          draftId: current.id,
-          requestId,
+          reviewId: draft.review_id,
+          draftId: draft.id,
+          requestId: `${requestId}:verification`,
           userId: session.userId,
-        })
-      }
+        },
+      ])
+    }
+
+    const result = await tenant(async (sql) => {
+      const current = await loadDraft(sql, id)
+      await requireLocationAccess(sql, session, current.location_id)
       const verification = await verifyStoredDraft(sql, {
         draftId: current.id,
         body: current.body,
