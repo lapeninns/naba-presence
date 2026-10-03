@@ -78,6 +78,29 @@ revoke all on function release_stale_ai_reservations(integer) from public;
 grant execute on function release_stale_ai_reservations(integer)
   to naba_app_runtime;
 
+-- Usage notifications (phase A4): one incident per period at 80% and at 100%
+-- of the allowance, queued to owners and admins through the 0050 machinery.
+-- Guarded so the ledger tests, which load this file alone, still apply it.
+do $$
+begin
+  if to_regclass('public.notification_incident') is not null then
+    alter table notification_incident
+      drop constraint if exists notification_incident_kind_check;
+    alter table notification_incident
+      add constraint notification_incident_kind_check check (
+        kind in (
+          'connection_reconnect',
+          'listing_access_lost',
+          'listing_stale',
+          'low_rating_review',
+          'connection_owner_left',
+          'ai_credits_low',
+          'ai_credits_exhausted'
+        )
+      );
+  end if;
+end $$;
+
 insert into schema_migration (version)
 values ('0059_ai_credits') on conflict (version) do nothing;
 commit;

@@ -1,8 +1,15 @@
-import { aiCreditsSchema } from "@/lib/contracts/ai-credits"
+import {
+  aiCreditsDailySchema,
+  aiCreditsSchema,
+} from "@/lib/contracts/ai-credits"
 
 import { ApiClientError, apiFetch } from "./client"
 
 export type { AiCredits } from "@/lib/contracts/ai-credits"
+
+export function getAiCreditsDaily() {
+  return apiFetch("/api/ai/credits/daily", { schema: aiCreditsDailySchema })
+}
 
 export function getAiCredits() {
   return apiFetch("/api/ai/credits", { schema: aiCreditsSchema })

@@ -2,7 +2,11 @@ import "server-only"
 
 import type { Sql, TransactionSql } from "postgres"
 
-import type { AiCredits } from "@/lib/contracts/ai-credits"
+import {
+  fillDailyCredits,
+  type AiCredits,
+  type AiCreditsDaily,
+} from "@/lib/contracts/ai-credits"
 import type { AiUsage } from "@/lib/server/ai"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -260,4 +264,27 @@ export async function releaseStaleReservations(database: Sql): Promise<number> {
     })
   }
   return row.released
+}
+
+/** Draft credits spent per UTC day this period, for the Settings chart. */
+export async function getAiCreditsDaily(
+  sql: TransactionSql,
+  organisationId: string,
+  now: Date = new Date()
+): Promise<AiCreditsDaily> {
+  const { periodStart } = billingPeriod(now)
+  const rows = await sql<{ date: string; credits: number }[]>`
+    select
+      to_char(created_at at time zone 'utc', 'YYYY-MM-DD') as date,
+      sum(credits)::integer as credits
+    from ai_usage
+    where organisation_id = ${organisationId}
+      and period_start = ${periodStart}::date
+      and kind = 'draft'
+      and status in ('reserved', 'settled')
+    group by 1
+  `
+  return {
+    days: fillDailyCredits(periodStart, now.toISOString().slice(0, 10), rows),
+  }
 }

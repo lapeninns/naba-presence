@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { AgencyNameForm } from "@/components/settings/agency-name-form"
 import { PolicyForm } from "@/components/settings/policy-form"
 import { SettingsNav } from "@/components/settings/settings-nav"
+import { UsageCard } from "@/components/settings/usage-card"
 import {
   Card,
   CardContent,
@@ -37,6 +38,7 @@ export default async function SettingsPolicyPage() {
             <AgencyNameForm />
           </CardContent>
         </Card>
+        <UsageCard />
         <PolicyForm role={role} />
       </div>
     </>
