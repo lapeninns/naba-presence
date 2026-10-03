@@ -148,11 +148,12 @@ export async function provisionAuthenticatedOwner(
         // organisation_slug_key would turn the login loop into a permanent
         // 500 instead of fixing it.
         await sql`
-          insert into organisation (id, slug, name)
+          insert into organisation (id, slug, name, workspace_mode)
           values (
             ${organisationId},
             ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
-            ${`${identity.displayName}'s organisation`}
+            ${`${identity.displayName}'s organisation`},
+            'business'
           )
         `
         await createHomeClient(
@@ -583,11 +584,12 @@ export async function provisionOwner(profile: GoogleProfile) {
         )
       `
         await sql`
-        insert into organisation (id, slug, name)
+        insert into organisation (id, slug, name, workspace_mode)
         values (
           ${organisationId},
           ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
+          ${profile.name ? `${profile.name}'s organisation` : "My organisation"},
+          'business'
         )
       `
         await createHomeClient(

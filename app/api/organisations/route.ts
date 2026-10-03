@@ -50,6 +50,12 @@ export const PATCH = route({
           "Organisation not found."
         )
       }
+      // The hidden home client mirrors the organisation name so the two never
+      // drift apart (only business-mode organisations have a home client).
+      await sql`
+        update client set name = ${row.name}
+        where organisation_id = ${session.organisationId} and is_home
+      `
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
