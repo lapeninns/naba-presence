@@ -15,6 +15,7 @@ import {
   auditExtendedGrants,
   extendClientHolders,
 } from "@/lib/server/client-access"
+import { businessHomeClientId } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { route } from "@/lib/server/route"
@@ -86,6 +87,10 @@ export const POST = route({
         )
       }
       let locationId = input.locationId
+      // Business mode files every listing under the home client.
+      const targetClientId =
+        input.clientId ??
+        (await businessHomeClientId(sql, session.organisationId))
       // Set when THIS request filed the listing under input.clientId, so the
       // client's existing holders can be given it (extendClientHolders).
       let filedIntoClient = false
@@ -105,7 +110,7 @@ export const POST = route({
                 : null
             },
             ${input.timezone},
-            ${input.clientId ?? null}
+            ${targetClientId}
           )
           on conflict (organisation_id, name) do update
           set
@@ -118,8 +123,8 @@ export const POST = route({
         `
         locationId = location.id
         filedIntoClient =
-          Boolean(input.clientId) &&
-          location.clientId === input.clientId &&
+          Boolean(targetClientId) &&
+          location.clientId === targetClientId &&
           !prior?.clientId
       } else {
         const [location] = await sql<{ id: string }[]>`
@@ -138,10 +143,10 @@ export const POST = route({
         // Linking an EXISTING location from the setup flow files it under the
         // client, but only when it has none — reassigning silently would move
         // someone else's listing.
-        if (input.clientId) {
+        if (targetClientId) {
           const filed = await sql`
             update location
-               set client_id = ${input.clientId}
+               set client_id = ${targetClientId}
              where id = ${locationId} and client_id is null
             returning id
           `
@@ -250,15 +255,15 @@ export const POST = route({
           clientRequestId,
         },
       })
-      if (filedIntoClient && input.clientId) {
+      if (filedIntoClient && targetClientId) {
         await auditExtendedGrants(sql, {
           organisationId: session.organisationId,
           actorUserId: session.userId,
-          clientId: input.clientId,
+          clientId: targetClientId,
           requestId,
           extended: await extendClientHolders(sql, {
             organisationId: session.organisationId,
-            clientId: input.clientId,
+            clientId: targetClientId,
             locationIds: [locationId],
           }),
         })

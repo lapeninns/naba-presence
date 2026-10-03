@@ -152,6 +152,7 @@ describe("PerformanceView", () => {
                 userId: "u1",
                 organisationId: "o1",
                 organisationName: "Agency",
+                workspaceMode: "agency",
                 displayName: "Owner",
                 email: "owner@example.test",
                 role: "owner",

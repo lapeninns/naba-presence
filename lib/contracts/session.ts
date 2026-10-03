@@ -9,6 +9,9 @@ import { z } from "zod"
 
 import { memberRoleSchema } from "./members"
 
+export const workspaceModeSchema = z.enum(["business", "agency"])
+export type WorkspaceMode = z.infer<typeof workspaceModeSchema>
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -30,6 +33,8 @@ export const sessionSchema = z.object({
   email: z.string(),
   role: memberRoleSchema,
   canPublish: z.boolean(),
+  /** `business` hides the client layer; `agency` shows it. */
+  workspaceMode: workspaceModeSchema,
   /**
    * Set only inside a support impersonation session (POST
    * /api/support/impersonation). Every other field describes the customer

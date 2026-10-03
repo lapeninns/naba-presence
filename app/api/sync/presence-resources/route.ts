@@ -60,6 +60,7 @@ async function tenantContext(organisationId: string, maxLocations: number) {
       {
         userId: string
         organisationName: string
+        workspaceMode: Session["workspaceMode"]
         displayName: string
         email: string
         role: Session["role"]
@@ -67,6 +68,7 @@ async function tenantContext(organisationId: string, maxLocations: number) {
       }[]
     >`
       select m.user_id::text as "userId", o.name as "organisationName",
+        o.workspace_mode as "workspaceMode",
         u.display_name as "displayName", u.email, m.role, m.can_publish as "canPublish"
       from member m
       join app_user u on u.id = m.user_id

@@ -23,6 +23,7 @@ const admin: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: ORG,
   organisationName: "Agency",
+  workspaceMode: "business",
   displayName: "Ada",
   email: "ada@example.test",
   role: "admin",
