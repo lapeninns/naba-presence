@@ -138,6 +138,7 @@ export function describeMemberAccess(
 
 export type ClientAccessRequest =
   | { allClients: true }
+  | { locations: { locationId: string; canPublish?: boolean }[] }
   | {
       clients: {
         clientId: string
@@ -182,6 +183,61 @@ export function planClientAccess(input: {
   }
   if ("allClients" in request) {
     return { ok: true, allClients: true, rows: [] }
+  }
+
+  if ("locations" in request) {
+    const known = new Set(
+      catalogue.flatMap((entry) =>
+        entry.listingIds.map((id) => id.toLowerCase())
+      )
+    )
+    const wanted = request.locations.map((entry) =>
+      entry.locationId.toLowerCase()
+    )
+    if (new Set(wanted).size !== wanted.length) {
+      return {
+        ok: false,
+        status: 400,
+        code: "duplicate_location",
+        message: "Each location may be listed once.",
+      }
+    }
+    if (wanted.some((id) => !known.has(id))) {
+      return {
+        ok: false,
+        status: 404,
+        code: "location_not_found",
+        message: "One or more of those locations was not found.",
+      }
+    }
+    if (
+      role === "viewer" &&
+      request.locations.some((entry) => entry.canPublish)
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: "viewer_cannot_publish",
+        message: "Viewers cannot receive publish permission.",
+      }
+    }
+    if (wanted.length === 0) {
+      return {
+        ok: false,
+        status: 409,
+        code: "would_widen_to_all_clients",
+        message:
+          "That leaves them with no locations, and someone with no locations sees every location. Choose at least one location, or choose All locations.",
+      }
+    }
+    return {
+      ok: true,
+      allClients: false,
+      rows: request.locations.map((entry) => ({
+        locationId: entry.locationId.toLowerCase(),
+        canPublish: role === "viewer" ? false : (entry.canPublish ?? false),
+      })),
+    }
   }
 
   // Catalogue ids are Postgres' lower-case text; z.uuid() accepts either.

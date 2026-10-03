@@ -2,6 +2,7 @@ import { AccessDeniedPage } from "@/components/app-shell/access-denied"
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { ClientSettings } from "@/components/clients/client-settings"
 import { getSession } from "@/lib/server/session"
+import { redirectOutOfClientLayer } from "@/lib/server/workspace-redirect"
 
 export const metadata = { title: "Client settings · NabaPresence" }
 
@@ -12,6 +13,7 @@ export default async function ClientSettingsPage({
 }) {
   const { clientId } = await params
   const session = await getSession()
+  redirectOutOfClientLayer(session, `/clients/${clientId}/settings`)
   if (session && session.role !== "owner" && session.role !== "admin") {
     return <AccessDeniedPage area="Client settings" />
   }

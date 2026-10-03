@@ -55,6 +55,7 @@ function access(
       row({ clientId: BELL, name: "The Bell", total: 2 }),
       row({ clientId: EMPTY, name: "New Client", total: 0 }),
     ],
+    locationGrants: [],
     ...overrides,
   }
 }

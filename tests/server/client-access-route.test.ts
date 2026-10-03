@@ -177,6 +177,10 @@ describe("GET /api/members/[userId]/client-access", () => {
           publishing: "none",
         },
       ],
+      locationGrants: [
+        { locationId: "l1", canPublish: true },
+        { locationId: "l2", canPublish: false },
+      ],
     })
   })
 
@@ -248,9 +252,7 @@ describe("PUT /api/members/[userId]/client-access", () => {
     })
     const response = await put({ clients: [] })
     expect(response.status).toBe(409)
-    expect((await response.json()).error).toBe(
-      "would_widen_to_all_clients"
-    )
+    expect((await response.json()).error).toBe("would_widen_to_all_clients")
     expect(writes).toHaveLength(0)
     expect(vi.mocked(writeAudit)).not.toHaveBeenCalled()
   })

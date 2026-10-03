@@ -8,12 +8,14 @@ import {
 } from "@/components/clients/clients-index"
 import { buttonVariants } from "@/components/ui/button"
 import { getSession } from "@/lib/server/session"
+import { redirectOutOfClientLayer } from "@/lib/server/workspace-redirect"
 import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Clients · NabaPresence" }
 
 export default async function ClientsPage() {
   const session = await getSession()
+  redirectOutOfClientLayer(session, "/clients")
   const canManage = session?.role === "owner" || session?.role === "admin"
 
   return (

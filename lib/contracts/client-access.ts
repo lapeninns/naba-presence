@@ -46,6 +46,18 @@ export const clientAccessEntrySchema = z.strictObject({
 export type ClientAccessEntry = z.input<typeof clientAccessEntrySchema>
 
 /**
+ * One location in "Only these locations", the business-mode form of the same
+ * change: a business has no client layer to tick, so access is edited a
+ * location at a time. The rows written are the same location_member rows.
+ * `canPublish` left out means Drafts only.
+ */
+export const locationAccessEntrySchema = z.strictObject({
+  locationId: z.uuid(),
+  canPublish: z.boolean().optional(),
+})
+export type LocationAccessEntry = z.input<typeof locationAccessEntrySchema>
+
+/**
  * PUT body. "All clients" is its own explicit shape, never an empty list:
  * a member with no listings sees every client, so an empty `clients` array
  * is refused rather than read as "everything" (see planClientAccess).
@@ -53,6 +65,7 @@ export type ClientAccessEntry = z.input<typeof clientAccessEntrySchema>
 export const clientAccessUpdateSchema = z.union([
   z.strictObject({ allClients: z.literal(true) }),
   z.strictObject({ clients: z.array(clientAccessEntrySchema).max(500) }),
+  z.strictObject({ locations: z.array(locationAccessEntrySchema).max(500) }),
 ])
 export type ClientAccessUpdateInput = z.input<typeof clientAccessUpdateSchema>
 
@@ -84,5 +97,9 @@ export const clientAccessResponseSchema = z.object({
   /** No location_member rows: every client, including ones added later. */
   allClients: z.boolean(),
   clients: z.array(clientAccessRowSchema),
+  /** The member's location_member rows, for the per-location form. */
+  locationGrants: z
+    .array(z.object({ locationId: z.string(), canPublish: z.boolean() }))
+    .default([]),
 })
 export type ClientAccessResponse = z.infer<typeof clientAccessResponseSchema>

@@ -21,9 +21,11 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { useSession } from "@/lib/queries/use-session"
+import { workspaceTerms } from "@/lib/workspace/terms"
 
 /**
- * The agency's name, editable by an owner and read-only for everyone else.
+ * The account's name ("Business name" in business mode, "Agency name" in
+ * agency mode), editable by an owner and read-only for everyone else.
  * Sign-up stores a placeholder ("<name>'s organisation"), so this is where
  * an agency gets its real name. Shared by Settings and the setup wizard's
  * agency step.
@@ -38,6 +40,7 @@ export function AgencyNameForm() {
   const router = useRouter()
   const toast = useToastManager()
   const current = session.data?.session
+  const terms = workspaceTerms(current?.workspaceMode ?? "agency")
   const saved = current?.organisationName ?? ""
   const isOwner = current?.role === "owner"
   const [draft, setDraft] = React.useState<string | null>(null)
@@ -59,7 +62,7 @@ export function AgencyNameForm() {
       void queryClient.invalidateQueries({ queryKey: ["organisations"] })
       setDraft(null)
       setError(null)
-      toast.add({ title: "Agency name saved", type: "success" })
+      toast.add({ title: `${terms.orgName} saved`, type: "success" })
       router.refresh()
     },
     onError: (caught) => setError(describeActionError(caught)),
@@ -70,7 +73,14 @@ export function AgencyNameForm() {
     if (!dirty) return
     const parsed = organisationRenameSchema.safeParse({ name: value })
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Enter your agency’s name.")
+      // The contract's own messages say "agency"; a business hears its own word.
+      setError(
+        terms.org === "Agency"
+          ? (parsed.error.issues[0]?.message ?? "Enter your agency’s name.")
+          : value.trim().length === 0
+            ? "Enter your business’s name."
+            : `Keep the name to ${ORGANISATION_NAME_MAX} characters or fewer.`
+      )
       return
     }
     rename.mutate(parsed.data.name)
@@ -81,10 +91,10 @@ export function AgencyNameForm() {
       className="flex flex-col gap-3"
       onSubmit={onSubmit}
       noValidate
-      aria-label="Agency name"
+      aria-label={terms.orgName}
     >
       <Field error={error ?? undefined}>
-        <FieldLabel>Agency name</FieldLabel>
+        <FieldLabel>{terms.orgName}</FieldLabel>
         <Input
           value={value}
           readOnly={!isOwner}
@@ -98,7 +108,7 @@ export function AgencyNameForm() {
         <FieldDescription>
           {isOwner
             ? "What your team sees in the sidebar and what invitations say they are joining."
-            : "Only an owner can rename the agency."}
+            : `Only an owner can rename the ${terms.orgLower}.`}
         </FieldDescription>
         <FieldError>{error}</FieldError>
       </Field>

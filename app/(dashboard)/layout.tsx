@@ -92,6 +92,10 @@ export default async function DashboardLayout({
       rememberedClientId = null
     }
 
+    // A business has no client scope to remember: its one client is the
+    // business itself, and `?clientId=` never appears in its addresses.
+    if (session.workspaceMode === "business") rememberedClientId = null
+
     const management = session.role === "owner" || session.role === "admin"
     if (rows.status === "fulfilled") {
       queryClient.setQueryData(

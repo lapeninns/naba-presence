@@ -59,6 +59,8 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { memberRowGate } from "@/lib/settings/gating"
 import { roleLabel } from "@/lib/settings/forms/invitation"
 import { accessSummary, formatDay, publishingState } from "@/lib/settings/roles"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { workspaceTerms, type WorkspaceTerms } from "@/lib/workspace/terms"
 
 /** Up to two initials from a display name, for the avatar fallback. */
 function initials(name: string): string {
@@ -79,21 +81,25 @@ function initials(name: string): string {
  */
 function publishReason(
   member: Member,
-  gateReason: string | null
+  gateReason: string | null,
+  terms: WorkspaceTerms
 ): string | null {
   if (member.role === "owner" || member.role === "admin")
     return "Owners and admins can always publish."
   if (member.role === "viewer") return "Viewers can’t publish."
   if (gateReason) return gateReason
   if (member.locations.length > 0)
-    return "Set per client, from Client access."
+    return `Set per ${terms.scope}, from ${terms.access}.`
   return null
 }
 
 /** Why "Client access…" is unavailable for this row, or null. */
-function clientAccessReason(member: Member): string | null {
+function clientAccessReason(
+  member: Member,
+  terms: WorkspaceTerms
+): string | null {
   if (member.role === "owner" || member.role === "admin")
-    return "Owners and admins always see every client."
+    return `Owners and admins always see every ${terms.scope}.`
   return null
 }
 
@@ -113,6 +119,8 @@ export function MembersTable({
   actorUserId: string
 }) {
   const query = useMembers()
+  const mode = useWorkspaceMode()
+  const terms = workspaceTerms(mode)
   const client = useQueryClient()
   const toast = useToastManager()
   const [roleTarget, setRoleTarget] = useState<Member | null>(null)
@@ -202,7 +210,7 @@ export function MembersTable({
           <TableRow>
             <TableHead>Member</TableHead>
             <TableHead>Role</TableHead>
-            <TableHead>Client access</TableHead>
+            <TableHead>{terms.access}</TableHead>
             <TableHead>Publishing</TableHead>
             <TableHead>Joined</TableHead>
             <TableHead className="w-12">
@@ -218,16 +226,13 @@ export function MembersTable({
               ownerCount,
               member: m,
             })
-            const access = accessSummary(m, query.data.clients)
+            const access = accessSummary(m, query.data.clients, mode)
             const publishing = publishingState(m)
-            const pubReason = publishReason(m, gate.roleReason)
+            const pubReason = publishReason(m, gate.roleReason, terms)
             const isSelf = m.userId === actorUserId
             return (
               <TableRow key={m.userId} className="@max-[720px]/table:relative">
-                <TableCell
-                  label="Member"
-                  className="@max-[720px]/table:pr-10"
-                >
+                <TableCell label="Member" className="@max-[720px]/table:pr-10">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <Avatar>
                       <AvatarFallback>{initials(m.displayName)}</AvatarFallback>
@@ -248,7 +253,7 @@ export function MembersTable({
                 <TableCell label="Role">
                   <Badge variant="role">{roleLabel(m.role)}</Badge>
                 </TableCell>
-                <TableCell label="Client access">
+                <TableCell label={terms.access}>
                   <span className="flex flex-col">
                     <span>{access.label}</span>
                     {access.detail ? (
@@ -302,14 +307,16 @@ export function MembersTable({
                         Change role…
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabledReason={clientAccessReason(m) ?? undefined}
+                        disabledReason={
+                          clientAccessReason(m, terms) ?? undefined
+                        }
                         onClick={() => {
                           setAccessTarget(m)
                           setAccessOpen(true)
                         }}
                       >
                         <Building2 aria-hidden />
-                        Client access…
+                        {terms.access}…
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabledReason={pubReason ?? undefined}

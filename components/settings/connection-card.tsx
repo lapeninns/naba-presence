@@ -54,6 +54,7 @@ import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeActionError } from "@/lib/errors/action-errors"
 import type { ConnectionSummary } from "@/lib/api/connections"
 import type { StatusTone } from "@/lib/ui/status-tone"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 type ServedClient = { id: string; name: string }
 
@@ -323,6 +324,7 @@ export function ConnectionCard({
   clientsByConnection?: ReadonlyMap<string, ServedClient[]>
 } = {}) {
   const { query, connect, disconnect } = useConnectionWorkspace()
+  const business = useWorkspaceMode() === "business"
   // Null outside the app router (component tests render it bare).
   const params = useSearchParams() as URLSearchParams | null
   const focusId = params?.get("reconnect") ?? null
@@ -391,7 +393,11 @@ export function ConnectionCard({
         <Empty
           icon={<Link2 />}
           title="No Google account connected"
-          description="Connect a Google login that manages your clients’ Business Profiles to import locations and reviews."
+          description={
+            business
+              ? "Connect a Google login that manages your Business Profiles to import locations and reviews."
+              : "Connect a Google login that manages your clients’ Business Profiles to import locations and reviews."
+          }
           action={
             <Button
               pending={connect.isPending}
@@ -412,7 +418,8 @@ export function ConnectionCard({
         <Alert variant="info">
           <AlertTitle>That Google login isn’t connected here</AlertTitle>
           <AlertDescription>
-            The link pointed at a login this agency no longer has. Every
+            The link pointed at a login{" "}
+            {business ? "your business" : "this agency"} no longer has. Every
             connected login is listed below.
           </AlertDescription>
         </Alert>

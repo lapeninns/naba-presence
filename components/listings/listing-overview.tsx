@@ -37,6 +37,7 @@ import type { DirectoryEntry } from "@/lib/queries/use-locations"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The notes that decide what to do before anything else: a listing with no
@@ -58,6 +59,7 @@ function OverviewAlerts({
   onRetrySummary: () => void
   canManage: boolean
 }) {
+  const business = useWorkspaceMode() === "business"
   const disconnected = Boolean(
     summary?.connection &&
     (summary.connection.status !== "active" ||
@@ -74,7 +76,8 @@ function OverviewAlerts({
 
   const alerts: React.ReactNode[] = []
 
-  if (!entry.clientId) {
+  // A business files every listing under its home client, so this never shows.
+  if (!entry.clientId && !business) {
     alerts.push(
       <Alert key="unfiled" variant="warning" data-slot="unfiled-alert">
         <AlertTitle>This listing isn’t filed under a client</AlertTitle>

@@ -30,6 +30,8 @@ import { healthTone } from "@/lib/clients/health"
 import { withClientScope } from "@/lib/clients/scope"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useClients } from "@/lib/queries/use-clients"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import type { WorkspaceMode } from "@/lib/workspace/terms"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
@@ -47,19 +49,27 @@ type PaletteEntry = {
    * settings tabs follow).
    */
   adminOnly?: boolean
+  /** Hidden in business mode, which has no client layer. */
+  agencyOnly?: boolean
 }
 
 const GO_TO: PaletteEntry[] = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/listings", label: "Listings", icon: Store },
-  { href: "/clients", label: "Clients", icon: Building2 },
+  { href: "/clients", label: "Clients", icon: Building2, agencyOnly: true },
   { href: "/reports", label: "Reports", icon: TrendingUp },
   { href: "/team", label: "Team", icon: Users, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
 const ACTIONS: PaletteEntry[] = [
-  { href: "/clients/new", label: "New client", icon: Plus, adminOnly: true },
+  {
+    href: "/clients/new",
+    label: "New client",
+    icon: Plus,
+    adminOnly: true,
+    agencyOnly: true,
+  },
   {
     href: "/settings/connections",
     label: "Connect a Google account",
@@ -77,12 +87,18 @@ const ACTIONS: PaletteEntry[] = [
 /** The entries this role can use; everything while the role is unknown. */
 export function paletteEntriesFor(
   entries: PaletteEntry[],
-  role: string | null
+  role: string | null,
+  mode: WorkspaceMode = "agency"
 ): PaletteEntry[] {
-  if (role === null) return entries
+  const inMode = entries.filter(
+    (entry) => !entry.agencyOnly || mode === "agency"
+  )
+  if (role === null) return inMode
   const managerial = settingsGatingFromRole(role).canManageTeam
-  return entries.filter((entry) => !entry.adminOnly || managerial)
+  return inMode.filter((entry) => !entry.adminOnly || managerial)
 }
+
+export { GO_TO as PALETTE_GO_TO, ACTIONS as PALETTE_ACTIONS }
 
 const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
 
@@ -105,8 +121,10 @@ function CommandPalette({
   const clients = useClients()
   const role = useSessionRole()
   const locations = useLocationDirectory(role)
-  const goTo = paletteEntriesFor(GO_TO, role)
-  const actions = paletteEntriesFor(ACTIONS, role)
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const goTo = paletteEntriesFor(GO_TO, role, mode)
+  const actions = paletteEntriesFor(ACTIONS, role, mode)
   // Go to Inbox, Listings or Reports keeps the client in scope, like the
   // sidebar's links.
   const { remembered } = useRememberedClient()
@@ -130,16 +148,26 @@ function CommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       title="Commands"
-      description="Jump to a client or a location, or run an action. To search review text, use Search reviews in the Inbox."
+      description={
+        business
+          ? "Jump to a location or a page, or run an action. To search review text, use Search reviews in the Inbox."
+          : "Jump to a client or a location, or run an action. To search review text, use Search reviews in the Inbox."
+      }
     >
-      <CommandInput placeholder="Go to a client, a location or an action…" />
+      <CommandInput
+        placeholder={
+          business
+            ? "Go to a location or an action…"
+            : "Go to a client, a location or an action…"
+        }
+      />
       <CommandList>
         <CommandEmpty>
           Nothing matched that. To search review text, use Search reviews in the
           Inbox.
         </CommandEmpty>
 
-        {clients.data?.items.length ? (
+        {!business && clients.data?.items.length ? (
           <CommandGroup heading="Clients">
             {clients.data.items.map((client) => (
               <CommandItem
@@ -169,7 +197,7 @@ function CommandPalette({
               >
                 <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
-                {location.clientId ? (
+                {!business && location.clientId ? (
                   <span className="truncate text-caption text-ink-muted">
                     {clientNameById.get(location.clientId)}
                   </span>
@@ -179,9 +207,11 @@ function CommandPalette({
           </CommandGroup>
         ) : null}
 
-        <React.Suspense fallback={null}>
-          <SwitchClientCommands onDone={() => onOpenChange(false)} />
-        </React.Suspense>
+        {business ? null : (
+          <React.Suspense fallback={null}>
+            <SwitchClientCommands onDone={() => onOpenChange(false)} />
+          </React.Suspense>
+        )}
 
         <CommandGroup heading="Go to">
           {goTo.map((item) => {
@@ -190,7 +220,13 @@ function CommandPalette({
               <CommandItem
                 key={item.href}
                 value={`go ${item.label}`}
-                onSelect={() => go(withClientScope(item.href, remembered))}
+                onSelect={() =>
+                  go(
+                    business
+                      ? item.href
+                      : withClientScope(item.href, remembered)
+                  )
+                }
               >
                 <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
@@ -347,11 +383,16 @@ function CommandPaletteButton({
   className?: string
 }) {
   const hint = useShortcutHint()
+  const business = useWorkspaceMode() === "business"
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label="Search clients, listings, pages and actions"
+      aria-label={
+        business
+          ? "Search listings, pages and actions"
+          : "Search clients, listings, pages and actions"
+      }
       aria-haspopup="dialog"
       aria-keyshortcuts="Meta+K Control+K"
       className={cn(
@@ -364,7 +405,7 @@ function CommandPaletteButton({
     >
       <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
       <span aria-hidden className="flex-1 truncate text-left max-md:hidden">
-        Search clients, listings…
+        {business ? "Search listings…" : "Search clients, listings…"}
       </span>
       <Kbd aria-hidden className="ml-auto max-md:hidden">
         {hint}

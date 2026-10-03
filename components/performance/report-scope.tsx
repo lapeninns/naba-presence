@@ -1,3 +1,5 @@
+"use client"
+
 import { SearchXIcon } from "lucide-react"
 import Link from "next/link"
 import type * as React from "react"
@@ -5,6 +7,7 @@ import type * as React from "react"
 import { buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The scope bar above a report (reference `.card.scope`): a round mark, who
@@ -56,6 +59,7 @@ export function ReportScope({
  * is no fallback to some other client.
  */
 export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
+  const business = useWorkspaceMode() === "business"
   return (
     <div
       data-slot="not-in-directory"
@@ -69,13 +73,17 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
             ? "This client isn’t in your directory"
             : "This location isn’t in your directory"
         }
-        description="It may have been removed, or it belongs to a client you can’t see. Nothing is reported for it."
+        description={
+          business
+            ? "It may have been removed, or you may not have access to it. Nothing is reported for it."
+            : "It may have been removed, or it belongs to a client you can’t see. Nothing is reported for it."
+        }
         action={
           <Link
             href="/reports"
             className={cn(buttonVariants({ variant: "secondary" }))}
           >
-            All clients
+            {business ? "All locations" : "All clients"}
           </Link>
         }
       />

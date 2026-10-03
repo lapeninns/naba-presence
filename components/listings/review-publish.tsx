@@ -67,6 +67,7 @@ import { useHours } from "@/lib/queries/use-location-hours"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
 import { useProfile } from "@/lib/queries/use-location-profile"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const PROFILE_LABELS: Record<ProfileFieldKey, string> = {
   name: "Business name",
@@ -601,13 +602,18 @@ function ReviewPublish({
     connection &&
     (connection.status !== "active" || connection.reconnectRequired)
   )
+  const business = useWorkspaceMode() === "business"
   const canManage = role === "owner" || role === "admin"
   const cannotPublish = caps.data ? !caps.data.canPublish : false
 
   const disabledReason = paused
     ? canManage
-      ? "Publishing is paused until the client’s Google login is reconnected."
-      : "Publishing is paused until an owner or admin reconnects the client’s Google login."
+      ? business
+        ? "Publishing is paused until your Google login is reconnected."
+        : "Publishing is paused until the client’s Google login is reconnected."
+      : business
+        ? "Publishing is paused until an owner or admin reconnects your Google login."
+        : "Publishing is paused until an owner or admin reconnects the client’s Google login."
     : cannotPublish
       ? "You can review these changes, but publishing is limited to people with publish access."
       : loading
@@ -734,8 +740,9 @@ function ReviewPublish({
                 <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
                   <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
                   <AlertDescription>
-                    The client’s Google login needs reconnecting, so Google
-                    can’t be read or written. Your saved changes are kept.{" "}
+                    {business ? "Your" : "The client’s"} Google login needs
+                    reconnecting, so Google can’t be read or written. Your saved
+                    changes are kept.{" "}
                     {canManage
                       ? "Reconnect it from Setup, then come back here."
                       : "Ask an owner or admin to reconnect it."}

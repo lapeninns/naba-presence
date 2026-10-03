@@ -58,7 +58,15 @@ function respond(
       total: entry.listingIds.length,
     }))
   )
-  return { userId, role, ...summary }
+  return {
+    userId,
+    role,
+    ...summary,
+    locationGrants: grants.map(({ locationId, canPublish }) => ({
+      locationId,
+      canPublish,
+    })),
+  }
 }
 
 export const GET = route({
