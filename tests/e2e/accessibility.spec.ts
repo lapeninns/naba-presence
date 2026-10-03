@@ -125,6 +125,7 @@ async function mockReviewWorkspace(
           userId: "user-review-state-a11y",
           organisationId: "org-review-state-a11y",
           organisationName: "Naba Presence",
+          workspaceMode: "agency",
           displayName: "Alex Morgan",
           email: "alex@example.com",
           role: "owner",
@@ -507,6 +508,7 @@ for (const theme of themes) {
             await route.fulfill({
               json: {
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 email: "invitee@example.com",
                 accepted: false,
                 expired: false,
@@ -667,6 +669,19 @@ for (const theme of themes) {
       })
 
       test("inbox, review detail, and reply editor", async ({ page }) => {
+        // The reply composer shows the month's AI credit balance. Unstubbed
+        // it answers 401 and the whole page navigates to /sign-in.
+        await page.route(/\/api\/ai\/credits(?:\?.*)?$/, async (route) => {
+          await route.fulfill({
+            json: {
+              used: 3,
+              allowance: 100,
+              remaining: 97,
+              periodStart: "2026-07-01",
+              resetsAt: "2026-08-01T00:00:00.000Z",
+            },
+          })
+        })
         // The shell reads the client list for its sidebar, breadcrumbs and
         // health chip. Unstubbed it answers 401, and lib/api/client.ts treats
         // that as "sign in again" and navigates the whole page away.
@@ -710,6 +725,7 @@ for (const theme of themes) {
                 userId: "user-reviews-a11y",
                 organisationId: "org-reviews-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",
@@ -1204,6 +1220,7 @@ for (const theme of themes) {
                 userId: "user-connections-a11y",
                 organisationId: "org-connections-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",
@@ -1392,6 +1409,7 @@ for (const theme of themes) {
                 userId: "user-settings-a11y",
                 organisationId: "org-settings-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",

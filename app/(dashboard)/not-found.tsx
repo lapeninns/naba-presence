@@ -24,6 +24,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const DESTINATIONS = [
   {
@@ -75,8 +76,19 @@ export default function DashboardNotFound() {
   const role = useSessionRole()
   const shortcut = useShortcutHint()
   const manager = role === "owner" || role === "admin"
+  const business = useWorkspaceMode() === "business"
   const destinations = DESTINATIONS.filter(
-    (destination) => !("managersOnly" in destination) || manager
+    (destination) =>
+      (!("managersOnly" in destination) || manager) &&
+      // A business has no Clients layer to go back to.
+      !(business && destination.href === "/clients")
+  ).map((destination) =>
+    business && destination.href === "/reports"
+      ? {
+          ...destination,
+          description: "Ratings, reply times and profile views by location",
+        }
+      : destination
   )
 
   return (
@@ -85,7 +97,11 @@ export default function DashboardNotFound() {
         icon={<Search strokeWidth={1.75} />}
         eyebrow="Page not found · 404"
         title="This page doesn’t exist"
-        description="The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
+        description={
+          business
+            ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
+            : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
+        }
         action={
           <>
             <Link
@@ -102,7 +118,7 @@ export default function DashboardNotFound() {
               onClick={openCommandPalette}
             >
               <Search strokeWidth={1.75} aria-hidden />
-              Search clients and listings
+              {business ? "Search listings" : "Search clients and listings"}
               <Kbd aria-hidden className="ml-1 max-md:hidden">
                 {shortcut}
               </Kbd>
@@ -166,9 +182,9 @@ export default function DashboardNotFound() {
           Followed a link from a teammate?
         </h2>
         <p className="text-ui text-ink-muted">
-          Ask them to open it again. If it still fails, the client or listing
-          was probably removed. If you can’t see a client they can, an owner or
-          admin can give you access from the Team page.
+          {business
+            ? "Ask them to open it again. If it still fails, the listing was probably removed. If you can’t see a location they can, an owner or admin can give you access from the Team page."
+            : "Ask them to open it again. If it still fails, the client or listing was probably removed. If you can’t see a client they can, an owner or admin can give you access from the Team page."}
         </p>
       </section>
     </PageFrame>

@@ -33,6 +33,7 @@ import { useAdministration } from "@/lib/queries/use-location-administration"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceTerms } from "@/lib/workspace/mode"
 
 import { AdminsSection } from "./admins"
 import { AdministrationProvider, useAdministrationSection } from "./context"
@@ -355,6 +356,7 @@ export function AccessTab({
   locationId: string
   locationName?: string
 }) {
+  const terms = useWorkspaceTerms()
   return (
     <AdministrationShell
       kind="people"
@@ -372,9 +374,9 @@ export function AccessTab({
 
             <p className="text-caption text-ink-muted">
               These are the people Google lets manage this listing. Who can see
-              it in NabaPresence is usually managed per client, from{" "}
+              it in NabaPresence is usually managed per {terms.scope}, from{" "}
               <Link href="/team" className="font-semibold text-ink underline">
-                Team → Client access
+                Team → {terms.access}
               </Link>
               .
             </p>

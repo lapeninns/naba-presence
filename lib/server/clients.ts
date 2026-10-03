@@ -467,6 +467,45 @@ export async function readClientSetup(
 }
 
 /** URL-safe slug from a client name, uniquified against the organisation. */
+/**
+ * Creates the hidden home client every business-mode organisation owns.
+ * Call inside the transaction that inserts the organisation, after
+ * `app.organisation_id` is set.
+ */
+export async function createHomeClient(
+  sql: TransactionSql,
+  organisationId: string,
+  name: string
+): Promise<string> {
+  const slug = await uniqueClientSlug(sql, name)
+  const [home] = await sql<{ id: string }[]>`
+    insert into client (organisation_id, name, slug, is_home)
+    values (${organisationId}, ${name}, ${slug}, true)
+    returning id::text as id
+  `
+  return home.id
+}
+
+/**
+ * The home client's id when the organisation is in business mode, otherwise
+ * null. New locations default to it so no business-mode location is ever
+ * unassigned.
+ */
+export async function businessHomeClientId(
+  sql: TransactionSql,
+  organisationId: string
+): Promise<string | null> {
+  const [row] = await sql<{ id: string }[]>`
+    select c.id::text as id
+    from client c
+    join organisation o on o.id = c.organisation_id
+    where c.organisation_id = ${organisationId}
+      and c.is_home
+      and o.workspace_mode = 'business'
+  `
+  return row?.id ?? null
+}
+
 export async function uniqueClientSlug(
   sql: TransactionSql,
   name: string

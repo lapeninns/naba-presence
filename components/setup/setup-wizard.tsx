@@ -18,21 +18,22 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stepper } from "@/components/ui/stepper"
 import { ValidationSummary } from "@/components/ui/validation-summary"
-import { SETUP_STEPS, type SetupStep } from "@/lib/contracts/clients"
+import type { SetupStep } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { GOOGLE_RETURN_PARAMS } from "@/lib/setup/oauth-status"
 import {
   resolveStep,
+  setupStepsFor,
   stepBlocker,
   stepDefinition,
-  stepIndex,
   stepNumber,
   stepperState,
   type SetupFacts,
 } from "@/lib/setup/steps"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { StepAccount } from "./step-account"
 import { StepAgency } from "./step-agency"
@@ -43,7 +44,6 @@ import { StepLocations } from "./step-locations"
 import { StepNotifications } from "./step-notifications"
 import { StepTeam } from "./step-team"
 
-const TOTAL = SETUP_STEPS.length
 const AGENCY_UNSAVED =
   "Save the new timezone, or change it back, before continuing."
 
@@ -76,6 +76,9 @@ function focusTargetFor(step: SetupStep): string {
 function SetupWizard({ clientId }: { clientId: string }) {
   const router = useRouter()
   const params = useSearchParams()
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const flow = setupStepsFor(mode)
   const setupQuery = useClientSetup(clientId)
   const clientQuery = useClient(clientId)
   const { query: connectionsQuery } = useConnectionWorkspace()
@@ -99,7 +102,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
   )
   const facts: SetupFacts | null = setup ? { ...setup, usableLogin } : null
   const resolved = facts
-    ? resolveStep(params.get("step"), setup!.nextStep, facts)
+    ? resolveStep(params.get("step"), setup!.nextStep, facts, mode)
     : null
   const current = resolved?.step ?? "connect"
 
@@ -133,13 +136,21 @@ function SetupWizard({ clientId }: { clientId: string }) {
   if (setupQuery.isError) {
     return (
       <>
-        <WizardHeader clientId={clientId} clientName={clientName} />
+        <WizardHeader
+          clientId={clientId}
+          clientName={clientName}
+          business={business}
+        />
         <div className="rounded-(--np-radius-card) border border-line bg-surface">
           <Empty
             tone="bad"
             titleAs="h2"
             icon={<CircleAlertIcon />}
-            title="We couldn’t load this client’s setup"
+            title={
+              business
+                ? "We couldn’t load your setup"
+                : "We couldn’t load this client’s setup"
+            }
             description={`${describeActionError(setupQuery.error)} Without it we can’t tell which step comes next. Nothing was changed.`}
             action={
               <Button
@@ -160,29 +171,35 @@ function SetupWizard({ clientId }: { clientId: string }) {
   if (loading || !facts || !resolved) {
     return (
       <>
-        <WizardHeader clientId={clientId} clientName={clientName} />
-        <WizardSkeleton />
+        <WizardHeader
+          clientId={clientId}
+          clientName={clientName}
+          business={business}
+        />
+        <WizardSkeleton business={business} flow={flow} />
       </>
     )
   }
 
-  const definition = stepDefinition(current)
-  const index = stepIndex(current)
-  const numbered = stepNumber(current)
+  const definition = stepDefinition(current, mode)
+  const index = flow.indexOf(current)
+  const numbered = stepNumber(current, mode)
   const isDone = current === "done"
   const blocker =
     current === "agency" && agencyDirty
       ? AGENCY_UNSAVED
       : stepBlocker(current, facts)
   const showSummary = attempt?.step === current
-  const steps = stepperState(current, facts).map((step) => ({
+  const steps = stepperState(current, facts, mode).map((step) => ({
     id: step.id,
     label: step.label,
     state: step.state,
     note: step.optional ? "Optional" : undefined,
     href: step.reachable && step.id !== current ? hrefFor(step.id) : undefined,
   }))
-  const name = clientName ?? "this client"
+  const name = business
+    ? (clientName ?? "your business")
+    : (clientName ?? "this client")
   const importing = current === "backfill" && facts.backfill === "running"
 
   const advance = async () => {
@@ -218,7 +235,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
       setAttempt({ step: current, message: reason, key: Date.now() })
       return
     }
-    goTo(SETUP_STEPS[Math.min(index + 1, TOTAL - 1)])
+    goTo(flow[Math.min(index + 1, flow.length - 1)])
   }
 
   const footerHint = blocker
@@ -229,7 +246,11 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   return (
     <>
-      <WizardHeader clientId={clientId} clientName={clientName} />
+      <WizardHeader
+        clientId={clientId}
+        clientName={clientName}
+        business={business}
+      />
 
       <div className="@container/setup">
         <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
@@ -323,9 +344,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
               {resolved.redirected ? (
                 <Alert variant="info" icon={<InfoIcon aria-hidden />}>
                   <AlertDescription>
-                    {name} hasn’t reached “
-                    {stepDefinition(resolved.redirected).label}” yet, so setup
-                    opens at “{definition.label}”.
+                    {business ? "Setup" : name} hasn’t reached “
+                    {stepDefinition(resolved.redirected, mode).label}” yet, so
+                    setup opens at “{definition.label}”.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -350,6 +371,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   step={current}
                   clientId={clientId}
                   clientName={name}
+                  business={business}
                   facts={facts}
                   connectionId={setup?.connection?.id ?? null}
                   onAgencyDirtyChange={setAgencyDirty}
@@ -378,7 +400,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 </p>
                 <Button
                   variant="ghost"
-                  onClick={() => goTo(SETUP_STEPS[index - 1])}
+                  onClick={() => goTo(flow[index - 1])}
                   disabled={index === 0}
                   className="@min-[560px]/wiz:order-first"
                 >
@@ -389,7 +411,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   {definition.optional ? (
                     <Button
                       variant="ghost"
-                      onClick={() => goTo(SETUP_STEPS[index + 1])}
+                      onClick={() => goTo(flow[index + 1])}
                     >
                       Skip for now
                     </Button>
@@ -416,18 +438,20 @@ function SetupWizard({ clientId }: { clientId: string }) {
 function WizardHeader({
   clientId,
   clientName,
+  business,
 }: {
   clientId: string
   clientName: string | undefined
+  business: boolean
 }) {
   return (
     <PageHeader
-      title="Client setup"
+      title={business ? "Setup" : "Client setup"}
       eyebrow={clientName ? `Setting up ${clientName}` : "Setting up"}
       description="Each step is worked out from what already exists, so you can leave and pick this up later."
       actions={
         <Link
-          href={`/clients/${clientId}`}
+          href={business ? "/listings" : `/clients/${clientId}`}
           className={cn(buttonVariants({ variant: "ghost" }))}
         >
           Finish later
@@ -437,13 +461,21 @@ function WizardHeader({
   )
 }
 
-function WizardSkeleton() {
+function WizardSkeleton({
+  business,
+  flow,
+}: {
+  business: boolean
+  flow: SetupStep[]
+}) {
   return (
     <div className="@container/setup" role="status" aria-busy="true">
-      <span className="sr-only">Loading this client’s setup</span>
+      <span className="sr-only">
+        {business ? "Loading your setup" : "Loading this client’s setup"}
+      </span>
       <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
         <div className="hidden flex-col gap-2 @min-[720px]/setup:flex">
-          {SETUP_STEPS.map((step) => (
+          {flow.map((step) => (
             <Skeleton key={step} className="h-8" />
           ))}
         </div>
@@ -462,6 +494,7 @@ function StepBody({
   step,
   clientId,
   clientName,
+  business,
   facts,
   connectionId,
   onAgencyDirtyChange,
@@ -471,6 +504,7 @@ function StepBody({
   step: SetupStep
   clientId: string
   clientName: string
+  business: boolean
   facts: SetupFacts
   connectionId: string | null
   onAgencyDirtyChange: (dirty: boolean) => void
@@ -487,6 +521,7 @@ function StepBody({
         <StepConnect
           clientId={clientId}
           clientName={clientName}
+          business={business}
           onConnected={onConnected}
         />
       )
@@ -494,6 +529,7 @@ function StepBody({
       return (
         <StepAccount
           clientName={clientName}
+          business={business}
           clientId={clientId}
           connectionId={connectionId}
           saveBeforeContinueRef={saveBeforeContinueRef}
@@ -504,18 +540,30 @@ function StepBody({
         <StepLocations
           clientId={clientId}
           clientName={clientName}
+          business={business}
           connectionId={connectionId}
         />
       )
     case "backfill":
-      return <StepBackfill clientId={clientId} clientName={clientName} />
+      return (
+        <StepBackfill
+          clientId={clientId}
+          clientName={clientName}
+          business={business}
+        />
+      )
     case "notifications":
       return <StepNotifications />
     case "team":
-      return <StepTeam clientName={clientName} />
+      return <StepTeam clientName={clientName} business={business} />
     case "done":
       return (
-        <StepDone clientId={clientId} clientName={clientName} facts={facts} />
+        <StepDone
+          clientId={clientId}
+          clientName={clientName}
+          business={business}
+          facts={facts}
+        />
       )
   }
 }

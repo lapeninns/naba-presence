@@ -54,6 +54,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The gutters and bottom padding of PageFrame, negated and then restored as
@@ -302,6 +303,7 @@ function ListingAreaHeader({
   description?: React.ReactNode
   actions?: React.ReactNode
 }) {
+  const business = useWorkspaceMode() === "business"
   const canManageConsoles = role === "owner" || role === "admin"
   const area =
     current === "overview" || current === "changes"
@@ -320,7 +322,9 @@ function ListingAreaHeader({
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-[1_1_20rem] flex-col gap-1.5">
           <p className={EYEBROW_CLASS}>
-            {entry.clientName ?? "Not filed under a client"}
+            {business
+              ? "Listing"
+              : (entry.clientName ?? "Not filed under a client")}
           </p>
           {nested ? (
             <Link

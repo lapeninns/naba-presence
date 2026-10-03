@@ -31,6 +31,8 @@ import { signOut } from "@/lib/api/auth"
 import { apiFetch } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { workspaceTerms, type WorkspaceMode } from "@/lib/workspace/terms"
 
 import type { ShellSession } from "./app-shell"
 
@@ -47,11 +49,15 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Viewer",
 }
 
-const ROLE_EXPLANATION: Record<string, string> = {
-  owner: "Full access, including the agency’s settings and team",
-  admin: "Manages clients, connections and the team",
-  member: "Replies to reviews and edits assigned clients",
-  viewer: "Read-only",
+function roleExplanation(role: string, mode: WorkspaceMode): string | undefined {
+  const terms = workspaceTerms(mode)
+  const explanations: Record<string, string> = {
+    owner: `Full access, including the ${terms.orgLower}’s settings and team`,
+    admin: `Manages ${terms.scopePlural}, connections and the team`,
+    member: `Replies to reviews and edits assigned ${terms.scopePlural}`,
+    viewer: "Read-only",
+  }
+  return explanations[role]
 }
 
 const THEMES = [
@@ -121,6 +127,8 @@ function AccountMenu({
   const displayName = session?.displayName ?? "Account"
   const role = session?.role
   const roleLabel = role ? ROLE_LABEL[role] : null
+  const mode = useWorkspaceMode()
+  const explanation = role ? roleExplanation(role, mode) : undefined
   const { theme, setTheme } = useTheme()
   const hydrated = useHydrated()
   const currentTheme = hydrated && theme ? theme : "system"
@@ -233,10 +241,8 @@ function AccountMenu({
                 <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-[0.71875rem] font-medium tracking-[0.02em] text-ink-secondary uppercase">
                   {role}
                 </span>
-                {ROLE_EXPLANATION[role] ? (
-                  <p className="text-caption text-ink-muted">
-                    {ROLE_EXPLANATION[role]}
-                  </p>
+                {explanation ? (
+                  <p className="text-caption text-ink-muted">{explanation}</p>
                 ) : null}
               </div>
             ) : null}
@@ -328,4 +334,4 @@ function AccountMenu({
   )
 }
 
-export { AccountMenu, ROLE_EXPLANATION, ROLE_LABEL }
+export { AccountMenu, roleExplanation, ROLE_LABEL }

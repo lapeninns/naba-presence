@@ -58,7 +58,15 @@ function respond(
       total: entry.listingIds.length,
     }))
   )
-  return { userId, role, ...summary }
+  return {
+    userId,
+    role,
+    ...summary,
+    locationGrants: grants.map(({ locationId, canPublish }) => ({
+      locationId,
+      canPublish,
+    })),
+  }
 }
 
 export const GET = route({
@@ -94,6 +102,7 @@ export const PUT = route({
       const catalogue = await loadClientCatalogue(sql)
       const plan = planClientAccess({
         role: member.role,
+        workspaceMode: session.workspaceMode,
         request: body,
         catalogue,
         current: before,

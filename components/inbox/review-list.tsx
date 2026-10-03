@@ -12,6 +12,7 @@ import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
@@ -93,6 +94,7 @@ function ReviewList({
   /** Shown under the rows while the next page is on its way. */
   isLoadingMore?: boolean
 }) {
+  const business = useWorkspaceMode() === "business"
   const containerRef = useRef<HTMLUListElement>(null)
 
   function focusRow(index: number) {
@@ -227,9 +229,10 @@ function ReviewList({
             review.text,
             review.detectedLanguageCode
           )
-          const venue = review.location.clientName
-            ? `${review.location.clientName} · ${review.location.name}`
-            : review.location.name
+          const venue =
+            review.location.clientName && !business
+              ? `${review.location.clientName} · ${review.location.name}`
+              : review.location.name
 
           return (
             <li

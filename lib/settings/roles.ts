@@ -22,6 +22,19 @@ export const ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
     "Reads reviews, listings and reports they can see. Can’t draft, publish or change anything.",
 }
 
+/** The role copy for a workspace mode: a business has no clients to see. */
+export function roleDescriptions(
+  mode: "business" | "agency"
+): Record<MemberRole, string> {
+  return mode === "business"
+    ? {
+        ...ROLE_DESCRIPTIONS,
+        admin:
+          "Manages the team, Google connections and the reply policy. Sees, edits and publishes for every location.",
+      }
+    : ROLE_DESCRIPTIONS
+}
+
 /** "an admin", "a member": the role as a noun phrase in a sentence. */
 export function roleWithArticle(role: MemberRole): string {
   return role === "admin" || role === "owner" ? `an ${role}` : `a ${role}`
@@ -76,11 +89,29 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
  */
 export function accessSummary(
   member: Pick<Member, "role" | "locations">,
-  clients?: MemberClientTotal[]
+  clients?: MemberClientTotal[],
+  mode: "business" | "agency" = "agency"
 ): {
   label: string
   detail: string | null
 } {
+  if (mode === "business") {
+    // No client layer: access is a count of locations.
+    if (member.role === "owner" || member.role === "admin") {
+      return { label: "All locations", detail: null }
+    }
+    const count = member.locations.length
+    if (count === 0) {
+      return {
+        label: "All locations",
+        detail: "Including locations added later",
+      }
+    }
+    return {
+      label: count === 1 ? "1 location" : `${count} locations`,
+      detail: null,
+    }
+  }
   if (clients) {
     return describeMemberAccess(
       member.role,

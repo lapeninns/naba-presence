@@ -301,4 +301,42 @@ describeDatabase("clients", () => {
     expect(payload.setup.locationsLinked).toBe(0)
     expect(payload.setup.backfill).toBe("not_started")
   })
+
+  it("refuses a second client and archiving the home client in business mode", async () => {
+    const owner = await fixture({ workspaceMode: "business" })
+    const refused = await request("/api/clients", owner.cookie, {
+      method: "POST",
+      body: JSON.stringify({ name: "Another business" }),
+    })
+    expect(refused.status).toBe(409)
+    expect(JSON.stringify(await refused.json())).toContain(
+      "business_mode_single_client"
+    )
+    const [home] = await admin`
+      select id::text as id from client
+      where organisation_id = ${owner.organisationId} and is_home
+    `
+    const archive = await request(`/api/clients/${home.id}`, owner.cookie, {
+      method: "PATCH",
+      body: JSON.stringify({ archived: true, detachLocations: true }),
+    })
+    expect(archive.status).toBe(409)
+  })
+
+  it("keeps every business-mode organisation at one active client and no unassigned locations", async () => {
+    const violations = await admin`
+      select o.id::text as id
+      from organisation o
+      where o.workspace_mode = 'business'
+        and (
+          (select count(*) from client c
+            where c.organisation_id = o.id and c.archived_at is null) <> 1
+          or exists (
+            select 1 from location l
+            where l.organisation_id = o.id and l.client_id is null)
+        )
+        and o.id = any(${organisations}::uuid[])
+    `
+    expect(violations).toEqual([])
+  })
 })

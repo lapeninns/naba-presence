@@ -17,6 +17,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { AccountMenu } from "./account-menu"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
@@ -39,6 +40,7 @@ export type ShellSession = {
   email: string
   role: "owner" | "admin" | "member" | "viewer"
   canPublish: boolean
+  workspaceMode: WorkspaceMode
   /** Set only inside a support impersonation session. */
   supportActor?: string | null
   impersonationReason?: string | null
@@ -109,11 +111,13 @@ function SidebarNav({
   layout,
   rail,
   role,
+  mode,
 }: {
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail: boolean
   role: string | null
+  mode: WorkspaceMode
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
@@ -121,7 +125,8 @@ function SidebarNav({
   return (
     <Nav
       role={role}
-      scopeClientId={remembered}
+      mode={mode}
+      scopeClientId={mode === "business" ? null : remembered}
       onNavigate={onNavigate}
       layout={layout}
       rail={rail}
@@ -150,6 +155,7 @@ function SidebarBody({
   sessionReady,
   organisationName,
   role,
+  mode,
   onNavigate,
   layout,
   rail = false,
@@ -159,6 +165,7 @@ function SidebarBody({
   sessionReady: boolean
   organisationName: string | null
   role: string | null
+  mode: WorkspaceMode
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail?: boolean
@@ -170,7 +177,11 @@ function SidebarBody({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 pr-2">
         <Link
-          href={withClientScope("/inbox", remembered)}
+          href={
+            mode === "business"
+              ? "/inbox"
+              : withClientScope("/inbox", remembered)
+          }
           onClick={onNavigate}
           className={cn(
             "m-1 flex min-w-0 flex-1 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none",
@@ -202,6 +213,7 @@ function SidebarBody({
             layout={layout}
             rail={rail}
             role={role}
+            mode={mode}
           />
         ) : null}
       </div>
@@ -311,6 +323,8 @@ function AppShell({
   const organisationName =
     liveSession?.organisationName ?? session?.organisationName ?? null
   const role = liveSession?.role ?? session?.role ?? null
+  const mode: WorkspaceMode =
+    liveSession?.workspaceMode ?? session?.workspaceMode ?? "agency"
   const pathname = usePathname()
   const rail = useMediaQuery(
     "(min-width: 768px) and (max-width: 1180.98px)",
@@ -354,6 +368,7 @@ function AppShell({
               sessionReady={sessionReady}
               organisationName={organisationName}
               role={role}
+              mode={mode}
               layout="responsive"
               rail={rail}
             />
@@ -370,6 +385,7 @@ function AppShell({
                 sessionReady={sessionReady}
                 organisationName={organisationName}
                 role={role}
+                mode={mode}
                 layout="full"
                 onNavigate={() => setMobileNavOpen(false)}
                 closeButton={closeButton}

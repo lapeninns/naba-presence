@@ -67,6 +67,7 @@ import {
 } from "@/lib/settings/forms/invitation"
 import { formatDay } from "@/lib/settings/roles"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 function isExpired(invitation: Invitation): boolean {
   return (
@@ -304,7 +305,11 @@ function InviteClientScope({
 }
 
 /** "All clients", or up to two client names and a count. */
-function scopeSummary(names: string[] | null | undefined): string {
+function scopeSummary(
+  names: string[] | null | undefined,
+  business = false
+): string {
+  if (business) return "All locations"
   if (!names) return "All clients"
   if (names.length <= 2) return names.join(", ")
   return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`
@@ -318,6 +323,7 @@ function InviteForm({
   layout: "card" | "dialog"
 }) {
   const client = useQueryClient()
+  const business = useWorkspaceMode() === "business"
   const ids = useId()
   const emailRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState("")
@@ -336,8 +342,10 @@ function InviteForm({
     url: string
     access: string
   } | null>(null)
-  // Owners and admins see every client whatever the invitation says.
-  const scoped = role === "member" || role === "viewer"
+  // Owners and admins see every client whatever the invitation says. A
+  // business invites for every location and narrows access afterwards, from
+  // Location access on the member's row.
+  const scoped = !business && (role === "member" || role === "viewer")
 
   const create = useMutation({
     mutationFn: (input: {
@@ -359,7 +367,8 @@ function InviteForm({
         role: input.role,
         url: result.inviteUrl,
         access: scopeSummary(
-          result.invitation.clients?.map((client) => client.name)
+          result.invitation.clients?.map((client) => client.name),
+          business
         ),
       })
       await client.invalidateQueries({ queryKey: queryKeys.invitations })
@@ -468,6 +477,12 @@ function InviteForm({
           error={scopeError}
           disabled={create.isPending}
         />
+      ) : null}
+      {business && (role === "member" || role === "viewer") ? (
+        <p className="text-caption text-ink-muted" data-slot="invite-location-note">
+          They’ll see all your locations, including ones you add later. After
+          they join, narrow this from Location access on their row in Team.
+        </p>
       ) : null}
       {formError ? (
         <Alert variant="destructive">
@@ -581,6 +596,7 @@ export function InviteDialog({
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
+  const business = useWorkspaceMode() === "business"
   const client = useQueryClient()
   const toast = useToastManager()
   const [revokeTarget, setRevokeTarget] = useState<Invitation | null>(null)
@@ -679,9 +695,12 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                     <span className="text-caption text-ink-muted">
                       {invitation.role === "owner" ||
                       invitation.role === "admin"
-                        ? "All clients"
+                        ? business
+                          ? "All locations"
+                          : "All clients"
                         : scopeSummary(
-                            invitation.clients?.map((client) => client.name)
+                            invitation.clients?.map((client) => client.name),
+                            business
                           )}
                     </span>
                   </span>

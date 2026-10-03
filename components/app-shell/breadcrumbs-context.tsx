@@ -8,6 +8,7 @@ import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The toolbar's trail, derived from the path and the lists the shell already
@@ -31,11 +32,13 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
   const pathname = usePathname()
   const clients = useClients()
   const locations = useLocationDirectory(useSessionRole())
+  const mode = useWorkspaceMode()
 
   const crumbs = breadcrumbTrail({
     pathname: pathname ?? "",
     clients: clients.data?.items ?? [],
     locations: locations.data ?? [],
+    mode,
   })
 
   if (crumbs.length === 0) return <div className={className} />

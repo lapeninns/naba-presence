@@ -5,6 +5,7 @@ import type { TransactionSql } from "postgres"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
+import { getAiCredits } from "@/lib/server/ai-credits"
 
 import { sendEmail } from "./email"
 import { renderIncidentEmail, type IncidentKind } from "./messages"
@@ -86,6 +87,34 @@ async function queueDeliveries(
     returning id
   `
   return queued.length
+}
+
+/** Which credit incidents hold for this month's usage. Pure. */
+export function creditUsageFindings(credits: {
+  used: number
+  allowance: number
+  periodStart: string
+  resetsAt: string
+}): Record<"ai_credits_low" | "ai_credits_exhausted", Finding[]> {
+  const none = { ai_credits_low: [], ai_credits_exhausted: [] }
+  if (credits.allowance <= 0) return none
+  const summary = {
+    used: credits.used,
+    allowance: credits.allowance,
+    resetsOn: new Date(credits.resetsAt).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    }),
+  }
+  const finding = { subjectId: credits.periodStart, summary }
+  if (credits.used >= credits.allowance) {
+    return { ai_credits_low: [], ai_credits_exhausted: [finding] }
+  }
+  if (credits.used * 100 >= credits.allowance * 80) {
+    return { ai_credits_low: [finding], ai_credits_exhausted: [] }
+  }
+  return none
 }
 
 const REVIEW_SYNC_TYPES = ["reconcile", "backfill", "sweep", "notification"]
@@ -226,6 +255,36 @@ export async function evaluateOrganisation(
         }))
       )
     )
+
+    // The month's AI reply credits: a heads-up at 80%, a notice at 100%.
+    // The period start is the subject, so each fires once per month; the
+    // 80% incident resolves when the 100% one takes over. Only settled
+    // credits count: a reservation can be released again, and a figure that
+    // can fall would resolve and reopen the incident, emailing twice.
+    const credits = await getAiCredits(sql, organisationId)
+    const [settled] = await sql<{ used: number }[]>`
+      select coalesce(sum(credits), 0)::integer as used
+      from ai_usage
+      where organisation_id = ${organisationId}
+        and kind = 'draft'
+        and status = 'settled'
+        and period_start = ${credits.periodStart}::date
+    `
+    const creditFindings = creditUsageFindings({
+      ...credits,
+      used: settled?.used ?? 0,
+    })
+    for (const kind of ["ai_credits_low", "ai_credits_exhausted"] as const) {
+      record(
+        await syncIncidents(
+          sql,
+          organisationId,
+          kind,
+          "ai_credits",
+          creditFindings[kind]
+        )
+      )
+    }
 
     // New reviews of three stars or fewer. Events, not conditions: each is
     // recorded once (resolved at once) and announced once. Only reviews both

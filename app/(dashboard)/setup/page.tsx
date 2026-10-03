@@ -17,10 +17,11 @@ import { Empty } from "@/components/ui/empty"
 import { clientIdParamsSchema } from "@/lib/contracts/clients"
 import { withTenant } from "@/lib/server/db"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
+import { businessHomeClientId } from "@/lib/server/clients"
 import { getSession } from "@/lib/server/session"
 import { cn } from "@/lib/utils"
 
-export const metadata = { title: "Client setup · NabaPresence" }
+export const metadata = { title: "Setup · NabaPresence" }
 
 /**
  * The setup flow always runs FOR a client, named in the query string.
@@ -42,10 +43,32 @@ export default async function SetupPage({
 }: {
   searchParams: Promise<{ client?: string }>
 }) {
-  const { client } = await searchParams
+  const { client: requestedClient } = await searchParams
   const session = await getSession()
+  const business = session?.workspaceMode === "business"
   if (session && session.role !== "owner" && session.role !== "admin") {
-    return <AccessDeniedPage area="Client setup" />
+    return <AccessDeniedPage area={business ? "Setup" : "Client setup"} />
+  }
+
+  // A business has no client to pick: setup runs for the business itself,
+  // which is its one home client. Resolved here, not redirected, for the
+  // soft-redirect reason above.
+  let client = requestedClient
+  if (session && business && !client) {
+    client =
+      (await withTenant(session.organisationId, (sql) =>
+        businessHomeClientId(sql, session.organisationId)
+      )) ?? undefined
+    if (!client) {
+      return (
+        <PageFrame>
+          <PageHeader
+            title="Setup"
+            description="Your business isn’t ready for setup yet. Try again in a moment."
+          />
+        </PageFrame>
+      )
+    }
   }
 
   if (client) {

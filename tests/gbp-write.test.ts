@@ -215,6 +215,7 @@ const session: Session = {
   userId: USER,
   organisationId: ORG,
   organisationName: "Org",
+  workspaceMode: "business",
   displayName: "Owner",
   email: "owner@example.test",
   role: "owner",

@@ -27,6 +27,7 @@ const session = {
   userId: "u",
   organisationId: "o",
   organisationName: "Lapen Inns Agency",
+  workspaceMode: "agency" as const,
   displayName: "Aman Shrestha",
   email: "a@example.test",
   role: "owner" as const,

@@ -16,6 +16,7 @@ import { useToastManager } from "@/components/ui/toast"
 import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /** The parameters the OAuth callback appends; everything else is the page's. */
 const OAUTH_PARAMS = [
@@ -56,7 +57,12 @@ function describeOAuthStatus(
 }
 
 type Outcome =
-  | { kind: "connected"; reconnected: boolean; mismatch: boolean; catchUp: number }
+  | {
+      kind: "connected"
+      reconnected: boolean
+      mismatch: boolean
+      catchUp: number
+    }
   | { kind: "error"; title: string; message: string }
 
 /**
@@ -107,6 +113,7 @@ export function OAuthReturn({
   const router = useRouter()
   const toast = useToastManager()
   const { connect } = useConnectionWorkspace()
+  const business = useWorkspaceMode() === "business"
   const google = params.get("google")
   const status = params.get("status")
   const reason = params.get("reason")
@@ -174,14 +181,16 @@ export function OAuthReturn({
           {message.description}
           {outcome.reconnected || outcome.mismatch
             ? ""
-            : " Link its locations to a client from client setup."}
+            : business
+              ? " Link its locations from setup."
+              : " Link its locations to a client from client setup."}
         </AlertDescription>
         <AlertActions>
           <Link
-            href="/clients/new"
+            href={business ? "/setup" : "/clients/new"}
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
-            Set up a client with it
+            {business ? "Add locations with it" : "Set up a client with it"}
           </Link>
         </AlertActions>
       </Alert>

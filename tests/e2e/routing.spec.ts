@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 async function applyCookie(
   page: Page,
@@ -28,7 +29,11 @@ const dashboardRoutes = [
 ]
 
 test("dashboard pages have direct URLs", async ({ page }) => {
-  for (const route of dashboardRoutes) {
+  // A business has no Clients destination (it redirects to Listings).
+  const business = (await pageWorkspaceMode(page)) === "business"
+  for (const route of dashboardRoutes.filter(
+    (entry) => !(business && entry.path === "/clients")
+  )) {
     await page.goto(route.path)
     // Pathname only, not a full toHaveURL match: /inbox's desktop
     // auto-selection (see the query-forwarding test below) can append
@@ -113,12 +118,17 @@ test("sidebar links update browser history", async ({ page }) => {
   // client-rewrites its own URL to `?selected=<id>` shortly after landing,
   // which races a sidebar click and swallows the navigation. The route this
   // test starts from is incidental to what it asserts.
+  const business = (await pageWorkspaceMode(page)) === "business"
+  // A business has no Clients item, so Listings stands in for it.
+  const first = business
+    ? { label: "Listings", path: "/listings" }
+    : { label: "Clients", path: "/clients" }
   await page.goto("/reports")
 
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
 
-  await primaryNav.getByRole("link", { name: "Clients", exact: true }).click()
-  await expect(page).toHaveURL("/clients")
+  await primaryNav.getByRole("link", { name: first.label, exact: true }).click()
+  await expect(page).toHaveURL(first.path)
 
   // Settings sits behind More; the disclosure is a button, the row a link.
   await primaryNav.getByRole("button", { name: "More" }).click()
@@ -126,7 +136,7 @@ test("sidebar links update browser history", async ({ page }) => {
   await expect(page).toHaveURL("/settings")
 
   await page.goBack()
-  await expect(page).toHaveURL("/clients")
+  await expect(page).toHaveURL(first.path)
 })
 
 test("old location routes land on the listing, owned by Listings in the nav", async ({

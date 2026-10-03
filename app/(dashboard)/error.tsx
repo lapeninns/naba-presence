@@ -14,6 +14,7 @@ import {
 } from "@/components/app-shell/system-page"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useWorkspaceTerms } from "@/lib/workspace/mode"
 
 const AREAS: Record<string, string> = {
   inbox: "Inbox",
@@ -44,6 +45,7 @@ export default function DashboardError({
   unstable_retry?: () => void
 }) {
   const pathname = usePathname() ?? ""
+  const { orgLower } = useWorkspaceTerms()
   const segment = pathname.split("/").filter(Boolean)[0] ?? ""
   const area = AREAS[segment] ?? "This page"
   const [pending, startTransition] = React.useTransition()
@@ -147,7 +149,8 @@ export default function DashboardError({
             <li>Open another page to check the rest of NabaPresence works.</li>
             <li>
               Share the page and reference with an owner or admin in your
-              agency.
+              {" "}
+              {orgLower}.
             </li>
           </ol>
         </aside>

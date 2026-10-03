@@ -36,6 +36,7 @@ const session: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: UUID,
   organisationName: "Org",
+  workspaceMode: "business",
   displayName: "Test",
   email: "test@example.test",
   role: "owner",

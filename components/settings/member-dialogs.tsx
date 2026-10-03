@@ -28,7 +28,9 @@ import { StatusPill } from "@/components/ui/status-pill"
 import type { Member } from "@/lib/api/members"
 import { roleOptionsFor } from "@/lib/settings/gating"
 import { roleLabel, type MemberRole } from "@/lib/settings/forms/invitation"
-import { ROLE_DESCRIPTIONS, roleWithArticle } from "@/lib/settings/roles"
+import { roleDescriptions, roleWithArticle } from "@/lib/settings/roles"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { workspaceTerms } from "@/lib/workspace/terms"
 
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name
@@ -54,6 +56,7 @@ export function RoleCards({
   labelledBy?: string
 }) {
   const options = roleOptionsFor(actorRole)
+  const descriptions = roleDescriptions(useWorkspaceMode())
   return (
     <div className="@container/roles">
       <RadioGroup
@@ -68,7 +71,7 @@ export function RoleCards({
             key={option.value}
             value={option.value}
             title={option.label}
-            description={ROLE_DESCRIPTIONS[option.value]}
+            description={descriptions[option.value]}
           >
             {option.value === "member" ? (
               <StatusPill tone="accent" plain className="mt-1.5">
@@ -139,13 +142,14 @@ function ChangeRoleBody({
   const [pick, setPick] = useState<MemberRole>(member.role)
   const unchanged = pick === member.role
   const name = member.displayName
+  const terms = workspaceTerms(useWorkspaceMode())
   return (
     <>
       <DialogHeader>
         <DialogTitle>Change role</DialogTitle>
         <DialogDescription>
           {name} is {roleWithArticle(member.role)}. Choose what they can do
-          across your clients.
+          across your {terms.scopePlural}.
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
@@ -210,13 +214,16 @@ export function RemoveMemberDialog({
   onConfirm: () => void
 }) {
   const name = member?.displayName ?? ""
+  const terms = workspaceTerms(useWorkspaceMode())
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
-        <AlertDialogTitle className="[overflow-wrap:anywhere]">Remove {name} from the team?</AlertDialogTitle>
+        <AlertDialogTitle className="[overflow-wrap:anywhere]">
+          Remove {name} from the team?
+        </AlertDialogTitle>
         <AlertDialogDescription>
           {member
-            ? `${name} (${roleLabel(member.role)}) loses access to every client straight away. To bring them back, send them a new invitation.`
+            ? `${name} (${roleLabel(member.role)}) loses access to every ${terms.scope} straight away. To bring them back, send them a new invitation.`
             : null}
         </AlertDialogDescription>
         {error ? (

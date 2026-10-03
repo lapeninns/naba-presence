@@ -23,7 +23,7 @@ vi.mock("@/lib/server/google", () => ({
 
 import { getHoursState } from "@/lib/server/hours"
 
-const session: Session = { sessionId: "s1", userId: "u1", organisationId: "o1", organisationName: "Test", displayName: "Owner", email: "owner@invalid.test", role: "owner", canPublish: true }
+const session: Session = { sessionId: "s1", userId: "u1", organisationId: "o1", organisationName: "Test", workspaceMode: "business", displayName: "Owner", email: "owner@invalid.test", role: "owner", canPublish: true }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.observation.mockResolvedValue({ comparisonCanonicalHash: null, comparisonGoogleHash: null })

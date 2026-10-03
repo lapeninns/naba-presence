@@ -12,7 +12,7 @@ import type { Metadata } from "next"
  * layout so the not-found page carries it too.
  */
 export const metadata: Metadata = {
-  title: "Client report",
+  title: "Performance report",
   description: "A read-only performance report.",
   referrer: "no-referrer",
   robots: {

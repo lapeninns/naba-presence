@@ -21,6 +21,7 @@ function renderForm(role: "owner" | "admin") {
       userId: "u1",
       organisationId: "o1",
       organisationName: "Aman's organisation",
+      workspaceMode: "agency",
       displayName: "Aman",
       email: "aman@example.test",
       role,

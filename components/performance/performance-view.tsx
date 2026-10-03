@@ -29,6 +29,7 @@ import {
   type ReportTab,
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const TABS = [
   { value: "reply", label: "Reply performance", compactLabel: "Replies" },
@@ -82,7 +83,12 @@ export function PerformanceView() {
   const searchParams = useSearchParams()
   const param = searchParams.get("tab")
   const active: TabValue = isTab(param) ? param : "reply"
-  const clientId = searchParams.get("clientId") ?? undefined
+  const business = useWorkspaceMode() === "business"
+  // A business has no client scope: a stale `?clientId=` is ignored, and the
+  // figures are the whole business (its one home client).
+  const clientId = business
+    ? undefined
+    : (searchParams.get("clientId") ?? undefined)
   const locationId = searchParams.get("locationId")
   const rawRange = searchParams.get("range")
   const clients = useClients()
@@ -95,9 +101,13 @@ export function PerformanceView() {
   const client = clientId
     ? items.find((entry) => entry.id === clientId)
     : undefined
-  const clientLocations = clientId
-    ? (directory.data ?? []).filter((entry) => entry.clientId === clientId)
-    : []
+  const clientLocations = business
+    ? (directory.data ?? [])
+    : clientId
+      ? (directory.data ?? []).filter((entry) => entry.clientId === clientId)
+      : []
+  // "Share report" shares the business: its home client, whatever it is named.
+  const shareClient = business ? items[0] : client
 
   function replaceParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
@@ -140,15 +150,19 @@ export function PerformanceView() {
     ? items.reduce((sum, entry) => sum + entry.locationCount, 0) +
       clients.data.unassignedLocationCount
     : null
-  const caption = client
-    ? `${client.name} · ${locationsPhrase(client.locationCount)}`
-    : clients.isError
-      ? "Client names couldn’t be loaded"
-      : clientId
-        ? "Loading client…"
-        : totalLocations === null
-          ? "All clients"
-          : `All clients · ${locationsPhrase(totalLocations)}`
+  const caption = business
+    ? totalLocations === null
+      ? "All locations"
+      : `All locations · ${locationsPhrase(totalLocations)}`
+    : client
+      ? `${client.name} · ${locationsPhrase(client.locationCount)}`
+      : clients.isError
+        ? "Client names couldn’t be loaded"
+        : clientId
+          ? "Loading client…"
+          : totalLocations === null
+            ? "All clients"
+            : `All clients · ${locationsPhrase(totalLocations)}`
   const empty = client && client.locationCount === 0
 
   return (
@@ -162,17 +176,19 @@ export function PerformanceView() {
         caption={caption}
         controls={
           <>
-            <ClientSelect
-              clients={items}
-              value={clientId}
-              onChange={(next) =>
-                replaceParams((params) => {
-                  if (next) params.set("clientId", next)
-                  else params.delete("clientId")
-                })
-              }
-            />
-            {client ? (
+            {business ? null : (
+              <ClientSelect
+                clients={items}
+                value={clientId}
+                onChange={(next) =>
+                  replaceParams((params) => {
+                    if (next) params.set("clientId", next)
+                    else params.delete("clientId")
+                  })
+                }
+              />
+            )}
+            {business || client ? (
               <LocationSelect
                 locations={clientLocations}
                 value={undefined}
@@ -184,10 +200,10 @@ export function PerformanceView() {
                 }
               />
             ) : null}
-            {client && canShare ? (
+            {shareClient && canShare ? (
               <ShareReportButton
-                clientId={client.id}
-                clientName={client.name}
+                clientId={shareClient.id}
+                clientName={shareClient.name}
               />
             ) : null}
           </>
@@ -198,7 +214,11 @@ export function PerformanceView() {
         // client names and the picker are missing.
         <ReportingPanel
           variant="error"
-          title="We couldn’t load your clients"
+          title={
+            business
+              ? "We couldn’t load your locations"
+              : "We couldn’t load your clients"
+          }
           cause={clients.error}
           onRetry={() => void clients.refetch()}
         />

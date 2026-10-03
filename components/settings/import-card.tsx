@@ -14,6 +14,7 @@ import {
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import { resolveImportSource } from "@/lib/connections/import-source"
@@ -47,6 +48,7 @@ export function ImportCard({
   /** The login this client's setup attached; the org's first one otherwise. */
   connectionId?: string | null
 } = {}) {
+  const business = useWorkspaceMode() === "business"
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
   const connectionId =
@@ -343,7 +345,11 @@ export function ImportCard({
                   ) : needsFiling && existing ? (
                     <>
                       <Badge variant="secondary">
-                        {existing.clientId ? "Another client" : "Not filed"}
+                        {existing.clientId
+                          ? business
+                            ? "Filed elsewhere"
+                            : "Another client"
+                          : "Not filed"}
                       </Badge>
                       <Button
                         variant="secondary"
@@ -351,8 +357,8 @@ export function ImportCard({
                         disabled={state === "pending" || bulkPending}
                         aria-label={
                           existing.clientId
-                            ? `Move ${location.title} to this client`
-                            : `Link ${location.title} to this client`
+                            ? `Move ${location.title} to ${business ? "your business" : "this client"}`
+                            : `Link ${location.title} to ${business ? "your business" : "this client"}`
                         }
                         onClick={() => {
                           if (existing.clientId) {
@@ -421,9 +427,9 @@ export function ImportCard({
         onOpenChange={(open) => {
           if (!open) setMoveTarget(null)
         }}
-        title={`Move ${moveTarget?.title ?? "this listing"} to this client?`}
+        title={`Move ${moveTarget?.title ?? "this listing"} to ${business ? "your business" : "this client"}?`}
         description={
-          moveTarget?.fromName
+          moveTarget?.fromName && !business
             ? `${moveTarget.title} is filed under ${moveTarget.fromName}. Moving it keeps its reviews with the listing.`
             : "Moving it keeps its reviews with the listing."
         }

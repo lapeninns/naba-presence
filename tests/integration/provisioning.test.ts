@@ -55,6 +55,27 @@ describeDatabase("first-tenant provisioning under RLS", () => {
     expect(user.org).toBe(result.organisationId)
   })
 
+  it("creates a business-mode organisation with exactly one home client", async () => {
+    const { provisionOwner } = await import("@/lib/server/provisioning")
+    const sub = `sub-${crypto.randomUUID()}`
+    const result = await provisionOwner({
+      sub,
+      email: `provision-${sub.slice(4, 12)}@example.test`,
+      name: "Home Client Test",
+    })
+    createdOrgs.push(result.organisationId)
+    const [organisation] = await admin`
+      select workspace_mode as mode from organisation
+      where id = ${result.organisationId}
+    `
+    expect(organisation.mode).toBe("business")
+    const clients = await admin`
+      select is_home as "isHome", archived_at as "archivedAt" from client
+      where organisation_id = ${result.organisationId}
+    `
+    expect(clients).toEqual([{ isHome: true, archivedAt: null }])
+  })
+
   it("reuses the default organisation for a returning user", async () => {
     const { provisionOwner } = await import(
       "@/lib/server/provisioning"

@@ -4,6 +4,7 @@ import { Menu } from "lucide-react"
 import * as React from "react"
 import { Suspense } from "react"
 
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { cn } from "@/lib/utils"
 
 import { ShellBreadcrumbs } from "./breadcrumbs-context"
@@ -47,6 +48,9 @@ function Toolbar({
   className?: string
 }) {
   const palette = useCommandPalette()
+  // A business has one home client behind the scenes; the switcher and the
+  // scope sync that fills `?clientId=` into the address are agency furniture.
+  const agency = useWorkspaceMode() === "agency"
 
   return (
     <header
@@ -56,7 +60,7 @@ function Toolbar({
         className
       )}
     >
-      {sessionReady ? (
+      {sessionReady && agency ? (
         // Both read the address; the boundary keeps a prerendered page from
         // bailing the whole toolbar out to client rendering.
         <Suspense fallback={null}>

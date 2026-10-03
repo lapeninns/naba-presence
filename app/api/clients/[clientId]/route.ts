@@ -65,6 +65,16 @@ export const PATCH = route({
       await requireClientAccess(sql, session, params.clientId)
 
       if (body.archived === true) {
+        const [target] = await sql<{ isHome: boolean }[]>`
+          select is_home as "isHome" from client where id = ${params.clientId}
+        `
+        if (target?.isHome) {
+          throw new ApiError(
+            409,
+            "home_client_required",
+            "The home client cannot be archived."
+          )
+        }
         const [attached] = await sql<{ count: number }[]>`
           select count(*)::int as count from location where client_id = ${params.clientId}
         `

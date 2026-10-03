@@ -38,6 +38,10 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { useClientAccess } from "@/lib/queries/use-members"
 import { describeAccessChange } from "@/lib/settings/client-access"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { workspaceTerms } from "@/lib/workspace/terms"
+
+import { LocationAccessForm } from "./location-access-form"
 
 /** Above this many clients the checklist gets a search box. */
 const SEARCH_THRESHOLD = 8
@@ -75,14 +79,15 @@ export function ClientAccessDialog({
   member: Member | null
   onOpenChange: (open: boolean) => void
 }) {
+  const terms = workspaceTerms(useWorkspaceMode())
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
-          <DialogTitle>Client access</DialogTitle>
+          <DialogTitle>{terms.access}</DialogTitle>
           <DialogDescription>
             {member
-              ? `Choose which clients ${member.displayName} can see. Their role still decides what they can do there.`
+              ? `Choose which ${terms.scopePlural} ${member.displayName} can see. Their role still decides what they can do there.`
               : null}
           </DialogDescription>
         </DialogHeader>
@@ -106,11 +111,12 @@ function ClientAccessLoader({
   onDone: () => void
 }) {
   const query = useClientAccess(member.userId)
+  const business = useWorkspaceMode() === "business"
   if (query.isPending) {
     return (
       <DialogBody aria-busy="true">
         <span className="sr-only" role="status">
-          Loading client access
+          {business ? "Loading location access" : "Loading client access"}
         </span>
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-16 w-full" />
@@ -140,7 +146,9 @@ function ClientAccessLoader({
       </DialogBody>
     )
   }
-  return (
+  return business ? (
+    <LocationAccessForm member={member} access={query.data} onDone={onDone} />
+  ) : (
     <ClientAccessForm member={member} access={query.data} onDone={onDone} />
   )
 }

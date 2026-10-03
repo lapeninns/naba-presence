@@ -23,6 +23,7 @@ import { listConnections } from "@/lib/server/connections"
 import { withTenant } from "@/lib/server/db"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
+import { redirectOutOfClientScope } from "@/lib/server/workspace-redirect"
 
 export default async function DashboardLayout({
   children,
@@ -38,6 +39,11 @@ export default async function DashboardLayout({
     const requested = (await headers()).get(REQUEST_PATH_HEADER)
     redirect(signInPathFor(requested))
   }
+
+  redirectOutOfClientScope(
+    session,
+    (await headers()).get(REQUEST_PATH_HEADER)
+  )
 
   const queryClient = makeQueryClient()
   // The client the operator last worked (lib/clients/scope.ts). Read here so
@@ -91,6 +97,10 @@ export default async function DashboardLayout({
     } else {
       rememberedClientId = null
     }
+
+    // A business has no client scope to remember: its one client is the
+    // business itself, and `?clientId=` never appears in its addresses.
+    if (session.workspaceMode === "business") rememberedClientId = null
 
     const management = session.role === "owner" || session.role === "admin"
     if (rows.status === "fulfilled") {
