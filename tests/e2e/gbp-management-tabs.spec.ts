@@ -11,7 +11,7 @@ import { expect, test, type Page } from "@playwright/test"
 // — only the routes and assertions below are new, pointed at the real
 // editors instead of the deleted raw-JSON console.
 async function mockShell(page: Page) {
-  await page.route(/\/api\/session(?:\?.*)?$/, (route) => route.fulfill({ json: { session: { sessionId: "session-management", userId: "user-management", organisationId: "org-management", organisationName: "Naba Presence", displayName: "Alex Morgan", email: "alex@example.com", role: "owner", canPublish: true } } }))
+  await page.route(/\/api\/session(?:\?.*)?$/, (route) => route.fulfill({ json: { session: { sessionId: "session-management", userId: "user-management", organisationId: "org-management", organisationName: "Naba Presence", workspaceMode: "agency", displayName: "Alex Morgan", email: "alex@example.com", role: "owner", canPublish: true } } }))
   // ONE endpoint, TWO payload shapes, and both are fetched on these pages.
   // LocationWorkspace renders with the SERVER session's role, which is null
   // here (no session cookie is minted -- see the activity note below), so it

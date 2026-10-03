@@ -7,6 +7,7 @@ import { grantClientListings } from "@/lib/server/client-access"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { createHomeClient } from "@/lib/server/clients"
 import { createSession } from "@/lib/server/session-store"
 
 export type GoogleProfile = {
@@ -154,6 +155,11 @@ export async function provisionAuthenticatedOwner(
             ${`${identity.displayName}'s organisation`}
           )
         `
+        await createHomeClient(
+          sql,
+          organisationId,
+          `${identity.displayName}'s organisation`
+        )
         await sql`
           insert into member (
             organisation_id,
@@ -584,6 +590,11 @@ export async function provisionOwner(profile: GoogleProfile) {
           ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
         )
       `
+        await createHomeClient(
+          sql,
+          organisationId,
+          profile.name ? `${profile.name}'s organisation` : "My organisation"
+        )
         await sql`
         insert into member (
           organisation_id,

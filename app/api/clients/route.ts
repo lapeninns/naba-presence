@@ -37,6 +37,18 @@ export const POST = route({
   body: clientCreateSchema,
   handler: async ({ session, body, requestId, tenant }) => {
     const client = await tenant(async (sql) => {
+      const [organisation] = await sql<{ workspaceMode: string }[]>`
+        select workspace_mode as "workspaceMode"
+        from organisation
+        where id = ${session.organisationId}
+      `
+      if (organisation?.workspaceMode === "business") {
+        throw new ApiError(
+          409,
+          "business_mode_single_client",
+          "This workspace has a single business, so another one cannot be added."
+        )
+      }
       const slug = await uniqueClientSlug(sql, body.name)
       const [created] = await sql<{ id: string }[]>`
         insert into client (organisation_id, name, slug, colour, notes, created_by)
