@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { pageWorkspaceMode } from "./helpers/workspace-mode"
+
 /**
  * A business-mode owner never sees the client or agency layer.
  *
@@ -27,21 +29,16 @@ const PAGES = [
   { path: "/setup", heading: null },
 ] as const
 
-async function isBusinessTenant(
-  request: import("@playwright/test").APIRequestContext
-) {
-  const response = await request.get("/api/session")
-  if (!response.ok()) return false
-  const body = (await response.json()) as {
-    session: { workspaceMode?: string } | null
-  }
-  return body.session?.workspaceMode === "business"
+// Reads the mode through the page's own cookie jar, so the page is signed in
+// to the bootstrap session before its first navigation.
+async function isBusinessTenant(page: import("@playwright/test").Page) {
+  return (await pageWorkspaceMode(page)) === "business"
 }
 
 for (const { path, heading } of PAGES) {
-  test(`${path} never says client or agency`, async ({ page, request }) => {
+  test(`${path} never says client or agency`, async ({ page }) => {
     test.skip(
-      !(await isBusinessTenant(request)),
+      !(await isBusinessTenant(page)),
       "The harness tenant is not in business mode."
     )
     await page.goto(path)
@@ -86,10 +83,9 @@ for (const step of [
 ]) {
   test(`/setup?step=${step} never says client or agency`, async ({
     page,
-    request,
   }) => {
     test.skip(
-      !(await isBusinessTenant(request)),
+      !(await isBusinessTenant(page)),
       "The harness tenant is not in business mode."
     )
     await page.goto(`/setup?step=${step}`)
@@ -121,10 +117,9 @@ for (const step of [
 
 test("the client pages redirect a business to Listings and Settings", async ({
   page,
-  request,
 }) => {
   test.skip(
-    !(await isBusinessTenant(request)),
+    !(await isBusinessTenant(page)),
     "The harness tenant is not in business mode."
   )
   for (const [from, to] of [
@@ -134,16 +129,17 @@ test("the client pages redirect a business to Listings and Settings", async ({
     ["/clients/00000000-0000-4000-8000-000000000001/settings", "/settings"],
   ]) {
     await page.goto(from)
-    expect(new URL(page.url()).pathname).toBe(to)
+    // The redirect can land after the load event (it is issued from a page
+    // that streams), so poll the address instead of reading it once.
+    await expect.poll(() => new URL(page.url()).pathname).toBe(to)
   }
 })
 
 test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({
   page,
-  request,
 }) => {
   test.skip(
-    !(await isBusinessTenant(request)),
+    !(await isBusinessTenant(page)),
     "The harness tenant is not in business mode."
   )
   await page.goto("/team")

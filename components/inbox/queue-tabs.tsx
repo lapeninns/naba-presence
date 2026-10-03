@@ -15,6 +15,7 @@ import {
   type VisibleQueue,
 } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The five queues as one segmented track in the inbox toolbar (reference
@@ -44,6 +45,7 @@ function QueueTabs({
   className?: string
 }) {
   const noteId = useId()
+  const business = useWorkspaceMode() === "business"
   const current = visibleQueue(queue)
 
   return (
@@ -113,7 +115,9 @@ function QueueTabs({
           the list applies. Saying so is cheaper than a number that quietly
           disagrees with the rows underneath it. */}
       <span id={noteId} className="sr-only">
-        Counts cover every review in each queue for the current client scope.
+        {business
+          ? "Counts cover every review in each queue."
+          : "Counts cover every review in each queue for the current client scope."}{" "}
         The list below also applies your filters, so it can show fewer.
       </span>
     </nav>

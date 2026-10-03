@@ -62,6 +62,9 @@ function tab(queue: string) {
   return found as HTMLElement
 }
 
+const modeMock = vi.hoisted(() => vi.fn(() => "agency"))
+vi.mock("@/lib/workspace/mode", () => ({ useWorkspaceMode: () => modeMock() }))
+
 describe("QueueTabs", () => {
   it("is a landmark holding the five visible queues, labelled from the contract", () => {
     // The rail is gone, but these are still the inbox's primary navigation, so
@@ -177,6 +180,17 @@ describe("QueueTabs", () => {
     expect(note).toHaveTextContent(
       "Counts cover every review in each queue for the current client scope."
     )
+    expect(note).toHaveTextContent(
+      "The list below also applies your filters, so it can show fewer."
+    )
+  })
+
+  it("does not name a client scope in a business", () => {
+    modeMock.mockReturnValueOnce("business")
+    renderTabs()
+    const note = document.getElementById(nav().getAttribute("aria-describedby")!)
+    expect(note).toHaveTextContent("Counts cover every review in each queue.")
+    expect(note).not.toHaveTextContent(/client/i)
     expect(note).toHaveTextContent(
       "The list below also applies your filters, so it can show fewer."
     )
