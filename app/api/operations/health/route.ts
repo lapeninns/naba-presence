@@ -482,8 +482,21 @@ export const GET = route({
           now() - interval '30 days'
       `
       const alerting = await tenantAlerting(sql)
+      const aiTokensThisMonth = await sql<
+        OperationsHealth["aiTokensThisMonth"]
+      >`
+        select
+          model,
+          coalesce(sum(input_tokens), 0)::integer as "inputTokens",
+          coalesce(sum(output_tokens), 0)::integer as "outputTokens"
+        from ai_usage
+        where period_start = (date_trunc('month', now() at time zone 'utc'))::date
+        group by model
+        order by model
+      `
       return {
         generatedAt: new Date().toISOString(),
+        aiTokensThisMonth: [...aiTokensThisMonth],
         sync,
         webhooks,
         connections,

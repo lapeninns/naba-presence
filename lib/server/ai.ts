@@ -35,6 +35,42 @@ function responseText(response: Record<string, unknown>): string {
   )
 }
 
+/** Token counts from a Responses API payload; null when the provider sent none. */
+export type AiUsage = {
+  inputTokens: number | null
+  outputTokens: number | null
+}
+
+/**
+ * A 200 response whose body could not be parsed or validated. The provider
+ * still billed the call, so the usage rides on the error for the caller to
+ * record.
+ */
+export class AiOutputError extends ApiError {
+  constructor(
+    message: string,
+    readonly usage: AiUsage,
+    public model?: string
+  ) {
+    super(502, "ai_invalid_output", message)
+  }
+}
+
+export function extractUsage(payload: Record<string, unknown>): AiUsage {
+  const usage =
+    payload.usage && typeof payload.usage === "object"
+      ? (payload.usage as Record<string, unknown>)
+      : {}
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.trunc(value)
+      : null
+  return {
+    inputTokens: count(usage.input_tokens),
+    outputTokens: count(usage.output_tokens),
+  }
+}
+
 async function openAiStructured<T>(
   model: string,
   name: string,
@@ -45,7 +81,7 @@ async function openAiStructured<T>(
     reasoningEffort?: "none" | "low" | "medium" | "high"
     unavailableMessage?: string
   } = {}
-): Promise<T> {
+): Promise<{ value: T; usage: AiUsage }> {
   const env = getServerEnv()
   if (!env.OPENAI_API_KEY) {
     throw new ApiError(
@@ -56,47 +92,40 @@ async function openAiStructured<T>(
   }
   let response: Response
   try {
-    response = await fetch(
-      new URL("/v1/responses", env.OPENAI_BASE_URL),
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.OPENAI_API_KEY}`,
-          "content-type": "application/json",
-          ...(env.OPENAI_ORG_ID
-            ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
-            : {}),
-        },
-        body: JSON.stringify({
-          model,
-          input,
-          store: false,
-          ...(options.reasoningEffort
-            ? { reasoning: { effort: options.reasoningEffort } }
-            : {}),
-          text: {
-            format: {
-              type: "json_schema",
-              name,
-              strict: true,
-              schema,
-            },
+    response = await fetch(new URL("/v1/responses", env.OPENAI_BASE_URL), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "content-type": "application/json",
+        ...(env.OPENAI_ORG_ID
+          ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
+          : {}),
+      },
+      body: JSON.stringify({
+        model,
+        input,
+        store: false,
+        ...(options.reasoningEffort
+          ? { reasoning: { effort: options.reasoningEffort } }
+          : {}),
+        text: {
+          format: {
+            type: "json_schema",
+            name,
+            strict: true,
+            schema,
           },
-        }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
-      }
-    )
+        },
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
+    })
   } catch (error) {
     if (
       error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
-      throw new ApiError(
-        502,
-        "ai_timeout",
-        "The AI provider timed out."
-      )
+      throw new ApiError(502, "ai_timeout", "The AI provider timed out.")
     }
     // Everything else out of `fetch` is a transport failure (DNS, TLS, reset)
     // during a provider outage. Left raw it is neither an ApiError nor a
@@ -121,7 +150,16 @@ async function openAiStructured<T>(
       String(error.message ?? "The AI provider rejected the request.")
     )
   }
-  return validator.parse(JSON.parse(responseText(payload)))
+  const usage = extractUsage(payload)
+  try {
+    return { value: validator.parse(JSON.parse(responseText(payload))), usage }
+  } catch {
+    throw new AiOutputError(
+      "The AI provider returned a reply we could not read.",
+      usage,
+      model
+    )
+  }
 }
 
 const draftResultSchema = z.object({
@@ -138,8 +176,9 @@ export async function generateReply(input: {
   tone: DraftTone
   businessContext?: string | null
 }) {
-  return openAiStructured(
-    getServerEnv().OPENAI_MODEL_DRAFT,
+  const model = getServerEnv().OPENAI_MODEL_DRAFT
+  const { value, usage } = await openAiStructured(
+    model,
     "google_review_reply",
     {
       type: "object",
@@ -153,6 +192,7 @@ export async function generateReply(input: {
     buildReplyPrompt(input),
     draftResultSchema
   )
+  return { ...value, usage, model }
 }
 
 const semanticVerificationSchema = z.object({
@@ -178,9 +218,7 @@ export function sanitizeEvidence(input: SemanticInput) {
   return {
     locationName: stripFormatCharacters(input.locationName),
     rating: input.rating,
-    reviewerName: stripFormatCharacters(
-      input.reviewerName ?? "anonymous"
-    ),
+    reviewerName: stripFormatCharacters(input.reviewerName ?? "anonymous"),
     reviewText: stripFormatCharacters(
       input.reviewText ?? "[rating-only review]"
     ),
@@ -189,9 +227,7 @@ export function sanitizeEvidence(input: SemanticInput) {
   }
 }
 
-export function buildSemanticVerificationPrompt(
-  input: SemanticInput
-): string {
+export function buildSemanticVerificationPrompt(input: SemanticInput): string {
   return [
     "Verify the proposed reply using only the supplied review evidence.",
     "List claims not supported by the review, reviewer name, or location name.",
@@ -208,6 +244,9 @@ export function buildSemanticVerificationPrompt(
 export type SemanticVerificationResult = {
   ran: boolean
   reasons: VerificationReason[]
+  /** Present when the provider was called. */
+  usage?: AiUsage
+  model?: string
 }
 
 /**
@@ -231,7 +270,7 @@ export async function semanticVerification(
   if (!env.SEMANTIC_VERIFY_ENABLED || !env.OPENAI_API_KEY) {
     return { ran: false, reasons: [] }
   }
-  const result = await openAiStructured(
+  const { value: result, usage } = await openAiStructured(
     env.OPENAI_MODEL_VERIFY,
     "review_reply_verification",
     {
@@ -253,6 +292,8 @@ export async function semanticVerification(
   )
   return {
     ran: true,
+    usage,
+    model: env.OPENAI_MODEL_VERIFY,
     reasons: [
       ...result.unsupportedClaims.map((claim) => ({
         code: "unsupported_claim",

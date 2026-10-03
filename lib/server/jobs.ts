@@ -51,6 +51,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { retryDelayMs } from "@/lib/domain/retry"
+import { releaseStaleReservations } from "@/lib/server/ai-credits"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import {
@@ -881,6 +882,13 @@ export async function runDueJobs(options: {
   if (kinds.length === 0) return summary
 
   await reclaimExpired()
+  // A reservation whose process died before settling would count against the
+  // allowance forever. Never lets a ledger problem stop the tick.
+  await releaseStaleReservations(getDatabase()).catch((error: unknown) => {
+    log.error("ai_credits.reaper_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
 
   const deadline = Date.now() + Math.max(0, options.budgetMs)
   const tick: Tick = { requestId: options.requestId, summary, deadline }

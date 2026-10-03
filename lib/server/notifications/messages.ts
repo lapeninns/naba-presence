@@ -11,6 +11,8 @@ export type IncidentKind =
   | "listing_stale"
   | "low_rating_review"
   | "connection_owner_left"
+  | "ai_credits_low"
+  | "ai_credits_exhausted"
 
 function text(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback
@@ -82,6 +84,37 @@ export function renderIncidentEmail(
         text: [
           `${title} has a new ${rating ? `${rating}-star ` : ""}review on Google.`,
           `Read and reply: ${link("/inbox")}`,
+          "",
+          FOOTER,
+        ].join("\n"),
+      }
+    }
+    case "ai_credits_low": {
+      const used = typeof summary.used === "number" ? summary.used : null
+      const allowance =
+        typeof summary.allowance === "number" ? summary.allowance : null
+      const resets = text(summary.resetsOn, "the start of next month")
+      return {
+        subject: "You have used 80% of this month's AI reply credits",
+        text: [
+          used !== null && allowance !== null
+            ? `${used} of ${allowance} AI reply credits have been used this month.`
+            : "80% of this month's AI reply credits have been used.",
+          `Credits reset on ${resets}. You can always write a reply yourself.`,
+          `Usage: ${link("/settings")}`,
+          "",
+          FOOTER,
+        ].join("\n"),
+      }
+    }
+    case "ai_credits_exhausted": {
+      const resets = text(summary.resetsOn, "the start of next month")
+      return {
+        subject: "You are out of AI reply credits this month",
+        text: [
+          `All of this month's AI reply credits have been used. Credits reset on ${resets}.`,
+          "Until then the Generate button is off, but you can still write and publish replies yourself.",
+          `Usage: ${link("/settings")}`,
           "",
           FOOTER,
         ].join("\n"),
