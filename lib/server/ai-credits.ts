@@ -145,17 +145,65 @@ export async function reserveDraftCredit(
   return row.id
 }
 
+const LEDGER_WRITE_ATTEMPTS = 3
+
+/**
+ * Runs a ledger write in its own tenant transaction, retrying a transient
+ * failure (a pooled connection blip) before giving up. Never throws: the
+ * caller already has the provider result and must still deliver it. After the
+ * final failure the ids and token counts are logged for reconciliation.
+ */
+async function writeLedger(
+  tenant: Tenant,
+  event: string,
+  context: Record<string, unknown>,
+  write: (sql: TransactionSql) => Promise<void>
+): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= LEDGER_WRITE_ATTEMPTS; attempt += 1) {
+    try {
+      await tenant(write)
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < LEDGER_WRITE_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt))
+      }
+    }
+  }
+  log.error(event, {
+    ...context,
+    error: lastError instanceof Error ? lastError.message : String(lastError),
+  })
+}
+
 /**
  * Phase three: the provider call succeeded, so the credit is spent. Also
- * applies to a row the reaper already released, because the money was spent.
- * Runs in its own transaction and never throws.
+ * applies to a row the reaper already released, because the money was spent;
+ * the allowance is deliberately not re-checked then (the provider call is
+ * already paid for, and the ledger must say so). Overrun is bounded because
+ * OPENAI_TIMEOUT_MS (max 55s) is far below STALE_RESERVATION_MINUTES. The
+ * organisation row is locked, as in reserveDraftCredit, so a settle never
+ * interleaves with another reservation's check-and-insert. Never throws.
  */
 export async function settleDraftCredit(
   tenant: Tenant,
   input: { id: string; usage: AiUsage; model: string; draftId: string }
 ): Promise<void> {
-  try {
-    await tenant(async (sql) => {
+  await writeLedger(
+    tenant,
+    "ai_credit_settle_failed",
+    {
+      reservationId: input.id,
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+    },
+    async (sql) => {
+      await sql`
+        select o.id from organisation o
+        where o.id = (select organisation_id from ai_usage where id = ${input.id})
+        for update
+      `
       await sql`
         update ai_usage
         set status = 'settled', credits = 1, model = ${input.model},
@@ -164,38 +212,38 @@ export async function settleDraftCredit(
             draft_id = ${input.draftId}, settled_at = now()
         where id = ${input.id} and status in ('reserved', 'released')
       `
-    })
-  } catch (error) {
-    log.error("ai_credit_settle_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
+    }
+  )
 }
 
 /**
  * The provider call failed: the customer does not pay. Tokens of a billed but
- * unreadable response are kept so the backstop still sees them. Never throws.
+ * unreadable response are kept so the backstop still sees them, including on
+ * a row the reaper already released (its credits stay 0). Never throws.
  */
 export async function releaseDraftCredit(
   tenant: Tenant,
   input: { id: string; usage?: AiUsage }
 ): Promise<void> {
-  try {
-    await tenant(async (sql) => {
+  await writeLedger(
+    tenant,
+    "ai_credit_release_failed",
+    {
+      reservationId: input.id,
+      inputTokens: input.usage?.inputTokens ?? null,
+      outputTokens: input.usage?.outputTokens ?? null,
+    },
+    async (sql) => {
       await sql`
         update ai_usage
         set status = 'released', credits = 0,
-            input_tokens = ${input.usage?.inputTokens ?? null},
-            output_tokens = ${input.usage?.outputTokens ?? null},
-            settled_at = now()
-        where id = ${input.id} and status = 'reserved'
+            input_tokens = coalesce(${input.usage?.inputTokens ?? null}, input_tokens),
+            output_tokens = coalesce(${input.usage?.outputTokens ?? null}, output_tokens),
+            settled_at = coalesce(settled_at, now())
+        where id = ${input.id} and status in ('reserved', 'released')
       `
-    })
-  } catch (error) {
-    log.error("ai_credit_release_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
+    }
+  )
 }
 
 /**

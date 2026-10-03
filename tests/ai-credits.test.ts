@@ -184,6 +184,54 @@ describe("AI credit reservation", () => {
     expect(await tokenBackstopReached(sql, ORG)).toBe(true)
   })
 
+  it("settles a row the reaper already released and counts it again", async () => {
+    const id = await reserve(1)
+    await db.exec(
+      `update ai_usage set status = 'released', credits = 0 where id = '${id}'`
+    )
+    await settleDraftCredit(tenant, {
+      id,
+      usage: { inputTokens: 3, outputTokens: 4 },
+      model: "gpt",
+      draftId: "00000000-0000-4000-8000-0000000000d1",
+    })
+    const { rows } = await db.query(
+      "select status, credits, input_tokens from ai_usage"
+    )
+    expect(rows).toEqual([{ status: "settled", credits: 1, input_tokens: 3 }])
+  })
+
+  it("keeps tokens when releasing a row the reaper already released", async () => {
+    const id = await reserve(1)
+    await db.exec(
+      `update ai_usage set status = 'released', credits = 0 where id = '${id}'`
+    )
+    await releaseDraftCredit(tenant, {
+      id,
+      usage: { inputTokens: 7, outputTokens: 8 },
+    })
+    const { rows } = await db.query(
+      "select status, credits, input_tokens, output_tokens from ai_usage"
+    )
+    expect(rows).toEqual([
+      { status: "released", credits: 0, input_tokens: 7, output_tokens: 8 },
+    ])
+  })
+
+  it("retries a transient ledger failure", async () => {
+    const id = await reserve(1)
+    let calls = 0
+    const flaky = (async (fn: (s: never) => unknown) => {
+      calls += 1
+      if (calls === 1) throw new Error("connection reset")
+      return fn(sql)
+    }) as never
+    await releaseDraftCredit(flaky, { id })
+    expect(calls).toBe(2)
+    const { rows } = await db.query("select status, credits from ai_usage")
+    expect(rows).toEqual([{ status: "released", credits: 0 }])
+  })
+
   it("the reaper releases only stale reservations", async () => {
     const stale = await reserve(1)
     const fresh = await reserve(2)
