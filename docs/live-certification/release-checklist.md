@@ -1,8 +1,16 @@
 # Production release checklist
 
+> The authoritative launch checklist is `docs/release/ledger.md`. This page is
+> the candidate-bound sign-off record; every item here must link to evidence
+> recorded in the ledger for the same candidate. Topology references were
+> updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
+> separate scheduler process).
+
 Release candidate: ____________________
 
-Application image/digest: ____________________
+Git SHA: ____________________
+
+Vercel deployment ID: ____________________
 
 Decision date: ____________________
 
@@ -93,11 +101,14 @@ See `docs/specs/2026-09-23-connect-once-implementation.md`.
       `DRAFTS_ENABLED=false`; pause `SYNC_ENABLED`/`WEBHOOKS_ENABLED` only when
       ingestion itself is unsafe.
 - [ ] Pre-deploy database snapshot restore tested.
-- [ ] Previous application image retained and redeploy tested.
-- [ ] Snapshot plus previous image is treated as one rollback unit.
+- [ ] Previous Vercel production deployment retained and promote/Instant
+      Rollback tested.
+- [ ] Snapshot plus previous Vercel deployment is treated as one rollback
+      unit.
 - [ ] On-call has the exact rollback commands, access, and decision authority.
-- [ ] Scheduler, jobs runner, health scraper, and alert routing are verified
-      after rollback.
+- [ ] All eight Vercel Cron entries are active with the expected schedules
+      after rollback (Instant Rollback does not change the cron configuration),
+      and the jobs runner, health scraper, and alert routing are verified.
 
 ## Program release definition
 

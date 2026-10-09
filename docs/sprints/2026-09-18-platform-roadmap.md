@@ -227,6 +227,11 @@ parallel-owner-agents workflow.
 
 ### Sprint H3 — Google Q&A
 
+**Cancelled (2026-10-09).** Google discontinued the My Business Q&A API on
+2025-11-03, and the Q&A tables were already dropped as unsupported
+(`supabase/migrations/0025_remove_unsupported_qa.sql`,
+`tests/qa-removal-migration.test.ts`). The goals below are kept as history only.
+
 | Goal                      | Owner scope                                                                                                                           | Done when                                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | H3.1 Ingest               | `lib/server/google/qanda.ts` (`mybusinessqanda` v1), migration, reconciliation job kind, fixtures (E2.1)                              | questions and answers stored per location with the same retention rules as reviews                         |
@@ -300,7 +305,10 @@ A1 → B1 ∥ B2 → B3 → B4 → C1 → D1 ∥ E1 → D2 ∥ E2 ∥ E3 → E4 
 ```
 
 C1 sits after B because B rewrites the modules under review. F precedes H so features
-land in split modules. I4 is last in I because pricing needs the features to exist.
+land in split modules. I4 is last in I because pricing needs the features to exist. (Superseded on
+2026-10-09 by `docs/production-readiness-plan-2026-10-09.md`: for a public paid
+launch, billing and entitlements are P0 prerequisites, packages PR06/PR07;
+acceptance is tracked in `docs/release/ledger.md`.)
 
 ## Ledger
 

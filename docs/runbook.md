@@ -69,7 +69,7 @@ deliberately.
 | `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
 | `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
 | `JOBS_ENABLED`              | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on. `PUBLISH_ENABLED` and `SYNC_ENABLED` narrow the same claim by job kind rather than stopping it.                                              |
-| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. The scheduler reads this one too and registers no retention tick, so a paused deployment logs no failing run.                                                                |
+| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 each day, so expect failing fires and a stale `retention` heartbeat for the length of the pause; only the local `scripts/scheduler.mjs` skips registering the tick.                                                                |
 | `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete. Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
 | `NOTIFICATIONS_ENABLED`     | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent. |
 | `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident. |
@@ -132,17 +132,20 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
   for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
-  own advisory lock, so an overlapping or duplicate fire answers `skipped`
-  (`reason: "lease_held"`) instead of doing the work twice, and a missed fire
+  own advisory lock, so an overlapping or duplicate fire answers 200
+  `{ skipped: true }` (no reason and no log line on Vercel; `lease_held` is
+  logged only by `scripts/scheduler.mjs`) instead of doing the work twice, and a missed fire
   only delays work — each queue keeps its due rows and the next fire starts at
-  the head. A steady stream of `lease_held` skips means a tick is overlapping
-  itself: lengthen that cron's interval, do not remove the lock.
+  the head. A tick whose heartbeat goes stale while its fires return
+  `skipped` is overlapping itself: lengthen that cron's interval, do not remove
+  the lock.
 - Pausing `GBP_PERFORMANCE_ENABLED` or `GBP_KEYWORDS_ENABLED` does not stop
-  the cron calling that ingestion route. Each organisation in the page
-  fails with 503 `sync_paused` and logs `performance.organisation_failed` /
-  `keywords.organisation_failed`, so expect one error line per tenant per tick
-  for as long as the pause lasts. Nothing is claimed, re-armed or lost by it;
-  read the flood as the pause, not as an incident.
+  the cron calling that ingestion route. On Vercel the cron GET only enqueues
+  checkpoints, and the pause is enforced when the jobs runner claims work, so
+  checkpoints accumulate and drain after the pause. The per-tenant
+  `performance.organisation_failed` / `keywords.organisation_failed` lines with
+  503 `sync_paused` appear only on the session and local-scheduler POST paths;
+  read them as the pause, not as an incident.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
   are the session and scheduler POST paths of reconcile, performance and
@@ -239,8 +242,9 @@ Every authenticated jobs run updates the `scheduler` row in `ops_heartbeat`,
 including a run that claims nothing because a kill switch is off: the heartbeat
 means "the scheduler reached the web process", so a pause must not read as a
 dead scheduler. A missing heartbeat or one older than five minutes pages
-on-call. Verify the scheduler process, web reachability, matching cron secrets,
-advisory-lock holders, and database connectivity, then run one manual jobs tick
+on-call. Verify that the Vercel Cron Jobs are enabled and firing (project Cron
+Jobs page and logs), that `CRON_SECRET` is set on the project, and check
+advisory-lock holders and database connectivity, then run one manual jobs tick
 and confirm the heartbeat advances.
 
 ### Retired sync checkpoints
@@ -393,7 +397,8 @@ verdict `pending` and a `semantic_verification_unavailable` warning. The text is
 never lost, but `pending` is not publishable — publishing answers
 `verification_required` — so replies pile up unsent.
 
-Set `SEMANTIC_VERIFY_ENABLED=false` and restart. Generation stays unavailable
+Set `SEMANTIC_VERIFY_ENABLED=false` in the Vercel environment and redeploy
+(flags are memoised per process; see Kill switches). Generation stays unavailable
 while the provider is down, but the semantic pass is then deliberately skipped
 rather than attempted, so a human-authored reply is verified by the
 deterministic checks alone, settles `pass`/`warn` and can be published. Do not
@@ -508,9 +513,9 @@ Provision in this order:
    `GET /api/operations/health?scope=platform` (backlog unlatched,
    `ops_heartbeat` fresh), one firing of each of the eight crons in
    `vercel.json`, and watch for `lease_expired` (one reclaim burst is
-   expected, a stream is not). Deploying also retires the stale five-minute
-   `/api/cron/worker` pings: that endpoint exists only in the old build and
-   500s on every fire. Then sign up, connect Google, confirm the reviews
+   expected, a stream is not). (Historical note: the first Vercel deployment
+   retired the stale five-minute `/api/cron/worker` pings from the old build.)
+   Then sign up, connect Google, confirm the reviews
    arrive in the inbox, and generate one draft.
 
 ## Privacy and disassociation
