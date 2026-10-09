@@ -6,6 +6,7 @@ These documents preserve the local planning and audit notes that preceded
 or evidence of production verification. Original local OMO files remain intact.
 
 - `plans-listing-correctness-and-hours.md`: implementation plan and acceptance scope.
+- `completed-plan-listing-correctness-and-hours.md`: later worktree copy with completion ticks and execution notes.
 - `drafts-listing-correctness-and-hours.md`: investigation notes and source findings.
 
 Current project instructions live in the repository root `AGENTS.md`.
