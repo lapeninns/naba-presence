@@ -302,7 +302,9 @@ For a PR that adds a migration:
    deployment (the rollback unit in `docs/runbook.md`).
 3. From your machine, with the admin URL (direct, or session pooler on 5432):
    `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
-   `pnpm db:status --expect-current` (exits 1 while anything is pending).
+   `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`
+   (exits 1 while anything is pending; check that the printed `target` is the
+   production host).
    Run this **before merging** when the new code depends on the new schema:
    the live code tolerates an expand-only migration, but the new code would
    fail against the old schema.

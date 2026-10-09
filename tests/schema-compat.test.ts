@@ -3,8 +3,11 @@ import { readdir } from "node:fs/promises"
 import { describe, expect, it } from "vitest"
 
 import {
+  compareMigrations,
+  describeDatabaseTarget,
   LEGACY_MIGRATION_FILES,
   listMigrationVersions,
+  migrationDatabaseUrl,
   migrationVersion,
 } from "../scripts/migration-rules.mjs"
 import {
@@ -96,5 +99,71 @@ describe("collectSchemaViolations", () => {
 
   it("reports everything when nothing is applied", () => {
     expect(missingMigrations(new Set())).toEqual([...REQUIRED_MIGRATIONS])
+  })
+})
+
+describe("compareMigrations (db:status)", () => {
+  const repository = ["0001_a", "0002_b", "20260729000400_legacy"]
+
+  it("reports nothing when the database matches the repository", () => {
+    expect(compareMigrations(repository, repository)).toEqual({
+      pending: [],
+      unknown: [],
+    })
+  })
+
+  it("lists repository versions the database has not applied", () => {
+    expect(compareMigrations(["0001_a"], repository)).toEqual({
+      pending: ["0002_b", "20260729000400_legacy"],
+      unknown: [],
+    })
+  })
+
+  it("lists applied versions the checkout does not know, sorted", () => {
+    expect(
+      compareMigrations([...repository, "0004_d", "0003_c"], repository)
+    ).toEqual({ pending: [], unknown: ["0003_c", "0004_d"] })
+  })
+
+  it("treats a database without a ledger as having everything pending", () => {
+    expect(compareMigrations([], repository)).toEqual({
+      pending: repository,
+      unknown: [],
+    })
+  })
+})
+
+describe("migrationDatabaseUrl", () => {
+  it("prefers DIRECT_DATABASE_URL over a local DATABASE_URL", () => {
+    expect(
+      migrationDatabaseUrl({
+        DIRECT_DATABASE_URL: "postgresql://admin@prod.example:5432/postgres",
+        DATABASE_URL: "postgresql://app@127.0.0.1:54322/postgres",
+      })
+    ).toBe("postgresql://admin@prod.example:5432/postgres")
+  })
+
+  it("falls back to DATABASE_URL", () => {
+    expect(
+      migrationDatabaseUrl({ DATABASE_URL: "postgresql://app@db:5432/x" })
+    ).toBe("postgresql://app@db:5432/x")
+    expect(migrationDatabaseUrl({})).toBeUndefined()
+  })
+})
+
+describe("describeDatabaseTarget", () => {
+  it("shows host, port and database without credentials or query", () => {
+    expect(
+      describeDatabaseTarget(
+        "postgresql://admin:s3cret@db.example.com:6543/postgres?sslmode=require"
+      )
+    ).toBe("db.example.com:6543/postgres")
+  })
+
+  it("defaults the port and survives a malformed URL", () => {
+    expect(describeDatabaseTarget("postgres://u:p@host/db")).toBe(
+      "host:5432/db"
+    )
+    expect(describeDatabaseTarget("not a url")).not.toContain("not a url")
   })
 })

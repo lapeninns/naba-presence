@@ -2,8 +2,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { expectBootFailure, startAppServer } from "./helpers/app-server"
 
-vi.mock("server-only", () => ({}))
-
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
@@ -49,6 +47,8 @@ describeDatabase("startup safety assertion", () => {
 })
 
 describeDatabase("startup schema compatibility", () => {
+  const savedEnv = { ...process.env }
+
   beforeAll(() => {
     process.env.DATABASE_URL = process.env.TEST_RUNTIME_DATABASE_URL!
     process.env.NEXTAUTH_URL = "http://127.0.0.1:3000"
@@ -63,6 +63,10 @@ describeDatabase("startup schema compatibility", () => {
   afterAll(async () => {
     await globalThis.__nabaSql?.end()
     globalThis.__nabaSql = undefined
+    // getServerEnv caches the parsed env in its module, so drop the modules
+    // too: a later test must not inherit the runtime-role URL and secrets.
+    process.env = savedEnv
+    vi.resetModules()
   })
 
   it("reads every shipped migration through the runtime role", async () => {

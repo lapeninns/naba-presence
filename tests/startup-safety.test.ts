@@ -8,15 +8,21 @@ import {
 
 const database = vi.hoisted(() => ({
   appliedVersions: [] as string[],
+  ledgerError: undefined as unknown,
 }))
 
 vi.mock("@/lib/server/db", () => ({
-  getDatabase: () => (strings: TemplateStringsArray) =>
-    Promise.resolve(
-      strings.join("").includes("schema_migration")
+  getDatabase: () => (strings: TemplateStringsArray) => {
+    const ledger = strings.join("").includes("schema_migration")
+    if (ledger && database.ledgerError) {
+      return Promise.reject(database.ledgerError)
+    }
+    return Promise.resolve(
+      ledger
         ? database.appliedVersions.map((version) => ({ version }))
         : [{ rolSuper: false, rolBypassRls: false, rowSecurity: "on" }]
-    ),
+    )
+  },
 }))
 
 vi.mock("@/lib/server/env", () => ({
@@ -215,6 +221,7 @@ describe("assertProductionSafety schema compatibility", () => {
 
   afterEach(() => {
     database.appliedVersions = []
+    database.ledgerError = undefined
     vi.restoreAllMocks()
   })
 
@@ -244,5 +251,19 @@ describe("assertProductionSafety schema compatibility", () => {
     const logged = warn.mock.calls.join(" ")
     expect(logged).toContain("startup.schema_incompatible")
     expect(logged).toContain("startup.safety_violations_ignored")
+  })
+
+  it("reports an unreadable ledger as a violation instead of crashing", async () => {
+    database.ledgerError = Object.assign(new Error("permission denied"), {
+      code: "42501",
+    })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await expect(
+      assertProductionSafety({ enforce: false, requiredMigrations: required })
+    ).resolves.toBeUndefined()
+    expect(warn.mock.calls.join(" ")).toContain("42501")
+    await expect(
+      assertProductionSafety({ enforce: true, requiredMigrations: required })
+    ).rejects.toThrow("Could not read schema_migration (42501)")
   })
 })

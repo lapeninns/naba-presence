@@ -122,6 +122,25 @@ export async function readDbIdentity(): Promise<DbIdentity> {
   return row
 }
 
+// A ledger the runtime role cannot read (for example a missing SELECT grant)
+// is reported as a violation, so it follows the same enforce-or-warn path and
+// the other checks still run.
+async function readSchemaViolations(
+  required: readonly string[]
+): Promise<string[]> {
+  try {
+    return collectSchemaViolations(await readAppliedMigrations(), required)
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : error instanceof Error
+          ? error.message
+          : String(error)
+    return [`Could not read schema_migration (${code}).`]
+  }
+}
+
 export async function assertProductionSafety(
   options: { enforce?: boolean; requiredMigrations?: readonly string[] } = {}
 ): Promise<void> {
@@ -130,10 +149,7 @@ export async function assertProductionSafety(
     (process.env.NODE_ENV === "production" ||
       process.env.ENFORCE_DB_SAFETY === "true")
   const required = options.requiredMigrations ?? REQUIRED_MIGRATIONS
-  const schemaViolations = collectSchemaViolations(
-    await readAppliedMigrations(),
-    required
-  )
+  const schemaViolations = await readSchemaViolations(required)
   if (schemaViolations.length === 0) {
     log.info("startup.schema_ok", { enforce, required: required.length })
   } else {

@@ -25,7 +25,9 @@ database ahead of the code is accepted. Before promoting a deployment, run
 `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current` from the
 commit being deployed: it lists `pending` (in the repository, not applied)
 and `unknown` (applied, not in this checkout) versions and exits 1 when
-anything is pending. A cold start that fails on the schema check is fixed by
+anything is pending. `DIRECT_DATABASE_URL` takes precedence over a local
+`DATABASE_URL`, as in `db:migrate`; confirm the printed `target`
+(host:port/database) is the production database. A cold start that fails on the schema check is fixed by
 running `pnpm db:migrate`, not by rolling the code back.
 
 Confirm

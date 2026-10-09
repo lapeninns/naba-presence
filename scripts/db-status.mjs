@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url"
 import nextEnv from "@next/env"
 import postgres from "postgres"
 
-import { listMigrationVersions } from "./migration-rules.mjs"
+import {
+  compareMigrations,
+  describeDatabaseTarget,
+  listMigrationVersions,
+  migrationDatabaseUrl,
+} from "./migration-rules.mjs"
 
 // Usage: pnpm db:status [--expect-current]
 //
@@ -17,12 +22,16 @@ import { listMigrationVersions } from "./migration-rules.mjs"
 //   ahead of the code (expand, then contract); not an error.
 // With --expect-current the script exits 1 when anything is pending, so an
 // operator can check a database before promoting a deployment.
+// Like db:migrate, DIRECT_DATABASE_URL wins over DATABASE_URL; the target
+// host, port and database are printed so the operator can confirm which
+// database was checked.
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const { loadEnvConfig } = nextEnv
 loadEnvConfig(root)
 
-if (!process.env.DIRECT_DATABASE_URL && !process.env.DATABASE_URL) {
+const url = migrationDatabaseUrl(process.env)
+if (!url) {
   throw new Error("DIRECT_DATABASE_URL or DATABASE_URL is required")
 }
 
@@ -31,10 +40,7 @@ const repositoryVersions = listMigrationVersions(
   await readdir(resolve(root, "supabase/migrations"))
 )
 
-const sql = postgres(
-  process.env.DATABASE_URL ?? process.env.DIRECT_DATABASE_URL,
-  { max: 1, prepare: false }
-)
+const sql = postgres(url, { max: 1, prepare: false })
 
 try {
   const [database] = await sql`
@@ -48,11 +54,12 @@ try {
     from information_schema.tables
     where table_schema = 'public'
   `
-  const applied = new Set(migrations.map((row) => row.version))
-  const known = new Set(repositoryVersions)
-  const pending = repositoryVersions.filter((version) => !applied.has(version))
-  const unknown = [...applied].filter((version) => !known.has(version)).sort()
+  const { pending, unknown } = compareMigrations(
+    migrations.map((row) => row.version),
+    repositoryVersions
+  )
   console.log({
+    target: describeDatabaseTarget(url),
     database: database.database,
     role: database.role,
     tables: tables.count,
