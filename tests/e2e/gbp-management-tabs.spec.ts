@@ -54,7 +54,7 @@ async function mockShell(page: Page) {
   // lib/api/client.ts navigates the whole page to /sign-in mid-assertion.
   // Tests below register their own narrower stubs afterwards, which win.
   await page.route(/\/api\/locations\/location-management\/profile(?:\?.*)?$/, (route) => route.fulfill({ json: { profile: { location: { id: "location-management", name: "Camden Hotel", googleLocationName: "locations/camden" }, canonicalResource: { revision: "1", updatedAt: "2026-08-01T00:00:00.000Z" }, canonicalHash: "c".repeat(64), googleHash: "d".repeat(64), canPublish: true, googleWritesEnabled: true, fields: [{ key: "name", policy: "bidirectional", status: "in_sync", canonicalValue: "Camden Hotel", googleValue: "Camden Hotel", canonicalHash: "c", googleHash: "g", lastReconciledAt: null }], googleDetails: { primaryCategory: "Hotel", additionalCategories: [] }, latestAttempt: null } } }))
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: { data: null, error: null }, lodgingUpdated: { data: null, error: null }, calls: { data: null, error: null }, callInsights: { data: null, error: null }, healthcareServices: { data: null, error: null }, providerAttributes: { data: null, error: null }, insuranceNetworks: { data: null, error: null }, canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: { data: null, error: null }, lodgingUpdated: { data: null, error: null }, healthcareServices: { data: null, error: null }, canManage: true, writesEnabled: true } } }))
   // The Listing is one scroll: the hours, booking links and suggested updates
   // editors mount beside the profile, so their GETs fire too. Answering with
   // a Google error keeps each in its own honest retry state without the 401
@@ -86,23 +86,18 @@ test("Business profile editor renders live Google data with humanised fields", a
   await expect(page.getByText(/can edit yet/i)).toBeVisible()
 })
 
-test("Industry sections humanise Business Calls state and surface a failing section honestly", async ({ page }) => {
+test("Industry sections offer no retired Google controls and surface a failing section honestly", async ({ page }) => {
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), calls: available({ callsState: "ENABLED" }), callInsights: available({ businessCallsInsights: [] }), healthcareServices: { data: null, error: "Google request failed." }, providerAttributes: available({ attributes: [] }), insuranceNetworks: available({ networks: [] }), canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, canManage: true, writesEnabled: true } } }))
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
-  // Lodging and calls are sections of the business profile now.
+  // Lodging is a section of the business profile now.
   await page.goto("/listings/location-management/profile")
-  // The status badge already humanises correctly ("Currently On", never
-  // "Currently ENABLED").
-  await expect(page.getByText("Currently On")).toBeVisible()
-  // Base UI's <Select.Value> resolves its label from registered
-  // <Select.Item>s, which only register once the popup has mounted at least
-  // once — a bare <SelectValue /> would show the raw Google enum
-  // ("ENABLED") on first paint, before any interaction. industry-sections.tsx
-  // passes a children-render-function using callsStateLabel so the trigger
-  // matches the "Currently On" badge above from the very first render.
-  await expect(page.getByRole("combobox", { name: "Calls" })).toHaveText("On")
+  await expect(page.getByRole("button", { name: "Save lodging" })).toBeVisible()
+  // Google switched off the Business Calls API (2023-05-30) and provider
+  // attributes (2024-07-01); neither control is offered any more.
+  await expect(page.getByRole("combobox", { name: "Calls" })).toHaveCount(0)
+  await expect(page.getByText("Provider attributes")).toHaveCount(0)
   // The failing healthcareServices sub-resource shows the honest per-section
   // warning, never the raw Google error string.
   await expect(page.getByText("We couldn't load healthcare services from Google right now. Try refreshing in a moment.")).toBeVisible()

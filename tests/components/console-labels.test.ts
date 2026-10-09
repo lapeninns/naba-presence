@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import {
   adminRoleLabel,
   attributeControlKind,
-  callsStateLabel,
   categoryLabel,
   openStatusLabel,
   serviceAreaLabel,
@@ -39,7 +38,6 @@ describe("console-labels humanisation (§7 — no raw enums to users)", () => {
   it("humanises the remaining console enums without underscores", () => {
     expect(openStatusLabel("CLOSED_PERMANENTLY")).toBe("Permanently closed")
     expect(serviceAreaLabel("CUSTOMER_LOCATION_ONLY")).not.toMatch(/_/)
-    expect(callsStateLabel("ENABLED")).toBe("On")
     expect(verificationMethodLabel("PHONE_CALL")).not.toMatch(/_/)
   })
   it("renders a neutral empty result for an empty verification value, never the literal 'Category'", () => {

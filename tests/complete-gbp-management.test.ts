@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   googleAccountManagementRequest,
-  googleBusinessCallsRequest,
   googleCategoriesRequest,
   googleHealthcareRequest,
   googleLocationAttributesPatchRequest,
@@ -60,13 +59,11 @@ describe("complete Google Business Profile management contracts", () => {
     expect(request.init.headers).toEqual({ "content-type": "image/jpeg" })
   })
 
-  it("uses lodging, calls, and healthcare endpoints", () => {
+  it("uses lodging and healthcare service-list endpoints", () => {
     expect(googleLodgingRequest({ locationName: "locations/1", operation: "get" }).url)
       .toContain("mybusinesslodging.googleapis.com/v1/locations/1/lodging")
-    expect(googleBusinessCallsRequest({ locationName: "locations/1", operation: "insights" }).url)
-      .toContain("locations/1/businesscallsinsights")
-    expect(googleHealthcareRequest({ accountName: "accounts/1", locationName: "locations/2", resource: "insuranceNetworks" }).url)
-      .toContain("accounts/1/locations/2/insuranceNetworks")
+    expect(googleHealthcareRequest({ accountName: "accounts/1", locationName: "locations/2", resource: "serviceList" }).url)
+      .toContain("mybusiness.googleapis.com/v4/accounts/1/locations/2/serviceList")
   })
 })
 
