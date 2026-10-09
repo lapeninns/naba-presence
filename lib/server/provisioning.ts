@@ -9,6 +9,7 @@ import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { createHomeClient } from "@/lib/server/clients"
 import { createSession } from "@/lib/server/session-store"
+import { requireOpenRegistration } from "@/lib/server/registration"
 
 export type GoogleProfile = {
   sub: string
@@ -107,7 +108,7 @@ export async function provisionAuthenticatedOwner(
       const user = await provisionAuthenticatedUser(sql, identity)
       await sql`select set_config('app.user_id', ${user.id}, true)`
       let organisationId = user.defaultOrganisationId
-      if (organisationId) {
+      {
         // default_organisation_id is not cleared when a membership is
         // removed, and a session minted into an organisation the user has
         // left is rejected by lookupSession's member join on the very next
@@ -119,9 +120,11 @@ export async function provisionAuthenticatedOwner(
           select organisation_id::text as "organisationId"
           from list_user_organisations(${user.id})
         `
-        const stale = !memberships.some(
-          (membership) => membership.organisationId === organisationId
-        )
+        const stale =
+          !organisationId ||
+          !memberships.some(
+            (membership) => membership.organisationId === organisationId
+          )
         if (stale) {
           organisationId = memberships[0]?.organisationId ?? null
           if (organisationId) {
@@ -134,6 +137,10 @@ export async function provisionAuthenticatedOwner(
         }
       }
       if (!organisationId) {
+        // Enforce admission here too: an identity created directly at the
+        // auth provider, an older confirmation link or recovery cannot create
+        // an uninvited workspace. Throwing rolls back user provisioning.
+        requireOpenRegistration()
         organisationId = crypto.randomUUID()
         await sql`
           select set_config(
@@ -573,6 +580,7 @@ export async function provisionOwner(profile: GoogleProfile) {
       await sql`select set_config('app.user_id', ${user.id}, true)`
       let organisationId = user.default_organisation_id
       if (!organisationId) {
+        requireOpenRegistration()
         // Establish the tenant context BEFORE the RLS-sensitive insert so the
         // organisation_isolation USING clause makes the row visible.
         organisationId = crypto.randomUUID()

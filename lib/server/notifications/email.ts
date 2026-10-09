@@ -31,7 +31,19 @@ const SEND_TIMEOUT_MS = 10_000
 
 export function emailConfigured(): boolean {
   const env = getServerEnv()
-  return env.EMAIL_PROVIDER !== "none" && Boolean(env.EMAIL_API_KEY && env.EMAIL_FROM)
+  return (
+    env.EMAIL_PROVIDER !== "none" &&
+    Boolean(env.EMAIL_API_KEY && env.EMAIL_FROM)
+  )
+}
+
+export async function sendTenantEmail(
+  message: EmailMessage
+): Promise<SendResult> {
+  if (!getServerEnv().TENANT_EMAIL_ENABLED) {
+    return { status: "suppressed", reason: "tenant_email_disabled" }
+  }
+  return sendEmail(message)
 }
 
 export async function sendEmail(message: EmailMessage): Promise<SendResult> {

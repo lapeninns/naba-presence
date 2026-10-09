@@ -443,7 +443,60 @@ on Vercel, so the Supabase CLI stack above is the only local environment.
 
 ## Production database
 
-Production runs on the Supabase project `googlereview-gbp` (ref
+The production application is at `https://nabapresence.com`; `www.nabapresence.com`
+redirects to that origin. The Vercel project is `nabapresence`. Production
+`NEXTAUTH_URL`, Supabase Auth's Site URL and redirect allow list, and the Google
+OAuth client's production origin and callback use `https://nabapresence.com`.
+
+### Authentication email (verified 9 October 2026)
+
+Hosted Supabase Auth uses Resend custom SMTP: `smtp.resend.com`, port `465`,
+username `resend`, sender `NabaPresence <noreply@nabapresence.com>`. The password
+is a sending-only key restricted to the NabaPresence domain; keep it in the
+provider's encrypted settings and the operator's credential store, never this
+repository or a Vercel environment export. All 13 Auth email subjects and
+template bodies identify NabaPresence. Signup requires email confirmation.
+
+Cloudflare holds the provider-issued DKIM TXT, `send` MX and SPF TXT, and
+`rsend` CNAME records, all DNS-only. `_dmarc` starts at
+`v=DMARC1; p=none; adkim=r; aspf=r;`: this checks alignment without enforcing
+rejection. Receiving a support mailbox is a separate setup from this outbound
+SMTP configuration. The initial Auth send limit is 30 emails/hour with a
+60-second minimum interval per user; revisit it against pilot admission and
+abuse controls before increasing it.
+
+Real confirmation and recovery mail reached the authorised test alias in
+Gmail's inbox, each after one second, with SPF, DKIM and DMARC PASS. The live
+confirmation link established an app session. Recovery completed through the
+production API after the browser opened the received link; browser sign-in
+with the new password passed. The old password, consumed recovery link and
+previous app session were rejected. The reset form's final submission was not
+performed through browser UI in this check.
+
+See `docs/release/pilot-readiness-2026-10-09.md` for candidate-bound validation,
+evidence locations and outstanding launch gates. Custom Auth SMTP does not
+configure the application's incident/support email adapter.
+
+### Controlled pilot and operator email
+
+Production uses `REGISTRATION_MODE=invite_only`. Owners/admins create invitation
+links in Team and share them with the intended tester; the application returns
+an `inviteUrl` and does not send invitation messages itself. Invitees join that
+organisation. Signup checks token validity, expiry, prior use and the invited
+email before sending confirmation. Confirmation/acceptance checks again under
+a database row lock. Existing members can still sign in and recover without
+an invitation, while identities with no membership cannot create a workspace.
+
+Operator alerts use `EMAIL_PROVIDER=resend`, a separate domain-scoped
+`EMAIL_API_KEY`, `EMAIL_FROM=NabaPresence <notifications@nabapresence.com>` and
+the approved `OPS_ALERT_EMAILS` inbox. `TENANT_EMAIL_ENABLED=false` suppresses
+customer incident emails while retaining in-app incident records and operator
+mail. Changing these variables requires a new deployment because configuration
+is cached per process. A real adapter test reached the approved inbox, but
+never-started ticks and absence of the health tick still require external
+monitoring; do not treat the email test as a paging or recovery rehearsal.
+
+Production runs on the Supabase project `nabapresence` (ref
 `znbjmipdiuzymxytyjvr`, us-east-1, PostgreSQL 17). It sat paused on the free
 plan for months, and a paused project's hostname stops resolving: that was the
 `ENOTFOUND` / NXDOMAIN every DB-backed production request failed with. It was

@@ -29,13 +29,17 @@ function SignInPanel({
   inviteToken,
   nextPath,
   statusMessage,
+  registrationAllowed = true,
 }: {
   initialMode?: SignInMode
   inviteToken?: string
   nextPath?: string | null
   statusMessage?: AuthMessage
+  registrationAllowed?: boolean
 }) {
-  const [mode, setMode] = useState<SignInMode>(initialMode)
+  const [mode, setMode] = useState<SignInMode>(
+    registrationAllowed ? initialMode : "sign-in"
+  )
   const copy = COPY[mode]
 
   return (
@@ -43,7 +47,13 @@ function SignInPanel({
       eyebrow={copy.eyebrow}
       title={copy.title}
       description={copy.description}
-      footer={<p>Access is by invitation or a new agency account.</p>}
+      footer={
+        <p>
+          {registrationAllowed
+            ? "Access is by invitation or a new agency account."
+            : "NabaPresence is available by invitation during the pilot."}
+        </p>
+      }
     >
       {/* Signing in with an invitation token accepts it, so say so, but only
           when no confirmation-link status is already explaining the page. */}
@@ -62,6 +72,7 @@ function SignInPanel({
         inviteToken={inviteToken}
         nextPath={nextPath}
         statusMessage={statusMessage}
+        registrationAllowed={registrationAllowed}
       />
     </AuthCard>
   )

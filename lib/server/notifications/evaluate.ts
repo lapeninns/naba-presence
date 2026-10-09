@@ -7,7 +7,7 @@ import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 import { getAiCredits } from "@/lib/server/ai-credits"
 
-import { sendEmail } from "./email"
+import { sendTenantEmail } from "./email"
 import { renderIncidentEmail, type IncidentKind } from "./messages"
 
 /**
@@ -404,7 +404,7 @@ export async function deliverPending(
         delivery.summary,
         appUrl
       )
-      const result = await sendEmail({ to: delivery.email, ...message })
+      const result = await sendTenantEmail({ to: delivery.email, ...message })
       if (result.status === "sent") {
         status = "sent"
         providerMessageId = result.providerMessageId
