@@ -76,7 +76,7 @@ for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, (
   test("blocks destination role drift after approval without sending", async ({ page }, info) => {
     const fixture = await backend.lifecycleFixture(page), send = await prepare(page, fixture, true, info)
     fixture.lifecycleState.destinationRole = "SITE_MANAGER"; await send.click()
-    await expect(reviewPanel(page).getByText(/The destination or source account's access on Google changed since this review/)).toBeVisible()
+    await expect(reviewPanel(page).getByText(/The destination account's access on Google changed since this review/)).toBeVisible()
     await expect(reviewPanel(page).getByText(/at review, no longer current/).first()).toBeVisible()
     await expect(reviewPanel(page).getByRole("button", { name: "Start a fresh review" })).toBeEnabled()
     await expect(send).toBeDisabled(); expect(fixture.lifecycleWrites()).toHaveLength(0)

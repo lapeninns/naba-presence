@@ -20,6 +20,11 @@ test.beforeEach(async ({ context }) => {
   )
 })
 async function capture(page: Page, info: TestInfo, name: string, scope = '[role="dialog"]') {
+  // Let open/close transitions settle first: a closing confirmation overlay
+  // over an opening sheet fades the text axe samples.
+  await expect(
+    page.locator("[data-starting-style], [data-ending-style]")
+  ).toHaveCount(0)
   expect(
     (await new AxeBuilder({ page }).include(scope).analyze())
       .violations
@@ -133,11 +138,13 @@ for (const width of [375, 768, 1280])
           exact: true,
         })
       ).toBeDisabled()
+      // Under 560px the diff stacks and drops its header row, so check the
+      // label each value carries at every width.
       await expect(
-        dialog.getByRole("columnheader", { name: "Before (reviewed)" })
+        dialog.locator('td[data-label="Before (reviewed)"]').first()
       ).toBeVisible()
       await expect(
-        dialog.getByRole("columnheader", { name: "On Google now" })
+        dialog.locator('td[data-label="On Google now"]')
       ).toHaveCount(0)
       await capture(page, info, "metadata-drift")
     })

@@ -12,7 +12,12 @@ export async function startVerificationBackend() {
   // A private stub on a free port, beside the global journey stub.
   const google = await startGoogleStub({ port: 0 })
   const organisations: string[] = []
-  const server = await startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GBP_PROFILE_WRITES_ENABLED: "true", PUBLISH_ENABLED: "true", RESEND_API_KEY: "" })
+  // The transport paces each connection at a quarter of
+  // GOOGLE_REQUESTS_PER_SECOND (default 8, so 500ms a call). A lifecycle or
+  // verification send makes a dozen exact reads around one write, which at
+  // that pace outlasts the assertions; the integration suites raise it the
+  // same way.
+  const server = await startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", GBP_PROFILE_WRITES_ENABLED: "true", PUBLISH_ENABLED: "true", RESEND_API_KEY: "" })
   return {
     admin, google, server,
     async stop() { await server.stop(); await google.stop(); await destroyTenants(admin, organisations); await admin.end() },

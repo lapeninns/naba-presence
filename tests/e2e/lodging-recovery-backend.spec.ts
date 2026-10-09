@@ -26,8 +26,10 @@ for (const width of [375, 768, 1280]) test.describe(`Lodging recovery at ${width
     await expect(dialog.getByRole("alert")).toBeVisible()
     await expect(dialog.getByText("This review needs a fresh preview before sending.", { exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toBeDisabled()
-    await expect(dialog.getByRole("columnheader", { name: "Before (reviewed)", exact: true })).toBeVisible()
-    await expect(dialog.getByRole("columnheader", { name: "On Google now", exact: true })).toHaveCount(0)
+    // Under 560px the diff stacks and drops its header row, so check the
+    // label each value carries at every width.
+    await expect(dialog.locator('td[data-label="Before (reviewed)"]').first()).toBeVisible()
+    await expect(dialog.locator('td[data-label="On Google now"]')).toHaveCount(0)
     await captureLodgingDialog(page, info, "baseline-drift")
     expect(fixture.writes()).toHaveLength(0)
   })

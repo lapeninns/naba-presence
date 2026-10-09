@@ -67,6 +67,11 @@ async function mockShell(page: Page) {
   }
 }
 
+// The saved outcome the services sheet reads after a send (or on restore).
+function serviceAttempt(reviewId: string, confirmationState: "confirmed" | "pending") {
+  return { id: "00000000-0000-4000-8000-0000000000a1", status: confirmationState === "confirmed" ? "succeeded" : "awaiting_confirmation", idempotent: false, reviewId, targetResourceName: "locations/camden", executionState: "accepted", confirmationState, createdAt: "2026-09-29T15:01:00.000Z", observedAt: confirmationState === "confirmed" ? "2026-09-29T15:02:00.000Z" : null, errorCode: null }
+}
+
 async function mockServiceAreaRead(page: Page, location: Record<string, unknown>) {
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => {
     expect(route.request().method()).toBe("GET")
@@ -656,10 +661,11 @@ for (const width of [375, 768, 1280]) test(`Services review preserves siblings a
     if (request.method() === "PUT") {
       const body = request.postDataJSON()
       expect(body.payload.serviceItems).toEqual([{ structuredServiceItem: width === 375 ? { serviceTypeId: "repair" } : { serviceTypeId: "repair", description: "Same-day repairs" } }, sibling])
-      saved = { id: "00000000-0000-4000-8000-000000000012", locationName: "Camden Hotel", payload: body.payload, updateMask: body.updateMask, baseline: { serviceItems: items }, baselineHash: hash, payloadHash: "c".repeat(64), requestedBy: "owner", approvedBy: null, requiresSecondApprover: false, canApprove: true, expiresAt: "2026-10-01T00:00:00Z" }
+      saved = { id: "00000000-0000-4000-8000-000000000012", locationName: "Camden Hotel", targetResourceName: "locations/camden", payload: body.payload, updateMask: body.updateMask, baseline: { serviceItems: items }, baselineHash: hash, payloadHash: "c".repeat(64), requestedBy: "owner", approvedBy: null, requiresSecondApprover: false, canApprove: true, expiresAt: "2099-10-01T00:00:00Z" }
       return route.fulfill({ json: { changeSet: saved } })
     }
     if (request.method() === "POST") {
+      expect(request.postDataJSON()).toEqual({ changeSetId: "00000000-0000-4000-8000-000000000012", expectedPayloadHash: "c".repeat(64) })
       saved = { ...saved, approvedBy: "owner" }
       return route.fulfill({ json: { changeSet: saved } })
     }
@@ -671,7 +677,11 @@ for (const width of [375, 768, 1280]) test(`Services review preserves siblings a
       hash = "b".repeat(64)
       saved = null
       published += 1
-      return route.fulfill({ json: { id: "attempt", status: "succeeded", idempotent: false } })
+      return route.fulfill({ json: { id: "00000000-0000-4000-8000-0000000000a1", status: "succeeded", idempotent: false } })
+    }
+    if (type === "service_attempt") {
+      expect(published).toBe(1)
+      return route.fulfill({ json: { attempt: serviceAttempt("00000000-0000-4000-8000-000000000012", "confirmed") } })
     }
     if (type === "services") return route.fulfill({ json: { serviceMetadata: { categories: [{ name: "gcid:plumber", displayName: "Plumber", serviceTypes: [{ serviceTypeId: "repair", displayName: "Repair fittings" }] }], languageCode: "en", regionCode: "GB", locationHash: hash, observedAt: "2026-09-29T15:00:00Z" } } })
     if (type === "reviews") return route.fulfill({ json: { changeSets: saved ? [saved] : [] } })
@@ -703,12 +713,22 @@ for (const width of [375, 768, 1280]) test(`Services review preserves siblings a
   await page.screenshot({ path: testInfo.outputPath(`services-bottom-${width}.png`) })
   expect((await new AxeBuilder({ page }).include("#section-services").analyze()).violations).toEqual([])
   await services.getByRole("button", { name: "Review service changes" }).click()
-  const review = page.getByRole("dialog", { name: "Review service changes" })
+  const review = page.getByRole("dialog", { name: /^(Review service changes|Saved service outcome)$/ })
   await expect(review.getByText(width === 375 ? /No description.*No price/ : /Same-day repairs.*No price/)).toBeVisible()
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
   await page.screenshot({ path: testInfo.outputPath(`service-review-${width}.png`) })
-  await review.getByRole("button", { name: "Publish to Google", exact: true }).click()
-  await expect(services.getByText("Services confirmed by Google.")).toBeVisible()
+  // Approval saves the request; sending is a separate, consented action.
+  await review.getByRole("button", { name: "Approve service changes", exact: true }).click()
+  const send = review.getByRole("button", { name: "Send approved service changes", exact: true })
+  await expect(send).toBeDisabled()
+  expect(published).toBe(0)
+  await review.getByRole("checkbox", { name: "Send these exact approved service changes to Google." }).click()
+  await send.click()
+  await expect(review.getByText("Accepted by Google", { exact: true })).toBeVisible()
+  await expect(review.getByText("Independently confirmed", { exact: true })).toBeVisible()
+  // The sheet now shows the recorded outcome, and nothing is sent again from it.
+  await expect(page.getByRole("dialog", { name: "Saved service outcome" })).toBeVisible()
+  await review.getByRole("button", { name: "Keep editing" }).click()
   await expect(services.getByRole("button", { name: "Review service changes" })).toBeDisabled()
   expect(published).toBe(1)
 })
@@ -718,10 +738,10 @@ for (const outcome of ["confirmed", "stale", "awaiting_confirmation"] as const) 
   const original = [{ structuredServiceItem: { serviceTypeId: "repair", description: "Original repairs" } }]
   const payload = { serviceItems: [{ structuredServiceItem: { serviceTypeId: "repair", description: "Approved repairs" } }] }
   let saved = {
-    id: "00000000-0000-4000-8000-000000000013", locationName: "Camden Hotel", payload,
+    id: "00000000-0000-4000-8000-000000000013", locationName: "Camden Hotel", targetResourceName: "locations/camden", payload,
     updateMask: ["serviceItems"], baseline: { serviceItems: original }, baselineHash: "a".repeat(64),
     payloadHash: "c".repeat(64), requestedBy: "other-owner", approvedBy: null as string | null,
-    requiresSecondApprover: true, canApprove: true, expiresAt: "2026-10-01T00:00:00Z",
+    requiresSecondApprover: true, canApprove: true, expiresAt: "2099-10-01T00:00:00Z",
   }
   let writes = 0
   let approvals = 0
@@ -738,9 +758,14 @@ for (const outcome of ["confirmed", "stale", "awaiting_confirmation"] as const) 
       writes += 1
       expect(request.postDataJSON()).toEqual({ operation: "update_location", confirmation: "publish_business_information_to_google", payload, updateMask: ["serviceItems"], expectedGoogleHash: saved.baselineHash, changeSetId: saved.id })
       if (outcome === "stale") return route.fulfill({ status: 409, json: { error: "approval_stale", message: "Google changed since this review. Refresh and review again." } })
-      return route.fulfill({ json: { id: "attempt-saved", status: outcome === "confirmed" ? "succeeded" : "awaiting_confirmation", idempotent: false } })
+      return route.fulfill({ json: { id: "00000000-0000-4000-8000-0000000000a1", status: outcome === "confirmed" ? "succeeded" : "awaiting_confirmation", idempotent: false } })
     }
     if (request.method() !== "GET") throw new Error("Reopening a saved review must not create a replacement preview")
+    // Reopening reads the saved outcome first; none exists until the send.
+    if (type === "service_attempt") {
+      if (!writes || outcome === "stale") return route.fulfill({ status: 404, json: { error: "service_attempt_not_found", message: "No saved outcome." } })
+      return route.fulfill({ json: { attempt: serviceAttempt(saved.id, outcome === "confirmed" ? "confirmed" : "pending") } })
+    }
     if (type === "reviews") return route.fulfill({ json: { changeSets: writes && outcome !== "stale" ? [] : [saved] } })
     if (type === "services") return route.fulfill({ json: { serviceMetadata: { categories: [{ name: "gcid:plumber", displayName: "Plumber", serviceTypes: [{ serviceTypeId: "repair", displayName: "Repair fittings" }] }], languageCode: "en", regionCode: "GB", locationHash: "a".repeat(64), observedAt: "2026-09-29T15:00:00Z" } } })
     const location = { title: "Camden Hotel", metadata: { canModifyServiceList: true }, serviceItems: writes && outcome === "confirmed" ? payload.serviceItems : original }
@@ -750,16 +775,20 @@ for (const outcome of ["confirmed", "stale", "awaiting_confirmation"] as const) 
   const services = page.getByRole("region", { name: "Services", exact: true })
   await services.getByLabel("Description", { exact: true }).fill("Unreviewed local edit")
   await services.getByRole("button", { name: "Open saved service review" }).click()
-  const review = page.getByRole("dialog", { name: "Review changes" })
+  const review = page.getByRole("dialog", { name: /^(Review service changes|Saved service outcome)$/ })
   await expect(review.getByText(/Approved repairs/)).toBeVisible()
   await expect(review.getByText(/Unreviewed local edit/)).toHaveCount(0)
-  await review.getByRole("button", { name: "Publish to Google", exact: true }).click()
+  await review.getByRole("button", { name: "Approve service changes", exact: true }).click()
+  await review.getByRole("checkbox", { name: "Send these exact approved service changes to Google." }).click()
+  await review.getByRole("button", { name: "Send approved service changes", exact: true }).click()
   if (outcome === "stale") {
     await expect(review.getByText("Google changed since this review. Refresh and review again.")).toBeVisible()
-    await review.getByRole("button", { name: "Keep editing" }).click()
+    await expect(review.getByText("This review needs a fresh preview before sending.")).toBeVisible()
   } else {
-    await expect(services.getByText(outcome === "confirmed" ? "Services confirmed by Google." : "The recorded attempt is not confirmed. Check activity before submitting another change.")).toBeVisible()
+    await expect(review.getByText("Accepted by Google", { exact: true })).toBeVisible()
+    await expect(review.getByText(outcome === "confirmed" ? "Independently confirmed" : "Independent observation pending", { exact: true })).toBeVisible()
   }
+  await review.getByRole("button", { name: "Keep editing" }).click()
   await expect(services.getByLabel("Description", { exact: true })).toHaveValue("Unreviewed local edit")
   expect(approvals).toBe(1)
   expect(writes).toBe(1)
@@ -1132,8 +1161,16 @@ test("Activity navigates write families with cursors and preserves older page re
   await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
 })
 
-test("Access tab humanises admin roles and gates delete behind a typed name", async ({ page }) => {
+test("Access tab humanises admin roles and gates delete behind a separate review", async ({ page }) => {
   await mockShell(page)
+  // The Access tab also lists saved lifecycle and access workflows; unstubbed,
+  // they 401 and lib/api/client.ts hard-navigates to /sign-in.
+  let lifecycleWrites = 0
+  await page.route(/\/api\/locations\/location-management\/administration-lifecycle-reviews(?:[/?].*)?$/, (route) => {
+    if (route.request().method() !== "GET") { lifecycleWrites += 1; return route.abort("blockedbyclient") }
+    return route.fulfill({ json: { items: [], nextCursor: null } })
+  })
+  await page.route(/\/api\/locations\/location-management\/administration-access-workflows(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [], nextCursor: null } }))
   const available = (data: Record<string, unknown>) => ({ data, error: null })
   await page.route(/\/api\/locations\/location-management\/administration(?:\?.*)?$/, (route) => route.fulfill({ json: { administration: { voice: available({ hasVoiceOfMerchant: true }), verifications: available({ verifications: [] }), verificationOptions: available({ options: [{ verificationMethod: "EMAIL" }] }), googleUpdated: available({ diffMask: "title" }), locationAdmins: available({ admins: [{ admin: "Owner", role: "PRIMARY_OWNER" }] }), accountAdmins: available({ admins: [] }), invitations: available({ invitations: [] }), accountName: "accounts/1", googleLocationName: "locations/camden", canManage: true, writesEnabled: true } } }))
   await page.goto("/listings/location-management/people")
@@ -1142,9 +1179,13 @@ test("Access tab humanises admin roles and gates delete behind a typed name", as
   await expect(page.getByText("PRIMARY_OWNER")).toHaveCount(0)
   await expect(page.getByRole("heading", { name: "Danger zone" })).toBeVisible()
 
+  // Deletion starts with a saved review; the typed-name and consent gates sit
+  // on the approved review (covered end to end in lifecycle-backend.spec.ts).
   await page.getByRole("button", { name: "Delete this location" }).click()
-  const confirm = page.getByRole("button", { name: "Delete location" })
-  await expect(confirm).toBeDisabled()
-  await page.getByLabel("Type the location's name to confirm").fill("Camden Hotel")
-  await expect(confirm).toBeEnabled()
+  const dialog = page.getByRole("dialog", { name: "Review managed-location deletion" })
+  await expect(dialog.getByText(/No deletion is sent at this step/)).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Prepare deletion review" })).toBeEnabled()
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(lifecycleWrites).toBe(0)
 })

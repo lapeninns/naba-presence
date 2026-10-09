@@ -37,7 +37,7 @@ for (const width of [375, 768, 1280]) {
         await page.keyboard.press("Enter")
         await expect(panel.getByText("Google accepted the request", { exact: true })).toBeVisible()
         await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
-        await expect(panel.locator("dl > div").filter({ has: page.getByText("Verification request phase", { exact: true }) }).locator("dd")).toHaveText(/Completed with Google$/)
+        await expect(panel.locator("dl > div").filter({ has: page.getByText("Verification request phase", { exact: true }) }).locator("dd")).toHaveText(/^[^·]+ · Completed with Google/) // the phase line comes first, then the request details
         await expect(panel.getByText("Google hasn't yet confirmed you can manage this listing", { exact: true })).toBeVisible()
         expect(fixture.completionWrites()).toHaveLength(1)
         expect(fixture.completionWrites()[0].body).toEqual({ pin: reviewedPin })
