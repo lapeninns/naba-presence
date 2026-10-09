@@ -13,6 +13,9 @@
 /playwright-report/
 /test-results/
 
+# local OMO state and QA evidence; authored plans are archived under docs/archive
+/.omo/
+
 # next.js
 /.next/
 /out/

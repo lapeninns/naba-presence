@@ -146,6 +146,15 @@ const SHAPE_TOKENS = [
   "--np-gap-section",
 ]
 
+describe("Tailwind source detection", () => {
+  it("scans only application sources, not saved HTML or test artifacts", () => {
+    expect(globals).toContain('@import "tailwindcss" source(none);')
+    expect(
+      [...globals.matchAll(/@source\s+"([^"]+)";/g)].map((match) => match[1])
+    ).toEqual(["./", "../components", "../lib"])
+  })
+})
+
 describe("NabaPresence design tokens", () => {
   it.each(SEMANTIC_ROLES)("defines the %s role", (role) =>
     expect(globals).toContain(`${role}:`)

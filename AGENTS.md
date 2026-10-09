@@ -18,6 +18,14 @@ it no longer holds for dev on 16.2.6 and the dev script has moved. Leave
 `build` on webpack: it is the path CI validates through
 `scripts/prepare-standalone.mjs`.
 
+## Tailwind source detection
+
+`app/globals.css` disables automatic source detection and registers `app/`,
+`components/`, and `lib/` explicitly. Register any new application source
+location there. Keep evidence, saved HTML, test artifacts, and archived source
+copies outside the scan: HTML-escaped arbitrary variants in snapshots can
+produce invalid CSS that webpack warns about and Turbopack rejects.
+
 ## Historical plans
 
 `docs/archive/2026-07-frontend-rebuild/` is a historical record of the 2026-07
