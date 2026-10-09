@@ -43,6 +43,36 @@ spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
 
+### Prerequisites for the GBP operations programme release
+
+The release that merges the GBP operations programme (PR #49) changes the AI
+provider and adds schema. Production runs the previous revision with OpenAI
+until then. Complete these steps, in order, before promoting it:
+
+1. **Set the Workers AI variables** in the target Vercel environment. The
+   environment schema no longer reads `OPENAI_API_KEY`, `OPENAI_ORG_ID`,
+   `OPENAI_MODEL_DRAFT`, `OPENAI_MODEL_VERIFY`, `OPENAI_BASE_URL` or
+   `OPENAI_TIMEOUT_MS`. If the new variables are missing, the OpenAI values are
+   ignored without warning, and AI drafting and verification answer
+   `503 ai_not_configured`.
+   - Required: `WORKERS_AI_API_TOKEN` and `WORKERS_AI_ACCOUNT_ID` (32
+     lower-case hex characters; any other value fails validation at startup).
+   - Optional: `WORKERS_AI_MODEL` (accepts only `@cf/zai-org/glm-5.3-flash`,
+     which is the default), `WORKERS_AI_BASE_URL` (default
+     `https://api.cloudflare.com`) and `WORKERS_AI_TIMEOUT_MS` (default 30000,
+     capped at 55000).
+2. **Set `EMAIL_WEBHOOK_SECRET`** (the Resend `whsec_...` signing secret) to
+   turn on `/api/webhooks/email`. If it is unset, the receiver answers 404 and
+   the delivery evidence stops at provider acceptance.
+3. **Apply the 19 new migrations, `0062_management_confirmation` to
+   `0080_bulk_listing_operations`**, using the manual procedure above
+   (snapshot first, then `pnpm db:migrate` and `pnpm db:status` against the
+   session-pooler URL). Do this before you promote the deployment.
+4. **Deploy and smoke-test** a synthetic draft and verification, as described
+   in [Workers AI activation](workers-ai.md).
+5. **Remove the `OPENAI_*` variables** only after the switch is verified.
+   Rolling back to the previous revision needs them.
+
 ## Kill switches
 
 Every flag is read once per process — `getServerEnv` parses `process.env` on
