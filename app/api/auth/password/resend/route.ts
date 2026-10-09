@@ -12,6 +12,7 @@ export const runtime = "nodejs"
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   body: resendConfirmationSchema,
   handler: async ({ request, body }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin

@@ -13,6 +13,7 @@ export const runtime = "nodejs"
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   body: resetPasswordSchema,
   handler: async ({ body, requestId, clientRequestId }) => {
     const verified = await verifyEmailToken({

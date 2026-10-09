@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   body: loginSchema,
   handler: async ({ body, requestId, clientRequestId }) => {
     const identity = await signInWithPassword(body.email, body.password)

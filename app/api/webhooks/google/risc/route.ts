@@ -24,6 +24,7 @@ export const runtime = "nodejs"
  */
 export const POST = route({
   auth: "public",
+  origin: "any",
   handler: async ({ request }) => {
     if (!getServerEnv().RISC_ENABLED) {
       throw new ApiError(404, "not_found", "Not found.")

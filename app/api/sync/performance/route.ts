@@ -47,6 +47,7 @@ function budgetMs() {
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   handler: async ({ request, requestId }) => {
     const session = await authenticate(request)
     const input = performanceSyncSchema.parse(

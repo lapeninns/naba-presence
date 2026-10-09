@@ -84,6 +84,30 @@ const secretList = (minimumLength: number) =>
       return entries
     })
 
+/** A comma-separated list of http(s) origins, normalised to `URL.origin`. */
+const originList = z
+  .unknown()
+  .optional()
+  .transform((value, context) => {
+    const entries =
+      typeof value === "string"
+        ? value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : []
+    const origins: string[] = []
+    for (const entry of entries) {
+      const url = URL.parse(entry)
+      if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
+        context.addIssue({ code: "custom", message: `Invalid origin: ${entry}` })
+        continue
+      }
+      origins.push(url.origin)
+    }
+    return origins
+  })
+
 const emailList = z
   .unknown()
   .optional()
@@ -112,6 +136,10 @@ export const serverEnvSchema = z.object({
   DATABASE_SESSION_URL: optionalText,
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
+  // Extra browser origins the same-origin guard (lib/server/route.ts)
+  // accepts besides the request's own origin and NEXTAUTH_URL's: a
+  // comma-separated list such as a proxy's public origin. Unset adds none.
+  APP_ALLOWED_ORIGINS: originList,
   NEXTAUTH_SECRET: z.string().min(32),
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
   // Rotation (lib/server/crypto.ts): the first entry encrypts, every entry
@@ -251,6 +279,19 @@ export function getServerEnv(): ServerEnv {
     cachedEnv = serverEnvSchema.parse(process.env)
   }
   return cachedEnv
+}
+
+/**
+ * The configured application origins: NEXTAUTH_URL's origin (APP_ORIGIN)
+ * followed by APP_ALLOWED_ORIGINS. The same-origin guard also accepts the
+ * request's own origin, so preview deployments and the E2E harness on :3100
+ * need no entry here.
+ */
+export function appOrigins(
+  env: Pick<ServerEnv, "NEXTAUTH_URL" | "APP_ALLOWED_ORIGINS">
+): string[] {
+  const origins = env.NEXTAUTH_URL ? [new URL(env.NEXTAUTH_URL).origin] : []
+  return [...origins, ...(env.APP_ALLOWED_ORIGINS ?? [])]
 }
 
 // Per-surface Google Business Profile kill switches (docs/architecture.md,

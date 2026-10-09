@@ -33,6 +33,7 @@ export const GET = route({
 // organisation); Google connections and background sync are untouched.
 export const DELETE = route({
   auth: "public",
+  origin: "same",
   query: (searchParams) => ({ everywhere: searchParams.get("scope") === "all" }),
   handler: async ({ query, requestId, clientRequestId }) => {
     // Signing out of a support impersonation ends it; record that, as

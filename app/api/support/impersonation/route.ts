@@ -53,6 +53,7 @@ function authenticateSupport(request: Request) {
 // secret is verified before any request content is inspected, as before.
 export const POST = route({
   auth: "public",
+  origin: "any",
   handler: async ({ request, requestId, clientRequestId }) => {
     const support = authenticateSupport(request)
     const input = inputSchema.parse(await request.json())

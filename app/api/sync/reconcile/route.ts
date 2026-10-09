@@ -269,6 +269,7 @@ async function runReconcilePage({
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   handler: async ({ request, requestId, clientRequestId }) => {
     const session = await authenticate(request)
     if (!getServerEnv().SYNC_ENABLED) {

@@ -7,7 +7,7 @@ import type { ZodType } from "zod"
 import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import { appOrigins, getServerEnv } from "@/lib/server/env"
 import {
   ApiError,
   apiError,
@@ -28,36 +28,52 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      requestId)` so every error body carries it. Handlers pass
  *      `ctx.requestId` to `writeAudit` / `log` — never call `serverRequestId`
  *      again inside a handler;
- *   2. authentication — `auth: "session"` (default) runs `requireSession()`;
+ *   2. the same-origin guard — a mutation (any method but GET/HEAD/OPTIONS)
+ *      on an `origin: "same"` route (the default for `auth: "session"`) is
+ *      refused with 403 `cross_origin_request` unless its `Origin` is the
+ *      request's own origin, NEXTAUTH_URL's or one in APP_ALLOWED_ORIGINS.
+ *      With no `Origin`, `Sec-Fetch-Site` decides (`same-origin` and `none`
+ *      pass). A request carrying neither header is not a browser and cannot
+ *      ride a victim's cookies, so it passes: that keeps
+ *      `scripts/scheduler.mjs`, the integration helpers and other
+ *      server-to-server callers working. A valid cron bearer also passes, for
+ *      session-or-cron hybrids marked `origin: "same"`. Cron, webhook and
+ *      support-secret routes default to (or declare) `origin: "any"`;
+ *      public routes that act on cookies or credentials (sign-out, the
+ *      password forms, the sync hybrids) declare `origin: "same"`;
+ *   3. authentication — `auth: "session"` (default) runs `requireSession()`;
  *      `auth: "cron"` requires `authorization: Bearer <CRON_SECRET>` compared
  *      with `secretEqual` and throws 401 `invalid_cron_token` otherwise;
  *      `auth: "public"` gives `session: null` (the handler may still call
  *      `getSession()` itself, e.g. session-or-cron hybrids);
- *   3. organisation-level role gating — `roles: ["owner", "admin"]` runs
+ *   4. organisation-level role gating — `roles: ["owner", "admin"]` runs
  *      `requireRole` (403 `permission_denied`). Roles are declared in the
  *      route, not inside the handler. Location-level access is NOT a wrapper
  *      concern: handlers still call `requireLocationAccess`,
  *      `canPublishLocation` or `grantsFor` from `lib/server/permissions`
  *      inside `ctx.tenant(...)` once they know which location is involved;
- *   4. parsing — `params` (zod schema over the awaited `context.params`),
+ *   5. parsing — `params` (zod schema over the awaited `context.params`),
  *      `query` (zod schema over an object built from `searchParams`, where a
  *      repeated key becomes a string array; or a plain function receiving the
  *      raw `URLSearchParams` for bespoke decoding) and `body` (zod schema
  *      over the JSON body; a missing or unparsable body becomes `{}` before
  *      validation so `.default()` fields work and required fields produce a
- *      400 instead of a 500). Zod failures map to 400 `invalid_request` with
+ *      400 instead of a 500; a non-empty body that is not declared
+ *      `application/json` (or `+json`) is refused with 415
+ *      `unsupported_media_type`, so a cross-site `text/plain` form post can
+ *      never reach a schema). Zod failures map to 400 `invalid_request` with
  *      `fieldErrors`, exactly as `apiError` always did;
- *   5. the tenant transaction — `ctx.tenant(fn)` is
+ *   6. the tenant transaction — `ctx.tenant(fn)` is
  *      `withTenant(session.organisationId, fn)` and is only present when
  *      `auth` is `"session"`. Cron/public handlers import `withTenant` /
  *      `getDatabase` directly (cross-tenant enumeration must be commented as
  *      such in the route file);
- *   6. the response — a returned `Response`/`NextResponse` is passed through
+ *   7. the response — a returned `Response`/`NextResponse` is passed through
  *      (build one when you need a non-200 status, a redirect or a non-JSON
  *      body); any other value becomes `NextResponse.json(value)`;
- *   7. error mapping — everything thrown (ApiError, ZodError, unknown) goes
+ *   8. error mapping — everything thrown (ApiError, ZodError, unknown) goes
  *      through `apiError(error, requestId)` unchanged;
- *   8. support attribution — when the session was minted by
+ *   9. support attribution — when the session was minted by
  *      `POST /api/support/impersonation` the handler runs inside
  *      `withAuditActor`, so every `writeAudit` it reaches records the support
  *      engineer and the stated reason. The session carries the customer's own
@@ -135,6 +151,11 @@ export type RouteConfig<
 > = {
   /** Defaults to "session". */
   auth?: A
+  /**
+   * Whether mutations must come from the app's own origin. Defaults to
+   * "same" for auth "session" and "any" otherwise. See the header comment.
+   */
+  origin?: "same" | "any"
   /** Organisation roles allowed through. Only with auth "session". */
   roles?: A extends "session" ? Session["role"][] : never
   /** Validates the awaited `context.params`. */
@@ -198,9 +219,56 @@ export function searchParamsToObject(
   return result
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+
+function crossOrigin(): ApiError {
+  return new ApiError(
+    403,
+    "cross_origin_request",
+    "This request did not come from the application."
+  )
+}
+
+/**
+ * Refuses a browser mutation from another origin. Exported for routes that
+ * need the same check outside `route()`; the wrapper calls it itself.
+ */
+export function assertSameOrigin(request: Request): void {
+  if (SAFE_METHODS.has(request.method.toUpperCase())) return
+  const origin = request.headers.get("origin")
+  if (origin === null) {
+    const site = request.headers.get("sec-fetch-site")
+    if (site === null || site === "same-origin" || site === "none") return
+    if (isCronRequest(request)) return
+    throw crossOrigin()
+  }
+  if (origin === new URL(request.url).origin) return
+  if (appOrigins(getServerEnv()).includes(origin)) return
+  if (isCronRequest(request)) return
+  throw crossOrigin()
+}
+
+function isJsonMediaType(contentType: string | null): boolean {
+  if (!contentType) return false
+  const type = contentType.split(";")[0].trim().toLowerCase()
+  return type === "application/json" || /^application\/[^/]+\+json$/.test(type)
+}
+
 async function readJsonBody(request: Request): Promise<unknown> {
-  const parsed = await request.json().catch(() => undefined)
-  return parsed ?? {}
+  const text = await request.text().catch(() => "")
+  if (text.trim() === "") return {}
+  if (!isJsonMediaType(request.headers.get("content-type"))) {
+    throw new ApiError(
+      415,
+      "unsupported_media_type",
+      "Send the request body as application/json."
+    )
+  }
+  try {
+    return JSON.parse(text) ?? {}
+  } catch {
+    return {}
+  }
 }
 
 function isZodSchema(value: unknown): value is ZodType {
@@ -236,9 +304,11 @@ export function route<
   B = undefined,
 >(config: RouteConfig<A, P, Q, B>): RouteHandler {
   const auth = (config.auth ?? "session") as A
+  const origin = config.origin ?? (auth === "session" ? "same" : "any")
   return async (request, context?: NextRouteContext) => {
     const rid = serverRequestId(request)
     try {
+      if (origin === "same") assertSameOrigin(request)
       const session = await authenticate(request, auth, config.roles)
       const rawParams = (await context?.params) ?? {}
       const params = (

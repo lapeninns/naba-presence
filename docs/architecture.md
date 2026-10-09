@@ -49,15 +49,26 @@ Every handler under `app/api/**/route.ts` is built by `route({...})` from
 wrapper owns, in order: the request id, generated once with
 `serverRequestId`, exposed as `ctx.requestId`, echoed as the `x-request-id`
 response header on success and error, and written into every error body
-(handlers pass it to `writeAudit` and `log`; they never regenerate it);
-authentication, where `auth: "session"` (the default) runs `requireSession`,
+(handlers pass it to `writeAudit` and `log`; they never regenerate it); the
+same-origin guard (`assertSameOrigin`), which refuses a mutation (any method
+but GET, HEAD and OPTIONS) on an `origin: "same"` route with 403
+`cross_origin_request` unless its `Origin` is the request's own origin,
+`NEXTAUTH_URL`'s or one listed in `APP_ALLOWED_ORIGINS`, falling back to
+`Sec-Fetch-Site` (`same-origin` or `none`) when `Origin` is absent and letting
+a request with neither header through, since a non-browser caller cannot ride
+a victim's cookies; `origin` defaults to `"same"` for session routes and
+`"any"` otherwise, the password forms, sign-out and the session-or-cron sync
+POSTs opt in (a valid cron bearer still passes, which keeps
+`scripts/scheduler.mjs` working), and the Pub/Sub, RISC and support
+impersonation routes declare `"any"`; authentication, where `auth: "session"` (the default) runs `requireSession`,
 `auth: "cron"` requires `Authorization: Bearer <CRON_SECRET>` compared in
 constant time and otherwise answers 401 `invalid_cron_token`, and
 `auth: "public"` hands the handler `session: null`; organisation-level role
 gating, declared as `roles: ["owner", "admin"]` on the route rather than
 inside the handler and answered with 403 `permission_denied`; parsing of
-`params`, `query` and `body` through zod, where a missing or unparsable body
-becomes `{}` before validation and any zod failure is a 400 `invalid_request`
+`params`, `query` and `body` through zod, where a non-empty body not sent as
+`application/json` (or a `+json` type) is a 415 `unsupported_media_type`, a
+missing or unparsable body becomes `{}` before validation and any zod failure is a 400 `invalid_request`
 with `fieldErrors`; the tenant transaction, exposed to session routes as
 `ctx.tenant(fn)`, which is `withTenant(session.organisationId, fn)`; and error
 mapping, where everything thrown passes through `apiError(error, requestId)`.
