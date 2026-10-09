@@ -9,6 +9,7 @@
  */
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ export type DayOfWeekOccurrence = (typeof DAY_OF_WEEK_OCCURRENCES)[number]
 const callToActionSchema = z
   .object({
     actionType: z.enum(LOCAL_POST_ACTION_TYPES),
-    url: z.url().optional(),
+    url: httpUrl().optional(),
   })
   .optional()
 
@@ -113,12 +114,12 @@ export const localPostInputSchema = z
     offer: z
       .object({
         couponCode: z.string().trim().max(100).optional(),
-        redeemOnlineUrl: z.url().optional(),
+        redeemOnlineUrl: httpUrl().optional(),
         termsConditions: z.string().trim().max(5000).optional(),
       })
       .optional(),
     media: z
-      .array(z.object({ sourceUrl: z.url() }))
+      .array(z.object({ sourceUrl: httpUrl() }))
       .max(10)
       .default([]),
   })

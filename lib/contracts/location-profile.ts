@@ -3,6 +3,7 @@
 // (lib/domain/profile.ts hashes with node:crypto; see lib/domain/README.md).
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
 import {
   PROFILE_DRIFT_STATUSES,
   PROFILE_FIELD_KEYS,
@@ -36,7 +37,7 @@ export const saveProfileBodySchema = z.object({
     name: z.string().max(255).nullable().optional(),
     description: z.string().max(750).nullable().optional(),
     phone: z.string().max(50).nullable().optional(),
-    website: z.url().max(2048).nullable().optional(),
+    website: httpUrl().nullable().optional(),
   }),
 })
 export type SaveProfileInput = z.input<typeof saveProfileBodySchema>

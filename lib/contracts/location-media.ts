@@ -7,6 +7,7 @@
  */
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
 
 // ---------------------------------------------------------------------------
@@ -41,9 +42,7 @@ export type MediaListQuery = z.infer<typeof mediaListQuerySchema>
 export const mediaCreateSchema = z.object({
   mediaFormat: z.enum(MEDIA_FORMATS),
   category: z.enum(GOOGLE_MEDIA_CATEGORIES),
-  sourceUrl: z
-    .url()
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol)),
+  sourceUrl: httpUrl(),
   description: z.string().trim().max(1500).optional(),
 })
 export type MediaCreateInput = z.infer<typeof mediaCreateSchema>

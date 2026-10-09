@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
+
 const nonEmpty = z.string().trim().min(1)
 const categorySchema = z.object({ name: nonEmpty })
 
@@ -30,7 +32,7 @@ export const businessInformationPayloadSchema = z
         additionalPhones: z.array(z.string().trim().min(1).max(50)).max(2).optional(),
       })
       .optional(),
-    websiteUri: z.url().max(2048).or(z.literal("")).optional(),
+    websiteUri: httpUrl().or(z.literal("")).optional(),
     storefrontAddress: z
       .object({
         regionCode: z.string().trim().length(2),
@@ -120,7 +122,7 @@ export const googleAttributeSchema = z
     name: nonEmpty,
     values: z.array(z.unknown()).optional(),
     uriValues: z
-      .array(z.object({ uri: z.url(), uriType: z.string().optional() }))
+      .array(z.object({ uri: httpUrl(), uriType: z.string().optional() }))
       .optional(),
     repeatedEnumValue: z
       .object({
