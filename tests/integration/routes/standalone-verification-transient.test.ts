@@ -30,20 +30,25 @@ describeDatabase("retired unreviewed verification compatibility", () => {
     const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
     const linked = await seedLinkedReview(admin, { organisationId: owner.organisationId, connectionId: connection.connectionId, googleAccountName: connection.googleAccountName })
     google.reset()
-    return { owner, url: `${server.baseUrl}/api/locations/${linked.locationId}/administration` }
+    return { owner, googleLocationName: linked.googleLocationName, url: `${server.baseUrl}/api/locations/${linked.locationId}/administration` }
   }
+  // A verification name outside the linked location (or missing) is refused
+  // as invalid before anything else; a scoped one is refused because
+  // completion only runs through its reviewed workflow.
   it.each([
-    ["start_verification", { method: "EMAIL", emailAddress: "owner@example.test" }],
-    ["start_verification", { method: "VETTED_PARTNER", token: { tokenString: "fixture-private-credential" }, unknown: { echo: "fixture-private-credential" } }],
-    ["complete_verification", { name: "locations/foreign/verifications/pending", pin: "fixture-private-credential" }],
-    ["complete_verification", { name: "locations/foreign/verifications/../pending", pin: "fixture-private-credential" }],
-    ["complete_verification", {}],
-  ] as const)("rejects legacy %s before side effects", async (operation, payload) => {
-    const { owner, url } = await fixture()
+    ["start_verification", { method: "EMAIL", emailAddress: "owner@example.test" }, 409, "verification_review_required"],
+    ["start_verification", { method: "VETTED_PARTNER", token: { tokenString: "fixture-private-credential" }, unknown: { echo: "fixture-private-credential" } }, 409, "verification_review_required"],
+    ["complete_verification", { name: "SCOPED/verifications/pending", pin: "fixture-private-credential" }, 409, "verification_review_required"],
+    ["complete_verification", { name: "locations/foreign/verifications/pending", pin: "fixture-private-credential" }, 400, "invalid_request"],
+    ["complete_verification", { name: "locations/foreign/verifications/../pending", pin: "fixture-private-credential" }, 400, "invalid_request"],
+    ["complete_verification", {}, 400, "invalid_request"],
+  ] as const)("rejects legacy %s before side effects", async (operation, rawPayload, status, code) => {
+    const { owner, googleLocationName, url } = await fixture()
+    const payload = "name" in rawPayload ? { ...rawPayload, name: rawPayload.name.replace("SCOPED", googleLocationName) } : rawPayload
     const response = await fetch(url, { method: "PATCH", headers: { cookie: owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ operation, confirmation: operation === "start_verification" ? "start_google_location_verification" : "complete_google_location_verification", payload }) })
-    expect(response.status).toBe(409)
+    expect(response.status).toBe(status)
     const body = await response.text()
-    expect(body).toContain("verification_review_required")
+    expect(body).toContain(code)
     expect(body).not.toContain("fixture-private-credential")
     expect(google.calls).toHaveLength(0)
     expect(await admin`select id from gbp_management_mutation where organisation_id = ${owner.organisationId}`).toHaveLength(0)

@@ -8,7 +8,16 @@ describeDatabase("administration saved work and direct-write retirement", () => 
   const harness = administrationHarness()
   it.each(["create_admin", "update_admin", "delete_admin", "accept_invitation", "decline_invitation"] as const)("retires the direct %s path before claiming an attempt or contacting Google", async (operation) => {
     const fixture = await harness.fixture()
-    const response = await fetch(`${fixture.baseUrl}/api/locations/${fixture.location.locationId}/administration`, { method: "PATCH", headers: { cookie: fixture.owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ operation, confirmation: ADMINISTRATION_CONFIRMATIONS[operation], payload: {} }) })
+    // A correctly scoped resource name passes the contract and scope checks
+    // and is still refused: these operations only run through reviews.
+    const payload = {
+      create_admin: { scope: "location", admin: "other@example.test", role: "MANAGER" },
+      update_admin: { name: `${fixture.location.googleLocationName}/admins/manager`, role: "OWNER" },
+      delete_admin: { name: `${fixture.location.googleLocationName}/admins/manager` },
+      accept_invitation: { name: `${fixture.connection.googleAccountName}/invitations/pending` },
+      decline_invitation: { name: `${fixture.connection.googleAccountName}/invitations/pending` },
+    }[operation]
+    const response = await fetch(`${fixture.baseUrl}/api/locations/${fixture.location.locationId}/administration`, { method: "PATCH", headers: { cookie: fixture.owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ operation, confirmation: ADMINISTRATION_CONFIRMATIONS[operation], payload }) })
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: "administration_review_required" })
     expect(fixture.calls()).toHaveLength(0)

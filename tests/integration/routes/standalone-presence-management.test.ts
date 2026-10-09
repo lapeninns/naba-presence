@@ -612,11 +612,9 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     const loaded = await fetch(url, { headers: { cookie: owner.cookie } })
 
     expect(loaded.status, await loaded.clone().text()).toBe(200)
-    expect(await loaded.json()).toMatchObject({ industry: {
-      calls: { data: null, error: expect.stringContaining("retired") },
-      providerAttributes: { data: null, error: expect.stringContaining("retired") },
-      insuranceNetworks: { data: null, error: expect.stringContaining("retired") },
-    } })
+    // Retired sections are no longer part of the response at all.
+    const industry = (await loaded.json()).industry
+    for (const retired of ["calls", "callInsights", "providerAttributes", "insuranceNetworks"]) expect(industry).not.toHaveProperty(retired)
     expect(google.calls.some((call) => /businesscalls|healthProviderAttributes|insuranceNetworks|questions/.test(call.path))).toBe(false)
     const readCallCount = google.calls.length
     for (const operation of ["update_business_calls", "update_healthcare_provider_attributes"]) {
@@ -631,7 +629,7 @@ describeDatabase("standalone NabaPresence canonical management", () => {
         }),
       })
       expect(response.status, await response.clone().text()).toBe(410)
-      expect(await response.json()).toMatchObject({ error: "provider_capability_retired" })
+      expect(await response.json()).toMatchObject({ error: "google_api_retired" })
       expect(google.calls).toHaveLength(readCallCount)
     }
     const attempts = await admin`
@@ -951,7 +949,7 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     const first = await read()
     expect(first.google.regular[1]).toEqual({ dayOfWeek: 1, isClosed: false, periods: [{ opensAt: "00:00", closesAt: "00:30" }] })
     expect(first.google.special).toEqual([{ effectiveDate: "2026-12-24", isClosed: false, opensAt: "00:00", closesAt: "00:30" }])
-    expect(first.google.moreHours).toEqual([{ hoursTypeId: "DELIVERY", periods: [{ dayOfWeek: 1, opensAt: "00:00", closesAt: "00:30" }] }])
+    expect(first.google.moreHours).toEqual([{ hoursTypeId: "DELIVERY", periods: [{ dayOfWeek: 1, closeDayOfWeek: 1, opensAt: "00:00", closesAt: "00:30" }] }])
     expect(first.canonical).toEqual(first.google)
     explicitZeros = true
     const second = await read()
