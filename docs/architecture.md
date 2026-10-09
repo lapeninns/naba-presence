@@ -18,6 +18,10 @@ administrative test setup. `lib/server/startup.ts` verifies the active database
 identity, RLS posture, required secrets, and production feature configuration.
 `instrumentation.ts` runs `assertProductionSafety` before the production server
 accepts traffic, so a superuser or `BYPASSRLS` runtime identity fails closed.
+It also compares `schema_migration` with the build's required-migrations
+manifest (`lib/server/schema-manifest.ts`, checked by
+`lib/server/schema-compat.ts`) and fails closed when the database lacks a
+migration the code needs.
 Verified application users are provisioned by the SECURITY DEFINER
 `provision_authenticated_user` database function through
 `lib/server/provisioning.ts`, without giving the runtime role unrestricted

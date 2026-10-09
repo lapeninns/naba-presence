@@ -17,6 +17,17 @@ operator runs `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` and
 new schema, migrate before merging. Destructive changes go in a later PR. The
 full procedure is in `docs/ci.md`, "Migrations".
 
+Each build ships the list of migrations its code needs
+(`lib/server/schema-manifest.ts`). In production, startup reads
+`schema_migration` through the runtime role and refuses to serve when any of
+them is missing (`startup.schema_incompatible`, then the boot fails); a
+database ahead of the code is accepted. Before promoting a deployment, run
+`DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current` from the
+commit being deployed: it lists `pending` (in the repository, not applied)
+and `unknown` (applied, not in this checkout) versions and exits 1 when
+anything is pending. A cold start that fails on the schema check is fixed by
+running `pnpm db:migrate`, not by rolling the code back.
+
 Confirm
 the Supabase project URL/publishable key, email confirmation and recovery
 templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub

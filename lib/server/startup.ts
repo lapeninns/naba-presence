@@ -3,6 +3,11 @@ import "server-only"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
+import {
+  collectSchemaViolations,
+  readAppliedMigrations,
+} from "@/lib/server/schema-compat"
+import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 
 export type DbIdentity = {
   rolSuper: boolean
@@ -118,16 +123,29 @@ export async function readDbIdentity(): Promise<DbIdentity> {
 }
 
 export async function assertProductionSafety(
-  options: { enforce?: boolean } = {}
+  options: { enforce?: boolean; requiredMigrations?: readonly string[] } = {}
 ): Promise<void> {
   const enforce =
     options.enforce ??
     (process.env.NODE_ENV === "production" ||
       process.env.ENFORCE_DB_SAFETY === "true")
-  const violations = collectSafetyViolations(
-    getServerEnv(),
-    await readDbIdentity()
+  const required = options.requiredMigrations ?? REQUIRED_MIGRATIONS
+  const schemaViolations = collectSchemaViolations(
+    await readAppliedMigrations(),
+    required
   )
+  if (schemaViolations.length === 0) {
+    log.info("startup.schema_ok", { enforce, required: required.length })
+  } else {
+    log.warn("startup.schema_incompatible", {
+      enforce,
+      violations: schemaViolations,
+    })
+  }
+  const violations = [
+    ...collectSafetyViolations(getServerEnv(), await readDbIdentity()),
+    ...schemaViolations,
+  ]
   if (violations.length === 0) {
     log.info("startup.safety_ok", { enforce })
     return

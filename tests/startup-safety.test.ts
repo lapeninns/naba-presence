@@ -1,7 +1,33 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { ServerEnv } from "@/lib/server/env"
-import { collectSafetyViolations } from "@/lib/server/startup"
+import {
+  assertProductionSafety,
+  collectSafetyViolations,
+} from "@/lib/server/startup"
+
+const database = vi.hoisted(() => ({
+  appliedVersions: [] as string[],
+}))
+
+vi.mock("@/lib/server/db", () => ({
+  getDatabase: () => (strings: TemplateStringsArray) =>
+    Promise.resolve(
+      strings.join("").includes("schema_migration")
+        ? database.appliedVersions.map((version) => ({ version }))
+        : [{ rolSuper: false, rolBypassRls: false, rowSecurity: "on" }]
+    ),
+}))
+
+vi.mock("@/lib/server/env", () => ({
+  getServerEnv: () => ({
+    WEBHOOKS_ENABLED: false,
+    LOCAL_BOOTSTRAP_ENABLED: false,
+    PASSWORD_AUTH_ENABLED: false,
+    DATABASE_URL: "postgresql://runtime@127.0.0.1:5432/naba",
+    NEXTAUTH_URL: "https://reviews.example.com",
+  }),
+}))
 
 const safeIdentity = {
   rolSuper: false,
@@ -181,5 +207,42 @@ describe("collectSafetyViolations", () => {
         safeIdentity
       )
     ).toEqual([])
+  })
+})
+
+describe("assertProductionSafety schema compatibility", () => {
+  const required = ["0001_initial", "0002_second"]
+
+  afterEach(() => {
+    database.appliedVersions = []
+    vi.restoreAllMocks()
+  })
+
+  it("passes when every required migration is applied", async () => {
+    database.appliedVersions = [...required, "0003_ahead"]
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    await expect(
+      assertProductionSafety({ enforce: true, requiredMigrations: required })
+    ).resolves.toBeUndefined()
+    expect(info.mock.calls.join(" ")).toContain("startup.schema_ok")
+  })
+
+  it("refuses to start when enforced and a migration is missing", async () => {
+    database.appliedVersions = ["0001_initial"]
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    await expect(
+      assertProductionSafety({ enforce: true, requiredMigrations: required })
+    ).rejects.toThrow("0002_second")
+  })
+
+  it("only warns when not enforced", async () => {
+    database.appliedVersions = ["0001_initial"]
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await expect(
+      assertProductionSafety({ enforce: false, requiredMigrations: required })
+    ).resolves.toBeUndefined()
+    const logged = warn.mock.calls.join(" ")
+    expect(logged).toContain("startup.schema_incompatible")
+    expect(logged).toContain("startup.safety_violations_ignored")
   })
 })

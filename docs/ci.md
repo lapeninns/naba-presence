@@ -273,6 +273,19 @@ not delete them. For a full-document navigation inside the app, use
 Integration and E2E then migrate their own databases and create the runtime
 role, and every test runs through that non-superuser role.
 
+### Required-migrations manifest
+
+`lib/server/schema-manifest.ts` lists every migration version the code may
+rely on. **Every PR that adds a migration appends its version there.**
+`tests/schema-compat.test.ts` fails until the manifest holds exactly the
+versions in `supabase/migrations` (it uses `listMigrationVersions` from
+`scripts/migration-rules.mjs`, the same rule `db:migrate` and `db:status`
+use). In production, `assertProductionSafety` refuses to start when a listed
+version is missing from `schema_migration`; extra applied versions are
+allowed, so expand-only migrations can run ahead of the code.
+`tests/integration/startup-assertion.test.ts` checks both directions against
+the migrated CI database through the runtime role.
+
 ### Production: manual, from the operator's machine
 
 Vercel does **not** run migrations. The project has no Build Command
@@ -288,7 +301,8 @@ For a PR that adds a migration:
 2. Take a restorable database snapshot, and note the current production
    deployment (the rollback unit in `docs/runbook.md`).
 3. From your machine, with the admin URL (direct, or session pooler on 5432):
-   `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then `pnpm db:status`.
+   `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
+   `pnpm db:status --expect-current` (exits 1 while anything is pending).
    Run this **before merging** when the new code depends on the new schema:
    the live code tolerates an expand-only migration, but the new code would
    fail against the old schema.

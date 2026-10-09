@@ -23,6 +23,26 @@ export const KNOWN_VERSION_GAPS = ["0021"]
 export const versionNumber = (file) => Number(file.slice(0, 4))
 
 /**
+ * The version a migration file records in `schema_migration`: its basename
+ * without `.sql`.
+ * @param {string} file
+ */
+export const migrationVersion = (file) => file.replace(/\.sql$/, "")
+
+/**
+ * Sorted versions of the `.sql` files in a directory listing. Shared by
+ * db:status and the required-migrations manifest test, so both agree with
+ * db:migrate on what a version is.
+ * @param {string[]} files
+ */
+export function listMigrationVersions(files) {
+  return files
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .map(migrationVersion)
+}
+
+/**
  * Highest sequence number among non-legacy files.
  * @param {string[]} files
  */
