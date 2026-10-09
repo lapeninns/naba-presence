@@ -37,7 +37,14 @@ export type GoogleStub = {
   stop(): Promise<void>
 }
 
-export async function startGoogleStub(): Promise<GoogleStub> {
+/**
+ * `port` overrides GOOGLE_STUB_PORT. Playwright's global setup exports that
+ * variable for its shared stub, and workers inherit it, so a spec that needs
+ * its own private stub passes `{ port: 0 }` to get a free port instead.
+ */
+export async function startGoogleStub(
+  options: { port?: number } = {}
+): Promise<GoogleStub> {
   const calls: GoogleStubCall[] = []
   const rules: Rule[] = []
   const server: Server = createServer(async (request, response) => {
@@ -78,7 +85,9 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     response.end(JSON.stringify(result.json ?? {}))
   })
   const configuredPort = process.env.GOOGLE_STUB_PORT
-  const port = configuredPort ? Number.parseInt(configuredPort, 10) : 0
+  const port =
+    options.port ??
+    (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error("GOOGLE_STUB_PORT must be a valid TCP port.")
   }

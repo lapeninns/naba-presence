@@ -105,8 +105,9 @@ test.describe("settings", () => {
       page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Team" })
     ).toBeVisible()
     // The compliance console is gone for every role, admin included.
-    for (const gone of ["Compliance", "Operations"]) {
-      await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
-    }
+    await expect(nav.getByRole("link", { name: "Compliance" })).toHaveCount(0)
+    // Operations returned for owners and admins as the operational recovery
+    // view (components/settings/settings-nav.tsx).
+    await expect(nav.getByRole("link", { name: "Operations" })).toBeVisible()
   })
 })

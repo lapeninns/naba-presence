@@ -50,7 +50,7 @@ test.describe("listings", () => {
     ).toBeVisible()
     for (const column of ["Listing", "Client", "Health", "Waiting"]) {
       await expect(
-        page.getByRole("columnheader", { name: column })
+        page.getByRole("columnheader", { name: column, exact: true })
       ).toBeVisible()
     }
     const row = page

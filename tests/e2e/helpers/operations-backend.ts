@@ -24,7 +24,8 @@ export async function startOperationsBackend() {
   if (!process.env.DIRECT_DATABASE_URL)
     throw new Error("Isolated PostgreSQL required")
   const admin = postgres(process.env.DIRECT_DATABASE_URL, { max: 1 })
-  const google = await startGoogleStub()
+  // A private stub on a free port, beside the global journey stub.
+  const google = await startGoogleStub({ port: 0 })
   const organisations: string[] = []
   const server = await startAppServer({
     GOOGLE_API_PROXY_BASE: google.baseUrl,

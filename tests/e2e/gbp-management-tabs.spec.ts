@@ -703,7 +703,7 @@ for (const width of [375, 768, 1280]) test(`Services review preserves siblings a
   await page.screenshot({ path: testInfo.outputPath(`services-bottom-${width}.png`) })
   expect((await new AxeBuilder({ page }).include("#section-services").analyze()).violations).toEqual([])
   await services.getByRole("button", { name: "Review service changes" }).click()
-  const review = page.getByRole("dialog", { name: "Review changes" })
+  const review = page.getByRole("dialog", { name: "Review service changes" })
   await expect(review.getByText(width === 375 ? /No description.*No price/ : /Same-day repairs.*No price/)).toBeVisible()
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
   await page.screenshot({ path: testInfo.outputPath(`service-review-${width}.png`) })
@@ -1013,7 +1013,7 @@ test("Multiple URL attributes remove one value and review all remaining URLs", a
   await page.screenshot({ path: testInfo.outputPath("multiple-url-review.png"), animations: "disabled" })
 })
 
-test("Industry sections omit retired controls and surface a failing section honestly", async ({ page }) => {
+test("Industry sections omit retired controls and never leak a failing legacy section", async ({ page }) => {
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
   await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, canManage: true, writesEnabled: true } } }))
@@ -1023,9 +1023,11 @@ test("Industry sections omit retired controls and surface a failing section hone
   await expect(page.getByRole("combobox", { name: "Calls" })).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Save calls" })).toHaveCount(0)
   await expect(page.getByText("Provider attributes")).toHaveCount(0)
-  // The failing healthcareServices sub-resource shows the honest per-section
-  // warning, never the raw Google error string.
-  await expect(page.getByText("We couldn't load healthcare services from Google right now. Try refreshing in a moment.")).toBeVisible()
+  // Healthcare services are reviewed in the general Services editor, so a
+  // legacy healthcareServices error in this response renders no second
+  // panel and never the raw Google error string.
+  await expect(page.getByText("We couldn't load healthcare services from Google right now. Try refreshing in a moment.")).toHaveCount(0)
+  await expect(page.getByText("Google request failed.")).toHaveCount(0)
 })
 
 test("Lodging publishes only the frozen reviewed change and preserves sibling amenities", async ({ page }, testInfo) => {

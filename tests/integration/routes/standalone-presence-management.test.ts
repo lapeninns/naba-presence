@@ -947,7 +947,7 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       return hoursResponseSchema.parse(await response.json()).hours
     }
     const first = await read()
-    expect(first.google.regular[1]).toEqual({ dayOfWeek: 1, isClosed: false, periods: [{ opensAt: "00:00", closesAt: "00:30" }] })
+    expect(first.google.regular[1]).toEqual({ dayOfWeek: 1, isClosed: false, periods: [{ opensAt: "00:00", closesAt: "00:30", closeDayOfWeek: 1 }] })
     expect(first.google.special).toEqual([{ effectiveDate: "2026-12-24", isClosed: false, opensAt: "00:00", closesAt: "00:30" }])
     expect(first.google.moreHours).toEqual([{ hoursTypeId: "DELIVERY", periods: [{ dayOfWeek: 1, closeDayOfWeek: 1, opensAt: "00:00", closesAt: "00:30" }] }])
     expect(first.canonical).toEqual(first.google)
