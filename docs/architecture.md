@@ -293,6 +293,16 @@ migrated modules kept their previous behaviour; the intended convergence is
 `"readback"` wherever a readback exists, because ambiguous writes are read
 before any retry.
 
+The transport (`lib/server/google/transport.ts`) decides which provider errors
+are ambiguous. In mutation mode it raises `GoogleMutationAmbiguousError` for a
+network failure, a timeout, a 408 or 5xx, and for a 2xx whose body cannot be
+read, is empty (except for a `DELETE`), is not JSON or does not parse: the
+request was dispatched and accepted, so the write may have landed
+(`classifyMutationFailure` kind `decode` in `lib/domain/retry.ts`). A non-2xx
+with an unreadable body is still classified by its status, so a 4xx stays
+`failed`. A caller that checks the success shape itself (a create without the
+new resource's `name`) raises the same error rather than a plain failure.
+
 An interrupted request strands a row rather than failing it. The intent is
 committed in its own transaction and every later phase runs outside it, so a
 request that dies in between — a function timeout, an instance recycled
