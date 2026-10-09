@@ -4,6 +4,39 @@ Programme started 2026-09-29. The supplied "Complete Google Business Profile
 Operations" brief is the scope. This register is an execution ledger, not a
 release announcement. Existing functionality is not automatically accepted.
 
+## 2026-10-09 merged with `origin/main` at `6af3066`
+
+Main had moved 32 commits (#50–#61: AI credits, business mode, retired
+Google API removal, admin resource-name validation, Next 16.3.8, release
+ledger). Main already used `0059`–`0061`, so this programme's migrations
+moved again, in order: `0059_management_confirmation` …
+`0077_bulk_listing_operations` are now `0062_management_confirmation` …
+`0080_bulk_listing_operations` (19 files), with `schema_migration` versions
+and references updated. `0078_operational_notifications` keeps main's
+`ai_credits_low`/`ai_credits_exhausted` incident kinds. Any database migrated
+under the earlier numbers must be recreated.
+
+Resolutions that change behaviour: main's transport guard (`410
+google_api_retired`) is the only retired-API guard and now also blocks the
+endpoints only this branch blocked; a hostile `payload.name` on the legacy
+administration route is a `400 invalid_request` before the "review
+required" `409`; Workers AI returns main's usage contract so AI credits and
+`ai_usage` keep working; healthcare services stay in the general Services
+editor.
+
+Local CI on the merged tree (fresh PostgreSQL cluster): migration policy,
+production audit, typecheck, lint, unit tests, webpack build, migrate plus
+no-op re-run, and the integration suite pass. Playwright does not pass: the
+remaining failures (services and saved-service review, lifecycle, lodging
+and place-action drift, verification PIN, access tab, and the older
+`listings.spec.ts` journeys that still drive the pre-review direct-write
+UI) fail identically on the unmerged branch tip `31a0357`, so they predate
+this merge. A test harness bug that kept every backend spec from running
+(a second Google stub on the shared `GOOGLE_STUB_PORT`) is fixed, which is
+why more browser cases now run and fail visibly. The visual review REJECT
+and the fix round are still open. None of this is deployment or
+live-provider evidence.
+
 ## 2026-09-30 integration branch `feat/gbp-operations-programme`
 
 All uncommitted programme work (both Codex goals and the Claude continuation)
