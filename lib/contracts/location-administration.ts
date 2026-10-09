@@ -122,6 +122,48 @@ export const DANGER_ZONE_OPERATIONS: ReadonlySet<AdministrationOperation> =
     "delete_location",
   ])
 
+// One Google resource-id segment. Deliberately excludes `/`, `.`, `%`, `?`,
+// `#` and whitespace: the server interpolates these names into Google URL
+// paths, so a segment must never be able to traverse, re-encode a slash, or
+// start a query string or fragment.
+const GOOGLE_ID_SEGMENT = "[A-Za-z0-9_-]+"
+
+/**
+ * The exact Google resource-name shape each name-bearing operation targets.
+ * The shape alone does not authorise anything: the server additionally
+ * requires the parent to be the linked location or account
+ * (lib/server/location-administration.ts).
+ */
+export const ADMINISTRATION_RESOURCE_NAME_PATTERNS = {
+  complete_verification: new RegExp(
+    `^locations/${GOOGLE_ID_SEGMENT}/verifications/${GOOGLE_ID_SEGMENT}$`
+  ),
+  update_admin: new RegExp(
+    `^(?:accounts|locations)/${GOOGLE_ID_SEGMENT}/admins/${GOOGLE_ID_SEGMENT}$`
+  ),
+  delete_admin: new RegExp(
+    `^(?:accounts|locations)/${GOOGLE_ID_SEGMENT}/admins/${GOOGLE_ID_SEGMENT}$`
+  ),
+  accept_invitation: new RegExp(
+    `^accounts/${GOOGLE_ID_SEGMENT}/invitations/${GOOGLE_ID_SEGMENT}$`
+  ),
+  decline_invitation: new RegExp(
+    `^accounts/${GOOGLE_ID_SEGMENT}/invitations/${GOOGLE_ID_SEGMENT}$`
+  ),
+} as const satisfies Partial<Record<AdministrationOperation, RegExp>>
+
+export type AdministrationNamedOperation =
+  keyof typeof ADMINISTRATION_RESOURCE_NAME_PATTERNS
+
+export function isAdministrationNamedOperation(
+  operation: AdministrationOperation
+): operation is AdministrationNamedOperation {
+  return Object.hasOwn(ADMINISTRATION_RESOURCE_NAME_PATTERNS, operation)
+}
+
+export const INVALID_ADMINISTRATION_RESOURCE_NAME =
+  "Enter a valid Google resource name for this operation."
+
 export const administrationMutationSchema = z
   .object({
     operation: administrationOperationSchema,
@@ -136,6 +178,19 @@ export const administrationMutationSchema = z
         path: ["confirmation"],
         message: `Confirmation must be “${expected}”.`,
       })
+    }
+    if (isAdministrationNamedOperation(value.operation)) {
+      const name = value.payload.name
+      if (
+        typeof name !== "string" ||
+        !ADMINISTRATION_RESOURCE_NAME_PATTERNS[value.operation].test(name)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", "name"],
+          message: INVALID_ADMINISTRATION_RESOURCE_NAME,
+        })
+      }
     }
   })
 export type AdministrationMutation = z.infer<
