@@ -403,11 +403,18 @@ export async function createPlaceAction(input: {
     mutate: async () => {
       const accessToken = await linked.accessToken()
       try {
-        return await createGooglePlaceActionLink(
+        const created = await createGooglePlaceActionLink(
           accessToken,
           { locationName: linked.googleLocationName, payload },
           google
         )
+        // A 2xx without the new link's name may still have created it.
+        if (!linkNameOf(created)) {
+          throw new GoogleMutationAmbiguousError(
+            "Google did not return the created Place Action link name."
+          )
+        }
+        return created
       } catch (error) {
         // An ambiguous create may have applied: recover it from the list, or
         // hand the original ambiguity back to the pipeline.

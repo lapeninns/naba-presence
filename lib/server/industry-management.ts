@@ -84,6 +84,9 @@ export async function mutateIndustryManagement(input: {
     } else {
       response = await googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: "serviceList", method: "PATCH", updateMask: input.updateMask, payload: input.payload }, { connectionKey: linked.connectionId })
     }
+    // A 2xx that is not the updated resource may still have written: settle
+    // it uncertain instead of caching it as the live state.
+    if (!response || typeof response !== "object" || Array.isArray(response)) throw new GoogleMutationAmbiguousError("Google did not return the updated resource.")
     await cacheGbpSnapshot({ organisationId: input.session.organisationId, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName: `${linked.googleLocationName}/${resourceType}`, payload: response })
     await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "succeeded", response })
     await auditGbpMutation({ organisationId: input.session.organisationId, session: input.session, action: `google.${input.operation}`, subjectType: "location", subjectId: input.locationId, requestId: input.requestId, metadata: { updateMask: input.updateMask } })

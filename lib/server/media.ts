@@ -34,6 +34,7 @@ import {
   createGoogleMediaItem,
   deleteGoogleMediaItem,
   getGoogleMediaItem,
+  GoogleMutationAmbiguousError,
   googleMediaItems,
   patchGoogleMediaItem,
   uploadGoogleMediaBytes,
@@ -529,7 +530,13 @@ async function createMediaItem(
     failureCode: create.failureCode,
     mutate: async () => {
       const response = await create.call(await linked.accessToken())
-      createdMediaName(response)
+      // A 2xx without the new item's name may still have created it: that
+      // is uncertain, not failed.
+      if (typeof response?.name !== "string") {
+        throw new GoogleMutationAmbiguousError(
+          "Google did not return the created media name."
+        )
+      }
       return response
     },
     readback: {

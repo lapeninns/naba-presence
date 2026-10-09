@@ -210,6 +210,47 @@ describeDatabase("Google media management", () => {
     `
     expect(Number(ledger.count)).toBe(3)
   }, 30_000)
+
+  it("settles a create Google answered without the item name as ambiguous", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    // 2xx, but not the created item: the photo may exist on Google now.
+    google.respond({ method: "POST", pathIncludes: "/media" }, () => ({
+      status: 200,
+      json: {},
+    }))
+
+    const create = await fetch(
+      `${server.baseUrl}/api/locations/${linked.locationId}/media`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "create-media-nameless"),
+        body: JSON.stringify({
+          confirmation: "create_google_media",
+          mediaFormat: "PHOTO",
+          category: "FOOD_AND_DRINK",
+          sourceUrl: "https://images.example.com/nameless.jpg",
+        }),
+      }
+    )
+    expect(create.status, await create.clone().text()).toBe(502)
+    expect((await create.json()).error).toBe("google_mutation_ambiguous")
+
+    const [attempt] = await admin<{ status: string }[]>`
+      select status
+      from gbp_media_mutation
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(attempt.status).toBe("ambiguous")
+  }, 30_000)
 })
 
 function jsonHeaders(cookie: string, requestId: string) {

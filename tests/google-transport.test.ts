@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http"
+import { createServer, type Server, type ServerResponse } from "node:http"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -12,6 +12,8 @@ type StubMode = (typeof StubMode)[keyof typeof StubMode]
 describe("Google transport", () => {
   let calls: number
   let mode: StubMode
+  // Set by a test to answer every request itself instead of the mode stub.
+  let respond: ((response: ServerResponse) => void) | null
   let server: Server
   let stubBaseUrl: string
 
@@ -19,6 +21,7 @@ describe("Google transport", () => {
     vi.resetModules()
     calls = 0
     mode = StubMode.retryOnce
+    respond = null
     process.env.DATABASE_URL = "postgresql://runtime@example.test/naba"
     process.env.NEXTAUTH_SECRET = "n".repeat(32)
     process.env.TOKEN_ENCRYPTION_KEY = "t".repeat(32)
@@ -26,9 +29,16 @@ describe("Google transport", () => {
     process.env.GOOGLE_REQUESTS_PER_SECOND = "100"
     process.env.GOOGLE_TIMEOUT_MS = "1000"
     process.env.GOOGLE_MUTATION_TIMEOUT_MS = "1000"
+    // No database here: the fleet budget would spend each call's deadline
+    // waiting for one.
+    process.env.GOOGLE_RATE_BUDGET_ENABLED = "false"
 
     server = createServer((_request, response) => {
       calls += 1
+      if (respond) {
+        respond(response)
+        return
+      }
       if (mode === StubMode.retryOnce && calls > 1) {
         response.writeHead(200, { "content-type": "application/json" })
         response.end(JSON.stringify({ ok: true }))
@@ -58,6 +68,7 @@ describe("Google transport", () => {
 
   afterEach(async () => {
     delete process.env.GOOGLE_API_PROXY_BASE
+    delete process.env.GOOGLE_RATE_BUDGET_ENABLED
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) reject(error)
@@ -151,4 +162,152 @@ describe("Google transport", () => {
     expect(result).toEqual({ ok: true })
     expect(calls).toBe(2)
   })
+
+  // Undecodable success: the request was dispatched and Google said 2xx, so
+  // a write may have landed whatever the body looks like.
+  const undecodableSuccess = {
+    "a non-JSON body": (response: ServerResponse) => {
+      response.writeHead(200, { "content-type": "text/html" })
+      response.end("<html>Service</html>")
+    },
+    "a truncated JSON body": (response: ServerResponse) => {
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end('{"name":"locations/1/localPosts/')
+    },
+    "an empty body": (response: ServerResponse) => {
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end()
+    },
+    "a body-read abort": (response: ServerResponse) => {
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "content-length": "200",
+      })
+      response.write('{"name":')
+      // Let the headers and the first chunk reach the client, then cut the
+      // connection before the declared length.
+      setTimeout(() => response.socket?.destroy(), 20)
+    },
+  } satisfies Record<string, (response: ServerResponse) => void>
+
+  it.each(Object.keys(undecodableSuccess))(
+    "settles a mutation answered 2xx with %s as ambiguous",
+    async (name) => {
+      // Given: a provider that accepts the write but answers badly.
+      respond = undecodableSuccess[name as keyof typeof undecodableSuccess]
+      const { GoogleMutationAmbiguousError, googleRequest } = await import(
+        "@/lib/server/google"
+      )
+
+      // When: a mutation crosses the real HTTP transport.
+      const request = googleRequest(
+        "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts",
+        "access-token",
+        { method: "POST", body: JSON.stringify({ summary: "Hi" }) },
+        { mode: "mutation", timeoutMs: 1000 }
+      )
+
+      // Then: it is uncertain, not failed, and is never sent twice.
+      await expect(request).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
+      await expect(request).rejects.toMatchObject({
+        code: "google_mutation_ambiguous",
+      })
+      expect(calls).toBe(1)
+    }
+  )
+
+  it("keeps safe-mode decoding unchanged", async () => {
+    const { GoogleMutationAmbiguousError, googleRequest } = await import(
+      "@/lib/server/google"
+    )
+    const read = () =>
+      googleRequest<unknown>(
+        "https://mybusiness.googleapis.com/v4/example",
+        "access-token",
+        {},
+        { maxAttempts: 1, timeoutMs: 1000 }
+      )
+
+    // A non-JSON body is returned as text and an empty body as null.
+    respond = undecodableSuccess["a non-JSON body"]
+    await expect(read()).resolves.toBe("<html>Service</html>")
+    respond = undecodableSuccess["an empty body"]
+    await expect(read()).resolves.toBeNull()
+
+    // A truncated JSON body or an aborted read is thrown as is: a read
+    // changes nothing, so it is never reported as an uncertain write.
+    respond = undecodableSuccess["a truncated JSON body"]
+    await expect(read()).rejects.toBeInstanceOf(SyntaxError)
+    respond = undecodableSuccess["a body-read abort"]
+    const aborted = read()
+    await expect(aborted).rejects.toBeInstanceOf(Error)
+    await expect(aborted).rejects.not.toBeInstanceOf(
+      GoogleMutationAmbiguousError
+    )
+  })
+
+  it("accepts an empty answer to a DELETE mutation", async () => {
+    respond = (response) => {
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end()
+    }
+    const { googleRequest } = await import("@/lib/server/google")
+
+    const result = await googleRequest(
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts/3",
+      "access-token",
+      { method: "DELETE" },
+      { mode: "mutation", timeoutMs: 1000 }
+    )
+
+    expect(result).toBeNull()
+  })
+
+  it("accepts any 2xx answer when the caller ignores the success body", async () => {
+    respond = undecodableSuccess["a non-JSON body"]
+    const { googleRequest } = await import("@/lib/server/google")
+
+    const result = await googleRequest(
+      "https://mybusiness.googleapis.com/upload/v1/media/ref",
+      "access-token",
+      { method: "POST", body: "bytes" },
+      { mode: "mutation", timeoutMs: 1000, successBody: "ignored" }
+    )
+
+    expect(result).toBe("<html>Service</html>")
+  })
+
+  it.each([
+    ["a non-JSON", "text/html", "<html>Bad request</html>"],
+    ["an unparseable JSON", "application/json", '{"error":'],
+  ])(
+    "keeps a 4xx mutation with %s body a confirmed failure",
+    async (_name, contentType, body) => {
+      // Given: Google rejects the write with an error body it garbled.
+      respond = (response) => {
+        response.writeHead(400, { "content-type": contentType })
+        response.end(body)
+      }
+      const { GoogleMutationAmbiguousError, googleRequest } = await import(
+        "@/lib/server/google"
+      )
+
+      // When: a mutation crosses the real HTTP transport.
+      const request = googleRequest(
+        "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts",
+        "access-token",
+        { method: "POST", body: "{}" },
+        { mode: "mutation", timeoutMs: 1000 }
+      )
+
+      // Then: the status decides; nothing was written.
+      await expect(request).rejects.toMatchObject({
+        status: 400,
+        code: "google_api_error",
+      })
+      await expect(request).rejects.not.toBeInstanceOf(
+        GoogleMutationAmbiguousError
+      )
+    }
+  )
 })

@@ -222,6 +222,64 @@ describeDatabase("Google Place Actions", () => {
     `
     expect(Number(audit.count)).toBe(3)
   }, 30_000)
+
+  it("recovers a create Google answered without the link name from the list", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const links: Array<Record<string, unknown>> = []
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionLinks" },
+      () => ({ status: 200, json: { placeActionLinks: links } })
+    )
+    // Google writes the link but answers 2xx without naming it.
+    google.respond(
+      { method: "POST", pathIncludes: "/placeActionLinks" },
+      (call) => {
+        links.push({
+          name: `${linked.googleLocationName}/placeActionLinks/nameless`,
+          providerType: "MERCHANT",
+          isEditable: true,
+          ...(call.body as Record<string, unknown>),
+          createTime: "2026-07-31T10:00:00Z",
+          updateTime: "2026-07-31T10:00:00Z",
+        })
+        return { status: 200, json: {} }
+      }
+    )
+
+    const create = await fetch(
+      `${server.baseUrl}/api/locations/${linked.locationId}/place-actions`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "create-link-nameless"),
+        body: JSON.stringify({
+          confirmation: "create_google_place_action",
+          uri: "https://book.example.com/nameless",
+          placeActionType: "DINING_RESERVATION",
+          isPreferred: false,
+        }),
+      }
+    )
+    expect(create.status, await create.clone().text()).toBe(201)
+    expect(await create.json()).toMatchObject({ status: "succeeded" })
+    // Recovered from the list: one create, never a second.
+    expect(
+      google.calls.filter(
+        (call) =>
+          call.method === "POST" &&
+          call.path.includes(linked.googleLocationName.split("/")[1]) &&
+          call.path.includes("/placeActionLinks")
+      )
+    ).toHaveLength(1)
+  }, 30_000)
 })
 
 function jsonHeaders(cookie: string, requestId: string) {

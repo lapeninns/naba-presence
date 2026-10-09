@@ -82,6 +82,9 @@ export async function uploadGoogleMediaBytes(
     start.init,
     { ...options, mode: "mutation" }
   )
+  // Stays a plain failure, unlike the other malformed answers: starting an
+  // upload only reserves a reference, so with none returned no bytes were
+  // sent and no media item can exist.
   if (!dataRef.resourceName) {
     throw new ApiError(
       502,
@@ -94,9 +97,11 @@ export async function uploadGoogleMediaBytes(
     bytes: input.bytes,
     contentType: input.contentType,
   })
+  // The upload answer is never read: its 2xx status alone confirms the bytes.
   await googleRequest<unknown>(upload.url, accessToken, upload.init, {
     ...options,
     mode: "mutation",
+    successBody: "ignored",
   })
   return { resourceName: dataRef.resourceName }
 }

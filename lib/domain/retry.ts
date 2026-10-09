@@ -2,8 +2,15 @@ export function isRetryableGoogleStatus(status: number) {
   return status === 429 || status === 408 || status >= 500
 }
 
+/**
+ * "decode": Google answered 2xx but the body could not be read or parsed. The
+ * request was dispatched and accepted, so the write may have applied.
+ */
 export type MutationFault =
-  { kind: "http"; status: number } | { kind: "network" } | { kind: "timeout" }
+  | { kind: "http"; status: number }
+  | { kind: "network" }
+  | { kind: "timeout" }
+  | { kind: "decode" }
 
 export function classifyMutationFailure(
   fault: MutationFault

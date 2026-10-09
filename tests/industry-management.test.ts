@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   snapshot: vi.fn(),
   mutate: vi.fn(),
+  settle: vi.fn(),
 }))
 vi.mock("@/lib/server/db", () => ({
   getDatabase: () => ({}),
@@ -24,7 +25,7 @@ vi.mock("@/lib/server/gbp-management", () => ({
   }),
   cacheGbpSnapshot: mocks.snapshot,
   startGbpMutation: mocks.mutate,
-  settleGbpMutation: vi.fn(),
+  settleGbpMutation: mocks.settle,
   auditGbpMutation: vi.fn(),
 }))
 // The real request builders and API wrappers, with only the HTTP call
@@ -51,7 +52,11 @@ vi.mock("@/lib/server/route", () => ({
 import { industryMutationSchema } from "@/lib/contracts/location-industry"
 import { retiredGoogleApi } from "@/lib/domain/google-retired-apis"
 import { ApiError } from "@/lib/server/http"
-import { loadIndustryManagement } from "@/lib/server/industry-management"
+import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
+import {
+  loadIndustryManagement,
+  mutateIndustryManagement,
+} from "@/lib/server/industry-management"
 import type { Session } from "@/lib/server/session"
 
 const session: Session = {
@@ -136,6 +141,37 @@ describe("industry route retired operations", () => {
       })
       expect(mocks.mutate).not.toHaveBeenCalled()
       expect(mocks.request).not.toHaveBeenCalled()
+    }
+  )
+})
+
+describe("industry mutation answers", () => {
+  it.each([
+    ["no body", null],
+    ["a body that is not the resource", "<html>ok</html>"],
+  ])(
+    "settles a 2xx with %s as ambiguous and caches nothing",
+    async (_name, answer) => {
+      // Given: Google accepts the PATCH but does not return the resource.
+      mocks.mutate.mockResolvedValue({ id: "m1", idempotent: false })
+      mocks.request.mockResolvedValue(answer)
+
+      // When: the lodging update is sent.
+      const write = mutateIndustryManagement({
+        session,
+        locationId: "l1",
+        operation: "update_lodging",
+        payload: { property: {} },
+        updateMask: ["property"],
+        requestId: "r1",
+      })
+
+      // Then: it is uncertain, and no guess is cached as the live state.
+      await expect(write).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
+      expect(mocks.settle).toHaveBeenCalledWith(
+        expect.objectContaining({ mutationId: "m1", status: "ambiguous" })
+      )
+      expect(mocks.snapshot).not.toHaveBeenCalled()
     }
   )
 })

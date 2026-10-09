@@ -20,6 +20,10 @@ describe("mutation failure classification", () => {
     expect(classifyMutationFailure({ kind: "timeout" })).toBe("ambiguous")
   })
 
+  it("treats an undecodable 2xx answer as ambiguous", () => {
+    expect(classifyMutationFailure({ kind: "decode" })).toBe("ambiguous")
+  })
+
   it("treats 429 as retryable (not applied)", () => {
     expect(classifyMutationFailure({ kind: "http", status: 429 })).toBe(
       "retryable"

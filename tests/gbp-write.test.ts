@@ -1,6 +1,14 @@
 import { PGlite } from "@electric-sql/pglite"
 import type { TransactionSql } from "postgres"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { googleCreateRequestId } from "@/lib/server/gbp-management"
 import {
@@ -17,7 +25,10 @@ import {
   type GbpWriteInput,
   type TenantTransaction,
 } from "@/lib/server/gbp-write"
-import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
+import {
+  GoogleMutationAmbiguousError,
+  googleRequest,
+} from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
@@ -552,6 +563,45 @@ describe("gbp-write", () => {
       })
     ).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
     expect(calls).toEqual(["validate"])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+    expect(row.provider_error_code).toBe("google_mutation_ambiguous")
+  })
+
+  it("a malformed 2xx answer from the real transport settles ambiguous, not failed", async () => {
+    // Given: Google accepts the write but its answer is cut off mid-JSON.
+    vi.stubEnv("DATABASE_URL", "postgresql://runtime@example.test/naba")
+    vi.stubEnv("NEXTAUTH_SECRET", "n".repeat(32))
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", "t".repeat(32))
+    vi.stubEnv("CRON_SECRET", "c".repeat(16))
+    vi.stubEnv("GOOGLE_RATE_BUDGET_ENABLED", "false")
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"name":"locations/1/localPo', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    )
+    try {
+      // When: the pipeline dispatches the write through googleRequest.
+      await expect(
+        run({
+          onAmbiguous: "fail",
+          mutate: () =>
+            googleRequest<{ name: string }>(
+              "https://mybusiness.googleapis.com/v4/accounts/1/locations/1/localPosts",
+              "access-token",
+              { method: "POST", body: "{}" },
+              { mode: "mutation", timeoutMs: 1000 }
+            ),
+        })
+      ).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      fetchSpy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+
+    // Then: the attempt is uncertain, so it is never reported as failed.
     const [row] = await rows("write_attempt")
     expect(row.status).toBe("ambiguous")
     expect(row.provider_error_code).toBe("google_mutation_ambiguous")
