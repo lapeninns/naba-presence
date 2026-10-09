@@ -87,12 +87,30 @@ cluster, so shards never share advisory locks or roles.
 ## 3. Required checks
 
 **`CI result` is the only check to require.** It runs with `if: always()`,
-reads `needs.*.result`, and fails if any job is `failure` or `cancelled`. A
-`skipped` job counts as a pass: that is how a docs-only PR stays green while
-its code jobs skip, and how Dependency review skips on pushes.
+checks out only `scripts/ci`, and runs `node scripts/ci/aggregate-results.mjs`
+with `needs`, Plan's `code` output and the event. Aggregation is strict: every
+job that applies to the change must be `success`. `skipped`, `failure` and
+`cancelled` all fail, except for these planned skips:
 
-To add, split or shard a job, add it to `result`'s `needs` list. No ruleset
-change is needed, because the ruleset only knows `CI result`. Job `name:`s
+| Jobs | May skip when |
+|---|---|
+| Plan, Secret scan | never |
+| Gate, Build, Migrations, Integration, E2E | Plan succeeded and reported `code=false` on a pull request (docs-only PR) |
+| Dependency review | the event is not `pull_request` |
+
+Anything uncertain fails closed: Plan not `success`, a missing or unexpected
+`code` output, `code=false` on an event other than `pull_request`, a job
+missing from `needs`, or a job in `needs` the script does not classify. So a
+skipped Build no longer turns Integration and E2E into silent passes, and a
+broken Plan cannot make a code PR look docs-only. The rules are unit-tested in
+`tests/server/ci-aggregate.test.ts`, which also reads `ci.yml` and fails if
+`result`'s `needs` differs from the script's job sets.
+
+To add, split or shard a job, add it to `result`'s `needs` list and to one of
+the job sets in `scripts/ci/aggregate-results.mjs` (`REQUIRED_ALWAYS`,
+`CODE_JOBS` or `PR_ONLY`); a code job also needs
+`if: needs.plan.outputs.code == 'true'`. No ruleset change is needed, because
+the ruleset only knows `CI result`. Job `name:`s
 use the same string on both lanes, so moving between hosted and the Mac
 never renames a check either.
 
@@ -462,8 +480,12 @@ A failed scheduled run emails the repository owner.
 
 ## 11. Debugging a red run
 
-**Start with `CI result`.** Its log lists every job's result. Then open the
-first failed job.
+**Start with `CI result`.** Its log lists every job's result, then one
+`::error::` line per problem, each naming the job, its result and the rule it
+broke (for example `integration: skipped (code changed)`). Open the first job
+that is not `success` upstream of the others: under strict aggregation a job
+skipped because its dependency failed (Integration and E2E after a failed
+Build) is reported too, but it is a consequence, not the cause.
 
 **E2E traces:** a failing shard uploads `e2e-traces-shard-N`.
 
@@ -474,8 +496,20 @@ pnpm exec playwright show-trace /tmp/traces/<test>/trace.zip
 
 **Re-run one job or shard:** in the UI, re-run that job, or run
 `gh run rerun <run-id> --job <job-id>`. `gh run view <run-id> --json jobs`
-lists the job IDs. A re-run reuses the run's standalone artifact, which
-expires after 1 day; after that, re-run all jobs so Build runs again.
+lists the job IDs. GitHub also re-runs every job that depends on it, so
+`CI result` aggregates again with the new result. Re-running only `CI result`
+does not help: it re-reads the same job results and fails the same way.
+
+- **Re-run failed jobs** covers the failed jobs and their
+  dependents, which includes Integration and E2E skipped behind a failed
+  Build. Prefer it to re-running a single shard.
+- A job skipped because Plan failed or reported no `code` output can only
+  recover through Plan: re-run Plan (or all jobs), because a re-run job keeps
+  the old Plan outputs.
+- A cancelled run (a newer push to the same PR supersedes it) stays red;
+  look at the newest run instead of re-running the cancelled one.
+- A re-run reuses the run's standalone artifact, which expires after 1 day;
+  after that, re-run all jobs so Build runs again.
 
 **Reproduce a CI database locally:** this uses the same script as CI.
 
@@ -511,4 +545,7 @@ Check Settings → Actions → Runners. If `mac-1`/`mac-2` are offline, flip the
 variable to `false` and re-run all jobs.
 
 **Docs-only PR shows no Gate/Build:** expected. `Plan` printed `Code jobs:
-false` and `CI result` is still green.
+false`, and `CI result` stays green because the aggregation allows code jobs
+to skip on a docs-only pull request. If `CI result` is red with
+`plan output code: missing`, Plan failed or did not write its output: fix or
+re-run Plan; the code jobs are then required.

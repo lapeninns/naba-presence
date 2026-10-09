@@ -261,6 +261,7 @@ jobs:
     # tests and was the critical path.
     name: Integration (shard ${{ matrix.shard }}/2)
     needs: [plan, build]
+    if: needs.plan.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 20
     permissions:
@@ -294,6 +295,7 @@ jobs:
   e2e:
     name: E2E (shard ${{ matrix.shard }}/2)
     needs: [plan, build]
+    if: needs.plan.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 20
     permissions:
@@ -426,17 +428,20 @@ jobs:
     needs: [plan, gate, build, migrations, integration, e2e, secret-scan, dependency-review]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+      # Strict: every job that applies to the change must succeed. Skips pass
+      # only for code jobs on a docs-only PR (plan code=false) and for
+      # dependency-review outside pull requests. See docs/ci.md section 3.
       - name: Aggregate job results
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          # skipped counts as a pass: docs-only PRs skip the code jobs, and
-          # dependency-review only runs on pull requests.
-          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
-          if [ -n "$bad" ]; then
-            echo "::error::Failed or cancelled: $bad"
-            exit 1
-          fi
+          PLAN_CODE: ${{ needs.plan.outputs.code }}
+          EVENT: ${{ github.event_name }}
+        run: node scripts/ci/aggregate-results.mjs
