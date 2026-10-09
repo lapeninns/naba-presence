@@ -96,7 +96,9 @@ describe("ResetPasswordForm", () => {
       "correct-horse-9"
     )
     await user.click(screen.getByRole("button", { name: "Update password" }))
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/inbox"))
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(`${window.location.origin}/inbox`)
+    )
   })
 
   it("replaces the dead form with a recovery CTA when the token is rejected", async () => {

@@ -37,6 +37,8 @@
     ".design-sync",
     ".ds-sync",
     "ds-bundle",
-    ".worktrees"
+    ".worktrees",
+    ".omo",
+    ".superpowers"
   ]
 }

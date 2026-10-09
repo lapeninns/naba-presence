@@ -145,7 +145,8 @@ describe("query hooks forward abort + background to apiFetch", () => {
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox")
     )
   })
 

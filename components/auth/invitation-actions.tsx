@@ -6,6 +6,7 @@ import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { Button } from "@/components/ui/button"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
+import { hardNavigate } from "@/lib/client/hard-navigate"
 
 function InvitationActions({
   viewer,
@@ -30,7 +31,7 @@ function InvitationActions({
         // A full navigation, not a router push: the session cookie now points
         // at the invitation's organisation and every server layout has to
         // re-read it.
-        window.location.assign("/inbox")
+        hardNavigate("/inbox")
       } catch (caught) {
         setError(authErrorMessage(caught))
       }
@@ -49,7 +50,7 @@ function InvitationActions({
       } finally {
         // The invited address is someone else's, and most often one that
         // already has an account: open the form in sign-in mode.
-        window.location.assign(`/invite/${token}?mode=sign-in`)
+        hardNavigate(`/invite/${token}?mode=sign-in`)
       }
     })
   }

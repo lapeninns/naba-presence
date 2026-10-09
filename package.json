@@ -22,7 +22,7 @@
     "test:e2e": "node scripts/run-test-command.mjs e2e pnpm exec playwright test",
     "test:integration": "node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration",
     "test:watch": "vitest",
-    "lint": "eslint",
+    "lint": "eslint --max-warnings 0",
     "check:contrast": "node scripts/check-contrast.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",

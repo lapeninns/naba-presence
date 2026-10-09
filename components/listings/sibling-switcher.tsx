@@ -8,6 +8,7 @@ import {
   ComboboxInput,
   ComboboxItem,
 } from "@/components/ui/combobox"
+import { hardNavigate } from "@/lib/client/hard-navigate"
 import {
   useLocationDirectory,
   type DirectoryEntry,
@@ -49,7 +50,7 @@ function SiblingSwitcher({
       value={current}
       onValueChange={(next: DirectoryEntry | null) => {
         if (next && next.id !== current.id)
-          window.location.assign(`/listings/${next.id}${suffix}`)
+          hardNavigate(`/listings/${next.id}${suffix}`)
       }}
     >
       <ComboboxInput

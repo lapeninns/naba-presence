@@ -1,5 +1,7 @@
 import type { ZodType } from "zod"
 
+import { hardNavigate } from "@/lib/client/hard-navigate"
+
 import { stashAllDrafts } from "./draft-stash"
 
 export class ApiClientError extends Error {
@@ -96,7 +98,7 @@ function handleUnauthorized(): void {
   const next = encodeURIComponent(
     window.location.pathname + window.location.search
   )
-  window.location.assign(`/sign-in?next=${next}`)
+  hardNavigate(`/sign-in?next=${next}`)
 }
 
 /**

@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
 import { signOut } from "@/lib/api/auth"
 import { apiFetch } from "@/lib/api/client"
+import { hardNavigate } from "@/lib/client/hard-navigate"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -84,7 +85,7 @@ async function handleSignOut(everywhere = false) {
     // Best-effort: a failed clear is recoverable server-side, but a user
     // stranded on a dashboard they believe they have left is not.
   } finally {
-    window.location.assign("/sign-in")
+    hardNavigate("/sign-in")
   }
 }
 
@@ -162,7 +163,7 @@ function AccountMenu({
       })
       // A full reload, not a router push: switching mints a new session and
       // every cached query in memory belongs to the previous organisation.
-      window.location.assign("/inbox")
+      hardNavigate("/inbox")
     } catch (error) {
       setSwitching(false)
       toast.add({

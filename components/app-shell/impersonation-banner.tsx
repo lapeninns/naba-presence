@@ -5,6 +5,7 @@ import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import { endImpersonation } from "@/lib/api/auth"
+import { hardNavigate } from "@/lib/client/hard-navigate"
 
 /**
  * Shown on every page of a support impersonation session.
@@ -35,7 +36,7 @@ export function ImpersonationBanner({
     } catch {
       // The session may already have expired; either way it is over here.
     } finally {
-      window.location.assign("/sign-in")
+      hardNavigate("/sign-in")
     }
   }
 

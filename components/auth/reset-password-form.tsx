@@ -20,6 +20,7 @@ import {
   type AuthMessage,
 } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
+import { hardNavigate } from "@/lib/client/hard-navigate"
 import { passwordSchema, resetPasswordSchema } from "@/lib/domain/auth"
 
 const FIELD_ORDER = ["password", "confirmPassword"] as const
@@ -92,7 +93,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     startTransition(async () => {
       try {
         await authApi.completePasswordReset({ tokenHash, password })
-        window.location.assign("/inbox")
+        hardNavigate("/inbox")
         // Deliberately never resolve: the page is navigating away, and
         // letting the transition "finish" here would flip the submit
         // button back to enabled during that window - reopening the

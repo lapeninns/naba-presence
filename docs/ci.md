@@ -173,6 +173,16 @@ and `.worktrees`, matching ESLint's ignores. TypeScript already skips
 dot-directories under `**` wildcards, but the gitignored `ds-bundle/` output
 (60 generated files) was being typechecked wherever it existed.
 
+`pnpm lint` runs `eslint --max-warnings 0`, so a warning fails the gate the
+same way an error does. ESLint also ignores the gitignored local evidence and
+report directories (`.omo`, `.superpowers`, `test-results`,
+`playwright-report`, `coverage`, `.pnpm-store`), and `tsconfig.json` excludes
+`.omo` and `.superpowers`. `.omo` holds QA evidence with copied source trees
+that would otherwise be linted as app code. Ignoring these directories does
+not delete them. For a full-document navigation inside the app, use
+`hardNavigate` from `lib/client/hard-navigate.ts`, not a relative
+`location.assign`, which Next's lint rule flags.
+
 ## 6. Migrations
 
 ### Rules

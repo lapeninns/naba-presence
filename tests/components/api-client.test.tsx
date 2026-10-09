@@ -91,7 +91,8 @@ describe("apiFetch", () => {
       "half-written reply"
     )
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox?queue=needs_reply")
     )
   })
 
@@ -121,7 +122,8 @@ describe("apiFetch", () => {
       "half-written reply"
     )
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox?queue=needs_reply")
     )
   })
 })
@@ -166,7 +168,8 @@ describe("apiFetch 401 rule", () => {
       apiFetch("/api/probe", { background: false })
     ).rejects.toBeInstanceOf(ApiClientError)
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox")
     )
   })
 

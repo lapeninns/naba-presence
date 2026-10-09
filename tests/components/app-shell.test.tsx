@@ -460,7 +460,7 @@ describe("account menu", () => {
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }))
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
-    expect(assign).toHaveBeenCalledWith("/sign-in")
+    expect(assign).toHaveBeenCalledWith(`${window.location.origin}/sign-in`)
   })
 
   it("still leaves the app when the sign-out request fails", async () => {
@@ -473,7 +473,9 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }))
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/sign-in"))
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(`${window.location.origin}/sign-in`)
+    )
   })
 
   it("hides the organisation switcher for someone who belongs to one", async () => {
