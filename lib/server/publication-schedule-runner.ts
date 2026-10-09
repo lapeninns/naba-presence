@@ -145,9 +145,10 @@ async function approverSession(
       email: string
       displayName: string
       organisationName: string
+      workspaceMode: Session["workspaceMode"]
     }[]
   >`
-    select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.name as "organisationName"
+    select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.name as "organisationName", o.workspace_mode as "workspaceMode"
     from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${schedule.approvedBy}`
   return {
     sessionId: `post-schedule:${schedule.id}`,
@@ -158,6 +159,7 @@ async function approverSession(
     email: row.email,
     role: row.role,
     canPublish: row.canPublish,
+    workspaceMode: row.workspaceMode,
   }
 }
 

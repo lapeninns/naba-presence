@@ -20,13 +20,55 @@ const completionSchema = z.object({
     .min(1),
 })
 
+/** Token counts from a provider payload; null when the provider sent none. */
+export type AiUsage = {
+  inputTokens: number | null
+  outputTokens: number | null
+}
+
+/**
+ * A 200 response whose body could not be parsed or validated. The provider
+ * still billed the call, so the usage rides on the error for the caller to
+ * record.
+ */
+export class AiOutputError extends ApiError {
+  constructor(
+    message: string,
+    readonly usage: AiUsage,
+    public model?: string,
+    code = "ai_invalid_output"
+  ) {
+    super(502, code, message)
+  }
+}
+
+/**
+ * Token counts from either usage shape: the Responses API's
+ * `input_tokens`/`output_tokens`, or the chat completions
+ * `prompt_tokens`/`completion_tokens` that Workers AI returns.
+ */
+export function extractUsage(payload: Record<string, unknown>): AiUsage {
+  const usage =
+    payload.usage && typeof payload.usage === "object"
+      ? (payload.usage as Record<string, unknown>)
+      : {}
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.trunc(value)
+      : null
+  return {
+    inputTokens: count(usage.input_tokens) ?? count(usage.prompt_tokens),
+    outputTokens: count(usage.output_tokens) ?? count(usage.completion_tokens),
+  }
+}
+
 async function workersAiStructured<T>(
   model: string,
   name: string,
   schema: JsonSchema,
   input: string,
   validator: z.ZodType<T>
-): Promise<T> {
+): Promise<{ value: T; usage: AiUsage }> {
   const env = getServerEnv()
   if (!env.WORKERS_AI_API_TOKEN || !env.WORKERS_AI_ACCOUNT_ID) {
     throw new ApiError(
@@ -35,6 +77,7 @@ async function workersAiStructured<T>(
       "AI features are not configured."
     )
   }
+  let payload: unknown
   try {
     const response = await fetch(
       new URL(
@@ -74,23 +117,7 @@ async function workersAiStructured<T>(
         "Cloudflare Workers AI rejected the request."
       )
     }
-    const payload: unknown = await response.json()
-    const completion = completionSchema.parse(payload).choices[0]
-    if (!completion?.message.content) {
-      throw new ApiError(
-        502,
-        "ai_empty_response",
-        "The AI provider returned no text."
-      )
-    }
-    if (completion.finish_reason !== "stop") {
-      throw new ApiError(
-        502,
-        "ai_incomplete_response",
-        "The AI provider did not complete the response."
-      )
-    }
-    return validator.parse(JSON.parse(completion.message.content))
+    payload = await response.json()
   } catch (error) {
     if (error instanceof ApiError) throw error
     if (
@@ -99,20 +126,71 @@ async function workersAiStructured<T>(
     ) {
       throw new ApiError(502, "ai_timeout", "The AI provider timed out.")
     }
-    if (error instanceof SyntaxError || error instanceof z.ZodError) {
+    if (error instanceof SyntaxError) {
       throw new ApiError(
         502,
         "ai_invalid_response",
         "The AI provider returned an invalid response."
       )
     }
+    // Everything else out of `fetch` is a transport failure (DNS, TLS, reset)
+    // during a provider outage. Left raw it is neither an ApiError nor a
+    // ZodError, so mapError returns an opaque 500 and the caller cannot tell a
+    // reachable-but-unhappy provider from an unreachable one - which is
+    // exactly the distinction lib/server/drafts.ts settles a draft on.
     throw new ApiError(
       502,
       "ai_provider_error",
       "The AI provider could not be reached."
     )
   }
+  // From here the provider answered 200 and billed the call: every failure
+  // carries the usage so the caller can record it.
+  const usage =
+    payload && typeof payload === "object"
+      ? extractUsage(payload as Record<string, unknown>)
+      : { inputTokens: null, outputTokens: null }
+  const envelope = completionSchema.safeParse(payload)
+  if (!envelope.success) {
+    throw new AiOutputError(
+      "The AI provider returned an invalid response.",
+      usage,
+      model,
+      "ai_invalid_response"
+    )
+  }
+  const completion = envelope.data.choices[0]
+  if (!completion?.message.content) {
+    throw new AiOutputError(
+      "The AI provider returned no text.",
+      usage,
+      model,
+      "ai_empty_response"
+    )
+  }
+  if (completion.finish_reason !== "stop") {
+    throw new AiOutputError(
+      "The AI provider did not complete the response.",
+      usage,
+      model,
+      "ai_incomplete_response"
+    )
+  }
+  try {
+    return {
+      value: validator.parse(JSON.parse(completion.message.content)),
+      usage,
+    }
+  } catch {
+    throw new AiOutputError(
+      "The AI provider returned an invalid response.",
+      usage,
+      model,
+      "ai_invalid_response"
+    )
+  }
 }
+
 
 const draftResultSchema = z.object({
   reply: z.string().trim().min(1).max(4096),
@@ -128,8 +206,9 @@ export async function generateReply(input: {
   tone: DraftTone
   businessContext?: string | null
 }) {
-  return workersAiStructured(
-    getServerEnv().WORKERS_AI_MODEL,
+  const model = getServerEnv().WORKERS_AI_MODEL
+  const { value, usage } = await workersAiStructured(
+    model,
     "google_review_reply",
     {
       type: "object",
@@ -143,6 +222,7 @@ export async function generateReply(input: {
     buildReplyPrompt(input),
     draftResultSchema
   )
+  return { ...value, usage, model }
 }
 
 const semanticVerificationSchema = z.object({
@@ -194,6 +274,9 @@ export function buildSemanticVerificationPrompt(input: SemanticInput): string {
 export type SemanticVerificationResult = {
   ran: boolean
   reasons: VerificationReason[]
+  /** Present when the provider was called. */
+  usage?: AiUsage
+  model?: string
 }
 
 /**
@@ -221,7 +304,7 @@ export async function semanticVerification(
   ) {
     return { ran: false, reasons: [] }
   }
-  const result = await workersAiStructured(
+  const { value: result, usage } = await workersAiStructured(
     env.WORKERS_AI_MODEL,
     "review_reply_verification",
     {
@@ -243,6 +326,8 @@ export async function semanticVerification(
   )
   return {
     ran: true,
+    usage,
+    model: env.WORKERS_AI_MODEL,
     reasons: [
       ...result.unsupportedClaims.map((claim) => ({
         code: "unsupported_claim",

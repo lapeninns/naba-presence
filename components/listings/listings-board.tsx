@@ -47,6 +47,7 @@ import { BULK_MAX_TARGETS } from "@/lib/domain/bulk-merge"
 import { listingHref } from "@/lib/listings/areas"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClients } from "@/lib/queries/use-clients"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { useListingSummaries } from "@/lib/queries/use-listing-summary"
 import {
   useLocationDirectory,
@@ -211,6 +212,11 @@ const COLUMNS = [
   "Last published",
 ] as const
 
+/** A business has no client layer, so its board has no Client column. */
+function columnsFor(business: boolean) {
+  return business ? COLUMNS.filter((column) => column !== "Client") : COLUMNS
+}
+
 /** The table's frame, shared by the loaded board and its skeleton. */
 function BoardTable({
   children,
@@ -222,6 +228,7 @@ function BoardTable({
   /** Owners and admins select listings for a bulk change. */
   selection?: React.ReactNode
 }) {
+  const business = useWorkspaceMode() === "business"
   return (
     <Table surface responsive aria-busy={busy || undefined}>
       <caption className="sr-only">
@@ -230,7 +237,7 @@ function BoardTable({
       <TableHeader>
         <TableRow>
           {selection ? <TableHead className="w-10">{selection}</TableHead> : null}
-          {COLUMNS.map((column) => (
+          {columnsFor(business).map((column) => (
             <TableHead key={column}>{column}</TableHead>
           ))}
         </TableRow>
@@ -241,6 +248,7 @@ function BoardTable({
 }
 
 function BoardSkeleton() {
+  const business = useWorkspaceMode() === "business"
   return (
     <div className="flex flex-col gap-3" aria-busy="true">
       <Skeleton className="h-8 w-full max-w-[560px] rounded-(--np-radius-pill)" />
@@ -255,9 +263,11 @@ function BoardSkeleton() {
             <TableCell>
               <Skeleton className="h-3.5 w-40 max-w-full" />
             </TableCell>
-            <TableCell>
-              <Skeleton className="h-3.5 w-28" />
-            </TableCell>
+            {business ? null : (
+              <TableCell>
+                <Skeleton className="h-3.5 w-28" />
+              </TableCell>
+            )}
             <TableCell>
               <Skeleton className="h-[22px] w-24" />
             </TableCell>
@@ -308,6 +318,9 @@ function ListingsBoard({ role }: { role: string | null }) {
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
+  // A business has no client layer: no Client column, chips, grouping or
+  // filter, whatever a stale address says.
+  const business = useWorkspaceMode() === "business"
 
   // Local state answers each keystroke at once; the URL follows it (replace,
   // not push, so Back leaves the board rather than undoing filters).
@@ -318,9 +331,10 @@ function ListingsBoard({ role }: { role: string | null }) {
     const value = searchParams.get("health")
     return isHealthFilter(value) ? value : "all"
   })
-  const [clientFilter, setClientState] = React.useState<string | null>(() =>
-    searchParams.get("clientId")
+  const [clientFilterState, setClientState] = React.useState<string | null>(
+    () => searchParams.get("clientId")
   )
+  const clientFilter = business ? null : clientFilterState
   // The top-bar client switcher changes `?clientId=` from outside the board,
   // so the chips follow the address whenever it moves on its own. Adjusted
   // during render, not in an effect, so no frame shows the old client.
@@ -330,9 +344,10 @@ function ListingsBoard({ role }: { role: string | null }) {
     setSeenUrlClient(urlClient)
     setClientState(urlClient)
   }
-  const [order, setOrderState] = React.useState<BoardOrder>(() =>
+  const [orderState, setOrderState] = React.useState<BoardOrder>(() =>
     searchParams.get("order") === "client" ? "client" : "health"
   )
+  const order: BoardOrder = business ? "health" : orderState
 
   const writeUrl = (next: {
     q?: string
@@ -433,7 +448,9 @@ function ListingsBoard({ role }: { role: string | null }) {
           title="No listings yet"
           description={
             canManage
-              ? "Connect a client’s Google login and link its locations, and they appear here with their health."
+              ? business
+                ? "Connect your Google login and link your locations, and they appear here with their health."
+                : "Connect a client’s Google login and link its locations, and they appear here with their health."
               : "Nothing is linked to Google yet. An owner or admin can add the first listing."
           }
           action={
@@ -458,7 +475,7 @@ function ListingsBoard({ role }: { role: string | null }) {
     .filter((row) =>
       needle
         ? row.entry.name.toLowerCase().includes(needle) ||
-          row.clientName.toLowerCase().includes(needle)
+          (!business && row.clientName.toLowerCase().includes(needle))
         : true
     )
   const visible = inScope
@@ -476,24 +493,26 @@ function ListingsBoard({ role }: { role: string | null }) {
       return worst !== 0 ? worst : a.entry.name.localeCompare(b.entry.name)
     })
 
-  const clientChips = [
-    ...(rows.some((row) => row.clientId === UNFILED)
-      ? [
-          {
-            id: UNFILED,
-            name: "Unfiled",
-            count: rows.filter((row) => row.clientId === UNFILED).length,
-          },
-        ]
-      : []),
-    ...(clients.data?.items ?? []).map((client) => ({
-      id: client.id,
-      name: client.name,
-      count: rows.filter((row) => row.clientId === client.id).length,
-    })),
-  ].filter((chip) => chip.count > 0)
+  const clientChips = business
+    ? []
+    : [
+        ...(rows.some((row) => row.clientId === UNFILED)
+          ? [
+              {
+                id: UNFILED,
+                name: "Unfiled",
+                count: rows.filter((row) => row.clientId === UNFILED).length,
+              },
+            ]
+          : []),
+        ...(clients.data?.items ?? []).map((client) => ({
+          id: client.id,
+          name: client.name,
+          count: rows.filter((row) => row.clientId === client.id).length,
+        })),
+      ].filter((chip) => chip.count > 0)
 
-  const grouped = order === "client"
+  const grouped = !business && order === "client"
   const unfiled = grouped
     ? visible.filter((row) => row.clientId === UNFILED)
     : []
@@ -542,27 +561,29 @@ function ListingsBoard({ role }: { role: string | null }) {
             ) : null}
           </span>
         </TableCell>
-        <TableCell
-          label="Client"
-          span={row.clientId === UNFILED && canManage}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {row.clientId === UNFILED ? (
-            canManage ? (
-              <FileUnderClient
-                locationId={row.entry.id}
-                locationName={row.entry.name}
-              />
+        {business ? null : (
+          <TableCell
+            label="Client"
+            span={row.clientId === UNFILED && canManage}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {row.clientId === UNFILED ? (
+              canManage ? (
+                <FileUnderClient
+                  locationId={row.entry.id}
+                  locationName={row.entry.name}
+                />
+              ) : (
+                <span className="text-ink-muted">Not filed</span>
+              )
             ) : (
-              <span className="text-ink-muted">Not filed</span>
-            )
-          ) : (
-            <span className="flex min-w-0 items-center gap-2">
-              <ClientAvatar name={row.clientName} colour={null} size="sm" />
-              <span className="min-w-0 break-words">{row.clientName}</span>
-            </span>
-          )}
-        </TableCell>
+              <span className="flex min-w-0 items-center gap-2">
+                <ClientAvatar name={row.clientName} colour={null} size="sm" />
+                <span className="min-w-0 break-words">{row.clientName}</span>
+              </span>
+            )}
+          </TableCell>
+        )}
         <TableCell label="Health">
           <span className="flex flex-col items-start gap-1">
             <StatusPill tone={listingHealthTone(row.health)}>
@@ -640,7 +661,9 @@ function ListingsBoard({ role }: { role: string | null }) {
         >
           <SearchInput
             aria-label="Search listings"
-            placeholder="Search listings or clients"
+            placeholder={
+              business ? "Search listings" : "Search listings or clients"
+            }
             value={search}
             onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
               setSearch(event.target.value)
@@ -671,19 +694,21 @@ function ListingsBoard({ role }: { role: string | null }) {
               </SegmentedControlItem>
             ))}
           </SegmentedControl>
-          <SegmentedControl
-            aria-label="Order listings"
-            className="max-w-full min-w-0"
-            value={order}
-            onValueChange={(next) => setOrder(next as BoardOrder)}
-          >
-            <SegmentedControlItem value="health" className="flex-none">
-              Worst first
-            </SegmentedControlItem>
-            <SegmentedControlItem value="client" className="flex-none">
-              By client
-            </SegmentedControlItem>
-          </SegmentedControl>
+          {business ? null : (
+            <SegmentedControl
+              aria-label="Order listings"
+              className="max-w-full min-w-0"
+              value={order}
+              onValueChange={(next) => setOrder(next as BoardOrder)}
+            >
+              <SegmentedControlItem value="health" className="flex-none">
+                Worst first
+              </SegmentedControlItem>
+              <SegmentedControlItem value="client" className="flex-none">
+                By client
+              </SegmentedControlItem>
+            </SegmentedControl>
+          )}
         </div>
         <p className="text-caption text-ink-muted" aria-live="polite">
           {summaries.isPending ? (
@@ -716,7 +741,11 @@ function ListingsBoard({ role }: { role: string | null }) {
           <Empty
             icon={<FilterIcon />}
             title="No listings match"
-            description="Nothing fits this client, health and search together. Widen one of them to see the rest."
+            description={
+              business
+                ? "Nothing fits this health and search together. Widen one of them to see the rest."
+                : "Nothing fits this client, health and search together. Widen one of them to see the rest."
+            }
             action={
               <Button variant="secondary" onClick={clearFilters}>
                 Clear filters
@@ -735,7 +764,7 @@ function ListingsBoard({ role }: { role: string | null }) {
             />
           ) : undefined}
         >
-          {unfiled.length > 0 ? (
+          {!business && unfiled.length > 0 ? (
             <TableRow group>
               <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
                 Not filed under a client · {formatNumber(unfiled.length)}
@@ -743,7 +772,7 @@ function ListingsBoard({ role }: { role: string | null }) {
             </TableRow>
           ) : null}
           {unfiled.map(renderRow)}
-          {unfiled.length > 0 && filed.length > 0 ? (
+          {!business && unfiled.length > 0 && filed.length > 0 ? (
             <TableRow group>
               <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
                 Filed under a client · {formatNumber(filed.length)}

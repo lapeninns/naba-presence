@@ -126,6 +126,16 @@ export const operationsHealthSchema = z.object({
   heldPurgeLocations: z.number().default(0),
   /** How long the oldest still-unpurged disconnected connection is overdue. */
   pendingPurgeAgeSeconds: z.number().nullable().default(null),
+  /** This month's AI tokens per model (UTC calendar month). */
+  aiTokensThisMonth: z
+    .array(
+      z.object({
+        model: z.string(),
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+      })
+    )
+    .default([]),
   schedulerHeartbeatAt: z.string().nullable(),
   schedulerHeartbeatStale: z.boolean().default(false),
   schedulerTicks: z.array(schedulerTickSchema).default([]),

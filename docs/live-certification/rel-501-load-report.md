@@ -1,5 +1,11 @@
 # REL-501 load and failure report
 
+> **Historical record (note added 2026-10-09).** This report was measured on a
+> local Compose stack that no longer exists, including its OTLP collector; no
+> collector is provisioned today. Capacity must be re-measured on the hosted
+> Vercel and Supabase topology (plan PR13) and tracked in
+> `docs/release/ledger.md`.
+
 Date: 30 July 2026
 
 Environment: local production-topology Compose stack (`nabapresence-rel501`)

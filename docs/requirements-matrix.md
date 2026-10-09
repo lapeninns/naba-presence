@@ -1,8 +1,13 @@
 # Requirement traceability
 
+> The authoritative launch checklist is `docs/release/ledger.md`. This matrix
+> traces PRD requirement IDs to code and tests; it does not record deployed or
+> live-provider evidence, and a row here is not launch acceptance.
+
 This matrix maps the PRD requirement IDs to executable implementation evidence.
-The Docker PostgreSQL migration, tenant-isolation, and 100k-review performance
-gates pass locally. Google live-contract smoke tests remain a release-environment
+The migration, tenant-isolation, and 100k-review performance gates passed
+locally (the local Supabase CLI stack; CI uses throwaway PostgreSQL clusters from
+`scripts/ci/postgres.mjs`). Google live-contract smoke tests remain a release-environment
 gate until a verified pilot listing and approved production credentials are
 available.
 
@@ -21,7 +26,7 @@ available.
 | HRS-004 | Durable pre-write intent, approved payload/mask, ambiguous-write read-back, exact-retry idempotency, 30/365-day retention | Hours migration/retention tests; Hours lifecycle integration test |
 | PRO-001 | NabaPresence-owned canonical profile CRUD, field-level source policy, selected Google import, and baseline-aware drift | Profile domain/migration tests; profile editor and comparison UI |
 | PRO-002 | Fresh canonical field/hash pins, Google validate-only publish, selected canonical import, readback reconciliation, durable attempts | Profile route and Google contract tests |
-| PST-001 | Standard/event/offer draft CRUD, scheduling, approval, Google create/update/delete, unsupported Product posts excluded | `tests/integration/routes/local-posts.test.ts`; post domain/migration tests |
+| PST-001 | Standard/event/offer draft CRUD (no NabaPresence scheduling: removed from the post contract, see `lib/contracts/location-posts.ts`; Google-side event recurrence is separate), approval, Google create/update/delete, unsupported Product posts excluded | `tests/integration/routes/local-posts.test.ts`; post domain/migration tests |
 | PST-002 | Live Google list import, provider disappearance reconciliation, retained stored fallback on refresh failure, paused-write read surface | Local Posts lifecycle integration test; rendered Posts paused state |
 | MED-001 | Merchant/customer gallery, attribution/takedown preservation, hosted-URL and direct JPEG/PNG/MP4/QuickTime upload, category update, delete, stale hashes, readback | `tests/integration/routes/media-management.test.ts`; Media migration/contract tests; focused management-tab E2E |
 | MNU-001 | NabaPresence-owned hierarchical Food Menus CRUD, eligibility check, hierarchy/count preview, and exact source hashes | Food Menus domain/migration tests; menu editor and comparison UI |
@@ -31,13 +36,13 @@ available.
 | BIZ-002 | Validate-only preflight, fresh source hashes, durable mutation intent, Google patch, containment readback, snapshots, and audit | `lib/server/business-information.ts`; `0026_complete_gbp_management_foundation.sql`; type/build gates |
 | ADM-001 | Google location create/delete/transfer/match, suggested-update inspection/acceptance, and voice-of-merchant status | Administration route/editor; `tests/complete-gbp-management.test.ts`; focused management-tab E2E |
 | ADM-002 | Verification options/history/start/complete plus account/location owner-manager CRUD and invitation acceptance/decline | Administration route/editor; Google contract tests; focused management-tab E2E |
-| IND-001 | Lodging attributes and Google-updated comparison, Business Calls settings/insights, and healthcare service/provider/insurance resources | Industry route/editor; `tests/complete-gbp-management.test.ts`; focused management-tab E2E |
+| IND-001 | Lodging attributes and Google-updated comparison, and healthcare `serviceList` (pending live verification). Business Calls settings/insights, HealthProviderAttributes and InsuranceNetworks are still called by the code but Google has discontinued them; they must be removed (ledger GBP-01 to GBP-05) | Industry route/editor; `tests/complete-gbp-management.test.ts`; focused management-tab E2E |
 | PER-001 | Daily Performance metrics ingestion with bounded restatement, local-calendar dates, selectable windows and read-only paused state | `tests/integration/routes/performance-analytics.test.ts`; Performance domain/migration tests |
 | PER-002 | Monthly search-keyword backfill/restatement, 18-month bound, pagination, threshold-preserving display | `tests/integration/routes/search-keywords.test.ts`; keyword migration/contract tests |
 | OPS-001 | Bounded tenant-isolated background reconciliation for Hours, Profile, Posts, Media, Food Menus, and Place Actions | `tests/integration/routes/presence-resource-reconciliation.test.ts`; reconciliation-state migration tests |
 | OPS-002 | Raw/provider snapshot expiry and attempt retention across Profile, Posts, Media, Food Menus, Hours, and existing review data | Retention route plus `0022_presence_retention_hardening.sql`; migration tests |
-| REV-001 | Account-grouped `batchGetReviews`, 50-location chunks, pagination/checkpoints/resume, progress/failure UI and safe continuation cancellation | Google contract tests; sync checkpoint API/UI |
-| REV-002 | OIDC-verified Pub/Sub, dedupe, replay, 15-minute cursor-exhausting reconciliation scheduler | Webhook/replay/reconcile routes; scheduler; health endpoint |
+| REV-001 | Per-location `reviews.list` ingestion (`lib/server/reviews.ts`; the `batchGetReviews` builder exists but has no production caller), pagination/checkpoints/resume, progress/failure UI and safe continuation cancellation | Google contract tests; sync checkpoint API/UI |
+| REV-002 | Pub/Sub push verified by OIDC audience plus pinned service account, or (also accepted by production startup today) a 32+ character shared token; dedupe, replay, 15-minute cursor-exhausting reconciliation scheduler | Webhook/replay/reconcile routes; scheduler; health endpoint |
 | REV-003 | Global pacing, bounded exponential jitter, retry taxonomy, hash-keyed upsert | Retry and Google contract tests |
 | REV-004 | Encrypted identifiers, 30-day raw expiry, derived metrics, legal holds, privacy export | Migration tests; retention/privacy routes |
 | REV-005 | Immutable source text, derived language/confidence, explicit fallback, multilingual templates | Rating-only and verification tests |
@@ -56,7 +61,9 @@ available.
 
 Every acceptance criterion from the first four sprint plans maps to an
 executable path below. A green local path is not represented as a hosted CI run;
-this checkout has no Git remote, so real Actions run URLs remain blocked.
+the repository remote is `lapeninns/naba-presence`, but hosted CI, CodeQL and
+Nightly runs have failed to start since about 2026-10-04 because of the GitHub
+Actions budget on the private repository (last green CI 2026-10-03).
 
 | Sprint | Acceptance criterion | Executable evidence |
 |---|---|---|

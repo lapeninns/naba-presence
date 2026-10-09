@@ -290,18 +290,29 @@ export function healthDescription(health: ClientHealth): string {
  * Counts, not a single worst-case word: "2 clients need attention" tells an
  * agency where to look; "attention" does not.
  */
-export function summariseHealth(healths: readonly ClientHealth[]): {
+export function summariseHealth(
+  healths: readonly ClientHealth[],
+  mode: "agency" | "business" = "agency"
+): {
   tone: HealthTone
   label: string
 } {
-  if (healths.length === 0) return { tone: "neutral", label: "No clients yet" }
+  // A business has one home client behind the scenes, so counting clients
+  // would always say "1 client" and name a layer the owner never sees.
+  const business = mode === "business"
+  if (healths.length === 0)
+    return {
+      tone: "neutral",
+      label: business ? "Not connected yet" : "No clients yet",
+    }
   const action = healths.filter((health) => health === "disconnected").length
   const delayed = healths.filter((health) => health === "attention").length
   if (action > 0) {
     return {
       tone: "at-risk",
-      label:
-        action === 1
+      label: business
+        ? "Needs action"
+        : action === 1
           ? "1 client needs action"
           : `${action} clients need action`,
     }
@@ -309,8 +320,9 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
   if (delayed > 0) {
     return {
       tone: "attention",
-      label:
-        delayed === 1
+      label: business
+        ? "Needs attention"
+        : delayed === 1
           ? "1 client needs attention"
           : `${delayed} clients need attention`,
     }
@@ -331,8 +343,16 @@ export function summariseHealth(healths: readonly ClientHealth[]): {
         health === "not_connected"
     )
   )
-    return { tone: "neutral", label: "Some clients need checking" }
-  return { tone: "healthy", label: "All clients in sync" }
+    return {
+      tone: "neutral",
+      label: business
+        ? "Some listings need checking"
+        : "Some clients need checking",
+    }
+  return {
+    tone: "healthy",
+    label: business ? "All in sync" : "All clients in sync",
+  }
 }
 
 /**

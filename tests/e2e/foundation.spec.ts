@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
+import { pageWorkspaceMode } from "./helpers/workspace-mode"
+
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 
 test.describe("rebuild foundation", () => {
@@ -26,22 +28,25 @@ test.describe("rebuild foundation", () => {
     // the link rather than any text on the page.
     await expect(
       page.getByRole("link", {
-        name: /All clients up to date|clients? needs? action|data delayed|Importing reviews|No clients yet|Not connected yet/,
+        // Agency wording, then the business wording (lib/clients/health.ts).
+        name: /All clients up to date|clients? needs? (?:action|attention)|data delayed|Importing reviews|No clients yet|Not connected yet|Needs action|Needs attention|All in sync/,
       })
     ).toBeVisible({ timeout: 10_000 })
   })
 
   test("mobile nav opens as a dialog", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    const business = (await pageWorkspaceMode(page)) === "business"
     await page.goto("/inbox")
     await page.getByRole("button", { name: "Open navigation" }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await expect(
       page.getByRole("dialog").getByRole("link", { name: "Inbox" })
     ).toBeVisible()
+    // A business has no Clients layer; an agency does.
     await expect(
       page.getByRole("dialog").getByRole("link", { name: "Clients" })
-    ).toBeVisible()
+    ).toHaveCount(business ? 0 : 1)
   })
 
   test("responses carry conservative security headers", async ({ page }) => {

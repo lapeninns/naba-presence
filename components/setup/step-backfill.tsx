@@ -30,9 +30,11 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 function StepBackfill({
   clientId,
   clientName,
+  business,
 }: {
   clientId: string
   clientName: string
+  business: boolean
 }) {
   const directory = useLocationDirectory("admin")
   const externalLocationIds = (directory.data ?? [])
@@ -51,7 +53,11 @@ function StepBackfill({
         // Never fall back to the whole organisation: Start would then import
         // every other client's listings too.
         <Alert variant="destructive">
-          <AlertTitle>We couldn’t load {clientName}’s listings</AlertTitle>
+          <AlertTitle>
+            {business
+              ? "We couldn’t load your listings"
+              : `We couldn’t load ${clientName}’s listings`}
+          </AlertTitle>
           <AlertDescription>
             {describeActionError(directory.error)}
           </AlertDescription>
@@ -69,8 +75,9 @@ function StepBackfill({
         <BackfillCard externalLocationIds={externalLocationIds} />
       )}
       <p className="text-caption text-ink-muted">
-        The import keeps going if you move on. {clientName}’s client page shows
-        how far it has got.
+        {business
+          ? "The import keeps going if you move on. Listings shows how far it has got."
+          : `The import keeps going if you move on. ${clientName}’s client page shows how far it has got.`}
       </p>
     </>
   )

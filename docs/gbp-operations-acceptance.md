@@ -11,7 +11,7 @@ is committed on `feat/gbp-operations-programme` and merged with `origin/main`
 at `2dc4db1` (PR #48, listing correctness). PR #48 had already added
 `0058_hours_observations`, so this programme's unmerged migrations moved up
 by one: `0058_management_confirmation` … `0076_bulk_listing_operations` are
-now `0059_management_confirmation` … `0077_bulk_listing_operations`, with their
+now `0062_management_confirmation` … `0080_bulk_listing_operations`, with their
 `schema_migration` versions updated to match. Migration names in older entries
 below are historical. Any local database migrated under the old names must be
 recreated before reuse.

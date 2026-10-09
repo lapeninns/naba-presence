@@ -41,7 +41,7 @@ function stub(caps: unknown) {
     }
     if (url.includes("/administration-access-workflows")) return jsonResponse({ items: [], nextCursor: null })
     if (url.includes("/administration-access-reviews") && init?.method === "POST") return jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
-    if (url === "/api/session") return jsonResponse({ session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true } })
+    if (url === "/api/session") return jsonResponse({ session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } })
     if (url.includes("/verification-state")) return jsonResponse({ locationId: "00000000-0000-4000-8000-000000000001", googleLocationName: "locations/camden", checkedAt: "2026-09-30T01:00:00Z", verifications: [], merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: false }, merchantError: null })
     if (url.includes("/verification-workflows")) return jsonResponse({ workflows: [], nextCursor: null })
     if (url.includes("/capabilities")) return jsonResponse({ capabilities: caps })
@@ -269,7 +269,7 @@ describe("VerificationTab", () => {
 describe("AccessTab (roster truthfulness)", () => {
   const lifecycleReviewId = "22222222-2222-4222-8222-222222222222"
   const accessReviewId = "10000000-0000-4000-8000-000000000001"
-  const session = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true } }
+  const session = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } }
   function stubRoster({ administration, lifecycleItems = [], lifecycleAttempt, accessItems = [], accessAttempt }: {
     administration: () => Promise<Response> | Response
     lifecycleItems?: unknown[]; lifecycleAttempt?: unknown

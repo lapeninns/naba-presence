@@ -25,6 +25,7 @@ import { settingsGatingFromRole } from "@/lib/settings/gating"
 import type { ClientHealth } from "@/lib/clients/health"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
+import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 /**
  * The places an operator works, in the order they are visited. Calendar
@@ -42,6 +43,17 @@ const NAV_ITEMS = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/reports", label: "Reports", icon: BarChart3 },
 ] as const
+
+/**
+ * The primary destinations for a workspace mode. A business has one home
+ * client behind the scenes, so the Clients destination does not exist for
+ * it; agency mode shows the full list.
+ */
+export function navItemsFor(mode: WorkspaceMode) {
+  return mode === "business"
+    ? NAV_ITEMS.filter((item) => item.href !== "/clients")
+    : NAV_ITEMS
+}
 
 /**
  * Team and Settings are organisation admin, visited to change who may do
@@ -291,6 +303,7 @@ function Nav({
   rail = false,
   role,
   scopeClientId = null,
+  mode = "agency",
 }: {
   onNavigate?: () => void
   clients?: NavClient[]
@@ -311,9 +324,12 @@ function Nav({
    * same rule the settings tabs apply. Undefined while unknown shows all.
    */
   role?: string | null
+  /** `business` leaves out Clients, the pinned clients and `?clientId=`. */
+  mode?: WorkspaceMode
 }) {
   const pathname = usePathname()
-  const pinned = clients.slice(0, MAX_PINNED_CLIENTS)
+  const business = mode === "business"
+  const pinned = business ? [] : clients.slice(0, MAX_PINNED_CLIENTS)
   const more = useMoreOpen(pathname)
   const moreListId = React.useId()
   const moreCurrentId = React.useId()
@@ -328,7 +344,7 @@ function Nav({
   return (
     <nav aria-label="Primary" className="flex flex-col">
       <ul className="flex flex-col gap-0.5">
-        {NAV_ITEMS.map((item) => {
+        {navItemsFor(mode).map((item) => {
           const active =
             item.href === "/clients"
               ? isClientsActive(pathname)
@@ -337,7 +353,11 @@ function Nav({
             <React.Fragment key={item.href}>
               <li>
                 <NavRow
-                  href={withClientScope(item.href, scopeClientId)}
+                  href={
+                    business
+                      ? item.href
+                      : withClientScope(item.href, scopeClientId)
+                  }
                   label={item.label}
                   icon={item.icon}
                   active={active}

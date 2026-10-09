@@ -51,8 +51,8 @@ describe("location management contracts: client bodies parse under the route sch
   })
 
   it("industry", async () => {
-    const body = await sentBody(() => publishIndustry("loc", { operation: "update_business_calls", updateMask: ["callsState"], payload: { callsState: "ENABLED" } }))
-    expect(industryMutationSchema.parse(body).confirmation).toBe("publish_industry_data_to_google")
+    const body = await sentBody(() => publishIndustry("loc", { operation: "update_lodging", updateMask: ["pets"], payload: { pets: { petsAllowed: true } } }))
+    expect(industryMutationSchema.parse(body)).toMatchObject({ operation: "update_lodging", confirmation: "publish_industry_data_to_google" })
   })
 
   it("administration", async () => {

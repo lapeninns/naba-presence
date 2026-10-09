@@ -14,7 +14,7 @@ import { draftFromLocation } from "@/lib/locations/business-information-draft"
 // — only the routes and assertions below are new, pointed at the real
 // editors instead of the deleted raw-JSON console.
 async function mockShell(page: Page) {
-  await page.route(/\/api\/session(?:\?.*)?$/, (route) => route.fulfill({ json: { session: { sessionId: "session-management", userId: "user-management", organisationId: "org-management", organisationName: "Naba Presence", displayName: "Alex Morgan", email: "alex@example.com", role: "owner", canPublish: true } } }))
+  await page.route(/\/api\/session(?:\?.*)?$/, (route) => route.fulfill({ json: { session: { sessionId: "session-management", userId: "user-management", organisationId: "org-management", organisationName: "Naba Presence", workspaceMode: "agency", displayName: "Alex Morgan", email: "alex@example.com", role: "owner", canPublish: true } } }))
   // ONE endpoint, TWO payload shapes, and both are fetched on these pages.
   // LocationWorkspace renders with the SERVER session's role, which is null
   // here (no session cookie is minted -- see the activity note below), so it
@@ -57,7 +57,7 @@ async function mockShell(page: Page) {
   // lib/api/client.ts navigates the whole page to /sign-in mid-assertion.
   // Tests below register their own narrower stubs afterwards, which win.
   await page.route(/\/api\/locations\/location-management\/profile(?:\?.*)?$/, (route) => route.fulfill({ json: { profile: { location: { id: "location-management", name: "Camden Hotel", googleLocationName: "locations/camden" }, canonicalResource: { revision: "1", updatedAt: "2026-08-01T00:00:00.000Z" }, canonicalHash: "c".repeat(64), googleHash: "d".repeat(64), canPublish: true, googleWritesEnabled: true, fields: [{ key: "name", policy: "bidirectional", status: "in_sync", canonicalValue: "Camden Hotel", googleValue: "Camden Hotel", canonicalHash: "c", googleHash: "g", lastReconciledAt: null }], googleDetails: { primaryCategory: "Hotel", additionalCategories: [] }, latestAttempt: null } } }))
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: { data: null, error: null }, lodgingUpdated: { data: null, error: null }, calls: { data: null, error: null }, callInsights: { data: null, error: null }, healthcareServices: { data: null, error: null }, providerAttributes: { data: null, error: null }, insuranceNetworks: { data: null, error: null }, canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: { data: null, error: null }, lodgingUpdated: { data: null, error: null }, healthcareServices: { data: null, error: null }, canManage: true, writesEnabled: true } } }))
   // The Listing is one scroll: the hours, booking links and suggested updates
   // editors mount beside the profile, so their GETs fire too. Answering with
   // a Google error keeps each in its own honest retry state without the 401
@@ -1016,13 +1016,13 @@ test("Multiple URL attributes remove one value and review all remaining URLs", a
 test("Industry sections omit retired controls and surface a failing section honestly", async ({ page }) => {
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), calls: available({ callsState: "ENABLED" }), callInsights: available({ businessCallsInsights: [] }), healthcareServices: { data: null, error: "Google request failed." }, providerAttributes: available({ attributes: [] }), insuranceNetworks: available({ networks: [] }), canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, canManage: true, writesEnabled: true } } }))
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   await page.goto("/listings/location-management/profile")
   await expect(page.getByRole("heading", { name: "Lodging", exact: true })).toBeVisible()
   await expect(page.getByRole("combobox", { name: "Calls" })).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Save calls" })).toHaveCount(0)
-  await expect(page.getByText("Provider attributes", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Provider attributes")).toHaveCount(0)
   // The failing healthcareServices sub-resource shows the honest per-section
   // warning, never the raw Google error string.
   await expect(page.getByText("We couldn't load healthcare services from Google right now. Try refreshing in a moment.")).toBeVisible()

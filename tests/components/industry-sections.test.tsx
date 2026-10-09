@@ -19,18 +19,17 @@ const INDUSTRY = { industry: {
     diffMask: "pets,connectivity",
     lodging: { pets: { petsAllowed: true }, connectivity: { freeWifi: true } },
   }),
-  calls: available({ callsState: "ENABLED" }), callInsights: available({}),
-  healthcareServices: { data: null, error: "Google 500 boom" }, providerAttributes: available({}), insuranceNetworks: available({}),
+  healthcareServices: { data: null, error: "Google 500 boom" },
   canManage: true, writesEnabled: true,
 } }
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function stub(caps: unknown) {
+function stub(caps: unknown, industry: unknown = INDUSTRY) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     if (url.includes("/capabilities")) return jsonResponse({ capabilities: caps })
-    if (url.includes("/industry")) return jsonResponse(INDUSTRY)
+    if (url.includes("/industry")) return jsonResponse(industry)
     return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
   })
   vi.stubGlobal("fetch", fetchMock)
@@ -85,13 +84,14 @@ describe("IndustrySections", () => {
 
   it("does not report publication success when Google confirmation is unresolved", async () => {
     const changeSet = { id: "11111111-1111-4111-8111-111111111111", locationName: "Hotel", targetResourceName: "locations/hotel", payloadHash: "b".repeat(64), baselineHash: "a".repeat(64), payload: { pets: { petsAllowed: true } }, baseline: { pets: { petsAllowed: false } }, updateMask: ["pets"], requestedBy: "owner", approvedBy: null, requiresSecondApprover: false, canApprove: true, expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString() }
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       if (String(input).includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
       if (init?.method === "PUT") return jsonResponse({ changeSet })
       if (init?.method === "POST") return jsonResponse({ changeSet: { ...changeSet, approvedBy: "owner" } })
       if (init?.method === "PATCH") return jsonResponse({ id: "m", status: "ambiguous", idempotent: false, executionState: "accepted", confirmationState: "unresolved" })
       return jsonResponse(INDUSTRY)
-    }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
     renderWithProviders(<IndustrySections locationId="loc-1" />)
     await userEvent.type(await screen.findByRole("searchbox"), "Pets allowed")
     await userEvent.click(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" }))
@@ -106,5 +106,27 @@ describe("IndustrySections", () => {
     await userEvent.click(dialog.getByRole("button", { name: "Send approved lodging changes" }))
     expect(await screen.findByText(/Google confirmation is unresolved/)).toBeInTheDocument()
     expect(screen.queryByText("Lodging details confirmed by Google")).not.toBeInTheDocument()
+    // Only the supported lodging operation is ever sent.
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")
+    const body = JSON.parse(String(patch?.[1]?.body))
+    expect(body.operation).toBe("update_lodging")
+    expect(body.updateMask).toEqual(["pets"])
+    expect(body.confirmation).toBe("publish_industry_data_to_google")
+  })
+
+  it("offers no Business Calls or provider-attribute controls, even for a response that still carries them", async () => {
+    // A server from before the retired APIs were dropped still sent these
+    // sections; the contract strips them and the editor never renders them.
+    stub({ canEditCanonical: true, canPublish: true }, { industry: {
+      ...INDUSTRY.industry,
+      calls: available({ callsState: "ENABLED" }), callInsights: available({}),
+      providerAttributes: available({ attributes: [] }), insuranceNetworks: available({}),
+    } })
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
+    expect(await screen.findByRole("region", { name: "Lodging details" })).toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/business calls/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/provider attributes/i)).not.toBeInTheDocument()
   })
 })

@@ -52,6 +52,7 @@ function completion(value: unknown, finishReason = "stop") {
         message: { content: JSON.stringify(value) },
       },
     ],
+    usage: { prompt_tokens: 120, completion_tokens: 33 },
   })
 }
 
@@ -68,7 +69,11 @@ describe("Workers AI review integration", () => {
   it("sends structured GLM requests directly to the account with no gateway or OpenAI credentials", async () => {
     settings.values = { ...baseEnv, OPENAI_API_KEY: "must-never-be-used" }
     fetchMock.mockResolvedValue(completion(draft))
-    expect(await generateReply(draftInput)).toEqual(draft)
+    expect(await generateReply(draftInput)).toEqual({
+      ...draft,
+      usage: { inputTokens: 120, outputTokens: 33 },
+      model: "@cf/zai-org/glm-5.3-flash",
+    })
     const call = fetchMock.mock.calls[0]
     expect(call).toBeDefined()
     if (!call) throw new Error("Expected a provider call")
@@ -130,6 +135,8 @@ describe("Workers AI review integration", () => {
     expect(await semanticVerification(verificationInput)).toEqual({
       ran: true,
       reasons: [],
+      usage: { inputTokens: 120, outputTokens: 33 },
+      model: "@cf/zai-org/glm-5.3-flash",
     })
     settings.values = { ...baseEnv, SEMANTIC_VERIFY_ENABLED: "false" }
     expect(await semanticVerification(verificationInput)).toEqual({

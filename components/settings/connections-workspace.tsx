@@ -14,6 +14,7 @@ import { SectionHeader } from "@/components/ui/section-header"
 import { useClients } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * The Google logins this agency holds, and which clients each one serves
@@ -31,12 +32,15 @@ import { cn } from "@/lib/utils"
 export function ConnectionsWorkspace({ role }: { role: string | null }) {
   const { query, connect } = useConnectionWorkspace()
   const clients = useClients()
+  const business = useWorkspaceMode() === "business"
   const hasConnection = (query.data?.connections.length ?? 0) > 0
 
   // Which clients each login serves, so disconnecting is an informed decision
   // rather than a guess about who it will break.
   const clientsByConnection = new Map<string, { id: string; name: string }[]>()
-  for (const client of clients.data?.items ?? []) {
+  // A business has one home client behind the scenes, so "which clients each
+  // login serves" has nothing to say; the map is left out entirely.
+  for (const client of business ? [] : (clients.data?.items ?? [])) {
     for (const connection of client.connections) {
       const list = clientsByConnection.get(connection.id) ?? []
       list.push({ id: client.id, name: client.name })
@@ -48,7 +52,11 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
     <>
       <PageHeader
         title="Google connections"
-        description="The Google accounts this agency has connected, which clients depend on each, and how Google tells us about new reviews."
+        description={
+          business
+            ? "The Google accounts your business has connected, and how Google tells us about new reviews."
+            : "The Google accounts this agency has connected, which clients depend on each, and how Google tells us about new reviews."
+        }
         actions={
           hasConnection ? (
             <Button
@@ -66,7 +74,9 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
       />
 
       <OAuthReturn />
-      <ReconnectAlert clientsByConnection={clientsByConnection} />
+      <ReconnectAlert
+        clientsByConnection={business ? undefined : clientsByConnection}
+      />
 
       <section
         aria-labelledby="connection-logins"
@@ -75,9 +85,15 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
         <SectionHeader
           id="connection-logins"
           title="Google accounts"
-          description="Disconnecting an account stops reviews syncing for every client that uses it."
+          description={
+            business
+              ? "Disconnecting an account stops reviews syncing for your locations that use it."
+              : "Disconnecting an account stops reviews syncing for every client that uses it."
+          }
         />
-        <ConnectionCard clientsByConnection={clientsByConnection} />
+        <ConnectionCard
+          clientsByConnection={business ? undefined : clientsByConnection}
+        />
       </section>
 
       {hasConnection ? <NotificationsCard /> : null}
@@ -88,15 +104,19 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
       >
         <SectionHeader
           id="connection-setup"
-          title="Setting up a client"
-          description="Choosing Business Profile accounts, linking locations and importing review history all happen per client, in order, where you can stop and come back."
+          title={business ? "Adding locations" : "Setting up a client"}
+          description={
+            business
+              ? "Choosing Business Profile accounts, linking locations and importing review history happen in order, where you can stop and come back."
+              : "Choosing Business Profile accounts, linking locations and importing review history all happen per client, in order, where you can stop and come back."
+          }
         />
         <div>
           <Link
-            href="/clients/new"
+            href={business ? "/setup" : "/clients/new"}
             className={cn(buttonVariants({ variant: "secondary" }))}
           >
-            Set up a client
+            {business ? "Add locations" : "Set up a client"}
           </Link>
         </div>
       </section>

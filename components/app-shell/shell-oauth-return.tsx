@@ -19,7 +19,7 @@ export function ShellOAuthReturn() {
   if (OWN_RESULT.some((prefix) => pathname.startsWith(prefix))) return null
   return (
     <Suspense fallback={null}>
-      <div className="empty:hidden px-5 pt-3 md:px-(--np-page-pad-x)">
+      <div className="px-5 pt-3 empty:hidden md:px-(--np-page-pad-x)">
         <OAuthReturn />
       </div>
     </Suspense>

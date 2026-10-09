@@ -18,6 +18,7 @@ import {
 } from "@/lib/listings/health"
 import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const GRID = "grid grid-cols-2 gap-2 @[640px]:gap-3 @[980px]:grid-cols-4"
 
@@ -87,6 +88,7 @@ function HealthStrip({
   summaryFailed?: boolean
   canManageConsoles: boolean
 }) {
+  const business = useWorkspaceMode() === "business"
   if (!summary && summaryFailed) {
     return (
       <div className={GRID}>
@@ -170,7 +172,9 @@ function HealthStrip({
                 connection?.googleEmail ??
                   (linked
                     ? "No Google login on record"
-                    : "Link it from the client’s setup"),
+                    : business
+                      ? "Link it from setup"
+                      : "Link it from the client’s setup"),
                 linked && summary.freshness
                   ? summary.freshness.lastCheckedAt
                     ? `reviews checked ${formatRelativeTime(summary.freshness.lastCheckedAt)}`

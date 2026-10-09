@@ -1,3 +1,4 @@
+import type { WorkspaceMode } from "@/lib/contracts/session"
 import {
   SETUP_STEPS,
   type ClientSetup,
@@ -94,35 +95,102 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
   },
 ]
 
-const BY_ID = new Map(SETUP_STEP_DEFINITIONS.map((step) => [step.id, step]))
+/**
+ * The same flow in a business's words. A business has one home client that
+ * exists from sign-up, so the `agency` step becomes "Business" (its name and
+ * timezone) and the `client` step is gone: Business, Connect, Account,
+ * Locations, Backfill, Notifications, Team. Business is the first numbered
+ * step rather than a preamble, because it is the first thing the owner does.
+ * No copy here may say "client" or "agency".
+ */
+const BUSINESS_OVERRIDES: Partial<
+  Record<SetupStep, Partial<SetupStepDefinition>>
+> = {
+  agency: {
+    label: "Business",
+    title: "Confirm your business",
+    description: "Your business name and timezone.",
+    preamble: false,
+  },
+  connect: {
+    description:
+      "Which Google account manages your Business Profile? You can add another account later.",
+  },
+  account: {
+    description:
+      "One Google login can manage several Business Profile accounts. Pick the ones that belong to your business.",
+  },
+  locations: {
+    title: "Link your listings",
+    description:
+      "Reviews start flowing in for each listing as soon as it is linked.",
+  },
+  team: { description: "Who else works on your reviews?" },
+  done: {
+    title: "You’re set up",
+    description: "Reviews are syncing. Here is where the work happens.",
+  },
+}
 
-export function stepDefinition(id: SetupStep): SetupStepDefinition {
-  return BY_ID.get(id) ?? SETUP_STEP_DEFINITIONS[0]
+const BUSINESS_DEFINITIONS: SetupStepDefinition[] =
+  SETUP_STEP_DEFINITIONS.filter((step) => step.id !== "client").map((step) => ({
+    ...step,
+    ...BUSINESS_OVERRIDES[step.id],
+  }))
+
+/** The wizard's step definitions for a mode, in order. */
+export function setupStepDefinitions(
+  mode: WorkspaceMode = "agency"
+): SetupStepDefinition[] {
+  return mode === "business" ? BUSINESS_DEFINITIONS : SETUP_STEP_DEFINITIONS
+}
+
+/** The step ids a mode walks through, in order. */
+export function setupStepsFor(mode: WorkspaceMode = "agency"): SetupStep[] {
+  return setupStepDefinitions(mode).map((step) => step.id)
+}
+
+function definitionMap(mode: WorkspaceMode) {
+  return new Map(setupStepDefinitions(mode).map((step) => [step.id, step]))
+}
+
+export function stepDefinition(
+  id: SetupStep,
+  mode: WorkspaceMode = "agency"
+): SetupStepDefinition {
+  return definitionMap(mode).get(id) ?? setupStepDefinitions(mode)[0]
 }
 
 export function stepIndex(id: SetupStep): number {
   return SETUP_STEPS.indexOf(id)
 }
 
-/** The steps that count: the client's own, without the closing "Done". */
-const NUMBERED_STEPS = SETUP_STEP_DEFINITIONS.filter(
-  (step) => !step.preamble && step.id !== "done"
-).map((step) => step.id)
+/** The steps that count: the flow's own, without the closing "Done". */
+function numberedSteps(mode: WorkspaceMode): SetupStep[] {
+  return setupStepDefinitions(mode)
+    .filter((step) => !step.preamble && step.id !== "done")
+    .map((step) => step.id)
+}
 
 /**
- * "Step N of M" for the client's own steps, or null for a preamble step and
+ * "Step N of M" for the flow's own steps, or null for a preamble step and
  * for Done, which the wizard shows without a number.
  */
 export function stepNumber(
-  id: SetupStep
+  id: SetupStep,
+  mode: WorkspaceMode = "agency"
 ): { number: number; total: number } | null {
-  const position = NUMBERED_STEPS.indexOf(id)
+  const numbered = numberedSteps(mode)
+  const position = numbered.indexOf(id)
   if (position === -1) return null
-  return { number: position + 1, total: NUMBERED_STEPS.length }
+  return { number: position + 1, total: numbered.length }
 }
 
-export function isPreambleStep(id: SetupStep): boolean {
-  return Boolean(BY_ID.get(id)?.preamble)
+export function isPreambleStep(
+  id: SetupStep,
+  mode: WorkspaceMode = "agency"
+): boolean {
+  return Boolean(definitionMap(mode).get(id)?.preamble)
 }
 
 export function isSetupStep(
@@ -227,8 +295,11 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
  * The furthest step the operator may open: the first required step whose
  * work is missing, or the end when nothing blocks.
  */
-export function furthestReachable(facts: SetupFacts): SetupStep {
-  for (const step of SETUP_STEPS) {
+export function furthestReachable(
+  facts: SetupFacts,
+  mode: WorkspaceMode = "agency"
+): SetupStep {
+  for (const step of setupStepsFor(mode)) {
     if (stepBlocker(step, facts)) return step
   }
   return "done"
@@ -248,11 +319,17 @@ export function canVisit(step: SetupStep, furthest: SetupStep): boolean {
 export function resolveStep(
   requested: string | null | undefined,
   resume: SetupStep,
-  facts: SetupFacts
+  facts: SetupFacts,
+  mode: WorkspaceMode = "agency"
 ): { step: SetupStep; redirected: SetupStep | null } {
-  const furthest = furthestReachable(facts)
-  const landing = canVisit(resume, furthest) ? resume : furthest
-  if (!isSetupStep(requested)) return { step: landing, redirected: null }
+  const steps = setupStepsFor(mode)
+  const furthest = furthestReachable(facts, mode)
+  const landing =
+    steps.includes(resume) && canVisit(resume, furthest) ? resume : furthest
+  // A step this mode does not have (`client` for a business) is not a
+  // destination: it lands like an unknown value rather than being "refused".
+  if (!isSetupStep(requested) || !steps.includes(requested))
+    return { step: landing, redirected: null }
   if (canVisit(requested, furthest))
     return { step: requested, redirected: null }
   return { step: landing, redirected: requested }
@@ -268,7 +345,8 @@ export function resolveStep(
  */
 export function stepperState(
   current: SetupStep,
-  facts: SetupFacts
+  facts: SetupFacts,
+  mode: WorkspaceMode = "agency"
 ): {
   id: SetupStep
   label: string
@@ -276,20 +354,20 @@ export function stepperState(
   reachable: boolean
   state: "done" | "current" | "todo"
 }[] {
-  const furthest = furthestReachable(facts)
-  const onPreamble = isPreambleStep(current)
-  return SETUP_STEP_DEFINITIONS.filter(
-    (step) => onPreamble || !step.preamble
-  ).map((step) => ({
-    id: step.id,
-    label: step.label,
-    optional: Boolean(step.optional),
-    reachable: canVisit(step.id, furthest),
-    state:
-      step.id === current
-        ? "current"
-        : stepComplete(step.id, facts)
-          ? "done"
-          : "todo",
-  }))
+  const furthest = furthestReachable(facts, mode)
+  const onPreamble = isPreambleStep(current, mode)
+  return setupStepDefinitions(mode)
+    .filter((step) => onPreamble || !step.preamble)
+    .map((step) => ({
+      id: step.id,
+      label: step.label,
+      optional: Boolean(step.optional),
+      reachable: canVisit(step.id, furthest),
+      state:
+        step.id === current
+          ? "current"
+          : stepComplete(step.id, facts)
+            ? "done"
+            : "todo",
+    }))
 }

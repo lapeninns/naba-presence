@@ -101,7 +101,10 @@ CodeQL and Claude review are not required checks.
 - A PR is required, with 0 approvals.
 - `CI result` (GitHub Actions, integration 15368) is required, and the
   branch must be up to date.
-- Admins can bypass only through a PR, so there are no direct pushes.
+- Admins can bypass only through a PR, so there are no direct pushes. The
+  bypass also lets an admin merge a PR whose `CI result` failed: PR #57 was
+  merged on 2026-10-09 with `CI result` failing. Record any such bypass in
+  `docs/release/ledger.md` (CI-04).
 
 Merges are squash merges from an up-to-date branch, so the tree on `main`
 is the tree CI tested.
@@ -120,9 +123,11 @@ Repository Actions settings, also applied 2026-09-25:
   (`actions/permissions/fork-pr-contributor-approval`:
   `all_external_contributors`).
 - The default `GITHUB_TOKEN` is read-only, and Actions cannot approve PRs
-  (`actions/permissions/workflow`). The full graph still runs on the push to `main`: it is free on a
-public repo, gives release-checklist run URLs, and writes the caches, which
-PRs can only read from `main`.
+  (`actions/permissions/workflow`). The full graph still runs on the push to
+  `main`: it gives release-checklist run URLs and writes the caches, which PRs
+  can only read from `main`. The repository is private, so these runs consume
+  metered Actions minutes; since about 2026-10-04 the Actions budget has
+  stopped every job from starting.
 
 ## 4. Caching and artifacts
 
@@ -275,9 +280,10 @@ protection rules do not apply.
 
 Status: **not set up yet.** `scripts/ci/runner-setup.sh` is ready, but the
 owner has not run it on the Mac, and `SELF_HOSTED_ENABLED` is unset, so
-every job runs on GitHub-hosted runners. Hosted
-minutes are free for this public repo, so the Mac buys speed, not savings,
-and the hosted lane must always keep working.
+every job runs on GitHub-hosted runners. The repository is private, so hosted
+minutes are metered (the Actions budget is currently blocking every job); the
+Mac would buy both speed and savings, and the hosted lane must always keep
+working.
 
 ### The lane switch
 
@@ -421,8 +427,9 @@ A failed scheduled run emails the repository owner.
 
 **Known follow-ups:**
 
-- **`pnpm audit` is red** until dependencies are updated: 2 critical and 17
-  high findings at the time of writing. Dependabot alerts (48 on `main`: 4
+- **`pnpm audit` is red** until dependencies are updated: 4 critical, 27 high,
+  31 moderate and 5 low production findings on 2026-10-09 (triage in
+  `docs/release/dependency-disposition.md`). Dependabot alerts (48 on `main`: 4
   critical, 21 high) and the grouped weekly Dependabot PRs are how that
   clears.
 - **No visual job yet.** The planned report-only screenshot job

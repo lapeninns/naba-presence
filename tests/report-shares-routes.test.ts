@@ -116,6 +116,7 @@ function asRole(role: "owner" | "admin" | "member" | "viewer") {
     userId: USER,
     organisationId: ORG,
     organisationName: "Harbour Agency",
+    workspaceMode: "business",
     displayName: "Priya Owner",
     email: "priya@example.test",
     role,

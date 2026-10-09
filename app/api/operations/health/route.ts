@@ -507,8 +507,21 @@ export const GET = route({
         select delivery_state as state, count(*)::integer as count from notification_delivery
         where created_at >= now() - interval '7 days' group by delivery_state order by delivery_state
       `
+      const aiTokensThisMonth = await sql<
+        OperationsHealth["aiTokensThisMonth"]
+      >`
+        select
+          model,
+          coalesce(sum(input_tokens), 0)::integer as "inputTokens",
+          coalesce(sum(output_tokens), 0)::integer as "outputTokens"
+        from ai_usage
+        where period_start = (date_trunc('month', now() at time zone 'utc'))::date
+        group by model
+        order by model
+      `
       return {
         generatedAt: new Date().toISOString(),
+        aiTokensThisMonth: [...aiTokensThisMonth],
         sync,
         webhooks,
         connections,

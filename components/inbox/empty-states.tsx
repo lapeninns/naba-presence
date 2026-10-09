@@ -19,6 +19,7 @@ import { formatRelativeTime } from "@/lib/format/date"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
 import { visibleQueue, type Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 type Content = {
   title: string
@@ -67,7 +68,8 @@ function content(
   reason: EmptyReason,
   counts: EmptyCounts,
   queue: Queue | undefined,
-  canManageClients: boolean
+  canManageClients: boolean,
+  business: boolean
 ): Content {
   switch (reason) {
     case "filtered":
@@ -83,6 +85,20 @@ function content(
     // The first run. Only owners and admins can add a client, so everyone
     // else is told who can rather than sent to a page that would refuse them.
     case "no_clients":
+      // A business has one home client behind the scenes, so "no clients"
+      // reads as "no listings linked yet".
+      if (business)
+        return canManageClients
+          ? {
+              title: "No locations yet.",
+              description:
+                "Link your Google listings and their reviews arrive here.",
+            }
+          : {
+              title: "No locations yet.",
+              description:
+                "Ask an owner or admin to link your Google listings. Their reviews will arrive here.",
+            }
       return canManageClients
         ? {
             title: "No clients yet.",
@@ -106,8 +122,9 @@ function content(
     case "not_connected":
       return {
         title: "No locations are linked to Google yet.",
-        description:
-          "Link a client's locations to Google and their reviews will be imported here.",
+        description: business
+          ? "Link your locations to Google and their reviews will be imported here."
+          : "Link a client's locations to Google and their reviews will be imported here.",
       }
     // Deliberately true of a queued import as well as a running one: the
     // counts this reads cannot tell the two apart. "Waiting on Google" holds
@@ -241,11 +258,13 @@ function EmptyState({
   /** Owners and admins, who can add a client. */
   canManageClients?: boolean
 }) {
+  const business = useWorkspaceMode() === "business"
   const { title, description } = content(
     reason,
     counts,
     queue,
-    canManageClients
+    canManageClients,
+    business
   )
   const action =
     reason === "filtered" && onClear ? (
@@ -257,8 +276,11 @@ function EmptyState({
         Go to {nextQueue.label} ({formatNumber(nextQueue.count)})
       </Button>
     ) : reason === "no_clients" && canManageClients ? (
-      <Link href="/clients/new" className={cn(buttonVariants())}>
-        Add a client
+      <Link
+        href={business ? "/setup" : "/clients/new"}
+        className={cn(buttonVariants())}
+      >
+        {business ? "Link your listings" : "Add a client"}
       </Link>
     ) : reason === "disconnected" ||
       reason === "import_failed" ||

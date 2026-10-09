@@ -1,0 +1,154 @@
+import { expect, test } from "@playwright/test"
+
+import { pageWorkspaceMode } from "./helpers/workspace-mode"
+
+/**
+ * A business-mode owner never sees the client or agency layer.
+ *
+ * Written for the port-3100 harness and NOT run in the stage that added it
+ * (unit tests only there). It assumes the harness tenant is a business-mode
+ * organisation, which is what a new organisation is; against an agency
+ * tenant it skips instead of failing.
+ *
+ * The scan reads the visible text of each page and fails on the words
+ * "client" and "agency". The allowlist is for text that is not the
+ * business's own wording: the sign-in provider name and user-authored
+ * content (a location called "Agency Road Cafe" is the user's data).
+ */
+const ALLOWED = [
+  // Review text and names are the customer's own words.
+  /Agency Road/i,
+]
+
+const PAGES = [
+  { path: "/inbox", heading: /^Inbox$/ },
+  { path: "/listings", heading: /^Listings$/ },
+  { path: "/reports", heading: /^Reports$/ },
+  { path: "/team", heading: /^Team$/ },
+  { path: "/settings", heading: /^Reply policy$/ },
+  { path: "/setup", heading: null },
+] as const
+
+// Reads the mode through the page's own cookie jar, so the page is signed in
+// to the bootstrap session before its first navigation.
+async function isBusinessTenant(page: import("@playwright/test").Page) {
+  return (await pageWorkspaceMode(page)) === "business"
+}
+
+for (const { path, heading } of PAGES) {
+  test(`${path} never says client or agency`, async ({ page }) => {
+    test.skip(
+      !(await isBusinessTenant(page)),
+      "The harness tenant is not in business mode."
+    )
+    await page.goto(path)
+    if (heading) {
+      await expect(
+        page.getByRole("heading", { name: heading, level: 1 })
+      ).toBeVisible()
+    }
+    // Settle the shell's queries so the text is the loaded page's.
+    await page.waitForLoadState("networkidle")
+
+    const text = await page.locator("body").innerText()
+    const scrubbed = ALLOWED.reduce(
+      (current, allowed) => current.replace(allowed, ""),
+      text
+    )
+    expect(scrubbed).not.toMatch(/\bclients?\b/i)
+    expect(scrubbed).not.toMatch(/\bagency\b/i)
+    // The accessible names too: a visually hidden "Filter by client" counts.
+    const names = await page
+      .locator("[aria-label]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("aria-label") ?? "")
+      )
+    expect(names.join("\n")).not.toMatch(/\bclients?\b|\bagency\b/i)
+  })
+}
+
+// Each wizard step, by deep link. A step the data has not reached opens the
+// furthest reachable one, so this scans whichever steps the tenant can open.
+for (const step of [
+  "agency",
+  "connect",
+  "account",
+  "locations",
+  "backfill",
+  "notifications",
+  "team",
+  "done",
+  "client",
+  "connect&google=error&status=403",
+]) {
+  test(`/setup?step=${step} never says client or agency`, async ({
+    page,
+  }) => {
+    test.skip(
+      !(await isBusinessTenant(page)),
+      "The harness tenant is not in business mode."
+    )
+    await page.goto(`/setup?step=${step}`)
+    await page.waitForLoadState("networkidle")
+    await expect(
+      page.getByRole("heading", { name: "Setup", level: 1 })
+    ).toBeVisible()
+    // The rail renders only once the setup query has resolved, so the step
+    // body below it is the loaded one and not the skeleton.
+    const rail = page.getByRole("list", { name: "Setup steps" })
+    await expect(rail).toBeVisible()
+    const text = await page.locator("body").innerText()
+    const scrubbed = ALLOWED.reduce(
+      (current, allowed) => current.replace(allowed, ""),
+      text
+    )
+    expect(scrubbed).not.toMatch(/\bclients?\b/i)
+    expect(scrubbed).not.toMatch(/\bagency\b/i)
+    const names = await page
+      .locator("[aria-label]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("aria-label") ?? "")
+      )
+    expect(names.join("\n")).not.toMatch(/\bclients?\b|\bagency\b/i)
+    // The business flow has no "Client" step in its rail.
+    await expect(rail.getByText(/^Client$/)).toHaveCount(0)
+  })
+}
+
+test("the client pages redirect a business to Listings and Settings", async ({
+  page,
+}) => {
+  test.skip(
+    !(await isBusinessTenant(page)),
+    "The harness tenant is not in business mode."
+  )
+  for (const [from, to] of [
+    ["/clients", "/listings"],
+    ["/clients/new", "/listings"],
+    ["/clients/00000000-0000-4000-8000-000000000001", "/listings"],
+    ["/clients/00000000-0000-4000-8000-000000000001/settings", "/settings"],
+  ]) {
+    await page.goto(from)
+    // The redirect can land after the load event (it is issued from a page
+    // that streams), so poll the address instead of reading it once.
+    await expect.poll(() => new URL(page.url()).pathname).toBe(to)
+  }
+})
+
+test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({
+  page,
+}) => {
+  test.skip(
+    !(await isBusinessTenant(page)),
+    "The harness tenant is not in business mode."
+  )
+  await page.goto("/team")
+  const nav = page.getByRole("navigation", { name: "Primary" })
+  await expect(nav.getByRole("link", { name: "Clients" })).toHaveCount(0)
+  for (const label of ["Inbox", "Listings", "Reports", "Team", "Settings"]) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true })
+    ).toBeVisible()
+  }
+  await expect(page.getByRole("combobox", { name: /client/i })).toHaveCount(0)
+})

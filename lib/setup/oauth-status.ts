@@ -9,7 +9,8 @@
  */
 export function describeGoogleConnectStatus(
   status: string | null,
-  reason: string | null = null
+  reason: string | null = null,
+  mode: "business" | "agency" = "agency"
 ): string {
   if (reason === "google_scope_missing") {
     return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
@@ -20,7 +21,7 @@ export function describeGoogleConnectStatus(
     case "401":
       return "Your session expired during Google’s sign-in. Sign in again, then connect."
     case "403":
-      return "You don’t have permission to connect Google for this agency."
+      return `You don’t have permission to connect Google for this ${mode}.`
     case "429":
       return "Google is limiting requests right now. Try again in a few minutes."
     default:

@@ -23,6 +23,7 @@ const admin: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: ORG,
   organisationName: "Agency",
+  workspaceMode: "agency",
   displayName: "Ada",
   email: "ada@example.test",
   role: "admin",
@@ -176,6 +177,10 @@ describe("GET /api/members/[userId]/client-access", () => {
           publishing: "none",
         },
       ],
+      locationGrants: [
+        { locationId: "l1", canPublish: true },
+        { locationId: "l2", canPublish: false },
+      ],
     })
   })
 
@@ -247,9 +252,7 @@ describe("PUT /api/members/[userId]/client-access", () => {
     })
     const response = await put({ clients: [] })
     expect(response.status).toBe(409)
-    expect((await response.json()).error).toBe(
-      "would_widen_to_all_clients"
-    )
+    expect((await response.json()).error).toBe("would_widen_to_all_clients")
     expect(writes).toHaveLength(0)
     expect(vi.mocked(writeAudit)).not.toHaveBeenCalled()
   })
@@ -292,6 +295,17 @@ describe("PUT /api/members/[userId]/client-access", () => {
     })
     expect(response.status).toBe(404)
     expect((await response.json()).error).toBe("client_not_found")
+  })
+
+  it("refuses per-location grants in an agency workspace", async () => {
+    signedIn(admin)
+    const { writes } = fakeTenant({ role: "member", grants: [] })
+    const response = await put({
+      locations: [{ locationId: "00000000-0000-4000-8000-0000000000aa" }],
+    })
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("wrong_workspace_mode")
+    expect(writes).toHaveLength(0)
   })
 
   it("404s an unknown member", async () => {

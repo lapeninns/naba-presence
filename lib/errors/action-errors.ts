@@ -62,6 +62,10 @@ const COPY: Record<string, string> = {
     "Publishing to Google is temporarily paused. Try again shortly.",
   drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
+  // A Business Profile API Google has switched off for good (Business Calls,
+  // provider attributes, insurance networks, Q&A). No retry will help.
+  google_api_retired:
+    "Google no longer offers this Business Profile feature, so it can't be changed here.",
   profile_publishing_disabled:
     "Publishing profile changes to Google is currently unavailable.",
   hours_publishing_disabled:
@@ -87,6 +91,14 @@ const COPY: Record<string, string> = {
   ai_empty_response:
     "The AI returned nothing this time. Try again, or write the reply yourself.",
 
+  // 402 when the month's draft allowance is spent; describeActionError adds
+  // the reset date from details.resetsAt when the server sent one.
+  ai_credits_exhausted:
+    "You have used all your AI drafts for this month. You can still write a reply yourself.",
+  // 429 that lasts until the month resets, so "wait a moment" would mislead.
+  ai_token_backstop:
+    "AI drafting is paused for this month because of unusually high usage. You can still write a reply yourself.",
+
   // ---- Inbox: drafts, verification, publishing ----------------------------
   verified_draft_required: "Verify a draft before publishing this reply.",
   // The 404s on this path all mean "the pane you are looking at is behind the
@@ -103,7 +115,7 @@ const COPY: Record<string, string> = {
   approval_draft_changed:
     "This reply changed after you opened it. Read the current draft before approving or rejecting it.",
   stale_draft_evidence:
-      "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
+    "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:
     "Google may have applied the change. Check its status before retrying.",
   google_publish_failed: "Google rejected the reply. Please try again.",
@@ -231,7 +243,6 @@ const COPY: Record<string, string> = {
     "Google did not confirm the change. Refresh and try again.",
 
   // ---- Locations: industry + administration (Google-direct) ---------------
-  business_calls_mask_invalid: "Only the calls setting can be changed here.",
   search_query_required: "Enter a search term.",
   administration_confirmation_invalid:
     "We couldn’t confirm that action. Refresh and try again.",
@@ -422,6 +433,19 @@ export function describeActionError(
 ): string {
   if (error instanceof ApiClientError) {
     const context = options.context ?? "reply"
+    if (error.code === "ai_credits_exhausted") {
+      const resetsAt = (error.details as { resetsAt?: unknown } | undefined)
+        ?.resetsAt
+      const date = typeof resetsAt === "string" ? new Date(resetsAt) : undefined
+      if (date && !Number.isNaN(date.getTime())) {
+        const formatted = date.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "long",
+          timeZone: "UTC",
+        })
+        return `You have used all your AI drafts for this month. They reset on ${formatted}. You can still write a reply yourself.`
+      }
+    }
     const mapped = APPROVAL_COPY[context][error.code] ?? COPY[error.code]
     if (mapped) return mapped
     if (error.status >= 500) return SERVICE_UNAVAILABLE_COPY

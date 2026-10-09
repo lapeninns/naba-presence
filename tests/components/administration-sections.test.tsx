@@ -62,7 +62,7 @@ function stubPatch(failWith?: { status: number; code: string }) {
   const bodies: Array<Record<string, unknown>> = []
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     if (String(input).includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
-    if (String(input).endsWith("/api/session")) return jsonResponse({ session: { userId: "owner", organisationId: "org", organisationName: "Fixture", displayName: "Owner", email: "owner@example.test", role: "owner", canPublish: true } })
+    if (String(input).endsWith("/api/session")) return jsonResponse({ session: { userId: "owner", organisationId: "org", organisationName: "Fixture", displayName: "Owner", email: "owner@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } })
     if (String(input).includes("/administration-lifecycle-reviews")) {
       if (init?.method === "POST") {
         const request = googleLifecycleRequestSchema.parse(JSON.parse(String(init.body)))

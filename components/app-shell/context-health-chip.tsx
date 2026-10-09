@@ -6,6 +6,7 @@ import * as React from "react"
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import { useClients, useOrgHealth } from "@/lib/queries/use-clients"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
@@ -23,13 +24,17 @@ import { useClientScope } from "./client-context"
  * 44px circle with the dot alone; the words stay the link's accessible name.
  */
 function ContextHealthChip() {
+  const business = useWorkspaceMode() === "business"
+  // A business has no client layer to scope by: the chip reports the whole
+  // business and links to Listings.
   const clientId = useClientScope()
   const clients = useClients()
-  const org = useOrgHealth()
+  const org = useOrgHealth(business ? "business" : "agency")
 
-  const scoped = clientId
-    ? clients.data?.items.find((client) => client.id === clientId)
-    : undefined
+  const scoped =
+    clientId && !business
+      ? clients.data?.items.find((client) => client.id === clientId)
+      : undefined
 
   // A refetch that fails AFTER an earlier success means the numbers on screen
   // are last known, not current. Saying so is different from saying Google is
@@ -54,7 +59,13 @@ function ContextHealthChip() {
       <HealthAnnouncer label={isPending ? null : label} />
       {isPending ? null : (
         <Link
-          href={clientId ? `/clients/${clientId}` : "/clients"}
+          href={
+            business
+              ? "/listings"
+              : clientId
+                ? `/clients/${clientId}`
+                : "/clients"
+          }
           data-slot="health-chip"
           data-tone={tone}
           className={cn(

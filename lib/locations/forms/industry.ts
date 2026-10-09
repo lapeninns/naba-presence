@@ -67,7 +67,6 @@ export function touchedMask(
 // The route mutation envelope lives in the wire contract; re-exported here so
 // existing form-side imports keep resolving.
 export {
-  businessCallsLeafSchema,
   industryMutationSchema,
   industryOperationSchema,
   type IndustryMutation,

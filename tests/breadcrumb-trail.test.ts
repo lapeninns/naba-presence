@@ -72,3 +72,18 @@ describe("breadcrumbTrail", () => {
     expect(trail("/design-system")).toEqual([])
   })
 })
+
+describe("breadcrumbTrail in business mode", () => {
+  const business = (pathname: string) =>
+    breadcrumbTrail({ pathname, clients, locations, mode: "business" }).map((crumb) => crumb.label)
+
+  it("has no client crumb on a listing", () => {
+    expect(business("/listings/l1/photos")).toEqual(["Listings", "Old Crown Girton", "Photos"])
+    expect(business("/listings/l2")).toEqual(["Listings", "Riverside Cafe"])
+  })
+
+  it("has no trail for the client layer", () => {
+    expect(business("/clients/c1")).toEqual([])
+    expect(business("/clients")).toEqual([])
+  })
+})

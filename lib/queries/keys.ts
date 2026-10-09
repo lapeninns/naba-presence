@@ -22,6 +22,10 @@ export const queryKeys = {
   scheduleOccurrences: (params: Record<string, string | undefined>) => ["schedule-occurrences", params] as const,
   webhookFailures: ["operations", "webhook-failures"] as const,
   settings: ["settings"] as const,
+  // Prefix of both AI credit keys, so a draft invalidates them together.
+  aiCreditsAll: ["ai-credits"] as const,
+  aiCredits: ["ai-credits", "balance"] as const,
+  aiCreditsDaily: ["ai-credits", "daily"] as const,
   // Rooted at "location-directory", NOT "locations": React Query invalidation
   // is prefix-matched, so a directory key of ["locations"] would shadow every
   // ["locations", <id>, …] resource key below and make one import or unlink

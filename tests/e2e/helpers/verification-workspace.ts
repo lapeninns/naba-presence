@@ -6,7 +6,7 @@ export async function setupVerificationWorkspace(page: Page) {
   let executions = 0, previews = 0, legacyRequests = 0
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()), path = url.pathname, method = route.request().method()
-    if (path === "/api/session") return route.fulfill({ json: { session: { userId: locationId, organisationId: locationId, organisationName: "Fixture Agency", displayName: "Fixture Manager", email: "fixture@example.test", role: "owner", canPublish: true } } })
+    if (path === "/api/session") return route.fulfill({ json: { session: { userId: locationId, organisationId: locationId, organisationName: "Fixture Agency", displayName: "Fixture Manager", email: "fixture@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } } })
     if (path === "/api/location-links") return route.fulfill({ json: { locations: [{ id: locationId, name: "Camden Hotel", linked: true, clientId: null, clientName: null }] } })
     if (path === "/api/clients") return route.fulfill({ json: { items: [], unassignedLocationCount: 1 } })
     if (path === "/api/organisations") return route.fulfill({ json: { items: [] } })

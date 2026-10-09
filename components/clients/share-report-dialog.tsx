@@ -47,6 +47,7 @@ import { formatNumber, formatRelativeTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { useReportShares } from "@/lib/queries/use-report-shares"
 import { formatDay } from "@/lib/settings/roles"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 function inDays(days: number, from: Date = new Date()): string {
   return new Date(from.getTime() + days * 86_400_000).toISOString()
@@ -144,6 +145,7 @@ export function ShareReportDialog({
 }) {
   const queryClient = useQueryClient()
   const toast = useToastManager()
+  const business = useWorkspaceMode() === "business"
   const ids = useId()
   const [days, setDays] = useState<ReportShareExpiryDays>(
     DEFAULT_REPORT_SHARE_EXPIRY_DAYS
@@ -187,8 +189,9 @@ export function ShareReportDialog({
             Share {clientName}’s report
           </DialogTitle>
           <DialogDescription>
-            A read-only link to this client’s totals: reviews, replies, ratings
-            and Google profile figures. They don’t need an account.
+            A read-only link to {business ? "your" : "this client’s"} totals:
+            reviews, replies, ratings and Google profile figures. They don’t
+            need an account.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -291,6 +294,7 @@ function ExistingLinks({
   enabled: boolean
 }) {
   const query = useReportShares(clientId, enabled)
+  const business = useWorkspaceMode() === "business"
   const queryClient = useQueryClient()
   const toast = useToastManager()
   const [confirming, setConfirming] = useState<ReportShare | null>(null)
@@ -319,7 +323,9 @@ function ExistingLinks({
   } else if (query.isError) {
     body = (
       <Alert variant="destructive">
-        <AlertTitle>We couldn’t load this client’s links</AlertTitle>
+        <AlertTitle>
+          We couldn’t load {business ? "your" : "this client’s"} links
+        </AlertTitle>
         <AlertDescription>{describeActionError(query.error)}</AlertDescription>
         <AlertActions>
           <Button

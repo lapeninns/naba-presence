@@ -54,13 +54,14 @@ pnpm test
 
 ## Forced ambiguity drill
 
-1. Deploy the same staging image with `GOOGLE_MUTATION_TIMEOUT_MS=1`; do not
+1. Deploy the same staging commit (a new Vercel deployment of the same Git SHA)
+   with `GOOGLE_MUTATION_TIMEOUT_MS=1`; do not
    change any other flag.
 2. Publish a newly verified, unique body on the pilot review.
 3. Require the local attempt to become `ambiguous`, with a durable `started`
    intent preceding the provider call.
 4. Restore the original timeout immediately after the forced request.
-5. Let the scheduler call `/api/jobs/run`. Require provider read-back before
+5. Let the Vercel Cron jobs tick call `GET /api/jobs/run`. Require provider read-back before
    any new write and the event sequence:
 
    ```text

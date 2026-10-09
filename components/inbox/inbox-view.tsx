@@ -35,6 +35,7 @@ import {
 } from "@/components/inbox/dirty-context"
 import { useDesktopLayout } from "@/components/inbox/use-desktop-layout"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { QueryStates } from "@/components/ui/query-states"
@@ -110,9 +111,13 @@ function InboxViewInner({
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // A business has no client scope: a stale `?clientId=` is ignored, so it
+  // can neither filter the list nor surface a "Client" chip.
+  const business = useWorkspaceMode() === "business"
   const state = useMemo(() => {
-    return parseInboxState(new URLSearchParams(searchParams.toString()))
-  }, [searchParams])
+    const parsed = parseInboxState(new URLSearchParams(searchParams.toString()))
+    return business ? { ...parsed, clientId: undefined } : parsed
+  }, [business, searchParams])
   const filters = useMemo(() => toReviewsFilters(state), [state])
   const dirtyGate = useDirtyGate()
   const readIsDirty = useReadIsDirty()
@@ -658,13 +663,17 @@ function InboxViewInner({
     >
       <InboxToolbar
         state={state}
-          counts={toolbarCounts}
-          countsPending={toolbarCountsPending}
+        counts={toolbarCounts}
+        countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
-        clients={(clientsQuery.data?.items ?? []).map((client) => ({
-          id: client.id,
-          name: client.name,
-        }))}
+        clients={
+          business
+            ? []
+            : (clientsQuery.data?.items ?? []).map((client) => ({
+                id: client.id,
+                name: client.name,
+              }))
+        }
         showLocationFilter={showLocationFilter}
         actions={actions}
         onFilterChange={onFilterChange}
@@ -745,7 +754,7 @@ function InboxViewInner({
         {loaded && refreshed ? (
           <span
             className="font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
-            title="When this list was last fetched from NabaPresence. Counts cover every review in each queue for the current client scope."
+            title="When this list was last fetched from NabaPresence. Counts cover every review in each queue for the current scope."
           >
             Refreshed {refreshed}
           </span>

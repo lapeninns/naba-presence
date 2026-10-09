@@ -627,40 +627,15 @@ export function googleLodgingRequest(input: {
   } satisfies { url: string; init: RequestInit }
 }
 
-export function googleBusinessCallsRequest(input: {
-  locationName: string
-  operation: "settings" | "patch" | "insights"
-  updateMask?: string[]
-  payload?: Record<string, unknown>
-  filter?: string
-  pageToken?: string
-}) {
-  const settingsName = `${input.locationName}/businesscallssettings`
-  const params = new URLSearchParams()
-  if (input.updateMask?.length)
-    params.set("updateMask", input.updateMask.join(","))
-  if (input.filter) params.set("filter", input.filter)
-  if (input.pageToken) params.set("pageToken", input.pageToken)
-  if (input.operation === "insights") params.set("pageSize", "100")
-  const path =
-    input.operation === "insights"
-      ? `${input.locationName}/businesscallsinsights`
-      : settingsName
-  return {
-    url: `https://mybusinessbusinesscalls.googleapis.com/v1/${path}?${params}`,
-    init: {
-      method: input.operation === "patch" ? "PATCH" : "GET",
-      ...(input.payload
-        ? { body: JSON.stringify({ name: settingsName, ...input.payload }) }
-        : {}),
-    },
-  } satisfies { url: string; init: RequestInit }
-}
-
+/**
+ * The v4 healthcare service list, the one healthcare resource Google still
+ * serves. `healthProviderAttributes` and `insuranceNetworks` were
+ * discontinued on 2024-07-01 (see google-retired-apis.ts).
+ */
 export function googleHealthcareRequest(input: {
   accountName: string
   locationName: string
-  resource: "serviceList" | "healthProviderAttributes" | "insuranceNetworks"
+  resource: "serviceList"
   method?: "GET" | "PATCH"
   updateMask?: string[]
   payload?: Record<string, unknown>
@@ -668,8 +643,6 @@ export function googleHealthcareRequest(input: {
   const parent = `${input.accountName}/${input.locationName}`
   const name = `${parent}/${input.resource}`
   const params = new URLSearchParams()
-  if (input.resource !== "serviceList") params.set("languageCode", "en")
-  if (input.resource === "insuranceNetworks") params.set("pageSize", "10000")
   if (input.updateMask?.length)
     params.set("updateMask", input.updateMask.join(","))
   return {

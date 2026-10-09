@@ -75,10 +75,11 @@ export function useClientHealth(clientId: string | null | undefined): {
  * rather than a worst-case word, because "2 clients need attention" tells an
  * agency where to go and "attention" does not.
  */
-export function useOrgHealth() {
+export function useOrgHealth(mode: "agency" | "business" = "agency") {
   const clients = useClients()
   const summary = summariseHealth(
-    clients.data?.items.map((client) => client.health) ?? []
+    clients.data?.items.map((client) => client.health) ?? [],
+    mode
   )
   return { ...summary, isPending: clients.isPending }
 }

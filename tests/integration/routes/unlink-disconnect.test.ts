@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import fixture from "../../fixtures/pubsub/new-review.json"
 import { startAppServer } from "../helpers/app-server"
+import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
   destroyTenants,
@@ -22,6 +23,7 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
   let admin: ReturnType<typeof postgres>
   let runtime: ReturnType<typeof postgres>
   let server: Awaited<ReturnType<typeof startAppServer>>
+  let google: GoogleStub
   let owner: Awaited<ReturnType<typeof createTestTenant>>
   let viewer: Awaited<ReturnType<typeof createTestTenant>>
   let tenantB: Awaited<ReturnType<typeof createTestTenant>>
@@ -193,7 +195,15 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       )
     `
 
+    // Disconnect revokes the grant before returning. Keep the routing-cleanup
+    // test independent of Google's availability and response time.
+    google = await startGoogleStub()
+    google.respond({ method: "POST", pathEndsWith: "/revoke" }, () => ({
+      status: 200,
+      json: {},
+    }))
     server = await startAppServer({
+      GOOGLE_API_PROXY_BASE: google.baseUrl,
       WEBHOOKS_ENABLED: "true",
       GOOGLE_PUBSUB_VERIFICATION_TOKEN: verificationToken,
       GOOGLE_PUBSUB_AUDIENCE: "",
@@ -202,6 +212,7 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
 
   afterAll(async () => {
     await server.stop()
+    await google.stop()
     await destroyTenants(admin, [
       owner.organisationId,
       viewer.organisationId,
@@ -387,6 +398,15 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
       }
     )
     expect(response.status, await response.clone().text()).toBe(200)
+    expect(
+      google.calls.filter((call) => call.path.endsWith("/revoke"))
+    ).toEqual([
+      {
+        method: "POST",
+        path: "/revoke",
+        body: { token: "stub-access-token" },
+      },
+    ])
     expect(
       await admin`
         select 1

@@ -12,6 +12,7 @@ import {
   useLocationDirectory,
   type DirectoryEntry,
 } from "@/lib/queries/use-locations"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * Jump to another listing of the same client, keeping the area open.
@@ -32,6 +33,7 @@ function SiblingSwitcher({
   className?: string
 }) {
   const pathname = usePathname()
+  const business = useWorkspaceMode() === "business"
   const directory = useLocationDirectory(role)
   const siblings = (directory.data ?? []).filter(
     (entry) => entry.clientId === current.clientId
@@ -52,7 +54,11 @@ function SiblingSwitcher({
     >
       <ComboboxInput
         placeholder="Switch listing"
-        aria-label="Switch to another listing of this client"
+        aria-label={
+          business
+            ? "Switch to another listing"
+            : "Switch to another listing of this client"
+        }
         wrapperClassName={className ?? "w-56"}
         className="h-(--np-control-h)"
       />

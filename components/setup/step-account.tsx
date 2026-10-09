@@ -16,11 +16,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
  */
 function StepAccount({
   clientName,
+  business,
   clientId,
   connectionId,
   saveBeforeContinueRef,
 }: {
   clientName: string
+  business: boolean
   clientId: string
   connectionId: string | null
   saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
@@ -30,8 +32,9 @@ function StepAccount({
       <Alert variant="info" icon={<InfoIcon aria-hidden />}>
         <AlertTitle>One Google login can manage many accounts</AlertTitle>
         <AlertDescription>
-          Tick only the ones that belong to {clientName}, then continue. The
-          rest stay available for other clients.
+          {business
+            ? "Tick the ones that belong to your business, then continue. Any you leave unticked stay available for later."
+            : `Tick only the ones that belong to ${clientName}, then continue. The rest stay available for other clients.`}
         </AlertDescription>
       </Alert>
       <AccountPickerCard

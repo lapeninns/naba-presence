@@ -25,7 +25,7 @@ vi.mock("@/lib/api/google-verification-completion-attempt")
 vi.mock("@/lib/api/google-verification-completion-reviews")
 vi.mock("@/lib/api/google-verification-reviews")
 
-const session: SessionResponse = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true } }
+const session: SessionResponse = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } }
 const state: VerificationStateResponse = { locationId, googleLocationName: "locations/camden", checkedAt: "2026-09-30T01:00:00Z", verifications: [request], merchant: { hasVoiceOfMerchant: false, hasBusinessAuthority: true, action: "verify", hasPendingVerification: true }, merchantError: null }
 beforeEach(() => {
   vi.mocked(fetchSession).mockResolvedValue(session)

@@ -108,28 +108,56 @@ describe("Google transport", () => {
   })
 
   it.each([
-    "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings",
-    "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights",
-    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/healthProviderAttributes",
-    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/insuranceNetworks",
-    "https://mybusinessqanda.googleapis.com/v1/locations/1/questions",
-    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers",
-    "https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights",
-    "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights",
-    "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate",
-    "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation",
-  ])("rejects retired resource %s before any provider request", async (url) => {
-    // Given: an old caller still constructing a retired resource URL.
+    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings", "GET"],
+    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings?updateMask=callsState", "PATCH"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/healthProviderAttributes?languageCode=en", "GET"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/insuranceNetworks?pageSize=10000", "GET"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions", "GET"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers:upsert", "POST"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:associate", "POST"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:clearLocationAssociation", "POST"],
+    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights", "GET"],
+    ["https://mybusinessqanda.googleapis.com/v1/locations/1/questions", "GET"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights", "POST"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights", "POST"],
+    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate", "POST"],
+    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation", "POST"],
+  ])("refuses the retired endpoint %s before any network call", async (url, method) => {
+    // Given: a provider that would answer anything.
+    mode = StubMode.retryOnce
     const { googleRequest } = await import("@/lib/server/google")
+    const { ApiError } = await import("@/lib/server/http")
 
-    // When: the request enters the shared transport, including its test proxy.
-    const request = googleRequest(url, "access-token", {}, { maxAttempts: 1 })
+    // When: a request for a switched-off Google API reaches the transport.
+    const request = googleRequest(url, "access-token", { method }, {
+      mode: method === "GET" ? "safe" : "mutation",
+      timeoutMs: 1000,
+    })
 
-    // Then: it returns a stable unsupported outcome without network activity.
+    // Then: it fails with the stable retired error and nothing was sent.
+    await expect(request).rejects.toBeInstanceOf(ApiError)
     await expect(request).rejects.toMatchObject({
       status: 410,
-      code: "provider_capability_retired",
+      code: "google_api_retired",
+      retryable: false,
     })
     expect(calls).toBe(0)
+  })
+
+  it("still sends supported endpoints that sit beside retired ones", async () => {
+    // Given: a provider that succeeds after one retryable response.
+    const { googleRequest } = await import("@/lib/server/google")
+
+    // When: the still-supported healthcare service list is read.
+    const result = await googleRequest<{ readonly ok: boolean }>(
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/serviceList",
+      "access-token",
+      {},
+      { maxAttempts: 2, timeoutMs: 1000 }
+    )
+
+    // Then: it crosses the transport as before.
+    expect(result).toEqual({ ok: true })
+    expect(calls).toBe(2)
   })
 })

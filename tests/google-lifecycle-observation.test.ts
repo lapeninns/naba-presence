@@ -9,7 +9,7 @@ import { getGoogleLocation, googleAccountManagementApi, googleLocations } from "
 import { observeLifecycleBaseline, observeLifecyclePostcondition } from "@/lib/server/google-lifecycle-observation"
 import { ApiError } from "@/lib/server/http"
 
-const session: Session = { sessionId: "session", userId: "owner", organisationId: "org", organisationName: "Fixture", displayName: "Owner", email: "owner@example.test", role: "owner", canPublish: true }
+const session: Session = { sessionId: "session", userId: "owner", organisationId: "org", organisationName: "Fixture", displayName: "Owner", email: "owner@example.test", role: "owner", canPublish: true, workspaceMode: "agency" }
 const request = googleLifecycleRequestSchema.parse({ operation: "transfer_location", payload: { destinationAccount: "accounts/destination" } })
 const providerLocation = { name: "locations/listing", metadata: { placeId: "place-listed", canDelete: true } }
 const context = vi.mocked(currentAdministrationContext), locations = vi.mocked(googleLocations), account = vi.mocked(googleAccountManagementApi), location = vi.mocked(getGoogleLocation)

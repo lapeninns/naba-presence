@@ -1,5 +1,6 @@
 import { ArchiveIcon } from "lucide-react"
 import Link from "next/link"
+import { headers } from "next/headers"
 import { notFound } from "next/navigation"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
@@ -9,7 +10,9 @@ import { cn } from "@/lib/utils"
 import { clientIdParamsSchema } from "@/lib/contracts/clients"
 import { withTenant } from "@/lib/server/db"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
+import { REQUEST_PATH_HEADER } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
+import { redirectOutOfClientLayer } from "@/lib/server/workspace-redirect"
 
 /**
  * Declares the client scope for the shell, so the topbar's health chip and the
@@ -28,10 +31,18 @@ export default async function ClientLayout({
   children: React.ReactNode
 }) {
   const { clientId } = await params
-  // Not an id at all: a not-found, not a database error surfacing as the
-  // error page (the uuid column would reject the comparison).
-  if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
   const session = await getSession()
+  // Every page under here redirects a business on its own; the layout does
+  // it too, from the requested path, so a nested route added later cannot
+  // show a business a client page.
+  redirectOutOfClientLayer(
+    session,
+    (await headers()).get(REQUEST_PATH_HEADER) ?? `/clients/${clientId}`
+  )
+  // Not an id at all: a not-found, not a database error surfacing as the
+  // error page (the uuid column would reject the comparison). After the
+  // business redirect, so an old bookmark still lands somewhere useful.
+  if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
 
   if (session) {
     const [client] = await withTenant(

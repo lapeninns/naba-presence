@@ -30,10 +30,12 @@ import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 function StepConnect({
   clientId,
   clientName,
+  business,
   onConnected,
 }: {
   clientId: string
   clientName: string
+  business: boolean
   /** Called once an existing login is filed under the client. */
   onConnected: () => void
 }) {
@@ -115,7 +117,11 @@ function StepConnect({
               <AlertDescription className="flex flex-col gap-1">
                 <span>
                   {startError ??
-                    describeGoogleConnectStatus(returnedStatus, returnedReason)}
+                    describeGoogleConnectStatus(
+                      returnedStatus,
+                      returnedReason,
+                      business ? "business" : "agency"
+                    )}
                 </span>
                 {!startError && requestId ? (
                   <span className="text-caption text-ink-muted">
@@ -133,7 +139,7 @@ function StepConnect({
               <AlertTitle>Google account connected</AlertTitle>
               <AlertDescription>
                 Continue to choose which Business Profile accounts belong to{" "}
-                {clientName}.
+                {business ? "your business" : clientName}.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -150,9 +156,10 @@ function StepConnect({
                 Connect a Google account
               </h3>
               <p className="text-ui text-ink-muted">
-                Sign in to the Google account that manages {clientName}’s
-                Business Profile. You’ll sign in on Google’s own page and come
-                straight back to the next step.
+                Sign in to the Google account that manages{" "}
+                {business ? "your" : `${clientName}’s`} Business Profile. You’ll
+                sign in on Google’s own page and come straight back to the next
+                step.
               </p>
             </div>
             <Button
@@ -267,7 +274,8 @@ function StepConnect({
             {usable.length > 0 ? (
               <p className="text-caption text-ink-muted">
                 Choose “Use this account” to use a connected account for{" "}
-                {clientName}, then pick its Business Profile accounts.
+                {business ? "your business" : clientName}, then pick its
+                Business Profile accounts.
               </p>
             ) : null}
           </section>

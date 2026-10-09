@@ -1,10 +1,14 @@
 import "server-only"
 
-import type {
-  AdministrationFailure,
-  AdministrationMutationResult,
-  AdministrationOperation,
-  AdministrationState,
+import {
+  ADMINISTRATION_RESOURCE_NAME_PATTERNS,
+  INVALID_ADMINISTRATION_RESOURCE_NAME,
+  isAdministrationNamedOperation,
+  type AdministrationFailure,
+  type AdministrationMutationResult,
+  type AdministrationNamedOperation,
+  type AdministrationOperation,
+  type AdministrationState,
 } from "@/lib/contracts/location-administration"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
@@ -102,42 +106,38 @@ export async function loadLocationAdministration(
     linked.connectionId
   )
   const options = { connectionKey: linked.connectionId }
-  const [
-    updated,
-    locationAdmins,
-    accountAdmins,
-    invitations,
-  ] = await Promise.all([
-    safe(() =>
-      getGoogleUpdatedLocation(
-        token,
-        linked.googleLocationName,
-        COMPLETE_LOCATION_MASK,
-        options
-      )
-    ),
-    safe(() =>
-      googleAccountManagementApi(
-        token,
-        { path: `${linked.googleLocationName}/admins` },
-        options
-      )
-    ),
-    safe(() =>
-      googleAccountManagementApi(
-        token,
-        { path: `${linked.accountName}/admins` },
-        options
-      )
-    ),
-    safe(() =>
-      googleAccountManagementApi(
-        token,
-        { path: `${linked.accountName}/invitations` },
-        options
-      )
-    ),
-  ])
+  const [updated, locationAdmins, accountAdmins, invitations] =
+    await Promise.all([
+      safe(() =>
+        getGoogleUpdatedLocation(
+          token,
+          linked.googleLocationName,
+          COMPLETE_LOCATION_MASK,
+          options
+        )
+      ),
+      safe(() =>
+        googleAccountManagementApi(
+          token,
+          { path: `${linked.googleLocationName}/admins` },
+          options
+        )
+      ),
+      safe(() =>
+        googleAccountManagementApi(
+          token,
+          { path: `${linked.accountName}/admins` },
+          options
+        )
+      ),
+      safe(() =>
+        googleAccountManagementApi(
+          token,
+          { path: `${linked.accountName}/invitations` },
+          options
+        )
+      ),
+    ])
   for (const [resourceType, resourceName, result] of [
     ["google_update", `${linked.googleLocationName}:getGoogleUpdated`, updated],
     ["location_admin", `${linked.googleLocationName}/admins`, locationAdmins],
@@ -172,6 +172,52 @@ export async function loadLocationAdministration(
 
 export type { AdministrationOperation }
 
+/**
+ * The Google resource name a name-bearing operation may act on, after
+ * checking it both against the exact resource shape and against the linked
+ * location/account resolved server-side for this request.
+ *
+ * `payload.name` is client-supplied and is interpolated into a Google URL
+ * path, so a name that merely looks valid but belongs to another location or
+ * account, or to a different resource type, must never reach the provider.
+ * Rejections use the route's validation error shape (400 invalid_request).
+ */
+export function scopedAdministrationResourceName(
+  operation: AdministrationNamedOperation,
+  name: unknown,
+  linked: { googleLocationName: string; accountName: string }
+): string {
+  const parents: Record<AdministrationNamedOperation, string[]> = {
+    complete_verification: [`${linked.googleLocationName}/verifications/`],
+    update_admin: [
+      `${linked.googleLocationName}/admins/`,
+      `${linked.accountName}/admins/`,
+    ],
+    delete_admin: [
+      `${linked.googleLocationName}/admins/`,
+      `${linked.accountName}/admins/`,
+    ],
+    accept_invitation: [`${linked.accountName}/invitations/`],
+    decline_invitation: [`${linked.accountName}/invitations/`],
+  }
+  if (
+    typeof name === "string" &&
+    ADMINISTRATION_RESOURCE_NAME_PATTERNS[operation].test(name) &&
+    parents[operation].some(
+      (parent) =>
+        name.startsWith(parent) && !name.slice(parent.length).includes("/")
+    )
+  ) {
+    return name
+  }
+  throw new ApiError(
+    400,
+    "invalid_request",
+    "The request did not pass validation.",
+    { fieldErrors: { "payload.name": INVALID_ADMINISTRATION_RESOURCE_NAME } }
+  )
+}
+
 export async function mutateLocationAdministration(input: {
   session: Session
   locationId: string
@@ -179,14 +225,51 @@ export async function mutateLocationAdministration(input: {
   payload: Record<string, unknown>
   requestId: string
 }): Promise<AdministrationMutationResult> {
-  if (input.operation === "start_verification" || input.operation === "complete_verification") {
-    throw new ApiError(409, "verification_review_required", "Open Verification to review and approve this request before sending it to Google.")
+  // A client-supplied resource name is checked against the linked location
+  // and account first, so a hostile name is always a 400 whatever happens to
+  // the operation next. Name-bearing operations then go to their reviewed
+  // workflows; this path never sends them.
+  if (isAdministrationNamedOperation(input.operation)) {
+    const named = await context(input.session, input.locationId)
+    scopedAdministrationResourceName(input.operation, input.payload.name, {
+      googleLocationName: named.googleLocationName,
+      accountName: named.accountName,
+    })
   }
-  if (["create_admin", "update_admin", "delete_admin", "accept_invitation", "decline_invitation"].includes(input.operation)) {
-    throw new ApiError(409, "administration_review_required", "Open People with access to review and approve the exact administrator or invitation before sending it to Google.")
+  if (
+    input.operation === "start_verification" ||
+    input.operation === "complete_verification"
+  ) {
+    throw new ApiError(
+      409,
+      "verification_review_required",
+      "Open Verification to review and approve this request before sending it to Google."
+    )
   }
-  if (input.operation === "transfer_location" || input.operation === "delete_location") {
-    throw new ApiError(409, "lifecycle_review_required", "Review and approve the exact account transfer or managed-location deletion before sending it to Google.")
+  if (
+    [
+      "create_admin",
+      "update_admin",
+      "delete_admin",
+      "accept_invitation",
+      "decline_invitation",
+    ].includes(input.operation)
+  ) {
+    throw new ApiError(
+      409,
+      "administration_review_required",
+      "Open People with access to review and approve the exact administrator or invitation before sending it to Google."
+    )
+  }
+  if (
+    input.operation === "transfer_location" ||
+    input.operation === "delete_location"
+  ) {
+    throw new ApiError(
+      409,
+      "lifecycle_review_required",
+      "Review and approve the exact account transfer or managed-location deletion before sending it to Google."
+    )
   }
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish)
@@ -197,22 +280,33 @@ export async function mutateLocationAdministration(input: {
     )
   if (!gbpWritesEnabled(getServerEnv(), "profileWrites"))
     throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
-  const token = await connectionAccessToken(
-    getDatabase(),
-    input.session.organisationId,
-    linked.connectionId
-  )
-  const target =
-    typeof input.payload.name === "string"
-      ? input.payload.name
-      : linked.googleLocationName
-  const resourceType = input.operation.includes("admin")
-      ? input.payload.scope === "account"
+  // Validated before a token is fetched or a mutation row is recorded.
+  const resourceName = isAdministrationNamedOperation(input.operation)
+    ? scopedAdministrationResourceName(input.operation, input.payload.name, {
+        googleLocationName: linked.googleLocationName,
+        accountName: linked.accountName,
+      })
+    : null
+  const target = resourceName ?? linked.googleLocationName
+  const adminScope = resourceName
+    ? resourceName.startsWith(`${linked.accountName}/`)
+      ? "account"
+      : "location"
+    : input.payload.scope
+  const resourceType = input.operation.includes("verification")
+    ? "verification"
+    : input.operation.includes("admin")
+      ? adminScope === "account"
         ? "account_admin"
         : "location_admin"
       : input.operation.includes("invitation")
         ? "invitation"
         : "location_lifecycle"
+  const token = await connectionAccessToken(
+    getDatabase(),
+    input.session.organisationId,
+    linked.connectionId
+  )
   const attempt = await startGbpMutation({
     organisationId: input.session.organisationId,
     session: input.session,
@@ -313,7 +407,9 @@ export async function mutateLocationAdministration(input: {
       organisationId: input.session.organisationId,
       mutationId: attempt.id,
       status:
-        failure instanceof GoogleMutationAmbiguousError ? "ambiguous" : "failed",
+        failure instanceof GoogleMutationAmbiguousError
+          ? "ambiguous"
+          : "failed",
       errorCode: mutationErrorCode(failure, `${input.operation}_failed`),
     })
     throw failure

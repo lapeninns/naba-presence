@@ -26,6 +26,8 @@ import {
 } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
+import * as creditsHook from "@/lib/queries/use-ai-credits"
+import type { AiCredits } from "@/lib/contracts/ai-credits"
 
 function reviewWith(
   overrides: Partial<ReviewDetail["review"]> = {}
@@ -167,8 +169,21 @@ function SaveProbe() {
 
 function mount(
   overrides: Partial<ReviewDetail["review"]> = {},
-  mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)
+  mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT),
+  credits?: Partial<AiCredits>
 ) {
+  vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+    data: credits
+      ? {
+          used: 0,
+          allowance: 200,
+          remaining: 200,
+          periodStart: "2026-10-01",
+          resetsAt: "2026-11-01T00:00:00.000Z",
+          ...credits,
+        }
+      : undefined,
+  } as UseQueryResult<AiCredits>)
   vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
     data: reviewWith(overrides),
   } as UseQueryResult<ReviewDetail>)
@@ -380,6 +395,39 @@ describe("ReplyComposer — the editor", () => {
     await user.keyboard("{Control>}{Enter}{/Control}")
     window.removeEventListener(PRIMARY_ACTION_EVENT, listener)
     expect(listener).toHaveBeenCalledTimes(1)
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+})
+
+describe("ReplyComposer — AI credits", () => {
+  it("says how many credits are left beside Generate", () => {
+    mount({}, undefined, { used: 193, remaining: 7 })
+    expect(screen.getByText("7 of 200 credits left this month")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Generate reply" })).toBeEnabled()
+  })
+
+  it("disables Generate when out of credits, and keeps writing open", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount({}, undefined, { used: 200, remaining: 0 })
+    expect(
+      screen.getByText(
+        "Out of AI credits until 1 Nov. You can still write a reply yourself."
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Generate reply" })
+    ).toBeDisabled()
+    await user.type(textbox(), "Thanks for visiting.")
+    expect(textbox()).toHaveValue("Thanks for visiting.")
+    expect(textbox()).not.toHaveAttribute("readonly")
+    window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("does not regenerate from a tone change when out of credits", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING, undefined, { used: 200, remaining: 0 })
+    await user.click(screen.getByRole("radio", { name: "Concise" }))
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 })

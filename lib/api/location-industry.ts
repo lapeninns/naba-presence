@@ -2,7 +2,7 @@ import {
   INDUSTRY_CONFIRMATION,
   industryMutationResultSchema,
   industryResponseSchema,
-  type IndustryMutation,
+  type SupportedIndustryMutation,
   type IndustryOperation,
   type IndustryState,
 } from "@/lib/contracts/location-industry"
@@ -52,8 +52,8 @@ export function publishIndustry(
   input: { operation: IndustryOperation; updateMask: string[]; payload: Record<string, unknown>; changeSetId?: string }
 ) {
   // The editor builds the mask/payload from freeform Google leaves; the route
-  // narrows them per operation (e.g. business calls) before anything is sent on.
-  const body = { operation: input.operation, confirmation: INDUSTRY_CONFIRMATION, updateMask: input.updateMask, payload: input.payload, ...(input.changeSetId ? { changeSetId: input.changeSetId } : {}) } satisfies Record<keyof IndustryMutation, unknown>
+  // validates them per operation before anything is sent on.
+  const body = { operation: input.operation, confirmation: INDUSTRY_CONFIRMATION, updateMask: input.updateMask, payload: input.payload, ...(input.changeSetId ? { changeSetId: input.changeSetId } : {}) } satisfies Record<keyof SupportedIndustryMutation, unknown>
   return apiFetch(`/api/locations/${id}/industry`, {
     method: "PATCH",
     body,

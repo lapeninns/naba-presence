@@ -42,6 +42,7 @@ import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useNotificationSetting } from "@/lib/queries/use-notification-setting"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { describeNotificationType } from "@/lib/settings/gating"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const PUBSUB_TOPIC_RE =
   /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][\w.-]{2,254}$/
@@ -53,6 +54,7 @@ const PUBSUB_TOPIC_RE =
  * on Google's side, written once from the card's footer.
  */
 export function NotificationsCard() {
+  const business = useWorkspaceMode() === "business"
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
   // The operator's own choice of login and account. Auto-selection only
@@ -62,9 +64,9 @@ export function NotificationsCard() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<
     string | null
   >(null)
-  const [selectedAccountName, setSelectedAccountName] = useState<
-    string | null
-  >(null)
+  const [selectedAccountName, setSelectedAccountName] = useState<string | null>(
+    null
+  )
   const connectionId = deriveAutoSelection({
     connections: connections.map((c) => ({ id: c.id, status: c.status })),
     accounts: [],
@@ -198,7 +200,11 @@ export function NotificationsCard() {
         ) : (
           <Empty
             title="No active Google account"
-            description="Activate one of this login’s Business Profile accounts while setting up a client, then manage its notifications here."
+            description={
+              business
+                ? "Activate one of this login’s Business Profile accounts while setting up, then manage its notifications here."
+                : "Activate one of this login’s Business Profile accounts while setting up a client, then manage its notifications here."
+            }
           />
         )}
       </Card>

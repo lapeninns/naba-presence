@@ -20,6 +20,7 @@ const owner: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: ORG,
   organisationName: "Aman's organisation",
+  workspaceMode: "business",
   displayName: "Aman",
   email: "aman@example.test",
   role: "owner",

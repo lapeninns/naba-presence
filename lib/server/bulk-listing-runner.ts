@@ -119,9 +119,10 @@ export async function processBulkChild(
         canPublish: boolean
         email: string
         displayName: string
+        workspaceMode: Session["workspaceMode"]
       }[]
     >`
-      select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName" from member m join app_user u on u.id = m.user_id where m.user_id = ${child.approvedBy}`
+      select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode" from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${child.approvedBy}`
     if (!requester || !approver || !["owner", "admin"].includes(approver.role))
       return { code: "permission_revoked" }
     const session: Session = {
@@ -133,6 +134,7 @@ export async function processBulkChild(
       email: approver.email,
       role: approver.role,
       canPublish: approver.canPublish,
+      workspaceMode: approver.workspaceMode,
     }
     if (!(await canPublishLocation(sql, session, child.locationId)))
       return { code: "permission_revoked" }

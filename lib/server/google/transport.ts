@@ -1,8 +1,12 @@
 import "server-only"
 
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
-import { retiredGoogleCapability, retiredGoogleMessage } from "@/lib/domain/google-support"
 
+import {
+  GOOGLE_API_RETIRED_CODE,
+  retiredGoogleApi,
+  type RetiredGoogleApi,
+} from "@/lib/domain/google-retired-apis"
 import {
   classifyMutationFailure,
   isRetryableGoogleStatus,
@@ -76,6 +80,20 @@ export function isAbortError(error: unknown): error is Error {
 
 export function googleTimeoutError() {
   return new ApiError(502, "google_timeout", "The Google provider timed out.")
+}
+
+/**
+ * The stable answer for a call to an API Google has switched off. 410 because
+ * the resource is gone for good: retrying, reconnecting or re-publishing will
+ * never make it work, and no request is sent to find that out.
+ */
+export function googleApiRetiredError(api: RetiredGoogleApi) {
+  return new ApiError(
+    410,
+    GOOGLE_API_RETIRED_CODE,
+    "Google no longer offers this Business Profile feature.",
+    { retryable: false, details: { api } }
+  )
 }
 
 export function googleApiTarget(url: string): string {
@@ -249,9 +267,12 @@ export async function googleRequest<T>(
     timeoutMs?: number
   } = {}
 ): Promise<T> {
-  const retired = retiredGoogleCapability(url)
+  // Before the budget, the pacer and the span: a retired endpoint must never
+  // reach the network, cost quota, or count as a provider failure.
+  const retired = retiredGoogleApi(url)
   if (retired) {
-    throw new ApiError(410, "provider_capability_retired", retiredGoogleMessage(retired))
+    log.warn("google.retired_api_blocked", { api: retired })
+    throw googleApiRetiredError(retired)
   }
   const mode = options.mode ?? "safe"
   const maxAttempts = mode === "mutation" ? 1 : (options.maxAttempts ?? 5)

@@ -6,12 +6,12 @@ import {
   type IndustryMutationResult,
   type IndustryResponse,
 } from "@/lib/contracts/location-industry"
+import { googleApiRetiredError } from "@/lib/server/google"
 import {
   loadIndustryManagement,
   mutateIndustryManagement,
   confirmIndustryManagement,
 } from "@/lib/server/industry-management"
-import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 import { lodgingPreviewRequestSchema, approveGbpChangeSetRequestSchema } from "@/lib/contracts/gbp-change-set"
 import { previewLodgingChange, approveLodgingChange } from "@/lib/server/gbp-change-sets"
@@ -55,16 +55,20 @@ export const PATCH = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: industryMutationSchema,
-  handler: ({ session, params, body, requestId }): Promise<IndustryMutationResult> => {
-    if (
-      body.operation === "update_business_calls" &&
-      body.updateMask.some((field) => field !== "callsState")
-    ) {
-      throw new ApiError(
-        422,
-        "business_calls_mask_invalid",
-        "Only callsState can be updated for Business Calls."
-      )
+  handler: ({
+    session,
+    params,
+    body,
+    requestId,
+  }): Promise<IndustryMutationResult> => {
+    // Google switched these APIs off (Business Calls 2023-05-30, provider
+    // attributes 2024-07-01). Answer the same stable 410 the transport would,
+    // before resolving the location or recording a mutation attempt.
+    if (body.operation === "update_business_calls") {
+      throw googleApiRetiredError("business_calls")
+    }
+    if (body.operation === "update_healthcare_provider_attributes") {
+      throw googleApiRetiredError("health_provider_attributes")
     }
     return mutateIndustryManagement({
       session,

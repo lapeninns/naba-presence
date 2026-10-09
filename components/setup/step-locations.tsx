@@ -13,11 +13,13 @@ import { OnboardingDrafts } from "./onboarding-drafts"
 function StepLocations({
   clientId,
   clientName,
+  business,
   connectionId,
   onDirtyChange,
 }: {
   clientId: string
   clientName: string
+  business: boolean
   /** The login this client's setup attached. */
   connectionId: string | null
   onDirtyChange: (dirty: boolean) => void
@@ -25,8 +27,9 @@ function StepLocations({
   return (
     <>
       <p className="text-ui text-ink-muted">
-        Listings you link here belong to {clientName}. A listing already linked
-        to another client keeps its review history when you move it.
+        {business
+          ? "Link the listings that belong to your business. A listing that was linked before keeps its review history."
+          : `Listings you link here belong to ${clientName}. A listing already linked to another client keeps its review history when you move it.`}
       </p>
       <ImportCard clientId={clientId} connectionId={connectionId} />
       <OnboardingDrafts clientId={clientId} connectionId={connectionId} onDirtyChange={onDirtyChange} />

@@ -24,6 +24,8 @@ export const NOTIFICATION_EVENT_KINDS = [
   "verification_changed",
   "suggestions_available",
   "resource_stale",
+  "ai_credits_low",
+  "ai_credits_exhausted",
 ] as const
 export type NotificationEventKind = (typeof NOTIFICATION_EVENT_KINDS)[number]
 
@@ -31,10 +33,15 @@ export const NOTIFICATION_CHANNELS = ["in_app", "email"] as const
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
 export type NotificationMode = "immediate" | "digest" | "off"
 
-/** Account-level conditions concern connected logins; only owners and admins see them. */
+/**
+ * Account-level conditions concern connected logins and the organisation's
+ * AI credit allowance; only owners and admins see them.
+ */
 export const ACCOUNT_SCOPED_KINDS: readonly NotificationEventKind[] = [
   "connection_reconnect",
   "connection_owner_left",
+  "ai_credits_low",
+  "ai_credits_exhausted",
 ]
 
 /** Resolved by the condition clearing on re-evaluation, never by a person. */
@@ -43,6 +50,8 @@ export const CONDITION_KINDS: readonly NotificationEventKind[] = [
   "listing_access_lost",
   "connection_owner_left",
   "listing_stale",
+  "ai_credits_low",
+  "ai_credits_exhausted",
 ]
 
 const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
@@ -53,6 +62,8 @@ const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
   "low_rating_review",
   "publication_failed",
   "schedule_missed",
+  "ai_credits_low",
+  "ai_credits_exhausted",
 ]
 
 export const NOTIFICATION_EVENT_LABELS: Record<
@@ -113,6 +124,14 @@ export const NOTIFICATION_EVENT_LABELS: Record<
   resource_stale: {
     label: "Profile data stale",
     description: "Part of a listing has not refreshed from Google recently.",
+  },
+  ai_credits_low: {
+    label: "AI reply credits running low",
+    description: "80% of this month's AI reply credits have been used.",
+  },
+  ai_credits_exhausted: {
+    label: "AI reply credits used up",
+    description: "All of this month's AI reply credits have been used.",
   },
 }
 

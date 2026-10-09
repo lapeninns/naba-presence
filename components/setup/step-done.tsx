@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 const IMPORT = {
   running: { tone: "info", label: "Running" },
   done: { tone: "ok", label: "Complete" },
-  failed: { tone: "bad", label: "Stopped · retry from the client page" },
+  failed: { tone: "bad", label: "Stopped · retry from Listings" },
   not_started: { tone: "neutral", label: "Not started" },
 } as const
 
@@ -23,10 +23,12 @@ const IMPORT = {
 function StepDone({
   clientId,
   clientName,
+  business,
   facts,
 }: {
   clientId: string
   clientName: string
+  business: boolean
   facts: SetupFacts
 }) {
   const connectionActive = facts.connection?.status === "active"
@@ -40,8 +42,8 @@ function StepDone({
         <CircleCheckIcon className="size-7" strokeWidth={1.75} />
       </span>
       <p className="max-w-[56ch] text-body text-ink">
-        {clientName} is connected. New reviews appear in your inbox as Google
-        sends them.
+        {business ? "Your business" : clientName} is connected. New reviews
+        appear in your inbox as Google sends them.
       </p>
       <dl
         data-testid="setup-summary"
@@ -83,22 +85,26 @@ function StepDone({
         </dd>
       </dl>
       <div className="flex flex-wrap gap-2">
-        <Link href={`/clients/${clientId}`} className={cn(buttonVariants())}>
-          Open the client
-        </Link>
+        {business ? null : (
+          <Link href={`/clients/${clientId}`} className={cn(buttonVariants())}>
+            Open the client
+          </Link>
+        )}
         <Link
-          href={`/inbox?clientId=${clientId}`}
-          className={cn(buttonVariants({ variant: "secondary" }))}
+          href={business ? "/inbox" : `/inbox?clientId=${clientId}`}
+          className={cn(
+            buttonVariants({ variant: business ? "default" : "secondary" })
+          )}
         >
           Open the inbox
         </Link>
         {/* The listings are what was just linked, and the board is where
             each one's health and verification show from the first visit. */}
         <Link
-          href={`/listings?clientId=${clientId}`}
+          href={business ? "/listings" : `/listings?clientId=${clientId}`}
           className={cn(buttonVariants({ variant: "ghost" }))}
         >
-          Open its listings
+          {business ? "Open your listings" : "Open its listings"}
         </Link>
       </div>
     </div>

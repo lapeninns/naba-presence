@@ -26,6 +26,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useMembers } from "@/lib/queries/use-members"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { workspaceTerms } from "@/lib/workspace/terms"
 import {
   MEMBER_ROLES,
   roleLabel,
@@ -73,6 +75,7 @@ export function TeamView({
   actorUserId: string
 }) {
   const [inviteOpen, setInviteOpen] = useState(false)
+  const terms = workspaceTerms(useWorkspaceMode())
 
   useEffect(() => {
     const openFromHash = () => {
@@ -98,7 +101,7 @@ export function TeamView({
     <>
       <PageHeader
         title="Team"
-        description="Who can see and act on your clients’ reviews and settings."
+        description={terms.teamDescription}
         actions={
           <Button onClick={() => setInviteOpen(true)}>
             <UserPlus aria-hidden />
@@ -123,7 +126,11 @@ export function TeamView({
         <SectionHeader
           id="team-invitations"
           title="Invitations"
-          description="Invite links expire after 7 days. Members and viewers see every client unless you choose clients when inviting them, or later from Client access."
+          description={
+            terms.scope === "location"
+              ? "Invite links expire after 7 days. Members and viewers see every location unless you limit them later from Location access."
+              : "Invite links expire after 7 days. Members and viewers see every client unless you choose clients when inviting them, or later from Client access."
+          }
         />
         <InvitationsList onInvite={() => setInviteOpen(true)} />
       </section>
@@ -135,8 +142,8 @@ export function TeamView({
               What each role can do
             </CardTitle>
             <CardDescription>
-              Roles set what someone may do; client access sets where.
-              Publishing is a separate switch for Members.
+              Roles set what someone may do; {terms.access.toLowerCase()} sets
+              where. Publishing is a separate switch for Members.
             </CardDescription>
           </CardHeader>
           <Table responsive aria-labelledby="team-roles">

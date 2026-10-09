@@ -85,7 +85,7 @@ describe("describeActionError — merged map", () => {
       ["attributes_stale", 409, /changed on google/i],
       ["business_information_readback_mismatch", 502, /did not confirm/i],
       ["google_writes_paused", 503, /unavailable/i],
-      ["business_calls_mask_invalid", 422, /calls setting/i],
+      ["google_api_retired", 410, /no longer offers/i],
       ["publish_not_allowed", 403, /permission/i],
       ["permission_denied", 403, /permission/i],
     ])

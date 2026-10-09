@@ -7,6 +7,7 @@ import { grantClientListings } from "@/lib/server/client-access"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { createHomeClient } from "@/lib/server/clients"
 import { createSession } from "@/lib/server/session-store"
 
 export type GoogleProfile = {
@@ -147,13 +148,19 @@ export async function provisionAuthenticatedOwner(
         // organisation_slug_key would turn the login loop into a permanent
         // 500 instead of fixing it.
         await sql`
-          insert into organisation (id, slug, name)
+          insert into organisation (id, slug, name, workspace_mode)
           values (
             ${organisationId},
             ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
-            ${`${identity.displayName}'s organisation`}
+            ${`${identity.displayName}'s organisation`},
+            'business'
           )
         `
+        await createHomeClient(
+          sql,
+          organisationId,
+          `${identity.displayName}'s organisation`
+        )
         await sql`
           insert into member (
             organisation_id,
@@ -577,13 +584,19 @@ export async function provisionOwner(profile: GoogleProfile) {
         )
       `
         await sql`
-        insert into organisation (id, slug, name)
+        insert into organisation (id, slug, name, workspace_mode)
         values (
           ${organisationId},
           ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
+          ${profile.name ? `${profile.name}'s organisation` : "My organisation"},
+          'business'
         )
       `
+        await createHomeClient(
+          sql,
+          organisationId,
+          profile.name ? `${profile.name}'s organisation` : "My organisation"
+        )
         await sql`
         insert into member (
           organisation_id,

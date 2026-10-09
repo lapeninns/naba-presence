@@ -60,12 +60,6 @@ export function relationTypeLabel(relation: string): string {
   return RELATION[relation] ?? titleCaseTail(relation)
 }
 
-export function callsStateLabel(state: string): string {
-  if (state === "ENABLED") return "On"
-  if (state === "DISABLED") return "Off"
-  return titleCaseTail(state)
-}
-
 const VERIFICATION_METHOD: Record<string, string> = {
   EMAIL: "Email",
   PHONE_CALL: "Phone call",

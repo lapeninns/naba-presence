@@ -7,7 +7,6 @@ import type {
   IndustryOperation,
   IndustryState,
 } from "@/lib/contracts/location-industry"
-import { retiredGoogleMessage } from "@/lib/domain/google-support"
 import { executeAndConfirmGbpMutation, observeAndConfirmGbpMutation } from "@/lib/server/gbp-confirmation"
 import { getDatabase, withTenant, withSessionConnection } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
@@ -41,10 +40,12 @@ export async function loadIndustryManagement(session: Session, locationId: strin
   const linked = await context(session, locationId)
   const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
   const options = { connectionKey: linked.connectionId }
-  const calls = { data: null, error: retiredGoogleMessage("businessCalls") }
-  const callInsights = calls
-  const providerAttributes = { data: null, error: retiredGoogleMessage("healthcareProviderAttributes") }
-  const insuranceNetworks = { data: null, error: retiredGoogleMessage("insuranceNetworks") }
+  // Only APIs Google still serves. Business Calls (retired 2023-05-30) and
+  // healthProviderAttributes/insuranceNetworks (retired 2024-07-01) are no
+  // longer asked; snapshots cached from them before then are never read and
+  // age out with the retention purge. Healthcare services are reviewed and
+  // published through the general Services editor, so this editor no longer
+  // reads the serviceList either.
   const healthcareServices = { data: null, error: null }
   const [lodging, lodgingUpdated] = await Promise.all([
     safe(() => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, options)),
@@ -55,7 +56,7 @@ export async function loadIndustryManagement(session: Session, locationId: strin
   ] as const) {
     if (result.data) await cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName, payload: result.data })
   }
-  return { lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"), ...(lodging.data ? { lodgingHash: stableGoogleHash(lodging.data) } : {}), lodgingChangeSets: await listLodgingChangeSets(session, linked) }
+  return { lodging, lodgingUpdated, healthcareServices, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"), ...(lodging.data ? { lodgingHash: stableGoogleHash(lodging.data) } : {}), lodgingChangeSets: await listLodgingChangeSets(session, linked) }
 }
 
 export type { IndustryOperation }
@@ -107,11 +108,6 @@ export async function mutateIndustryManagement(input: {
   if (input.operation === "update_healthcare_services") throw new ApiError(409, "service_review_required", "Use the general Services editor to review and approve the exact service changes before sending.")
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
-  if (input.operation === "update_business_calls" || input.operation === "update_healthcare_provider_attributes") {
-    throw new ApiError(410, "provider_capability_retired", retiredGoogleMessage(
-      input.operation === "update_business_calls" ? "businessCalls" : "healthcareProviderAttributes"
-    ))
-  }
   if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
   return publishReviewedLodging(input, linked)
 }

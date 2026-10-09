@@ -16,6 +16,7 @@ import {
 } from "@/lib/queries/use-connection-workspace"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
 
@@ -81,6 +82,7 @@ export function ReconnectBanner({ className }: { className?: string }) {
   const clientId = useClientScope()
   const clients = useClients()
   const role = useSessionRole()
+  const business = useWorkspaceMode() === "business"
   const query = useConnectionsQuery()
   const connect = useStartGoogleConnect()
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -124,8 +126,8 @@ export function ReconnectBanner({ className }: { className?: string }) {
             <span className="text-ink-secondary">
               The connected Google login lost manager access to{" "}
               {lost === 1
-                ? "one of this client’s listings"
-                : `${lost} of this client’s listings`}
+                ? `one of ${business ? "your" : "this client’s"} listings`
+                : `${lost} of ${business ? "your" : "this client’s"} listings`}
               . Ask the business to add it back as a manager on Google; its
               other listings keep syncing.
             </span>
