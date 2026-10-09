@@ -1,0 +1,31 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 04:30 UTC, so a newly published query pack runs against
+    # the unchanged tree as well.
+    - cron: "30 4 * * 1"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # TypeScript needs no build for CodeQL's analysis, and skipping the
+          # build keeps a broken webpack config from masking the scan.
+          build-mode: none
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: language-javascript-typescript

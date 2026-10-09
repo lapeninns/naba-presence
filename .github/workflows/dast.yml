@@ -1,0 +1,31 @@
+name: DAST baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Base URL to scan (defaults to the DAST_TARGET_URL variable)"
+        required: false
+        type: string
+  schedule:
+    # Weekly, Tuesday 05:30 UTC.
+    - cron: "30 5 * * 2"
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    # Skipped, not green-washed, until DAST_TARGET_URL is set on the repo.
+    # Point it at the production deployment; the scan is passive-plus-spider
+    # and reaches only the unauthenticated surfaces (sign-in, legal pages).
+    if: ${{ vars.DAST_TARGET_URL != '' || inputs.target != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ inputs.target || vars.DAST_TARGET_URL }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifact: zap-baseline-report
