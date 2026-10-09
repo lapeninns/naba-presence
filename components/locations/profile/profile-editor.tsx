@@ -800,10 +800,9 @@ function ProfileEditor({
               disabled={disabled}
             />
 
-            {/* Lodging, calls and healthcare publish through their own Google
-                APIs with their own hashes, so they keep their own controls
-                (Business calls publishes on its own) rather than pretending to
-                be part of the listing write above. Mounted only when Google
+            {/* Lodging and healthcare publish through their own Google APIs
+                with their own hashes, so they keep their own controls rather
+                than pretending to be part of the listing write above. Mounted only when Google
                 says this listing can have that data. */}
             {industry.any ? (
               <IndustrySections locationId={locationId} enabled={googleReady} />

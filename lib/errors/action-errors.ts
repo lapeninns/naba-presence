@@ -60,6 +60,10 @@ const COPY: Record<string, string> = {
     "Publishing to Google is temporarily paused. Try again shortly.",
   drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
+  // A Business Profile API Google has switched off for good (Business Calls,
+  // provider attributes, insurance networks, Q&A). No retry will help.
+  google_api_retired:
+    "Google no longer offers this Business Profile feature, so it can't be changed here.",
   profile_publishing_disabled:
     "Publishing profile changes to Google is currently unavailable.",
   hours_publishing_disabled:
@@ -237,7 +241,6 @@ const COPY: Record<string, string> = {
     "Google did not confirm the change. Refresh and try again.",
 
   // ---- Locations: industry + administration (Google-direct) ---------------
-  business_calls_mask_invalid: "Only the calls setting can be changed here.",
   search_query_required: "Enter a search term.",
   administration_confirmation_invalid:
     "We couldn’t confirm that action. Refresh and try again.",

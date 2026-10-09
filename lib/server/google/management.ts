@@ -2,7 +2,6 @@ import "server-only"
 
 import {
   googleAccountManagementRequest,
-  googleBusinessCallsRequest,
   googleHealthcareRequest,
   googleLodgingRequest,
   googleLocationProfilePatchRequest,
@@ -75,36 +74,12 @@ export function googleLodgingApi(
   )
 }
 
-export function googleBusinessCallsApi(
-  accessToken: string,
-  input: {
-    locationName: string
-    operation: "settings" | "patch" | "insights"
-    updateMask?: string[]
-    payload?: Record<string, unknown>
-    filter?: string
-    pageToken?: string
-  },
-  options: { connectionKey?: string } = {}
-) {
-  const request = googleBusinessCallsRequest(input)
-  return googleRequest<Record<string, unknown>>(
-    request.url,
-    accessToken,
-    request.init,
-    {
-      ...options,
-      mode: input.operation === "patch" ? "mutation" : "safe",
-    }
-  )
-}
-
 export function googleHealthcareApi(
   accessToken: string,
   input: {
     accountName: string
     locationName: string
-    resource: "serviceList" | "healthProviderAttributes" | "insuranceNetworks"
+    resource: "serviceList"
     method?: "GET" | "PATCH"
     updateMask?: string[]
     payload?: Record<string, unknown>

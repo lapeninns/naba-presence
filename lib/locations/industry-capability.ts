@@ -12,9 +12,10 @@ export type IndustryCapability = {
 /**
  * Whether this listing can have industry data, according to Google.
  *
- * The industry group fans out seven Google calls, paced 500ms apart on one
- * connection (lib/server/google/transport.ts), so it costs about three and a
- * half seconds. For an ordinary business every one of those calls FAILS —
+ * The industry group fans out three Google calls (it was seven before the
+ * retired Business Calls and provider-attribute APIs were dropped), paced
+ * 500ms apart on one connection (lib/server/google/transport.ts), so it
+ * costs over a second. For an ordinary business every one of those calls FAILS —
  * lodging answers "This operation is not supported for this location" and the
  * rest just fail — and the group then renders nothing. That wait was being
  * paid on every profile load by every location that could never use it.

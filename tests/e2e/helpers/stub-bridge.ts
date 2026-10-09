@@ -444,7 +444,7 @@ export default async function startJourneyBridge(config: FullConfig) {
     }))
     stub.respond({ method: "GET", pathIncludes: "chains:search" }, () => ({ status: 200, json: { chains: [] } }))
 
-    // Industry: lodging / business calls / healthcare.
+    // Industry: lodging / healthcare service list.
     stub.respond(
       { method: "GET", pathIncludes: `${primaryGoogleLocationName}/lodging:getGoogleUpdated` },
       () => ({ status: 200, json: { diffMask: { paths: [] } } })
@@ -458,28 +458,8 @@ export default async function startJourneyBridge(config: FullConfig) {
       (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, ...(call.body as Record<string, unknown>) } })
     )
     stub.respond(
-      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/businesscallssettings` },
-      () => ({ status: 200, json: { name: `${primaryGoogleLocationName}/businesscallssettings`, callsState: "ENABLED" } })
-    )
-    stub.respond(
-      { method: "PATCH", pathIncludes: `${primaryGoogleLocationName}/businesscallssettings` },
-      (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}/businesscallssettings`, ...(call.body as Record<string, unknown>) } })
-    )
-    stub.respond(
-      { method: "GET", pathIncludes: `${primaryGoogleLocationName}/businesscallsinsights` },
-      () => ({ status: 200, json: { businessCallsInsights: [] } })
-    )
-    stub.respond(
       { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/serviceList` },
       () => ({ status: 200, json: { services: [] } })
-    )
-    stub.respond(
-      { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/healthProviderAttributes` },
-      () => ({ status: 200, json: {} })
-    )
-    stub.respond(
-      { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/insuranceNetworks` },
-      () => ({ status: 200, json: { networks: [] } })
     )
 
     // Administration: suggested update, voice of merchant, verification,

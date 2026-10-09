@@ -3,7 +3,6 @@ import { z } from "zod"
 // Client-safe leaves for the fields the industry editor actually touches. The
 // server payload is a freeform record (z.record) so these mirror only the leaves
 // the UI writes — everything else on the Google resource is preserved (D8).
-// (`businessCallsLeafSchema` is part of the wire contract; see the re-export below.)
 export const lodgingLeafSchema = z.object({
   policies: z
     .object({
@@ -141,7 +140,6 @@ export function touchedMask(
 // The route mutation envelope lives in the wire contract; re-exported here so
 // existing form-side imports keep resolving.
 export {
-  businessCallsLeafSchema,
   industryMutationSchema,
   industryOperationSchema,
   type IndustryMutation,
