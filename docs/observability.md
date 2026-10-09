@@ -1,8 +1,9 @@
 # Observability
 
 NabaPresence registers OpenTelemetry with service name `nabapresence`.
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` on the web and jobs processes to the
-environment's OTLP collector. Keep tenant identifiers as restricted telemetry
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` in the Vercel project's Production (and
+staging) environment to the environment's OTLP collector; on Vercel one
+deployment serves both the web functions and the cron routes. Keep tenant identifiers as restricted telemetry
 attributes and never attach review text, reply bodies, access tokens, or email
 addresses.
 
@@ -110,10 +111,8 @@ is stamped by that tick's own lease **on a completed run**, so a tick that never
 finishes reports stale. `staleAfterSeconds` is a small multiple of that tick's
 documented interval — one missed run is noise, a stopped tick is not — and it
 is served by the endpoint rather than hard-coded in the monitor, so an interval
-change moves the threshold with it. `naba:sweep` is deliberately absent: the
-sweep route holds no advisory lease, so nothing stamps a row for it and
-reporting one would be a permanent false alarm. (Since 0046 the sweep's fleet
-enqueue does take `naba:sweep`, so `sweep` is now listed.)
+change moves the threshold with it. Since migration 0046 the sweep's fleet
+enqueue takes `naba:sweep`, so `sweep` is listed like the other ticks.
 
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not
@@ -161,8 +160,10 @@ restricted operations workspace.
 ## Scheduler and runner log events
 
 The health endpoint says what is queued; these say why. All are emitted as
-structured JSON — the first four by `scripts/scheduler.mjs`, the rest by the
-web process.
+structured JSON — the first four by `scripts/scheduler.mjs` only, the rest by
+the web process. On Vercel there is no scheduler process: a lock skip returns
+200 `{ skipped: true }` with no log line, and a cursor reset logs
+`cron.cursor_reset`.
 
 | Event                        | Level | Means                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -183,21 +184,22 @@ web process.
 | `notifications.tick`         | info  | One health tick: incidents opened/resolved, deliveries sent/suppressed/failed, platform incidents. |
 | `notifications.delivery_failed` | warn | An alert email failed; `willRetry` says whether it is backed off or given up (after 5 attempts). |
 | `ops.platform_incident_opened` | warn/error | An operator incident opened; error when nobody could be emailed. |
-| `<tick>.organisation_failed` | error | One tenant failed and the walk carried on. A paused `GBP_PERFORMANCE_ENABLED` / `GBP_KEYWORDS_ENABLED` produces one of these per tenant per tick with `sync_paused`; that is the pause, not an incident.                                                                                      |
+| `<tick>.organisation_failed` | error | One tenant failed and the walk carried on. On the session and local-scheduler POST paths, a paused `GBP_PERFORMANCE_ENABLED` / `GBP_KEYWORDS_ENABLED` produces one of these per tenant per tick with `sync_paused`; that is the pause, not an incident. The Vercel cron GETs only enqueue, and the pause holds at the runner claim.                                                                                      |
 
 ## Alert response
 
 1. Correlate the alert timestamp with request, database, Google, webhook, and
    jobs spans.
 2. Use the kill-switch table in `docs/runbook.md` to pause the narrowest
-   affected capability. Every flag needs a restart of the web and scheduler
-   processes to take effect; when background provider traffic has to stop
-   sooner, stop the scheduler process and expect `schedulerHeartbeatStale` and
-   every entry in `schedulerTicks` to go stale and page — silence those alerts
-   deliberately rather than reading them as a second failure. A
-   `RETENTION_ENABLED=false` deployment is the same case in miniature: the
-   scheduler registers no retention tick, so that one tick reports stale for
-   the length of the pause.
+   affected capability. Every flag needs an environment change plus a
+   redeploy to take effect; when background provider traffic has to stop
+   sooner, disable the project's Vercel Cron Jobs and expect
+   `schedulerHeartbeatStale` and every entry in `schedulerTicks` to go stale
+   and page — silence those alerts deliberately rather than reading them as a
+   second failure. A `RETENTION_ENABLED=false` deployment is the same case in
+   miniature: on Vercel the retention cron still fires and receives 503
+   `retention_paused`, so that one tick reports stale for the length of the
+   pause.
 3. Preserve the health payload and redacted alert notification in the live
    certification evidence file.
 4. Fix forward; do not delete failed, dead, or ambiguous records to clear an

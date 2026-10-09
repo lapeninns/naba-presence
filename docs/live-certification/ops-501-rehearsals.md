@@ -1,5 +1,13 @@
 # OPS-501 operational rehearsals
 
+> **Historical record (note added 2026-10-09).** The local rehearsal below ran
+> against the production-topology Compose stack, which has since been deleted;
+> production is Vercel plus the Supabase pooler. Read "application image" as
+> "Vercel deployment": the rollback unit is the pre-deploy snapshot plus the
+> previous Vercel production deployment (`docs/runbook.md`). The staging
+> rehearsal must be re-run against a hosted staging clone and tracked in
+> `docs/release/ledger.md` (OPS-09, OPS-10).
+
 Date: 30 July 2026
 
 Operator: Codex, local development workstation

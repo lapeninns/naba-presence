@@ -80,8 +80,9 @@ Use `PASS`, `FAIL (<issue>)`, or `BLOCKED (<reason>)` in each result column.
 
 The local WCAG 2.2 AA Playwright/axe suite covers desktop and mobile variants
 for the design-system proof, shell, sign-in, invitation, product views, and
-review state variants. The current local non-superuser Compose run passed
-26/26 on 30 July 2026. This does not satisfy the manual gate because
+review state variants. The local non-superuser Compose run passed 26/26 on
+30 July 2026 (historical: the Compose stack has since been deleted; re-run on the
+current candidate). This does not satisfy the manual gate because
 screen-reader announcements,
 focus restoration, composite-widget conventions, and human reflow inspection
 require the environments above.
