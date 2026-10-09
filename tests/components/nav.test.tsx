@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const pathname = vi.hoisted(() => ({ current: "/home" }))
+const pathname = vi.hoisted(() => ({ current: "/inbox" }))
 vi.mock("next/navigation", () => ({ usePathname: () => pathname.current }))
 
 vi.mock("next/link", () => ({
@@ -18,7 +19,13 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-import { isClientsActive, Nav, NAV_GROUPS } from "@/components/app-shell/nav"
+import {
+  isClientsActive,
+  isMoreActive,
+  MORE_ITEMS,
+  Nav,
+  NAV_ITEMS,
+} from "@/components/app-shell/nav"
 import type { NavClient } from "@/components/app-shell/nav"
 
 const clients: NavClient[] = [
@@ -26,64 +33,139 @@ const clients: NavClient[] = [
   { id: "c2", name: "Harbour Kitchen", health: "disconnected" },
 ]
 
+beforeEach(() => {
+  pathname.current = "/inbox"
+  window.sessionStorage.clear()
+})
+
 describe("primary navigation", () => {
-  it("offers the six agency destinations", () => {
+  it("offers four destinations and a More disclosure, and no Home", () => {
     render(<Nav />)
+    expect(NAV_ITEMS.map((item) => item.label)).toEqual([
+      "Inbox",
+      "Listings",
+      "Clients",
+      "Reports",
+    ])
     for (const [label, href] of [
-      ["Home", "/home"],
       ["Inbox", "/inbox"],
+      ["Listings", "/listings"],
       ["Clients", "/clients"],
       ["Reports", "/reports"],
-      ["Team", "/team"],
-      ["Settings", "/settings"],
     ]) {
-      expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", href)
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+        "href",
+        href
+      )
+    }
+    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    )
+  })
+
+  it("carries the client in scope on Inbox, Listings and Reports", () => {
+    pathname.current = "/team"
+    render(<Nav clients={clients} scopeClientId="c2" />)
+    for (const [label, href] of [
+      ["Inbox", "/inbox?clientId=c2"],
+      ["Listings", "/listings?clientId=c2"],
+      ["Clients", "/clients"],
+      ["Reports", "/reports?clientId=c2"],
+    ]) {
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+        "href",
+        href
+      )
     }
   })
 
-  it("groups items without introducing a heading", () => {
+  it("keeps the current-page mark on a scoped link", () => {
+    pathname.current = "/reports"
+    render(<Nav scopeClientId="c1" />)
+    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+  })
+
+  it("keeps Team and Settings behind More until asked", async () => {
+    render(<Nav />)
+    expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
+    for (const item of MORE_ITEMS) {
+      expect(screen.getByRole("link", { name: item.label })).toHaveAttribute(
+        "href",
+        item.href
+      )
+    }
+  })
+
+  it("opens More on its own when Team or Settings is the current page", () => {
+    pathname.current = "/settings/connections"
+    render(<Nav />)
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    expect(isMoreActive("/team")).toBe(true)
+    expect(isMoreActive("/inbox")).toBe(false)
+  })
+
+  it("introduces no heading", () => {
     // `heading-order` and `page-has-heading-one` are pinned axe rules, and a
-    // heading in the sidebar would sit above the page's own h1. The groups
-    // are labelled with plain spans instead.
+    // heading in the sidebar would sit above the page's own h1.
     const { container } = render(<Nav />)
     expect(container.querySelectorAll("h1, h2, h3, h4, h5, h6")).toHaveLength(0)
-    for (const group of NAV_GROUPS) {
-      expect(
-        screen.getByRole("group", { name: group.label })
-      ).toBeInTheDocument()
-    }
   })
 
   it("marks exactly one item as the current page", () => {
-    pathname.current = "/home"
+    pathname.current = "/inbox"
     render(<Nav />)
     const active = screen
       .getAllByRole("link")
       .filter((link) => link.getAttribute("aria-current") === "page")
     expect(active).toHaveLength(1)
-    expect(active[0]).toHaveAccessibleName("Home")
+    expect(active[0]).toHaveAccessibleName("Inbox")
   })
 
-  it("keeps Clients selected inside a location workspace", () => {
-    // A location is reached through its client and the breadcrumb says so, so
-    // leaving the sidebar with nothing selected there would strand the user.
-    expect(isClientsActive("/locations/abc/hours")).toBe(true)
+  it("lights Listings, not Clients, inside a listing", () => {
+    // A listing is reached from the board; the breadcrumb leads back there.
+    expect(isClientsActive("/listings/abc/photos")).toBe(false)
     expect(isClientsActive("/clients/c1")).toBe(true)
     expect(isClientsActive("/inbox")).toBe(false)
+    pathname.current = "/listings/abc/photos"
+    render(<Nav />)
+    expect(screen.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
   })
 
   it("pins recent clients with their health under Clients", () => {
     render(<Nav clients={clients} />)
-    expect(screen.getByRole("link", { name: /Old Crown Group/ })).toHaveAttribute(
-      "href",
-      "/clients/c1"
-    )
-    expect(screen.getByRole("link", { name: /Harbour Kitchen/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: /Old Crown Group/ })
+    ).toHaveAttribute("href", "/clients/c1")
+    expect(
+      screen.getByRole("link", { name: /Harbour Kitchen/ })
+    ).toBeInTheDocument()
   })
 
   it("shows no client sub-items before the list has loaded", () => {
     render(<Nav />)
-    expect(screen.queryByRole("link", { name: /Old Crown Group/ })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /Old Crown Group/ })
+    ).not.toBeInTheDocument()
   })
 
   it("closes the mobile sheet when a destination is chosen", async () => {
@@ -93,5 +175,74 @@ describe("primary navigation", () => {
     expect(onNavigate).toHaveBeenCalled()
     screen.getByRole("link", { name: /Old Crown Group/ }).click()
     expect(onNavigate).toHaveBeenCalledTimes(2)
+  })
+
+  it("shows the needs-reply count without renaming the Inbox link", () => {
+    render(<Nav needsReply={5} />)
+    const inbox = screen.getByRole("link", { name: "Inbox" })
+    // The count describes the row; "Inbox" stays its exact name for every
+    // locator and screen-reader link list.
+    expect(inbox).toHaveAccessibleName("Inbox")
+    expect(inbox).toHaveAccessibleDescription("5 reviews need a reply")
+  })
+
+  it("names each pinned client's health in words, not only a dot", () => {
+    render(<Nav clients={clients} />)
+    expect(
+      screen.getByRole("link", { name: /Harbour Kitchen, Action needed/i })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps rail labels as accessible names", () => {
+    render(<Nav layout="responsive" />)
+    expect(screen.getByRole("link", { name: "Listings" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument()
+  })
+
+  it("carries the needs-reply count onto the rail icon as a badge", () => {
+    const { container } = render(<Nav layout="responsive" needsReply={140} />)
+    const badge = container.querySelector("[data-slot='rail-count']")
+    expect(badge).toHaveTextContent("99+")
+    expect(badge).toHaveAttribute("aria-hidden")
+  })
+
+  it("lets More collapse while one of its pages is current", async () => {
+    pathname.current = "/settings"
+    render(<Nav />)
+    const more = screen.getByRole("button", { name: "More" })
+    expect(more).toHaveAttribute("aria-expanded", "true")
+    await userEvent.click(more)
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    expect(more).toHaveAccessibleDescription("Contains the current page")
+    await userEvent.click(more)
+    expect(more).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("leaves Team out for members and viewers", async () => {
+    render(<Nav role="member" />)
+    await userEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
+  })
+
+  it("keeps Team for owners and admins", async () => {
+    render(<Nav role="admin" />)
+    await userEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
+  })
+})
+
+describe("command palette entries", () => {
+  it("hides owner/admin destinations from members", async () => {
+    const { paletteEntriesFor } =
+      await import("@/components/app-shell/command-palette")
+    const entries = [
+      { href: "/inbox", label: "Inbox", icon: () => null },
+      { href: "/team", label: "Team", icon: () => null, adminOnly: true },
+    ]
+    expect(paletteEntriesFor(entries, "viewer").map((e) => e.label)).toEqual([
+      "Inbox",
+    ])
+    expect(paletteEntriesFor(entries, "owner")).toHaveLength(2)
   })
 })

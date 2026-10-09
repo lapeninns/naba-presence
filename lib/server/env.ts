@@ -62,13 +62,64 @@ const urlWithDefault = (fallback: string) =>
 const timeoutWithDefault = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback)
 
+/** A comma-separated list of secrets, each at least `minimumLength` long. */
+const secretList = (minimumLength: number) =>
+  z
+    .unknown()
+    .optional()
+    .transform((value, context) => {
+      const entries =
+        typeof value === "string"
+          ? value
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean)
+          : []
+      if (entries.some((entry) => entry.length < minimumLength)) {
+        context.addIssue({
+          code: "custom",
+          message: `Every entry must be at least ${minimumLength} characters.`,
+        })
+      }
+      return entries
+    })
+
+const emailList = z
+  .unknown()
+  .optional()
+  .transform((value, context) => {
+    const entries =
+      typeof value === "string"
+        ? value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : []
+    for (const entry of entries) {
+      if (!z.email().safeParse(entry).success) {
+        context.addIssue({ code: "custom", message: "Invalid email address." })
+      }
+    }
+    return entries
+  })
+
 export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DATABASE_POOL_MAX: z.unknown().optional().transform(parseDatabasePoolMax),
+  // Session-mode connection for advisory locks only (withSessionConnection).
+  // Required when DATABASE_URL is a transaction pooler; unset falls back to
+  // DATABASE_URL, which locally is a direct connection.
+  DATABASE_SESSION_URL: optionalText,
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
   NEXTAUTH_SECRET: z.string().min(32),
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
+  // Rotation (lib/server/crypto.ts): the first entry encrypts, every entry
+  // (and TOKEN_ENCRYPTION_KEY) decrypts. Unset keeps the original format.
+  TOKEN_ENCRYPTION_KEYS: secretList(32),
+  // Signs the Google OAuth state cookie. Unset falls back to NEXTAUTH_SECRET.
+  OAUTH_STATE_SECRET: optionalSecret(32),
+  OAUTH_STATE_ACCEPT_LEGACY: featureFlag(true),
   CRON_SECRET: z.string().min(16),
   SUPPORT_IMPERSONATION_SECRET: optionalSecret(32),
   SUPABASE_URL: optionalUrl,
@@ -96,6 +147,23 @@ export const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL: optionalEmail,
   GOOGLE_PUBSUB_VERIFICATION_TOKEN: optionalSecret(16),
   GOOGLE_REQUESTS_PER_SECOND: z.coerce.number().min(1).max(100).default(8),
+  // Fleet-wide Google budget, shared by every instance through Postgres
+  // (lib/server/google/rate-budget.ts). Business Profile allows 300 requests
+  // per minute per API and 10 edits per minute per profile; the defaults
+  // leave headroom under both.
+  GOOGLE_RATE_BUDGET_ENABLED: featureFlag(true),
+  GOOGLE_API_REQUESTS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .default(240),
+  GOOGLE_LOCATION_EDITS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(8),
   GOOGLE_TIMEOUT_MS: timeoutWithDefault(15_000),
   GOOGLE_MUTATION_TIMEOUT_MS: timeoutWithDefault(20_000),
   JOBS_INTERVAL_SECONDS: timeoutWithDefault(60),
@@ -106,6 +174,15 @@ export const serverEnvSchema = z.object({
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
+  // Monthly AI-written drafts per organisation (one credit per draft); an
+  // organisation.ai_monthly_draft_credits override wins. The token backstop is
+  // a runaway-loop guard across draft and verify calls, not a product limit.
+  AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
+  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(20_000_000),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
@@ -125,6 +202,15 @@ export const serverEnvSchema = z.object({
   RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
+  // The /design-system route is internal evidence, not a product surface: it
+  // renders the contrast pairs and the component hierarchy the accessibility
+  // sweep walks. Off in production by construction, on in development, and
+  // switched on explicitly by the e2e harness (playwright.config.ts), which
+  // serves a production build and so would otherwise 404 the very page the
+  // sweep measures.
+  DESIGN_SYSTEM_EVIDENCE_ENABLED: featureFlag(
+    process.env.NODE_ENV !== "production"
+  ),
   GBP_PERFORMANCE_ENABLED: featureFlag(true),
   GBP_KEYWORDS_ENABLED: featureFlag(true),
   GBP_POSTS_ENABLED: featureFlag(true),
@@ -133,6 +219,25 @@ export const serverEnvSchema = z.object({
   GBP_PLACE_ACTIONS_ENABLED: featureFlag(true),
   GBP_PROFILE_WRITES_ENABLED: featureFlag(true),
   IMPORT_REVIEW_ENABLED: featureFlag(true),
+  // Operational notifications (lib/server/notifications). Evaluation and
+  // in-app incidents run whenever this is on; email needs a provider too.
+  NOTIFICATIONS_ENABLED: featureFlag(true),
+  EMAIL_PROVIDER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["none", "resend"]).default("none")
+  ),
+  EMAIL_API_KEY: optionalText,
+  EMAIL_FROM: optionalText,
+  EMAIL_API_BASE_URL: urlWithDefault("https://api.resend.com"),
+  // Where infrastructure alerts (stale cron heartbeats) go.
+  OPS_ALERT_EMAILS: emailList,
+  LISTING_STALE_AFTER_HOURS: z.coerce.number().int().min(1).max(168).default(6),
+  // Platform sign-in, independent of the Google grant: a session ends after
+  // this many idle days, and in any case this many days after sign-in.
+  SESSION_IDLE_DAYS: z.coerce.number().int().min(1).max(90).default(14),
+  SESSION_ABSOLUTE_DAYS: z.coerce.number().int().min(1).max(365).default(90),
+  // Google Cross-Account Protection receiver (/api/webhooks/google/risc).
+  RISC_ENABLED: featureFlag(true),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

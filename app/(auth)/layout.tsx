@@ -1,7 +1,8 @@
 /**
- * The pre-auth screens: one centred card on the grouped canvas. The card
- * itself (AuthCard) is the page's `<main>` and carries the brand mark, so
- * this layout only centres it and stays free of landmarks.
+ * The pre-auth screens: a two-column grid, the charcoal product panel and
+ * the white card column, collapsing to the card column alone at 900px and
+ * below. `AuthCard` draws both columns (its panel copy differs per screen)
+ * and owns the `<main>`, so this layout stays free of landmarks.
  */
 export default function AuthLayout({
   children,
@@ -9,10 +10,8 @@ export default function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-svh flex-col bg-canvas">
-      <div className="flex flex-1 items-center justify-center px-5 py-10 sm:py-16">
-        {children}
-      </div>
+    <div className="grid min-h-svh grid-cols-1 bg-surface text-ink min-[901px]:grid-cols-[minmax(0,1fr)_minmax(360px,520px)]">
+      {children}
     </div>
   )
 }

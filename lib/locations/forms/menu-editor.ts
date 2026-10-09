@@ -21,14 +21,24 @@ export function readLabel(node: MenuRecord): MenuLabel {
 }
 
 /** Change the primary label only; translations and unknown properties survive. */
-export function withLabel(node: MenuRecord, patch: Partial<MenuLabel>): MenuRecord {
+export function withLabel(
+  node: MenuRecord,
+  patch: Partial<MenuLabel>
+): MenuRecord {
   const labels = Array.isArray(node.labels) ? [...node.labels] : []
   const first = { ...record(labels[0]), ...patch }
   return { ...node, labels: [first, ...labels.slice(1)] }
 }
 
 const SYMBOLS: Record<string, string> = {
-  GBP: "£", EUR: "€", USD: "$", AUD: "$", CAD: "$", NZD: "$", INR: "₹", JPY: "¥",
+  GBP: "£",
+  EUR: "€",
+  USD: "$",
+  AUD: "$",
+  CAD: "$",
+  NZD: "$",
+  INR: "₹",
+  JPY: "¥",
 }
 
 export function currencyOf(item: MenuRecord): string {
@@ -46,9 +56,13 @@ export function readPrice(item: MenuRecord): string {
   if (price.units === undefined && price.nanos === undefined) return ""
   const units = String(price.units ?? "0")
   const nanos = typeof price.nanos === "number" ? price.nanos : 0
-  if (!Number.isInteger(nanos) || Math.abs(nanos) >= 1_000_000_000) return "Invalid price"
+  if (!Number.isInteger(nanos) || Math.abs(nanos) >= 1_000_000_000)
+    return "Invalid price"
   const negative = units.startsWith("-") || nanos < 0
-  const fraction = String(Math.abs(nanos)).padStart(9, "0").replace(/0+$/, "").padEnd(2, "0")
+  const fraction = String(Math.abs(nanos))
+    .padStart(9, "0")
+    .replace(/0+$/, "")
+    .padEnd(2, "0")
   return `${negative ? "-" : ""}${units.replace(/^-/, "")}.${fraction}`
 }
 
@@ -61,18 +75,32 @@ export function parseMenuPrice(raw: string): PriceResult {
   const value = raw.trim()
   if (value === "") return { ok: true, value: null }
   if (!/^(?:\d+(?:\.\d{0,9})?|\.\d{1,9})$/.test(value)) {
-    return { ok: false, error: "Enter a positive price or 0, using a decimal point (for example, 12.50). Up to 9 decimal places are supported." }
+    return {
+      ok: false,
+      error:
+        "Enter a positive price or 0, using a decimal point (for example, 12.50). Up to 9 decimal places are supported.",
+    }
   }
   const [whole = "", fraction = ""] = value.split(".")
   const units = (whole || "0").replace(/^0+(?=\d)/, "")
   // Lexical comparison avoids floating point loss and works with an ES2017 target.
-  if (units.length > 19 || (units.length === 19 && units > "9223372036854775807")) {
-    return { ok: false, error: "This price is too large. Enter a smaller amount." }
+  if (
+    units.length > 19 ||
+    (units.length === 19 && units > "9223372036854775807")
+  ) {
+    return {
+      ok: false,
+      error: "This price is too large. Enter a smaller amount.",
+    }
   }
   return { ok: true, value: { units, nanos: Number(fraction.padEnd(9, "0")) } }
 }
 
-export function withPrice(item: MenuRecord, raw: string, currencyCode = currencyOf(item)): MenuRecord {
+export function withPrice(
+  item: MenuRecord,
+  raw: string,
+  currencyCode = currencyOf(item)
+): MenuRecord {
   const parsed = parseMenuPrice(raw)
   if (!parsed.ok) return item // Never turn invalid input into zero or send NaN.
   const attributes = { ...record(item.attributes) }
@@ -88,11 +116,27 @@ export function withPrice(item: MenuRecord, raw: string, currencyCode = currency
   return { ...item, attributes }
 }
 
-export type EditorItem = { id: string; data: MenuRecord; priceText: string; currencyCode: string }
-export type EditorSection = { id: string; data: MenuRecord; items: EditorItem[] }
-export type EditorMenu = { id: string; data: MenuRecord; sections: EditorSection[] }
+export type EditorItem = {
+  id: string
+  data: MenuRecord
+  priceText: string
+  currencyCode: string
+}
+export type EditorSection = {
+  id: string
+  data: MenuRecord
+  items: EditorItem[]
+}
+export type EditorMenu = {
+  id: string
+  data: MenuRecord
+  sections: EditorSection[]
+}
 
-export function hydrateMenus(menus: MenuRecord[], prefix = "menu"): EditorMenu[] {
+export function hydrateMenus(
+  menus: MenuRecord[],
+  prefix = "menu"
+): EditorMenu[] {
   return menus.map((data, m) => ({
     id: `${prefix}-${m}`,
     data,
@@ -113,19 +157,27 @@ export function serializeMenus(menus: EditorMenu[]): MenuRecord[] {
   return menus.map((menu) => ({
     ...menu.data,
     ...(menu.sections.length || Array.isArray(menu.data.sections)
-      ? { sections: menu.sections.map((section) => ({
-          ...section.data,
-          ...(section.items.length || Array.isArray(section.data.items)
-            ? { items: section.items.map((item) => item.data) }
-            : {}),
-        })) }
+      ? {
+          sections: menu.sections.map((section) => ({
+            ...section.data,
+            ...(section.items.length || Array.isArray(section.data.items)
+              ? { items: section.items.map((item) => item.data) }
+              : {}),
+          })),
+        }
       : {}),
   }))
 }
 
 export function moveBy<T>(items: T[], index: number, delta: -1 | 1): T[] {
   const destination = index + delta
-  if (index < 0 || index >= items.length || destination < 0 || destination >= items.length) return items
+  if (
+    index < 0 ||
+    index >= items.length ||
+    destination < 0 ||
+    destination >= items.length
+  )
+    return items
   const next = [...items]
   ;[next[index], next[destination]] = [next[destination]!, next[index]!]
   return next
@@ -148,19 +200,40 @@ export function menuIssues(menus: EditorMenu[]): MenuIssue[] {
   const issues: MenuIssue[] = []
   for (const menu of menus) {
     if (!readLabel(menu.data).displayName.trim()) {
-      issues.push({ menuId: menu.id, nodeId: menu.id, field: "name", message: "Give this menu a name." })
+      issues.push({
+        menuId: menu.id,
+        nodeId: menu.id,
+        field: "name",
+        message: "Give this menu a name.",
+      })
     }
     for (const section of menu.sections) {
       const scope = { menuId: menu.id, sectionId: section.id }
       if (!readLabel(section.data).displayName.trim()) {
-        issues.push({ ...scope, nodeId: section.id, field: "name", message: "Give this section a name." })
+        issues.push({
+          ...scope,
+          nodeId: section.id,
+          field: "name",
+          message: "Give this section a name.",
+        })
       }
       for (const item of section.items) {
         if (!readLabel(item.data).displayName.trim()) {
-          issues.push({ ...scope, nodeId: item.id, field: "name", message: "Give this item a name." })
+          issues.push({
+            ...scope,
+            nodeId: item.id,
+            field: "name",
+            message: "Give this item a name.",
+          })
         }
         const parsed = parseMenuPrice(item.priceText)
-        if (!parsed.ok) issues.push({ ...scope, nodeId: item.id, field: "price", message: parsed.error })
+        if (!parsed.ok)
+          issues.push({
+            ...scope,
+            nodeId: item.id,
+            field: "price",
+            message: parsed.error,
+          })
       }
     }
   }
@@ -170,35 +243,58 @@ export function menuIssues(menus: EditorMenu[]): MenuIssue[] {
 export type Removal =
   | { kind: "menu"; node: EditorMenu; index: number }
   | { kind: "section"; node: EditorSection; index: number; menuId: string }
-  | { kind: "item"; node: EditorItem; index: number; menuId: string; sectionId: string }
+  | {
+      kind: "item"
+      node: EditorItem
+      index: number
+      menuId: string
+      sectionId: string
+    }
 
 /** Undo inserts into the CURRENT tree, so later edits to other items survive. */
-export function restoreRemoval(menus: EditorMenu[], removal: Removal): EditorMenu[] {
-  if (removal.kind === "menu") return insertAt(menus, removal.index, removal.node)
+export function restoreRemoval(
+  menus: EditorMenu[],
+  removal: Removal
+): EditorMenu[] {
+  if (removal.kind === "menu")
+    return insertAt(menus, removal.index, removal.node)
   return menus.map((menu) => {
     if (menu.id !== removal.menuId) return menu
-    if (removal.kind === "section") return { ...menu, sections: insertAt(menu.sections, removal.index, removal.node) }
+    if (removal.kind === "section")
+      return {
+        ...menu,
+        sections: insertAt(menu.sections, removal.index, removal.node),
+      }
     return {
       ...menu,
-      sections: menu.sections.map((section) => section.id === removal.sectionId
-        ? { ...section, items: insertAt(section.items, removal.index, removal.node) }
-        : section),
+      sections: menu.sections.map((section) =>
+        section.id === removal.sectionId
+          ? {
+              ...section,
+              items: insertAt(section.items, removal.index, removal.node),
+            }
+          : section
+      ),
     }
   })
 }
 
 /** Human-readable structural changes supplement the existing item-by-item diff. */
 export function menuStructureSummary(menus: MenuRecord[]): string {
-  return menus.map((menu, m) => {
-    const label = readLabel(menu)
-    const sections = records(menu.sections).map((section, s) => {
-      const sectionLabel = readLabel(section)
-      const names = records(section.items).map((item) => {
-        const value = readLabel(item)
-        return `${value.displayName || "Unnamed item"}${value.description ? ` — ${value.description}` : ""}`
+  return (
+    menus
+      .map((menu, m) => {
+        const label = readLabel(menu)
+        const sections = records(menu.sections).map((section, s) => {
+          const sectionLabel = readLabel(section)
+          const names = records(section.items).map((item) => {
+            const value = readLabel(item)
+            return `${value.displayName || "Unnamed item"}${value.description ? ` — ${value.description}` : ""}`
+          })
+          return `${s + 1}. ${sectionLabel.displayName || "Unnamed section"}${sectionLabel.description ? ` — ${sectionLabel.description}` : ""}: ${names.join("; ") || "No items"}`
+        })
+        return `${m + 1}. ${label.displayName || "Unnamed menu"}${label.description ? ` — ${label.description}` : ""}\n${sections.join("\n") || "No sections"}`
       })
-      return `${s + 1}. ${sectionLabel.displayName || "Unnamed section"}${sectionLabel.description ? ` — ${sectionLabel.description}` : ""}: ${names.join("; ") || "No items"}`
-    })
-    return `${m + 1}. ${label.displayName || "Unnamed menu"}${label.description ? ` — ${label.description}` : ""}\n${sections.join("\n") || "No sections"}`
-  }).join("\n\n") || "No menus"
+      .join("\n\n") || "No menus"
+  )
 }

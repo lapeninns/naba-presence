@@ -202,6 +202,14 @@ export function buildInboxQuery(
           : sql``
       }
       ${
+        // Same test as the draft route's isRatingOnly: whitespace is no text.
+        filters.written === "rating_only"
+          ? sql`and coalesce(btrim(r.review_text), '') = ''`
+          : filters.written === "with_text"
+            ? sql`and coalesce(btrim(r.review_text), '') <> ''`
+            : sql``
+      }
+      ${
         filters.statuses?.length
           ? sql`and r.workflow_status in ${sql(filters.statuses)}`
           : sql``
@@ -214,28 +222,15 @@ export function buildInboxQuery(
             : sql``
       }
       ${
-        filters.verification?.length
-          ? sql`and coalesce(d.verification_status, 'pending')
-              in ${sql(filters.verification)}`
-          : sql``
-      }
-      ${
-        filters.publishStatus?.length
-          ? sql`and coalesce(rr.publish_status, 'not_published')
-              in ${sql(filters.publishStatus)}`
-          : sql``
-      }
-      ${
-        filters.syncStatus?.length
-          ? sql`and sc.status in ${sql(filters.syncStatus)}`
-          : sql``
-      }
-      ${
         filters.dateFrom
           ? sql`and r.update_time >= ${filters.dateFrom}`
           : sql``
       }
-      ${filters.dateTo ? sql`and r.update_time <= ${filters.dateTo}` : sql``}
+      ${
+        // Exclusive: the inbox sends the start of the day after the one
+        // picked (lib/inbox/url-state.ts), so the picked day is whole.
+        filters.dateTo ? sql`and r.update_time < ${filters.dateTo}` : sql``
+      }
       ${
         filters.cursor
           ? CURSOR_PREDICATE[filters.sort](sql, filters.cursor)

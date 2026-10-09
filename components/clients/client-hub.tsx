@@ -2,6 +2,11 @@
 
 import {
   BarChart3Icon,
+  ChevronRightIcon,
+  CircleAlertIcon,
+  EllipsisIcon,
+  InboxIcon,
+  KeyRoundIcon,
   MapPinIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -11,37 +16,66 @@ import Link from "next/link"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { buttonVariants } from "@/components/ui/button"
+import { ShareReportButton } from "@/components/clients/share-report-dialog"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { DataTable } from "@/components/ui/data-table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
-import { KpiTile } from "@/components/ui/kpi-tile"
-import { QueryStates } from "@/components/ui/query-states"
+import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
+  connectionNeedsReconnect,
+  diagnoseClient,
+  freshnessSentence,
   healthDescription,
   healthLabel,
   healthTone,
+  type ClientDiagnosis,
 } from "@/lib/clients/health"
 import type { ClientResponse } from "@/lib/contracts/clients"
+import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatAddressLine } from "@/lib/locations/address"
 import { useClient } from "@/lib/queries/use-clients"
+import { cn } from "@/lib/utils"
 
+type Client = ClientResponse["client"]
+type Listing = ClientResponse["locations"][number]
+type Diagnosis = ClientDiagnosis<Client["connections"][number]>
+
+// The listing's busiest areas, plus its report on Reports. The overview is
+// the listing's own name, a link already, so it is not repeated here.
 const SECTIONS = [
-  { segment: "", label: "Profile" },
-  { segment: "hours", label: "Hours" },
-  { segment: "photos", label: "Photos" },
-  { segment: "posts", label: "Posts" },
-  { segment: "performance", label: "Performance" },
+  { href: (id: string) => `/listings/${id}/profile`, label: "Profile" },
+  { href: (id: string) => `/listings/${id}/photos`, label: "Photos" },
+  { href: (id: string) => `/listings/${id}/posts`, label: "Posts" },
+  { href: (id: string) => `/reports?locationId=${id}`, label: "Reports" },
 ]
 
 /**
- * One client's home: how it is doing, what needs doing, and its locations.
+ * One client's home: how it is doing, what needs doing, and its listings.
  *
  * This is the level an agency actually works at. Everything below — a
- * location's profile, its hours, its photos — is reached from here, which is
- * why each location row carries its own section links rather than making the
- * operator open the location first and then find the tab.
+ * listing's profile, its hours, its photos — is reached from here, which is
+ * why each listing row carries its own section links rather than making the
+ * operator open the listing first and then find the tab.
+ *
+ * Reference `client.hub`: header with the Google login behind the client and
+ * the one primary action that matters now (Reconnect, Finish setup, or Open
+ * inbox), four work tiles that each open the filtered inbox, the listings
+ * table, and a side column. Everything shown comes from the client summary;
+ * the reference's activity feed has no data source here and is left out.
  */
 function ClientHub({
   clientId,
@@ -52,238 +86,726 @@ function ClientHub({
 }) {
   const query = useClient(clientId)
 
-  return (
-    <QueryStates
-      status={query.isPending ? "pending" : query.isError ? "error" : "ready"}
-      error="We couldn't load this client"
-      onRetry={() => void query.refetch()}
-    >
-      {() => {
-        const data = query.data as ClientResponse
-        const { client, locations } = data
-        const linked = locations.filter((location) => location.linkId)
-        return (
-          <>
-            <div className="flex items-start gap-4">
-              <ClientAvatar
-                name={client.name}
-                colour={client.colour}
-                size="xl"
-                className="mt-1"
-              />
-              <PageHeader
-                className="min-w-0 flex-1"
-                title={client.name}
-                eyebrow="Client"
-                meta={
-                  <StatusPill tone={healthTone(client.health)}>
-                    {healthLabel(client.health)}
-                  </StatusPill>
-                }
-                description={
-                  <>
-                    {healthDescription(client.health)}
-                    {client.lastSyncAt
-                      ? ` Last synced ${formatRelativeTime(client.lastSyncAt)}.`
-                      : ""}
-                  </>
-                }
-                actions={
-                  <>
-                    {canManage ? (
-                      <Link
-                        href={`/setup?client=${client.id}&step=locations`}
-                        className={buttonVariants({ variant: "secondary" })}
-                      >
-                        <PlusIcon aria-hidden strokeWidth={1.75} />
-                        Add locations
-                      </Link>
-                    ) : null}
-                    <Link
-                      href={`/inbox?clientId=${client.id}`}
-                      className={buttonVariants()}
-                    >
-                      Open inbox
-                    </Link>
-                  </>
-                }
-              />
-            </div>
-
-            {client.health === "disconnected" && canManage ? (
-              <ReconnectPrompt client={client} />
-            ) : null}
-
-            <div className="grid gap-(--np-gap-card) sm:grid-cols-2 lg:grid-cols-4">
-              <KpiTile
-                label="Needs reply"
-                value={formatNumber(client.openWork.needsReply)}
-                hint={
-                  client.openWork.needsReply === 0
-                    ? "Nothing waiting"
-                    : "Across this client's locations"
-                }
-              />
-              <KpiTile
-                label="Awaiting approval"
-                value={formatNumber(client.openWork.awaitingApproval)}
-                hint={
-                  client.openWork.awaitingApproval === 0
-                    ? "Nothing waiting"
-                    : "Drafted, not yet published"
-                }
-              />
-              <KpiTile
-                label="Locations linked"
-                value={`${formatNumber(client.linkedCount)} / ${formatNumber(client.locationCount)}`}
-                hint={`${formatNumber(client.verifiedCount)} verified on Google`}
-              />
-              <KpiTile
-                label="Failed publishes"
-                value={formatNumber(client.openWork.failed)}
-                hint={client.openWork.failed === 0 ? "None" : "Need a retry"}
-              />
-            </div>
-
-            <section
-              aria-labelledby="client-locations"
-              className="flex flex-col gap-3"
-            >
-              <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-1">
-                <h2
-                  id="client-locations"
-                  className="text-title font-semibold text-ink"
+  if (query.isPending) return <HubSkeleton />
+  if (query.isError) {
+    return (
+      <>
+        <PageHeader title="Client" eyebrow="Client" />
+        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+          <Empty
+            tone="bad"
+            titleAs="h2"
+            icon={<CircleAlertIcon />}
+            title="We couldn't load this client"
+            description={`${describeActionError(query.error)} Health, work and listings aren’t shown until it loads. Nothing was changed.`}
+            action={
+              <>
+                <Button
+                  variant="secondary"
+                  pending={query.isFetching}
+                  pendingLabel="Trying again…"
+                  onClick={() => void query.refetch()}
                 >
-                  Locations
-                </h2>
-                <p className="text-caption text-ink-muted tabular-nums">
-                  {formatNumber(linked.length)} linked ·{" "}
-                  {formatNumber(client.verifiedCount)} verified
-                </p>
-              </div>
+                  <RefreshCwIcon aria-hidden />
+                  Try again
+                </Button>
+                <Link
+                  href="/clients"
+                  className={cn(buttonVariants({ variant: "ghost" }))}
+                >
+                  All clients
+                </Link>
+              </>
+            }
+          />
+        </div>
+      </>
+    )
+  }
 
-              {locations.length === 0 ? (
-                <div className="rounded-(--np-radius-card) bg-surface">
-                  <Empty
-                    icon={<MapPinIcon />}
-                    title="No locations yet"
-                    description="Link this client's Google locations so their reviews start flowing in."
-                    action={
-                      canManage ? (
-                        <Link
-                          href={`/setup?client=${client.id}&step=locations`}
-                          className={buttonVariants({ pill: true })}
-                        >
-                          Add locations from Google
-                        </Link>
-                      ) : undefined
-                    }
-                  />
-                </div>
-              ) : (
-                <ul className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface">
-                  {locations.map((location) => (
-                    <li
-                      key={location.locationId}
-                      className="flex flex-col gap-2 px-(--np-card-pad) py-3 sm:flex-row sm:items-center sm:gap-4"
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <StatusPill
-                          variant="dot"
-                          tone={
-                            location.linkId
-                              ? location.verified
-                                ? "healthy"
-                                : "pending"
-                              : "neutral"
-                          }
-                        />
-                        <div className="min-w-0 flex-1">
-                          <Link
-                            href={`/locations/${location.locationId}`}
-                            className="rounded-(--np-radius-tag) text-body font-medium text-ink underline-offset-4 focus-halo hover:underline"
-                          >
-                            {location.name}
-                          </Link>
-                          <p className="truncate text-caption text-ink-muted">
-                            {location.linkId
-                              ? location.verified
-                                ? "Linked to Google · Verified"
-                                : "Linked to Google · Pending verification"
-                              : "Not linked to Google"}
-                          </p>
-                        </div>
-                      </div>
-                      <nav
-                        aria-label={`${location.name} sections`}
-                        className="flex flex-wrap gap-1 sm:justify-end"
-                      >
-                        {SECTIONS.map((section) => (
-                          <Link
-                            key={section.label}
-                            href={`/locations/${location.locationId}${section.segment ? `/${section.segment}` : ""}`}
-                            className={buttonVariants({
-                              variant: "secondary",
-                              size: "xs",
-                              pill: true,
-                            })}
-                          >
-                            {section.label}
-                          </Link>
-                        ))}
-                      </nav>
-                    </li>
-                  ))}
-                </ul>
+  const { client, locations } = query.data
+  // One diagnosis drives the header chip, the alert and the listing rows, so
+  // they cannot tell three different stories about the same problem.
+  const diagnosis = diagnoseClient(client)
+  const notSetUp = client.health === "not_connected"
+
+  // The fix for a broken login lives in the alert below, beside its reason;
+  // the header's primary stays the everyday one.
+  const actions: React.ReactNode[] = []
+  if (canManage && notSetUp && !diagnosis) {
+    actions.push(
+      <Link
+        key="finish"
+        href={`/setup?client=${client.id}`}
+        className={cn(buttonVariants())}
+      >
+        Finish setup
+      </Link>
+    )
+  }
+  const inboxIsPrimary = actions.length === 0
+  if (inboxIsPrimary || !notSetUp) {
+    actions.push(
+      <Link
+        key="inbox"
+        href={`/inbox?clientId=${client.id}`}
+        className={cn(
+          buttonVariants({
+            variant: inboxIsPrimary ? "default" : "secondary",
+          })
+        )}
+      >
+        {inboxIsPrimary ? <InboxIcon aria-hidden strokeWidth={1.75} /> : null}
+        Open inbox
+      </Link>
+    )
+  }
+  if (canManage) {
+    actions.push(
+      <Link
+        key="settings"
+        href={`/clients/${client.id}/settings`}
+        className={cn(buttonVariants({ variant: "secondary" }))}
+      >
+        <Settings2Icon aria-hidden strokeWidth={1.75} />
+        Settings
+      </Link>
+    )
+  }
+  if (canManage) {
+    // Owners and admins only: the link shows this client's numbers to
+    // anyone who has it (the API refuses everyone else too).
+    actions.push(
+      <ShareReportButton
+        key="share"
+        clientId={client.id}
+        clientName={client.name}
+        variant="ghost"
+      />
+    )
+  }
+  actions.push(
+    <Link
+      key="report"
+      href={`/reports?clientId=${client.id}`}
+      className={cn(buttonVariants({ variant: "ghost" }))}
+    >
+      <BarChart3Icon aria-hidden strokeWidth={1.75} />
+      Report
+    </Link>
+  )
+  // The primary goes last so it sits at the trailing edge.
+  const primaryFirst = actions.shift()
+  const ordered = [...actions.reverse(), primaryFirst]
+
+  return (
+    <>
+      <div className="flex min-w-0 items-start gap-4">
+        <ClientAvatar
+          name={client.name}
+          colour={client.colour}
+          size="lg"
+          className="mt-1 hidden @min-[480px]:flex"
+        />
+        <PageHeader
+          className="min-w-0 flex-1"
+          title={client.name}
+          eyebrow="Client"
+          meta={
+            <StatusPill tone={healthTone(client.health)} dashed={notSetUp}>
+              {healthLabel(client.health)}
+            </StatusPill>
+          }
+          description={
+            <span className="flex flex-col gap-1.5">
+              <span>
+                {client.health === "attention" && client.freshness
+                  ? freshnessSentence(client.freshness)
+                  : healthDescription(client.health)}
+                {client.lastSyncAt
+                  ? ` Last synced ${formatRelativeTime(client.lastSyncAt)}.`
+                  : ""}
+              </span>
+              <LoginLine client={client} diagnosis={diagnosis} />
+            </span>
+          }
+          actions={<>{ordered}</>}
+        />
+      </div>
+
+      {diagnosis ? (
+        <DiagnosisAlert
+          client={client}
+          diagnosis={diagnosis}
+          canManage={canManage}
+        />
+      ) : null}
+
+      <section aria-labelledby="client-work" className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h2 id="client-work" className="text-title font-semibold text-ink">
+            Work for this client
+          </h2>
+          <p className="text-caption text-ink-muted">
+            Each opens the inbox or listings filtered to {client.name}.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 @min-[820px]:grid-cols-4">
+          <WorkTile
+            label="Needs reply"
+            value={formatNumber(client.openWork.needsReply)}
+            hint={
+              client.openWork.needsReply === 0
+                ? "Nothing waiting"
+                : "Across this client's listings"
+            }
+            href={`/inbox?clientId=${client.id}&queue=needs_reply`}
+          />
+          <WorkTile
+            label="Awaiting approval"
+            value={formatNumber(client.openWork.awaitingApproval)}
+            hint={
+              client.openWork.awaitingApproval === 0
+                ? "Nothing waiting"
+                : "Drafted, not yet published"
+            }
+            href={`/inbox?clientId=${client.id}&queue=approval`}
+          />
+          <WorkTile
+            label="Failed publishes"
+            value={formatNumber(client.openWork.failed)}
+            hint={client.openWork.failed === 0 ? "None" : "Need a retry"}
+            tone={client.openWork.failed > 0 ? "bad" : undefined}
+            href={`/inbox?clientId=${client.id}&queue=failed`}
+          />
+          <WorkTile
+            label="Listings linked"
+            value={`${formatNumber(client.linkedCount)} / ${formatNumber(client.locationCount)}`}
+            hint={`${formatNumber(client.verifiedCount)} verified on Google`}
+            href={`/listings?clientId=${client.id}`}
+          />
+        </div>
+      </section>
+
+      <div className="grid items-start gap-6 @min-[980px]:grid-cols-[minmax(0,1fr)_minmax(16rem,21rem)]">
+        <ListingsSection
+          client={client}
+          listings={locations}
+          canManage={canManage}
+          loginBroken={
+            diagnosis?.kind === "reconnect" ||
+            diagnosis?.kind === "permission_missing"
+          }
+        />
+        <aside
+          aria-label={`${client.name} details`}
+          className="flex flex-col gap-4"
+        >
+          <ImportCard client={client} canManage={canManage} />
+          <section
+            aria-labelledby="client-notes"
+            className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          >
+            <h2 id="client-notes" className="text-body font-semibold text-ink">
+              Notes for the team
+            </h2>
+            <p
+              className={cn(
+                "text-ui break-words whitespace-pre-line",
+                client.notes ? "text-ink" : "text-ink-muted"
               )}
-            </section>
-
-            <GroupedList header="Manage">
-              <GroupedListItem
-                icon={<BarChart3Icon />}
-                label="Reports"
-                description="Replies, visibility and search keywords for this client"
-                href={`/reports?clientId=${client.id}`}
-              />
-              {canManage ? (
-                <GroupedListItem
-                  icon={<Settings2Icon />}
-                  label="Client settings"
-                  description="Name, notes, filed locations and archiving"
-                  href={`/clients/${client.id}/settings`}
-                />
-              ) : null}
-            </GroupedList>
-          </>
-        )
-      }}
-    </QueryStates>
+            >
+              {client.notes || "No notes yet."}
+            </p>
+            {canManage ? (
+              <Link
+                href={`/clients/${client.id}/settings#details`}
+                className="self-start rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline underline-offset-3 focus-halo pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
+              >
+                Edit notes
+              </Link>
+            ) : null}
+          </section>
+        </aside>
+      </div>
+    </>
   )
 }
 
-function ReconnectPrompt({ client }: { client: ClientResponse["client"] }) {
-  const broken =
-    client.connections.find((connection) => connection.reconnectRequired) ??
-    client.connections.find((connection) => connection.status !== "active")
+/**
+ * "Behind it: <login>" with its state, from the client's real connections.
+ *
+ * The chip never says all is well while a listing is unreachable: a login
+ * can be connected and still have lost manager access to one of the
+ * client's listings, and "Connected · refreshed a minute ago" beside an
+ * Action needed alert read as a contradiction.
+ */
+function LoginLine({
+  client,
+  diagnosis,
+}: {
+  client: Client
+  diagnosis: Diagnosis | null
+}) {
+  const [first, ...rest] = client.connections
+  if (!first) {
+    return (
+      <span className="flex items-center gap-2 text-ui text-ink-muted">
+        <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
+        No Google login connected yet.
+      </span>
+    )
+  }
+  const firstBroken = connectionNeedsReconnect(first)
+  const accessLost = diagnosis?.kind === "access_lost"
+  const lost = accessLost ? diagnosis.accessLost : 0
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
+      <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        Behind it:{" "}
+        <strong className="font-semibold text-ink">
+          {first.googleEmail ?? "Google account"}
+        </strong>
+        {rest.length > 0 ? ` and ${formatNumber(rest.length)} more` : ""}
+      </span>
+      {firstBroken ? (
+        <StatusPill tone="bad">
+          Needs reconnecting
+          {first.lastRefreshAt
+            ? ` · last refresh ${formatRelativeTime(first.lastRefreshAt)}`
+            : ""}
+        </StatusPill>
+      ) : accessLost ? (
+        <StatusPill tone="warn">
+          {lost > 1
+            ? `Connected · ${formatNumber(lost)} listings unreachable`
+            : "Connected · a listing is unreachable"}
+        </StatusPill>
+      ) : (
+        <StatusPill tone="ok">
+          Connected
+          {first.lastRefreshAt
+            ? ` · refreshed ${formatRelativeTime(first.lastRefreshAt)}`
+            : ""}
+        </StatusPill>
+      )}
+    </span>
+  )
+}
+
+function WorkTile({
+  label,
+  value,
+  hint,
+  href,
+  tone,
+}: {
+  label: string
+  value: string
+  hint: string
+  href: string
+  tone?: "bad"
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex min-w-0 flex-col gap-1 rounded-(--np-radius-card) border border-line bg-surface p-4 text-ink no-underline focus-halo transition-[border-color,box-shadow] duration-(--np-duration-fast) hover:border-line-strong hover:shadow-np-raised"
+    >
+      <span className="flex items-center justify-between gap-2 text-ui font-medium text-ink-muted">
+        {label}
+        <ChevronRightIcon
+          aria-hidden
+          strokeWidth={1.75}
+          className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) group-hover:translate-x-0.5"
+        />
+      </span>
+      <span
+        className={cn(
+          "font-mono text-[26px] leading-8 font-semibold tracking-[-0.02em] tabular-nums",
+          tone === "bad" ? "text-danger-ink" : "text-ink"
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-caption text-ink-muted">{hint}</span>
+    </Link>
+  )
+}
+
+function ListingsSection({
+  client,
+  listings,
+  canManage,
+  loginBroken,
+}: {
+  client: Client
+  listings: Listing[]
+  canManage: boolean
+  /** A login needs reconnecting, so every linked listing is paused. */
+  loginBroken: boolean
+}) {
+  const linked = listings.filter((listing) => listing.linkId)
+  const verified = listings.filter((listing) => listing.verified).length
+  const add = canManage ? (
+    <Link
+      href={`/setup?client=${client.id}&step=locations`}
+      className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+    >
+      <PlusIcon aria-hidden strokeWidth={1.75} />
+      Add listings from Google
+    </Link>
+  ) : null
+
+  return (
+    <section
+      aria-labelledby="client-listings"
+      className="flex min-w-0 flex-col gap-2.5"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <h2 id="client-listings" className="text-title font-semibold text-ink">
+          Listings
+        </h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-mono text-caption text-ink-muted tabular-nums">
+            {formatNumber(linked.length)} linked · {formatNumber(verified)}{" "}
+            verified
+          </span>
+          {listings.length > 0 ? add : null}
+        </div>
+      </div>
+
+      {listings.length === 0 ? (
+        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+          <Empty
+            titleAs="h3"
+            icon={<MapPinIcon />}
+            title="No listings yet"
+            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its locations. Reviews start arriving once a listing is linked.`}
+            action={
+              canManage ? (
+                <Link
+                  href={`/setup?client=${client.id}&step=locations`}
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  Add listings from Google
+                </Link>
+              ) : (
+                <span className="text-caption text-ink-muted">
+                  An owner or admin can add listings.
+                </span>
+              )
+            }
+          />
+        </div>
+      ) : (
+        <DataTable
+          caption={`${client.name}'s listings with their Google link and verification`}
+          rows={listings}
+          rowId={(listing) => listing.locationId}
+          surface
+          responsive
+          columns={[
+            {
+              id: "listing",
+              header: "Listing",
+              span: true,
+              label: "",
+              cell: (listing) => (
+                <span className="flex min-w-0 flex-col">
+                  <Link
+                    href={`/listings/${listing.locationId}`}
+                    className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                  >
+                    {listing.name}
+                  </Link>
+                  {formatAddressLine(listing.address) ? (
+                    <span className="text-caption break-words text-ink-muted">
+                      {formatAddressLine(listing.address)}
+                    </span>
+                  ) : null}
+                </span>
+              ),
+            },
+            {
+              id: "google",
+              header: "Google",
+              cell: (listing) =>
+                listing.linkId ? (
+                  listing.accessLost ? (
+                    <StatusPill tone="bad">
+                      Linked · no manager access
+                    </StatusPill>
+                  ) : loginBroken ? (
+                    <StatusPill tone="bad">Linked · paused</StatusPill>
+                  ) : (
+                    <StatusPill tone="ok">Linked</StatusPill>
+                  )
+                ) : (
+                  <StatusPill tone="neutral" dashed>
+                    Not linked
+                  </StatusPill>
+                ),
+            },
+            {
+              id: "verified",
+              header: "Verified",
+              cell: (listing) =>
+                !listing.linkId ? (
+                  <span className="text-ui text-ink-muted">—</span>
+                ) : listing.verified ? (
+                  <StatusPill tone="ok">Verified</StatusPill>
+                ) : (
+                  <StatusPill tone="warn">Not verified</StatusPill>
+                ),
+            },
+            {
+              id: "sections",
+              header: <span className="sr-only">Sections</span>,
+              label: "",
+              span: true,
+              className: "text-right",
+              cell: (listing) => (
+                <>
+                  <nav
+                    aria-label={`${listing.name} sections`}
+                    className="flex flex-wrap justify-end gap-1 @max-[720px]/table:hidden"
+                  >
+                    {SECTIONS.map((section) => (
+                      <Link
+                        key={section.label}
+                        href={section.href(listing.locationId)}
+                        className={cn(
+                          buttonVariants({
+                            variant: "ghost",
+                            size: "sm",
+                          })
+                        )}
+                      >
+                        {section.label}
+                      </Link>
+                    ))}
+                  </nav>
+                  {/* On a narrow row four ghost links wrapped under the name;
+                      one menu keeps the row to its name and its state. */}
+                  <div className="@min-[720px]/table:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            aria-label={`More for ${listing.name}`}
+                          />
+                        }
+                      >
+                        <EllipsisIcon aria-hidden strokeWidth={1.75} />
+                        More
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {SECTIONS.map((section) => (
+                          <DropdownMenuItem
+                            key={section.label}
+                            render={
+                              <Link href={section.href(listing.locationId)} />
+                            }
+                          >
+                            {section.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
+    </section>
+  )
+}
+
+/** Review import across the client's listings, from the summary's counts. */
+function ImportCard({
+  client,
+  canManage,
+}: {
+  client: Client
+  canManage: boolean
+}) {
+  const { running, failed, succeeded, notStarted } = client.backfill
+  const total = running + failed + succeeded + notStarted
+  return (
+    <section
+      aria-labelledby="client-import"
+      className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4"
+    >
+      <h2 id="client-import" className="text-body font-semibold text-ink">
+        Review import
+      </h2>
+      {total === 0 ? (
+        <p className="text-ui text-ink-muted">
+          Nothing to import until a listing is linked.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2 text-ui">
+          {running > 0 ? (
+            <ImportRow tone="info" label="Importing" count={running} />
+          ) : null}
+          {failed > 0 ? (
+            <ImportRow tone="bad" label="Stopped" count={failed} />
+          ) : null}
+          {succeeded > 0 ? (
+            <ImportRow tone="ok" label="Complete" count={succeeded} />
+          ) : null}
+          {notStarted > 0 ? (
+            <ImportRow tone="neutral" label="Not started" count={notStarted} />
+          ) : null}
+        </ul>
+      )}
+      {canManage && (failed > 0 || notStarted > 0) ? (
+        <Link
+          href={`/setup?client=${client.id}&step=backfill`}
+          className={cn(
+            buttonVariants({ variant: "secondary", size: "sm" }),
+            "self-start"
+          )}
+        >
+          {failed > 0 ? "Retry the import" : "Start the import"}
+        </Link>
+      ) : null}
+    </section>
+  )
+}
+
+function ImportRow({
+  tone,
+  label,
+  count,
+}: {
+  tone: "info" | "bad" | "ok" | "neutral"
+  label: string
+  count: number
+}) {
+  return (
+    <li className="flex items-center justify-between gap-3">
+      <StatusPill tone={tone} dashed={tone === "neutral"}>
+        {label}
+      </StatusPill>
+      <span className="font-mono text-caption text-ink-muted tabular-nums">
+        {formatNumber(count)} {count === 1 ? "listing" : "listings"}
+      </span>
+    </li>
+  )
+}
+
+/**
+ * The one alert for a client that needs a person, with the fix inside it.
+ *
+ * A broken login and a lost listing are different problems with different
+ * fixes. They used to share one "Google needs reconnecting" alert, shown
+ * under a shell banner saying reconnecting would not help.
+ */
+function DiagnosisAlert({
+  client,
+  diagnosis,
+  canManage,
+}: {
+  client: Client
+  diagnosis: Diagnosis
+  canManage: boolean
+}) {
+  const email = diagnosis.connection?.googleEmail ?? null
+  if (diagnosis.kind === "access_lost") {
+    const many = diagnosis.accessLost > 1
+    return (
+      <Alert variant="warning">
+        <AlertTitle>
+          {many
+            ? `${formatNumber(diagnosis.accessLost)} listings can’t be reached`
+            : "A listing can’t be reached"}
+        </AlertTitle>
+        <AlertDescription>
+          {email ? (
+            <>
+              <strong className="font-semibold [overflow-wrap:anywhere]">
+                {email}
+              </strong>{" "}
+              is still connected, but it is
+            </>
+          ) : (
+            "The connected Google login still works, but it is"
+          )}{" "}
+          no longer a manager of {many ? "these listings" : "this listing"} on
+          Google. Reconnecting won’t fix this: ask {client.name} to add it back
+          as a manager on the Business Profile. Their other listings keep
+          syncing.
+        </AlertDescription>
+        <AlertActions>
+          <Link
+            href={`/listings?clientId=${client.id}`}
+            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          >
+            See {client.name}’s listings
+          </Link>
+        </AlertActions>
+      </Alert>
+    )
+  }
+  const permission = diagnosis.kind === "permission_missing"
   return (
     <Alert variant="destructive">
-      <AlertTitle>Google needs reconnecting</AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-3">
-        <span>
-          {broken?.googleEmail
-            ? `${broken.googleEmail} can no longer reach ${client.name}'s Business Profile. Reviews and profile changes have stopped syncing.`
-            : `Reviews and profile changes for ${client.name} have stopped syncing.`}
-        </span>
-        <Link
-          href={`/setup?client=${client.id}&step=connect`}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          <RefreshCwIcon aria-hidden strokeWidth={1.75} />
-          Reconnect
-        </Link>
+      <AlertTitle>
+        {permission
+          ? "Google permission missing"
+          : "Google login needs reconnecting"}
+      </AlertTitle>
+      <AlertDescription>
+        {permission
+          ? `${email ?? "The connected login"} was connected without permission to manage Business Profiles. Reconnect it and allow access when Google asks.`
+          : email
+            ? `Google stopped accepting ${email}, so ${client.name}’s reviews and profile changes have stopped syncing. Reconnect it to resume.`
+            : `Reviews and profile changes for ${client.name} have stopped syncing. Reconnect Google to resume.`}
+        {canManage ? "" : " Ask an owner or admin to reconnect it."}
       </AlertDescription>
+      {canManage ? (
+        <AlertActions>
+          <Link
+            href={`/setup?client=${client.id}&step=connect`}
+            className={cn(buttonVariants({ size: "sm" }))}
+          >
+            <RefreshCwIcon aria-hidden strokeWidth={1.75} />
+            Reconnect Google
+          </Link>
+        </AlertActions>
+      ) : null}
     </Alert>
   )
 }
 
-export { ClientHub }
+function HubSkeleton() {
+  return (
+    <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
+      <div className="flex items-start gap-4">
+        <Skeleton className="size-12 rounded-(--np-radius-card)" />
+        <div className="flex flex-1 flex-col gap-2 pt-1">
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-8 w-64 max-w-full" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+      </div>
+      <p role="status" className="text-ui text-ink-muted">
+        Loading this client…
+      </p>
+      <div className="grid grid-cols-2 gap-3 @min-[820px]:grid-cols-4">
+        {[0, 1, 2, 3].map((index) => (
+          <Skeleton key={index} className="h-28 rounded-(--np-radius-card)" />
+        ))}
+      </div>
+      <Skeleton className="h-48 rounded-(--np-radius-card)" />
+    </div>
+  )
+}
+
+export { ClientHub, HubSkeleton }

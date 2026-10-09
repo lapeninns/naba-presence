@@ -235,6 +235,38 @@ describe("verification", () => {
     await waitFor(() => expect(pin).toHaveValue(""))
   })
 
+  it("keeps Google's refusal of a PIN beside the field and puts focus back in it", async () => {
+    stubPatch({ status: 400, code: "INVALID_ARGUMENT" })
+    renderSection(
+      <VerificationHistory
+        data={{
+          verifications: [
+            {
+              name: "locations/camden/verifications/1",
+              method: "SMS",
+              state: "PENDING",
+            },
+          ],
+        }}
+      />
+    )
+    const pin = screen.getByLabelText("PIN")
+    await userEvent.type(pin, "000000")
+    await userEvent.click(
+      screen.getByRole("button", { name: "Complete verification" })
+    )
+    await waitFor(() => expect(pin).toHaveAttribute("aria-invalid", "true"))
+    expect(pin).toHaveAccessibleDescription(
+      expect.stringContaining("Google didn’t accept this PIN. Nothing changed.")
+    )
+    expect(screen.getByText("INVALID_ARGUMENT")).toBeInTheDocument()
+    expect(pin).toHaveValue("000000")
+    expect(pin).toHaveFocus()
+    // Retyping clears Google's old answer.
+    await userEvent.type(pin, "1")
+    expect(pin).not.toHaveAttribute("aria-invalid")
+  })
+
   it("disables the start button behind the publish gate and explains why", () => {
     renderSection(
       <StartVerification

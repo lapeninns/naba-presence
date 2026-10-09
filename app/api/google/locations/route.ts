@@ -152,7 +152,108 @@ export const GET = route({
             address_json = excluded.address_json,
             verified = excluded.verified,
             raw_payload = excluded.raw_payload,
-            raw_content_expires_at = excluded.raw_content_expires_at
+            raw_content_expires_at = excluded.raw_content_expires_at,
+            -- This login just listed the location, so it can reach it. Move
+            -- the listing over only when the login it points at cannot
+            -- (disconnected, revoked, waiting on a reconnect, or lost access
+            -- to this one location): a working login keeps its listings, so
+            -- discovering through a second login never silently re-routes
+            -- another client's venue.
+            google_connection_id = case
+              when (
+                external_location.google_connection_id <> excluded.google_connection_id
+                and external_location.access_state = 'ok'
+                and exists (
+                  select 1
+                  from google_connection current_login
+                  where current_login.id = external_location.google_connection_id
+                    and current_login.status in ('active', 'expired')
+                    and not exists (
+                      select 1 from connection_task ct
+                      where ct.google_connection_id = current_login.id
+                        and ct.task_type = 'reconnect'
+                        and ct.status = 'open'
+                    )
+                )
+              ) then external_location.google_connection_id
+              else excluded.google_connection_id
+            end,
+            google_account_name = case
+              when (
+                external_location.google_connection_id <> excluded.google_connection_id
+                and external_location.access_state = 'ok'
+                and exists (
+                  select 1
+                  from google_connection current_login
+                  where current_login.id = external_location.google_connection_id
+                    and current_login.status in ('active', 'expired')
+                    and not exists (
+                      select 1 from connection_task ct
+                      where ct.google_connection_id = current_login.id
+                        and ct.task_type = 'reconnect'
+                        and ct.status = 'open'
+                    )
+                )
+              ) then external_location.google_account_name
+              else excluded.google_account_name
+            end,
+            access_state = case
+              when (
+                external_location.google_connection_id <> excluded.google_connection_id
+                and external_location.access_state = 'ok'
+                and exists (
+                  select 1
+                  from google_connection current_login
+                  where current_login.id = external_location.google_connection_id
+                    and current_login.status in ('active', 'expired')
+                    and not exists (
+                      select 1 from connection_task ct
+                      where ct.google_connection_id = current_login.id
+                        and ct.task_type = 'reconnect'
+                        and ct.status = 'open'
+                    )
+                )
+              ) then external_location.access_state
+              else 'ok'
+            end,
+            access_lost_at = case
+              when (
+                external_location.google_connection_id <> excluded.google_connection_id
+                and external_location.access_state = 'ok'
+                and exists (
+                  select 1
+                  from google_connection current_login
+                  where current_login.id = external_location.google_connection_id
+                    and current_login.status in ('active', 'expired')
+                    and not exists (
+                      select 1 from connection_task ct
+                      where ct.google_connection_id = current_login.id
+                        and ct.task_type = 'reconnect'
+                        and ct.status = 'open'
+                    )
+                )
+              ) then external_location.access_lost_at
+              else null
+            end,
+            access_error_code = case
+              when (
+                external_location.google_connection_id <> excluded.google_connection_id
+                and external_location.access_state = 'ok'
+                and exists (
+                  select 1
+                  from google_connection current_login
+                  where current_login.id = external_location.google_connection_id
+                    and current_login.status in ('active', 'expired')
+                    and not exists (
+                      select 1 from connection_task ct
+                      where ct.google_connection_id = current_login.id
+                        and ct.task_type = 'reconnect'
+                        and ct.status = 'open'
+                    )
+                )
+              ) then external_location.access_error_code
+              else null
+            end
           returning id::text as id
         `
         try {

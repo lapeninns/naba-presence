@@ -1,25 +1,42 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { GlobeIcon, ImageIcon, ReplyIcon } from "lucide-react"
+import { GlobeIcon, ImageIcon } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusPill } from "@/components/ui/status-pill"
+import { replyStatusPill } from "@/components/inbox/situation-tone"
 import { StarRating } from "@/components/inbox/star-rating"
-import { SITUATION_TONE_STATUS } from "@/components/inbox/situation-tone"
 import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
-import { situationFromReviewRow } from "@/lib/inbox/review-situation"
+import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
-function initials(name: string | null): string {
-  if (!name) return "?"
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?"
+/**
+ * The status words a queue already says. A row in Needs reply that reads
+ * "Needs reply" repeats the tab above it and pushes the pills that DO carry
+ * news ("Check needed", "Ready to publish") into the same grey.
+ */
+const QUEUE_SAYS: Record<string, readonly string[]> = {
+  needs_reply: ["Needs reply"],
+  // Only the aggregate tab: under "Waiting on: Me / Others" the pill still
+  // says whose turn it is, which the tab does not.
+  approval: ["Awaiting approval"],
+  publishing: ["Publishing"],
+  failed: ["Publish failed"],
+  done: ["Replied"],
+}
+
+/**
+ * Google moves a review's update time when the reviewer edits it. A minute's
+ * grace, so a create and a first sync a moment apart do not read as an edit.
+ */
+export function wasEdited(createTime: string, updateTime: string): boolean {
+  return Date.parse(updateTime) - Date.parse(createTime) > 60_000
 }
 
 /**
@@ -34,8 +51,10 @@ function listTime(iso: string, timezone: string): string {
 }
 
 function ReviewList({
+  ref,
   reviews,
   selectedId,
+  queue,
   onSelect,
   onMovePastEnd,
   timezone = "Europe/London",
@@ -44,8 +63,15 @@ function ReviewList({
   onReachEnd,
   isLoadingMore = false,
 }: {
+  /** The scrolling element, so the parent can keep its place. */
+  ref?: React.Ref<HTMLElement>
   reviews: ReviewRow[]
   selectedId: string | undefined
+  /**
+   * The queue these rows were fetched under. Only used to say who an approval
+   * is waiting on, and only when the server scoped it — see `replyStateFromRow`.
+   */
+  queue?: string
   // Returns whether the selection actually changed: `false` means the
   // dirty guard blocked it (the user cancelled the discard confirm). Arrow
   // navigation below relies on this so a blocked selection change never
@@ -68,6 +94,7 @@ function ReviewList({
   /** Shown under the rows while the next page is on its way. */
   isLoadingMore?: boolean
 }) {
+  const business = useWorkspaceMode() === "business"
   const containerRef = useRef<HTMLUListElement>(null)
 
   function focusRow(index: number) {
@@ -77,8 +104,8 @@ function ReviewList({
     buttons?.[index]?.focus()
   }
 
-  // Below lg, "Back to reviews" (components/inbox/inbox-view.tsx) clears the
-  // selection and closes the detail sheet; this list never unmounts, so
+  // On a phone, "Back to reviews" (components/inbox/inbox-view.tsx) clears
+  // the selection and closes the review; this list never unmounts, so
   // restoring focus here — to the row that was just deselected, or the
   // roving tab-stop if it's no longer in the list — mirrors that button
   // taking focus on the way into the sheet, rather than silently dropping
@@ -102,7 +129,8 @@ function ReviewList({
       '[data-slot="review-row"]'
     )
     const index = reviews.findIndex((review) => review.id === selectedId)
-    buttons?.[index]?.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
+    const row = buttons?.[index]
+    if (row) scrollIntoNearestScroller(row)
   }, [selectedId, reviews])
 
   function onKeyDown(event: React.KeyboardEvent, index: number) {
@@ -160,17 +188,20 @@ function ReviewList({
 
   return (
     <section
+      ref={ref}
       aria-label="Review list"
       aria-busy={isRefreshing || undefined}
       className={cn(
-        "relative flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity duration-(--np-duration-fast)",
+        // The rows scroll inside the card only where the workspace is locked
+        // to the window; on a phone or a short window the page scrolls.
+        "relative flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) md:[@media(min-height:620px)]:overflow-y-auto",
         isRefreshing && "opacity-80"
       )}
     >
       {isRefreshing ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-line-subtle"
+          className="pointer-events-none sticky inset-x-0 top-0 z-10 h-0.5 shrink-0 overflow-hidden bg-line"
         >
           <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
@@ -178,7 +209,7 @@ function ReviewList({
       {/* Native <ul>/<li> give the list/listitem roles; the row stays a real
           <button> (role button) so getByRole("button", { name }) works and the
           list satisfies aria-required-children. Roving tabindex lives on the
-          buttons. Compact density: a working queue is read, not browsed. */}
+          buttons. */}
       <ul ref={containerRef} data-density="compact" className="flex flex-col">
         {reviews.map((review, index) => {
           const selected = review.id === selectedId
@@ -188,34 +219,40 @@ function ReviewList({
           const displayName = review.reviewer.isAnonymous
             ? "Anonymous"
             : (review.reviewer.displayName ?? "Anonymous")
-          const photoUrl =
-            !review.reviewer.isAnonymous && review.reviewer.profilePhotoUrl
-              ? review.reviewer.profilePhotoUrl
-              : null
-          const situation = situationFromReviewRow(review)
+          const status = deriveReplyStatus(replyStateFromRow(review, queue))
+          const pill = replyStatusPill(status)
+          const pillRepeatsQueue = Boolean(
+            queue && QUEUE_SAYS[queue]?.includes(status.short)
+          )
+          const edited = wasEdited(review.createTime, review.updateTime)
           const parsed = parseReviewText(
             review.text,
             review.detectedLanguageCode
           )
-          const hasIcons = review.hasMedia || review.replyStatus === "published"
+          const venue =
+            review.location.clientName && !business
+              ? `${review.location.clientName} · ${review.location.name}`
+              : review.location.name
 
           return (
             <li
               key={review.id}
-              className="group/row relative border-b border-line-subtle last:border-b-0"
+              className={cn(
+                "group/row relative flex border-b border-line transition-[background-color] duration-(--np-duration-fast) ease-out-strong",
+                selected ? "bg-fill" : "hover-fine:hover:bg-surface-alt",
+                // The selected row is raised with an ink bar down its leading
+                // edge (reference `.q-item[aria-selected]`): the accent stays
+                // reserved for the one action that publishes.
+                selected &&
+                  "before:absolute before:inset-y-2 before:left-0 before:z-10 before:w-[3px] before:rounded-r-[3px] before:bg-ink before:content-['']"
+              )}
             >
               {selection ? (
-                <span
-                  className={cn(
-                    "absolute top-2.5 left-3 z-10 flex transition-opacity duration-(--np-duration-fast)",
-                    // Visible once ticked or on hover/focus, so an untouched
-                    // list is not a wall of empty boxes — but never hidden
-                    // from keyboards, which have no hover.
-                    selection.selected.has(review.id)
-                      ? "opacity-100"
-                      : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100"
-                  )}
-                >
+                // Always visible, never hover-only: a touch screen has no
+                // hover, and a keyboard user needs to see what they tick. Its
+                // own column, not laid over the row, so the box and the row
+                // are two targets with room between them.
+                <span className="flex w-11 shrink-0 justify-center pt-3.5">
                   <Checkbox
                     checked={selection.selected.has(review.id)}
                     aria-label={`Select the review from ${displayName}`}
@@ -239,97 +276,92 @@ function ReviewList({
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  // The halo is inset because the list clips at the card's
-                  // corners; an outer halo would be cut off on the edge rows.
-                  "relative flex w-full items-start gap-2.5 py-2 pr-3 text-left transition-[background-color] duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none",
-                  selection ? "pl-9" : "pl-3",
-                  selected
-                    ? "bg-accent-tint"
-                    : "hover:bg-(--np-hover-bg) active:bg-fill-tertiary"
+                  "relative block min-w-0 flex-1 py-3 pr-3.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  selection ? "pl-0" : "pl-4",
+                  selected ? "bg-fill" : "active:bg-surface-alt"
                 )}
               >
-                <Avatar size="sm" className="mt-0.5">
-                  {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-                  <AvatarFallback>{initials(displayName)}</AvatarFallback>
-                </Avatar>
-
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-ui font-semibold text-ink">
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <StarRating rating={review.rating} size="md" />
+                    <span className="min-w-0 truncate text-ui font-semibold text-ink">
                       {displayName}
                     </span>
+                    {/* When it was written, as the detail pane says — the two
+                        used to disagree, one showing the edit and the other
+                        the original. An edit is noted beside it. */}
                     <time
-                      dateTime={review.updateTime}
-                      title={formatDateTime(review.updateTime, timezone)}
-                      className="shrink-0 text-caption text-ink-muted tabular-nums"
+                      dateTime={review.createTime}
+                      title={
+                        edited
+                          ? `Written ${formatDateTime(review.createTime, timezone)} · edited ${formatDateTime(review.updateTime, timezone)}`
+                          : formatDateTime(review.createTime, timezone)
+                      }
+                      className="ml-auto shrink-0 font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
                     >
-                      {listTime(review.updateTime, timezone)}
+                      {listTime(review.createTime, timezone)}
+                      {edited ? " · edited" : ""}
                     </time>
-                  </span>
-
-                  <span className="flex items-center gap-1.5 text-caption text-ink-muted">
-                    <StarRating rating={review.rating} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {/* Client first: in an agency inbox the location name
-                          alone ("High Street") does not say whose business
-                          this is, and replying in the wrong voice is the
-                          mistake this line exists to prevent. */}
-                      {review.location.clientName
-                        ? `${review.location.clientName} · ${review.location.name}`
-                        : review.location.name}
-                    </span>
-                    {hasIcons ? (
-                      <span className="flex shrink-0 items-center gap-1">
-                        {review.hasMedia ? (
-                          <ImageIcon
-                            role="img"
-                            aria-label="Has photos"
-                            strokeWidth={1.75}
-                            className="size-3.5"
-                          />
-                        ) : null}
-                        {review.replyStatus === "published" ? (
-                          <ReplyIcon
-                            role="img"
-                            aria-label="Reply published"
-                            strokeWidth={1.75}
-                            className="size-3.5 text-success-ink"
-                          />
-                        ) : null}
-                      </span>
-                    ) : null}
-                    {/* The situation as the product's status dot plus its
-                        short word; the headline is the accessible name so a
-                        reader hears "Ready to publish", not "Ready". */}
-                    <StatusPill
-                      tone={SITUATION_TONE_STATUS[situation.tone]}
-                      variant="inline"
-                      title={situation.headline}
-                      aria-label={situation.headline}
-                      className="shrink-0 text-caption"
-                    >
-                      {situation.chip}
-                    </StatusPill>
                   </span>
 
                   <span
                     lang={parsed?.bodyLang ?? undefined}
                     dir="auto"
-                    className="line-clamp-2 text-ui text-ink-muted"
+                    // One line beside the thread, where the queue is narrow and
+                    // the full words are a glance away; two on a phone, where
+                    // the row is all there is.
+                    className={cn(
+                      "mt-[3px] line-clamp-2 text-[13px] leading-5 md:line-clamp-1",
+                      parsed ? "text-ink-secondary" : "text-ink-muted italic"
+                    )}
                   >
-                    {parsed?.body ?? "No review text"}
+                    {parsed?.body ?? "A rating with no written review."}
                   </span>
 
-                  {parsed?.original ? (
-                    <span className="flex items-center gap-1.5 text-caption text-ink-muted">
-                      <GlobeIcon
-                        aria-hidden
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0"
-                      />
-                      Translated
+                  <span className="mt-[7px] flex min-w-0 flex-wrap items-center gap-2">
+                    {/* Client first: in an agency inbox the location name
+                        alone ("High Street") does not say whose business this
+                        is, and replying in the wrong voice is the mistake this
+                        line exists to prevent. */}
+                    <span className="min-w-0 truncate text-caption text-ink-muted">
+                      {venue}
                     </span>
-                  ) : null}
+                    {review.hasMedia ? (
+                      <ImageIcon
+                        role="img"
+                        aria-label="Has photos"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
+                    ) : null}
+                    {parsed?.original ? (
+                      <GlobeIcon
+                        role="img"
+                        aria-label="Translated"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
+                    ) : null}
+                    {pillRepeatsQueue ? null : (
+                      <StatusPill
+                        tone={pill.tone}
+                        dashed={pill.dashed}
+                        // The full sentence is the accessible name, so a
+                        // reader hears "Draft checked · Ready to publish"
+                        // rather than the abbreviation the row has room for.
+                        data-slot="reply-status"
+                        data-tone={status.tone}
+                        aria-label={status.text}
+                      >
+                        {status.short}
+                      </StatusPill>
+                    )}
+                    {/* The non-colour half of the selection cue, for
+                        greyscale, forced colours and screen readers. */}
+                    {selected ? (
+                      <span className="sr-only">Selected review</span>
+                    ) : null}
+                  </span>
                 </span>
               </button>
             </li>
@@ -352,3 +384,34 @@ function ReviewList({
 }
 
 export { ReviewList }
+
+/**
+ * Bring a row into view by scrolling only its nearest scrolling container,
+ * and only when it is actually out of view. `scrollIntoView` scrolls every
+ * scrollable ancestor too, so auto-selecting the first review on a desktop
+ * load also scrolled the page column and slid the org-wide reconnect banner
+ * under the sticky toolbar.
+ */
+function scrollIntoNearestScroller(row: HTMLElement) {
+  let scroller = row.parentElement
+  while (scroller) {
+    const overflow = getComputedStyle(scroller).overflowY
+    if (
+      (overflow === "auto" || overflow === "scroll") &&
+      scroller.scrollHeight > scroller.clientHeight
+    ) {
+      break
+    }
+    scroller = scroller.parentElement
+  }
+  if (!scroller) return
+  const rowBox = row.getBoundingClientRect()
+  const box = scroller.getBoundingClientRect()
+  const delta =
+    rowBox.top < box.top
+      ? rowBox.top - box.top
+      : rowBox.bottom > box.bottom
+        ? rowBox.bottom - box.bottom
+        : 0
+  if (delta !== 0) scroller.scrollBy?.({ top: delta, behavior: "smooth" })
+}

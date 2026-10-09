@@ -261,8 +261,11 @@ async function settleKeywordCheckpoint(
         last_keyword_month = greatest(last_keyword_month, ${monthDate}::date),
         attempt_count = 0,
         dead_lettered_at = null,
-        next_attempt_at = now() + interval '24 hours',
+        -- From the slot this run was due in (0048), so a late tick does
+        -- not push every later run back.
+        next_attempt_at = next_scheduled_run(scheduled_for, interval '24 hours'),
         finished_at = now(),
+        last_succeeded_at = now(),
         last_error_code = ${
           walk.unrecognisedMonths.length ? "keyword_months_unrecognised" : null
         }

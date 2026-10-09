@@ -1,9 +1,9 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
 /**
- * The shape of a settings pane while it loads: a title, then two grouped
- * lists. It claims nothing about what is inside — only that a pane is on
- * its way.
+ * The shape of a settings page while it loads: the title, the Policy ·
+ * Connections tab row, then two cards. It claims nothing about what is
+ * inside — only that a page is on its way.
  */
 export default function SettingsLoading() {
   return (
@@ -13,18 +13,27 @@ export default function SettingsLoading() {
       aria-busy="true"
     >
       <span className="sr-only">Loading settings</span>
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-4 w-80 max-w-full" />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-8 w-52" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+        <div className="flex h-10 items-end gap-4 border-b border-line pb-2">
+          <Skeleton className="h-4 w-14" />
+          <Skeleton className="h-4 w-24" />
+        </div>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Skeleton className="ml-(--np-card-pad) h-3 w-24" />
-        <Skeleton className="h-[calc(var(--np-row-h)*3)] w-full rounded-(--np-radius-card)" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Skeleton className="ml-(--np-card-pad) h-3 w-32" />
-        <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
-      </div>
+      {[3, 2].map((rows, index) => (
+        <div
+          key={index}
+          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+        >
+          <Skeleton className="h-4 w-1/3" />
+          {Array.from({ length: rows }, (_, row) => (
+            <Skeleton key={row} className="h-9 w-full" />
+          ))}
+        </div>
+      ))}
     </div>
   )
 }

@@ -18,7 +18,7 @@ type InvitationForAcceptance = {
   canPublish: boolean
 }
 
-async function resolveInvitation(
+export async function resolveInvitation(
   inviteToken: string
 ): Promise<InvitationForAcceptance> {
   const [invitation] = await getDatabase()<InvitationForAcceptance[]>`

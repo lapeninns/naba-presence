@@ -4,6 +4,7 @@ import {
   clientsResponseSchema,
   clientSummarySchema,
   type ClientAssignLocationsInput,
+  type ClientAttachConnectionInput,
   type ClientCreateInput,
   type ClientUpdateInput,
 } from "@/lib/contracts/clients"
@@ -17,6 +18,14 @@ export function fetchClients(signal?: AbortSignal) {
   return apiFetch("/api/clients", { schema: clientsResponseSchema, signal })
 }
 
+/** Archived clients only, for the Clients page's Archived view. */
+export function fetchArchivedClients(signal?: AbortSignal) {
+  return apiFetch("/api/clients?archived=1", {
+    schema: clientsResponseSchema,
+    signal,
+  })
+}
+
 export function fetchClient(clientId: string, signal?: AbortSignal) {
   return apiFetch(`/api/clients/${clientId}`, {
     schema: clientResponseSchema,
@@ -28,6 +37,18 @@ export function fetchClientSetup(clientId: string, signal?: AbortSignal) {
   return apiFetch(`/api/clients/${clientId}/setup`, {
     schema: clientSetupResponseSchema,
     signal,
+  })
+}
+
+/** Setup's "Use an account already connected". Answers the new setup state. */
+export function attachClientConnection(
+  clientId: string,
+  input: ClientAttachConnectionInput
+) {
+  return apiFetch(`/api/clients/${clientId}/connections`, {
+    method: "POST",
+    body: input,
+    schema: clientSetupResponseSchema,
   })
 }
 

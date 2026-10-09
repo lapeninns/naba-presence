@@ -6,16 +6,27 @@ import { useId, useState } from "react"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
 import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
+import { resolveImportSource } from "@/lib/connections/import-source"
+import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { useGoogleLocations } from "@/lib/queries/use-google-locations"
 import { useLocationImport } from "@/lib/queries/use-location-import"
-import { useLocationDirectory } from "@/lib/queries/use-locations"
+import {
+  useLocationDirectory,
+  type DirectoryEntry,
+} from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { describeActionError } from "@/lib/errors/action-errors"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
@@ -24,28 +35,39 @@ type RowState = "idle" | "pending" | "imported" | { error: string }
 
 /**
  * The locations Google knows about under the working account, one row each:
- * name, address, whether it is linked here yet, and an Import action for the
- * ones that are not.
+ * name, address, and the next action. A location not yet in NabaPresence can
+ * be imported. One already imported, but not filed under this client, can be
+ * filed or moved here — "linked" on its own only means the Google listing
+ * was imported, not that this client owns it.
  */
-export function ImportCard({ clientId }: { clientId?: string } = {}) {
+export function ImportCard({
+  clientId,
+  connectionId: clientConnectionId,
+}: {
+  clientId?: string
+  /** The login this client's setup attached; the org's first one otherwise. */
+  connectionId?: string | null
+} = {}) {
+  const business = useWorkspaceMode() === "business"
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
-  const connectionId = deriveAutoSelection({
-    connections: connections.map((c) => ({ id: c.id, status: c.status })),
-    accounts: [],
-    selectedConnectionId: null,
-    selectedAccountName: null,
-  }).connectionId
+  const connectionId =
+    clientConnectionId ??
+    deriveAutoSelection({
+      connections: connections.map((c) => ({ id: c.id, status: c.status })),
+      accounts: [],
+      selectedConnectionId: null,
+      selectedAccountName: null,
+    }).connectionId
   const accounts = useGoogleAccounts(connectionId)
-  const accountName = deriveAutoSelection({
-    connections: connections.map((c) => ({ id: c.id, status: c.status })),
-    accounts: (accounts.query.data?.accounts ?? []).map((a) => ({
-      googleAccountName: a.googleAccountName,
-      isActive: a.isActive,
-    })),
-    selectedConnectionId: connectionId,
-    selectedAccountName: null,
-  }).accountName
+  const [chosenAccountName, setChosenAccountName] = useState<string | null>(
+    null
+  )
+  const { activeAccounts, accountName } = resolveImportSource({
+    accounts: accounts.query.data?.accounts ?? [],
+    connectionId,
+    chosenAccountName,
+  })
 
   const discovery = useGoogleLocations(accountName)
   // Read the directory through the shared hook rather than writing a second,
@@ -54,17 +76,32 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
   // win.
   const managed = useLocationDirectory(useSessionRole())
   const { link } = useLocationImport()
+  const { assignLocations } = useClientMutations()
   const headingId = useId()
 
   const [rowState, setRowState] = useState<Record<string, RowState>>({})
+  // null until the operator ticks or unticks something (see `checked`).
+  const [selection, setSelection] = useState<string[] | null>(null)
+  const [bulkPending, setBulkPending] = useState(false)
   const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(
     null
   )
+  const [moveTarget, setMoveTarget] = useState<{
+    discoveredId: string
+    locationId: string
+    title: string
+    fromName: string | null
+  } | null>(null)
 
-  const linkedExternalIds = new Set(
+  const directoryByExternal = new Map(
     (managed.data ?? [])
-      .map((location) => location.externalLocationId)
-      .filter((id): id is string => Boolean(id))
+      .filter(
+        (
+          location
+        ): location is DirectoryEntry & { externalLocationId: string } =>
+          Boolean(location.externalLocationId)
+      )
+      .map((location) => [location.externalLocationId, location])
   )
 
   const importOne = async (
@@ -95,10 +132,47 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
     }
   }
 
+  const fileUnderClient = async (discoveredId: string, locationId: string) => {
+    if (!clientId) return
+    setRowState((prev) => ({ ...prev, [discoveredId]: "pending" }))
+    try {
+      await assignLocations.mutateAsync({
+        clientId,
+        locationIds: [locationId],
+      })
+      setRowState((prev) => ({ ...prev, [discoveredId]: "imported" }))
+    } catch (error) {
+      setRowState((prev) => ({
+        ...prev,
+        [discoveredId]: { error: describeActionError(error) },
+      }))
+    }
+  }
+
   const heading = (
-    <h2 id={headingId} className="text-title font-semibold text-ink">
-      Import locations
-    </h2>
+    <>
+      <h2 id={headingId} className="text-title font-semibold text-ink">
+        Link listings
+      </h2>
+      {activeAccounts.length > 1 && accountName ? (
+        <SegmentedControl
+          value={accountName}
+          onValueChange={setChosenAccountName}
+          aria-label="Business Profile account"
+          className="max-w-full"
+        >
+          {activeAccounts.map((account) => (
+            <SegmentedControlItem
+              key={account.googleAccountName}
+              value={account.googleAccountName}
+              className="flex-none"
+            >
+              {account.accountName || account.googleAccountName}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
+      ) : null}
+    </>
   )
 
   if (!accountName) {
@@ -107,7 +181,7 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
         {heading}
         <Empty
           title="Choose a Google account"
-          description="Activate a Google account above to discover its locations."
+          description="Switch on at least one Business Profile account for this Google login to see its locations."
         />
       </section>
     )
@@ -121,16 +195,21 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
     )
   }
   if (discovery.isError) {
+    // The account switcher stays, so one account Google will not list does
+    // not strand the others.
     return (
-      <Empty
-        title="We couldn’t discover locations"
-        description={describeActionError(discovery.error)}
-        action={
-          <Button variant="outline" onClick={() => discovery.refetch()}>
-            Try again
-          </Button>
-        }
-      />
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <Empty
+          title="We couldn’t discover locations"
+          description={describeActionError(discovery.error)}
+          action={
+            <Button variant="outline" onClick={() => discovery.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      </section>
     )
   }
   if (discovery.data.locations.length === 0) {
@@ -139,69 +218,189 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
         {heading}
         <Empty
           icon={<MapPin />}
-          title="No locations to import"
-          description="This account has no Business Profile locations."
+          title="No listings to link"
+          description="This account has no Business Profile listings."
         />
       </section>
     )
   }
 
+  // What a row needs, worked out once for the list and the bulk action.
+  const rows = discovery.data.locations.map((location) => {
+    const existing = directoryByExternal.get(location.id)
+    const state = rowState[location.id] ?? "idle"
+    // Without a client, imported is enough. With a client, the listing
+    // still has to be filed under that client before the step is done.
+    const filedHere = clientId
+      ? existing?.clientId === clientId
+      : Boolean(existing)
+    const done = filedHere || state === "imported"
+    const needsFiling =
+      Boolean(clientId) &&
+      existing !== undefined &&
+      existing.clientId !== clientId &&
+      !done
+    // Linkable in bulk: new to NabaPresence, or imported but not filed under
+    // any client. Moving one away from another client stays a single,
+    // confirmed action.
+    const selectable =
+      !done && (!existing || (needsFiling && !existing.clientId))
+    return { location, existing, state, done, needsFiling, selectable }
+  })
+  const selectableIds = rows
+    .filter((row) => row.selectable)
+    .map((row) => row.location.id)
+  // Until the operator changes it, the selection is the verified listings:
+  // the ones Google will actually serve reviews for.
+  const checked = new Set(
+    (
+      selection ??
+      rows
+        .filter((row) => row.selectable && row.location.verified)
+        .map((row) => row.location.id)
+    ).filter((id) => selectableIds.includes(id))
+  )
+  const toggle = (id: string) => {
+    const next = new Set(checked)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelection([...next])
+  }
+  const linkOne = (row: (typeof rows)[number]) =>
+    row.existing
+      ? fileUnderClient(row.location.id, row.existing.id)
+      : importOne(row.location, false)
+  const linkSelected = async () => {
+    setBulkPending(true)
+    // One at a time: each link is its own Google round trip, and a relink
+    // confirmation for one listing must not race the others.
+    for (const row of rows) {
+      if (checked.has(row.location.id)) await linkOne(row)
+    }
+    setSelection([])
+    setBulkPending(false)
+  }
+
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       {heading}
-      <GroupedList aria-label="Locations found on Google">
-        {discovery.data.locations.map((location) => {
-          const alreadyLinked = linkedExternalIds.has(location.id)
-          const state = rowState[location.id] ?? "idle"
-          const done = alreadyLinked || state === "imported"
-          return (
-            <GroupedListItem
-              key={location.id}
-              icon={<MapPin />}
-              label={
-                <span className="flex items-center gap-2">
-                  <span className="truncate">{location.title}</span>
-                  {location.verified ? (
-                    <Badge variant="success" shape="tag">
-                      Verified
-                    </Badge>
-                  ) : null}
-                </span>
-              }
-              description={
-                <>
-                  {location.address || "No address on Google"}
-                  {typeof state === "object" ? (
-                    <>
-                      {" · "}
-                      <span role="alert" className="text-danger-ink">
-                        {state.error}
-                      </span>
-                    </>
-                  ) : null}
-                </>
-              }
-              trailing={
-                done ? (
-                  <Badge variant="tinted">Linked</Badge>
-                ) : (
+      {selectableIds.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-caption text-ink-muted">
+            Tick the listings that belong here. Verified listings are ticked for
+            you.
+          </p>
+          <Button
+            size="sm"
+            disabled={checked.size === 0 || bulkPending}
+            pending={bulkPending}
+            pendingLabel="Linking…"
+            onClick={() => void linkSelected()}
+          >
+            Link selected ({checked.size})
+          </Button>
+        </div>
+      ) : null}
+      <GroupedList aria-label="Listings found on Google">
+        {rows.map(
+          ({ location, existing, state, done, needsFiling, selectable }) => {
+            return (
+              <GroupedListItem
+                key={location.id}
+                icon={<MapPin />}
+                label={
+                  <span className="flex items-center gap-2">
+                    {selectable ? (
+                      <Checkbox
+                        checked={checked.has(location.id)}
+                        disabled={state === "pending" || bulkPending}
+                        onCheckedChange={() => toggle(location.id)}
+                        aria-label={`Select ${location.title}`}
+                      />
+                    ) : null}
+                    <span className="truncate">{location.title}</span>
+                    {location.verified ? (
+                      <Badge variant="success" shape="tag">
+                        Verified
+                      </Badge>
+                    ) : null}
+                  </span>
+                }
+                description={
                   <>
-                    <Badge variant="secondary">Not linked</Badge>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={state === "pending"}
-                      aria-label={`Import ${location.title}`}
-                      onClick={() => importOne(location, false)}
-                    >
-                      {state === "pending" ? "Importing…" : "Import"}
-                    </Button>
+                    {location.address || "No address on Google"}
+                    {typeof state === "object" ? (
+                      <>
+                        {" · "}
+                        <span role="alert" className="text-danger-ink">
+                          {state.error}
+                        </span>
+                      </>
+                    ) : null}
                   </>
-                )
-              }
-            />
-          )
-        })}
+                }
+                trailing={
+                  done ? (
+                    <Badge variant="tinted">Linked</Badge>
+                  ) : needsFiling && existing ? (
+                    <>
+                      <Badge variant="secondary">
+                        {existing.clientId
+                          ? business
+                            ? "Filed elsewhere"
+                            : "Another client"
+                          : "Not filed"}
+                      </Badge>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={state === "pending" || bulkPending}
+                        aria-label={
+                          existing.clientId
+                            ? `Move ${location.title} to ${business ? "your business" : "this client"}`
+                            : `Link ${location.title} to ${business ? "your business" : "this client"}`
+                        }
+                        onClick={() => {
+                          if (existing.clientId) {
+                            setMoveTarget({
+                              discoveredId: location.id,
+                              locationId: existing.id,
+                              title: location.title,
+                              fromName: existing.clientName ?? null,
+                            })
+                            return
+                          }
+                          void fileUnderClient(location.id, existing.id)
+                        }}
+                      >
+                        {state === "pending"
+                          ? existing.clientId
+                            ? "Moving…"
+                            : "Linking…"
+                          : existing.clientId
+                            ? "Move here"
+                            : "Link"}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Badge variant="secondary">Not linked</Badge>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={state === "pending" || bulkPending}
+                        aria-label={`Link ${location.title}`}
+                        onClick={() => importOne(location, false)}
+                      >
+                        {state === "pending" ? "Linking…" : "Link"}
+                      </Button>
+                    </>
+                  )
+                }
+              />
+            )
+          }
+        )}
       </GroupedList>
 
       <OverwriteConfirmDialog
@@ -211,7 +410,7 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
         }}
         title={`Move ${relinkTarget?.title ?? "this location"}’s history?`}
         description="This Google location was linked before. Confirming re-links it here and moves its historical reviews to this location."
-        confirmLabel="Confirm and import"
+        confirmLabel="Confirm and link"
         requireAcknowledgement
         acknowledgementLabel="I understand historical reviews will move to this location."
         pending={link.isPending}
@@ -220,6 +419,28 @@ export function ImportCard({ clientId }: { clientId?: string } = {}) {
             const target = relinkTarget
             setRelinkTarget(null)
             void importOne(target, true)
+          }
+        }}
+      />
+      <OverwriteConfirmDialog
+        open={moveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null)
+        }}
+        title={`Move ${moveTarget?.title ?? "this listing"} to ${business ? "your business" : "this client"}?`}
+        description={
+          moveTarget?.fromName && !business
+            ? `${moveTarget.title} is filed under ${moveTarget.fromName}. Moving it keeps its reviews with the listing.`
+            : "Moving it keeps its reviews with the listing."
+        }
+        confirmLabel="Move here"
+        requireAcknowledgement={false}
+        pending={assignLocations.isPending}
+        onConfirm={() => {
+          if (moveTarget) {
+            const target = moveTarget
+            setMoveTarget(null)
+            void fileUnderClient(target.discoveredId, target.locationId)
           }
         }}
       />

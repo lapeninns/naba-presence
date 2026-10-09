@@ -63,8 +63,10 @@ test.describe("reports", () => {
 
   test("google performance renders humanised metric tiles (seeded ready)", async ({ page }) => {
     await page.goto("/performance?tab=google")
-    await expect(page.getByText("Calls")).toBeVisible()
-    await expect(page.getByText("Website clicks")).toBeVisible()
+    // The same words also name the actions chart's series; the tiles come
+    // first in the DOM.
+    await expect(page.getByText("Calls", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Website clicks", { exact: true }).first()).toBeVisible()
   })
 
   test("keywords tab shows honest 'N+' for a thresholded term (seeded ready)", async ({ page }) => {

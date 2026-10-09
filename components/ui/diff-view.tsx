@@ -1,13 +1,5 @@
 import * as React from "react"
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { StatusPill } from "@/components/ui/status-pill"
 import { cn } from "@/lib/utils"
 
@@ -27,26 +19,32 @@ export type DiffRow = {
 }
 
 /**
- * Field-level before and after, for every write that reaches Google.
+ * Field-level before and after, for every write that reaches Google
+ * (reference `.diff`).
  *
- * A table, not two stacked panels: the comparison is row-wise, and a real
- * table lets a screen reader announce "Phone, on Google now, 01223 277 217"
- * instead of reading two disconnected lists and leaving the pairing to the
- * listener.
+ * Three columns — the field, "On Google now", "After publishing" — in a
+ * bordered card with a sunken header row. The old value sits on the danger
+ * tint struck through; the new value on the success tint in semibold. An
+ * unchanged row carries neither. The words "Not set" and "Cleared" say what
+ * an empty cell means, so the tint is never the only signal.
  *
- * Removals sit on the danger tint and additions on the success tint, in
- * monospace so a changed digit lines up with the one it replaces. An
- * unchanged row carries neither tint. The words "Not set" and "Cleared" say
- * what an empty cell means, so the tint is never the only signal.
+ * Still a real table, so a screen reader announces "Phone, On Google now,
+ * 01223 277 217" instead of leaving the pairing to the listener. When its
+ * own container is narrower than 560px the columns stack, and each value
+ * shows its column label above it.
+ *
+ * Labels are props: `fieldLabel`, `beforeLabel`, `afterLabel`.
  */
 function DiffView({
   rows,
+  fieldLabel = "Field",
   beforeLabel = "On Google now",
-  afterLabel = "Will change to",
+  afterLabel = "After publishing",
   caption,
   className,
 }: {
   rows: DiffRow[]
+  fieldLabel?: string
   beforeLabel?: string
   afterLabel?: string
   caption: string
@@ -56,55 +54,106 @@ function DiffView({
     <div
       data-slot="diff-view"
       className={cn(
-        "overflow-hidden rounded-(--np-radius-card) bg-surface",
+        "@container/diff min-w-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
         className
       )}
     >
-      <Table>
+      <table
+        className={cn(
+          "w-full table-fixed border-collapse text-ui text-ink",
+          "@max-[560px]/diff:block @max-[560px]/diff:[&_tbody]:block @max-[560px]/diff:[&_td]:block @max-[560px]/diff:[&_th[scope=row]]:block @max-[560px]/diff:[&_thead]:hidden @max-[560px]/diff:[&_tr]:block"
+        )}
+      >
         <caption className="sr-only">{caption}</caption>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-40">Field</TableHead>
-            <TableHead>{beforeLabel}</TableHead>
-            <TableHead>{afterLabel}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+        <thead>
+          <tr>
+            <th
+              scope="col"
+              className="w-[clamp(120px,24%,180px)] border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
+            >
+              {fieldLabel}
+            </th>
+            <th
+              scope="col"
+              className="border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
+            >
+              {beforeLabel}
+            </th>
+            <th
+              scope="col"
+              className="border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
+            >
+              {afterLabel}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
           {rows.map((row) => {
             const changed = row.state !== "unchanged"
             return (
-              <TableRow key={row.field} data-state={row.state ?? "changed"}>
-                <TableCell className="align-top font-medium text-ink">
-                  <span className="flex flex-col gap-1">
+              <tr
+                key={row.field}
+                data-state={row.state ?? "changed"}
+                className="border-b border-line last:border-0"
+              >
+                <th
+                  scope="row"
+                  className="px-3 py-2.5 text-left align-top font-semibold break-words text-ink @max-[560px]/diff:bg-surface-alt"
+                >
+                  <span className="flex flex-col items-start gap-1">
                     {row.field}
                     {row.state === "conflict" ? (
-                      <StatusPill tone="attention" variant="inline">
+                      <StatusPill tone="attention">
                         Changed on Google
                       </StatusPill>
                     ) : null}
                   </span>
-                </TableCell>
-                <TableCell
+                </th>
+                <td
+                  data-label={beforeLabel}
                   className={cn(
-                    "align-top font-mono text-ui break-words",
-                    changed ? "bg-danger-tint text-danger-ink" : "text-ink-muted"
+                    "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
+                    "@max-[560px]/diff:before:block @max-[560px]/diff:before:text-[11px] @max-[560px]/diff:before:text-ink-secondary @max-[560px]/diff:before:content-[attr(data-label)]",
+                    changed
+                      ? "bg-danger-tint text-ink-secondary"
+                      : "text-ink-muted"
                   )}
                 >
-                  {row.before || <span className="font-sans">Not set</span>}
-                </TableCell>
-                <TableCell
+                  {row.before ? (
+                    changed ? (
+                      <del className="decoration-danger-ink">{row.before}</del>
+                    ) : (
+                      row.before
+                    )
+                  ) : (
+                    <span>Not set</span>
+                  )}
+                </td>
+                <td
+                  data-label={afterLabel}
                   className={cn(
-                    "align-top font-mono text-ui break-words",
-                    changed ? "bg-success-tint text-success-ink" : "text-ink"
+                    "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
+                    "@max-[560px]/diff:before:block @max-[560px]/diff:before:text-[11px] @max-[560px]/diff:before:font-normal @max-[560px]/diff:before:text-ink-secondary @max-[560px]/diff:before:content-[attr(data-label)]",
+                    changed
+                      ? "bg-success-tint font-semibold text-ink"
+                      : "text-ink"
                   )}
                 >
-                  {row.after || <span className="font-sans">Cleared</span>}
-                </TableCell>
-              </TableRow>
+                  {row.after ? (
+                    changed ? (
+                      <ins className="no-underline">{row.after}</ins>
+                    ) : (
+                      row.after
+                    )
+                  ) : (
+                    <span>Cleared</span>
+                  )}
+                </td>
+              </tr>
             )
           })}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   )
 }

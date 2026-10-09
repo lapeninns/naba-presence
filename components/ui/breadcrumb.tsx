@@ -1,4 +1,3 @@
-import { ChevronRight } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
@@ -26,27 +25,25 @@ function Breadcrumbs({
   if (crumbs.length === 0) return null
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)} {...props}>
-      <ol className="flex min-w-0 items-center gap-1 text-ui">
+      <ol className="flex min-w-0 items-center gap-1.5 text-ui">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1
           return (
             <li
               key={`${crumb.label}-${index}`}
-              className="flex min-w-0 items-center gap-1"
+              className="flex min-w-0 items-center gap-1.5"
             >
               {index > 0 ? (
-                <ChevronRight
-                  aria-hidden
-                  strokeWidth={1.75}
-                  className="size-3.5 shrink-0 text-ink-faint"
-                />
+                <span aria-hidden className="text-line-strong">
+                  /
+                </span>
               ) : null}
               {isLast || !crumb.href ? (
                 <span
                   aria-current={isLast ? "page" : undefined}
                   className={cn(
                     "inline-flex min-h-6 items-center truncate",
-                    isLast ? "font-medium text-ink" : "text-ink-muted"
+                    isLast ? "font-semibold text-ink" : "text-ink-muted"
                   )}
                 >
                   {crumb.label}
@@ -54,7 +51,7 @@ function Breadcrumbs({
               ) : (
                 <Link
                   href={crumb.href}
-                  className="focus-halo inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) text-ink-muted transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink"
+                  className="focus-halo inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) whitespace-nowrap text-ink-muted transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink hover:underline hover:underline-offset-3"
                 >
                   {crumb.label}
                 </Link>

@@ -8,6 +8,7 @@ import {
   getGoogleNotificationSetting,
   updateGoogleNotificationSetting,
 } from "@/lib/server/google"
+import { setNotificationSettings } from "@/lib/server/google/connections"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
@@ -86,14 +87,11 @@ export const PATCH = route({
       { connectionKey: account.connection_id }
     )
     await tenant(async (sql) => {
-      await sql`
-        update google_connection
-        set
-          pubsub_topic = ${body.pubsubTopic || null},
-          notifications_enabled = ${Boolean(body.pubsubTopic)},
-          notification_types = ${body.pubsubTopic ? body.notificationTypes : []}
-        where id = ${account.connection_id}
-      `
+      await setNotificationSettings(sql, {
+        connectionId: account.connection_id,
+        pubsubTopic: body.pubsubTopic || null,
+        notificationTypes: body.notificationTypes,
+      })
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,

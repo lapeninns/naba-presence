@@ -4,7 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   assignLocationsToClient,
+  attachClientConnection,
   createClient,
+  fetchArchivedClients,
   fetchClient,
   fetchClients,
   fetchClientSetup,
@@ -15,14 +17,24 @@ import { summariseHealth, type ClientHealth } from "@/lib/clients/health"
 import { queryKeys } from "@/lib/queries/keys"
 
 /** Every client the signed-in user can see, with counts and health. */
-export function useClients() {
+export function useClients({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.clients,
     queryFn: ({ signal }) => fetchClients(signal),
+    enabled,
     // The shell reads this for its health chip, so it has to notice a client's
     // connection breaking without the operator reloading. A minute is short
     // enough to matter and long enough not to be chatter.
     refetchInterval: 60_000,
+  })
+}
+
+/** Archived clients, fetched only while the Archived view is open. */
+export function useArchivedClients(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.clientsArchived,
+    queryFn: ({ signal }) => fetchArchivedClients(signal),
+    enabled,
   })
 }
 
@@ -63,10 +75,11 @@ export function useClientHealth(clientId: string | null | undefined): {
  * rather than a worst-case word, because "2 clients need attention" tells an
  * agency where to go and "attention" does not.
  */
-export function useOrgHealth() {
+export function useOrgHealth(mode: "agency" | "business" = "agency") {
   const clients = useClients()
   const summary = summariseHealth(
-    clients.data?.items.map((client) => client.health) ?? []
+    clients.data?.items.map((client) => client.health) ?? [],
+    mode
   )
   return { ...summary, isPending: clients.isPending }
 }
@@ -104,6 +117,18 @@ export function useClientMutations() {
           grantToClientMembers: input.grantToClientMembers ?? true,
         }),
       onSuccess: invalidate,
+    }),
+    attachConnection: useMutation({
+      mutationFn: (input: { clientId: string; connectionId: string }) =>
+        attachClientConnection(input.clientId, {
+          connectionId: input.connectionId,
+        }),
+      onSuccess: (response, input) => {
+        // The wizard decides where it is from this query, so it has to hold
+        // the new state before the step changes, not after a refetch.
+        queryClient.setQueryData(queryKeys.clientSetup(input.clientId), response)
+        invalidate()
+      },
     }),
     unassignLocations: useMutation({
       mutationFn: (input: { clientId: string; locationIds: string[] }) =>

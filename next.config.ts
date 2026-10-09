@@ -32,9 +32,72 @@ const csp = [
   "connect-src 'self'",
 ].join("; ")
 
+/**
+ * Retired routes whose destination is fixed. Bookmarks and old links exist,
+ * and silently 404-ing them would be a worse answer than landing somewhere
+ * sensible. Every entry here used to be a one-line `page.tsx` that threw a
+ * `redirect()`; as config they cost no render and forward the query string
+ * by default, which `/login`, `/reviews`, `/performance` and `/connections`
+ * relied on.
+ *
+ * The flat single-business routes (`/profile`, `/photos`, `/posts`,
+ * `/settings/listing`) are NOT here: where they land depends on how many
+ * locations the session can see, so they stay as server pages at the app
+ * root (see lib/server/flat-route-redirect.ts).
+ */
+export const RETIRED_ROUTES: { source: string; destination: string }[] = [
+  // Home is gone: the Inbox is where the work is, so it is where a session
+  // starts.
+  { source: "/home", destination: "/inbox" },
+  { source: "/overview", destination: "/inbox" },
+  { source: "/reviews", destination: "/inbox" },
+  // One hop, not two: /analytics used to bounce through /performance.
+  { source: "/analytics", destination: "/reports" },
+  { source: "/performance", destination: "/reports" },
+  { source: "/login", destination: "/sign-in" },
+  { source: "/connections", destination: "/settings/connections" },
+  // Team became a primary destination; Listing administration lives with
+  // the location it administers.
+  { source: "/settings/team", destination: "/team" },
+  // The location workspace is the listing now. Its retired segments map
+  // onto the listing's areas: Administration and Access became People;
+  // Business info and Industry are sections of the profile editor;
+  // Performance is a report, on Reports.
+  { source: "/locations", destination: "/listings" },
+  { source: "/locations/:id/administration", destination: "/listings/:id/people" },
+  { source: "/locations/:id/access", destination: "/listings/:id/people" },
+  { source: "/locations/:id/business-information", destination: "/listings/:id/profile" },
+  { source: "/locations/:id/industry", destination: "/listings/:id/profile" },
+  { source: "/locations/:id/performance", destination: "/reports?locationId=:id" },
+  { source: "/locations/:id/:area", destination: "/listings/:id/:area" },
+  { source: "/locations/:id", destination: "/listings/:id" },
+]
+
+/**
+ * The public, tokenised pages (`/share/report/<token>`). Declared after the
+ * site-wide headers so these win where the keys overlap (Next: the last
+ * matching header of a key overrides the first).
+ *
+ * - Referrer-Policy: no-referrer — the token is in the path, so no Referer
+ *   may ever carry it off the page (there are no outbound links, but an
+ *   image or a browser extension could still make a request).
+ * - X-Robots-Tag — keep the link out of search indexes even when it is
+ *   pasted somewhere public; the page's own robots meta says the same.
+ * - Cache-Control: private, no-store — one client's figures are never kept
+ *   by a shared cache or served to the next request.
+ */
+export const SHARE_HEADERS: { key: string; value: string }[] = [
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet" },
+  { key: "Cache-Control", value: "private, no-store, max-age=0" },
+]
+
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: process.cwd(),
+  async redirects() {
+    return RETIRED_ROUTES.map((route) => ({ ...route, permanent: false }))
+  },
   async headers() {
     return [
       {
@@ -46,6 +109,7 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: csp },
         ],
       },
+      { source: "/share/:path*", headers: SHARE_HEADERS },
     ]
   },
 }

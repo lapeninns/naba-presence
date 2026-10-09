@@ -32,6 +32,12 @@ try {
   )
   await sql.unsafe(`grant naba_app_runtime to ${roleName}`)
   await sql.unsafe(`alter role ${roleName} inherit`)
+  // Mirrors the startup parameters in lib/server/db.ts. The Supabase session
+  // pooler drops those, so the role carries the same limits itself.
+  await sql.unsafe(`alter role ${roleName} set statement_timeout = '30s'`)
+  await sql.unsafe(
+    `alter role ${roleName} set idle_in_transaction_session_timeout = '60s'`
+  )
   console.log(`Runtime login role ready: ${roleName}`)
 } finally {
   await sql.end()

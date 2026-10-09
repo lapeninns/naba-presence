@@ -8,6 +8,28 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
+/**
+ * Just the connections list, on the same cache entry as the workspace. For
+ * the shell's reconnect banner, which renders outside any page and must not
+ * depend on the toast provider.
+ */
+export function useConnectionsQuery() {
+  return useQuery({
+    queryKey: queryKeys.connections,
+    queryFn: (ctx) => fetchConnections(requestOptions(ctx)),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  })
+}
+
+/** Start a Google connect or reconnect and hand the browser to Google. */
+export function useStartGoogleConnect() {
+  return useMutation({
+    mutationFn: startGoogleConnect,
+    onSuccess: (result) => window.location.assign(result.authorizationUrl),
+  })
+}
+
 export function useConnectionWorkspace() {
   const client = useQueryClient()
   const toast = useToastManager()

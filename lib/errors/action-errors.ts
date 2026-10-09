@@ -60,6 +60,10 @@ const COPY: Record<string, string> = {
     "Publishing to Google is temporarily paused. Try again shortly.",
   drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
+  // A Business Profile API Google has switched off for good (Business Calls,
+  // provider attributes, insurance networks, Q&A). No retry will help.
+  google_api_retired:
+    "Google no longer offers this Business Profile feature, so it can't be changed here.",
   profile_publishing_disabled:
     "Publishing profile changes to Google is currently unavailable.",
   hours_publishing_disabled:
@@ -85,6 +89,14 @@ const COPY: Record<string, string> = {
   ai_empty_response:
     "The AI returned nothing this time. Try again, or write the reply yourself.",
 
+  // 402 when the month's draft allowance is spent; describeActionError adds
+  // the reset date from details.resetsAt when the server sent one.
+  ai_credits_exhausted:
+    "You have used all your AI drafts for this month. You can still write a reply yourself.",
+  // 429 that lasts until the month resets, so "wait a moment" would mislead.
+  ai_token_backstop:
+    "AI drafting is paused for this month because of unusually high usage. You can still write a reply yourself.",
+
   // ---- Inbox: drafts, verification, publishing ----------------------------
   verified_draft_required: "Verify a draft before publishing this reply.",
   // The 404s on this path all mean "the pane you are looking at is behind the
@@ -101,7 +113,7 @@ const COPY: Record<string, string> = {
   approval_draft_changed:
     "This reply changed after you opened it. Read the current draft before approving or rejecting it.",
   stale_draft_evidence:
-    "This review changed since the draft was verified. Re-verify before publishing.",
+    "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:
     "Google may have applied the change. Check its status before retrying.",
   google_publish_failed: "Google rejected the reply. Please try again.",
@@ -229,7 +241,6 @@ const COPY: Record<string, string> = {
     "Google did not confirm the change. Refresh and try again.",
 
   // ---- Locations: industry + administration (Google-direct) ---------------
-  business_calls_mask_invalid: "Only the calls setting can be changed here.",
   search_query_required: "Enter a search term.",
   administration_confirmation_invalid:
     "We couldn’t confirm that action. Refresh and try again.",
@@ -273,6 +284,14 @@ const COPY: Record<string, string> = {
   viewer_cannot_publish: "Viewers can’t be given publishing access.",
   duplicate_location: "That location appears more than once.",
   location_not_found: "That location no longer exists.",
+  // Client access (PUT /api/members/[userId]/client-access, invitations).
+  would_widen_to_all_clients:
+    "Choose at least one client that has listings. Someone with no listings sees every client, so choose All clients if that’s what you mean.",
+  role_sees_all_clients:
+    "Owners and admins always see every client. Change their role to limit what they see.",
+  duplicate_client: "That client appears more than once.",
+  client_not_found:
+    "One of those clients no longer exists. Reload and try again.",
 
   // ---- Settings: compliance ------------------------------------------------
   privacy_request_not_found: "That privacy request no longer exists.",
@@ -343,6 +362,18 @@ const COPY: Record<string, string> = {
   replay_event_not_found:
     "That event can’t be replayed. Only failed and dead-lettered events can be, and one that is already running has to finish first.",
 
+  // ---- Google canonical codes ---------------------------------------------
+  // Passed through from Google by the listing routes (administration,
+  // industry). The status fallback read a Google 404 as "It may have been
+  // removed", as if the listing had vanished, when Google had only refused
+  // the account or resource named in the request.
+  NOT_FOUND:
+    "Google couldn’t find that account or listing. Check the details and try again. Nothing was changed.",
+  PERMISSION_DENIED:
+    "Google refused this change: the connected login doesn’t have permission for it. Nothing was changed.",
+  INVALID_ARGUMENT:
+    "Google didn’t accept those details. Check them and try again. Nothing was changed.",
+
   // ---- Client-side --------------------------------------------------------
   malformed_response:
     "The server sent an unexpected response. Refresh and try again.",
@@ -400,6 +431,19 @@ export function describeActionError(
 ): string {
   if (error instanceof ApiClientError) {
     const context = options.context ?? "reply"
+    if (error.code === "ai_credits_exhausted") {
+      const resetsAt = (error.details as { resetsAt?: unknown } | undefined)
+        ?.resetsAt
+      const date = typeof resetsAt === "string" ? new Date(resetsAt) : undefined
+      if (date && !Number.isNaN(date.getTime())) {
+        const formatted = date.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "long",
+          timeZone: "UTC",
+        })
+        return `You have used all your AI drafts for this month. They reset on ${formatted}. You can still write a reply yourself.`
+      }
+    }
     const mapped = APPROVAL_COPY[context][error.code] ?? COPY[error.code]
     if (mapped) return mapped
     if (error.status >= 500) return SERVICE_UNAVAILABLE_COPY
@@ -416,6 +460,33 @@ export function describeActionError(
   // different fact from a request that failed, and the operator can act on it.
   if (isTimeoutError(error)) return TIMEOUT_ERROR_COPY
   return GENERIC_ERROR_COPY
+}
+
+/** Error copy for one step in a flow whose earlier writes may already have succeeded. */
+export function describePublishStepError(
+  error: unknown,
+  target: "local" | "google"
+): string {
+  if (
+    isTimeoutError(error) ||
+    (error instanceof DOMException &&
+      (error.name === "TimeoutError" || error.name === "AbortError"))
+  ) {
+    return target === "google"
+      ? "Google did not confirm this step. It may have applied the change; check Google before retrying."
+      : "NabaPresence did not confirm this save. It may have been saved; reload to check before retrying."
+  }
+  if (error instanceof ApiClientError) {
+    switch (error.code) {
+      case "PERMISSION_DENIED":
+        return "Google refused this change: the connected login doesn’t have permission for it."
+      case "NOT_FOUND":
+        return "Google couldn’t find that account or listing. Check the details and try again."
+      case "INVALID_ARGUMENT":
+        return "Google didn’t accept those details. Check them and try again."
+    }
+  }
+  return describeActionError(error)
 }
 
 /**

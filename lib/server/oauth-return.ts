@@ -11,7 +11,19 @@ import { sanitiseNextPath } from "@/lib/api/next-path"
  * re-consent to, so it may only name the handful of screens the connect flow
  * legitimately returns to.
  */
-const ALLOWED_PREFIXES = ["/setup", "/clients/", "/settings/connections"]
+const ALLOWED_PREFIXES = [
+  "/setup",
+  "/clients/",
+  "/settings/connections",
+  // A reconnect started from the org-wide banner returns to the page it was
+  // clicked on: the working screens, never an auth or API path.
+  "/inbox",
+  "/listings",
+  "/reports",
+  "/team",
+  "/clients",
+  "/settings",
+]
 
 export const DEFAULT_OAUTH_RETURN = "/settings/connections"
 

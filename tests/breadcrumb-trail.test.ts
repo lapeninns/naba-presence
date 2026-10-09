@@ -12,28 +12,28 @@ const trail = (pathname: string) =>
   breadcrumbTrail({ pathname, clients, locations }).map((crumb) => crumb.label)
 
 describe("breadcrumbTrail", () => {
-  it("names the client a location belongs to", () => {
-    expect(trail("/locations/l1/hours")).toEqual([
-      "Clients",
+  it("names the client a listing belongs to", () => {
+    expect(trail("/listings/l1/photos")).toEqual([
+      "Listings",
       "Old Crown Group",
       "Old Crown Girton",
-      "Hours",
+      "Photos",
     ])
   })
 
   it("says when a location is filed under no client", () => {
     // Arriving here from a search, "this listing belongs to nobody yet" is
     // exactly the thing the operator needs to know.
-    expect(trail("/locations/l2")).toEqual([
-      "Clients",
-      "Unassigned",
+    expect(trail("/listings/l2")).toEqual([
+      "Listings",
+      "Unfiled",
       "Riverside Cafe",
     ])
   })
 
   it("links every crumb except the current page", () => {
     const crumbs = breadcrumbTrail({
-      pathname: "/locations/l1/photos",
+      pathname: "/listings/l1/photos",
       clients,
       locations,
     })
@@ -43,7 +43,7 @@ describe("breadcrumbTrail", () => {
 
   it("falls back to the location list when the id is unknown", () => {
     // A stale link to a deleted location still gets a way back.
-    expect(trail("/locations/gone")).toEqual(["All locations"])
+    expect(trail("/listings/gone")).toEqual(["Listings"])
   })
 
   it("handles the client surfaces", () => {
@@ -58,7 +58,10 @@ describe("breadcrumbTrail", () => {
   })
 
   it("handles settings sections and the flat destinations", () => {
-    expect(trail("/settings/connections")).toEqual(["Settings", "Connections"])
+    expect(trail("/settings/connections")).toEqual([
+      "Settings",
+      "Google connections",
+    ])
     expect(trail("/settings")).toEqual(["Settings"])
     expect(trail("/inbox")).toEqual(["Inbox"])
     expect(trail("/team")).toEqual(["Team"])
@@ -67,5 +70,20 @@ describe("breadcrumbTrail", () => {
   it("renders nothing for a path it does not recognise", () => {
     expect(trail("/")).toEqual([])
     expect(trail("/design-system")).toEqual([])
+  })
+})
+
+describe("breadcrumbTrail in business mode", () => {
+  const business = (pathname: string) =>
+    breadcrumbTrail({ pathname, clients, locations, mode: "business" }).map((crumb) => crumb.label)
+
+  it("has no client crumb on a listing", () => {
+    expect(business("/listings/l1/photos")).toEqual(["Listings", "Old Crown Girton", "Photos"])
+    expect(business("/listings/l2")).toEqual(["Listings", "Riverside Cafe"])
+  })
+
+  it("has no trail for the client layer", () => {
+    expect(business("/clients/c1")).toEqual([])
+    expect(business("/clients")).toEqual([])
   })
 })

@@ -9,7 +9,7 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
-  homePrefetch,
+  inboxPrefetch,
   locationTabPrefetch,
   prefetch,
   readSettingsCapabilities,
@@ -36,6 +36,7 @@ const session: Session = {
   userId: "00000000-0000-4000-8000-000000000002",
   organisationId: UUID,
   organisationName: "Org",
+  workspaceMode: "business",
   displayName: "Test",
   email: "test@example.test",
   role: "owner",
@@ -113,6 +114,7 @@ describe("review counts hydration", () => {
       byStatus: { new: 3, published: 2 },
       byQueue: {
         needs_reply: 3,
+        approval: 0,
         awaiting_my_approval: 0,
         awaiting_others: 0,
         publishing: 0,
@@ -130,7 +132,7 @@ describe("readSettingsCapabilities", () => {
   it("parses with settingsCapabilitiesSchema", () => {
     const caps = readSettingsCapabilities(session)
     expect(settingsCapabilitiesSchema.safeParse(caps).success).toBe(true)
-    expect(caps.canManageCompliance).toBe(true)
+    expect(caps.canEditSettings).toBe(true)
   })
 })
 
@@ -175,6 +177,7 @@ describe("prefetch", () => {
             byStatus: {},
             byQueue: {
               needs_reply: 0,
+              approval: 0,
               awaiting_my_approval: 0,
               awaiting_others: 0,
               publishing: 0,
@@ -197,10 +200,9 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("homePrefetch targets the counts and analytics keys HomeView reads", () => {
-    expect(homePrefetch()(session).map((entry) => entry.queryKey)).toEqual([
+  it("inboxPrefetch targets the unscoped counts key the queue badges read", () => {
+    expect(inboxPrefetch()(session).map((entry) => entry.queryKey)).toEqual([
       queryKeys.reviewCounts("organisation"),
-      queryKeys.analytics("overview", { window: "last-30-days" }),
     ])
   })
 

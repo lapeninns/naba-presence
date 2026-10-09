@@ -1,86 +1,185 @@
 "use client"
 
-import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2 } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, Plus, Trash2Icon } from "lucide-react"
 
-import { MenuItemEditor } from "@/components/locations/menu/item-editor"
+import {
+  FieldCaption,
+  InlineError,
+} from "@/components/locations/menu/item-editor"
 import { Button } from "@/components/ui/button"
-import { Empty } from "@/components/ui/empty"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { moveBy, readLabel, withLabel, type EditorItem, type EditorSection, type MenuIssue } from "@/lib/locations/forms/menu-editor"
-import { cn } from "@/lib/utils"
+import { readLabel } from "@/lib/locations/forms/menu-editor"
 
-export function MenuSectionEditor({ section, index, count, idPrefix, collapsed, disabled, issues, onToggle, onChange, onMove, onRemove, onAddItem, onDuplicateItem, onRemoveItem }: {
-  section: EditorSection
-  index: number
+type Json = Record<string, unknown>
+
+/**
+ * One section card: a sunken head with the disclosure toggle, the section
+ * name, its item count and order/remove controls; then, while expanded, the
+ * section description, its items (`children`) and Add item. A collapsed
+ * section unmounts its fields; the draft keeps everything typed in them.
+ */
+export function MenuSectionEditor({
+  section,
+  sectionIndex,
+  count,
+  itemCount,
+  panelId,
+  ids,
+  expanded,
+  disabled,
+  nameError,
+  onToggle,
+  onName,
+  onDescription,
+  onMove,
+  onRemove,
+  onAddItem,
+  onActivate,
+  onDeactivate,
+  children,
+}: {
+  section: Json
+  sectionIndex: number
   count: number
-  idPrefix: string
-  collapsed: boolean
+  itemCount: number
+  panelId: string
+  ids: { name: string; description: string }
+  expanded: boolean
   disabled: boolean
-  issues: MenuIssue[]
+  nameError?: string
   onToggle: () => void
-  onChange: (section: EditorSection) => void
+  onName: (value: string) => void
+  onDescription: (value: string) => void
   onMove: (direction: -1 | 1) => void
   onRemove: () => void
   onAddItem: () => void
-  onDuplicateItem: (item: EditorItem, index: number) => void
-  onRemoveItem: (item: EditorItem, index: number) => void
+  onActivate: () => void
+  onDeactivate: () => void
+  children: React.ReactNode
 }) {
-  const label = readLabel(section.data)
-  const name = label.displayName.trim() || `Section ${index + 1}`
-  const id = `${idPrefix}-${section.id}`
-  const sectionIssues = issues.filter((issue) => issue.sectionId === section.id)
-  const nameError = sectionIssues.find((issue) => issue.nodeId === section.id)?.message
+  const label = readLabel(section)
+  const name = label.displayName || `Section ${sectionIndex + 1}`
+  const toggleName = label.displayName || "this section"
 
   return (
-    <section id={id} className="min-w-0 scroll-mt-20 overflow-hidden rounded-(--np-radius-card) bg-surface" aria-labelledby={`${id}-heading`}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-line-subtle px-(--np-card-pad) py-3">
-        <h3 id={`${id}-heading`} className="min-w-0 flex-1">
-          <button id={`${id}-toggle`} type="button" aria-expanded={!collapsed} aria-controls={`${id}-panel`} onClick={onToggle} className="flex min-h-11 w-full items-center gap-2 rounded-(--np-radius-control) text-left focus-halo sm:min-h-8">
-            <ChevronDown aria-hidden strokeWidth={1.75} className={cn("size-4 shrink-0 text-ink-muted", collapsed && "-rotate-90")} />
-            <span className="min-w-0 break-words text-title font-semibold text-ink">{name}</span>
-            <span className="shrink-0 text-caption font-normal text-ink-muted">{section.items.length} {section.items.length === 1 ? "item" : "items"}</span>
-          </button>
-        </h3>
-        {sectionIssues.length ? <span className="text-caption text-danger-ink">{sectionIssues.length} to check</span> : null}
+    <section
+      aria-label={name}
+      className="@container/section scroll-mt-20 rounded-lg border border-line bg-surface"
+    >
+      <div
+        data-slot="field"
+        className="flex flex-wrap items-center gap-2 rounded-t-lg border-b border-line bg-surface-alt px-4 py-3"
+      >
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${toggleName}`}
+          onClick={onToggle}
+        >
+          {expanded ? (
+            <ChevronUpIcon aria-hidden />
+          ) : (
+            <ChevronDownIcon aria-hidden />
+          )}
+        </Button>
+        <Input
+          id={ids.name}
+          onFocus={onActivate}
+          onBlur={onDeactivate}
+          aria-label={`Section ${sectionIndex + 1} name`}
+          aria-invalid={nameError ? true : undefined}
+          aria-describedby={nameError ? `${ids.name}-error` : undefined}
+          placeholder="Section name, e.g. Starters"
+          value={label.displayName}
+          disabled={disabled}
+          onChange={(event) => onName(event.target.value)}
+          className="min-w-0 flex-[1_1_12rem] font-semibold"
+        />
+        <span className="font-mono text-caption text-ink-muted tabular-nums">
+          {itemCount} {itemCount === 1 ? "item" : "items"}
+        </span>
         {!disabled ? (
-          <div className="flex items-center gap-1" role="group" aria-label={`Actions for section ${name}`}>
-            <Button type="button" variant="ghost" size="icon-sm" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" disabled={index === 0} aria-label={`Move section ${name} up`} title="Move section up" onClick={() => onMove(-1)}><ArrowUp aria-hidden strokeWidth={1.75} /></Button>
-            <Button type="button" variant="ghost" size="icon-sm" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" disabled={index === count - 1} aria-label={`Move section ${name} down`} title="Move section down" onClick={() => onMove(1)}><ArrowDown aria-hidden strokeWidth={1.75} /></Button>
-            <Button type="button" variant="ghost" size="icon-sm" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" aria-label={`Remove section ${name}`} title="Remove section" onClick={onRemove}><Trash2 aria-hidden strokeWidth={1.75} /></Button>
+          <span
+            role="group"
+            aria-label={`Actions for section ${name}`}
+            className="ml-auto flex items-center gap-0.5"
+          >
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${toggleName} up`}
+              disabled={sectionIndex === 0}
+              onClick={() => onMove(-1)}
+            >
+              <ChevronUpIcon aria-hidden />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${toggleName} down`}
+              disabled={sectionIndex === count - 1}
+              onClick={() => onMove(1)}
+            >
+              <ChevronDownIcon aria-hidden />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove section ${name}`}
+              className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
+              onClick={onRemove}
+            >
+              <Trash2Icon aria-hidden />
+            </Button>
+          </span>
+        ) : null}
+        {nameError ? (
+          <div className="basis-full">
+            <InlineError id={`${ids.name}-error`} message={nameError} />
           </div>
         ) : null}
       </div>
-      <div id={`${id}-panel`} hidden={collapsed}>
-        {!collapsed ? (
-          <>
-            <div className="flex flex-col gap-4 border-b border-line-subtle bg-surface-sunken/40 p-(--np-card-pad)">
-              <Field error={nameError}>
-                <FieldLabel htmlFor={`${id}-name`}>Section name</FieldLabel>
-                <Input id={`${id}-name`} value={label.displayName} disabled={disabled} placeholder="For example, starters" onChange={(event) => onChange({ ...section, data: withLabel(section.data, { displayName: event.target.value }) })} />
-                <FieldError />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`${id}-description`}>Section description <span className="font-normal text-ink-muted">(optional)</span></FieldLabel>
-                <Textarea id={`${id}-description`} rows={2} value={label.description} disabled={disabled} placeholder="A short introduction to this section" onChange={(event) => onChange({ ...section, data: withLabel(section.data, { description: event.target.value }) })} />
-              </Field>
-            </div>
-            {section.items.length ? (
-              <ol className="divide-y divide-line-subtle">
-                {section.items.map((item, itemIndex) => (
-                  <MenuItemEditor key={item.id} item={item} index={itemIndex} count={section.items.length} idPrefix={idPrefix} disabled={disabled} issues={sectionIssues}
-                    onChange={(next) => onChange({ ...section, items: section.items.map((current) => current.id === item.id ? next : current) })}
-                    onMove={(direction) => onChange({ ...section, items: moveBy(section.items, itemIndex, direction) })}
-                    onDuplicate={() => onDuplicateItem(item, itemIndex)}
-                    onRemove={() => onRemoveItem(item, itemIndex)} />
-                ))}
-              </ol>
-            ) : <div className="px-(--np-card-pad) py-6"><Empty title="No items yet" description="Add the dishes or drinks that belong in this section." /></div>}
-            {!disabled ? <div className="border-t border-line-subtle px-(--np-card-pad) py-3"><Button type="button" variant="secondary" size="sm" className="min-h-11 sm:min-h-8" onClick={onAddItem}><Plus aria-hidden strokeWidth={1.75} data-icon="inline-start" />Add item</Button></div> : null}
-          </>
-        ) : null}
-      </div>
+
+      {expanded ? (
+        <div id={panelId} className="flex flex-col gap-2.5 p-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <FieldCaption htmlFor={ids.description}>
+              Section description{" "}
+              <span className="font-normal">(optional)</span>
+            </FieldCaption>
+            <Textarea
+              id={ids.description}
+              aria-label={`Section ${sectionIndex + 1} description`}
+              placeholder="A short introduction to this section"
+              value={label.description}
+              disabled={disabled}
+              rows={1}
+              onChange={(event) => onDescription(event.target.value)}
+              className="field-sizing-content min-h-(--np-field-h)"
+            />
+          </div>
+          {itemCount === 0 ? (
+            <p className="text-caption text-ink-muted">
+              No items in this section yet.
+            </p>
+          ) : null}
+          {children}
+          {!disabled ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="self-start"
+              onClick={onAddItem}
+            >
+              <Plus aria-hidden />
+              Add item
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }

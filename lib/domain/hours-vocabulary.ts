@@ -3,9 +3,24 @@
 // re-exports everything here. See lib/domain/README.md.
 import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
 
-type GoogleTime = string | { hours?: number; minutes?: number } | null
+type GoogleTime =
+  | string
+  | { hours?: number; minutes?: number; seconds?: number; nanos?: number }
+  | null
+
+export type GoogleHoursType = {
+  readonly hoursTypeId?: string
+  readonly displayName?: string
+  readonly localizedDisplayName?: string
+}
+
+export type GoogleHoursCategory = {
+  readonly name?: string
+  readonly moreHoursTypes?: GoogleHoursType[]
+}
 
 export type GoogleLocationHours = {
+  languageCode?: string
   name?: string
   title?: string
   regularHours?: {
@@ -35,14 +50,10 @@ export type GoogleLocationHours = {
     }>
   }>
   categories?: {
-    primaryCategory?: {
-      moreHoursTypes?: Array<{
-        hoursTypeId?: string
-        displayName?: string
-        localizedDisplayName?: string
-      }>
-    }
+    primaryCategory?: GoogleHoursCategory
+    additionalCategories?: GoogleHoursCategory[]
   }
+
   metadata?: Record<string, unknown>
 }
 
@@ -50,10 +61,15 @@ export type NormalizedHours = {
   regular: Array<{
     dayOfWeek: number
     isClosed: boolean
-    periods: Array<{ opensAt: string; closesAt: string }>
+    periods: Array<{
+      opensAt: string
+      closesAt: string
+      closeDayOfWeek?: number
+    }>
   }>
   special: Array<{
     effectiveDate: string
+    endDate?: string
     isClosed: boolean
     opensAt: string | null
     closesAt: string | null
@@ -62,6 +78,7 @@ export type NormalizedHours = {
     hoursTypeId: string
     periods: Array<{
       dayOfWeek: number
+      closeDayOfWeek?: number
       opensAt: string
       closesAt: string
     }>
@@ -104,8 +121,8 @@ function normalizeTime(value: GoogleTime | undefined): string | null {
     if (!match) return null
     return `${match[1].padStart(2, "0")}:${match[2]}`
   }
-  if (!value || !Number.isInteger(value.hours)) return null
-  return `${String(value.hours).padStart(2, "0")}:${String(
+  if (!value) return null
+  return `${String(value.hours ?? 0).padStart(2, "0")}:${String(
     Number.isInteger(value.minutes) ? value.minutes : 0
   ).padStart(2, "0")}`
 }
@@ -117,9 +134,8 @@ function dayNumber(value: string | undefined): number | null {
   return index >= 0 ? index : null
 }
 
-function dateString(value:
-  | { year?: number; month?: number; day?: number }
-  | undefined
+function dateString(
+  value: { year?: number; month?: number; day?: number } | undefined
 ): string | null {
   if (
     !value ||
@@ -129,9 +145,10 @@ function dateString(value:
   ) {
     return null
   }
-  return `${String(value.year).padStart(4, "0")}-${String(
-    value.month
-  ).padStart(2, "0")}-${String(value.day).padStart(2, "0")}`
+  return `${String(value.year).padStart(4, "0")}-${String(value.month).padStart(
+    2,
+    "0"
+  )}-${String(value.day).padStart(2, "0")}`
 }
 
 function emptyRegular(): NormalizedHours["regular"] {
@@ -152,12 +169,15 @@ export function normalizeGoogleHours(
     const closesAt = normalizeTime(period.closeTime)
     if (dayOfWeek === null || !opensAt || !closesAt) continue
     regular[dayOfWeek].isClosed = false
-    regular[dayOfWeek].periods.push({ opensAt, closesAt })
+    const closeDayOfWeek = dayNumber(period.closeDay)
+    regular[dayOfWeek].periods.push({
+      opensAt,
+      closesAt,
+      ...(closeDayOfWeek === null ? {} : { closeDayOfWeek }),
+    })
   }
   for (const day of regular) {
-    day.periods.sort((left, right) =>
-      left.opensAt.localeCompare(right.opensAt)
-    )
+    day.periods.sort((left, right) => left.opensAt.localeCompare(right.opensAt))
   }
 
   const special = (location.specialHours?.specialHourPeriods ?? [])
@@ -165,12 +185,15 @@ export function normalizeGoogleHours(
       const effectiveDate = dateString(period.startDate)
       if (!effectiveDate) return []
       const isClosed = period.closed === true
-      return [{
-        effectiveDate,
-        isClosed,
-        opensAt: isClosed ? null : normalizeTime(period.openTime),
-        closesAt: isClosed ? null : normalizeTime(period.closeTime),
-      }]
+      return [
+        {
+          effectiveDate,
+          endDate: dateString(period.endDate) ?? effectiveDate,
+          isClosed,
+          opensAt: isClosed ? null : normalizeTime(period.openTime),
+          closesAt: isClosed ? null : normalizeTime(period.closeTime),
+        },
+      ]
     })
     .sort((left, right) =>
       left.effectiveDate.localeCompare(right.effectiveDate)
@@ -185,7 +208,18 @@ export function normalizeGoogleHours(
         const closesAt = normalizeTime(period.closeTime)
         return dayOfWeek === null || !opensAt || !closesAt
           ? []
-          : [{ dayOfWeek, opensAt, closesAt }]
+          : [
+              {
+                dayOfWeek,
+                opensAt,
+                closesAt,
+                ...(dayNumber(period.closeDay) === null
+                  ? {}
+                  : {
+                      closeDayOfWeek: dayNumber(period.closeDay) ?? dayOfWeek,
+                    }),
+              },
+            ]
       })
       return [{ hoursTypeId: entry.hoursTypeId, periods }]
     })
@@ -204,10 +238,245 @@ export function classifyHoursDrift(input: {
   if (!input.baselineCanonicalHash || !input.baselineGoogleHash) {
     return "core_dirty"
   }
-  const coreChanged =
-    input.canonicalHash !== input.baselineCanonicalHash
+  const coreChanged = input.canonicalHash !== input.baselineCanonicalHash
   const googleChanged = input.googleHash !== input.baselineGoogleHash
   if (coreChanged && googleChanged) return "conflict"
   if (googleChanged) return "google_dirty"
   return "core_dirty"
+}
+
+/** Same-day boundaries are redundant; omitting them preserves historical hashes. */
+export function semanticHours(value: NormalizedHours): NormalizedHours {
+  return {
+    regular: value.regular.map((day) => ({
+      ...day,
+      periods: day.periods.map(({ closeDayOfWeek, ...period }) => ({
+        ...period,
+        ...(closeDayOfWeek === undefined || closeDayOfWeek === day.dayOfWeek
+          ? {}
+          : { closeDayOfWeek }),
+      })),
+    })),
+    special: value.special.map(({ endDate, ...period }) => ({
+      ...period,
+      ...(period.isClosed ? { opensAt: null, closesAt: null } : {}),
+      ...(period.isClosed || endDate === undefined || endDate === period.effectiveDate
+        ? {}
+        : { endDate }),
+    })),
+    moreHours: value.moreHours.map((entry) => ({
+      ...entry,
+      periods: entry.periods.map(({ closeDayOfWeek, ...period }) => ({
+        ...period,
+        ...(closeDayOfWeek === undefined || closeDayOfWeek === period.dayOfWeek
+          ? {}
+          : { closeDayOfWeek }),
+      })),
+    })),
+  }
+}
+
+export function supportedHoursTypes(
+  location: GoogleLocationHours
+): Array<{ hoursTypeId: string; displayName: string }> {
+  const types = new Map<string, { hoursTypeId: string; displayName: string }>()
+  for (const category of [
+    location.categories?.primaryCategory,
+    ...(location.categories?.additionalCategories ?? []),
+  ]) {
+    for (const type of category?.moreHoursTypes ?? []) {
+      if (type.hoursTypeId)
+        types.set(type.hoursTypeId, {
+          hoursTypeId: type.hoursTypeId,
+          displayName:
+            type.localizedDisplayName ?? type.displayName ?? type.hoursTypeId,
+        })
+    }
+  }
+  return [...types.values()]
+}
+
+/** A legacy end boundary is uncertain when it could have been discarded on import. */
+export function hoursBoundaryReconciliationRequired(
+  canonical: NormalizedHours,
+  location: GoogleLocationHours
+): boolean {
+  const google = normalizeGoogleHours(location)
+  const weekly = (
+    periods: NormalizedHours["moreHours"][number]["periods"],
+    observed: NormalizedHours["moreHours"][number]["periods"]
+  ) =>
+    periods.some(
+      (period) =>
+        period.closeDayOfWeek === undefined &&
+        (period.closesAt <= period.opensAt ||
+          observed.some(
+            (other) =>
+              other.dayOfWeek === period.dayOfWeek &&
+              other.opensAt === period.opensAt &&
+              other.closesAt === period.closesAt &&
+              other.closeDayOfWeek !== period.dayOfWeek
+          ))
+    )
+  if (
+    weekly(
+      canonical.regular.flatMap((day) =>
+        day.periods.map((period) => ({ ...period, dayOfWeek: day.dayOfWeek }))
+      ),
+      google.regular.flatMap((day) =>
+        day.periods.map((period) => ({ ...period, dayOfWeek: day.dayOfWeek }))
+      )
+    )
+  )
+    return true
+  if (
+    canonical.moreHours.some((entry) =>
+      weekly(
+        entry.periods,
+        google.moreHours.find(
+          (other) => other.hoursTypeId === entry.hoursTypeId
+        )?.periods ?? []
+      )
+    )
+  )
+    return true
+  return canonical.special.some(
+    (period) =>
+      !period.isClosed &&
+      period.endDate === undefined &&
+      ((period.closesAt ?? "") <= (period.opensAt ?? "") ||
+        google.special.some(
+          (other) =>
+            other.effectiveDate === period.effectiveDate &&
+            other.opensAt === period.opensAt &&
+            other.closesAt === period.closesAt &&
+            other.endDate !== period.effectiveDate
+        ))
+  )
+}
+
+/** Only the explicit reconciliation action may use this candidate; it never changes local times. */
+export function reconcileLegacyHoursBoundaries(
+  canonical: NormalizedHours,
+  google: NormalizedHours
+): NormalizedHours {
+  const resolve = (
+    periods: NormalizedHours["moreHours"][number]["periods"],
+    observed: NormalizedHours["moreHours"][number]["periods"]
+  ) =>
+    periods.map((period) => {
+      if (period.closeDayOfWeek !== undefined) return { ...period }
+      const matches = observed.filter(
+        (other) =>
+          other.dayOfWeek === period.dayOfWeek &&
+          other.opensAt === period.opensAt &&
+          other.closesAt === period.closesAt
+      )
+      return matches.length === 1 && matches[0].closeDayOfWeek !== undefined
+        ? { ...period, closeDayOfWeek: matches[0].closeDayOfWeek }
+        : { ...period }
+    })
+  return {
+    regular: canonical.regular.map((day) => ({
+      ...day,
+      periods: resolve(
+        day.periods.map((period) => ({ ...period, dayOfWeek: day.dayOfWeek })),
+        google.regular.flatMap((entry) =>
+          entry.periods.map((period) => ({
+            ...period,
+            dayOfWeek: entry.dayOfWeek,
+          }))
+        )
+      ).map(({ opensAt, closesAt, closeDayOfWeek }) => ({
+        opensAt,
+        closesAt,
+        ...(closeDayOfWeek === undefined ? {} : { closeDayOfWeek }),
+      })),
+    })),
+    moreHours: canonical.moreHours.map((entry) => ({
+      ...entry,
+      periods: resolve(
+        entry.periods,
+        google.moreHours.find(
+          (other) => other.hoursTypeId === entry.hoursTypeId
+        )?.periods ?? []
+      ),
+    })),
+    special: canonical.special.map((period) => {
+      if (period.endDate !== undefined) return { ...period }
+      const matches = google.special.filter(
+        (other) =>
+          other.effectiveDate === period.effectiveDate &&
+          other.isClosed === period.isClosed &&
+          other.opensAt === period.opensAt &&
+          other.closesAt === period.closesAt
+      )
+      return matches.length === 1
+        ? { ...period, endDate: matches[0].endDate }
+        : { ...period }
+    }),
+  }
+}
+
+/** Never let a lossy read become a whole-resource replacement. */
+export function googleHoursRepresentationIssues(
+  location: GoogleLocationHours
+): string[] {
+  const issues: string[] = []
+  const validTime = (value: GoogleTime | undefined) => {
+    const normalized = normalizeTime(value)
+    if (!normalized || !/^(?:([01]\d|2[0-3]):[0-5]\d|24:00)$/.test(normalized))
+      return false
+    if (typeof value === "string")
+      return /^\d{1,2}:\d{2}(?::00(?:\.0+)?)?$/.test(value)
+    return !value?.seconds && !value?.nanos
+  }
+  const weekly = [
+    ...(location.regularHours?.periods ?? []),
+    ...(location.moreHours ?? []).flatMap((entry) => entry.periods ?? []),
+  ]
+  if (
+    weekly.some(
+      (period) =>
+        dayNumber(period.openDay) === null ||
+        dayNumber(period.closeDay) === null ||
+        !validTime(period.openTime) ||
+        !validTime(period.closeTime)
+    )
+  ) {
+    issues.push(
+      "Google contains weekly hours this editor cannot represent exactly. Publishing is blocked to preserve them."
+    )
+  }
+  const ids = (location.moreHours ?? []).map((entry) => entry.hoursTypeId)
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length)
+    issues.push(
+      "Google contains missing or duplicate service identifiers. Publishing is blocked to preserve them."
+    )
+  if (
+    (location.specialHours?.specialHourPeriods ?? []).some(
+      (period) =>
+        !dateString(period.startDate) ||
+        (period.endDate !== undefined && !dateString(period.endDate)) ||
+        (!period.closed &&
+          (!validTime(period.openTime) || !validTime(period.closeTime)))
+    )
+  ) {
+    issues.push(
+      "Google contains special hours this editor cannot represent exactly. Publishing is blocked to preserve them."
+    )
+  }
+  return issues
+}
+
+export function hasLegacyHoursBoundaries(hours: NormalizedHours): boolean {
+  return (
+    hours.regular.some((day) =>
+      day.periods.some((period) => period.closeDayOfWeek === undefined)
+    ) ||
+    hours.moreHours.some((entry) =>
+      entry.periods.some((period) => period.closeDayOfWeek === undefined)
+    ) ||
+    hours.special.some((period) => period.endDate === undefined)
+  )
 }

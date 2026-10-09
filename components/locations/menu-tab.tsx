@@ -1,118 +1,415 @@
 "use client"
 
-import { UtensilsCrossed } from "lucide-react"
+import { DownloadIcon, Plus, UtensilsCrossed } from "lucide-react"
 import { useCallback, useMemo, useRef, useState } from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { LocationTab } from "@/components/locations/location-tab"
-import { MenuEditor, type MenuEditorValidation } from "@/components/locations/menu-editor"
-import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import {
+  MenuEditor,
+  stripDraftKeys,
+  validateMenu,
+  type MenuProblem,
+} from "@/components/locations/menu-editor"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
-import { fetchFoodMenus, publishFoodMenus, saveFoodMenus, type FoodMenusState } from "@/lib/api/location-menu"
+import { ValidationSummary } from "@/components/ui/validation-summary"
+import {
+  fetchFoodMenus,
+  publishFoodMenus,
+  saveFoodMenus,
+  type FoodMenusState,
+} from "@/lib/api/location-menu"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { usePublishFlow } from "@/lib/editors/use-publish-flow"
+import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
-import { hydrateMenus, menuIssues, menuStructureSummary } from "@/lib/locations/forms/menu-editor"
 import type { TabGateReasons } from "@/lib/locations/gating"
-import { menuChangeRows } from "@/lib/locations/menu-diff"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
+import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 export function MenuTab({ locationId }: { locationId: string }) {
   return (
-    <LocationTab locationId={locationId} loadingLabel="food menu" useResource={useFoodMenus} resource="menu">
-      {({ data: state, disabled, editReason, publishReason }) => state.eligible ? (
-        <MenuForm key={state.canonicalResource.revision} locationId={locationId} state={state} disabled={disabled} editReason={editReason} publishReason={publishReason} />
-      ) : (
-        <Empty icon={<UtensilsCrossed aria-hidden />} title="This location can’t have a food menu" description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here." />
-      )}
+    <LocationTab
+      locationId={locationId}
+      loadingLabel="food menu"
+      useResource={useFoodMenus}
+      resource="menu"
+    >
+      {({ data: state, disabled, editReason, publishReason }) =>
+        state.eligible ? (
+          <MenuForm
+            // No remount on a revision change: useEditorDraft follows the
+            // new revision itself, and keeps unsaved edits (asking whose to
+            // keep) when a colleague's save lands mid-edit.
+            locationId={locationId}
+            state={state}
+            disabled={disabled}
+            editReason={editReason}
+            publishReason={publishReason}
+          />
+        ) : (
+          <div className="rounded-lg border border-line bg-surface">
+            <Empty
+              icon={<UtensilsCrossed aria-hidden />}
+              titleAs="h2"
+              title="This location can’t have a food menu"
+              description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
+            />
+          </div>
+        )
+      }
     </LocationTab>
   )
 }
 
-function MenuForm({ locationId, state, disabled, editReason, publishReason: gateReason }: TabGateReasons & { locationId: string; state: FoodMenusState }) {
-  const { draft, setDraft, isDirty, discard } = useEditorDraft({ initial: state.canonicalMenus, revision: state.canonicalResource.revision, key: `location-menu-${locationId}` })
+function MenuForm({
+  locationId,
+  state,
+  disabled,
+  editReason,
+  publishReason: gateReason,
+}: TabGateReasons & { locationId: string; state: FoodMenusState }) {
+  const editor = useEditorDraft({
+    initial: state.canonicalMenus,
+    revision: state.canonicalResource.revision,
+    key: `location-menu-${locationId}`,
+  })
+  const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
-  const [editorVersion, setEditorVersion] = useState(0)
-  const [validation, setValidation] = useState<MenuEditorValidation>(() => ({ valid: menuIssues(hydrateMenus(state.canonicalMenus)).length === 0, hasUncommittedInput: false }))
-  const keepEditingRef = useRef<HTMLButtonElement>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  // Problems show once a review has been attempted, then follow the edits
+  // live so each one clears as it is fixed.
+  const [checked, setChecked] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [focusProblems, setFocusProblems] = useState(false)
 
-  const rows = useMemo(() => {
-    const itemRows = menuChangeRows({ draft, google: state.googleMenus })
-    const before = menuStructureSummary(state.googleMenus)
-    const after = menuStructureSummary(draft)
-    // The item matcher alone cannot describe menu/section renames, ordering,
-    // empty sections, or the text of description-only edits. Include them in
-    // the existing confirmation sheet; do not add a second publishing path.
-    return before === after ? itemRows : [{ key: "menu-structure-and-descriptions", field: "Menu structure and descriptions", before, after }, ...itemRows]
-  }, [draft, state.googleMenus])
+  // The menu as Google would receive it: the editor's typing state removed.
+  const clean = useMemo(() => stripDraftKeys(draft), [draft])
+  const problems: MenuProblem[] = useMemo(
+    () => (checked ? validateMenu(draft) : []),
+    [checked, draft]
+  )
 
+  const comparison = useMemo(
+    () => compareMenuReplacement({ draft: clean, google: state.googleMenus }),
+    [clean, state.googleMenus]
+  )
+
+  const rows = comparison.rows
+  const [reviewed, setReviewed] = useState<{
+    menus: typeof clean
+    comparison: typeof comparison
+    revision: string
+    googleHash: string
+  } | null>(null)
   const saved = useRef<FoodMenusState | null>(null)
-  const buildSteps = useCallback(() => [
-    {
-      key: "save",
-      label: "Save the menu in NabaPresence",
-      run: async () => {
-        await saveFoodMenus(locationId, { expectedCanonicalRevision: state.canonicalResource.revision, menus: draft })
-        saved.current = await fetchFoodMenus(locationId)
+  const buildSteps = useCallback(
+    () => [
+      {
+        key: "save",
+        label: "Save the menu in NabaPresence",
+        kind: "local" as const,
+        run: async () => {
+          if (!reviewed?.comparison.publishable)
+            throw new Error("Resolve the menu comparison before publishing.")
+          const result = await saveFoodMenus(locationId, {
+            expectedCanonicalRevision: reviewed.revision,
+            menus: reviewed.menus,
+          })
+          const fresh = await fetchFoodMenus(locationId)
+          if (
+            fresh.canonicalResource.revision !== result.revision ||
+            compareMenuReplacement({
+              draft: reviewed.menus,
+              google: fresh.canonicalMenus,
+            }).rows.length > 0
+          ) {
+            throw new Error(
+              "The saved menu changed after review. Keep your edits and review again."
+            )
+          }
+          expectSave()
+          saved.current = fresh
+        },
       },
-    },
-    {
-      key: "publish",
-      label: "Replace the food menu on Google",
-      run: async () => {
-        const fresh = saved.current
-        if (!fresh) throw new Error("The menu was not saved.")
-        await publishFoodMenus(locationId, { expectedCanonicalRevision: fresh.canonicalResource.revision, expectedCanonicalHash: fresh.canonicalHash, expectedGoogleHash: fresh.googleHash })
+      {
+        key: "publish",
+        label: "Replace the food menu on Google",
+        run: async () => {
+          const fresh = saved.current
+          if (!fresh || !reviewed) throw new Error("The menu was not saved.")
+          await publishFoodMenus(locationId, {
+            expectedCanonicalRevision: fresh.canonicalResource.revision,
+            expectedCanonicalHash: fresh.canonicalHash,
+            expectedGoogleHash: reviewed.googleHash,
+          })
+        },
       },
+    ],
+    [locationId, reviewed, expectSave]
+  )
+
+  const flow = usePublishFlow({
+    steps: buildSteps,
+    invalidate: [
+      queryKeys.locationMenu(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
+    successToast: "Menu published to Google",
+    onSuccess: () => {
+      setReviewOpen(false)
+      setServerError(null)
     },
-  ], [locationId, draft, state.canonicalResource.revision])
+  })
 
-  const flow = usePublishFlow({ steps: buildSteps, invalidate: [queryKeys.locationMenu(locationId)], successToast: "Menu published to Google", onSuccess: () => setReviewOpen(false) })
-  const localChanges = isDirty || validation.hasUncommittedInput
-  const changesToReview = localChanges || state.status !== "in_sync"
-  const publishReason = editReason ?? gateReason ?? (!validation.valid ? "Fix the highlighted names and prices before reviewing changes." : flow.isPublishing ? "Publishing is in progress." : null)
-  const draftCounts = countFoodMenus(draft)
+  // "Save here": NabaPresence's copy only, as in Hours and Profile. The
+  // area note ("Saved here first") promised this; the footer never offered it.
+  const save = useResourceMutation({
+    mutationFn: () => {
+      return saveFoodMenus(locationId, {
+        expectedCanonicalRevision: state.canonicalResource.revision,
+        menus: clean,
+      })
+    },
+    invalidate: [
+      queryKeys.locationMenu(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+      queryKeys.locationActivity(locationId),
+    ],
+    successToast: "Saved here. Not on Google until you publish.",
+    onSuccess: () => {
+      expectSave()
+      setServerError(null)
+    },
+    onError: (_error, message) => setServerError(message),
+  })
 
-  function discardAll() {
-    if (flow.isPublishing || disabled) return
-    discard()
-    // Remount even when invalid raw text was the ONLY edit: the canonical
-    // array may be unchanged, but that must not leave an invalid field behind.
-    setEditorVersion((version) => version + 1)
-    setValidation({ valid: menuIssues(hydrateMenus(state.canonicalMenus)).length === 0, hasUncommittedInput: false })
-    setDiscardOpen(false)
+  function saveHere() {
+    const found = validateMenu(draft)
+    setChecked(true)
+    setFocusProblems(true)
+    setAttempt((count) => count + 1)
+    if (found.length > 0) return
+    save.mutate()
+  }
+
+  const publishReason = editReason ?? gateReason
+  const draftCounts = countFoodMenus(clean as Array<Record<string, unknown>>)
+  const googleHasMenu = state.googleCounts.sections > 0
+  const noMenu = draftCounts.sections === 0
+
+  const changeCount = rows.length
+  const statusLabel =
+    noMenu && !isDirty
+      ? googleHasMenu
+        ? "Menu only on Google"
+        : "No menu"
+      : changeCount > 0
+        ? `${isDirty ? "Unsaved here · " : "Saved here · "}${formatNumber(changeCount)} ${changeCount === 1 ? "change" : "changes"} not on Google`
+        : state.status === "in_sync" && !isDirty
+          ? noMenu
+            ? "No menu"
+            : "In sync with Google"
+          : undefined
+
+  function review() {
+    const found = validateMenu(draft)
+    setChecked(true)
+    setFocusProblems(true)
+    setAttempt((count) => count + 1)
+    if (found.length > 0) return
+    setServerError(null)
+    flow.reset()
+    saved.current = null
+    setReviewed({
+      menus: clean,
+      comparison,
+      revision: state.canonicalResource.revision,
+      googleHash: state.googleHash,
+    })
+    setReviewOpen(true)
+  }
+
+  function startMenu() {
+    setDraft([
+      {
+        ...((draft[0] ?? {}) as Record<string, unknown>),
+        sections: [
+          {
+            labels: [{ displayName: "" }],
+            items: [{ labels: [{ displayName: "" }] }],
+          },
+        ],
+      },
+      ...draft.slice(1),
+    ])
   }
 
   return (
-    <EditorFrame title="Food menu" description={`Manage ${draftCounts.menus} ${draftCounts.menus === 1 ? "menu" : "menus"}, ${draftCounts.sections} sections and ${draftCounts.items} items. Publishing replaces the complete food menu on Google.`}
-      statusLabel={state.status === "in_sync" && !localChanges ? "In sync with Google" : undefined} tone="healthy" gateReason={editReason}
-      footer={<EditorFooter status={localChanges ? "edited" : state.status === "in_sync" ? "in_sync" : "unpublished"} isDirty={changesToReview} canDiscard={localChanges && !flow.isPublishing} disabledReason={publishReason}
-        onReview={() => {
-          if (disabled || publishReason || !validation.valid || !changesToReview) return
-          saved.current = null
-          flow.reset()
-          setReviewOpen(true)
-        }} onDiscard={() => { if (localChanges && !flow.isPublishing) setDiscardOpen(true) }}
-        hint={state.status === "in_sync" ? "All menus match Google." : "Google holds a different menu. Review every change before publishing."} />}
+    <EditorFrame
+      title="Food menu"
+      statusLabel={statusLabel}
+      tone={
+        noMenu && !isDirty
+          ? "neutral"
+          : changeCount > 0
+            ? "attention"
+            : "healthy"
+      }
+      description={
+        <>
+          Publishing replaces the whole food menu on Google, every menu, not
+          only what you changed.{" "}
+          <span className="font-mono tabular-nums">{draftCounts.menus}</span>{" "}
+          {draftCounts.menus === 1 ? "menu" : "menus"},{" "}
+          <span className="font-mono tabular-nums">{draftCounts.sections}</span>{" "}
+          {draftCounts.sections === 1 ? "section" : "sections"},{" "}
+          <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
+          {draftCounts.items === 1 ? "item" : "items"}.
+        </>
+      }
+      gateReason={editReason}
+      footer={
+        noMenu && !isDirty ? undefined : (
+          <EditorFooter
+            status={
+              isDirty
+                ? "edited"
+                : state.status === "in_sync"
+                  ? "in_sync"
+                  : "unpublished"
+            }
+            // Drift already saved here is publishable too, as in Hours and
+            // Profile; only local edits can be discarded.
+            isDirty={isDirty || rows.length > 0}
+            canDiscard={isDirty}
+            onReview={review}
+            onDiscard={() => setDiscardOpen(true)}
+            onSave={saveHere}
+            saving={save.isPending}
+            saveDisabledReason={editReason}
+            disabledReason={publishReason}
+            hint={
+              state.status === "in_sync"
+                ? "This menu matches Google."
+                : "Google holds a different menu. Review to see what differs."
+            }
+          />
+        )
+      }
     >
-      <MenuEditor key={editorVersion} menus={draft} onChange={setDraft} disabled={disabled || flow.isPublishing || reviewOpen} onValidationChange={setValidation} draftKey={`location-menu-inputs-${locationId}`} />
-      <ReviewChangesSheet open={reviewOpen} onOpenChange={(open) => { if (!flow.isPublishing) setReviewOpen(open) }} rows={rows} locationName={state.location.name}
-        onPublish={() => { if (!disabled && !publishReason && validation.valid && changesToReview) void flow.publish() }} publishing={flow.isPublishing} results={flow.results} error={flow.error} />
-      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
-        <AlertDialogContent initialFocus={keepEditingRef}>
-          <AlertDialogTitle>Discard all menu edits?</AlertDialogTitle>
-          <AlertDialogDescription>This resets every menu to the last saved version, including unfinished prices. It does not change Google. Use Undo removal instead to restore only the last removed entry.</AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button ref={keepEditingRef} type="button" variant="secondary" />}>Keep editing</AlertDialogClose>
-            <Button type="button" variant="destructive" disabled={flow.isPublishing || disabled} onClick={discardAll}>Discard all edits</Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DraftNotices drafts={[editor]} noun="this menu" />
+
+      {serverError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <ValidationSummary
+        errors={problems}
+        autoFocus={focusProblems}
+        focusKey={attempt}
+        title={
+          problems.length === 1
+            ? "1 problem to fix before saving or publishing"
+            : `${problems.length} problems to fix before saving or publishing`
+        }
+      />
+
+      {noMenu ? (
+        <div className="rounded-lg border border-line bg-surface">
+          <Empty
+            icon={<UtensilsCrossed aria-hidden />}
+            titleAs="h3"
+            title="No food menu yet"
+            description={
+              googleHasMenu
+                ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${state.googleCounts.items} ${state.googleCounts.items === 1 ? "item" : "items"}. Start from Google’s menu, or start a new one here.`
+                : `Neither NabaPresence nor Google has a food menu for ${state.location.name}. Start one here; nothing reaches Google until you publish.`
+            }
+            action={
+              disabled ? undefined : (
+                <>
+                  {googleHasMenu ? (
+                    <Button onClick={() => setDraft(state.googleMenus)}>
+                      <DownloadIcon aria-hidden />
+                      Start from Google’s menu
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant={googleHasMenu ? "secondary" : "default"}
+                    onClick={startMenu}
+                  >
+                    <Plus aria-hidden />
+                    Start a menu
+                  </Button>
+                </>
+              )
+            }
+          />
+        </div>
+      ) : (
+        <MenuEditor
+          menus={draft}
+          onChange={(next) => {
+            setFocusProblems(false)
+            setDraft(next)
+          }}
+          // Locked while a publish is running: the steps send the reviewed
+          // menu, and an edit made meanwhile would silently miss Google.
+          disabled={disabled || flow.isPublishing}
+          problems={problems}
+          validationAttempt={attempt}
+          changedPaths={rows.flatMap((row) =>
+            row.draftPath ? [row.draftPath] : []
+          )}
+        />
+      )}
+
+      <DiscardDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        description="The menu goes back to what NabaPresence last saved. Google is not affected."
+        onConfirm={() => {
+          discard()
+          setChecked(false)
+          setServerError(null)
+        }}
+      />
+
+      <ReviewChangesSheet
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        rows={reviewed?.comparison.rows ?? rows}
+        locationName={state.location.name}
+        onPublish={() => void flow.publish()}
+        publishing={flow.isPublishing}
+        results={flow.results}
+        error={flow.error}
+        publishDisabledReason={
+          publishReason ??
+          (reviewed &&
+          (reviewed.googleHash !== state.googleHash ||
+            reviewed.revision !== state.canonicalResource.revision)
+            ? "The menu changed since this review. Keep editing, then review again."
+            : undefined)
+        }
+      />
     </EditorFrame>
   )
 }

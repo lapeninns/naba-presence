@@ -7,6 +7,7 @@ import { LocationActivityPanel } from "@/components/locations/activity-panel"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -30,16 +31,16 @@ function ActivityDrawer({ locationId }: { locationId: string }) {
         <History strokeWidth={1.75} aria-hidden />
         Activity
       </SheetTrigger>
-      <SheetContent side="right" className="md:max-w-lg">
+      <SheetContent side="right" className="flex flex-col gap-0">
         <SheetHeader>
           <SheetTitle>Recent activity</SheetTitle>
           <SheetDescription>
             Changes published to Google for this location.
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+        <SheetBody>
           {open ? <LocationActivityPanel locationId={locationId} /> : null}
-        </div>
+        </SheetBody>
       </SheetContent>
     </Sheet>
   )

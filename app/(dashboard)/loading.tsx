@@ -17,20 +17,23 @@ export default function DashboardLoading() {
     <div
       aria-busy="true"
       role="status"
-      className="mx-auto flex w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
+      className="mx-auto flex w-full max-w-(--np-page-default-width) flex-col gap-(--np-gap-section) px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
     >
       <div className="flex flex-col gap-2">
-        <Skeleton className="h-7 w-48 rounded-(--np-radius-tag)" />
-        <Skeleton className="h-4 w-72 max-w-full rounded-(--np-radius-tag)" />
+        <Skeleton className="h-8 w-56 max-w-full rounded-sm" />
+        <Skeleton className="h-4 w-80 max-w-full rounded-sm" />
       </div>
       <p className="flex items-center gap-2 text-ui text-ink-muted">
         <Spinner decorative className="size-3.5 shrink-0" />
         Loading this page
       </p>
-      <div className="grid gap-(--np-gap-card) sm:grid-cols-2">
-        <Skeleton className="h-32 rounded-(--np-radius-card)" />
-        <Skeleton className="h-32 rounded-(--np-radius-card)" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Skeleton className="h-24 rounded-lg" />
+        <Skeleton className="h-24 rounded-lg" />
+        <Skeleton className="h-24 rounded-lg" />
+        <Skeleton className="h-24 rounded-lg" />
       </div>
+      <Skeleton className="h-60 rounded-lg" />
     </div>
   )
 }

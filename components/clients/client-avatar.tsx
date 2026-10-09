@@ -1,3 +1,4 @@
+import { CLIENT_COLOURS } from "@/lib/clients/colours"
 import { contrastRatio, parseColor } from "@/lib/design/contrast"
 import { cn } from "@/lib/utils"
 
@@ -8,14 +9,7 @@ import { cn } from "@/lib/utils"
  * screen and across sessions — an operator scanning a list of forty learns the
  * colours, and a mark that changed on each render would be worse than none.
  */
-const PALETTE = [
-  "#7A4E3B",
-  "#3F5E52",
-  "#4A4C7A",
-  "#6B4A6B",
-  "#3E5B70",
-  "#6E5A2E",
-]
+const PALETTE: readonly string[] = CLIENT_COLOURS.map((colour) => colour.value)
 
 function colourFor(name: string, chosen: string | null) {
   if (chosen) return chosen
@@ -44,10 +38,12 @@ function inkFor(background: string): string {
 }
 
 function initialsFor(name: string) {
-  const letters = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
+  // "The Bell" and "The Barley Mow" should not both read "TB": a leading
+  // article says nothing about which business it is.
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const meaningful =
+    words.length > 1 && /^the$/i.test(words[0]) ? words.slice(1) : words
+  const letters = meaningful
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("")
@@ -60,6 +56,8 @@ function initialsFor(name: string) {
  * with whatever card the mark sits in.
  */
 const SIZES = {
+  /** Inline in a control: the top-bar client switcher and its menu. */
+  xs: "size-5 rounded-(--np-radius-tag) text-[10px]",
   sm: "size-8 rounded-(--np-radius-control) text-ui",
   lg: "size-12 rounded-(--np-radius-card) text-title",
   xl: "size-16 rounded-(--np-radius-panel) text-section",

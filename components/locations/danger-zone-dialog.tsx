@@ -73,15 +73,17 @@ export function DangerZoneDialog({
           />
         </Field>
         <AlertDialogFooter>
-          <AlertDialogClose
-            render={<Button variant="secondary">Cancel</Button>}
-          />
+          <AlertDialogClose render={<Button variant="ghost" />}>
+            Cancel
+          </AlertDialogClose>
           <Button
-            variant="destructive"
+            variant="danger"
             onClick={onConfirm}
-            disabled={!matches || pending}
+            disabled={!matches}
+            pending={pending}
+            pendingLabel="Working…"
           >
-            {pending ? "Working…" : confirmLabel}
+            {confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

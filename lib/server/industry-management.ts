@@ -9,7 +9,6 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
-  googleBusinessCallsApi,
   googleHealthcareApi,
   googleLodgingApi,
   GoogleMutationAmbiguousError,
@@ -43,26 +42,22 @@ export async function loadIndustryManagement(session: Session, locationId: strin
   const linked = await context(session, locationId)
   const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
   const options = { connectionKey: linked.connectionId }
-  const [lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks] = await Promise.all([
+  // Only APIs Google still serves. Business Calls (retired 2023-05-30) and
+  // healthProviderAttributes/insuranceNetworks (retired 2024-07-01) are no
+  // longer asked; snapshots cached from them before then are never read and
+  // age out with the retention purge.
+  const [lodging, lodgingUpdated, healthcareServices] = await Promise.all([
     safe(() => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, options)),
     safe(() => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "getGoogleUpdated" }, options)),
-    safe(() => googleBusinessCallsApi(token, { locationName: linked.googleLocationName, operation: "settings" }, options)),
-    safe(() => googleBusinessCallsApi(token, { locationName: linked.googleLocationName, operation: "insights", filter: 'metricType=AGGREGATE_COUNT' }, options)),
     safe(() => googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: "serviceList" }, options)),
-    safe(() => googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: "healthProviderAttributes" }, options)),
-    safe(() => googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: "insuranceNetworks" }, options)),
   ])
   for (const [resourceType, resourceName, result] of [
     ["lodging", `${linked.googleLocationName}/lodging`, lodging],
-    ["business_calls", `${linked.googleLocationName}/businesscallssettings`, calls],
-    ["business_call_insights", `${linked.googleLocationName}/businesscallsinsights`, callInsights],
     ["healthcare_services", `${linked.accountName}/${linked.googleLocationName}/serviceList`, healthcareServices],
-    ["healthcare_provider_attributes", `${linked.accountName}/${linked.googleLocationName}/healthProviderAttributes`, providerAttributes],
-    ["insurance_networks", `${linked.accountName}/${linked.googleLocationName}/insuranceNetworks`, insuranceNetworks],
   ] as const) {
     if (result.data) await cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName, payload: result.data })
   }
-  return { lodging, lodgingUpdated, calls, callInsights, healthcareServices, providerAttributes, insuranceNetworks, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites") }
+  return { lodging, lodgingUpdated, healthcareServices, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites") }
 }
 
 export type { IndustryOperation }
@@ -79,17 +74,15 @@ export async function mutateIndustryManagement(input: {
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
   if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
   const token = await connectionAccessToken(getDatabase(), input.session.organisationId, linked.connectionId)
-  const resourceType = input.operation === "update_lodging" ? "lodging" : input.operation === "update_business_calls" ? "business_calls" : input.operation === "update_healthcare_services" ? "healthcare_services" : "healthcare_provider_attributes"
+  const resourceType = input.operation === "update_lodging" ? "lodging" : "healthcare_services"
   const attempt = await startGbpMutation({ organisationId: input.session.organisationId, session: input.session, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType, operation: input.operation, targetResourceName: linked.googleLocationName, requestId: input.requestId, updateMask: input.updateMask, payload: input.payload })
   if (attempt.idempotent) return attempt
   try {
     let response: Record<string, unknown>
     if (input.operation === "update_lodging") {
       response = await googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "patch", updateMask: input.updateMask, payload: input.payload }, { connectionKey: linked.connectionId })
-    } else if (input.operation === "update_business_calls") {
-      response = await googleBusinessCallsApi(token, { locationName: linked.googleLocationName, operation: "patch", updateMask: input.updateMask, payload: input.payload }, { connectionKey: linked.connectionId })
     } else {
-      response = await googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: input.operation === "update_healthcare_services" ? "serviceList" : "healthProviderAttributes", method: "PATCH", updateMask: input.updateMask, payload: input.payload }, { connectionKey: linked.connectionId })
+      response = await googleHealthcareApi(token, { accountName: linked.accountName, locationName: linked.googleLocationName, resource: "serviceList", method: "PATCH", updateMask: input.updateMask, payload: input.payload }, { connectionKey: linked.connectionId })
     }
     await cacheGbpSnapshot({ organisationId: input.session.organisationId, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName: `${linked.googleLocationName}/${resourceType}`, payload: response })
     await settleGbpMutation({ organisationId: input.session.organisationId, mutationId: attempt.id, status: "succeeded", response })

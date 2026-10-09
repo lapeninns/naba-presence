@@ -10,6 +10,7 @@ export {
   createGoogleLocation,
   deleteGoogleLocation,
   getGoogleLocation,
+  getGoogleHoursCategories,
   getGoogleLocationAttributes,
   getGoogleUpdatedLocation,
   googleAccounts,
@@ -24,7 +25,6 @@ export {
 } from "@/lib/server/google/locations"
 export {
   googleAccountManagementApi,
-  googleBusinessCallsApi,
   googleHealthcareApi,
   googleLodgingApi,
   googleVerificationApi,
@@ -47,7 +47,9 @@ export {
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleOAuthUrl,
   googleUserInfo,
+  grantsBusinessManage,
   pkceChallenge,
+  revokeGoogleToken,
 } from "@/lib/server/google/oauth"
 export type { GoogleTokenResponse } from "@/lib/server/google/oauth"
 export {
@@ -83,6 +85,7 @@ export {
   updateGoogleReply,
 } from "@/lib/server/google/reviews"
 export {
+  googleApiRetiredError,
   GoogleMutationAmbiguousError,
   googleRequest,
 } from "@/lib/server/google/transport"

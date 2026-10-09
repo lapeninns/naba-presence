@@ -10,7 +10,15 @@ import { NotificationsCard } from "@/components/settings/notifications-card"
  * think setup had failed when Google's Pub/Sub is unavailable.
  */
 function StepNotifications() {
-  return <NotificationsCard />
+  return (
+    <>
+      <p className="text-ui text-ink-muted">
+        Optional. Without this, reviews still arrive on the next scheduled
+        check, just later.
+      </p>
+      <NotificationsCard />
+    </>
+  )
 }
 
 export { StepNotifications }

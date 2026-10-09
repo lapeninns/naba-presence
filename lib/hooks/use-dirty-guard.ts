@@ -22,26 +22,42 @@ import {
 //      reply silently.
 //
 // `askConfirm` is injected by the host (inbox DirtyGuardProvider's AlertDialog,
-// or a test stub) so this hook stays UI-agnostic.
+// the listing editors' DiscardDialog, or a test stub) so this hook stays
+// UI-agnostic. Without one it falls back to `window.confirm(confirmMessage)`.
+//
+// In-app link clicks are guarded separately by `useLeaveGuard`
+// (lib/editors/use-leave-guard.ts), which calls `markDiscarded` once the
+// operator agrees to leave so the unmount that follows doesn't stash the
+// edits they just gave up.
+const DEFAULT_CONFIRM_MESSAGE = "You have unsaved changes. Discard them?"
+
 export function useDirtyGuard({
   key,
   isDirty,
   snapshot,
   askConfirm,
+  confirmMessage = DEFAULT_CONFIRM_MESSAGE,
 }: {
   key: string
   isDirty: boolean
   snapshot: () => string
   askConfirm?: () => Promise<boolean>
-}): { confirmDiscard: () => Promise<boolean>; restore: () => string | null } {
+  /** The `window.confirm` fallback's sentence, when no `askConfirm` is given. */
+  confirmMessage?: string
+}): {
+  confirmDiscard: () => Promise<boolean>
+  restore: () => string | null
+  /** The operator chose to lose these edits: don't stash them on unmount. */
+  markDiscarded: () => void
+} {
   // Keep the latest dirtiness/snapshot in a ref so the registered source
   // function is stable but always reads current values. The write happens in
   // an effect (not during render) so refs are never mutated mid-render; every
   // consumer of `latest.current` below only runs from an event/effect, by
   // which point this effect has already committed the newest values.
-  const latest = useRef({ isDirty, snapshot, askConfirm })
+  const latest = useRef({ isDirty, snapshot, askConfirm, confirmMessage })
   useEffect(() => {
-    latest.current = { isDirty, snapshot, askConfirm }
+    latest.current = { isDirty, snapshot, askConfirm, confirmMessage }
   })
 
   // Set once `confirmDiscard` resolves true, so the unmount that follows a
@@ -65,6 +81,9 @@ export function useDirtyGuard({
   useEffect(() => {
     if (!isDirty) return
     const handler = (event: BeforeUnloadEvent) => {
+      // Already agreed to lose these edits (the leave prompt): a full-page
+      // navigation that follows must not ask a second time.
+      if (discarded.current) return
       event.preventDefault()
       event.returnValue = ""
     }
@@ -77,12 +96,16 @@ export function useDirtyGuard({
     const ask = latest.current.askConfirm
     const result = ask
       ? await ask()
-      : window.confirm("You have unsaved changes to this reply. Discard them?")
+      : window.confirm(latest.current.confirmMessage)
     if (result) discarded.current = true
     return result
   }, [])
 
   const restore = useCallback(() => takeStashedDraft(key), [key])
 
-  return { confirmDiscard, restore }
+  const markDiscarded = useCallback(() => {
+    discarded.current = true
+  }, [])
+
+  return { confirmDiscard, restore, markDiscarded }
 }

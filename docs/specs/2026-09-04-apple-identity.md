@@ -1,6 +1,7 @@
 # Visual identity: Apple-grade, platform-native, light-first
 
-Status: accepted, 2026-09-04. Supersedes
+Status: superseded, 2026-09-19, by
+`docs/specs/2026-09-19-warm-paper-identity.md`. Was accepted 2026-09-04. Superseded
 `docs/specs/2026-09-03-visual-identity.md` ("calm editorial"). The token
 architecture, contrast gate, density model and accessibility pins from that
 spec are carried forward unchanged; the values and the component language are

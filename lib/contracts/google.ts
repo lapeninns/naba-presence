@@ -15,6 +15,14 @@ import { z } from "zod"
 /** PATCH `/api/google/accounts` body. */
 export const accountSelectionSchema = z.object({
   accountIds: z.array(z.uuid()).max(100),
+  /**
+   * The selection replaces the active set only among the accounts this scope
+   * reaches: a client's logins when `clientId` is given, one login when
+   * `connectionId` is. Without either it spans the organisation, which is
+   * what used to switch off every other client's accounts from setup.
+   */
+  clientId: z.uuid().optional(),
+  connectionId: z.uuid().optional(),
 })
 export type AccountSelectionInput = z.infer<typeof accountSelectionSchema>
 
@@ -30,6 +38,8 @@ export const googleAccountSchema = z.object({
   role: z.string().nullable(),
   permissionLevel: z.string().nullable(),
   isActive: z.boolean(),
+  /** The login this account is reached through. */
+  googleConnectionId: z.string().nullable().optional(),
 })
 export type GoogleAccount = z.infer<typeof googleAccountSchema>
 

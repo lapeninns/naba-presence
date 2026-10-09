@@ -9,9 +9,9 @@ import {
 import type { ZodType } from "zod"
 
 import {
-  analyticsOverviewSchema,
-  type AnalyticsOverview,
-} from "@/lib/contracts/analytics"
+  listingSummarySchema,
+  type ListingSummary,
+} from "@/lib/contracts/location-summary"
 import {
   locationCapabilitiesResponseSchema,
   settingsCapabilitiesResponseSchema,
@@ -20,18 +20,15 @@ import {
   type SettingsCapabilities,
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
-import {
-  reviewCountsSchema,
-  type ReviewCounts,
-} from "@/lib/contracts/reviews"
+import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
-import { loadAnalyticsOverview } from "@/lib/server/analytics-overview"
 import {
   locationCapabilities,
   settingsCapabilities,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
+import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
 import type { Session } from "@/lib/server/session"
@@ -135,16 +132,6 @@ export async function readReviewCounts(
   return throughWire(reviewCountsSchema, counts)
 }
 
-/** What `useAnalyticsOverview()` (no params, last 30 days) fetches. */
-export async function readAnalyticsOverview(
-  session: Session
-): Promise<AnalyticsOverview> {
-  const overview = await withTenant(session.organisationId, (sql) =>
-    loadAnalyticsOverview(sql, session, { granularity: "day" })
-  )
-  return throughWire(analyticsOverviewSchema, overview)
-}
-
 /** What `useLocationCapabilities(id)` fetches. */
 export async function readLocationCapabilities(
   session: Session,
@@ -156,6 +143,17 @@ export async function readLocationCapabilities(
     ),
   } satisfies LocationCapabilitiesResponse
   return throughWire(locationCapabilitiesResponseSchema, payload).capabilities
+}
+
+/** What `useListingSummary(id)` fetches: the DB-only listing state. */
+export async function readListingSummary(
+  session: Session,
+  locationId: string
+): Promise<ListingSummary | null> {
+  const [summary] = await withTenant(session.organisationId, (sql) =>
+    readListingSummaries(sql, session, [locationId])
+  )
+  return summary ? throughWire(listingSummarySchema, summary) : null
 }
 
 /** What `useSettingsCapabilities()` fetches. Pure role projection. */
@@ -172,16 +170,35 @@ export function readSettingsCapabilities(
 // Page composers
 // ---------------------------------------------------------------------------
 
-/** /home: organisation-wide counts and the 30-day analytics overview. */
-export function homePrefetch(): (session: Session) => PrefetchEntry[] {
+/**
+ * A listing page: its capabilities and its DB-only summary. Both are pure
+ * SQL, so the overview's health strip and cards, and an area page's status
+ * pill, paint on the first render. The editors' own resources are NOT
+ * prefetched: they read Google live (see `locationTabPrefetch`).
+ */
+export function listingPagePrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => [
+    ...locationTabPrefetch(locationId)(session),
+    {
+      queryKey: queryKeys.listingSummary(locationId),
+      load: () => readListingSummary(session, locationId),
+    },
+  ]
+}
+
+/**
+ * /inbox: the queue badges' organisation-wide counts, under the key
+ * `useReviewCounts({ clientId: undefined })` reads. A client-filtered inbox
+ * reads a client-scoped key the page cannot know without the query string,
+ * so that one is fetched in the browser.
+ */
+export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.reviewCounts("organisation"),
       load: () => readReviewCounts(session),
-    },
-    {
-      queryKey: queryKeys.analytics("overview", { window: "last-30-days" }),
-      load: () => readAnalyticsOverview(session),
     },
   ]
 }

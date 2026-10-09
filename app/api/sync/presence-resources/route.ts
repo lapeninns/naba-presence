@@ -18,6 +18,7 @@ import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
 import { readProfileStateBundle } from "@/lib/server/profile"
 import { cronPageInput } from "@/lib/server/cron-query"
+import { followCronCursor } from "@/lib/server/cron-cursor"
 import { route } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
@@ -59,6 +60,7 @@ async function tenantContext(organisationId: string, maxLocations: number) {
       {
         userId: string
         organisationName: string
+        workspaceMode: Session["workspaceMode"]
         displayName: string
         email: string
         role: Session["role"]
@@ -66,6 +68,7 @@ async function tenantContext(organisationId: string, maxLocations: number) {
       }[]
     >`
       select m.user_id::text as "userId", o.name as "organisationName",
+        o.workspace_mode as "workspaceMode",
         u.display_name as "displayName", u.email, m.role, m.can_publish as "canPublish"
       from member m
       join app_user u on u.id = m.user_id
@@ -99,6 +102,7 @@ async function recordOutcome(input: {
   resource: (typeof resources)[number]
   status: "succeeded" | "failed"
   errorCode?: string
+  startedAt: Date
 }) {
   const nextAttemptAt = new Date(
     Date.now() +
@@ -111,13 +115,13 @@ async function recordOutcome(input: {
     (sql) => sql`
     insert into presence_resource_reconcile_state (
       organisation_id, location_id, resource, status, last_error_code,
-      last_attempt_at, last_succeeded_at, next_attempt_at
+      last_attempt_at, last_succeeded_at, next_attempt_at, reconciliation_started_at
     )
     select
       o.id, l.id, ${input.resource}, ${input.status},
       ${input.errorCode ?? null}, now(),
       ${input.status === "succeeded" ? new Date() : null},
-      ${nextAttemptAt}
+      ${nextAttemptAt}, ${input.startedAt}
     from organisation o
     join location l
       on l.organisation_id = o.id
@@ -125,10 +129,13 @@ async function recordOutcome(input: {
     where o.id = ${input.organisationId}
     on conflict (organisation_id, location_id, resource) do update set
       status = excluded.status, last_error_code = excluded.last_error_code,
+      reconciliation_started_at = excluded.reconciliation_started_at,
       last_attempt_at = now(),
       next_attempt_at = excluded.next_attempt_at,
       last_succeeded_at = case when excluded.status = 'succeeded' then now()
-        else presence_resource_reconcile_state.last_succeeded_at end`
+        else presence_resource_reconcile_state.last_succeeded_at end
+      where presence_resource_reconcile_state.reconciliation_started_at is null
+        or excluded.reconciliation_started_at >= presence_resource_reconcile_state.reconciliation_started_at`
   )
 }
 
@@ -234,6 +241,7 @@ async function reconcileOrganisations(
         break
       }
       for (const resource of resources) {
+        const startedAt = new Date()
         try {
           await reconcileResource(
             resource,
@@ -242,6 +250,7 @@ async function reconcileOrganisations(
             requestId
           )
           await recordOutcome({
+            startedAt,
             organisationId: organisation.id,
             locationId: location.id,
             resource,
@@ -259,6 +268,7 @@ async function reconcileOrganisations(
               ? String(error.code)
               : "presence_reconciliation_failed"
           await recordOutcome({
+            startedAt,
             organisationId: organisation.id,
             locationId: location.id,
             resource,
@@ -326,8 +336,12 @@ export const POST = route({
 // caller keeps using POST.
 export const GET = route({
   auth: "cron",
-  query: (searchParams) =>
-    presenceResourcesSyncSchema.parse(cronPageInput(searchParams)),
+  query: (searchParams) => cronPageInput(searchParams),
   handler: async ({ query, requestId }) =>
-    runPresenceResourcesPage(query, requestId),
+    followCronCursor("presence-resources", query, (input) =>
+      runPresenceResourcesPage(
+        presenceResourcesSyncSchema.parse(input),
+        requestId
+      )
+    ),
 })

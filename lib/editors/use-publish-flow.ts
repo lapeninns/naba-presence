@@ -3,14 +3,28 @@
 import { useCallback, useState } from "react"
 
 import { useToastManager } from "@/components/ui/toast"
-import { describeActionError } from "@/lib/errors/action-errors"
+import { describePublishStepError } from "@/lib/errors/action-errors"
+import { ApiClientError } from "@/lib/api/client"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
+
+/**
+ * What a step's `run` resolves to when it found nothing to send (the saved
+ * copy already matches Google). The results list then says so instead of
+ * claiming a write that never happened.
+ */
+export const NOTHING_TO_SEND = "nothing_to_send" as const
 
 export type PublishStep = {
   key: string
   /** Shown in the per-step result list. Sentence case, no trailing period. */
   label: string
   run: () => Promise<unknown>
+  /**
+   * Where the step writes. `local` saves NabaPresence's own copy; `google`
+   * (the default) sends a write to Google. The results list words each one
+   * differently, because saving here is not publishing.
+   */
+  kind?: "local" | "google"
 }
 
 export type PublishStepStatus = "pending" | "running" | "done" | "failed"
@@ -20,6 +34,11 @@ export type PublishStepResult = {
   label: string
   status: PublishStepStatus
   message?: string
+  kind?: "local" | "google"
+  /** The API's error code for a failed step, when it sent one. */
+  code?: string
+  /** A finished step that sent nothing because nothing differed. */
+  noop?: boolean
 }
 
 /**
@@ -70,6 +89,7 @@ export function usePublishFlow({
       key: step.key,
       label: step.label,
       status: "pending",
+      kind: step.kind ?? "google",
     }))
     setResults(running)
 
@@ -78,15 +98,29 @@ export function usePublishFlow({
       running[index] = { ...running[index], status: "running" }
       setResults([...running])
       try {
-        await step.run()
-        running[index] = { ...running[index], status: "done" }
+        const outcome = await step.run()
+        running[index] = {
+          ...running[index],
+          status: "done",
+          noop: outcome === NOTHING_TO_SEND,
+        }
         setResults([...running])
       } catch (cause) {
-        failure = describeActionError(cause)
+        const completed = running
+          .slice(0, index)
+          .filter((result) => result.status === "done" && !result.noop)
+        const progress = completed.some((result) => result.kind === "google")
+          ? " Earlier steps were sent to Google. Review the step results before retrying."
+          : completed.some((result) => result.kind === "local")
+            ? " Completed local saves are kept. No Google step completed successfully."
+            : ""
+        failure =
+          describePublishStepError(cause, step.kind ?? "google") + progress
         running[index] = {
           ...running[index],
           status: "failed",
           message: failure,
+          code: cause instanceof ApiClientError ? cause.code : undefined,
         }
         setResults([...running])
         break

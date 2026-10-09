@@ -1,15 +1,19 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell/app-shell"
+import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
+import { Toaster } from "@/components/ui/toast"
 import { QueryProvider } from "@/lib/queries/provider"
 
 const push = vi.fn()
 vi.mock("next/navigation", () => ({
   usePathname: () => "/inbox",
   useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
+  // The shell reads a Google connect result from the address on any page.
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 afterEach(() => {
@@ -23,6 +27,7 @@ const session = {
   userId: "u",
   organisationId: "o",
   organisationName: "Lapen Inns Agency",
+  workspaceMode: "agency" as const,
   displayName: "Aman Shrestha",
   email: "a@example.test",
   role: "owner" as const,
@@ -48,16 +53,32 @@ const client = {
   lastSyncAt: "2026-09-03T10:00:00.000Z",
 }
 
-function stubApi(overrides: { clients?: unknown[] } = {}) {
+function stubApi(
+  overrides: {
+    clients?: unknown[]
+    connections?: unknown[]
+    role?: string
+  } = {}
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
-    const body = url.includes("/api/clients")
-      ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
-      : url.includes("/api/organisations")
-        ? { items: [{ organisationId: "o", name: "Lapen Inns Agency", role: "owner" }] }
-        : url.includes("/api/session")
-          ? { session }
-          : { locations: [] }
+    const body = url.includes("/api/google/connections")
+      ? { connections: overrides.connections ?? [] }
+      : url.includes("/api/clients")
+        ? { items: overrides.clients ?? [client], unassignedLocationCount: 0 }
+        : url.includes("/api/organisations")
+          ? {
+              items: [
+                {
+                  organisationId: "o",
+                  name: "Lapen Inns Agency",
+                  role: "owner",
+                },
+              ],
+            }
+          : url.includes("/api/session")
+            ? { session: { ...session, role: overrides.role ?? session.role } }
+            : { locations: [] }
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -67,16 +88,34 @@ function stubApi(overrides: { clients?: unknown[] } = {}) {
   return fetchMock
 }
 
+/** The shell over an already-stubbed API. */
+function renderStubbedShell() {
+  return render(
+    <Toaster>
+      <QueryProvider>
+        <AppShell session={session}>
+          <PageFrame>
+            <PageHeader title="Inbox" description="Every review" />
+          </PageFrame>
+        </AppShell>
+      </QueryProvider>
+    </Toaster>
+  )
+}
+
 function renderShell() {
   stubApi()
   return render(
-    <QueryProvider>
-      <AppShell session={session}>
-        <PageFrame>
-          <PageHeader title="Inbox" description="Every review" />
-        </PageFrame>
-      </AppShell>
-    </QueryProvider>
+    // The root layout's Toaster wraps the shell in the app.
+    <Toaster>
+      <QueryProvider>
+        <AppShell session={session}>
+          <PageFrame>
+            <PageHeader title="Inbox" description="Every review" />
+          </PageFrame>
+        </AppShell>
+      </QueryProvider>
+    </Toaster>
   )
 }
 
@@ -100,7 +139,7 @@ describe("AppShell", () => {
       "aria-current",
       "page"
     )
-    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
       "aria-current"
     )
   })
@@ -122,30 +161,226 @@ describe("AppShell", () => {
     stubApi({
       clients: [
         client,
-        { ...client, id: "c2", name: "Harbour Kitchen", health: "disconnected" },
+        {
+          ...client,
+          id: "c2",
+          name: "Harbour Kitchen",
+          health: "disconnected",
+        },
         { ...client, id: "c3", name: "Bella Vita", health: "attention" },
       ],
     })
     render(
-      <QueryProvider>
-        <AppShell session={session}>
-          <PageFrame>
-            <PageHeader title="Inbox" />
-          </PageFrame>
-        </AppShell>
-      </QueryProvider>
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
     )
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
-    expect(await screen.findByText("2 clients need attention")).toBeInTheDocument()
+    // Action needed outranks delayed data: the count names the clients a
+    // person has to do something for.
+    expect(await screen.findByText("1 client needs action")).toBeInTheDocument()
   })
 
-  it("offers a command palette from the topbar", async () => {
+  const brokenLogin = {
+    id: "g1",
+    googleEmail: "login@example.test",
+    status: "revoked",
+    notificationsEnabled: false,
+    lastRefreshAt: null,
+    lastErrorCode: "invalid_grant",
+    reconnectRequired: true,
+    reconnectReason: "invalid_grant",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }
+
+  it("scopes the toolbar chip to the page's client", async () => {
+    // The chip is drawn by the shell, above the routed page, so the page's
+    // ClientScopeProvider has to reach up to it.
+    stubApi({ clients: [{ ...client, health: "disconnected" }] })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session}>
+            <ClientScopeProvider clientId="c1">
+              <PageFrame>
+                <PageHeader title="Old Crown Group" />
+              </PageFrame>
+            </ClientScopeProvider>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      await screen.findByRole("link", { name: /^Old Crown Group: / })
+    ).toHaveAttribute("href", "/clients/c1")
+  })
+
+  it("shows a broken login on every page, with a reconnect for admins", async () => {
+    // Org-wide: this page belongs to no client, and the login has no linked
+    // locations left -- the old client-scoped banner showed nothing here.
+    const fetchMock = stubApi({ connections: [brokenLogin] })
+    const user = userEvent.setup()
+    renderStubbedShell()
+    expect(
+      await screen.findByText("Google stopped accepting login@example.test.")
+    ).toBeInTheDocument()
+    const reconnect = screen.getByRole("button", {
+      name: "Reconnect login@example.test",
+    })
+    await user.click(reconnect)
+    // The same explanation Settings' connection card gives, then Google.
+    await user.click(
+      await screen.findByRole("button", { name: "Continue to Google" })
+    )
+    const start = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/api/google/connect/start")
+    )
+    expect(start).toBeDefined()
+    // The login is targeted (so Google pre-selects it) and the person comes
+    // back to the page they clicked on.
+    expect(JSON.parse(String(start![1]!.body))).toEqual({
+      reconnectConnectionId: "g1",
+      returnTo: "/",
+    })
+  })
+
+  it("tells other roles who can fix it, without a reconnect control", async () => {
+    stubApi({
+      connections: [{ ...brokenLogin, googleEmail: "l***@example.test" }],
+      role: "member",
+    })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={{ ...session, role: "member" }}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      await screen.findByText(/Ask an owner or admin to reconnect it\./)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Reconnect/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("counts the other broken logins and links to them all", async () => {
+    stubApi({
+      connections: [
+        brokenLogin,
+        {
+          ...brokenLogin,
+          id: "g2",
+          googleEmail:
+            "a-very-long-shared-venue-manager-address@some-long-domain.example",
+        },
+      ],
+    })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session}>
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      await screen.findByText(/1 other Google login needs reconnecting too\./)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "See all" })).toHaveAttribute(
+      "href",
+      "/settings/connections"
+    )
+  })
+
+  it("offers a command palette from the toolbar's search button", async () => {
     const user = userEvent.setup()
     renderShell()
-    await user.click(screen.getByRole("button", { name: /Search/ }))
+    await user.click(
+      screen.getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
+    )
     expect(
-      await screen.findByPlaceholderText("Search clients, locations and actions…")
+      await screen.findByPlaceholderText(
+        "Go to a client, a location or an action…"
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("has no client switcher for an agency with one client", async () => {
+    renderShell()
+    await screen.findByRole("link", { name: /Old Crown Group/ })
+    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+  })
+
+  it("puts the client switcher in the toolbar and carries the remembered client in the nav", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session} rememberedClientId="c2">
+            <PageFrame>
+              <PageHeader title="Inbox" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    // The mocked page is an unscoped Inbox address: the switcher follows the
+    // address (the sync fills the remembered client in through the router),
+    // and the sidebar links already carry it.
+    const toolbar = screen.getAllByRole("banner")[0]!
+    expect(
+      await within(toolbar).findByRole("button", {
+        name: "Client: All clients",
+      })
+    ).toBeInTheDocument()
+    const primary = screen.getAllByRole("navigation", { name: "Primary" })[0]!
+    expect(
+      within(primary).getByRole("link", { name: "Inbox" })
+    ).toHaveAttribute("href", "/inbox?clientId=c2")
+    expect(
+      within(primary).getByRole("link", { name: "Reports" })
+    ).toHaveAttribute("href", "/reports?clientId=c2")
+    expect(
+      within(primary).getByRole("link", { name: "Clients" })
+    ).toHaveAttribute("href", "/clients")
+  })
+
+  it("offers Switch client commands in the palette", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    const user = userEvent.setup()
+    renderStubbedShell()
+    await screen.findByRole("button", { name: "Client: All clients" })
+    await user.click(
+      screen.getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
+    )
+    expect(
+      await screen.findByRole("option", {
+        name: "Switch client: Harbour Kitchen",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("option", { name: "Switch client: Old Crown Group" })
     ).toBeInTheDocument()
   })
 
@@ -154,11 +389,17 @@ describe("AppShell", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: "Open navigation" }))
     const dialog = await screen.findByRole("dialog", { name: "Navigation" })
-    // The Sheet variant ships `data-[side=left]:w-3/4`, and twMerge cannot
-    // dedupe that against a bare `w-72` override — different variant scope, so
-    // both land in the output and the data-attribute selector wins. The
-    // override must carry the same prefix to actually replace it.
-    expect(dialog).toHaveClass("data-[side=left]:w-72")
+    // A left drawer, not the shared Sheet's phone bottom sheet: navigation
+    // slides in from the edge the sidebar lives on (reference: min(300px,
+    // 86vw)), and the toggle reports it is open.
+    expect(dialog).toHaveClass("left-0", "w-[min(300px,86vw)]")
+    expect(dialog).toHaveAttribute("id", "mobile-navigation")
+    expect(
+      within(dialog).getByRole("navigation", { name: "Primary" })
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole("button", { name: "Close navigation" })
+    ).toBeInTheDocument()
   })
 })
 
@@ -169,11 +410,13 @@ describe("session-ready children gate", () => {
     // page's own queries cannot 401 and hard-navigate to /sign-in.
     stubApi()
     render(
-      <QueryProvider>
-        <AppShell session={null}>
-          <div>gated-child</div>
-        </AppShell>
-      </QueryProvider>
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={null}>
+            <div>gated-child</div>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
     )
     expect(screen.queryByText("gated-child")).not.toBeInTheDocument()
     await waitFor(() =>
@@ -184,9 +427,11 @@ describe("session-ready children gate", () => {
   it("bootstraps the session with an abortable request", async () => {
     const fetchMock = stubApi()
     render(
-      <QueryProvider>
-        <AppShell session={null}>content</AppShell>
-      </QueryProvider>
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={null}>content</AppShell>
+        </QueryProvider>
+      </Toaster>
     )
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     const init = fetchMock.mock.calls[0][1] as RequestInit
@@ -200,7 +445,7 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     expect(
-      await screen.findByText(/Full access, including compliance and billing/)
+      await screen.findByText(/Full access, including the agency.s settings and team/)
     ).toBeInTheDocument()
   })
 

@@ -1,23 +1,31 @@
-import { GeistMono } from "geist/font/mono"
-import { Inter } from "next/font/google"
+import localFont from "next/font/local"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
-// One family, platform-native. `--font-sans` in globals.css puts San
-// Francisco first, so Apple devices never download a font; Inter is the
-// fallback everywhere else because it carries an optical-size axis, which is
-// what keeps 13px UI text open and 32px figures tight the way SF does.
-// `adjustFontFallback` keeps the system fallback's metrics close enough that
-// a slow font load does not reflow a heading.
-const inter = Inter({
-  subsets: ["latin"],
+// The interface uses the platform sans and the serif stack declared in
+// globals.css, so no web font is needed for either. JetBrains Mono is the
+// one self-hosted family (OFL, licence beside the files in public/fonts):
+// counts, timestamps, IDs and keycaps. `--font-mono` reads this variable.
+const jetbrainsMono = localFont({
+  src: [
+    {
+      path: "../public/fonts/jetbrains-mono/JetBrainsMono[wght].ttf",
+      weight: "100 800",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/jetbrains-mono/JetBrainsMono-Italic[wght].ttf",
+      weight: "100 800",
+      style: "italic",
+    },
+  ],
   display: "swap",
-  axes: ["opsz"],
-  variable: "--font-inter",
-  fallback: ["Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
+  variable: "--font-jetbrains-mono",
+  fallback: ["ui-monospace", "Menlo", "monospace"],
+  adjustFontFallback: false,
 })
 
 export const metadata = {
@@ -35,8 +43,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={cn(
         "font-sans antialiased",
-        inter.variable,
-        GeistMono.variable
+        jetbrainsMono.variable
       )}
     >
       <body>

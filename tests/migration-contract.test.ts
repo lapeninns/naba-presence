@@ -4,6 +4,22 @@ import { readdir, readFile } from "node:fs/promises"
 import { PGlite } from "@electric-sql/pglite"
 import { describe, expect, it } from "vitest"
 
+import {
+  KNOWN_VERSION_GAPS,
+  LEGACY_MIGRATION_FILES,
+  MIGRATION_FILE_PATTERN,
+  NO_TRANSACTION_MARKER,
+  highestVersion,
+  prepareMigration,
+  versionNumber,
+} from "../scripts/migration-rules.mjs"
+
+const migrationsDirectory = new URL("../supabase/migrations/", import.meta.url)
+const migrationFiles = async () =>
+  (await readdir(migrationsDirectory))
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+
 const migration = readFileSync(
   new URL("../supabase/migrations/0001_initial.sql", import.meta.url),
   "utf8"
@@ -33,11 +49,54 @@ const tenantTables = [
 ]
 
 describe("database migration contract", () => {
+  it("names every migration NNNN_snake_case.sql, apart from the legacy allowlist", async () => {
+    const files = await migrationFiles()
+    for (const legacy of LEGACY_MIGRATION_FILES) {
+      expect(files, `stale legacy allowlist entry ${legacy}`).toContain(legacy)
+    }
+    const misnamed = files.filter(
+      (file) =>
+        !MIGRATION_FILE_PATTERN.test(file) &&
+        !LEGACY_MIGRATION_FILES.includes(file)
+    )
+    expect(misnamed).toEqual([])
+  })
+
+  it("numbers migrations without gaps, apart from the known-gaps allowlist", async () => {
+    const files = (await migrationFiles()).filter(
+      (file) => !LEGACY_MIGRATION_FILES.includes(file)
+    )
+    const used = new Set(files.map(versionNumber))
+    const gaps: string[] = []
+    for (let version = 1; version <= highestVersion(files); version += 1) {
+      if (!used.has(version)) gaps.push(String(version).padStart(4, "0"))
+    }
+    expect(gaps).toEqual(KNOWN_VERSION_GAPS)
+  })
+
+  it("records every migration's own version in schema_migration", async () => {
+    for (const file of await migrationFiles()) {
+      const text = await readFile(new URL(file, migrationsDirectory), "utf8")
+      const version = file.replace(/\.sql$/, "")
+      expect(text, `${file} must insert '${version}'`).toMatch(
+        new RegExp(`insert into schema_migration[^;]*'${version}'`)
+      )
+    }
+  })
+
+  it("runs every migration inside the runner's transaction", async () => {
+    const noTransaction: string[] = []
+    for (const file of await migrationFiles()) {
+      const text = await readFile(new URL(file, migrationsDirectory), "utf8")
+      if (!prepareMigration(file, text).transactional) noTransaction.push(file)
+    }
+    // A new `-- migrate:no-transaction` file must be added here on purpose:
+    // db:migrate cannot roll it back if it fails half-way.
+    expect(noTransaction).toEqual([])
+  })
+
   it("uses unique Supabase migration versions", async () => {
-    const directory = new URL("../supabase/migrations/", import.meta.url)
-    const files = (await readdir(directory))
-      .filter((file) => file.endsWith(".sql"))
-      .sort()
+    const files = await migrationFiles()
     const versions = files.map((file) => file.split("_", 1)[0])
 
     expect(
@@ -185,5 +244,93 @@ describe("database migration contract", () => {
         )
       }
     }
+  })
+})
+
+describe("db:migrate transaction handling", () => {
+  it("strips a file's outer begin/commit pair and keeps line numbers", () => {
+    const text = "-- header\nbegin;\ncreate table t (id int);\ncommit;\n"
+    const result = prepareMigration("0099_t.sql", text)
+    expect(result.transactional).toBe(true)
+    expect(result.body).toBe(
+      "-- header\n      \ncreate table t (id int);\n       \n"
+    )
+  })
+
+  it("runs a file without an outer pair as-is inside the transaction", () => {
+    const text = "create table t (id int);\n"
+    expect(prepareMigration("0099_t.sql", text)).toEqual({
+      transactional: true,
+      body: text,
+    })
+  })
+
+  it("leaves PL/pgSQL begin/end blocks alone", () => {
+    const text = [
+      "begin;",
+      "do $$",
+      "begin",
+      "  perform 1;",
+      "end;",
+      "$$;",
+      "commit;",
+    ].join("\n")
+    expect(prepareMigration("0099_t.sql", text).transactional).toBe(true)
+  })
+
+  it("rejects transaction control the runner would not own", () => {
+    expect(() =>
+      prepareMigration("0099_t.sql", "begin;\nselect 1;\ncommit;\nselect 2;\n")
+    ).toThrow(/needs a matching final commit/)
+    expect(() =>
+      prepareMigration("0099_t.sql", "select 1;\ncommit;\nselect 2;\n")
+    ).toThrow(/0099_t.sql:2: transaction control/)
+    expect(() =>
+      prepareMigration(
+        "0099_t.sql",
+        "begin;\nselect 1;\nrollback;\nbegin;\ncommit;\n"
+      )
+    ).toThrow(/transaction control/)
+  })
+
+  it("ignores transaction words in comments, strings and dollar quotes", () => {
+    const text = [
+      "BEGIN;",
+      "-- commit; here is only a comment",
+      "/* rollback; /* nested */ end; */",
+      "select 'commit;', E'it\\'s; end;', \"end;\";",
+      "create procedure p() language plpgsql as $body$",
+      "begin",
+      "  commit;",
+      "end;",
+      "$body$;",
+      "COMMIT; -- done",
+    ].join("\n")
+    expect(prepareMigration("0099_t.sql", text).transactional).toBe(true)
+  })
+
+  it("rejects top-level end, abort and commit and chain", () => {
+    for (const statement of ["end;", "abort;", "savepoint s;"]) {
+      expect(() =>
+        prepareMigration("0099_t.sql", `select 1;\n${statement}\nselect 2;\n`)
+      ).toThrow(/transaction control/)
+    }
+    expect(() =>
+      prepareMigration("0099_t.sql", "begin;\nselect 1;\ncommit and chain;\n")
+    ).toThrow(/needs a matching final commit/)
+  })
+
+  it("runs a marked file verbatim outside a transaction", () => {
+    const text = `${NO_TRANSACTION_MARKER}\ncreate index concurrently i on t (id);\n`
+    expect(prepareMigration("0099_t.sql", text)).toEqual({
+      transactional: false,
+      body: text,
+    })
+  })
+
+  it("ignores legacy names when finding the highest version", () => {
+    expect(
+      highestVersion(["0001_a.sql", "0057_b.sql", ...LEGACY_MIGRATION_FILES])
+    ).toBe(57)
   })
 })

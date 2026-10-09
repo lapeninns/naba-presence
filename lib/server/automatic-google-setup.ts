@@ -2,6 +2,11 @@ import "server-only"
 
 import { discoverAutomaticGoogleCandidate } from "@/lib/server/automatic-google-discovery"
 import { writeAudit } from "@/lib/server/audit"
+import {
+  auditExtendedGrants,
+  extendClientHolders,
+} from "@/lib/server/client-access"
+import { businessHomeClientId } from "@/lib/server/clients"
 import { withTenant } from "@/lib/server/db"
 
 export type AutomaticGoogleSetup =
@@ -152,14 +157,22 @@ export async function prepareAutomaticGoogleReviewSetup(
         limit 1
       `
       if (!existingLink) {
-        const [managedLocation] = await sql<{ id: string }[]>`
+        const targetClientId =
+          input.clientId ??
+          (await businessHomeClientId(sql, input.organisationId))
+        const [prior] = await sql<{ clientId: string | null }[]>`
+          select client_id::text as "clientId" from location where name = ${title}
+        `
+        const [managedLocation] = await sql<
+          { id: string; clientId: string | null }[]
+        >`
           insert into location (organisation_id, name, address_json, timezone, client_id)
           values (
             ${input.organisationId},
             ${title},
             ${location.storefrontAddress ? sql.json(location.storefrontAddress) : null},
             'Europe/London',
-            ${input.clientId ?? null}
+            ${targetClientId}
           )
           on conflict (organisation_id, name) do update
           set
@@ -167,7 +180,7 @@ export async function prepareAutomaticGoogleReviewSetup(
             -- Only fills a gap; never moves a location that already belongs to
             -- someone. Reconnecting must not silently reassign a listing.
             client_id = coalesce(location.client_id, excluded.client_id)
-          returning id::text as id
+          returning id::text as id, client_id::text as "clientId"
         `
         const [link] = await sql<{ id: string }[]>`
           insert into location_link (
@@ -199,6 +212,25 @@ export async function prepareAutomaticGoogleReviewSetup(
             externalLocationId: external.id,
           },
         })
+        // Newly filed under the client: people who hold the rest of the
+        // client get it too (lib/server/client-access.ts).
+        if (
+          targetClientId &&
+          managedLocation.clientId === targetClientId &&
+          !prior?.clientId
+        ) {
+          await auditExtendedGrants(sql, {
+            organisationId: input.organisationId,
+            actorUserId: input.userId,
+            clientId: targetClientId,
+            requestId: `${input.requestId}:access`,
+            extended: await extendClientHolders(sql, {
+              organisationId: input.organisationId,
+              clientId: targetClientId,
+              locationIds: [managedLocation.id],
+            }),
+          })
+        }
       }
       await sql`
         insert into sync_checkpoint (

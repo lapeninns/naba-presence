@@ -1,0 +1,28 @@
+# Historical gitleaks findings, by fingerprint (commit:file:rule:line). The
+# CI secret scan checks only new commits on pull requests and pushes; the
+# nightly full-history scan reads this file. Add an entry only for a finding
+# that is already in history AND has been rotated or is a known local default.
+#
+# supabase/.temp/...docker.env: the local Supabase CLI's well-known demo JWTs
+# and keys, committed by a "harness checkpoint" (3a7fc34) and removed since.
+# Library/pnpm/store/...: a package tarball in a pnpm store written into the
+# repo when HOME pointed at it (see .gitignore /Library/).
+# .superpowers/.../server.log: a local brainstorm tool token (see .gitignore
+# /.superpowers/).
+3a7fc3468520a374efc175d10a365b48a5766880:Library/pnpm/store/v11/files/3b/8a35d3ffa608a2bb9162625945c010b4b82c5fcce382001a2b87b6f59a2de824b8f1a36855c9c58be508165e6ec282a0e48ffb9e1d566ad4a03b1373d0901b:generic-api-key:191895
+3a7fc3468520a374efc175d10a365b48a5766880:Library/pnpm/store/v11/files/3b/8a35d3ffa608a2bb9162625945c010b4b82c5fcce382001a2b87b6f59a2de824b8f1a36855c9c58be508165e6ec282a0e48ffb9e1d566ad4a03b1373d0901b:generic-api-key:191902
+3a7fc3468520a374efc175d10a365b48a5766880:Library/pnpm/store/v11/files/3b/8a35d3ffa608a2bb9162625945c010b4b82c5fcce382001a2b87b6f59a2de824b8f1a36855c9c58be508165e6ec282a0e48ffb9e1d566ad4a03b1373d0901b:generic-api-key:57733
+3a7fc3468520a374efc175d10a365b48a5766880:Library/pnpm/store/v11/files/3b/8a35d3ffa608a2bb9162625945c010b4b82c5fcce382001a2b87b6f59a2de824b8f1a36855c9c58be508165e6ec282a0e48ffb9e1d566ad4a03b1373d0901b:private-key:52776
+3a7fc3468520a374efc175d10a365b48a5766880:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:5
+3a7fc3468520a374efc175d10a365b48a5766880:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:6
+3a7fc3468520a374efc175d10a365b48a5766880:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:2
+3a7fc3468520a374efc175d10a365b48a5766880:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:3
+557c66b79f2abf1bdf36f07dd7fb8c5c7fa1d017:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:5
+557c66b79f2abf1bdf36f07dd7fb8c5c7fa1d017:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:6
+557c66b79f2abf1bdf36f07dd7fb8c5c7fa1d017:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:2
+557c66b79f2abf1bdf36f07dd7fb8c5c7fa1d017:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:3
+be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:5
+be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:generic-api-key:6
+be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:2
+be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:3
+c476bcafe9135a3f978cb41c97fc46b107e1c710:.superpowers/brainstorm/8133-1785323857/state/server.log:generic-api-key:1

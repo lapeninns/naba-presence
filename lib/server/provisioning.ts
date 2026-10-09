@@ -3,9 +3,11 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
+import { grantClientListings } from "@/lib/server/client-access"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { createHomeClient } from "@/lib/server/clients"
 import { createSession } from "@/lib/server/session-store"
 
 export type GoogleProfile = {
@@ -146,13 +148,19 @@ export async function provisionAuthenticatedOwner(
         // organisation_slug_key would turn the login loop into a permanent
         // 500 instead of fixing it.
         await sql`
-          insert into organisation (id, slug, name)
+          insert into organisation (id, slug, name, workspace_mode)
           values (
             ${organisationId},
             ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
-            ${`${identity.displayName}'s organisation`}
+            ${`${identity.displayName}'s organisation`},
+            'business'
           )
         `
+        await createHomeClient(
+          sql,
+          organisationId,
+          `${identity.displayName}'s organisation`
+        )
         await sql`
           insert into member (
             organisation_id,
@@ -181,6 +189,47 @@ export async function provisionAuthenticatedOwner(
       }
     })
     .catch(mapAuthenticatedIdentityError)
+}
+
+/**
+ * Turns a client-scoped invitation into location_member rows, inside the
+ * acceptance transaction, for BOTH acceptance paths below. Returns how many
+ * listings were granted (0 for an unscoped invitation).
+ *
+ * Only a membership this acceptance created is scoped: the do-nothing insert
+ * above never rewrites an existing membership, and adding rows to one would
+ * narrow someone the invitation was never about. A scoped invitation whose
+ * clients no longer hold any listing is REFUSED: accepted with no rows, the
+ * invitee would see every client, the opposite of what was asked for.
+ */
+async function applyInvitationScope(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    userId: string
+    joined: boolean
+    pending: { role: string; canPublish: boolean; clientIds: string[] | null }
+  }
+): Promise<number> {
+  const { pending } = input
+  if (!input.joined || !pending.clientIds || pending.clientIds.length === 0) {
+    return 0
+  }
+  if (pending.role !== "member" && pending.role !== "viewer") return 0
+  const granted = await grantClientListings(sql, {
+    organisationId: input.organisationId,
+    userId: input.userId,
+    clientIds: pending.clientIds,
+    canPublish: pending.role === "member" && pending.canPublish,
+  })
+  if (granted.length === 0) {
+    throw new ApiError(
+      409,
+      "invitation_scope_empty",
+      "The clients this invitation was for have no listings any more. Ask for a new invitation."
+    )
+  }
+  return granted.length
 }
 
 export async function provisionAuthenticatedMember(
@@ -215,6 +264,7 @@ export async function provisionAuthenticatedMember(
           canPublish: boolean
           expiresAt: Date
           acceptedAt: Date | null
+          clientIds: string[] | null
         }[]
       >`
         select
@@ -223,7 +273,8 @@ export async function provisionAuthenticatedMember(
           role,
           can_publish as "canPublish",
           expires_at as "expiresAt",
-          accepted_at as "acceptedAt"
+          accepted_at as "acceptedAt",
+          client_ids::text[] as "clientIds"
         from invitation
         where id = ${invitation.id}
           and organisation_id = ${invitation.organisationId}
@@ -274,7 +325,7 @@ export async function provisionAuthenticatedMember(
       // inside authentication, where raising 409 would fail the sign-in
       // itself. Re-inviting the sole owner as a viewer used to leave the
       // organisation permanently ownerless.
-      await sql`
+      const joined = await sql`
         insert into member (
           organisation_id,
           user_id,
@@ -288,7 +339,14 @@ export async function provisionAuthenticatedMember(
           ${pending.canPublish}
         )
         on conflict (organisation_id, user_id) do nothing
+        returning user_id
       `
+      const scopedListings = await applyInvitationScope(sql, {
+        organisationId: invitation.organisationId,
+        userId: user.id,
+        joined: joined.length > 0,
+        pending,
+      })
       if (!user.defaultOrganisationId) {
         await sql`
           update app_user
@@ -314,6 +372,8 @@ export async function provisionAuthenticatedMember(
           provider: identity.provider,
           role: pending.role,
           canPublish: pending.canPublish,
+          clientIds: pending.clientIds,
+          scopedListings,
         },
       })
       const token = await createSession(sql, user.id, invitation.organisationId)
@@ -325,6 +385,154 @@ export async function provisionAuthenticatedMember(
       }
     })
     .catch(mapAuthenticatedIdentityError)
+}
+
+/**
+ * Accepts an invitation for a visitor who is ALREADY signed in, so matching
+ * the invited address no longer costs a sign-out and a password. Mirrors the
+ * checks in `provisionAuthenticatedMember` (row lock, accepted/expired,
+ * changed-details and email match) against the session user's stored email,
+ * which is the address they last authenticated with. A support session is
+ * refused: it acts as the customer and must not join organisations for them.
+ *
+ * Returns a fresh session token in the invitation's organisation; the caller
+ * swaps the cookie and retires the old session, as `/api/session/switch`
+ * does.
+ */
+export async function acceptInvitationForSessionUser(
+  user: { userId: string; email: string; supportActor?: string | null },
+  invitation: {
+    id: string
+    organisationId: string
+    role: string
+    canPublish: boolean
+  },
+  requestId: string
+): Promise<{ organisationId: string; userId: string; token: string }> {
+  if (user.supportActor) {
+    throw new ApiError(
+      403,
+      "support_session_forbidden",
+      "A support session cannot accept invitations."
+    )
+  }
+  return getDatabase().begin(async (sql) => {
+    await sql`
+      select set_config('app.organisation_id', ${invitation.organisationId}, true)
+    `
+    const [pending] = await sql<
+      {
+        id: string
+        email: string
+        role: string
+        canPublish: boolean
+        expiresAt: Date
+        acceptedAt: Date | null
+        clientIds: string[] | null
+      }[]
+    >`
+      select
+        id::text as id,
+        email,
+        role,
+        can_publish as "canPublish",
+        expires_at as "expiresAt",
+        accepted_at as "acceptedAt",
+        client_ids::text[] as "clientIds"
+      from invitation
+      where id = ${invitation.id}
+        and organisation_id = ${invitation.organisationId}
+      for update
+    `
+    if (!pending) {
+      throw new ApiError(404, "invitation_not_found", "Invitation not found.")
+    }
+    if (pending.acceptedAt) {
+      throw new ApiError(
+        409,
+        "invitation_already_used",
+        "This invitation has already been accepted."
+      )
+    }
+    if (pending.expiresAt.getTime() <= Date.now()) {
+      throw new ApiError(
+        410,
+        "invitation_expired",
+        "This invitation has expired."
+      )
+    }
+    if (
+      pending.role !== invitation.role ||
+      pending.canPublish !== invitation.canPublish
+    ) {
+      throw new ApiError(
+        409,
+        "invitation_changed",
+        "The invitation details changed."
+      )
+    }
+    if (
+      pending.email.trim().toLowerCase() !== user.email.trim().toLowerCase()
+    ) {
+      throw new ApiError(
+        403,
+        "invitation_email_mismatch",
+        "Sign in with the email address that received this invitation."
+      )
+    }
+    await sql`select set_config('app.user_id', ${user.userId}, true)`
+    // Same do-nothing rule as provisionAuthenticatedMember: acceptance may
+    // create a membership but never rewrite an existing one.
+    const joined = await sql`
+      insert into member (organisation_id, user_id, role, can_publish)
+      values (
+        ${invitation.organisationId},
+        ${user.userId},
+        ${pending.role},
+        ${pending.canPublish}
+      )
+      on conflict (organisation_id, user_id) do nothing
+      returning user_id
+    `
+    const scopedListings = await applyInvitationScope(sql, {
+      organisationId: invitation.organisationId,
+      userId: user.userId,
+      joined: joined.length > 0,
+      pending,
+    })
+    await sql`
+      update invitation
+      set accepted_at = now(), accepted_by = ${user.userId}
+      where id = ${pending.id}
+    `
+    await writeAudit(sql, {
+      organisationId: invitation.organisationId,
+      actorUserId: user.userId,
+      action: "member.invitation_accepted",
+      subjectType: "invitation",
+      subjectId: pending.id,
+      requestId,
+      metadata: {
+        invitedEmail: pending.email,
+        authenticatedEmail: user.email,
+        provider: "session",
+        role: pending.role,
+        canPublish: pending.canPublish,
+        clientIds: pending.clientIds,
+        scopedListings,
+      },
+    })
+    const token = await createSession(
+      sql,
+      user.userId,
+      invitation.organisationId
+    )
+    return {
+      organisationId: invitation.organisationId,
+      userId: user.userId,
+      token,
+    }
+  })
 }
 
 /**
@@ -376,13 +584,19 @@ export async function provisionOwner(profile: GoogleProfile) {
         )
       `
         await sql`
-        insert into organisation (id, slug, name)
+        insert into organisation (id, slug, name, workspace_mode)
         values (
           ${organisationId},
           ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"}
+          ${profile.name ? `${profile.name}'s organisation` : "My organisation"},
+          'business'
         )
       `
+        await createHomeClient(
+          sql,
+          organisationId,
+          profile.name ? `${profile.name}'s organisation` : "My organisation"
+        )
         await sql`
         insert into member (
           organisation_id,

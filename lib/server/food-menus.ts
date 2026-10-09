@@ -9,6 +9,7 @@ import type {
   SaveFoodMenusResult,
 } from "@/lib/contracts/location-food-menus"
 import { foodMenuCounts, hashFoodMenus } from "@/lib/domain/food-menus"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { googleFoodMenusName } from "@/lib/domain/google-contract"
 import { writeAudit } from "@/lib/server/audit"
 import {
@@ -33,6 +34,7 @@ import {
   GoogleMutationAmbiguousError,
   patchGoogleFoodMenus,
 } from "@/lib/server/google"
+import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
@@ -104,6 +106,7 @@ async function recordFoodMenusState(input: {
   googleHash: string
   canonicalMenus: Menus
   googleMenus: Menus
+  attemptedAt: Date
 }) {
   await withTenant(input.session.organisationId, async (sql) => {
     await sql`
@@ -115,23 +118,39 @@ async function recordFoodMenusState(input: {
         ${input.session.organisationId}, ${input.locationId}, ${input.externalLocationId}, ${input.eligible},
         ${input.canonicalRevision}, ${input.canonicalHash}, ${input.googleHash},
         ${jsonColumn(sql, input.canonicalMenus)},
-        ${jsonColumn(sql, input.googleMenus)}, now(), now() + interval '30 days'
+        ${jsonColumn(sql, input.googleMenus)}, ${input.attemptedAt}, now() + interval '30 days'
       ) on conflict (organisation_id, location_id) do update set
         eligible = excluded.eligible, canonical_revision = excluded.canonical_revision,
         canonical_hash = excluded.canonical_hash, google_hash = excluded.google_hash,
         canonical_payload = excluded.canonical_payload, google_payload = excluded.google_payload,
-        observed_at = now(), expires_at = excluded.expires_at
+        observed_at = excluded.observed_at, expires_at = excluded.expires_at
+      where excluded.observed_at > food_menus_state.observed_at
     `
   })
 }
 
 export async function readLiveFoodMenus(session: Session, locationId: string) {
   const context = await linkedFoodMenusLocation(session, locationId)
-  const token = await context.accessToken()
-  const { eligible, name, googleMenus } = await fetchGoogleFoodMenus(
-    context,
-    token
-  )
+  const attemptedAt = new Date()
+  let token: string
+  let fetched: Awaited<ReturnType<typeof fetchGoogleFoodMenus>>
+  try {
+    token = await context.accessToken()
+    fetched = await fetchGoogleFoodMenus(context, token)
+  } catch (error) {
+    await withTenant(session.organisationId, (sql) =>
+      recordResourceObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        resource: "foodMenus",
+        attemptedAt,
+        errorCode:
+          error instanceof ApiError ? error.code : "google_menu_read_failed",
+      })
+    )
+    throw error
+  }
+  const { eligible, name, googleMenus } = fetched
   const canonicalResource = await withTenant(session.organisationId, (sql) =>
     ensureCanonicalResource<Menus>({
       sql,
@@ -169,6 +188,7 @@ export async function readLiveFoodMenus(session: Session, locationId: string) {
     writesEnabled: env.PUBLISH_ENABLED && env.GBP_FOOD_MENUS_ENABLED,
   } satisfies FoodMenusState
   await recordFoodMenusState({
+    attemptedAt,
     session,
     locationId,
     externalLocationId: context.externalLocationId,
@@ -179,6 +199,14 @@ export async function readLiveFoodMenus(session: Session, locationId: string) {
     canonicalMenus,
     googleMenus,
   })
+  await withTenant(session.organisationId, (sql) =>
+    recordResourceObservation(sql, {
+      organisationId: session.organisationId,
+      locationId,
+      resource: "foodMenus",
+      attemptedAt,
+    })
+  )
   return { state, context, token, name, canonicalResource }
 }
 
@@ -270,6 +298,18 @@ function assertFoodMenusPublishable(
       "food_menus_stale",
       "The menu changed after review. Refresh before publishing."
     )
+  if (
+    !compareMenuReplacement({
+      draft: live.state.canonicalMenus,
+      google: live.state.googleMenus,
+    }).publishable
+  ) {
+    throw new ApiError(
+      409,
+      "food_menus_unresolved",
+      "Some menu entries cannot be matched reliably. Resolve the comparison before publishing."
+    )
+  }
 }
 
 /**

@@ -21,6 +21,13 @@ export type DataTableColumn<Row> = {
   className?: string
   /** Right-aligned with tabular figures: counts, ratings, money. */
   numeric?: boolean
+  /**
+   * The column name shown above each value in responsive labelled rows.
+   * Defaults to `header` when that is a string. Pass `""` for none.
+   */
+  label?: string
+  /** Take the whole row in responsive labelled rows. */
+  span?: boolean
 }
 
 type DataTableProps<Row> = {
@@ -41,10 +48,16 @@ type DataTableProps<Row> = {
   stickyHeader?: boolean
   empty?: React.ReactNode
   /**
-   * Draws the table on its own white card. Leave off when the table already
-   * sits inside a Card or an inset group.
+   * Draws the table on its own white card — `Table`'s own `surface`, so a
+   * DataTable and a hand-composed table land on exactly the same ground.
+   * Leave off when the table already sits inside a panel or an inset group.
    */
   surface?: boolean
+  /**
+   * Become labelled rows below 720px of the table's own width (reference
+   * `.table.responsive`). See `Table`.
+   */
+  responsive?: boolean
   className?: string
 }
 
@@ -71,6 +84,7 @@ function DataTable<Row>({
   stickyHeader = false,
   empty,
   surface = false,
+  responsive = false,
   className,
 }: DataTableProps<Row>) {
   const ids = rows.map(rowId)
@@ -100,20 +114,16 @@ function DataTable<Row>({
   }
 
   return (
-    <div
-      data-density={density}
-      className={cn(
-        "min-w-0",
-        surface && "overflow-hidden rounded-(--np-radius-card) bg-surface",
-        className
-      )}
-    >
-      <Table>
+    <div data-density={density} className={cn("min-w-0", className)}>
+      {/* The card ground belongs to Table's scroll container, not to a box
+          around it: a wide table then scrolls inside its own card instead of
+          sliding out from under one. */}
+      <Table surface={surface} responsive={responsive}>
         <caption className="sr-only">{caption}</caption>
         <TableHeader sticky={stickyHeader}>
           <TableRow>
             {selection ? (
-              <TableHead className="w-10 pr-0">
+              <TableHead className="w-11 pr-0">
                 <Checkbox
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
@@ -146,25 +156,16 @@ function DataTable<Row>({
                 key={id}
                 data-selected={isSelected || undefined}
                 interactive={Boolean(onRowClick)}
+                // A pointer convenience only. The row is not a tab stop: a
+                // focusable <tr> has no name of its own, so a keyboard user
+                // met an unnamed stop before the row's real link. Keyboard
+                // and screen-reader users open the row through the named
+                // link a clickable row must carry in one of its cells.
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                // A clickable row is also a keyboard target: Enter and Space
-                // open it, the same as the pointer does.
-                tabIndex={onRowClick ? 0 : undefined}
-                onKeyDown={
-                  onRowClick
-                    ? (event) => {
-                        if (event.target !== event.currentTarget) return
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault()
-                          onRowClick(row)
-                        }
-                      }
-                    : undefined
-                }
               >
                 {selection ? (
                   <TableCell
-                    className="w-10 pr-0"
+                    className="w-11 pr-0"
                     // Stops a checkbox click from also triggering the row's
                     // own navigation.
                     onClick={(event) => event.stopPropagation()}
@@ -180,6 +181,13 @@ function DataTable<Row>({
                   <TableCell
                     key={column.id}
                     numeric={column.numeric}
+                    label={
+                      column.label ??
+                      (typeof column.header === "string"
+                        ? column.header
+                        : undefined)
+                    }
+                    span={column.span}
                     className={column.className}
                   >
                     {column.cell(row)}

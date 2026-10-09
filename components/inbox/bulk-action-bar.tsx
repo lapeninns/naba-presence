@@ -1,9 +1,18 @@
 "use client"
 
-import { Check, UserPlus, X } from "lucide-react"
+import { Check, MessageSquareText, UserPlus, X } from "lucide-react"
 import * as React from "react"
 
 import { useSelection } from "@/components/inbox/selection-context"
+import { TemplateReplyDialog } from "@/components/inbox/template-reply-dialog"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -12,13 +21,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
+import { isRatingOnly } from "@/lib/inbox/template-batch"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
-import { cn } from "@/lib/utils"
 
 /**
  * Actions over a selection, floating over the workspace as a capsule on the
@@ -31,17 +39,39 @@ import { cn } from "@/lib/utils"
  * so a stale row never discards the rest of the batch.
  */
 function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
-  const { selected, clear } = useSelection()
+  const { selected, clear, replace } = useSelection()
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
+  const [confirmApprove, setConfirmApprove] = React.useState(false)
+  // The selection as it was when the template batch opened. Replies that
+  // publish leave the list (and so the selection's visible rows) while the
+  // dialog is still showing its summary, so it works from this copy and is
+  // rendered even once nothing selected is on screen.
+  const [templateRows, setTemplateRows] = React.useState<ReviewRow[] | null>(
+    null
+  )
 
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
   // selection exists rather than on every visit to the inbox.
   const members = useMembers({ enabled: chosen.length > 0 })
 
-  if (chosen.length === 0) return null
+  const templateDialog = templateRows ? (
+    <TemplateReplyDialog
+      open
+      rows={templateRows}
+      onOpenChange={(open) => {
+        if (!open) setTemplateRows(null)
+      }}
+      onFinished={(sentIds) => {
+        const sent = new Set(sentIds)
+        replace([...selected].filter((id) => !sent.has(id)))
+      }}
+    />
+  ) : null
+
+  if (chosen.length === 0) return templateDialog
 
   const approvable = chosen.filter(
     (row) =>
@@ -71,66 +101,61 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           skipped === 0
             ? `${ok} ${ok === 1 ? "review" : "reviews"} updated`
             : `${ok} updated, ${skipped} skipped`,
+        description:
+          skipped === 0 ? undefined : "The bar lists which, and why.",
+        type: skipped === 0 ? "success" : "warning",
       })
       if (skipped === 0) clear()
     } catch (error) {
       toast.add({
         title: "That batch did not run",
         description: describeErrorCode(error),
+        type: "error",
       })
     }
+  }
+
+  // Per-row results come back as ids; the operator knows reviews by who
+  // wrote them and where.
+  const describeRow = (reviewId: string) => {
+    const match = rows.find((row) => row.id === reviewId)
+    if (!match) return "A review no longer in this list"
+    const name = match.reviewer.isAnonymous
+      ? "Anonymous"
+      : (match.reviewer.displayName ?? "Anonymous")
+    return `${name} · ${match.location.name}`
   }
 
   const partial = approvable.length < chosen.length && approvable.length > 0
   const failures = outcome
     ? outcome.results.filter((row) => row.status !== "ok")
     : []
-  // A single row of tools is a capsule; once there is a note or a list of
-  // outcomes under it, the panel radius keeps the corners concentric.
-  const hasNotes = partial || failures.length > 0
 
   return (
     <div
       role="region"
       aria-label="Selected reviews"
       data-slot="bulk-action-bar"
-      className={cn(
-        "absolute bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 material-popover shadow-(--np-shadow-pop)",
-        "transition-[opacity,translate] duration-(--np-duration-overlay) ease-spring starting:translate-y-2 starting:opacity-0",
-        hasNotes
-          ? "rounded-(--np-radius-panel) px-3 py-2.5"
-          : "rounded-(--np-radius-pill) py-1.5 pr-1.5 pl-3"
-      )}
+      // Reference `.bulkbar`: the list's own charcoal bar, pinned under the
+      // rows — sticky at the foot of the screen where the page scrolls.
+      className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 rounded-b-[calc(var(--np-radius-card)-1px)] on-charcoal px-3 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] [&_:focus-visible]:outline-ink-on-charcoal md:[@media(min-height:620px)]:pb-2.5"
     >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="pr-1.5 text-ui font-medium text-ink tabular-nums">
+      <div className="flex flex-wrap items-center gap-2">
+        <strong className="mr-auto text-ui font-semibold text-ink-on-charcoal tabular-nums">
           {chosen.length} selected
-        </span>
-
-        <Button
-          size="sm"
-          pill
-          disabled={approvable.length === 0 || bulk.isPending}
-          onClick={() => void run("approve")}
-        >
-          <Check aria-hidden strokeWidth={1.75} data-icon="inline-start" />
-          {approvable.length === chosen.length
-            ? "Approve"
-            : `Approve ${approvable.length} of ${chosen.length}`}
-        </Button>
+        </strong>
 
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <Button
                 size="sm"
-                variant="secondary"
-                pill
+                variant="ghost-dark"
                 disabled={bulk.isPending}
               />
             }
           >
-            <UserPlus aria-hidden strokeWidth={1.75} data-icon="inline-start" />
+            <UserPlus aria-hidden data-icon="inline-start" />
             Assign
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center">
@@ -151,29 +176,60 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Triage, not a reply: it clears the reviews from Needs reply and
+            sends nothing to Google. "Mark reviewed" read as though it might
+            do either. */}
         <Button
           size="sm"
-          variant="secondary"
-          pill
+          variant="ghost-dark"
           disabled={bulk.isPending}
+          title="Clears these from Needs reply. Nothing is posted to Google."
           onClick={() => void run("mark_reviewed")}
         >
-          Mark reviewed
+          No reply needed
+        </Button>
+
+        {/* Stars with no words: one standard reply each, checked and then
+            published (or submitted) as a batch. Offered only when the
+            selection has some. */}
+        {chosen.some(isRatingOnly) ? (
+          <Button
+            size="sm"
+            variant="ghost-dark"
+            disabled={bulk.isPending}
+            onClick={() => setTemplateRows(chosen)}
+          >
+            <MessageSquareText aria-hidden data-icon="inline-start" />
+            Reply with template
+          </Button>
+        ) : null}
+
+        {/* Approving publishes: each approved reply goes to Google at once.
+            A batch of that is confirmed, like every other publish. */}
+        <Button
+          size="sm"
+          variant="on-dark"
+          disabled={approvable.length === 0 || bulk.isPending}
+          onClick={() => setConfirmApprove(true)}
+        >
+          <Check aria-hidden data-icon="inline-start" />
+          {approvable.length === chosen.length
+            ? "Approve"
+            : `Approve ${approvable.length} of ${chosen.length}`}
         </Button>
 
         <Button
           size="icon-sm"
-          variant="ghost"
-          pill
+          variant="ghost-dark"
           aria-label="Clear selection"
           onClick={clear}
         >
-          <X aria-hidden strokeWidth={1.75} />
+          <X aria-hidden />
         </Button>
       </div>
 
       {partial ? (
-        <p className="text-caption text-ink-muted">
+        <p className="text-caption text-ink-muted-on-charcoal">
           {chosen.length - approvable.length} of these are not awaiting your
           approval, so Approve will skip them.
         </p>
@@ -184,22 +240,54 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
           {failures.map((row) => (
             <li
               key={row.reviewId}
-              className="flex items-center gap-2 text-caption"
+              className="flex items-center gap-2 text-caption text-ink-on-charcoal"
             >
-              <StatusPill
-                tone={row.status === "failed" ? "at-risk" : "attention"}
-                variant="inline"
-                className="text-caption"
-              >
+              <span className="font-semibold">
                 {row.status === "failed" ? "Failed" : "Skipped"}
-              </StatusPill>
-              <span className="text-ink-muted">
+              </span>
+              <span className="min-w-0 truncate">
+                {describeRow(row.reviewId)}
+              </span>
+              <span className="text-ink-muted-on-charcoal">
                 {row.code ? describeErrorCode(row.code) : "No reason given."}
               </span>
             </li>
           ))}
         </ul>
       ) : null}
+
+      <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
+        <AlertDialogContent
+          aria-label={`Approve and publish ${approvable.length} ${approvable.length === 1 ? "reply" : "replies"} to Google?`}
+        >
+          <AlertDialogTitle>
+            Approve and publish {approvable.length}{" "}
+            {approvable.length === 1 ? "reply" : "replies"} to Google?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Each approved reply is sent to Google straight away and appears on
+            the business&apos;s profile under its name.
+            {approvable.length < chosen.length
+              ? ` The other ${chosen.length - approvable.length} selected are not awaiting your approval and are left as they are.`
+              : ""}
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="secondary" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              disabled={bulk.isPending}
+              onClick={() => {
+                setConfirmApprove(false)
+                void run("approve")
+              }}
+            >
+              Approve and publish {approvable.length}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {templateDialog}
     </div>
   )
 }

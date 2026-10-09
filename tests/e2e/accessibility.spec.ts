@@ -6,7 +6,7 @@ import { readJourneyState } from "./helpers/stub-bridge"
 // Several authenticated surfaces below are gated server-side by the REAL
 // session cookie (`getSession()` reading a request cookie), not by the
 // client-side `/api/session` route mocked per-test — e.g.
-// `/settings/connections`, `/settings/team` and `/settings/compliance` each
+// `/settings/connections` and `/settings/team` each
 // `redirect("/settings")` for a null-or-non-owner-admin session, and
 // `PolicyForm` fetches `/api/settings/capabilities` for real (never mocked
 // below). A real cookie from the shared journey tenant (an owner, seeded by
@@ -67,6 +67,11 @@ async function expectAccessible(page: Page, surface: string) {
   )
   const results = await new AxeBuilder({ page })
     .withTags(accessibilityTags)
+    // An open Base UI menu brackets its trigger and popup with zero-size
+    // `aria-hidden` focus guards whose only job is to pass Tab focus on to
+    // the real target. Axe's aria-hidden-focus reads them as hidden focusable
+    // content; nothing in them is ever focused or announced.
+    .exclude("[data-base-ui-focus-guard]")
     .analyze()
   expect(
     results.violations,
@@ -120,6 +125,7 @@ async function mockReviewWorkspace(
           userId: "user-review-state-a11y",
           organisationId: "org-review-state-a11y",
           organisationName: "Naba Presence",
+          workspaceMode: "agency",
           displayName: "Alex Morgan",
           email: "alex@example.com",
           role: "owner",
@@ -154,6 +160,7 @@ async function mockReviewWorkspace(
         },
         byQueue: {
           needs_reply: 0,
+          approval: 0,
           awaiting_my_approval: 0,
           awaiting_others: 0,
           publishing: 0,
@@ -175,14 +182,18 @@ async function mockReviewWorkspace(
           : [
               {
                 id: "review-state-a11y",
-                reviewer: { displayName: "Jordan Lee", isAnonymous: false, profilePhotoUrl: null },
+                reviewer: {
+                  displayName: "Jordan Lee",
+                  isAnonymous: false,
+                  profilePhotoUrl: null,
+                },
                 rating: 5,
                 location: {
-              id: "location-state-a11y",
-              name: "Camden",
-              clientId: "client-state-a11y",
-              clientName: "Camden Group",
-            },
+                  id: "location-state-a11y",
+                  name: "Camden",
+                  clientId: "client-state-a11y",
+                  clientName: "Camden Group",
+                },
                 text: "A thoughtful and accessible review.",
                 createTime: "2026-07-28T10:00:00.000Z",
                 updateTime: "2026-07-28T10:00:00.000Z",
@@ -416,6 +427,12 @@ for (const theme of themes) {
       })
 
       test("application shell", async ({ page }) => {
+        // Scoped to this test on purpose. axe samples painted colour, and the
+        // inbox is the one measured surface that animates, so it is the one
+        // that needs motion settled. Applying reduced motion suite-wide broke
+        // focus restoration on mobile (see the reply-editor test below), which
+        // is its own defect and not something to mask here.
+        await page.emulateMedia({ reducedMotion: "reduce" })
         await page.goto("/inbox")
         if (viewport.name === "desktop") {
           // No `data-variant="floating"` attribute exists on the current
@@ -432,6 +449,15 @@ for (const theme of themes) {
         if (viewport.name === "mobile") {
           await page.waitForTimeout(350)
         }
+        // The review list carries `opacity-80` behind a `transition-opacity`
+        // for as long as it is refreshing (components/inbox/review-list.tsx).
+        // Sampling mid-transition lightens every colour inside it by the same
+        // factor, which axe reports as a contrast failure against tokens that
+        // are in fact correct. Wait for the list to stop declaring itself
+        // busy rather than for a fixed interval.
+        await expect(
+          page.locator('[aria-label="Review list"][aria-busy="true"]')
+        ).toHaveCount(0)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} application shell`
@@ -482,6 +508,7 @@ for (const theme of themes) {
             await route.fulfill({
               json: {
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 email: "invitee@example.com",
                 accepted: false,
                 expired: false,
@@ -501,22 +528,22 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} invitation`)
       })
 
-      test("home", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie (see the module comment above): Home
-        // reads live counts, the client list and analytics (Your work / Work
-        // by client / Health / Pulse). A real cookie makes those calls resolve
-        // against the real backend instead of 401-ing and hard-redirecting to
-        // /sign-in.
+      test("inbox landing", async ({ baseURL, page }) => {
+        // Real journey tenant/cookie (see the module comment above): the
+        // landing inbox reads live counts and the client list. A real cookie
+        // makes those calls resolve against the real backend instead of
+        // 401-ing and hard-redirecting to /sign-in.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/home")
+        await page.goto("/inbox")
         await expect(
-          page.getByRole("heading", { name: "Home", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
         await expect(
-          page.getByRole("heading", { name: "Pulse" })
+          page.getByRole("navigation", { name: "Review queues" })
         ).toBeVisible()
-        await expectAccessible(page, `${viewport.name} ${theme} home`)
+        await page.waitForLoadState("networkidle")
+        await expectAccessible(page, `${viewport.name} ${theme} inbox landing`)
       })
 
       test("reports", async ({ baseURL, page }) => {
@@ -531,39 +558,54 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Reports", level: 1 })
         ).toBeVisible()
-        await expect(
-          page.getByRole("columnheader", { name: "Response rate" })
-        ).toBeVisible()
+        // Below 720px of container width the table is a responsive one
+        // (components/ui/table.tsx): the header row hides and every cell
+        // carries its column name as a label, so the column header is only
+        // asserted where it is drawn.
+        if (viewport.name === "desktop") {
+          await expect(
+            page.getByRole("columnheader", { name: "Response rate" })
+          ).toBeVisible()
+        }
         const locationRow = page
           .getByRole("row")
           .filter({ hasText: state.directReview.locationName })
         await expect(locationRow).toBeVisible()
+        if (viewport.name === "mobile") {
+          await expect(
+            locationRow.locator('td[data-label="Response rate"]')
+          ).toBeVisible()
+        }
         await expectAccessible(page, `${viewport.name} ${theme} reports`)
       })
 
-      test("locations index", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie: an owner sees the management view
-        // (Location/Address/Status columns) built from the real seeded
-        // location — no mock needed, and it sidesteps the plain-vs-management
-        // shape split in `useLocationDirectory` (the server-side `role` a
-        // route-mocked, cookie-less session would otherwise always resolve to
-        // `null`).
+      test("listings board", async ({ baseURL, page }) => {
+        // Real journey tenant/cookie: the board reads the directory and the
+        // DB-only summary for real, and an owner sees the address and health
+        // the management view carries.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto("/locations")
+        await page.goto("/listings")
         await expect(
-          page.getByRole("heading", { name: "Locations", level: 1 })
+          page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
+        // The board's table is responsive (components/ui/table.tsx): below
+        // 720px of container width the header row hides and each cell is
+        // labelled with its column name instead.
+        if (viewport.name === "desktop") {
+          await expect(
+            page.getByRole("columnheader", { name: "Listing" })
+          ).toBeVisible()
+        } else {
+          await expect(
+            page.locator('td[data-label="Listing"]').first()
+          ).toBeVisible()
+        }
         await expect(
-          page.getByRole("columnheader", { name: "Location" })
+          page.getByRole("link", { name: state.directReview.locationName })
         ).toBeVisible()
-        await expect(
-          page.getByText(state.directReview.locationName)
-        ).toBeVisible()
-        await expectAccessible(
-          page,
-          `${viewport.name} ${theme} locations index`
-        )
+        await page.waitForLoadState("networkidle")
+        await expectAccessible(page, `${viewport.name} ${theme} listings board`)
       })
 
       test("clients index and hub", async ({ baseURL, page }) => {
@@ -586,29 +628,60 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} client hub`)
       })
 
-      test("location profile workspace", async ({ baseURL, page }) => {
+      test("listing overview and the profile editor", async ({
+        baseURL,
+        page,
+      }) => {
         // Real journey tenant/cookie + the real seeded `primaryLocationId`.
-        // The workspace opens on the merged business profile editor: one
-        // heading, one set of fields, no second tab holding Google's copy of
-        // the same listing.
+        // The overview paints from DB-only reads; the profile editor is the
+        // merged business profile: one heading, one set of fields.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
-        await page.goto(`/locations/${state.primaryLocationId}`)
+        await page.goto(`/listings/${state.primaryLocationId}`)
         await expect(
-          page.getByRole("heading", { name: "Business profile" })
+          page.getByRole("heading", {
+            name: state.directReview.locationName,
+            level: 1,
+          })
         ).toBeVisible()
         await expect(
           page
-            .getByRole("navigation", { name: "Location sections" })
-            .getByRole("link", { name: "Business profile" })
-        ).toHaveAttribute("aria-current", "page")
+            .getByRole("region", { name: "Areas" })
+            .getByRole("heading", { name: "Business profile", level: 3 })
+        ).toBeVisible()
+        await page.waitForLoadState("networkidle")
         await expectAccessible(
           page,
-          `${viewport.name} ${theme} location profile`
+          `${viewport.name} ${theme} listing overview`
+        )
+
+        await page.goto(`/listings/${state.primaryLocationId}/profile`)
+        await expect(
+          page.getByRole("heading", { name: "Business profile", level: 1 })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("textbox", { name: "Business name" })
+        ).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} listing profile`
         )
       })
 
       test("inbox, review detail, and reply editor", async ({ page }) => {
+        // The reply composer shows the month's AI credit balance. Unstubbed
+        // it answers 401 and the whole page navigates to /sign-in.
+        await page.route(/\/api\/ai\/credits(?:\?.*)?$/, async (route) => {
+          await route.fulfill({
+            json: {
+              used: 3,
+              allowance: 100,
+              remaining: 97,
+              periodStart: "2026-07-01",
+              resetsAt: "2026-08-01T00:00:00.000Z",
+            },
+          })
+        })
         // The shell reads the client list for its sidebar, breadcrumbs and
         // health chip. Unstubbed it answers 401, and lib/api/client.ts treats
         // that as "sign in again" and navigates the whole page away.
@@ -631,7 +704,12 @@ for (const theme of themes) {
                   health: "healthy",
                   connections: [],
                   openWork: { needsReply: 1, awaitingApproval: 0, failed: 0 },
-                  backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 },
+                  backfill: {
+                    running: 0,
+                    failed: 0,
+                    succeeded: 1,
+                    notStarted: 0,
+                  },
                   lastSyncAt: "2026-07-31T09:00:00.000Z",
                 },
               ],
@@ -647,6 +725,7 @@ for (const theme of themes) {
                 userId: "user-reviews-a11y",
                 organisationId: "org-reviews-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",
@@ -681,6 +760,7 @@ for (const theme of themes) {
               },
               byQueue: {
                 needs_reply: 0,
+                approval: 0,
                 awaiting_my_approval: 0,
                 awaiting_others: 0,
                 publishing: 0,
@@ -691,6 +771,49 @@ for (const theme of themes) {
             },
           })
         })
+        // The inbox stopped reading client setup and the analytics overview
+        // when the Today strip went. They stay stubbed because any read that
+        // slips through unstubbed answers 401 and lib/api/client.ts
+        // navigates away mid-run.
+        await page.route(
+          /\/api\/clients\/[^/]+\/setup(?:\?.*)?$/,
+          async (route) => {
+            await route.fulfill({
+              json: { setup: { nextStep: "done", steps: [] } },
+            })
+          }
+        )
+        await page.route(
+          /\/api\/analytics\/overview(?:\?.*)?$/,
+          async (route) => {
+            await route.fulfill({
+              json: {
+                from: "2026-06-28T00:00:00.000Z",
+                to: "2026-07-28T00:00:00.000Z",
+                timezone: "UTC",
+                summary: {
+                  reviewVolume: 1,
+                  averageRating: 5,
+                  responseRate: 100,
+                  unresolvedComplaints: 0,
+                  verificationFailures: 0,
+                  verificationRejectionRate: null,
+                  medianFirstResponseSeconds: null,
+                  p95FirstResponseSeconds: null,
+                  medianLatestEditSeconds: null,
+                },
+                series: [],
+                locations: [],
+                providerTotals: {
+                  averageRating: null,
+                  totalReviewCount: null,
+                  localReviewCount: 1,
+                  divergence: false,
+                },
+              },
+            })
+          }
+        )
         await page.route(
           /\/api\/google\/connections(?:\?.*)?$/,
           async (route) => {
@@ -741,11 +864,11 @@ for (const theme of themes) {
                   },
                   rating: 5,
                   location: {
-              id: "location-a11y",
-              name: "Camden",
-              clientId: "client-reviews-a11y",
-              clientName: "Camden Group",
-            },
+                    id: "location-a11y",
+                    name: "Camden",
+                    clientId: "client-reviews-a11y",
+                    clientName: "Camden Group",
+                  },
                   text: "A thoughtful and accessible review.",
                   createTime: "2026-07-28T10:00:00.000Z",
                   updateTime: "2026-07-28T10:00:00.000Z",
@@ -826,22 +949,40 @@ for (const theme of themes) {
         })
         await page.goto("/inbox?queue=all")
         await expect(
-          page.getByRole("heading", { name: "Reviews", level: 1 })
+          page.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
-        // Below lg the rail lives in the Queues sheet, so open it to reach
-        // the filters and close it again before touching the list.
-        if (viewport.name === "mobile") {
-          await page.getByRole("button", { name: "Queues" }).click()
-          await expect(
-            page.getByRole("button", { name: /More filters/ })
-          ).toBeVisible()
-          await page.keyboard.press("Escape")
-          await expect(page.getByRole("dialog")).toBeHidden()
-        } else {
-          await expect(
-            page.getByRole("button", { name: /More filters/ })
-          ).toBeVisible()
-        }
+        // The five queue controls and the Filters button sit in the inbox
+        // toolbar above the two panes at every width, so nothing has to be
+        // opened to reach a queue, on a phone or otherwise.
+        const queues = page.getByRole("navigation", { name: "Review queues" })
+        await expect(
+          queues.getByRole("button", { name: /^Needs reply/ })
+        ).toBeVisible()
+        await expect(
+          queues.getByRole("button", { name: /^Approval/ })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("group", { name: "Filter reviews" })
+        ).toBeVisible()
+        // Every narrowing opens from one Filters button (a side sheet, or a
+        // bottom sheet on a phone), and Escape dismisses it.
+        const filtersButton = page.getByRole("button", { name: /^Filters/ })
+        await expect(filtersButton).toBeVisible()
+        await filtersButton.click()
+        const filtersSheet = page.getByRole("dialog", { name: "Filters" })
+        await expect(filtersSheet).toBeVisible()
+        await expect(
+          filtersSheet.getByRole("checkbox", { name: "5 stars" })
+        ).toBeVisible()
+        await expect(
+          filtersSheet.getByRole("region", { name: "Reply status" })
+        ).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} inbox filters sheet`
+        )
+        await page.keyboard.press("Escape")
+        await expect(filtersSheet).toBeHidden()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
         const row = reviewList.getByRole("button", { name: /Jordan Lee/ })
@@ -856,6 +997,13 @@ for (const theme of themes) {
           )
           await row.click()
           await expect(reviewList).toBeHidden()
+          // On a phone the open review parks the workspace controls as well
+          // as the list: the inbox toolbar sits above the panes, and leaving
+          // it tabbable behind an open review would put focus on controls
+          // the review covers.
+          await expect(
+            page.locator('[data-slot="inbox-workspace-controls"]')
+          ).toBeHidden()
           await expect(
             page
               .locator('section[aria-label="Review list"] button')
@@ -874,83 +1022,108 @@ for (const theme of themes) {
           name: "Selected review",
         })
         await expect(selectedReview).toBeVisible()
-        await expect(selectedReview.getByRole("heading").first()).toBeVisible()
-
-        // This fixture's draft and live reply are the same words. The composer
-        // collapses to a read-only summary until the operator chooses to edit.
+        // The pane leads with the reviewer, then the customer's words, then
+        // the reply — one reading order, with no five-stage tracker above it.
         await expect(
-          selectedReview.getByText("Thank you for your thoughtful review, Jordan.")
+          selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
         ).toBeVisible()
-        await expect(selectedReview.getByText("In sync with Google")).toBeVisible()
-        // A published reply IS reported here, as the situation strip's
-        // sentence (`describeSituation` in lib/inbox/review-situation.ts), so
-        // the words "live on Google" belong on this screen.
+        // The customer's words open the thread, above the reply.
         await expect(
-          selectedReview.getByText("Your reply is live on Google.", {
-            exact: true,
+          selectedReview.getByRole("article", {
+            name: "Review from Jordan Lee",
           })
         ).toBeVisible()
-        // What must stay absent is LiveReplyDisclosure's toggle: that section
-        // shows Google's copy only when it disagrees with what the composer
-        // holds, and this fixture's draft and reply are the same words.
-        //
-        // Asserted on the toggle rather than the words "Live on Google",
-        // which the lifecycle strip now also uses as the published step's meta
-        // line — a different claim (where the reply got to) about the same
-        // reply.
-        await expect(
-          selectedReview.getByRole("button", { name: /differs from the reply below/ })
-        ).toBeHidden()
-        await expect(selectedReview.getByText("Drafted by AI")).toBeVisible()
-        await expect(
-          selectedReview.getByRole("textbox", { name: "Your reply" })
-        ).toBeHidden()
 
-        await selectedReview.getByRole("button", { name: "Edit reply" }).click()
+        // One status surface, from lib/inbox/reply-state.ts: a confirmed
+        // `published` reply with nothing newer in the composer is the only
+        // state that reads "Live on Google". Asserting the strip by its slot
+        // keeps this pointed at the one place the pane answers the question.
+        await expect(
+          selectedReview.locator('[data-slot="reply-status-strip"]')
+        ).toHaveText("Live on Google")
+
+        // The editor is always open: the live words, editable in place.
         await expect(
           selectedReview.getByRole("textbox", { name: "Your reply" })
         ).toHaveValue("Thank you for your thoughtful review, Jordan.")
+        // What must stay absent is LiveReplyDisclosure's toggle: that section
+        // shows Google's copy only when it disagrees with what the composer
+        // holds, and this fixture's draft and reply are the same words.
+        await expect(
+          selectedReview.getByRole("button", {
+            name: /differs from the reply below/,
+          })
+        ).toBeHidden()
 
-        // AI generate is manual: Regenerate (draft already exists) + tone are
+        // AI generate is manual: Regenerate (there is text) + tone are
         // available, but nothing calls the LLM until the operator clicks.
         await expect(
           selectedReview.getByRole("button", { name: "Regenerate" })
         ).toBeVisible()
         await expect(
-          selectedReview.getByRole("combobox", { name: "Reply tone" })
+          selectedReview.getByRole("radiogroup", { name: "Reply tone" })
         ).toBeVisible()
-        // A clean pass is one line in the label row, not a bordered card, so
-        // there is no Verification heading unless something is wrong.
+        // Checks are said under the editor only when they fail or warn; a
+        // passed check draws nothing, and there is no checks panel.
         await expect(
-          selectedReview.getByRole("heading", { name: "Verification" })
-        ).toBeHidden()
+          selectedReview.getByRole("heading", {
+            name: "Verification",
+            level: 3,
+            exact: true,
+          })
+        ).toHaveCount(0)
 
         // "Publish" is the wrong verb once a reply is live, and re-sending
         // identical text is a no-op the domain has no transition for — so the
-        // primary is "Update reply", disabled, with the reason on the page.
+        // primary is "Update reply", disabled.
         const primary = selectedReview.getByRole("button", {
           name: "Update reply",
         })
         await expect(primary).toBeVisible()
         await expect(primary).toBeDisabled()
-        await expect(selectedReview).toContainText(
-          "Edit the reply above to publish a change."
-        )
         await expect(
           selectedReview.getByRole("button", { name: "Review actions" })
         ).toBeVisible()
+        // History lives behind ⋯, not on the pane.
         await expect(
-          selectedReview.getByRole("heading", { name: "Activity" })
-        ).toBeVisible()
+          selectedReview.getByRole("heading", { name: /^Activity/ })
+        ).toHaveCount(0)
         await page.waitForTimeout(500)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} review detail and editor`
         )
+
+        // ⋯ holds the listing, the history and the review's details. Each is
+        // reachable by keyboard, and Escape hands focus back to the trigger.
+        const more = selectedReview.getByRole("button", {
+          name: "More actions",
+        })
+        await more.focus()
+        await page.keyboard.press("Enter")
+        const moreMenu = page.getByRole("menu")
+        await expect(moreMenu).toBeVisible()
+        await expect(
+          moreMenu.getByRole("menuitem", { name: "Open listing" })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} review ⋯ menu`)
+        await moreMenu.getByRole("menuitem", { name: "History" }).click()
+        const history = page.getByRole("dialog", { name: "History" })
+        await expect(history).toBeVisible()
+        await expectAccessible(
+          page,
+          `${viewport.name} ${theme} review history dialog`
+        )
+        await page.keyboard.press("Escape")
+        await expect(history).toBeHidden()
+        await expect(more).toBeFocused()
         if (viewport.name === "mobile") {
           await page.getByRole("button", { name: "Back to reviews" }).click()
           await expect(reviewList).toBeVisible()
           await expect(selectedReview).toBeHidden()
+          await expect(
+            page.locator('[data-slot="inbox-workspace-controls"]')
+          ).toBeVisible()
           await expect(row).toBeFocused()
         }
       })
@@ -971,7 +1144,7 @@ for (const theme of themes) {
         const controls = await mockReviewWorkspace(page)
         await page.goto("/inbox")
         await expect(
-          page.getByText("All clients connected", { exact: true })
+          page.getByText("All clients in sync", { exact: true })
         ).toBeVisible()
         controls.failClients()
         await page.clock.fastForward("00:01:05")
@@ -988,7 +1161,7 @@ for (const theme of themes) {
         await mockReviewWorkspace(page, { disconnected: true })
         await page.goto("/inbox")
         await expect(
-          page.getByText("Google is not connected", { exact: true })
+          page.getByText("Google is not connected.", { exact: true })
         ).toBeVisible()
         await expect(
           page.getByText(
@@ -1047,6 +1220,7 @@ for (const theme of themes) {
                 userId: "user-connections-a11y",
                 organisationId: "org-connections-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",
@@ -1189,7 +1363,7 @@ for (const theme of themes) {
         )
         await page.goto("/settings/connections")
         await expect(
-          page.getByRole("heading", { name: "Google Business Profile" })
+          page.getByRole("heading", { name: "Google connections" })
         ).toBeVisible()
         // Current section headings (components/settings/*-card.tsx) — the old
         // aria-labelled-section names ("Connection setup progress", "Google
@@ -1198,7 +1372,7 @@ for (const theme of themes) {
         // guidance") don't exist on any current card.
         await expect(
           page.getByRole("heading", {
-            name: "Google account",
+            name: "Google accounts",
             level: 2,
             exact: true,
           })
@@ -1206,12 +1380,13 @@ for (const theme of themes) {
         // Choosing accounts, importing locations and backfilling history all
         // moved to /setup, where they run in order against a named client.
         // What is left here is the account-level view: what is connected, who
-        // depends on it, and how to start a client.
+        // depends on it (a "Clients it serves" column, which becomes a row
+        // label on a phone), and how to start a client.
         await expect(
-          page.getByRole("heading", { name: "Who depends on each account", level: 2 })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Google notifications", level: 2 })
+          page.getByRole("heading", {
+            name: "Real-time notifications",
+            level: 2,
+          })
         ).toBeVisible()
         await expect(
           page.getByRole("heading", { name: "Setting up a client", level: 2 })
@@ -1219,15 +1394,11 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} connections`)
       })
 
-      test("settings policy, compliance, and the team page", async ({
-        baseURL,
-        page,
-      }) => {
+      test("settings policy and the team page", async ({ baseURL, page }) => {
         // Real journey tenant/cookie: /settings' PolicyForm fetches
         // `/api/settings/capabilities` for real (never mocked below), and
-        // /team and /settings/compliance both gate on an owner/admin session
-        // server-side, which the client-side `/api/session` mock alone cannot
-        // satisfy.
+        // /team gates on an owner/admin session server-side, which the
+        // client-side `/api/session` mock alone cannot satisfy.
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
@@ -1238,6 +1409,7 @@ for (const theme of themes) {
                 userId: "user-settings-a11y",
                 organisationId: "org-settings-a11y",
                 organisationName: "Naba Presence",
+                workspaceMode: "agency",
                 displayName: "Alex Morgan",
                 email: "alex@example.com",
                 role: "owner",
@@ -1324,8 +1496,10 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
+        // Role changes moved into the row's actions menu (a dialog with
+        // role cards), so the row carries one menu button per member.
         await expect(
-          page.getByRole("combobox", { name: "Role for Alex Morgan" })
+          page.getByRole("button", { name: "Actions for Alex Morgan" })
         ).toBeVisible()
         await expect(
           page.getByRole("button", {
@@ -1333,29 +1507,6 @@ for (const theme of themes) {
           })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} team`)
-
-        await page.goto("/settings/compliance")
-        await expect(
-          page.getByRole("heading", {
-            name: "Data and compliance",
-            level: 1,
-          })
-        ).toBeVisible()
-        // Current cards (components/settings/*-card.tsx) — there's no
-        // "Data retention" copy on this page any more.
-        await expect(
-          page.getByRole("heading", { name: "Privacy requests" })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Legal holds" })
-        ).toBeVisible()
-        await expect(
-          page.getByRole("heading", { name: "Export a subject’s records" })
-        ).toBeVisible()
-        await expectAccessible(
-          page,
-          `${viewport.name} ${theme} compliance settings`
-        )
       })
     })
   }

@@ -7,7 +7,10 @@ import {
 import { writeAudit } from "@/lib/server/audit"
 import { loadClientSummary, uniqueClientSlug } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
-import { requireClientAccess, visibilityPredicate } from "@/lib/server/permissions"
+import {
+  requireClientAccess,
+  visibilityPredicate,
+} from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -19,7 +22,11 @@ export const GET = route({
       await requireClientAccess(sql, session, params.clientId)
       const client = await loadClientSummary(sql, session, params.clientId)
       if (!client) {
-        throw new ApiError(404, "client_not_found", "The requested client was not found.")
+        throw new ApiError(
+          404,
+          "client_not_found",
+          "The requested client was not found."
+        )
       }
       const locations = await sql`
         select
@@ -33,7 +40,8 @@ export const GET = route({
           e.id::text as "externalLocationId",
           e.google_location_name as "googleLocationName",
           e.title as "googleTitle",
-          e.verified
+          e.verified,
+          coalesce(e.access_state = 'access_lost', false) as "accessLost"
         from location l
         left join client c on c.id = l.client_id
         left join location_link ll on ll.location_id = l.id and ll.is_active
@@ -57,6 +65,16 @@ export const PATCH = route({
       await requireClientAccess(sql, session, params.clientId)
 
       if (body.archived === true) {
+        const [target] = await sql<{ isHome: boolean }[]>`
+          select is_home as "isHome" from client where id = ${params.clientId}
+        `
+        if (target?.isHome) {
+          throw new ApiError(
+            409,
+            "home_client_required",
+            "The home client cannot be archived."
+          )
+        }
         const [attached] = await sql<{ count: number }[]>`
           select count(*)::int as count from location where client_id = ${params.clientId}
         `
@@ -93,13 +111,22 @@ export const PATCH = route({
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
-        action: body.archived === true ? "client.archived" : "client.updated",
+        action:
+          body.archived === true
+            ? "client.archived"
+            : body.archived === false
+              ? "client.restored"
+              : "client.updated",
         subjectType: "client",
         subjectId: params.clientId,
         requestId,
         metadata: { fields: Object.keys(body) },
       })
-      return loadClientSummary(sql, session, params.clientId)
+      // Read back archived or not: archiving answers the archived client, so
+      // the caller can offer Undo, and restoring answers the restored one.
+      return loadClientSummary(sql, session, params.clientId, {
+        includeArchived: true,
+      })
     })
     return { client }
   },

@@ -119,6 +119,40 @@ describeDatabase("Local Posts CRUD", () => {
     `
   }
 
+  it("keeps content timestamps stable across reconciliation and local edits to rejected posts", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const liveName = postName("content-time")
+    const rejectedName = postName("rejected-time")
+    const malformedName = postName("malformed-time")
+    google.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({
+      status: 200,
+      json: { localPosts: [
+        { name: liveName, topicType: "STANDARD", summary: "Provider content", state: "LIVE", createTime: "2026-08-01T09:00:00Z", updateTime: "2026-08-02T09:00:00Z" },
+        { name: rejectedName, topicType: "STANDARD", summary: "Rejected content", state: "REJECTED", createTime: "2026-08-01T09:00:00Z", updateTime: "2026-09-01T09:00:00Z" },
+        { name: malformedName, topicType: "STANDARD", summary: "Unknown date", state: "LIVE", createTime: "not-a-date", updateTime: "invalid" },
+      ] },
+    }))
+    const first = await listPosts(server.baseUrl, owner.cookie, linked.locationId)
+    expect(first.find((post) => post.googlePostName === liveName)).toMatchObject({ providerCreatedAt: "2026-08-01T09:00:00.000Z", providerUpdatedAt: "2026-08-02T09:00:00.000Z" })
+    expect(first.find((post) => post.googlePostName === malformedName)).toMatchObject({ providerCreatedAt: null, providerUpdatedAt: null })
+    const rejected = first.find((post) => post.googlePostName === rejectedName)
+    expect(rejected?.localEditedAt).toBeNull()
+    expect(first[0]?.googlePostName).toBe(rejectedName)
+    const edit = await fetch(`${server.baseUrl}/api/locations/${linked.locationId}/posts/${rejected?.id}`, {
+      method: "PATCH", headers: jsonHeaders(owner.cookie), body: JSON.stringify(standardPost("Edited local draft")),
+    })
+    expect(edit.status, await edit.clone().text()).toBe(200)
+    const second = await listPosts(server.baseUrl, owner.cookie, linked.locationId)
+    const draft = second.find((post) => post.id === rejected?.id)
+    expect(draft).toMatchObject({ status: "draft", summary: "Edited local draft", localEditedAt: expect.any(String) })
+    const third = await listPosts(server.baseUrl, owner.cookie, linked.locationId)
+    expect(third.find((post) => post.id === rejected?.id)).toMatchObject({ status: "draft", summary: "Edited local draft", localEditedAt: draft?.localEditedAt })
+    expect(third.find((post) => post.googlePostName === liveName)).toMatchObject({ providerUpdatedAt: "2026-08-02T09:00:00.000Z" })
+    expect(third[0]?.id).toBe(rejected?.id)
+    expect(third.at(-1)?.googlePostName).toBe(malformedName)
+    expect(google.calls.every((call) => call.method === "GET")).toBe(true)
+  })
+
   it("creates a draft, publishes, updates with a mask, and deletes", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)

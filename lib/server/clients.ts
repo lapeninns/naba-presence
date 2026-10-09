@@ -1,8 +1,12 @@
 import "server-only"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 
-import { clientHealth, type ClientHealth } from "@/lib/clients/health"
+import {
+  clientFreshness,
+  clientHealth,
+  type ClientHealth,
+} from "@/lib/clients/health"
 import type {
   ClientConnection,
   ClientSetup,
@@ -11,10 +15,87 @@ import type {
 import { nextIncompleteStep } from "@/lib/contracts/clients"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import { readListingSummaries } from "@/lib/server/location-summary"
+import { listingHealth } from "@/lib/listings/health"
+import type { CanonicalChecks } from "@/lib/clients/health"
 import type { Session } from "@/lib/server/session"
 
-type SummaryRow = Omit<ClientSummary, "health" | "connections"> & {
+type SummaryRow = Omit<
+  ClientSummary,
+  "health" | "connections" | "freshness" | "checks"
+> & {
+  locationIds: string[] | null
   connections: ClientConnection[] | null
+  checks: NonNullable<ClientSummary["checks"]>
+}
+
+/**
+ * True when the Google connection is one of the client's logins: either the
+ * operator connected or picked it while setting this client up (recorded in
+ * `client_google_connection`), or one of the client's linked locations is
+ * reached through it.
+ *
+ * The first half is what lets setup move past Connect for a login that sees
+ * several accounts or locations. Nothing is linked automatically for those,
+ * so a rule that waited for a linked location kept the wizard on Connect
+ * forever.
+ */
+export function belongsToClient(
+  sql: TransactionSql,
+  clientId: Fragment,
+  connectionId: Fragment
+) {
+  return sql`(
+    exists (
+      select 1
+      from client_google_connection cgc
+      where cgc.client_id = ${clientId}
+        and cgc.google_connection_id = ${connectionId}
+    )
+    or exists (
+      select 1
+      from location l
+      join location_link ll on ll.location_id = l.id and ll.is_active
+      join external_location e on e.id = ll.external_location_id
+      where l.client_id = ${clientId}
+        and e.google_connection_id = ${connectionId}
+    )
+  )`
+}
+
+/**
+ * Record that a Google login belongs to a client. Idempotent. Returns false
+ * when either side is not in this organisation: both are read through RLS
+ * here, because a foreign-key check alone would accept another tenant's
+ * connection id.
+ */
+export async function attachConnectionToClient(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    clientId: string
+    connectionId: string
+    userId: string | null
+  }
+): Promise<boolean> {
+  const [row] = await sql<{ attached: boolean }[]>`
+    with target as (
+      select c.id as client_id, gc.id as connection_id
+      from client c
+      join google_connection gc on gc.id = ${input.connectionId}
+      where c.id = ${input.clientId}
+    ),
+    inserted as (
+      insert into client_google_connection (
+        organisation_id, client_id, google_connection_id, created_by
+      )
+      select ${input.organisationId}, client_id, connection_id, ${input.userId}
+      from target
+      on conflict (client_id, google_connection_id) do nothing
+    )
+    select exists (select 1 from target) as attached
+  `
+  return row?.attached ?? false
 }
 
 /**
@@ -28,8 +109,17 @@ type SummaryRow = Omit<ClientSummary, "health" | "connections"> & {
  */
 export async function listClientSummaries(
   sql: TransactionSql,
-  session: Session
+  session: Session,
+  options: {
+    /**
+     * Which clients: the working list (default), only archived ones (the
+     * Clients page's Archived view, where they can be restored), or both
+     * (reading one client back after archiving or restoring it).
+     */
+    archived?: "exclude" | "only" | "include"
+  } = {}
 ): Promise<{ items: ClientSummary[]; unassignedLocationCount: number }> {
+  const archived = options.archived ?? "exclude"
   const rows = await sql<SummaryRow[]>`
     select
       c.id::text as id,
@@ -43,6 +133,7 @@ export async function listClientSummaries(
       counts.location_count::int as "locationCount",
       counts.linked_count::int as "linkedCount",
       counts.verified_count::int as "verifiedCount",
+      counts.location_ids as "locationIds",
       json_build_object(
         'needsReply', work.needs_reply::int,
         'awaitingApproval', work.awaiting_approval::int,
@@ -55,10 +146,16 @@ export async function listClientSummaries(
         'notStarted', greatest(counts.linked_count - backfill.started, 0)::int
       ) as backfill,
       connections.items as connections,
-      to_json(backfill.last_sync_at)#>>'{}' as "lastSyncAt"
+      to_json(synced.last_sync_at)#>>'{}' as "lastSyncAt",
+      json_build_object(
+        'stalestCheckAt', to_json(checks.stalest_check_at)#>>'{}',
+        'lastSuccessfulCheckAt', to_json(checks.last_success_at)#>>'{}',
+        'accessLost', coalesce(checks.access_lost, 0)::int
+      ) as checks
     from client c
     left join lateral (
       select
+        array_agg(l.id::text) filter (where ll.id is not null) as location_ids,
         count(*) as location_count,
         count(*) filter (where ll.id is not null) as linked_count,
         count(*) filter (where e.verified) as verified_count
@@ -87,8 +184,7 @@ export async function listClientSummaries(
         count(*) filter (where sc.status in ('pending', 'running')) as running,
         count(*) filter (where sc.status = 'failed') as failed,
         count(*) filter (where sc.status = 'succeeded') as succeeded,
-        count(*) as started,
-        max(sc.updated_at) as last_sync_at
+        count(*) as started
       from sync_checkpoint sc
       join external_location e on e.id = sc.external_location_id
       join location_link ll on ll.external_location_id = e.id and ll.is_active
@@ -96,6 +192,17 @@ export async function listClientSummaries(
       where l.client_id = c.id
         and sc.sync_type = 'backfill'
     ) backfill on true
+    -- "Last synced" is the last check Google actually answered, of any kind.
+    -- updated_at also moved on every failed attempt, and backfill alone left
+    -- a healthy client showing the age of its first import.
+    left join lateral (
+      select max(sc.last_succeeded_at) as last_sync_at
+      from sync_checkpoint sc
+      join location_link ll
+        on ll.external_location_id = sc.external_location_id and ll.is_active
+      join location l on l.id = ll.location_id
+      where l.client_id = c.id
+    ) synced on true
     left join lateral (
       select json_agg(distinct jsonb_build_object(
         'id', gc.id::text,
@@ -107,19 +214,50 @@ export async function listClientSummaries(
             and ct.task_type = 'reconnect'
             and ct.status = 'open'
         ),
-        'lastRefreshAt', to_json(gc.last_refresh_at)#>>'{}'
+        'lastRefreshAt', to_json(gc.last_refresh_at)#>>'{}',
+        'lastErrorCode', gc.last_error_code,
+        'reconnectReason', (
+          select ct.reason_code from connection_task ct
+          where ct.google_connection_id = gc.id
+            and ct.task_type = 'reconnect'
+            and ct.status = 'open'
+          limit 1
+        )
       )) as items
       from google_connection gc
-      where exists (
-        select 1
-        from location l
-        join location_link ll on ll.location_id = l.id and ll.is_active
-        join external_location e on e.id = ll.external_location_id
-        where l.client_id = c.id
-          and e.google_connection_id = gc.id
-      )
+      where ${belongsToClient(sql, sql`c.id`, sql`gc.id`)}
+        -- A login the owner removed on purpose is not a broken one.
+        and gc.status <> 'disconnected'
     ) connections on true
-    where c.archived_at is null
+    left join lateral (
+      -- Freshness from SUCCESSFUL review checks only (0047): a failed sync
+      -- or a token refresh never makes a client look fresh. A listing never
+      -- checked counts from when it was linked.
+      select
+        min(coalesce(chk.last_success, ll.created_at)) as stalest_check_at,
+        case
+          when bool_and(chk.last_success is not null) then min(chk.last_success)
+        end as last_success_at,
+        count(*) filter (where e.access_state = 'access_lost') as access_lost
+      from location l
+      join location_link ll on ll.location_id = l.id and ll.is_active
+      join external_location e on e.id = ll.external_location_id
+      left join lateral (
+        select max(sc.last_succeeded_at) as last_success
+        from sync_checkpoint sc
+        where sc.external_location_id = e.id
+          and sc.sync_type in ('reconcile', 'backfill', 'sweep', 'notification')
+      ) chk on true
+      where l.client_id = c.id
+        and ${visibilityPredicate(sql, session, sql`l.id`)}
+    ) checks on true
+    where ${
+      archived === "only"
+        ? sql`c.archived_at is not null`
+        : archived === "exclude"
+          ? sql`c.archived_at is null`
+          : sql`true`
+    }
       and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
     order by lower(c.name)
   `
@@ -131,38 +269,94 @@ export async function listClientSummaries(
       and ${visibilityPredicate(sql, session, sql`l.id`)}
   `
 
+  const ids = rows.flatMap((row) => row.locationIds ?? [])
+  const listingSummaries = ids.length
+    ? await readListingSummaries(sql, session, ids)
+    : []
+  const healthBy = new Map(
+    listingSummaries.map((summary) => [
+      summary.locationId,
+      listingHealth({
+        linked: summary.linked,
+        verified: summary.verified,
+        summary,
+      }),
+    ])
+  )
   return {
-    items: rows.map(toSummary),
+    items: rows.map((row) => {
+      const canonicalChecks: CanonicalChecks = {
+        total: row.linkedCount,
+        checked: 0,
+        partial: 0,
+        attention: 0,
+        unpublished: 0,
+      }
+      for (const id of row.locationIds ?? []) {
+        const health = healthBy.get(id)
+        if (health === "healthy") canonicalChecks.checked++
+        else if (health === "partially_checked") canonicalChecks.partial++
+        else if (health === "unpublished") canonicalChecks.unpublished++
+        else if (
+          health === "attention" ||
+          health === "disconnected" ||
+          health === "access_lost" ||
+          health === "pending_verification"
+        )
+          canonicalChecks.attention++
+      }
+      return toSummary(row, canonicalChecks)
+    }),
     unassignedLocationCount: unassigned?.count ?? 0,
   }
 }
 
-function toSummary(row: SummaryRow): ClientSummary {
+function toSummary(
+  row: SummaryRow,
+  canonicalChecks: CanonicalChecks
+): ClientSummary {
+  const { locationIds, ...summaryRow } = row
+  void locationIds
   const connections = row.connections ?? []
-  return {
-    ...row,
+  const input = {
     connections,
-    health: healthFor({ ...row, connections }),
+    linkedLocationCount: row.linkedCount,
+    backfill: { running: row.backfill.running, failed: row.backfill.failed },
+    checks: row.checks,
+    canonicalChecks,
+  }
+  return {
+    ...summaryRow,
+    canonicalChecks,
+    connections,
+    health: clientHealth(input),
+    freshness: clientFreshness(input),
   }
 }
 
 /** The one place a summary row becomes a health word. */
 export function healthFor(
-  row: Pick<ClientSummary, "connections" | "linkedCount" | "backfill">
+  row: Pick<ClientSummary, "connections" | "linkedCount" | "backfill"> &
+    Partial<Pick<ClientSummary, "checks" | "canonicalChecks">>
 ): ClientHealth {
   return clientHealth({
     connections: row.connections,
     linkedLocationCount: row.linkedCount,
     backfill: { running: row.backfill.running, failed: row.backfill.failed },
+    checks: row.checks,
+    canonicalChecks: row.canonicalChecks,
   })
 }
 
 export async function loadClientSummary(
   sql: TransactionSql,
   session: Session,
-  clientId: string
+  clientId: string,
+  options: { includeArchived?: boolean } = {}
 ): Promise<ClientSummary | null> {
-  const { items } = await listClientSummaries(sql, session)
+  const { items } = await listClientSummaries(sql, session, {
+    archived: options.includeArchived ? "include" : "exclude",
+  })
   return items.find((client) => client.id === clientId) ?? null
 }
 
@@ -210,18 +404,18 @@ export async function readClientSetup(
     left join lateral (
       select gc.id, gc.status, gc.notifications_enabled
       from google_connection gc
-      where exists (
-        select 1
-        from location l
-        join location_link ll on ll.location_id = l.id and ll.is_active
-        join external_location e on e.id = ll.external_location_id
-        where l.client_id = c.id and e.google_connection_id = gc.id
-      )
+      where ${belongsToClient(sql, sql`c.id`, sql`gc.id`)}
       order by (gc.status = 'active') desc, gc.created_at desc
       limit 1
     ) conn on true
     left join lateral (
-      select count(*) as active from google_account ga where ga.is_active
+      -- Only accounts reachable through this client's own logins. Counting
+      -- the whole organisation let a second client skip the account step
+      -- because the first client's accounts were already active.
+      select count(*) as active
+      from google_account ga
+      where ga.is_active
+        and ${belongsToClient(sql, sql`c.id`, sql`ga.google_connection_id`)}
     ) accounts on true
     left join lateral (
       select count(*) as linked
@@ -273,6 +467,45 @@ export async function readClientSetup(
 }
 
 /** URL-safe slug from a client name, uniquified against the organisation. */
+/**
+ * Creates the hidden home client every business-mode organisation owns.
+ * Call inside the transaction that inserts the organisation, after
+ * `app.organisation_id` is set.
+ */
+export async function createHomeClient(
+  sql: TransactionSql,
+  organisationId: string,
+  name: string
+): Promise<string> {
+  const slug = await uniqueClientSlug(sql, name)
+  const [home] = await sql<{ id: string }[]>`
+    insert into client (organisation_id, name, slug, is_home)
+    values (${organisationId}, ${name}, ${slug}, true)
+    returning id::text as id
+  `
+  return home.id
+}
+
+/**
+ * The home client's id when the organisation is in business mode, otherwise
+ * null. New locations default to it so no business-mode location is ever
+ * unassigned.
+ */
+export async function businessHomeClientId(
+  sql: TransactionSql,
+  organisationId: string
+): Promise<string | null> {
+  const [row] = await sql<{ id: string }[]>`
+    select c.id::text as id
+    from client c
+    join organisation o on o.id = c.organisation_id
+    where c.organisation_id = ${organisationId}
+      and c.is_home
+      and o.workspace_mode = 'business'
+  `
+  return row?.id ?? null
+}
+
 export async function uniqueClientSlug(
   sql: TransactionSql,
   name: string

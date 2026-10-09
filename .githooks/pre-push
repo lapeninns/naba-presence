@@ -1,0 +1,30 @@
+#!/bin/sh
+# Opt-in pre-push check: `pnpm hooks:install` (git config core.hooksPath .githooks).
+# Undo with `git config --unset core.hooksPath`.
+#
+# Runs `pnpm verify` (typecheck, lint, unit tests; no database), then a
+# gitleaks scan of the commits being pushed when gitleaks is installed.
+#
+# Skip once: SKIP_VERIFY=1 git push   or   git push --no-verify
+set -eu
+
+if [ "${SKIP_VERIFY:-}" = 1 ]; then
+  echo "pre-push: SKIP_VERIFY=1, skipping checks"
+  exit 0
+fi
+
+echo "pre-push: pnpm verify"
+pnpm verify
+
+if command -v gitleaks >/dev/null 2>&1; then
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    range='@{u}..HEAD'
+  else
+    # New branch without an upstream: scan what is not on origin/main yet.
+    range='origin/main..HEAD'
+  fi
+  echo "pre-push: gitleaks git --log-opts=$range"
+  gitleaks git --no-banner --redact --log-opts="$range" .
+else
+  echo "pre-push: gitleaks not installed, skipping secret scan (brew install gitleaks)"
+fi

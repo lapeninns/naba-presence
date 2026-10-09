@@ -15,7 +15,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { GroupedList } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
 import {
   DANGER_ZONE_OPERATIONS,
@@ -59,75 +58,87 @@ export function runDangerZoneOperation(
 // points people who want that at Connections instead.
 export function DangerZone() {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-title font-semibold text-ink">Danger zone</h3>
+    <section
+      aria-labelledby="danger-zone-heading"
+      className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-danger-ink bg-surface"
+    >
+      <div className="flex flex-col gap-0.5 border-b border-line px-4 py-3">
+        <h2
+          id="danger-zone-heading"
+          className="text-title font-semibold text-ink"
+        >
+          Danger zone
+        </h2>
         <p className="text-ui text-ink-muted">
-          These actions change how this location is managed on Google. Each one
-          cannot be undone from here.
+          These change how this location exists on Google. Each asks you to
+          type the listing’s name first, and none can be undone from here.
         </p>
       </div>
-      <GroupedList
-        aria-label="Danger zone actions"
-        footer={
-          <>
-            To stop managing a location without deleting it from Google, unlink
-            it under{" "}
-            <Link
-              href="/settings/connections"
-              className="rounded-(--np-radius-tag) text-accent-ink underline-offset-3 focus-halo hover:underline"
-            >
-              Connections
-            </Link>
-            .
-          </>
-        }
-      >
+      <ul aria-label="Danger zone actions" className="flex list-none flex-col">
         <TransferLocationAction />
+        <DangerRow
+          title="Remove from NabaPresence"
+          description={
+            <>
+              To stop managing a location without deleting it from Google,
+              unlink it under{" "}
+              <Link
+                href="/settings/connections"
+                className="rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline"
+              >
+                Connections
+              </Link>
+              . The listing stays on Google exactly as it is.
+            </>
+          }
+          gate={false}
+        />
         <DeleteLocationAction />
-      </GroupedList>
+      </ul>
     </section>
   )
 }
 
 /**
  * One destructive row: title and consequence on the left, the action at the
- * trailing edge, and the per-action gate note beneath. Hand-built rather than
- * a `GroupedListItem` because the note is a block element.
+ * trailing edge, and the per-action gate note beneath.
  */
 function DangerRow({
   title,
   description,
   action,
   tone = "default",
+  gate = true,
   children,
 }: {
   title: string
-  description: string
-  action: React.ReactNode
+  description: React.ReactNode
+  action?: React.ReactNode
   tone?: "default" | "danger"
+  /** Show the per-action publish gate note (Google writes only). */
+  gate?: boolean
   children?: React.ReactNode
 }) {
   return (
     <li
       data-tone={tone}
-      className="flex min-h-(--np-row-h) flex-col justify-center gap-2 border-t border-line-subtle px-(--np-card-pad) py-3 first:border-t-0"
+      className="flex flex-col justify-center gap-2 border-t border-line px-4 py-4 first:border-t-0"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-[1_1_20rem] flex-col gap-0.5">
           <p
             className={cn(
-              "text-body",
+              "text-body font-semibold",
               tone === "danger" ? "text-danger-ink" : "text-ink"
             )}
           >
             {title}
           </p>
-          <p className="text-caption text-ink-muted">{description}</p>
+          <p className="text-ui text-ink-muted">{description}</p>
         </div>
         {action}
       </div>
-      <SectionGateNote />
+      {gate ? <SectionGateNote /> : null}
       {children}
     </li>
   )
@@ -168,10 +179,10 @@ function TransferLocationAction() {
   return (
     <DangerRow
       title="Transfer this location"
-      description="Move this Google location to another Google account."
+      description="Move this Google location to another Google account. NabaPresence may lose access to it."
       action={
         <Button
-          variant="destructive"
+          variant="danger-outline"
           size="sm"
           onClick={() => setCollecting(true)}
           disabled={writeBlocked || !locationName}
@@ -254,12 +265,12 @@ function DeleteLocationAction() {
 
   return (
     <DangerRow
-      title="Delete this location"
-      description="Permanently remove this listing from Google."
+      title="Delete on Google"
+      description="Permanently delete the listing from Google. Customers can no longer find it on Search or Maps."
       tone="danger"
       action={
         <Button
-          variant="destructive"
+          variant="danger-outline"
           size="sm"
           onClick={() => setOpen(true)}
           disabled={writeBlocked || !locationName}
@@ -272,7 +283,7 @@ function DeleteLocationAction() {
         open={open}
         onOpenChange={setOpen}
         title="Delete this location from Google?"
-        description="This permanently deletes the Google listing. It cannot be undone."
+        description="This permanently deletes the Google listing: customers can no longer find it, and Google deletes its reviews, photos and posts. It cannot be undone."
         expectedName={locationName}
         confirmLabel="Delete location"
         pending={remove.isPending}

@@ -4,8 +4,6 @@ export type SettingsCapabilities = {
   canManageTeam: boolean
   canManageConnections: boolean
   canEditSettings: boolean
-  canViewCompliance: boolean
-  canManageCompliance: boolean
 }
 
 export function settingsGatingFromRole(role: string | null): SettingsCapabilities {
@@ -14,8 +12,6 @@ export function settingsGatingFromRole(role: string | null): SettingsCapabilitie
     canManageTeam: managerial,
     canManageConnections: managerial,
     canEditSettings: managerial,
-    canViewCompliance: managerial,
-    canManageCompliance: role === "owner",
   }
 }
 
@@ -27,11 +23,6 @@ export function editSettingsDisabledReason(caps: SettingsCapabilities | undefine
 export function manageTeamDisabledReason(caps: SettingsCapabilities | undefined): string | null {
   if (!caps) return null
   return caps.canManageTeam ? null : "Only owners and admins can manage the team."
-}
-
-export function manageComplianceDisabledReason(caps: SettingsCapabilities | undefined): string | null {
-  if (!caps) return null
-  return caps.canManageCompliance ? null : "Only owners can manage data and compliance."
 }
 
 // The role select never offers "Owner" to a non-owner actor (server: assertRoleChangeAllowed).

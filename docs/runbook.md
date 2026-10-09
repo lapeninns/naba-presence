@@ -2,9 +2,22 @@
 
 ## Deployment gate
 
-Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
-`pnpm db:migrate`, and `pnpm db:status`. Run `pnpm test:integration` against a
-disposable PostgreSQL database with the documented runtime test role. Confirm
+CI's required check `CI result` covers lint, typecheck, unit tests, the
+build, migrations (append-only policy, from scratch, upgrade from `main`,
+concurrent runs), integration and e2e. Each runs against a disposable
+PostgreSQL 17 through the runtime test role. See `docs/ci.md`. Locally, run
+`pnpm verify:full` for the same checks minus e2e.
+
+Production migrations are **manual**: Vercel's build runs only
+`next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
+operator runs `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` and
+`pnpm db:status` from their own machine, using the direct or session-pooler
+(5432) URL; `db:migrate` refuses port 6543. Migrations must be expand-only
+(backward compatible with the live deployment). When the new code needs the
+new schema, migrate before merging. Destructive changes go in a later PR. The
+full procedure is in `docs/ci.md`, "Migrations".
+
+Confirm
 the Supabase project URL/publishable key, email confirmation and recovery
 templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub
 OIDC audience/service account, optional verification token, cron secret, and
@@ -20,10 +33,10 @@ value fails environment validation at startup, because the database kills a
 connection left idle in a transaction for 60 seconds and the caller would see an
 opaque 500 rather than a provider timeout.
 Database migrations are roll-forward-only. Before a migration rollout, capture
-a restorable database snapshot and retain the currently deployed application
-image. If the migration or post-migration verification fails, restore the
-snapshot and redeploy that exact previous image as one rollback unit; do not
-run ad-hoc down migrations.
+a restorable database snapshot and note the currently deployed Vercel
+deployment. If the migration or post-migration verification fails, restore the
+snapshot and promote that exact previous deployment as one rollback unit; do
+not run ad-hoc down migrations.
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
@@ -37,9 +50,10 @@ redeploy. None of them is a hot switch, and none takes effect on a running
 process. When background provider traffic has
 to stop faster than a redeploy, disable the project's Cron Jobs in the Vercel
 dashboard (or the single cron for the offending tick) instead:
-that halts all seven ticks — the jobs runner, reconciliation, retention,
-presence-resource reconciliation, the provider-deletion sweep and the
-performance/keyword ingests — in one step, and loses no work. Each queue keeps
+that halts all eight ticks — the jobs runner, reconciliation, retention,
+presence-resource reconciliation, the provider-deletion sweep, the
+performance/keyword ingests and the health/notification tick — in one step,
+and loses no work. Each queue keeps
 its due rows, and every tick starts at the head of a stable
 organisation order, so a stopped walk repeats work rather than skipping it:
 nothing about the walk position survives between ticks.
@@ -55,8 +69,11 @@ deliberately.
 | `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
 | `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
 | `JOBS_ENABLED`              | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on. `PUBLISH_ENABLED` and `SYNC_ENABLED` narrow the same claim by job kind rather than stopping it.                                              |
-| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. The scheduler reads this one too and registers no retention tick, so a paused deployment logs no failing run.                                                                |
+| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 each day, so expect failing fires and a stale `retention` heartbeat for the length of the pause; only the local `scripts/scheduler.mjs` skips registering the tick.                                                                |
 | `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete. Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
+| `NOTIFICATIONS_ENABLED`     | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent. |
+| `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident. |
+| `RISC_ENABLED`              | The RISC receiver answers 404. Revocations are then detected only at the next refresh or API call. |
 
 Pause the narrowest switch that covers the failure. A paused flag is not a fix:
 record why it is off and land the correction, because backlogs accrue behind
@@ -70,63 +87,83 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 
 ## Scheduled work
 
-- Production background work runs as seven Vercel Cron entries in
+- Production background work runs as eight Vercel Cron entries in
   `vercel.json` (times UTC): `/api/jobs/run` every minute, `/api/sync/reconcile`
   and `/api/sync/presence-resources` every 15 minutes (staggered by 7 minutes),
-  `/api/sync/performance` every 6 hours, and `/api/sync/sweep`,
-  `/api/sync/keywords`, `/api/cron/retention` once daily, staggered across
-  01:30–03:00. Each cron fires an HTTP GET at the route's cron-authenticated
-  `GET` shim, which runs the same single page the scheduler used to POST,
-  with the page sizes carried in the cron path. `CRON_SECRET` must be set on
-  the Vercel project: Vercel sends it as the `Authorization` bearer
-  automatically, and without it every tick answers 401 `invalid_cron_token`.
-  `tests/server/vercel-cron.test.ts` pins the table — cadences, page sizes,
-  and the GET handler each path lands on — so a quiet edit cannot drop a tick.
-- Each fire is stateless and runs one page from the head of the tenant order
-  (or from the `organisationCursor` it is given); nothing follows `nextCursor`
-  between fires. One page covers 100 organisations for reconciliation,
-  performance and keywords, 100 for retention (`batch_size=100`), 10 for
-  presence resources, and 1 organisation at 5 pages per location for the sweep.
-  While the fleet fits in one page that is a complete walk; past that, add
-  cursor-following (or another host running `scripts/scheduler.mjs`, which
-  still walks cursors across pages for local development and non-Vercel
-  deployments via `SCHEDULER_BASE_URL` and the same `CRON_SECRET`) rather than
-  enlarging pages past the per-page budgets below.
+  `/api/cron/health` every 15 minutes, `/api/sync/performance` every 6 hours,
+  and `/api/sync/sweep`, `/api/sync/keywords`, `/api/cron/retention` once
+  daily, staggered across 01:30–03:00. Each cron fires an HTTP GET at the
+  route's cron-authenticated `GET` handler. `CRON_SECRET` must be set on the
+  Vercel project: Vercel sends it as the `Authorization` bearer automatically,
+  and without it every tick answers 401 `invalid_cron_token`.
+  `tests/server/vercel-cron.test.ts` pins the table so a quiet edit cannot
+  drop a tick. Minute and 15-minute schedules need a Vercel plan that allows
+  them; confirm the project's plan before relying on the cadence.
+- **Reconcile, performance and keywords are a queue (0048).** Their cron GET
+  does no sync work: it calls `ensure_recurring_checkpoints(kind)`, which
+  gives every actively linked location in every organisation a checkpoint of
+  that kind in one statement, under the kind's lease (which stamps its
+  heartbeat). The minute job runner claims whatever is due through
+  `claim_due_jobs` — the same per-organisation cap
+  (`JOBS_PER_ORGANISATION`), lease and time budget as every other job — and
+  skips locations whose login is waiting on a reconnect. A success books the
+  next run on the kind's grid from the slot it was due in
+  (`next_scheduled_run`: reconcile every 15 minutes, performance every 6
+  hours, keywords daily); a run more than one interval late runs once and
+  rejoins the grid rather than replaying the missed slots. A failure backs off
+  on consecutive failures (reconcile never dead-letters on transient errors;
+  only a permanent failure — an unverified or deleted location — retires it).
+  Measured locally: 150 organisations reconciled within 3 one-minute ticks and
+  swept within 4 (`tests/integration/routes/fleet-scale.test.ts`, production
+  runner defaults, 240/min shared budget).
+- The owner/admin session POST of `/api/sync/reconcile`, `/performance` and
+  `/keywords` still runs its own organisation inline, and the bearer POST
+  still walks pages for `scripts/scheduler.mjs` (local and non-Vercel
+  deployments). Only presence resources still resume a cursor on the Vercel
+  path (`cron_cursor`); a null cursor means the walk finished, and a cursor
+  three fires in a row could not finish is abandoned for the head.
+- The daily sweep does not page. `/api/sync/sweep` (cron) calls
+  `enqueue_sweep_checkpoints`, which arms a `sweep` checkpoint for every
+  linked location in every organisation in one statement, under the
+  `naba:sweep` lease (heartbeat `sweep`, stale after two days). The job
+  runner claims them every minute, five pages per claim; a location with more
+  history parks with its cursor and resumes on the next day's enqueue. A sweep
+  that finished within 20 hours is not re-queued, and `dead` checkpoints wait
+  for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
-  own advisory lock, so an overlapping or duplicate fire answers `skipped`
-  (`reason: "lease_held"`) instead of doing the work twice, and a missed fire
+  own advisory lock, so an overlapping or duplicate fire answers 200
+  `{ skipped: true }` (no reason and no log line on Vercel; `lease_held` is
+  logged only by `scripts/scheduler.mjs`) instead of doing the work twice, and a missed fire
   only delays work — each queue keeps its due rows and the next fire starts at
-  the head. A steady stream of `lease_held` skips means a tick is overlapping
-  itself: lengthen that cron's interval, do not remove the lock.
+  the head. A tick whose heartbeat goes stale while its fires return
+  `skipped` is overlapping itself: lengthen that cron's interval, do not remove
+  the lock.
 - Pausing `GBP_PERFORMANCE_ENABLED` or `GBP_KEYWORDS_ENABLED` does not stop
-  the cron calling that ingestion route. Each organisation in the page
-  fails with 503 `sync_paused` and logs `performance.organisation_failed` /
-  `keywords.organisation_failed`, so expect one error line per tenant per tick
-  for as long as the pause lasts. Nothing is claimed, re-armed or lost by it;
-  read the flood as the pause, not as an incident.
-- Five of the cursor-walking routes are bounded by a per-page budget
-  (`RECONCILE_BUDGET_MS`, `RETENTION_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
-  `KEYWORDS_BUDGET_MS`, `PRESENCE_RESOURCE_BUDGET_MS`, all 45000 by default).
-  A page that exhausts its budget commits the organisations it has finished
-  and returns a `nextCursor` for the rest; the scheduler asks for the next
-  page immediately, and for the three routes that report `truncated`
-  (performance, keywords, presence resources) it also logs `<tick>.truncated`
-  naming the organisations that page did not reach. `/api/sync/sweep` has no
-  budget of its own — the scheduler bounds it by asking for one organisation
-  and five pages per location, and a location with more history than that
-  parks its checkpoint for the jobs runner. Keep every budget below the
-  scheduler's 55s request abort: a page cut off by the abort still commits on
-  the server, but no cursor reaches the scheduler, so it resumes from the last
-  cursor it holds and repeats that page.
-- Under Vercel Cron there is no walk position between fires: every fire starts
-  at the head and a `nextCursor` in the response is only a handle for a manual
-  follow-up request, not something the next fire resumes. A page that fails
-  every time therefore delays — but cannot starve — the organisations ordered
-  after it, because the next fire re-enters at the head rather than resuming
-  onto the poisoned page. (`scripts/scheduler.mjs` keeps the old in-memory
-  walks with `<tick>.cursor_reset` when it is the driver; the routes behave
-  identically under either caller.)
+  the cron calling that ingestion route. On Vercel the cron GET only enqueues
+  checkpoints, and the pause is enforced when the jobs runner claims work, so
+  checkpoints accumulate and drain after the pause. The per-tenant
+  `performance.organisation_failed` / `keywords.organisation_failed` lines with
+  503 `sync_paused` appear only on the session and local-scheduler POST paths;
+  read them as the pause, not as an incident.
+- Presence resources and retention are bounded by a per-page budget
+  (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
+  are the session and scheduler POST paths of reconcile, performance and
+  keywords (`RECONCILE_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
+  `KEYWORDS_BUDGET_MS`). The runner's own tick budget is 45 seconds inside a
+  60-second function.
+- **Google request budget (0049).** Every Business Profile call first takes a
+  slot from `google_rate_bucket`: per API host
+  (`GOOGLE_API_REQUESTS_PER_MINUTE`, 240) and, for a write, per location
+  (`GOOGLE_LOCATION_EDITS_PER_MINUTE`, 8) for Business Information writes.
+  API windows are 10 seconds and edit windows one minute, sized so any
+  rolling minute stays under Google's 300 QPM and 10 edits/min. Review
+  replies, posts and media draw only on their API's budget. A 429 from
+  Google blocks that bucket for every instance until its `Retry-After`. Work
+  that cannot get a slot before its deadline fails with the retryable
+  `google_rate_limited` and is retried a minute later without spending its
+  failure cap. Sustained pressure shows as `googleQuota` in platform health
+  and opens a `google_quota_pressure` operator incident.
 - Alert on failed sync checkpoints, connections in `expired`/`error`, publish
   attempts in `ambiguous`, and unprocessed webhook events older than five
   minutes.
@@ -205,8 +242,9 @@ Every authenticated jobs run updates the `scheduler` row in `ops_heartbeat`,
 including a run that claims nothing because a kill switch is off: the heartbeat
 means "the scheduler reached the web process", so a pause must not read as a
 dead scheduler. A missing heartbeat or one older than five minutes pages
-on-call. Verify the scheduler process, web reachability, matching cron secrets,
-advisory-lock holders, and database connectivity, then run one manual jobs tick
+on-call. Verify that the Vercel Cron Jobs are enabled and firing (project Cron
+Jobs page and logs), that `CRON_SECRET` is set on the project, and check
+advisory-lock holders and database connectivity, then run one manual jobs tick
 and confirm the heartbeat advances.
 
 ### Retired sync checkpoints
@@ -254,6 +292,91 @@ Disable new connects if failures are global. Verify the Google project, consent
 screen, redirect URI, client secret, and API access status. Individual expired
 connections should be reconnected; never ask a customer to send a refresh token.
 
+Connection states as people see them (`lib/server/google/connections.ts`):
+
+| State | Stored as | Who acts |
+|---|---|---|
+| Active | `active`, no `last_error_code` | nobody |
+| Degraded (Data delayed) | `active`/`expired` with `last_error_code`, no reconnect task | nobody: the platform retries |
+| Needs reconnect (Action needed) | `revoked`, or `expired` **with** an open reconnect task | an owner/admin, from the banner |
+| Disconnected | `disconnected`, tokens null, `purge_due_at` set | nobody |
+
+A listing whose manager access was removed at Google is `external_location.
+access_state = 'access_lost'`; the connection stays active and its other
+listings keep syncing. Reconnecting does not fix it — the business must add
+the login back as a manager.
+
+An `invalid_client` from the token endpoint (a rotated client secret) or a 403
+with `SERVICE_DISABLED` / `ACCESS_NOT_CONFIGURED` (`google.operator_
+configuration_error` in the logs) is an operator fault that hits every tenant:
+fix the Cloud project, do not ask customers to reconnect.
+
+Reconnect never revokes the refresh token it replaces: Google revokes a grant
+per user and project, so revoking the old token would also kill the new one.
+Only a deliberate disconnect calls Google's revoke endpoint; its outcome is
+kept on the row (`google_revocation_status`). To confirm a revoke, send the old
+refresh token to the token endpoint and expect `invalid_grant` — Google does
+not document tokeninfo for refresh tokens.
+
+### Notifications and alert email
+
+The health tick (`/api/cron/health`, every 15 minutes, heartbeat `health`)
+turns tenant state into `notification_incident` rows and emails each new
+incident once to the organisation's owners and admins:
+`connection_reconnect`, `listing_access_lost`, `listing_stale` (no successful
+check for `LISTING_STALE_AFTER_HOURS`), `low_rating_review` (3 stars or fewer,
+rating and listing only) and `connection_owner_left`. Operators
+(`OPS_ALERT_EMAILS`) get `platform_incident` mail for a tick that used to run
+and stopped, and for sustained Google 429s. Without `EMAIL_PROVIDER`,
+deliveries are recorded `suppressed` (`provider_not_configured`) — check
+`notification_delivery.status` before telling anyone an email went out. A
+delivery is unique per incident and recipient and is claimed before the send,
+so re-running the tick never double-emails.
+
+### Rotating the token encryption key
+
+1. Generate a new 32+ character secret. Set
+   `TOKEN_ENCRYPTION_KEYS="<new>,<current TOKEN_ENCRYPTION_KEY>"` and deploy.
+   New writes now use the new key (format 0x02); everything old still reads.
+2. `POST /api/operations/reencrypt` with the cron bearer and
+   `{"dryRun": true}` to count what is left, then without `dryRun`, repeated
+   until the response says `"complete": true`. Each call resumes; rows are
+   compare-and-set, so live refreshes are safe. `failed > 0` means a row no
+   configured key opens: stop and investigate before retiring anything.
+   `organisationIds` limits a pass to chosen tenants for a staged rotation.
+3. Set `TOKEN_ENCRYPTION_KEY=<new>`, `TOKEN_ENCRYPTION_KEYS=<new>` and
+   deploy. Confirm a dry run still reports complete and a refresh works.
+4. Rollback: once step 1 is deployed, rows written in format 0x02 can only be
+   read by builds that include key rotation (`feat/connect-once-hardening`
+   and later). Roll back only to such a build, keeping both keys configured;
+   never to an older build. Until `TOKEN_ENCRYPTION_KEYS` is set nothing is
+   written in the new format, so deploying this code alone changes nothing on
+   disk.
+
+OAuth state has its own secret: set `OAUTH_STATE_SECRET`, deploy, and after
+the deploy has been live for more than ten minutes set
+`OAUTH_STATE_ACCEPT_LEGACY=false`.
+
+### RISC (Cross-Account Protection)
+
+`POST /api/webhooks/google/risc` is live in code but receives nothing until
+the stream is registered: enable `risc.googleapis.com` on the Cloud project,
+accept the RISC terms, create a service account with
+`roles/riscconfigs.admin`, and call `stream:update` with the receiver URL and
+the events `token-revoked`, `tokens-revoked`, `account-disabled`,
+`account-purged` and `verification`; then `stream:verify` and look for a
+`risc_event` row with outcome `verification`. Refresh-time `invalid_grant`
+and API 401s remain the fallback (RISC skips Workspace users and retries
+delivery only a few times).
+
+### Platform sessions
+
+Sessions slide to `SESSION_IDLE_DAYS` (14) of inactivity and end
+`SESSION_ABSOLUTE_DAYS` (90) after sign-in. "Sign out everywhere" (account
+menu, `DELETE /api/session?scope=all`) ends every session the person has in
+every organisation. None of this touches Google connections or background
+sync. MFA for owners and admins is a Supabase Auth feature still to enable.
+
 ### Pub/Sub delivery failure
 
 Verify the push URL, OIDC audience, issuer and pinned service-account email,
@@ -274,7 +397,8 @@ verdict `pending` and a `semantic_verification_unavailable` warning. The text is
 never lost, but `pending` is not publishable — publishing answers
 `verification_required` — so replies pile up unsent.
 
-Set `SEMANTIC_VERIFY_ENABLED=false` and restart. Generation stays unavailable
+Set `SEMANTIC_VERIFY_ENABLED=false` in the Vercel environment and redeploy
+(flags are memoised per process; see Kill switches). Generation stays unavailable
 while the provider is down, but the semantic pass is then deliberately skipped
 rather than attempted, so a human-authored reply is verified by the
 deterministic checks alone, settles `pass`/`warn` and can be published. Do not
@@ -286,8 +410,11 @@ first.
 
 ### Quota storm
 
-Pause backfills, retain notification ingestion, reduce per-tenant concurrency,
-and retry 429/5xx responses with exponential backoff and jitter.
+The shared budget already holds every instance under the configured rate and
+honours `Retry-After` fleet-wide. If `google_quota_pressure` keeps opening:
+lower `GOOGLE_API_REQUESTS_PER_MINUTE`, pause backfills, retain notification
+ingestion, and check the project's quota in the Cloud Console (a quota of 0
+means API access is not approved).
 
 ### Ambiguous publish
 
@@ -310,48 +437,86 @@ Start it with `pnpm supabase:start`; the CLI applies the committed
 `127.0.0.1:54322`, the local API on `127.0.0.1:54321`, and Studio on
 `127.0.0.1:54323`. `pnpm supabase:reset` is destructive to local data.
 
-The separate production-style stack remains available through
-`docker compose up --build`; its plain PostgreSQL database is available only on
-`127.0.0.1:54329`.
+There is no second, production-topology stack to fall back on. The Docker
+Compose stack that once served that purpose has been deleted: production runs
+on Vercel, so the Supabase CLI stack above is the only local environment.
 
-## Production database (deferred — read before provisioning)
+## Production database
 
-The Vercel production `DATABASE_URL` / `DIRECT_DATABASE_URL` (set 205 days
-ago) point at a host that no longer resolves (`ENOTFOUND`, confirmed
-NXDOMAIN). There is no production database to migrate: every DB-backed
-production request fails, and the "28 applied migrations" premise is void.
-The only live dataset is the local Supabase database, snapshotted to
-`../NabaPresence-backups/local-snapshot-20260903.dump` (custom format, schema
-plus data, verified with `pg_restore -l`). When production provisioning is
-back on the table, follow this order — it was rehearsed end to end against
-the compose PostgreSQL 17 stack in September 2026:
+Production runs on the Supabase project `googlereview-gbp` (ref
+`znbjmipdiuzymxytyjvr`, us-east-1, PostgreSQL 17). It sat paused on the free
+plan for months, and a paused project's hostname stops resolving: that was the
+`ENOTFOUND` / NXDOMAIN every DB-backed production request failed with. It was
+restored in September 2026. A free project pauses again after a week without
+activity; the every-minute cron keeps it busy, but move it to a paid plan
+before relying on it. The project still held the Prisma-era schema (25
+tables, 1,040 reviews, 3 July 2026); those objects were moved, not dropped,
+into the `legacy_prisma` schema, which the runtime role cannot use, after a
+dump to `archive/naba-presence-backups/googlereview-gbp-prisma-20260924-*.sql`.
+No data is carried over from the local database, which
+is shared with sibling projects and holds artifacts no committed migration
+defines. Organisations sign up again, reconnect Google, and the
+connect-callback backfill re-imports their reviews. The last local snapshot,
+kept for reference only, is
+`~/LapenInns Project/archive/naba-presence-backups/local-snapshot-20260903.dump`.
 
-1. Provision a DEDICATED PostgreSQL 17 database (the local Supabase database
-   is shared with sibling projects — see step 3). Before pointing anything at
-   it, resolve the hostname and open one test connection; the last production
-   database died silently as NXDOMAIN and nothing paged.
-2. `DIRECT_DATABASE_URL='<new admin url>' pnpm db:migrate` until
-   `schema_migration` holds 42 rows, then re-run to confirm idempotence (42
-   "already applied"). Fresh apply is CI-verified on every push.
-3. Restore data only, for canonical tables only. The local database carries
-   artifacts no committed migration defines — ghost migration row `0021`,
-   tables `audit_logs` (205 rows), `auth_hook_deliveries`, and ~50
-   sibling-project tables (`merchants`, `loyalty_*`, `offer_*`, …) — plus
-   2122 `app_user` rows against 3 organisations, so triage which users belong
-   to NabaPresence before promoting. Recipe: `pg_restore -l`, keep only
-   `TABLE DATA public <table>` for tables present in the migrated target
-   (never `schema_migration`), restore with `--no-owner --disable-triggers
-   -1` (the dump's table order is not FK-safe: `app_session` precedes
-   `app_user`). Then compare row counts against the source before proceeding.
-4. Set `DATABASE_URL` (runtime role, never a superuser) and
-   `DIRECT_DATABASE_URL` via `vercel env`, plus confirm `CRON_SECRET` is set
-   or every cron tick 401s. Never `vercel env pull` into `.env.local`.
-5. `vercel --prod`, then smoke: cron-bearer `GET /api/operations/health`
-   (backlog unlached, `ops_heartbeat` fresh), one firing of each of the seven
-   crons in `vercel.json`, and watch for `lease_expired` (one reclaim burst
-   is expected, a stream is not). Deploying also retires the stale
-   five-minute `/api/cron/worker` pings: that endpoint exists only in the old
-   build and 500s on every fire.
+Provision in this order:
+
+1. Use a dedicated Supabase project on PostgreSQL 17. Functions run in
+   `iad1` (`vercel.json` `regions`) to sit next to the us-east-1 database. From
+   Connect, take both pooler URIs. `DATABASE_URL` uses the **transaction
+   pooler** (port 6543): a session-mode client pins a backend for as long as
+   it stays open, and suspended Vercel instances keep their idle pools open,
+   so session mode exhausted the pooler's 15 slots (`EMAXCONNSESSION`) with
+   connections nobody was using. `DATABASE_SESSION_URL` uses the **session
+   pooler** (port 5432) and serves only the refresh lock and the scheduler
+   leases, which are session advisory locks that a transaction pooler would
+   release between statements; each lock opens and closes its own
+   connection. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
+   hostname and open one test connection before pointing anything at it; the
+   last production database died silently as NXDOMAIN and nothing paged.
+2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` until every file in
+   `supabase/migrations` is recorded in `schema_migration`, then re-run to
+   confirm idempotence (all "already applied") and run `pnpm db:status`. The
+   admin role (`postgres`) owns the SECURITY DEFINER functions, which read
+   FORCE-RLS tables across tenants, so it must keep BYPASSRLS.
+3. Create the runtime login with a generated password — the script's defaults
+   are for local tests only:
+   `DIRECT_DATABASE_URL='<admin url>' RUNTIME_ROLE_NAME=naba_runtime
+   RUNTIME_ROLE_PASSWORD='<32+ random chars>' pnpm db:runtime-role`.
+   `DATABASE_URL` and `DATABASE_SESSION_URL` use the same pooler host with
+   user `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
+   `rolbypassrls` are false, `row_security` is `on`, and `show
+   statement_timeout` is `30s`. The Supabase pooler drops the
+   startup parameters in `lib/server/db.ts`, so the script pins
+   `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`
+   on the role itself. Role settings apply only to new backends: after
+   (re)running the script, terminate the role's older pooled backends.
+4. Configure Supabase Auth on the same project: Site URL and redirect allow
+   list for the production origin, the `supabase/templates/confirmation.html`
+   and `recovery.html` templates, and custom SMTP (the built-in sender only
+   mails project members). Register
+   `<NEXTAUTH_URL>/api/auth/callback/google` on the Google OAuth client and
+   publish the OAuth app out of Testing, or every connection dies after seven
+   days.
+5. Set the production environment with `vercel env add` / `vercel env rm`
+   (list names with `vercel env ls`; never `vercel env pull` into
+   `.env.local`). Beyond the variables `.env.example` marks as required, set
+   `DATABASE_POOL_MAX=5` and `JOBS_CONCURRENCY=3`: every function instance
+   opens its own pool, and the sum across instances must stay under the
+   transaction pooler's client limit. Lease and refresh-lock connections sit
+   outside that pool, one short-lived session-pooler client per held lock. Launch with `WEBHOOKS_ENABLED=false` until the Pub/Sub push
+   subscription and its OIDC pair exist (the 15-minute reconcile picks up new
+   reviews meanwhile), and with `PUBLISH_ENABLED=false` until one draft has
+   been checked end to end. Keep database secrets out of the Preview scope.
+6. `vercel --prod`, then smoke: cron-bearer
+   `GET /api/operations/health?scope=platform` (backlog unlatched,
+   `ops_heartbeat` fresh), one firing of each of the eight crons in
+   `vercel.json`, and watch for `lease_expired` (one reclaim burst is
+   expected, a stream is not). (Historical note: the first Vercel deployment
+   retired the stale five-minute `/api/cron/worker` pings from the old build.)
+   Then sign up, connect Google, confirm the reviews
+   arrive in the inbox, and generate one draft.
 
 ## Privacy and disassociation
 

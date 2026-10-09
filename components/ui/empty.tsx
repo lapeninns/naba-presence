@@ -1,52 +1,71 @@
 import { cn } from "@/lib/utils"
 
 /**
- * An empty state: a light glyph, a title, one sentence and one action.
+ * An empty, all-clear or failed-load state (reference `.empty`): a 44px
+ * rounded mark holding the glyph, a title, one muted sentence and the
+ * actions, centred with generous padding. It draws no box of its own; put
+ * it in a `Card flush` when it needs one.
  *
- * It draws no box of its own. On the canvas it sits in the open, the way
- * Finder says "No items"; inside a card it inherits the card. The glyph is
- * decorative and faint; the title carries the meaning, so a screen reader
- * hears the same thing a sighted reader sees.
+ * `tone="ok"` is the all-clear ("Nothing needs a reply"); `tone="bad"` is a
+ * failed load, which must still name the cause and offer a retry. The
+ * title is a `p` unless `titleAs` asks for a heading, so an empty state
+ * never disturbs the page outline by accident.
  */
 function Empty({
   title,
   description,
   action,
   icon,
+  tone = "neutral",
+  titleAs: Title = "p",
   className,
   children,
 }: {
   title: string
-  description?: string
-  /** One primary action. Two is a decision the empty state should have made. */
+  description?: React.ReactNode
+  /** The next step. One primary action; a second is at most secondary. */
   action?: React.ReactNode
-  /** A lucide glyph. Rendered light and large above the title. */
+  /** A lucide glyph, drawn at 20px inside the mark. */
   icon?: React.ReactNode
+  tone?: "neutral" | "ok" | "bad"
+  titleAs?: "p" | "h2" | "h3"
   className?: string
   children?: React.ReactNode
 }) {
   return (
     <div
       data-slot="empty"
+      data-tone={tone}
       className={cn(
-        "flex flex-col items-center justify-center gap-1 px-6 py-12 text-center",
+        "flex flex-col items-center justify-center gap-2.5 px-5 py-[clamp(32px,6vw,64px)] text-center",
         className
       )}
     >
       {icon ? (
         <span
           aria-hidden
-          className="mb-3 flex text-ink-faint [&_svg]:size-8 [&_svg]:stroke-[1.25]"
+          className={cn(
+            "grid size-11 place-items-center rounded-(--np-radius-card) [&_svg]:size-5 [&_svg]:[stroke-width:1.75]",
+            tone === "ok" && "bg-success-tint text-success-ink",
+            tone === "bad" && "bg-danger-tint text-danger-ink",
+            tone === "neutral" && "bg-fill text-ink-secondary"
+          )}
         >
           {icon}
         </span>
       ) : null}
       {children}
-      <p className="text-title font-semibold text-ink">{title}</p>
+      <Title className="text-title font-semibold text-balance text-ink">
+        {title}
+      </Title>
       {description ? (
-        <p className="max-w-sm text-ui text-ink-muted">{description}</p>
+        <p className="max-w-[46ch] text-ui text-ink-muted">{description}</p>
       ) : null}
-      {action ? <div className="mt-4">{action}</div> : null}
+      {action ? (
+        <div className="mt-1.5 flex flex-wrap justify-center gap-2">
+          {action}
+        </div>
+      ) : null}
     </div>
   )
 }

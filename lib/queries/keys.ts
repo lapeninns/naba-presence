@@ -4,10 +4,16 @@ export const queryKeys = {
   // client invalidates the index and each hub in one call.
   clientsAll: ["clients"] as const,
   clients: ["clients", "list"] as const,
+  clientsArchived: ["clients", "archived"] as const,
   client: (id: string) => ["clients", id] as const,
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
+  clientReportShares: (id: string) => ["clients", id, "report-shares"] as const,
   connections: ["connections"] as const,
   settings: ["settings"] as const,
+  // Prefix of both AI credit keys, so a draft invalidates them together.
+  aiCreditsAll: ["ai-credits"] as const,
+  aiCredits: ["ai-credits", "balance"] as const,
+  aiCreditsDaily: ["ai-credits", "daily"] as const,
   // Rooted at "location-directory", NOT "locations": React Query invalidation
   // is prefix-matched, so a directory key of ["locations"] would shadow every
   // ["locations", <id>, …] resource key below and make one import or unlink
@@ -15,6 +21,10 @@ export const queryKeys = {
   locations: ["location-directory"] as const,
   locationsManagement: ["location-directory", "management"] as const,
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
+  // The DB-only listing state. Rooted apart from the resource keys so an
+  // editor's invalidation of ["locations", id, …] refreshes it explicitly.
+  listingSummary: (id: string) => ["listing-summary", id] as const,
+  listingSummaries: ["listing-summary", "all"] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
   // Prefix of every `locationMedia(id, …)` key: the photos tab invalidates all
@@ -65,12 +75,11 @@ export const queryKeys = {
     ["analytics", kind, params] as const,
   settingsCapabilities: ["settings-capabilities"] as const,
   members: ["members"] as const,
+  // Under the members prefix, so invalidating the team list refreshes it too.
+  memberClientAccess: (userId: string) =>
+    ["members", userId, "client-access"] as const,
   invitations: ["invitations"] as const,
   invitation: (token: string) => ["invitation", token] as const,
-  privacyRequests: ["privacy-requests"] as const,
-  legalHolds: ["legal-holds"] as const,
-  operationsHealth: ["operations-health"] as const,
-  webhookFailures: ["webhook-failures"] as const,
   googleAccounts: (connectionId: string | null) =>
     ["google-accounts", connectionId] as const,
   googleLocations: (accountName: string | null) =>

@@ -1,14 +1,18 @@
 import {
   invitationLookupParamsSchema,
   invitationRevokeParamsSchema,
+  type InvitationAcceptedResponse,
   type InvitationLookup,
   type InvitationRevokedResponse,
 } from "@/lib/contracts/invitations"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
-import { getDatabase } from "@/lib/server/db"
+import { getDatabase, withTenant } from "@/lib/server/db"
+import { resolveInvitation } from "@/lib/server/email-auth"
 import { ApiError } from "@/lib/server/http"
+import { acceptInvitationForSessionUser } from "@/lib/server/provisioning"
 import { route } from "@/lib/server/route"
+import { setSessionCookie } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
@@ -34,11 +38,7 @@ export const GET = route({
       from lookup_invitation(${sha256(params.token)})
     `
     if (!invitation) {
-      throw new ApiError(
-        404,
-        "invitation_not_found",
-        "Invitation not found."
-      )
+      throw new ApiError(404, "invitation_not_found", "Invitation not found.")
     }
     const accepted = invitation.acceptedAt !== null
     return {
@@ -47,6 +47,33 @@ export const GET = route({
       accepted,
       expired: !accepted && invitation.expiresAt.getTime() <= Date.now(),
     } satisfies InvitationLookup
+  },
+})
+
+/**
+ * Accept with the session the visitor already has. The invite page offers
+ * this when the signed-in email matches the invited one, instead of making
+ * them sign out and back in. The new session opens in the invitation's
+ * organisation; the old one is retired afterwards in its own tenant, in the
+ * same order `/api/session/switch` uses so a failure there leaves the caller
+ * signed in.
+ */
+export const POST = route({
+  params: invitationLookupParamsSchema,
+  handler: async ({ session, params, requestId }) => {
+    const accepted = await acceptInvitationForSessionUser(
+      session,
+      await resolveInvitation(params.token),
+      requestId
+    )
+    await withTenant(session.organisationId, async (sql) => {
+      await sql`delete from app_session where id = ${session.sessionId}`
+    })
+    await setSessionCookie(accepted.token)
+    return {
+      accepted: true,
+      organisationId: accepted.organisationId,
+    } satisfies InvitationAcceptedResponse
   },
 })
 

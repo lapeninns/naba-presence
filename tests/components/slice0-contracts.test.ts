@@ -63,15 +63,17 @@ describe("slice 0 form contracts", () => {
     expect(result.success).toBe(false)
   })
 
-  it("accepts a typed business-calls industry mutation", () => {
-    expect(
-      industryMutationSchema.parse({
-        operation: "update_business_calls",
-        confirmation: "publish_industry_data_to_google",
-        updateMask: ["callsState"],
-        payload: { callsState: "ENABLED" },
-      }).operation
-    ).toBe("update_business_calls")
+  it("still parses a retired industry operation so the route can answer 410", () => {
+    for (const operation of ["update_business_calls", "update_healthcare_provider_attributes"]) {
+      expect(
+        industryMutationSchema.parse({
+          operation,
+          confirmation: "publish_industry_data_to_google",
+          updateMask: ["callsState"],
+          payload: { callsState: "ENABLED" },
+        })
+      ).toEqual({ operation })
+    }
   })
 
   it("accepts a business information form draft", () => {

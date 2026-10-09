@@ -37,14 +37,42 @@ export const clientConnectionSchema = z.object({
   status: z.enum(["active", "expired", "revoked", "error", "disconnected"]),
   reconnectRequired: z.boolean(),
   lastRefreshAt: z.string().nullable(),
+  /** A transient failure the platform is retrying; null once it recovers. */
+  lastErrorCode: z.string().nullable().optional(),
+  /** Why a reconnect was asked for, e.g. "superseded_by_reconnect". */
+  reconnectReason: z.string().nullable().optional(),
 })
 export type ClientConnection = z.infer<typeof clientConnectionSchema>
+
+export const clientFreshnessSchema = z.object({
+  state: z.enum(["up_to_date", "data_delayed", "action_needed"]),
+  reason: z
+    .enum([
+      "reconnect_required",
+      "permission_missing",
+      "listing_access_lost",
+      "import_failed",
+      "google_unavailable",
+      "sync_delayed",
+    ])
+    .nullable(),
+  lastSuccessfulCheckAt: z.string().nullable(),
+})
 
 export const clientSummarySchema = clientSchema.extend({
   locationCount: z.number().int().nonnegative(),
   linkedCount: z.number().int().nonnegative(),
   verifiedCount: z.number().int().nonnegative(),
   health: clientHealthSchema,
+  canonicalChecks: z
+    .object({
+      total: z.number().int().nonnegative(),
+      checked: z.number().int().nonnegative(),
+      partial: z.number().int().nonnegative(),
+      attention: z.number().int().nonnegative(),
+      unpublished: z.number().int().nonnegative(),
+    })
+    .optional(),
   connections: z.array(clientConnectionSchema),
   openWork: z.object({
     needsReply: z.number().int().nonnegative(),
@@ -58,6 +86,19 @@ export const clientSummarySchema = clientSchema.extend({
     notStarted: z.number().int().nonnegative(),
   }),
   lastSyncAt: z.string().nullable(),
+  /**
+   * Up to date / Data delayed / Action needed, from successful checks.
+   * Always sent by the server; optional so a client built against an older
+   * response degrades to the health word instead of failing to parse.
+   */
+  freshness: clientFreshnessSchema.optional(),
+  checks: z
+    .object({
+      stalestCheckAt: z.string().nullable(),
+      lastSuccessfulCheckAt: z.string().nullable(),
+      accessLost: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 export type ClientSummary = z.infer<typeof clientSummarySchema>
 
@@ -74,7 +115,15 @@ export type ClientsResponse = z.infer<typeof clientsResponseSchema>
 
 export const clientResponseSchema = z.object({
   client: clientSummarySchema,
-  locations: z.array(directoryRowSchema),
+  locations: z.array(
+    directoryRowSchema.extend({
+      /**
+       * The linked Google listing no longer lists this agency's login as a
+       * manager. Optional so an older response still parses.
+       */
+      accessLost: z.boolean().optional(),
+    })
+  ),
 })
 export type ClientResponse = z.infer<typeof clientResponseSchema>
 
@@ -87,7 +136,12 @@ export type ClientCreateInput = z.infer<typeof clientCreateSchema>
 
 export const clientUpdateSchema = z
   .object({
-    name: z.string().trim().min(1, "Give the client a name").max(120).optional(),
+    name: z
+      .string()
+      .trim()
+      .min(1, "Give the client a name")
+      .max(120)
+      .optional(),
     colour: colourSchema.nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     archived: z.boolean().optional(),
@@ -113,9 +167,23 @@ export const clientAssignLocationsSchema = z.object({
    */
   grantToClientMembers: z.boolean().default(true),
 })
-export type ClientAssignLocationsInput = z.infer<typeof clientAssignLocationsSchema>
+export type ClientAssignLocationsInput = z.infer<
+  typeof clientAssignLocationsSchema
+>
 
 export const clientIdParamsSchema = z.object({ clientId: z.uuid() })
+
+/**
+ * "Use an account already connected" in setup: files an existing Google login
+ * under the client without sending the operator through Google's consent
+ * screen again.
+ */
+export const clientAttachConnectionSchema = z.object({
+  connectionId: z.uuid(),
+})
+export type ClientAttachConnectionInput = z.infer<
+  typeof clientAttachConnectionSchema
+>
 
 // ---------------------------------------------------------------------------
 // Setup state
@@ -164,10 +232,12 @@ export type ClientSetupResponse = z.infer<typeof clientSetupResponseSchema>
 export function nextIncompleteStep(
   setup: Omit<ClientSetup, "nextStep" | "clientId" | "hasClient">
 ): SetupStep {
-  if (!setup.connection || setup.connection.status !== "active") return "connect"
+  if (!setup.connection || setup.connection.status !== "active")
+    return "connect"
   if (setup.accountsActive === 0) return "account"
   if (setup.locationsLinked === 0) return "locations"
-  if (setup.backfill === "not_started" || setup.backfill === "failed") return "backfill"
+  if (setup.backfill === "not_started" || setup.backfill === "failed")
+    return "backfill"
   if (!setup.notificationsEnabled) return "notifications"
   if (!setup.teamInvited) return "team"
   return "done"

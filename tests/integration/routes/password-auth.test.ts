@@ -184,7 +184,7 @@ describeDatabase("email and password authentication", () => {
       { redirect: "manual" }
     )
     expect([303, 307]).toContain(confirmation.status)
-    expect(confirmation.headers.get("location")).toBe(`${server.baseUrl}/home`)
+    expect(confirmation.headers.get("location")).toBe(`${server.baseUrl}/inbox`)
     const cookie = sessionCookie(confirmation)
     const sessionResponse = await fetch(`${server.baseUrl}/api/session`, {
       headers: { cookie },

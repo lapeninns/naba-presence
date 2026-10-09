@@ -57,7 +57,10 @@ const DIRECTION_WORD: Record<NonNullable<KpiDelta["direction"]>, string> = {
 }
 
 /**
- * A single headline figure.
+ * A single headline figure (reference `.stat`): a bordered white tile, the
+ * label in muted UI text, the figure in 26px mono tabular numerals, and a
+ * delta row whose direction is spoken as well as drawn. A missing figure is
+ * "—" with the reason in `hint`; missing is not zero.
  *
  * The label is a `p`, never a heading: these appear in rows of four under a
  * page `h1`, and four `h2`s carrying "Average rating" would flood the heading
@@ -89,27 +92,27 @@ function KpiTile({
     <div
       data-slot="kpi-tile"
       className={cn(
-        "flex flex-col gap-1 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)",
+        "flex min-w-0 flex-col gap-1 rounded-(--np-radius-card) border border-line bg-surface p-4",
         className
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-ui text-ink-muted">{label}</p>
+        <p className="text-ui font-medium text-ink-muted">{label}</p>
         {trailing}
       </div>
-      <p className="text-display font-bold tracking-tight text-ink tabular-nums">
+      <p className="font-mono text-[26px] leading-8 font-semibold tracking-[-0.02em] break-words text-ink tabular-nums">
         {value}
       </p>
       {delta ? (
-        <p className="flex items-center gap-1 text-ui">
+        <p className="flex flex-wrap items-center gap-1.5 text-caption text-ink-muted">
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 font-medium tabular-nums",
+              "inline-flex items-center gap-0.5 font-mono text-caption font-semibold tabular-nums",
               DELTA_TONE_CLASS[tone]
             )}
           >
             {Arrow ? (
-              <Arrow className="size-4" strokeWidth={1.75} aria-hidden />
+              <Arrow className="size-3.5" strokeWidth={2} aria-hidden />
             ) : null}
             {direction ? (
               <span className="sr-only">{DIRECTION_WORD[direction]} </span>

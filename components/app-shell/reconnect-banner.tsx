@@ -1,90 +1,289 @@
 "use client"
 
-import { TriangleAlertIcon } from "lucide-react"
+import { KeyRound, Unlink, XIcon } from "lucide-react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
+import * as React from "react"
 
-import { buttonVariants } from "@/components/ui/button"
+import { ReconnectDialogView } from "@/components/settings/connection-card"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { formatRelativeTime } from "@/lib/format"
 import { useClients } from "@/lib/queries/use-clients"
+import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  useConnectionsQuery,
+  useStartGoogleConnect,
+} from "@/lib/queries/use-connection-workspace"
+import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
 
-function formatWhen(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return null
-  return date.toLocaleString("en-GB")
+const CAN_RECONNECT = new Set(["owner", "admin"])
+
+/** The page that lists every connection with its own Reconnect. */
+const CONNECTIONS_PATH = "/settings/connections"
+
+const DISMISS_KEY = "np.reconnect-banner.dismissed"
+
+// Dismissal is kept for the browser session and keyed on WHICH logins are
+// broken, so a login that breaks later brings the banner back. Read through
+// useSyncExternalStore: the server has no session storage, so its snapshot is
+// "not dismissed" and hydration agrees before the stored value takes over.
+const dismissListeners = new Set<() => void>()
+
+function subscribeDismissed(listener: () => void) {
+  dismissListeners.add(listener)
+  return () => {
+    dismissListeners.delete(listener)
+  }
+}
+
+function readDismissed(): string | null {
+  try {
+    return window.sessionStorage.getItem(DISMISS_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeDismissed(key: string) {
+  try {
+    window.sessionStorage.setItem(DISMISS_KEY, key)
+  } catch {
+    // Blocked storage: the banner simply comes back on the next page.
+  }
+  for (const listener of dismissListeners) listener()
 }
 
 /**
- * A reconnect prompt for the client the page is about.
+ * The organisation-wide "action needed" banner.
  *
- * Client-scoped rather than shell-wide. The old banner sat on every page of
- * the app whenever ANY connection was unhealthy, which for an agency means a
- * permanent red bar naming no one: it neither said which client was affected
- * nor gave an action that helped the client actually in front of you.
+ * Shown whenever any Google login needs reconnecting -- including a login
+ * whose locations have since been unlinked, which the old client-scoped
+ * banner lost track of. One sentence says what happened; owners and admins
+ * get Reconnect, which opens the same explanation Settings' connection card
+ * shows (same login renews it, a different one is added beside it) and then
+ * goes to Google with that login pre-selected, returning to this page.
+ * Everyone else is told who can fix it and gets no reconnect control.
  *
- * On org-wide pages this renders nothing. Home's attention list carries those
- * clients instead, where each row can name its own client and its own fix.
+ * Not shown on Settings › Google connections, which lists the same logins
+ * with their own Reconnect. It can be dismissed for the session (the header
+ * health chip keeps reporting the problem), and on a phone the explanation
+ * folds away so the banner stays one line.
  *
- * Visually a tinted warning card sitting at the top of the content column,
- * inside the page's own gutters, with a plain (accent-text) action. Nothing
- * else in the shell is red or bordered, and this should not be either: it is
- * a card with a colour, not an alarm.
+ * Inside a client whose listing lost manager access (not a login problem),
+ * it says so instead: reconnecting would not help, the business has to
+ * restore access.
  */
 export function ReconnectBanner({ className }: { className?: string }) {
+  const pathname = usePathname()
   const clientId = useClientScope()
   const clients = useClients()
+  const role = useSessionRole()
+  const business = useWorkspaceMode() === "business"
+  const query = useConnectionsQuery()
+  const connect = useStartGoogleConnect()
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const dismissed = React.useSyncExternalStore(
+    subscribeDismissed,
+    readDismissed,
+    () => null
+  )
 
-  if (!clientId) return null
-  const client = clients.data?.items.find((entry) => entry.id === clientId)
-  if (!client) return null
-  if (client.health !== "disconnected" && client.health !== "not_connected") {
+  const broken = (query.data?.connections ?? []).filter(
+    (connection) =>
+      connection.reconnectRequired && connection.status !== "disconnected"
+  )
+  const scoped = clientId
+    ? clients.data?.items.find((entry) => entry.id === clientId)
+    : undefined
+  const dismissKey = broken
+    .map((connection) => connection.id)
+    .sort()
+    .join(",")
+
+  if (
+    pathname === CONNECTIONS_PATH ||
+    pathname?.startsWith(`${CONNECTIONS_PATH}/`)
+  ) {
     return null
   }
-  // A client with nothing linked yet is mid-setup, not broken. The fix is to
-  // finish the wizard, and a destructive alert would misdescribe it.
-  if (client.health === "not_connected" && client.linkedCount === 0) return null
 
-  const broken =
-    client.connections.find((connection) => connection.reconnectRequired) ??
-    client.connections.find((connection) => connection.status !== "active") ??
-    null
-  const lastRefresh = formatWhen(broken?.lastRefreshAt)
+  if (broken.length === 0) {
+    if (scoped?.freshness?.reason !== "listing_access_lost") return null
+    const lost = scoped.checks?.accessLost ?? 0
+    return (
+      <Banner
+        className={className}
+        icon="access"
+        message={
+          <>
+            <strong className="font-semibold">
+              {scoped.name}: a listing can’t be reached.
+            </strong>{" "}
+            <span className="text-ink-secondary">
+              The connected Google login lost manager access to{" "}
+              {lost === 1
+                ? `one of ${business ? "your" : "this client’s"} listings`
+                : `${lost} of ${business ? "your" : "this client’s"} listings`}
+              . Ask the business to add it back as a manager on Google; its
+              other listings keep syncing.
+            </span>
+          </>
+        }
+      />
+    )
+  }
+
+  if (dismissed === dismissKey) return null
+
+  const first = broken[0]
+  const email = first.googleEmail ?? "a Google login"
+  const others = broken.length - 1
+  const canReconnect = role !== null && CAN_RECONNECT.has(role)
+  const superseded = first.reconnectReason === "superseded_by_reconnect"
+  const lastChecked = scoped?.freshness?.lastSuccessfulCheckAt
 
   return (
-    <div className={cn("shrink-0", className)}>
-      <div
-        role="alert"
-        className="flex flex-col gap-3 rounded-(--np-radius-card) bg-warning-tint px-4 py-3 text-ui text-ink sm:flex-row sm:items-center"
-      >
-        <TriangleAlertIcon
-          className="size-4 shrink-0 text-warning-ink"
-          strokeWidth={1.75}
-          aria-hidden
+    <>
+      <Banner
+        className={className}
+        icon="login"
+        onDismiss={() => writeDismissed(dismissKey)}
+        message={
+          <>
+            <strong className="font-semibold [overflow-wrap:anywhere]">
+              {superseded
+                ? `${email} still needs reconnecting.`
+                : `Google stopped accepting ${email}.`}
+            </strong>{" "}
+            {/* The explanation folds away on a phone, where the banner
+                would otherwise push the page a third of a screen down. */}
+            <span className="text-ink-secondary max-sm:hidden">
+              {superseded
+                ? "A different Google account was used last time, so this login is still paused. Reconnect it, or disconnect it in Settings."
+                : "Reviews and profile changes it covers are paused until it is reconnected."}
+              {lastChecked
+                ? ` Last successful check ${formatRelativeTime(lastChecked)}.`
+                : ""}
+              {others > 0
+                ? ` ${others} other Google ${others === 1 ? "login needs" : "logins need"} reconnecting too.`
+                : ""}
+            </span>
+            {canReconnect ? null : (
+              <span className="text-ink-secondary">
+                {" "}
+                Ask an owner or admin to reconnect it.
+              </span>
+            )}
+          </>
+        }
+        actions={
+          canReconnect ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-2 sm:max-w-[28rem]">
+              <Button
+                variant="outline"
+                size="sm"
+                className="max-w-full min-w-0 justify-start overflow-hidden pointer-coarse:min-h-11"
+                // The address is hidden on a phone; the name keeps it.
+                aria-label={`Reconnect ${first.googleEmail ?? "Google"}`}
+                onClick={() => {
+                  connect.reset()
+                  setDialogOpen(true)
+                }}
+              >
+                <span className="block min-w-0 truncate">
+                  Reconnect
+                  <span className="max-sm:hidden">
+                    {" "}
+                    {first.googleEmail ?? "Google"}
+                  </span>
+                </span>
+              </Button>
+              {others > 0 ? (
+                <Link
+                  href={CONNECTIONS_PATH}
+                  prefetch={false}
+                  className={cn(
+                    buttonVariants({ variant: "ghost", size: "sm" }),
+                    "pointer-coarse:min-h-11"
+                  )}
+                >
+                  See all
+                </Link>
+              ) : null}
+            </span>
+          ) : null
+        }
+      />
+      {canReconnect ? (
+        <ReconnectDialogView
+          connection={first}
+          served={undefined}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          pending={connect.isPending}
+          error={connect.isError ? describeActionError(connect.error) : null}
+          onContinue={() =>
+            connect.mutate({
+              reconnectConnectionId: first.id,
+              // Back to the page the banner was on.
+              returnTo: `${window.location.pathname}${window.location.search}`,
+            })
+          }
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="font-semibold">
-            {client.name}: Google needs reconnecting
-          </p>
-          <p className="text-ink-muted">
-            {broken?.googleEmail
-              ? `Reviews and profile changes for ${client.name} stopped syncing because ${broken.googleEmail} needs reconnecting.`
-              : `Reviews and profile changes for ${client.name} are not syncing with Google.`}
-            {lastRefresh ? ` Last successful sync: ${lastRefresh}.` : ""}
-          </p>
-        </div>
-        <Link
-          href={`/clients/${client.id}`}
-          prefetch={false}
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "shrink-0 self-start text-accent-ink sm:self-center"
-          )}
+      ) : null}
+    </>
+  )
+}
+
+function Banner({
+  className,
+  icon,
+  message,
+  actions,
+  onDismiss,
+}: {
+  className?: string
+  icon: "login" | "access"
+  message: React.ReactNode
+  actions?: React.ReactNode
+  onDismiss?: () => void
+}) {
+  const Icon = icon === "login" ? Unlink : KeyRound
+  return (
+    <div
+      // A standing condition, not an interruption: announced politely once,
+      // not re-read as an alert on every page it persists across.
+      role="status"
+      data-slot="reconnect-banner"
+      className={cn(
+        "flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 bg-danger-tint px-5 py-2 text-ui text-ink sm:items-center sm:py-2.5 md:px-(--np-page-pad-x)",
+        className
+      )}
+    >
+      <Icon
+        className="mt-0.5 size-4 shrink-0 text-danger-ink sm:mt-0"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <p className="min-w-0 flex-[1_1_12rem] text-pretty [overflow-wrap:anywhere]">
+        {message}
+      </p>
+      {actions}
+      {onDismiss ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Hide until next session"
+          title="Hide until next session. The health chip in the header still shows it."
+          className="grid size-7 shrink-0 place-items-center rounded-md text-ink-muted focus-halo transition-colors hover:bg-fill hover:text-ink focus-visible:outline-none pointer-coarse:size-11"
         >
-          Reconnect Google
-        </Link>
-      </div>
+          <XIcon className="size-4" strokeWidth={1.75} aria-hidden />
+        </button>
+      ) : null}
     </div>
   )
 }

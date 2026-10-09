@@ -11,12 +11,22 @@ import {
   isAbortError,
 } from "./transport"
 
-const OAUTH_SCOPE = [
-  "openid",
-  "email",
-  "profile",
-  "https://www.googleapis.com/auth/business.manage",
-].join(" ")
+export const BUSINESS_MANAGE_SCOPE =
+  "https://www.googleapis.com/auth/business.manage"
+
+const OAUTH_SCOPE = ["openid", "email", "profile", BUSINESS_MANAGE_SCOPE].join(
+  " "
+)
+
+/**
+ * True when the space-separated `scope` Google returned with a token includes
+ * Business Profile management. Google's consent screen lets a person untick
+ * individual permissions, and a token without this one can sign in but not
+ * read a single review.
+ */
+export function grantsBusinessManage(scope: string | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(BUSINESS_MANAGE_SCOPE)
+}
 
 export const GOOGLE_OAUTH_CALLBACK_PATH = "/api/auth/callback/google"
 
@@ -33,6 +43,8 @@ export type GoogleTokenResponse = {
 export function googleOAuthUrl(input: {
   state: string
   codeChallenge: string
+  /** The Google account to preselect, when reconnecting a known login. */
+  loginHint?: string | null
 }): string {
   const env = getServerEnv()
   if (!env.GOOGLE_CLIENT_ID) {
@@ -58,6 +70,7 @@ export function googleOAuthUrl(input: {
     code_challenge: input.codeChallenge,
     code_challenge_method: "S256",
   })
+  if (input.loginHint) params.set("login_hint", input.loginHint)
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`
 }
 
@@ -112,6 +125,55 @@ export async function exchangeGoogleCode(
     )
   }
   return body
+}
+
+export type GoogleRevokeOutcome =
+  | { readonly revoked: true; readonly status: number }
+  | { readonly revoked: false; readonly status: number | null; readonly error: string }
+
+/**
+ * Ask Google to revoke a token. Revoking the refresh token also revokes every
+ * access token issued from it, so after this Google refuses the grant even if
+ * a copy of either survived somewhere.
+ *
+ * Never throws: the caller has already disconnected locally, and Google being
+ * unreachable must not undo that. Google answers 400 `invalid_token` for a
+ * token that is already dead, which is the outcome wanted, so it counts.
+ */
+export async function revokeGoogleToken(
+  token: string
+): Promise<GoogleRevokeOutcome> {
+  try {
+    const response = await fetch(
+      googleApiTarget("https://oauth2.googleapis.com/revoke"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(getServerEnv().GOOGLE_TIMEOUT_MS),
+      }
+    )
+    if (response.ok) return { revoked: true, status: response.status }
+    const text = await response.text()
+    let error = "revoke_failed"
+    try {
+      const body = JSON.parse(text) as { error?: unknown }
+      if (typeof body.error === "string") error = body.error
+    } catch {
+      // Not JSON; keep the generic code.
+    }
+    if (response.status === 400 && error === "invalid_token") {
+      return { revoked: true, status: response.status }
+    }
+    return { revoked: false, status: response.status, error }
+  } catch (error) {
+    return {
+      revoked: false,
+      status: null,
+      error: isAbortError(error) ? "google_timeout" : "network_error",
+    }
+  }
 }
 
 export async function googleUserInfo(accessToken: string): Promise<{

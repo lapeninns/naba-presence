@@ -1,8 +1,9 @@
 # Observability
 
 NabaPresence registers OpenTelemetry with service name `nabapresence`.
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` on the web and jobs processes to the
-environment's OTLP collector. Keep tenant identifiers as restricted telemetry
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` in the Vercel project's Production (and
+staging) environment to the environment's OTLP collector; on Vercel one
+deployment serves both the web functions and the cron routes. Keep tenant identifiers as restricted telemetry
 attributes and never attach review text, reply bodies, access tokens, or email
 addresses.
 
@@ -52,10 +53,12 @@ without bypassing RLS. It contains:
   has expired)
 - `dueRunnerCheckpointBacklog` (`backfill` / `sweep` — what `claim_due_jobs`
   can actually take)
-- `dueMetricsCheckpointBacklog` (`performance` / `keywords` — drained by their
-  own crons, not by the runner)
-- `dueUnclaimedCheckpointBacklog` (`reconcile` / `notification` — no claimer at
-  all; a non-zero value here is rows waiting on 0030's terminal state, not on a
+- `dueMetricsCheckpointBacklog` (`performance` / `keywords` — claimed by the
+  runner since 0048)
+- `dueReconcileBacklog` (recurring `reconcile` checkpoints due for more than
+  two minutes and unleased — the runner is behind)
+- `dueUnclaimedCheckpointBacklog` (`notification` — no claimer at all; a
+  non-zero value here is rows waiting on 0030's terminal state, not on a
   tick)
 - `duePublishBacklog` (unleased due `ambiguous`/`retryable` attempts under the
   recovery ceiling, plus `started` attempts past their lease)
@@ -64,16 +67,24 @@ without bypassing RLS. It contains:
 - `refreshTokensExpiringSoon` (live connections whose Google refresh token
   expires within three days — the seven-day tokens a Testing-status OAuth
   client issues all expire at once, with no other warning)
-- `reconcileStalenessSeconds` (age of the newest completed `reconcile`
-  checkpoint; data freshness, where the heartbeats below are liveness)
+- `reconcileStalenessSeconds` (how long the WORST actively linked location
+  has gone without a successful reconcile — `last_succeeded_at`, which a
+  failed reconcile never moves; a never-reconciled location counts from its
+  link time. Data freshness, where the heartbeats below are liveness. It used
+  to read the newest `finished_at`, which failures also set, so a reconcile
+  failing every tick looked fresh.)
+- `sweepStalenessSeconds` (the same for the daily deleted-review sweep)
+- `listingsAccessLost` (linked listings whose login lost manager access)
+- `googleQuota` (platform scope only: Google rate buckets throttled in the
+  last hour or blocked now, with `throttledCount`)
 - `heldPurgeLocations` (external locations an unreleased legal hold keeps past
   their disconnect purge date)
 - `pendingPurgeAgeSeconds` (how long the oldest still-unpurged disconnected
   connection is overdue)
 - `schedulerHeartbeatAt` and `schedulerHeartbeatStale`
 - `schedulerTicks`, one entry per tick (`jobs`, `reconcile`, `retention`,
-  `performance`, `keywords`, `presence-resources`) with `lastCompletedAt`,
-  `staleAfterSeconds` and `stale`
+  `performance`, `keywords`, `presence-resources`, `sweep`, `health`) with
+  `lastCompletedAt`, `staleAfterSeconds` and `stale`
 
 The owner/admin scope returns the same fields for one tenant plus `sync`,
 `webhooks`, `connections`, `publish24h`, `replyRejections30d` and
@@ -100,9 +111,8 @@ is stamped by that tick's own lease **on a completed run**, so a tick that never
 finishes reports stale. `staleAfterSeconds` is a small multiple of that tick's
 documented interval — one missed run is noise, a stopped tick is not — and it
 is served by the endpoint rather than hard-coded in the monitor, so an interval
-change moves the threshold with it. `naba:sweep` is deliberately absent: the
-sweep route holds no advisory lease, so nothing stamps a row for it and
-reporting one would be a permanent false alarm.
+change moves the threshold with it. Since migration 0046 the sweep's fleet
+enqueue takes `naba:sweep`, so `sweep` is listed like the other ticks.
 
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not
@@ -124,6 +134,19 @@ Treat a missing heartbeat as silent.
 | Refresh token cliff | `refreshTokensExpiringSoon > 0`                                             | ticket   |
 | Overdue purge       | `pendingPurgeAgeSeconds > 86400`, or `heldPurgeLocations` non-zero and flat | ticket   |
 | Reconcile stale     | `reconcileStalenessSeconds > 3600`                                          | ticket   |
+| Sweep stale         | `sweepStalenessSeconds > 172800`                                            | ticket   |
+| Reconcile behind    | `dueReconcileBacklog` rising for 15 minutes                                 | ticket   |
+| Quota pressure      | any `googleQuota[].blocked`, or a bucket throttled on consecutive scrapes   | ticket   |
+| Listing access lost | `listingsAccessLost > 0` (the tenant is also emailed)                       | ticket   |
+
+The health tick (`/api/cron/health`, every 15 minutes) evaluates the same
+conditions per tenant and emails owners and admins itself (see
+`docs/runbook.md`, "Notifications and alert email"); it also opens
+`platform_incident` rows and emails `OPS_ALERT_EMAILS` for a tick that used to
+complete and has stopped, and for Google rate limiting in the last 15
+minutes. A tick that has never completed is reported here but not emailed.
+The scrape and these rules remain the operator's view; the tick is what makes
+alerting work with nobody watching a dashboard.
 
 `heldPurgeLocations` is not a failure: a legal hold is meant to outrank the
 seven-day disconnect promise. It is a ticket because a number that never falls
@@ -137,8 +160,10 @@ restricted operations workspace.
 ## Scheduler and runner log events
 
 The health endpoint says what is queued; these say why. All are emitted as
-structured JSON — the first four by `scripts/scheduler.mjs`, the rest by the
-web process.
+structured JSON — the first four by `scripts/scheduler.mjs` only, the rest by
+the web process. On Vercel there is no scheduler process: a lock skip returns
+200 `{ skipped: true }` with no log line, and a cursor reset logs
+`cron.cursor_reset`.
 
 | Event                        | Level | Means                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -149,21 +174,32 @@ web process.
 | `jobs.kinds_paused`          | warn  | A kill switch narrowed the claim. Carries the three flags and the kinds still being claimed; the heartbeat stays fresh, so this is the only signal that work is deliberately not happening.                                                                                                   |
 | `jobs.leases_reclaimed`      | warn  | `reclaim_expired_jobs()` returned rows whose lease outlived their holder, counted per kind. Costs no retry budget. Repeated reclaims of one kind mean items are outliving the lease (tick budget plus 60s), not that they are failing.                                                        |
 | `leases.heartbeat_failed`    | warn  | A tick completed but could not stamp its `ops_heartbeat` row, so it will read as stale. Liveness bookkeeping never fails the tick that succeeded.                                                                                                                                             |
-| `<tick>.organisation_failed` | error | One tenant failed and the walk carried on. A paused `GBP_PERFORMANCE_ENABLED` / `GBP_KEYWORDS_ENABLED` produces one of these per tenant per tick with `sync_paused`; that is the pause, not an incident.                                                                                      |
+| `sync.recurring_enqueued`    | info  | A reconcile/performance/keywords cron fire armed the fleet: `organisations` with linked locations, `queued` rows created or re-armed. |
+| `jobs.recurring_failed`      | error | A recurring run threw before its own settle; it retries in a few minutes. |
+| `google.rate_budget_deferred` | warn | A request could not get a shared-budget slot before its deadline and was deferred as `google_rate_limited`. |
+| `google.rate_budget_unavailable` | warn | The budget could not be read within 2s; the request went ahead on local pacing (fail-open). |
+| `google.operator_configuration_error` | error | Google answered 403 with a project-level reason (API disabled, access not configured): an operator fault, not a tenant's. |
+| `google.connection.stale_rejection_ignored` | info | A rejection from an older credential generation, or after a disconnect, was dropped instead of flagging the connection. |
+| `google.risc_event`          | info  | A verified RISC event was applied; `matchedConnections` says how many connections it reached. |
+| `notifications.tick`         | info  | One health tick: incidents opened/resolved, deliveries sent/suppressed/failed, platform incidents. |
+| `notifications.delivery_failed` | warn | An alert email failed; `willRetry` says whether it is backed off or given up (after 5 attempts). |
+| `ops.platform_incident_opened` | warn/error | An operator incident opened; error when nobody could be emailed. |
+| `<tick>.organisation_failed` | error | One tenant failed and the walk carried on. On the session and local-scheduler POST paths, a paused `GBP_PERFORMANCE_ENABLED` / `GBP_KEYWORDS_ENABLED` produces one of these per tenant per tick with `sync_paused`; that is the pause, not an incident. The Vercel cron GETs only enqueue, and the pause holds at the runner claim.                                                                                      |
 
 ## Alert response
 
 1. Correlate the alert timestamp with request, database, Google, webhook, and
    jobs spans.
 2. Use the kill-switch table in `docs/runbook.md` to pause the narrowest
-   affected capability. Every flag needs a restart of the web and scheduler
-   processes to take effect; when background provider traffic has to stop
-   sooner, stop the scheduler process and expect `schedulerHeartbeatStale` and
-   every entry in `schedulerTicks` to go stale and page — silence those alerts
-   deliberately rather than reading them as a second failure. A
-   `RETENTION_ENABLED=false` deployment is the same case in miniature: the
-   scheduler registers no retention tick, so that one tick reports stale for
-   the length of the pause.
+   affected capability. Every flag needs an environment change plus a
+   redeploy to take effect; when background provider traffic has to stop
+   sooner, disable the project's Vercel Cron Jobs and expect
+   `schedulerHeartbeatStale` and every entry in `schedulerTicks` to go stale
+   and page — silence those alerts deliberately rather than reading them as a
+   second failure. A `RETENTION_ENABLED=false` deployment is the same case in
+   miniature: on Vercel the retention cron still fires and receives 503
+   `retention_paused`, so that one tick reports stale for the length of the
+   pause.
 3. Preserve the health payload and redacted alert notification in the live
    certification evidence file.
 4. Fix forward; do not delete failed, dead, or ambiguous records to clear an

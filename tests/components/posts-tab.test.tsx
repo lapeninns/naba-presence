@@ -59,6 +59,39 @@ describe("PostsTab", () => {
     expect(within(sheet).getByRole("button", { name: "Save draft" })).toBeEnabled()
   })
 
+  it("sets a post to repeat weekly and shows the repeat on the list", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({
+            topicType: "EVENT",
+            event: {
+              title: "Quiz night",
+              schedule: {
+                startDate: { year: 2026, month: 10, day: 2 },
+                endDate: { year: 2026, month: 10, day: 2 },
+              },
+              recurrenceInfo: { weeklyPattern: { daysOfWeek: ["FRIDAY"] } },
+            },
+          }),
+        ],
+      }),
+      isPending: false, isError: false, error: null, refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByText(/Repeats weekly on Fri/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    const group = within(sheet).getByRole("group", { name: "On" })
+    expect(within(group).getByRole("button", { name: "Fri" })).toHaveAttribute("aria-pressed", "true")
+    await user.click(within(group).getByRole("button", { name: "Sat" }))
+    expect(within(sheet).getAllByText("Repeats weekly on Fri, Sat").length).toBeGreaterThan(0)
+    expect(within(sheet).getByRole("button", { name: "Save changes" })).toBeEnabled()
+  })
+
   it("shows a paused notice and blocks composing when posts are paused", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({ data: makeState({ writesEnabled: false }), isPending: false, isError: false, error: null, refetch: vi.fn() })
@@ -72,7 +105,7 @@ describe("PostsTab", () => {
     // exists to remove.
     expect(
       screen.getByText(
-        "Publishing to Google is currently unavailable, so new posts cannot be composed."
+        "Publishing to Google is currently unavailable, so new posts cannot be composed. Publishing and deleting posts also wait until it’s back."
       )
     ).toBeInTheDocument()
   })
@@ -83,6 +116,20 @@ describe("PostsTab", () => {
     renderTab()
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument()
-    expect(screen.getByText("Awaiting approval")).toBeInTheDocument()
+    // The status filter chip carries the same words, so read the post's own pill.
+    expect(within(screen.getByRole("article")).getByText("Awaiting approval")).toBeInTheDocument()
   })
+})
+
+it("shows unavailable dates for legacy published posts and orders by content time", () => {
+  usePostsMock.mockReturnValue({ data: makeState({ posts: [
+    post({ id: "old", summary: "Older content recently reconciled", status: "published", googleState: "LIVE", providerUpdatedAt: "2026-08-01T00:00:00Z", updatedAt: "2026-09-27T00:00:00Z" }),
+    post({ id: "new", summary: "Newer content", status: "published", googleState: "LIVE", providerUpdatedAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-02T00:00:00Z" }),
+    post({ id: "missing", summary: "Provider date missing", status: "published", providerCreatedAt: null, providerUpdatedAt: "bad" }),
+  ] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+  useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+  renderTab()
+  expect(screen.getByText("Date unavailable")).toBeInTheDocument()
+  const summaries = screen.getAllByText(/^(Newer content|Older content recently reconciled|Provider date missing)$/)
+  expect(summaries.map((element) => element.textContent)).toEqual(["Newer content", "Older content recently reconciled", "Provider date missing"])
 })

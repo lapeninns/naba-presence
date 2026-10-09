@@ -20,16 +20,46 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import type { Verification } from "@/lib/contracts/reviews"
 
 type ConfirmDiscardFn = () => Promise<boolean>
 
-type Gate = { isDirty: boolean; confirmDiscard: ConfirmDiscardFn }
+/** What a composer save hands back: the new draft and its checks. */
+export type ComposerSaveResult = {
+  draftId: string
+  verification: Verification
+}
+
+/**
+ * The composer's own save, offered to the publish bar while the reply holds
+ * unsaved edits. Publish runs it first, then publishes the draft it returns,
+ * so one press saves, checks and sends the text on screen.
+ */
+export type ComposerSave = {
+  /**
+   * Saves and verifies the text on screen. Resolves null when the save did
+   * not happen or failed; the composer has already said why.
+   */
+  save: () => Promise<ComposerSaveResult | null>
+  /** Why the text cannot be saved as it stands, or null when it can. */
+  blockedReason: string | null
+  saving: boolean
+}
+
+type Gate = {
+  isDirty: boolean
+  confirmDiscard: ConfirmDiscardFn
+  save: ComposerSave | null
+}
+
+const CLEAN_GATE: Gate = {
+  isDirty: false,
+  confirmDiscard: async () => true,
+  save: null,
+}
 
 class DirtyStore {
-  private gate: Gate = {
-    isDirty: false,
-    confirmDiscard: async () => true,
-  }
+  private gate: Gate = CLEAN_GATE
   private listeners = new Set<() => void>()
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -38,6 +68,7 @@ class DirtyStore {
     }
   }
   getIsDirty = () => this.gate.isDirty
+  getSave = () => this.gate.save
   confirmDiscard = () => this.gate.confirmDiscard()
   set = (gate: Gate) => {
     this.gate = gate
@@ -118,17 +149,27 @@ function useAskDiscardConfirm(): () => Promise<boolean> {
   }, [ask])
 }
 
-// The composer publishes its live dirtiness + confirm into the shared store.
+// The composer publishes its live dirtiness + confirm into the shared store,
+// and — while the text on screen is not yet a checked draft — the save the
+// publish bar runs before it publishes.
+// `save.save` must be referentially stable, or every render re-registers.
 function useRegisterDirtyGuard(
   isDirty: boolean,
-  confirmDiscard: ConfirmDiscardFn
+  confirmDiscard: ConfirmDiscardFn,
+  save?: ComposerSave
 ) {
   const store = useContext(DirtyStoreContext)
+  const run = save?.save
+  const blockedReason = save?.blockedReason ?? null
+  const saving = save?.saving ?? false
   useEffect(() => {
-    store?.set({ isDirty, confirmDiscard })
-    return () =>
-      store?.set({ isDirty: false, confirmDiscard: async () => true })
-  }, [store, isDirty, confirmDiscard])
+    store?.set({
+      isDirty,
+      confirmDiscard,
+      save: run ? { save: run, blockedReason, saving } : null,
+    })
+    return () => store?.set(CLEAN_GATE)
+  }, [store, isDirty, confirmDiscard, run, blockedReason, saving])
 }
 
 // The list uses this before a selection change: true if it is safe to navigate
@@ -160,8 +201,20 @@ function useIsDirty(): boolean {
   )
 }
 
+// The publish bar's view of the composer's save: null unless the composer
+// offered one (unsaved edits, or a saved draft that was never checked).
+function useComposerSave(): ComposerSave | null {
+  const store = useContext(DirtyStoreContext)
+  return useSyncExternalStore(
+    store ? store.subscribe : NOOP_SUBSCRIBE,
+    () => (store ? store.getSave() : null),
+    () => null
+  )
+}
+
 export {
   DirtyGuardProvider,
+  useComposerSave,
   useAskDiscardConfirm,
   useRegisterDirtyGuard,
   useDirtyGate,

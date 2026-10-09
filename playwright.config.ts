@@ -6,8 +6,7 @@ const googleStubPort =
   String(Number.parseInt(port, 10) + 1)
 const baseURL = `http://127.0.0.1:${port}`
 const tokenEncryptionKey =
-  process.env.TOKEN_ENCRYPTION_KEY ??
-  "route-harness-token-key-32-characters!!"
+  process.env.TOKEN_ENCRYPTION_KEY ?? "route-harness-token-key-32-characters!!"
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -40,6 +39,10 @@ export default defineConfig({
       GBP_PLACE_ACTIONS_ENABLED: "true",
       GBP_PERFORMANCE_ENABLED: "true",
       GBP_KEYWORDS_ENABLED: "true",
+      // `pnpm start` is a production build, so the route defaults off. The
+      // accessibility and axe specs measure it, so turn it on here - this
+      // object is merged last into the served app's environment.
+      DESIGN_SYSTEM_EVIDENCE_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,

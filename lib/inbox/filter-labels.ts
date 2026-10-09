@@ -1,73 +1,11 @@
 // Shared human labels for inbox filter values. The More filters sheet and the
-// active-filter chips must agree; chips used to leak wire enums
-// (`not_published`, `pass`) while the sheet already showed friendly names.
-//
-// Values come from the contract vocabulary; each option list is checked
-// against it so a value added there without a label fails to typecheck.
+// active-filter chips must agree; chips used to leak wire enums while the
+// sheet already showed friendly names.
 
 import {
   REVIEW_SORT_LABELS,
-  type ReviewPublishStatus,
   type ReviewSort,
-  type ReviewSyncStatus,
-  type ReviewVerificationStatus,
 } from "@/lib/contracts/reviews"
-
-type Option<V extends string> = {
-  readonly value: V
-  readonly label: string
-  readonly ariaLabel?: string
-}
-
-// Every vocabulary value must appear exactly once as an option.
-type Exhaustive<V extends string, T extends readonly Option<V>[]> =
-  Exclude<V, T[number]["value"]> extends never ? T : never
-
-export const VERIFICATION_OPTIONS = [
-  { value: "pass", label: "Passed" },
-  { value: "warn", label: "Review needed" },
-  { value: "fail", label: "Failed" },
-  { value: "pending", label: "Pending" },
-] as const satisfies readonly Option<ReviewVerificationStatus>[]
-
-// Publish/sync status share a few labels with verification and with each
-// other ("Failed", "Pending"). `ariaLabel` disambiguates every non-verification
-// entry that would otherwise collide for screen readers / getByRole.
-export const PUBLISH_STATUS_OPTIONS = [
-  { value: "not_published", label: "Not published" },
-  { value: "awaiting_approval", label: "Awaiting approval" },
-  { value: "accepted", label: "Sent to Google" },
-  { value: "published", label: "Published" },
-  { value: "rejected", label: "Rejected" },
-  { value: "failed", label: "Failed", ariaLabel: "Publish status: Failed" },
-  { value: "deleted", label: "Deleted" },
-] as const satisfies readonly Option<ReviewPublishStatus>[]
-
-export const SYNC_STATUS_OPTIONS = [
-  { value: "pending", label: "Pending", ariaLabel: "Sync status: Pending" },
-  { value: "running", label: "Running" },
-  { value: "succeeded", label: "Succeeded" },
-  { value: "failed", label: "Failed", ariaLabel: "Sync status: Failed" },
-  { value: "cancelled", label: "Cancelled" },
-] as const satisfies readonly Option<ReviewSyncStatus>[]
-
-// Compile-time exhaustiveness: `Exhaustive<V, T>` collapses to `never` when a
-// vocabulary value has no option, and `never` is not assignable to a tuple.
-const _verificationExhaustive: Exhaustive<
-  ReviewVerificationStatus,
-  typeof VERIFICATION_OPTIONS
-> = VERIFICATION_OPTIONS
-const _publishExhaustive: Exhaustive<
-  ReviewPublishStatus,
-  typeof PUBLISH_STATUS_OPTIONS
-> = PUBLISH_STATUS_OPTIONS
-const _syncExhaustive: Exhaustive<
-  ReviewSyncStatus,
-  typeof SYNC_STATUS_OPTIONS
-> = SYNC_STATUS_OPTIONS
-void _verificationExhaustive
-void _publishExhaustive
-void _syncExhaustive
 
 export const RATING_OPTIONS = [
   { value: 5, label: "5 stars" },
@@ -76,32 +14,6 @@ export const RATING_OPTIONS = [
   { value: 2, label: "2 stars" },
   { value: 1, label: "1 star" },
 ] as const
-
-function labelMap(
-  options: readonly { value: string; label: string }[]
-): Map<string, string> {
-  return new Map(options.map((option) => [option.value, option.label]))
-}
-
-const VERIFICATION_LABELS = labelMap(VERIFICATION_OPTIONS)
-const PUBLISH_STATUS_LABELS = labelMap(PUBLISH_STATUS_OPTIONS)
-const SYNC_STATUS_LABELS = labelMap(SYNC_STATUS_OPTIONS)
-
-function joinLabels(values: string[], labels: Map<string, string>): string {
-  return values.map((value) => labels.get(value) ?? value).join(", ")
-}
-
-export function formatVerificationChip(values: string[]): string {
-  return `Verification: ${joinLabels(values, VERIFICATION_LABELS)}`
-}
-
-export function formatPublishStatusChip(values: string[]): string {
-  return `Publish: ${joinLabels(values, PUBLISH_STATUS_LABELS)}`
-}
-
-export function formatSyncStatusChip(values: string[]): string {
-  return `Sync: ${joinLabels(values, SYNC_STATUS_LABELS)}`
-}
 
 /** e.g. "5 stars", "1 star", "1, 2 stars". */
 export function formatRatingsChip(ratings: number[]): string {

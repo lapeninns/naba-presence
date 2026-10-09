@@ -12,3 +12,21 @@ export async function triggerPerformanceSync(): Promise<void> {
 export async function triggerKeywordsSync(): Promise<void> {
   await apiFetch("/api/sync/keywords", { method: "POST", body: {} })
 }
+
+export type ReviewSyncResult = {
+  skipped?: boolean
+  failures?: Array<{ errorCode: string }>
+}
+
+/**
+ * Asks Google for reviews newer than the last successful check. This is the
+ * reconcile walk, which always starts at the newest page, rather than the
+ * historical sweep, which resumes a cursor and can miss anything new until
+ * that walk finishes.
+ */
+export async function triggerReviewSync(): Promise<ReviewSyncResult> {
+  return apiFetch<ReviewSyncResult>("/api/sync/reconcile", {
+    method: "POST",
+    body: {},
+  })
+}

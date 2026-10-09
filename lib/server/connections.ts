@@ -18,7 +18,9 @@ type ConnectionRow = {
   notificationsEnabled: boolean
   lastRefreshAt: string | Date | null
   lastErrorCode: string | null
+  refreshTokenExpiresAt: string | Date | null
   reconnectRequired: boolean
+  reconnectReason: string | null
   createdAt: string | Date
 }
 
@@ -42,6 +44,7 @@ export async function listConnections(
         notifications_enabled as "notificationsEnabled",
         last_refresh_at as "lastRefreshAt",
         last_error_code as "lastErrorCode",
+        refresh_token_expires_at as "refreshTokenExpiresAt",
         exists (
           select 1
           from connection_task ct
@@ -49,6 +52,14 @@ export async function listConnections(
             and ct.task_type = 'reconnect'
             and ct.status = 'open'
         ) as "reconnectRequired",
+        (
+          select ct.reason_code
+          from connection_task ct
+          where ct.google_connection_id = google_connection.id
+            and ct.task_type = 'reconnect'
+            and ct.status = 'open'
+          limit 1
+        ) as "reconnectReason",
         created_at as "createdAt"
       from google_connection
       order by created_at desc
@@ -70,6 +81,9 @@ export async function listConnections(
     ...row,
     lastRefreshAt: row.lastRefreshAt
       ? new Date(row.lastRefreshAt as string | Date).toISOString()
+      : null,
+    refreshTokenExpiresAt: row.refreshTokenExpiresAt
+      ? new Date(row.refreshTokenExpiresAt as string | Date).toISOString()
       : null,
     createdAt: new Date(row.createdAt as string | Date).toISOString(),
   }))

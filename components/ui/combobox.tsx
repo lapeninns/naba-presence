@@ -3,7 +3,11 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
 
-import { fieldChromeClassName } from "@/components/ui/field"
+import {
+  fieldControlProps,
+  fieldChromeClassName,
+  useFieldContext,
+} from "@/components/ui/field"
 import { menuItemClassName, menuPopupClassName } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
@@ -22,6 +26,10 @@ function ComboboxInput({
   wrapperClassName,
   ...props
 }: ComboboxPrimitive.Input.Props & { wrapperClassName?: string }) {
+  // A real `<input>`, so the ordinary control wiring applies: a `FieldLabel`
+  // above it keeps its `htmlFor` and labels this directly. Caller props are
+  // spread last, so an explicit id or aria-label still wins.
+  const field = useFieldContext()
   return (
     <div
       data-slot="combobox-field"
@@ -31,15 +39,16 @@ function ComboboxInput({
         data-slot="combobox-input"
         className={cn(
           fieldChromeClassName,
-          "h-(--np-field-h) w-full pr-8 pl-3",
+          "h-(--np-field-h) w-full pr-8 pl-[11px]",
           className
         )}
+        {...fieldControlProps(field)}
         {...props}
       />
       <ComboboxPrimitive.Trigger
         data-slot="combobox-trigger"
         aria-label="Show options"
-        className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill-tertiary hover:text-ink data-disabled:pointer-events-none data-disabled:opacity-50"
+        className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:opacity-50"
       >
         <ChevronsUpDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
       </ComboboxPrimitive.Trigger>
@@ -85,7 +94,7 @@ function ComboboxItem({
       className={cn(menuItemClassName, className)}
       {...props}
     >
-      <ComboboxPrimitive.ItemIndicator className="absolute left-2 inline-flex items-center">
+      <ComboboxPrimitive.ItemIndicator className="absolute left-2.5 inline-flex items-center text-accent-ink">
         <CheckIcon className="size-4" strokeWidth={2} aria-hidden />
       </ComboboxPrimitive.ItemIndicator>
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -105,7 +114,7 @@ function ComboboxGroupLabel({
     <ComboboxPrimitive.GroupLabel
       data-slot="combobox-group-label"
       className={cn(
-        "px-2 py-1.5 text-caption font-medium text-ink-muted",
+        "px-2.5 pt-1.5 pb-0.5 text-[11.5px] font-medium text-ink-muted",
         className
       )}
       {...props}

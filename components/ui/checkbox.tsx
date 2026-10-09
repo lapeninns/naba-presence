@@ -2,25 +2,46 @@
 
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
 import { CheckIcon, MinusIcon } from "lucide-react"
+import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
 /**
- * A 16px box on the tag radius. Off: field background with the `line-strong`
- * edge. On: accent fill with a white check that springs in. The edge is a
- * real 1px border here rather than the half-pixel field hairline — at 16px a
- * half-pixel edge disappears on a non-retina display.
+ * Reference `.check`: an 18px box, 5px radius, a 1.5px `line-strong` edge on
+ * the surface; checked or indeterminate it fills with the accent solid and
+ * draws the mark in the on-accent ink.
+ *
+ * Optional `label` and `description` wrap the box in a native `<label>` so
+ * the words are the click target and the accessible name (reference
+ * `.check .desc`). Without them, name the box with `aria-label` as before.
  */
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
-  return (
+function Checkbox({
+  className,
+  label,
+  description,
+  labelClassName,
+  ...props
+}: CheckboxPrimitive.Root.Props & {
+  label?: React.ReactNode
+  description?: React.ReactNode
+  labelClassName?: string
+}) {
+  const id = React.useId()
+  const hasLabel = label !== undefined && label !== null
+  const box = (
     <CheckboxPrimitive.Root
       data-slot="checkbox"
+      // The root is a `span role="checkbox"`, which a wrapping <label> does
+      // not name; point it at the words explicitly.
+      aria-labelledby={hasLabel ? `${id}-label` : undefined}
+      aria-describedby={description ? `${id}-desc` : undefined}
       className={cn(
-        "flex size-4 shrink-0 items-center justify-center rounded-(--np-radius-tag) border border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
-        "transition-[background-color,border-color,transform] duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96]",
+        "relative flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
+        "transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy",
+        "after:absolute after:-inset-[3px] after:content-['']",
         "data-indeterminate:border-primary data-indeterminate:bg-primary data-checked:border-primary data-checked:bg-primary",
-        "data-disabled:pointer-events-none data-disabled:opacity-50",
-        "aria-invalid:border-(--np-danger-line)",
+        "data-disabled:cursor-not-allowed data-disabled:opacity-50",
+        "aria-invalid:border-danger-ink",
         className
       )}
       {...props}
@@ -32,12 +53,37 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
         )}
       >
         {props.indeterminate ? (
-          <MinusIcon className="size-3" strokeWidth={2.5} aria-hidden />
+          <MinusIcon className="size-3" strokeWidth={3} aria-hidden />
         ) : (
-          <CheckIcon className="size-3" strokeWidth={2.5} aria-hidden />
+          <CheckIcon className="size-3" strokeWidth={3} aria-hidden />
         )}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
+  )
+
+  if (!hasLabel) return box
+
+  return (
+    <label
+      data-slot="checkbox-label"
+      className={cn(
+        "flex min-h-6 cursor-pointer items-start gap-2.5 text-body text-ink has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60 [&>[data-slot=checkbox]]:mt-0.5",
+        labelClassName
+      )}
+    >
+      {box}
+      <span className="min-w-0">
+        <span id={`${id}-label`}>{label}</span>
+        {description ? (
+          <span
+            id={`${id}-desc`}
+            className="mt-0.5 block text-caption text-ink-muted"
+          >
+            {description}
+          </span>
+        ) : null}
+      </span>
+    </label>
   )
 }
 

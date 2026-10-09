@@ -1,143 +1,153 @@
 "use client"
 
-import { EllipsisIcon, ImageIcon } from "lucide-react"
+import { ChevronRightIcon, ImageIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Lifecycle, type LifecycleStage } from "@/components/ui/lifecycle"
 import { StatusPill } from "@/components/ui/status-pill"
-import type { StatusTone } from "@/lib/ui/status-tone"
+import type { PostTone } from "@/lib/locations/post-display"
 import { cn } from "@/lib/utils"
 
-export type PostCardMenuItem = {
-  label: string
-  onSelect: () => void
-  disabled?: boolean
-  /** Renders in the danger ink: "Delete post". */
-  destructive?: boolean
-}
-
 /**
- * One post in the list: a media thumbnail on the left, the title in the
- * headline weight, a status pill, the summary, then the row's actions. The
- * overflow menu is plain — an icon button that opens a Mac-style menu — and
- * is only drawn when there are items for it.
+ * One post in the list (reference `.card.post`): a thumbnail beside the
+ * text, the topic tag, headline and status pill on one line, the post text
+ * in full, a meta line, an optional problem, the row's actions, and the
+ * lifecycle behind a disclosure.
  *
- * Presentation only: the host list decides which status tone and which
- * actions a post gets, and passes them in.
+ * The thumbnail column drops above the text when the card's own width is
+ * under 520px, so the text never squeezes to a sliver on a phone.
+ *
+ * Presentation only: the list decides the status words, tone and actions.
  */
 export function PostCard({
+  id,
   title,
+  topic,
   summary,
   status,
   tone,
   meta,
   thumbnailUrl,
-  thumbnailAlt = "",
   lang,
+  problem,
   actions,
-  menuItems,
+  lifecycle,
   className,
 }: {
-  /** The headline: an event or offer title, or the topic ("Update"). */
+  /** Stable id, used to name the card by its heading. */
+  id: string
+  /** The headline: an event or offer title, or the start of the text. */
   title: string
+  /** "Event" or "Offer", drawn as a tag when the headline is a title. */
+  topic?: string
   summary: string
   /** The status word shown in the pill, e.g. "Draft". */
   status: string
-  tone: StatusTone
-  /** Small print beside the status: the topic, a date. */
+  tone: PostTone
+  /** Small print under the text: dates, button, last change. */
   meta?: React.ReactNode
   thumbnailUrl?: string | null
-  thumbnailAlt?: string
   lang?: string
-  /** The row's buttons (publish, approve, check). Rendered beneath the text. */
+  /** A failure or rejection to show in words beside the post. */
+  problem?: React.ReactNode
+  /** The row's buttons (publish, approve, check). */
   actions?: React.ReactNode
-  /** Secondary actions for the overflow menu. */
-  menuItems?: PostCardMenuItem[]
+  lifecycle?: LifecycleStage[]
   className?: string
 }) {
-  const hasMenu = Boolean(menuItems && menuItems.length > 0)
+  const headingId = `post-${id}-title`
   return (
     <article
       data-slot="post-card"
+      aria-labelledby={headingId}
       className={cn(
-        "flex gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)",
+        "@container/post rounded-lg border border-line bg-surface",
         className
       )}
     >
-      <div
-        aria-hidden={thumbnailUrl ? undefined : true}
-        className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-(--np-radius-tag) bg-fill text-ink-faint hairline"
-      >
-        {thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumbnailUrl}
-            alt={thumbnailAlt}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        ) : (
-          <ImageIcon className="size-6" strokeWidth={1.25} />
-        )}
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-1">
-            <h3 className="truncate text-body font-semibold text-ink">
-              {title}
-            </h3>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill tone={tone}>{status}</StatusPill>
-              {meta ? (
-                <span className="text-caption text-ink-muted">{meta}</span>
-              ) : null}
-            </div>
-          </div>
-          {hasMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`More actions for ${title}`}
-                  />
-                }
-              >
-                <EllipsisIcon aria-hidden strokeWidth={1.75} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {menuItems?.map((item) => (
-                  <DropdownMenuItem
-                    key={item.label}
-                    disabled={item.disabled}
-                    variant={item.destructive ? "destructive" : "default"}
-                    onClick={item.onSelect}
-                  >
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+      <div className="grid grid-cols-1 gap-4 p-4 @[520px]/post:grid-cols-[112px_minmax(0,1fr)]">
+        <div
+          aria-hidden
+          className={cn(
+            "aspect-video place-items-center overflow-hidden rounded-md bg-fill text-ink-muted @[520px]/post:grid @[520px]/post:aspect-[4/3]",
+            // Without an image a phone-width card skips the placeholder
+            // rather than spend a screenful of grey on it.
+            thumbnailUrl ? "grid" : "hidden"
+          )}
+        >
+          {thumbnailUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={thumbnailUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              loading="lazy"
+              className="size-full object-cover"
+            />
+          ) : (
+            <ImageIcon className="size-6" strokeWidth={1.5} />
+          )}
         </div>
 
-        <p
-          className="text-body whitespace-pre-wrap text-ink"
-          lang={lang}
-          dir="auto"
-        >
-          {summary || "—"}
-        </p>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {topic ? (
+              <span className="inline-flex h-[22px] items-center rounded-sm border border-line px-1.5 text-caption font-medium text-ink-secondary">
+                {topic}
+              </span>
+            ) : null}
+            <h3
+              id={headingId}
+              className="min-w-0 text-title font-semibold break-words text-ink"
+            >
+              {title}
+            </h3>
+            <StatusPill tone={tone === "neutral" ? "outline" : tone}>
+              {status}
+            </StatusPill>
+          </div>
 
-        {actions ? <div className="pt-1">{actions}</div> : null}
+          <p
+            className="text-ui break-words whitespace-pre-wrap text-ink-secondary"
+            lang={lang}
+            dir="auto"
+          >
+            {summary || "—"}
+          </p>
+
+          {meta ? (
+            <p className="font-mono text-caption break-words text-ink-muted tabular-nums">
+              {meta}
+            </p>
+          ) : null}
+
+          {problem ? (
+            <div
+              role="note"
+              className="rounded-md border border-line bg-danger-tint px-3 py-2 text-ui text-ink"
+            >
+              {problem}
+            </div>
+          ) : null}
+
+          {actions ? <div className="mt-1">{actions}</div> : null}
+
+          {lifecycle && lifecycle.length > 0 ? (
+            <details className="group/lc mt-1">
+              <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo pointer-coarse:min-h-(--np-touch) [&::-webkit-details-marker]:hidden">
+                <ChevronRightIcon
+                  aria-hidden
+                  className="size-3.5 transition-transform group-open/lc:rotate-90 motion-reduce:transition-none"
+                />
+                Lifecycle
+              </summary>
+              <Lifecycle
+                className="mt-2"
+                aria-label="Post lifecycle"
+                stages={lifecycle}
+              />
+            </details>
+          ) : null}
+        </div>
       </div>
     </article>
   )

@@ -7,10 +7,9 @@ import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { AuthLink } from "@/components/auth/auth-link"
 import { InvitationActions } from "@/components/auth/invitation-actions"
-import { SignInForm } from "@/components/auth/sign-in-form"
+import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
@@ -26,12 +25,9 @@ function GoToSignInLink() {
 /**
  * Who is inviting whom: the organisation and the address the invitation
  * was sent to, plus the account the visitor is currently signed in with
- * when there is one. A grouped list because these are facts to read, not
- * fields to fill. Only what the lookup actually returns is shown — the
- * response carries no inviter name, so none is invented.
- *
- * The list sits on the white card, so it takes the hairline edge that a
- * white surface on another white surface needs to be seen.
+ * when there is one. Facts to read, not fields to fill, so a bordered card
+ * of rows. Only what the lookup actually returns is shown: the response
+ * carries no inviter name, so none is invented.
  */
 function InvitationDetails({
   organisationName,
@@ -42,31 +38,52 @@ function InvitationDetails({
   email: string
   viewerEmail?: string
 }) {
+  const rows = [
+    { icon: Building2, label: "Organisation", value: organisationName },
+    { icon: Mail, label: "Sent to", value: email },
+    ...(viewerEmail
+      ? [{ icon: UserRound, label: "Signed in as", value: viewerEmail }]
+      : []),
+  ]
   return (
-    <GroupedList header="Invitation details" className="[&>ul]:hairline">
-      <GroupedListItem
-        icon={<Building2 />}
-        label={organisationName}
-        description="Organisation"
-      />
-      <GroupedListItem icon={<Mail />} label={email} description="Sent to" />
-      {viewerEmail ? (
-        <GroupedListItem
-          icon={<UserRound />}
-          label={viewerEmail}
-          description="Signed in as"
-        />
-      ) : null}
-    </GroupedList>
+    <section aria-label="Invitation details">
+      <ul className="flex flex-col rounded-lg border border-line bg-surface">
+        {rows.map((row) => (
+          <li
+            key={row.label}
+            className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 border-t border-line px-3.5 py-3 first:border-t-0"
+          >
+            <span
+              aria-hidden
+              className="grid size-8 place-items-center rounded-md bg-surface-alt text-ink-secondary"
+            >
+              <row.icon className="size-4" strokeWidth={1.75} />
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="text-caption text-ink-muted">{row.label}</span>
+              <span className="text-ui font-semibold [overflow-wrap:anywhere] text-ink">
+                {row.value}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
 function InvitationView({
   token,
   viewer,
+  initialMode = "create-account",
 }: {
   token: string
   viewer: { displayName: string; email: string } | null
+  /**
+   * `sign-in` after a visitor signed out of a different account to get
+   * here: the invited address usually has an account of its own.
+   */
+  initialMode?: SignInMode
 }) {
   // retry: false - the shared query client defaults to retry: 1, which would
   // double the wait before every error branch below renders (and briefly
@@ -79,17 +96,18 @@ function InvitationView({
 
   if (query.isPending) {
     return (
-      <AuthCard eyebrow="Invitation" title="Checking your invitation">
+      <AuthCard
+        aside="invite"
+        eyebrow="Invitation"
+        title="Checking your invitation"
+      >
         {/* The skeleton takes the shape of what arrives: the details list,
             then the form's two fields and its button. */}
         <div aria-busy="true" className="flex flex-col gap-5">
-          <div className="flex flex-col gap-1.5">
-            <Skeleton className="mx-(--np-card-pad) h-4 w-28" />
-            <Skeleton className="h-22 w-full rounded-(--np-radius-card)" />
-          </div>
-          <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-field)" />
-          <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-field)" />
-          <Skeleton className="h-9 w-full rounded-(--np-radius-pill)" />
+          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-(--np-field-h) w-full rounded-md" />
+          <Skeleton className="h-(--np-field-h) w-full rounded-md" />
+          <Skeleton className="h-11 w-full rounded-md" />
         </div>
       </AuthCard>
     )
@@ -103,7 +121,7 @@ function InvitationView({
       query.error instanceof ApiClientError &&
       query.error.code === "invitation_not_found"
     return (
-      <AuthCard title="Accept invitation">
+      <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
         <AuthErrorAlert message={authErrorMessage(query.error)} />
         {notFound ? (
           <GoToSignInLink />
@@ -111,8 +129,7 @@ function InvitationView({
           <Button
             type="button"
             size="lg"
-            pill
-            className="w-full"
+            className="h-11 w-full"
             onClick={() => query.refetch()}
           >
             Try again
@@ -126,7 +143,11 @@ function InvitationView({
 
   if (data.accepted) {
     return (
-      <AuthCard title={`Join ${data.organisationName}`}>
+      <AuthCard
+        aside="invite"
+        eyebrow="Invitation"
+        title={`Join ${data.organisationName}`}
+      >
         <Alert variant="info">
           <AlertTitle>You have already accepted this invitation.</AlertTitle>
         </Alert>
@@ -137,7 +158,11 @@ function InvitationView({
 
   if (data.expired) {
     return (
-      <AuthCard title={`Join ${data.organisationName}`}>
+      <AuthCard
+        aside="invite"
+        eyebrow="Invitation"
+        title={`Join ${data.organisationName}`}
+      >
         <AuthErrorAlert message={confirmStatusMessage("invitation_expired")} />
         <GoToSignInLink />
       </AuthCard>
@@ -147,16 +172,21 @@ function InvitationView({
   if (viewer === null) {
     return (
       <AuthCard
+        aside="invite"
         eyebrow="Invitation"
         title={`Join ${data.organisationName}`}
-        description="Set a password and you will be able to work on the clients this agency has given you."
+        description={
+          initialMode === "sign-in"
+            ? `Sign in with the invited address and you will be able to work on what ${data.organisationName} has given you access to.`
+            : `Set a password and you will be able to work on what ${data.organisationName} has given you access to.`
+        }
       >
         <InvitationDetails
           organisationName={data.organisationName}
           email={data.email}
         />
         <SignInForm
-          initialMode="create-account"
+          initialMode={initialMode}
           inviteToken={token}
           invitedEmail={data.email}
         />
@@ -168,7 +198,11 @@ function InvitationView({
     <AuthCard
       eyebrow="Invitation"
       title={`Join ${data.organisationName}`}
-      description="Accepting adds this agency to the account you are already signed in with."
+      description={
+        viewer.email.trim().toLowerCase() === data.email.trim().toLowerCase()
+          ? `Accepting adds ${data.organisationName} to the account you are already signed in with.`
+          : "This invitation belongs to a different account."
+      }
     >
       <InvitationDetails
         organisationName={data.organisationName}

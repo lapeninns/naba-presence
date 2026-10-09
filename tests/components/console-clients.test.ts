@@ -87,22 +87,26 @@ describe("fetchIndustry / publishIndustry", () => {
   it("parses each sub-resource {data,error} envelope", async () => {
     const available = (data: unknown) => ({ data, error: null })
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ industry: {
-      lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({}), calls: available({ callsState: "ENABLED" }),
-      callInsights: available({}), healthcareServices: available({}), providerAttributes: available({}), insuranceNetworks: available({}),
+      lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({}),
+      healthcareServices: available({ services: [] }),
+      // Sections of retired Google APIs from an older server are dropped.
+      calls: available({ callsState: "ENABLED" }), providerAttributes: available({}),
       canManage: true, writesEnabled: true,
     } })))
     const state = await fetchIndustry("loc-1")
-    expect((state.calls.data as { callsState: string }).callsState).toBe("ENABLED")
-    expect(state.calls.error).toBeNull()
+    expect((state.lodging.data as { policies: { checkinTime: string } }).policies.checkinTime).toBe("15:00")
+    expect(state.healthcareServices.error).toBeNull()
+    expect(state).not.toHaveProperty("calls")
+    expect(state).not.toHaveProperty("providerAttributes")
     expect(state.canManage).toBe(true)
   })
   it("publishIndustry sends the industry confirmation literal and mask", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ id: "m2", status: "succeeded", idempotent: false }))
     vi.stubGlobal("fetch", fetchMock)
-    await publishIndustry("loc-1", { operation: "update_business_calls", updateMask: ["callsState"], payload: { callsState: "DISABLED" } })
+    await publishIndustry("loc-1", { operation: "update_healthcare_services", updateMask: ["services"], payload: { services: [] } })
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
     expect(body.confirmation).toBe("publish_industry_data_to_google")
-    expect(body.updateMask).toEqual(["callsState"])
+    expect(body.updateMask).toEqual(["services"])
   })
 })
 

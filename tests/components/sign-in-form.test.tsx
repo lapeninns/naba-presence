@@ -24,14 +24,14 @@ afterEach(() => {
 })
 
 describe("sign-in mode", () => {
-  it("submits credentials and lands on /home", async () => {
+  it("submits credentials and lands on /inbox", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "signIn").mockResolvedValue(undefined)
     render(<SignInForm />)
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/home"))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/inbox"))
     expect(authApi.signIn).toHaveBeenCalledWith({
       email: "a@example.test",
       password: "correct-horse-9",
@@ -292,5 +292,26 @@ describe("mode toggle", () => {
     ).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByLabelText("Email address")).toHaveValue("not-an-email")
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
+  })
+
+  it("carries the typed email to Forgot password without the URL", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "sam@example.test")
+    const link = screen.getByRole("link", { name: "Forgot password?" })
+    expect(link).toHaveAttribute("href", "/forgot-password")
+    link.addEventListener("click", (event) => event.preventDefault())
+    await user.click(link)
+    expect(window.sessionStorage.getItem("naba:reset-email")).toBe(
+      "sam@example.test"
+    )
+  })
+
+  it("folds the resend-confirmation help behind a disclosure", () => {
+    const { container } = render(<SignInForm />)
+    const details = container.querySelector("details")
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute("open")
+    expect(details).toHaveTextContent("Didn't receive a confirmation email?")
   })
 })

@@ -20,7 +20,7 @@ export default async function SignInPage({
   const params = await searchParams
   const nextPath = sanitiseNextPath(params.next)
   const session = await getSession()
-  if (session) redirect(nextPath ?? "/home")
+  if (session) redirect(nextPath ?? "/inbox")
   return (
     <SignInPanel
       initialMode={

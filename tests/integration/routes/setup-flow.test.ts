@@ -175,4 +175,54 @@ describeDatabase("client setup flow", () => {
     `
     expect(row?.clientId).toBe(owner.clientId)
   })
+
+  it("files an already-connected login under the client without a Google round trip", async () => {
+    const owner = await fixture()
+    const active = randomUUID()
+    const expired = randomUUID()
+    await admin`
+      insert into google_connection (id, organisation_id, google_subject, google_email, status, scope)
+      values
+        (${active}, ${owner.organisationId}, ${`subject-${active}`}, 'shared@example.test',
+          'active', 'https://www.googleapis.com/auth/business.manage'),
+        (${expired}, ${owner.organisationId}, ${`subject-${expired}`}, 'old@example.test',
+          'expired', 'https://www.googleapis.com/auth/business.manage')
+    `
+    const stranger = await createTestTenant(admin)
+    organisations.push(stranger.organisationId)
+    const foreign = randomUUID()
+    await admin`
+      insert into google_connection (id, organisation_id, google_subject, status, scope)
+      values (${foreign}, ${stranger.organisationId}, ${`subject-${foreign}`}, 'active',
+        'https://www.googleapis.com/auth/business.manage')
+    `
+    const attach = (connectionId: string) =>
+      request(`/api/clients/${owner.clientId}/connections`, owner.cookie, {
+        method: "POST",
+        body: JSON.stringify({ connectionId }),
+      })
+
+    // Another organisation's login is invisible, not merely refused.
+    expect((await attach(foreign)).status).toBe(404)
+    // A lapsed login would fail account discovery on the very next step.
+    const lapsed = await attach(expired)
+    expect(lapsed.status).toBe(409)
+    expect(await lapsed.json()).toMatchObject({ error: "google_reconnect_required" })
+
+    const used = await attach(active)
+    expect(used.status, await used.clone().text()).toBe(200)
+    const body = (await used.json()) as {
+      setup: { nextStep: string; connection: { id: string } | null }
+    }
+    expect(body.setup.connection?.id).toBe(active)
+    expect(body.setup.nextStep).toBe("account")
+    // Picking it twice is harmless.
+    expect((await attach(active)).status).toBe(200)
+
+    const summary = await request(`/api/clients/${owner.clientId}`, owner.cookie)
+    const client = (await summary.json()) as {
+      client: { connections: { id: string }[] }
+    }
+    expect(client.client.connections.map((connection) => connection.id)).toEqual([active])
+  })
 })

@@ -27,7 +27,14 @@ export const connectStartBodySchema = z.object({
    * an open redirect if it is not.
    */
   returnTo: z.string().max(200).optional(),
+  /**
+   * The connection being reconnected. The server looks up its Google email
+   * and sends it to Google as `login_hint`, so the consent screen opens on
+   * the right account instead of whichever one the browser last used.
+   */
+  reconnectConnectionId: z.uuid().optional(),
 })
+export type ConnectStartBody = z.infer<typeof connectStartBodySchema>
 
 /** POST `/api/google/connections/[id]/disconnect` params. */
 export const disconnectParamsSchema = z.object({ id: z.string() })
@@ -44,7 +51,15 @@ export const connectionSummarySchema = z.object({
   notificationsEnabled: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastErrorCode: z.string().nullable(),
+  /**
+   * When Google said the refresh token itself stops working. Set only for
+   * apps still in Google's "Testing" publishing status (seven days); null
+   * once the OAuth app is in production.
+   */
+  refreshTokenExpiresAt: z.string().nullable().optional(),
   reconnectRequired: z.boolean(),
+  /** Why the open reconnect task was raised, e.g. "superseded_by_reconnect". */
+  reconnectReason: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 export type ConnectionSummary = z.infer<typeof connectionSummarySchema>
@@ -56,9 +71,18 @@ export const connectionsResponseSchema = z.object({
 export type ConnectionsResponse = z.infer<typeof connectionsResponseSchema>
 
 /** POST `/api/google/connect/start` response. */
-export const connectStartResponseSchema = z.object({ authorizationUrl: z.string() })
+export const connectStartResponseSchema = z.object({
+  authorizationUrl: z.string(),
+})
 export type ConnectStartResponse = z.infer<typeof connectStartResponseSchema>
 
 /** POST `/api/google/connections/[id]/disconnect` response. */
-export const disconnectResponseSchema = z.object({ status: z.literal("disconnected") })
+export const disconnectResponseSchema = z.object({
+  status: z.literal("disconnected"),
+  // Whether Google confirmed the revoke. "failed" is never presented as
+  // revoked: the grant may still be listed in the Google account.
+  googleRevocation: z
+    .enum(["revoked", "failed", "not_attempted", "shared"])
+    .optional(),
+})
 export type DisconnectResponse = z.infer<typeof disconnectResponseSchema>

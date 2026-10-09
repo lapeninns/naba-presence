@@ -9,6 +9,9 @@ import { z } from "zod"
 
 import { memberRoleSchema } from "./members"
 
+export const workspaceModeSchema = z.enum(["business", "agency"])
+export type WorkspaceMode = z.infer<typeof workspaceModeSchema>
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -30,6 +33,8 @@ export const sessionSchema = z.object({
   email: z.string(),
   role: memberRoleSchema,
   canPublish: z.boolean(),
+  /** `business` hides the client layer; `agency` shows it. */
+  workspaceMode: workspaceModeSchema,
   /**
    * Set only inside a support impersonation session (POST
    * /api/support/impersonation). Every other field describes the customer
@@ -60,3 +65,27 @@ export const organisationsResponseSchema = z.object({
   items: z.array(organisationSummarySchema),
 })
 export type OrganisationsResponse = z.infer<typeof organisationsResponseSchema>
+
+/** The longest agency name the rename form and route accept. */
+export const ORGANISATION_NAME_MAX = 120
+
+/** PATCH `/api/organisations` body: rename the session's organisation. */
+export const organisationRenameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter your agency’s name.")
+    .max(
+      ORGANISATION_NAME_MAX,
+      `Keep the name to ${ORGANISATION_NAME_MAX} characters or fewer.`
+    ),
+})
+export type OrganisationRenameInput = z.input<typeof organisationRenameSchema>
+
+/** PATCH `/api/organisations` response. */
+export const organisationRenamedResponseSchema = z.object({
+  organisation: z.object({ organisationId: z.string(), name: z.string() }),
+})
+export type OrganisationRenamedResponse = z.infer<
+  typeof organisationRenamedResponseSchema
+>

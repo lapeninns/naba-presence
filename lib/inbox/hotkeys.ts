@@ -9,6 +9,8 @@ export type InboxAction =
   | "next"
   | "previous"
   | "reply"
+  | "generate"
+  | "search"
   | "approve"
   | "assign"
   | "toggle-selection"
@@ -25,18 +27,29 @@ export type KeyLike = {
   altKey?: boolean
 }
 
-export const SHORTCUTS: { keys: string; action: InboxAction; label: string }[] = [
-  { keys: "j", action: "next", label: "Next review" },
-  { keys: "k", action: "previous", label: "Previous review" },
-  { keys: "r", action: "reply", label: "Write a reply" },
-  { keys: "a", action: "approve", label: "Approve and publish" },
-  { keys: "e", action: "assign", label: "Assign to a colleague" },
-  { keys: "x", action: "toggle-selection", label: "Select this review" },
-  { keys: "Shift X", action: "extend-selection", label: "Select through here" },
-  { keys: "Esc", action: "clear-selection", label: "Clear the selection" },
-  { keys: "?", action: "shortcuts", label: "Show these shortcuts" },
-  { keys: "⌘K", action: "command", label: "Search everything" },
-]
+export const SHORTCUTS: { keys: string; action: InboxAction; label: string }[] =
+  [
+    { keys: "j", action: "next", label: "Next review" },
+    { keys: "k", action: "previous", label: "Previous review" },
+    { keys: "r", action: "reply", label: "Write a reply" },
+    { keys: "g", action: "generate", label: "Generate a first draft" },
+    { keys: "/", action: "search", label: "Search reviews" },
+    {
+      keys: "a",
+      action: "approve",
+      label: "Press the publish bar's main button",
+    },
+    { keys: "e", action: "assign", label: "Assign to a colleague" },
+    { keys: "x", action: "toggle-selection", label: "Select this review" },
+    {
+      keys: "Shift X",
+      action: "extend-selection",
+      label: "Select through here",
+    },
+    { keys: "Esc", action: "clear-selection", label: "Clear the selection" },
+    { keys: "?", action: "shortcuts", label: "Show these shortcuts" },
+    { keys: "⌘K", action: "command", label: "Search everything" },
+  ]
 
 /**
  * True when the event target is somewhere a letter should be typed, not
@@ -86,6 +99,10 @@ export function resolveAction(
       return "previous"
     case "r":
       return "reply"
+    case "g":
+      return "generate"
+    case "/":
+      return "search"
     case "a":
       return "approve"
     case "e":

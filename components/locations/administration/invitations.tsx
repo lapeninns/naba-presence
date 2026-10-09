@@ -1,9 +1,9 @@
 "use client"
 
-import { PlusIcon } from "lucide-react"
+import { UserPlusIcon } from "lucide-react"
 import { useId, useState } from "react"
 
-import { Badge } from "@/components/ui/badge"
+import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -44,7 +44,16 @@ import { useAdministrationSection } from "./context"
 export function InvitationsList({ data }: { data: unknown }) {
   const invitations = asArray(asRecord(data).invitations)
   if (invitations.length === 0) {
-    return <p className="text-caption text-ink-muted">No pending invitations.</p>
+    return (
+      <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
+        No pending invitations.
+        <span>
+          {" "}
+          Invitations for this Google account appear here until they’re
+          accepted or declined.
+        </span>
+      </p>
+    )
   }
   return (
     <GroupedList aria-label="Pending invitations">
@@ -85,7 +94,7 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
       description="Waiting for a reply on Google"
       trailing={
         <>
-          <Badge variant="info">Invited</Badge>
+          <StatusPill tone="pending">Invited</StatusPill>
           <Button
             size="sm"
             variant="secondary"
@@ -158,15 +167,16 @@ export function CreateAdminDialog() {
         if (!next) setEmail("")
       }}
     >
-      <DialogTrigger render={<Button pill disabled={disabled} />}>
-        <PlusIcon aria-hidden data-icon="inline-start" />
+      <DialogTrigger render={<Button disabled={disabled} />}>
+        <UserPlusIcon aria-hidden data-icon="inline-start" />
         Add administrator
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add an administrator</DialogTitle>
           <DialogDescription>
-            Invite someone to help manage this business on Google.
+            Google emails them an invitation. They get access once they
+            accept it on Google.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">

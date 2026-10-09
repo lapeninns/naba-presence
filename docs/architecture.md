@@ -40,7 +40,7 @@ They contain no customer content; every follow-on operation immediately enters
 ## Request skeleton: `route()`
 
 Every handler under `app/api/**/route.ts` is built by `route({...})` from
-`lib/server/route.ts` (70 of 71 route files; the last,
+`lib/server/route.ts` (77 of 78 route files; the last,
 `app/api/auth/callback/google/route.ts`, re-exports another handler). The
 wrapper owns, in order: the request id, generated once with
 `serverRequestId`, exposed as `ctx.requestId`, echoed as the `x-request-id`
@@ -107,6 +107,55 @@ through a content-free location map, and reconciled against Google before
 becoming inbox data. Failed event metadata is retained for at most 30 days and
 can be replayed by an authorised operator.
 
+### Connection service
+
+`lib/server/google/connections.ts` is the only code that changes a Google
+connection's credentials or lifecycle state; routes call its operations
+(`getAccessToken`, `completeAuthorisation`, `recordCredentialRejection`,
+`disconnect`, `setNotificationSettings`) and never write `google_connection`
+or its reconnect tasks themselves. `connection-failures.ts` holds the state
+transitions it and the transport share.
+
+Two invariants hold in SQL rather than by lock ordering:
+
+1. **Disconnect is authoritative.** Every write after a Google round trip is
+   conditional on `status <> 'disconnected'`, so a refresh or rejection that
+   lands after a disconnect cannot restore tokens, reactivate the row or open
+   a reconnect task.
+2. **A result belongs to its credential.** `credential_generation` is bumped
+   by every consent and every disconnect; refresh results, refresh
+   rejections and API 401s carry the generation they were issued under and
+   are dropped if it has moved. A request that loses that race retries once
+   with the new token.
+
+Refreshes are single-flight per connection across servers (a session advisory
+lock on a reserved connection, re-reading the row after taking it). Consent
+requires `business.manage` in the returned `scope` (a missing field counts as
+not granted) and a refresh token new or stored. Reconnect never revokes the
+token it replaces — Google revokes the whole grant for the project, including
+the new token — and only a deliberate disconnect calls `/revoke`, recording
+the outcome on the row.
+
+Failure classification: `invalid_grant`/scope loss → needs reconnect; 5xx,
+timeouts, rate limits, `invalid_client` → Degraded (retried, no reconnect);
+403 PERMISSION_DENIED or 404 for one location → that listing's
+`access_state = 'access_lost'`, connection untouched; 403 with a project
+reason (API disabled) → operator fault, logged. RISC events
+(`/api/webhooks/google/risc`) route through the same rejection path.
+
+Every Business Profile request draws from a Postgres budget shared by all
+instances (`lib/server/google/rate-budget.ts`, 0049) before the per-process
+pacer; see `docs/runbook.md`.
+
+Token ciphertext carries a key id (format 0x02) once `TOKEN_ENCRYPTION_KEYS`
+is set, and any configured key decrypts, so the encryption key can be rotated
+with `POST /api/operations/reencrypt` and no reconnects. OAuth state is signed
+with `OAUTH_STATE_SECRET`, not `NEXTAUTH_SECRET`, once that is set.
+
+Platform sign-in and the Google grant are separate lifetimes: sessions slide
+to 14 idle days and end 90 days after sign-in, "sign out everywhere" ends
+them all, and none of it touches a connection or background sync.
+
 ## Standalone canonical resources and Google publication
 
 NabaPresence is the sole owner of canonical profile, Hours, and Food Menus
@@ -148,19 +197,19 @@ surfaces are read-only and answer to their own flag alone
 and keeps its own error code, so a paused surface is distinguishable in logs
 and in the UI:
 
-| Flag | Surface (`env.ts` key) | Modules | Error when off |
-|---|---|---|---|
-| `GBP_PROFILE_WRITES_ENABLED` | `profileWrites` | `hours.ts` | 409 `hours_publishing_disabled` |
-| | | `profile.ts` | 409 `profile_publishing_disabled` |
-| | | `business-information.ts` | 503 `business_information_paused` |
-| | | `industry-management.ts`, `location-administration.ts` | 503 `google_writes_paused` |
-| `GBP_POSTS_ENABLED` | `posts` | `posts.ts` | 503 `publishing_paused` |
-| `GBP_MEDIA_ENABLED` | `media` | `media.ts` | 503 `media_paused` |
-| `GBP_PLACE_ACTIONS_ENABLED` | `placeActions` | `place-actions.ts` | 503 `place_actions_paused` |
-| `GBP_FOOD_MENUS_ENABLED` | `foodMenus` | `food-menus.ts` | 503 `food_menus_paused` |
-| `GBP_PERFORMANCE_ENABLED` | `performance` (ingestion) | `performance.ts` | 503 `sync_paused` |
-| `GBP_KEYWORDS_ENABLED` | `keywords` (ingestion) | `keywords.ts` | 503 `sync_paused` |
-| `IMPORT_REVIEW_ENABLED` | — | `import-review.ts` | 503 `import_review_paused` |
+| Flag                         | Surface (`env.ts` key)    | Modules                                                | Error when off                    |
+| ---------------------------- | ------------------------- | ------------------------------------------------------ | --------------------------------- |
+| `GBP_PROFILE_WRITES_ENABLED` | `profileWrites`           | `hours.ts`                                             | 409 `hours_publishing_disabled`   |
+|                              |                           | `profile.ts`                                           | 409 `profile_publishing_disabled` |
+|                              |                           | `business-information.ts`                              | 503 `business_information_paused` |
+|                              |                           | `industry-management.ts`, `location-administration.ts` | 503 `google_writes_paused`        |
+| `GBP_POSTS_ENABLED`          | `posts`                   | `posts.ts`                                             | 503 `publishing_paused`           |
+| `GBP_MEDIA_ENABLED`          | `media`                   | `media.ts`                                             | 503 `media_paused`                |
+| `GBP_PLACE_ACTIONS_ENABLED`  | `placeActions`            | `place-actions.ts`                                     | 503 `place_actions_paused`        |
+| `GBP_FOOD_MENUS_ENABLED`     | `foodMenus`               | `food-menus.ts`                                        | 503 `food_menus_paused`           |
+| `GBP_PERFORMANCE_ENABLED`    | `performance` (ingestion) | `performance.ts`                                       | 503 `sync_paused`                 |
+| `GBP_KEYWORDS_ENABLED`       | `keywords` (ingestion)    | `keywords.ts`                                          | 503 `sync_paused`                 |
+| `IMPORT_REVIEW_ENABLED`      | —                         | `import-review.ts`                                     | 503 `import_review_paused`        |
 
 Review reply publishing answers to `PUBLISH_ENABLED` alone (`publishing_paused`)
 and drafting to `DRAFTS_ENABLED` (`drafts_paused`). `lib/server/capabilities.ts`
@@ -192,21 +241,12 @@ vocabulary onto whatever each table's CHECK constraint allows, and posts
 implements the interface by hand because every transition also flips
 `gbp_local_post.status`.
 
-The ambiguous-versus-failed policy is explicit. A `validateOnly` failure
-cannot have written anything and is always `failed`. A
-`GoogleMutationAmbiguousError` from `mutate` settles `ambiguous` under
-`onAmbiguous: "fail"` (profile, media, place actions, posts) or continues to
-the readback under `onAmbiguous: "readback"` (hours, food menus): a readback
-that matches proves the write applied, a mismatch settles `failed` with the
-module's mismatch code (502 by default), and only a readback that itself
-fails leaves the row `ambiguous`. `onExisting: "resume"` (hours, profile, food
-menus and the post publish) returns a succeeded row as idempotent and re-arms a
-terminal failure. It answers an in-flight row with the module's 409 only inside
-a two-minute grace window; past that the row is treated as abandoned by a
-request that died, and is recovered by reading Google back and settled
-`succeeded` or `ambiguous` before this request proceeds. Without that window an
-interrupted write left the row `publishing` for its whole retention and every
-later attempt on the same key 409'd forever.
+`onExisting` decides what an existing row for the key means.
+`onExisting: "resume"` (hours, profile, food menus and the post publish)
+returns a succeeded row as idempotent and re-arms a terminal failure; an
+in-flight row gets the module's 409 or is recovered, and a provider failure is
+settled `failed` or `ambiguous`, both under the policy in "Ambiguous, failed,
+and interrupted writes" below.
 
 `"replay"` (media, place actions, the post delete, management) treats any
 existing row for the key as idempotent. Those keys embed `ctx.requestId`, which
@@ -216,6 +256,85 @@ Google write. Closing that needs an intent token minted by the client — one pe
 Publish/Upload/Add-link press, resent unchanged on retry — carried on the
 request and keyed on instead of the request id. Until then these surfaces are
 idempotent within a request and at-least-once across one.
+
+## Ambiguous, failed, and interrupted writes
+
+`ambiguous` means the provider state is not known to match the intent and
+might; `failed` means it is known not to. `classifyFailure` in
+`lib/server/gbp-write.ts` is the single implementation of that judgement, and
+is exported so the surfaces that still run their own phase machine
+(`lib/server/business-information.ts`) classify identically. An "ambiguous"
+error below is a `GoogleMutationAmbiguousError`, the one thing
+`isAmbiguousProviderError` recognises:
+
+| Phase                    | Error                                      | Settled as  | Raised                  |
+| ------------------------ | ------------------------------------------ | ----------- | ----------------------- |
+| `validate`               | anything                                   | `failed`    | the error               |
+| `mutate`                 | ambiguous, under `onAmbiguous: "fail"`     | `ambiguous` | the error               |
+| `mutate`                 | ambiguous, under `onAmbiguous: "readback"` | —           | continues to `readback` |
+| `mutate`                 | anything else                              | `failed`    | the error               |
+| `readback.read`          | anything                                   | `ambiguous` | the error               |
+| `readback.verify`        | returned `false`                           | `failed`    | 502 mismatch            |
+| `readback.verify`/`hash` | ambiguous                                  | `ambiguous` | the error               |
+| `readback.verify`/`hash` | anything else                              | `failed`    | the error               |
+
+A `validateOnly` failure cannot have written anything, so it is always
+`failed`. A readback that completes makes the provider state known: a match
+proves the write applied, even after an ambiguous PATCH, and a mismatch proves
+the intent was not achieved, so both are safe to retry from a fresh snapshot.
+Only a readback that itself fails leaves the state unknown. The provider error
+code recorded on the row is `ApiError.code`, else an object's string `code`,
+else the module's `failureCode`. The two `onAmbiguous` modes exist because the
+migrated modules kept their previous behaviour; the intended convergence is
+`"readback"` wherever a readback exists, because ambiguous writes are read
+before any retry.
+
+An interrupted request strands a row rather than failing it. The intent is
+committed in its own transaction and every later phase runs outside it, so a
+request that dies in between — a function timeout, an instance recycled
+mid-deploy, a settle transaction that does not commit — leaves the row in
+flight with nothing in the module to move it. No GBP attempt table carries a
+lease, and `reclaim_expired_jobs`
+(`supabase/migrations/0029_job_runner_leases.sql`) reaps only the job runner's
+own `processed_webhook_event`, `sync_checkpoint` and `publish_attempt`. An
+unchanged snapshot re-derives the same key, so without recovery that publish
+would 409 until `expires_at` deleted the row: 365 days for hours and profile,
+180 for food menus.
+
+A `"resume"` surface therefore 409s an in-flight row only inside a two-minute
+grace window (`IN_FLIGHT_GRACE_MS`, the same window
+`lib/server/publishing/recover.ts` applies to reply publishes, and comfortably
+past the `maxDuration = 60` those routes declare). Past it the row is treated
+as interrupted and settled from what the provider actually holds:
+
+- `readback.read` throws — the state is still unknown, so the row settles
+  `ambiguous` and the error is raised.
+- `readback.verify` is true — the row settles `succeeded`, with `onSuccess`
+  and the audit entry, and the request returns `idempotent` without writing to
+  the provider.
+- `readback.verify` is false or throws — the intent is demonstrably not live,
+  so the row settles `failed` and the request re-arms it and publishes.
+
+That is safe because the key pins the intent: two requests share a key only
+when they intend the same write (canonical revision, snapshot hashes, payload
+hash), so `verify` compares the provider against exactly the intent the
+stranded row carries. A row with no recorded start time, and a surface with no
+`readback`, keep the plain 409 — there is nothing to compare against.
+
+Recovery needs a request to arrive, so it only ever reaches a row somebody
+comes back to under the same key, and the usual repair — edit the canonical
+resource and publish again — mints a different one. The retention cron
+(`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any
+in-flight status for twenty-four hours (measured from `started_at`, or from
+`created_at` on the two tables that lack it) is settled `ambiguous` with
+`attempt_interrupted`, a settled status, so the next request for that key
+re-arms it instead of 409ing on it. The halves are not interchangeable — the
+reaper holds no provider credentials and cannot read anything back, and the
+readback path never runs at all for a tenant nobody opens.
+
+The reply pipeline in `lib/server/publishing/*` deliberately does not use
+`runGbpWrite`; "Three-phase reply mutation and recovery" states what it keeps
+instead and why.
 
 ## Three-phase reply mutation and recovery
 
@@ -320,11 +439,17 @@ every claim window and the backlog gauge without a single predicate changing.
 The metric checkpoints retire the same way through `dead_lettered_at`, and both
 are re-armed only by an explicit operator act (a fresh backfill; a relink).
 
-`lib/server/jobs.ts` drains retryable webhook events, checkpoints, and publish
-attempts across the content-free `organisation_job_route`, immediately
-re-entering `withTenant` for customer data. `scripts/scheduler.mjs` runs seven
-ticks — reconciliation, retention, the provider-deletion sweep,
-presence-resource reconciliation, the performance and keyword ingests, and jobs.
+`lib/server/jobs.ts` drains retryable webhook events, checkpoints, publish
+attempts and the recurring reconcile, performance and keyword checkpoints
+(0048) across the content-free `organisation_job_route`, immediately
+re-entering `withTenant` for customer data. Those three recurring syncs are a
+queue: their cron only arms a checkpoint for every linked location
+(`ensure_recurring_checkpoints`), the runner claims what is due under its
+per-organisation cap, and success books the next run on the kind's grid from
+the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
+last_succeeded_at` moves only on success and is what every freshness signal
+reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
+runs the older seven for local and non-Vercel deployments.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and stamps that
 loop's `ops_heartbeat` row on a completed run so the lock namespace and the
@@ -336,6 +461,23 @@ recently attempted linked locations per tenant, isolates every resource
 failure, and records content-free success/error checkpoints. The scheduler
 runs this sweep every 15 minutes by default, so reconciliation does not depend
 on a user opening the location workspace.
+
+## Health and notifications
+
+Client and listing health derive from successful checks, never from token
+refreshes (`lib/clients/health.ts`, `lib/server/location-summary.ts`): Up to
+date (checked within an hour), Data delayed (late or retrying — the platform
+recovers on its own), Action needed (a login to reconnect, a permission
+missing, or a listing's manager access removed). The org-wide banner shows any
+login that needs reconnecting to everyone, with a one-click reconnect for
+owners and admins.
+
+`/api/cron/health` (every 15 minutes) re-derives incidents per tenant under
+RLS (`notification_incident`), emails each new one once to owners and admins
+(`notification_delivery`, unique per incident and recipient, claimed before
+sending), and raises `platform_incident` for stopped ticks and sustained quota
+pressure. Email goes through `lib/server/notifications/email.ts`; with no
+provider configured deliveries are recorded `suppressed`.
 
 ## Membership, organisation switching, privacy, and retention
 
@@ -461,14 +603,15 @@ Do not "finish" the rename on any of these:
   out; the `naba` prefix is brand-neutral.
 - Database roles `naba_app_runtime`, `naba_app`, and `naba_test_runtime`, the
   `app.*` GUC namespace, and any future `naba:*` advisory-lock keys.
-- The CI database `nabareview_test` in `.github/workflows/ci.yml`.
-- Historical plan and evidence documents under `docs/superpowers/`, which keep
-  pre-rename spellings except where they specify a not-yet-implemented metric
-  name or user-facing string.
+- The CI database `nabareview_test`, created per job by
+  `scripts/ci/postgres.mjs` for ci.yml's Migrations, Integration and E2E
+  jobs.
+- Historical plan and evidence documents under
+  `docs/archive/2026-07-frontend-rebuild/`, which keep pre-rename spellings
+  except where they specify a not-yet-implemented metric name or user-facing
+  string.
 
 Identifiers already migrated alongside the design-system replacement stay in
-their new form (do not rename back): module paths `lib/naba-presence-api.ts`
-and `components/naba-presence/`, the compose project `nabapresence-local` with
-local database `nabapresence`, the Supabase local project id `nabapresence`,
-and harness/bootstrap addresses (`harness-…@nabapresence.test`,
-`local-owner@nabapresence.local`).
+their new form (do not rename back): the local database `nabapresence`, the
+Supabase local project id `nabapresence`, and harness/bootstrap addresses
+(`harness-…@nabapresence.test`, `local-owner@nabapresence.local`).

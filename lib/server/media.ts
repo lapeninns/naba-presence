@@ -4,6 +4,7 @@ import type { TransactionSql } from "postgres"
 
 import {
   MAX_MEDIA_UPLOAD_BYTES,
+  MIN_PHOTO_UPLOAD_BYTES,
   mediaCreateSchema,
   mediaUploadFieldsSchema,
   type MediaCreateInput,
@@ -603,7 +604,7 @@ function requireUploadableFile(
         : "Upload an MP4 or QuickTime video."
     )
   }
-  if (file.size < 10_240 && mediaFormat === "PHOTO") {
+  if (file.size < MIN_PHOTO_UPLOAD_BYTES && mediaFormat === "PHOTO") {
     throw new ApiError(
       422,
       "media_file_too_small",

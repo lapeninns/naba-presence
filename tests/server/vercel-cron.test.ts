@@ -14,9 +14,8 @@ function routeSource(path: string): string {
 
 // Every scheduler loop from `scripts/scheduler.mjs`, with the page sizes the
 // scheduler POSTed. The bounds live here in the URL because a Vercel cron
-// fires GET with no body — `/api/sync/sweep` in particular has no time
-// budget of its own, so dropping `maxOrganisations=1&maxPagesPerLocation=5`
-// would let one daily fire walk unbounded history.
+// fires GET with no body. `/api/sync/sweep` takes none: it only queues sweep
+// checkpoints, and the job runner bounds the work (five pages per claim).
 const expectedCrons: Array<{ path: string; schedule: string }> = [
   { path: "/api/jobs/run", schedule: "* * * * *" },
   {
@@ -32,7 +31,7 @@ const expectedCrons: Array<{ path: string; schedule: string }> = [
     schedule: "0 */6 * * *",
   },
   {
-    path: "/api/sync/sweep?maxOrganisations=1&maxPagesPerLocation=5",
+    path: "/api/sync/sweep",
     schedule: "30 1 * * *",
   },
   {
@@ -43,6 +42,8 @@ const expectedCrons: Array<{ path: string; schedule: string }> = [
     path: "/api/cron/retention?batch_size=100",
     schedule: "0 3 * * *",
   },
+  // Incidents and alert emails (lib/server/notifications).
+  { path: "/api/cron/health", schedule: "*/15 * * * *" },
 ]
 
 const fieldRanges: Array<[number, number]> = [
@@ -104,7 +105,7 @@ function assertValidSchedule(schedule: string) {
 }
 
 describe("Vercel Cron scheduler", () => {
-  it("drives all seven scheduler ticks", () => {
+  it("drives all eight scheduler ticks", () => {
     expect(vercelJson.crons).toEqual(expectedCrons)
   })
 
@@ -127,6 +128,7 @@ describe("Vercel Cron scheduler", () => {
       "/api/sync/sweep": 1,
       "/api/sync/keywords": 1,
       "/api/cron/retention": 1,
+      "/api/cron/health": 96,
     }
     for (const cron of expectedCrons) {
       const [minute, hour, dayOfMonth, month, dayOfWeek] =

@@ -3,30 +3,35 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * A card in the grouped-background model: white on the soft grey canvas, with
- * no border and no shadow. The surface itself is the boundary.
+ * Reference `.card`: a white surface drawn with a 1px hairline, radius 12,
+ * 20px inside (16px for `size="sm"`). No shadow, no tint.
  *
- * `inset` turns the card into an iOS inset-group container whose direct
- * children are rows: the vertical padding and the gap collapse to zero and
- * the rows are divided by hairlines. Prefer `GroupedList` for settings-style
- * rows; `inset` exists for a card that mixes a header with a list body.
+ * `inset` makes a card whose direct children are rows: the padding and gap
+ * collapse and the rows are divided by hairlines. `flush` removes padding
+ * entirely (reference `.card-flush`) for a table or media inside.
+ *
+ * `CardHeader divided` draws the reference `.card-head` (a bottom rule);
+ * `CardFooter bar` draws `.card-foot` (top rule on the sunken surface).
  */
 function Card({
   className,
   size = "default",
   inset = false,
+  flush = false,
   ...props
 }: React.ComponentProps<"div"> & {
   size?: "default" | "sm"
   inset?: boolean
+  flush?: boolean
 }) {
   return (
     <div
       data-slot="card"
       data-size={size}
       data-inset={inset || undefined}
+      data-flush={flush || undefined}
       className={cn(
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-(--np-radius-card) bg-surface py-(--card-spacing) text-body text-ink [--card-spacing:var(--np-card-pad)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[inset]:gap-0 data-[inset]:divide-y data-[inset]:divide-line-subtle data-[inset]:py-0 *:[img:first-child]:rounded-t-(--np-radius-card) *:[img:last-child]:rounded-b-(--np-radius-card)",
+        "group/card flex min-w-0 flex-col gap-(--card-spacing) overflow-hidden rounded-(--np-radius-card) border border-line bg-surface py-(--card-spacing) text-body text-ink [--card-spacing:var(--np-card-pad)] [--card-pt:var(--card-spacing)] data-[flush]:[--card-pt:0px] data-[inset]:[--card-pt:0px] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] data-[inset]:gap-0 data-[inset]:divide-y data-[inset]:divide-line data-[inset]:py-0 data-[flush]:gap-0 data-[flush]:py-0 *:[img:first-child]:rounded-t-(--np-radius-card) *:[img:last-child]:rounded-b-(--np-radius-card)",
         className
       )}
       {...props}
@@ -34,12 +39,22 @@ function Card({
   )
 }
 
-function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+function CardHeader({
+  className,
+  divided = false,
+  ...props
+}: React.ComponentProps<"div"> & {
+  /** Reference `.card-head`: 16/20 padding and a hairline beneath. */
+  divided?: boolean
+}) {
   return (
     <div
       data-slot="card-header"
+      data-divided={divided || undefined}
       className={cn(
-        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 px-(--card-spacing) group-data-[inset]/card:py-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:border-line-subtle [.border-b]:pb-(--card-spacing)",
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-0.5 px-(--card-spacing) group-data-[inset]/card:py-(--card-spacing) has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto] has-data-[slot=card-action]:gap-x-3 has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:border-line [.border-b]:pb-(--card-spacing)",
+        divided &&
+          "-mt-(--card-pt) border-b border-line py-4",
         className
       )}
       {...props}
@@ -55,7 +70,7 @@ function CardTitle({
   return (
     <Heading
       data-slot="card-title"
-      className={cn("text-title font-semibold text-ink", className)}
+      className={cn("text-title font-semibold text-balance text-ink", className)}
       {...props}
     />
   )
@@ -94,12 +109,22 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+function CardFooter({
+  className,
+  bar = false,
+  ...props
+}: React.ComponentProps<"div"> & {
+  /** Reference `.card-foot`: a top rule on the sunken surface, 12/20 padding. */
+  bar?: boolean
+}) {
   return (
     <div
       data-slot="card-footer"
+      data-bar={bar || undefined}
       className={cn(
-        "flex items-center px-(--card-spacing) group-data-[inset]/card:py-(--card-spacing) [.border-t]:border-line-subtle [.border-t]:pt-(--card-spacing)",
+        "flex flex-wrap items-center gap-3 px-(--card-spacing) group-data-[inset]/card:py-(--card-spacing) [.border-t]:border-line [.border-t]:pt-(--card-spacing)",
+        bar &&
+          "mt-auto -mb-(--card-pt) justify-between border-t border-line bg-surface-alt py-3",
         className
       )}
       {...props}

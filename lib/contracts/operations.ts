@@ -3,8 +3,10 @@
  * webhook failure/replay endpoints the operations panel reads.
  *
  * Client-safe: no `server-only`, no `lib/server` imports. The audit-log
- * route parses its query with `auditLogQuerySchema`;
- * `lib/api/operations-health.ts` parses responses with the response schemas.
+ * route parses its query with `auditLogQuerySchema`. The response schemas
+ * describe the operations-health and audit-log routes, which are API-only:
+ * their Settings consoles were removed (components/settings/settings-nav.tsx),
+ * so no browser code parses them today.
  */
 import { z } from "zod"
 
@@ -104,18 +106,36 @@ export const operationsHealthSchema = z.object({
   /** `performance` / `keywords` — drained by their own crons, not the runner. */
   dueMetricsCheckpointBacklog: z.number().default(0),
   /** `reconcile` / `notification` — no claimer; 0030's terminal state drains these. */
+  dueReconcileBacklog: z.number().default(0),
   dueUnclaimedCheckpointBacklog: z.number().default(0),
   duePublishBacklog: z.number().default(0),
   checkpointFailures24h: z.number(),
   connectionErrors24h: z.number(),
   /** Connections whose Google refresh token expires within three days. */
   refreshTokensExpiringSoon: z.number().default(0),
-  /** Age of the newest completed `reconcile` checkpoint, worst tenant first. */
+  /**
+   * How long the worst actively linked location has gone without a
+   * SUCCESSFUL reconcile (a failed one does not count), worst tenant first.
+   */
   reconcileStalenessSeconds: z.number().nullable().default(null),
+  /** The same for the daily deleted-review sweep. */
+  sweepStalenessSeconds: z.number().nullable().default(null),
+  /** Linked listings the connected login can no longer reach. */
+  listingsAccessLost: z.number().default(0),
   /** Locations a live legal hold keeps past their disconnect purge date. */
   heldPurgeLocations: z.number().default(0),
   /** How long the oldest still-unpurged disconnected connection is overdue. */
   pendingPurgeAgeSeconds: z.number().nullable().default(null),
+  /** This month's AI tokens per model (UTC calendar month). */
+  aiTokensThisMonth: z
+    .array(
+      z.object({
+        model: z.string(),
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+      })
+    )
+    .default([]),
   schedulerHeartbeatAt: z.string().nullable(),
   schedulerHeartbeatStale: z.boolean().default(false),
   schedulerTicks: z.array(schedulerTickSchema).default([]),

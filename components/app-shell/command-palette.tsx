@@ -1,13 +1,14 @@
 "use client"
 
 import {
+  ArrowRightLeft,
   Building2,
-  Home,
   Inbox,
   MapPin,
   Plus,
   Search,
   Settings,
+  Store,
   TrendingUp,
   UserPlus,
   Users,
@@ -26,29 +27,78 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthTone } from "@/lib/clients/health"
+import { withClientScope } from "@/lib/clients/scope"
+import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useClients } from "@/lib/queries/use-clients"
+import { useWorkspaceMode } from "@/lib/workspace/mode"
+import type { WorkspaceMode } from "@/lib/workspace/terms"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
-const GO_TO = [
-  { href: "/home", label: "Home", icon: Home },
+import { useRememberedClient } from "./client-context"
+import { useClientSwitch } from "./client-switcher"
+
+type PaletteEntry = {
+  href: string
+  label: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  /**
+   * Owner/admin destinations: their pages answer anyone else with Access
+   * denied, so the palette does not offer them (the rule the sidebar and the
+   * settings tabs follow).
+   */
+  adminOnly?: boolean
+  /** Hidden in business mode, which has no client layer. */
+  agencyOnly?: boolean
+}
+
+const GO_TO: PaletteEntry[] = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/clients", label: "Clients", icon: Building2 },
+  { href: "/listings", label: "Listings", icon: Store },
+  { href: "/clients", label: "Clients", icon: Building2, agencyOnly: true },
   { href: "/reports", label: "Reports", icon: TrendingUp },
-  { href: "/team", label: "Team", icon: Users },
+  { href: "/team", label: "Team", icon: Users, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
-const ACTIONS = [
-  { href: "/clients/new", label: "New client", icon: Plus },
+const ACTIONS: PaletteEntry[] = [
+  {
+    href: "/clients/new",
+    label: "New client",
+    icon: Plus,
+    adminOnly: true,
+    agencyOnly: true,
+  },
   {
     href: "/settings/connections",
     label: "Connect a Google account",
     icon: Plus,
+    adminOnly: true,
   },
-  { href: "/team", label: "Invite a teammate", icon: UserPlus },
+  {
+    href: "/team",
+    label: "Invite a teammate",
+    icon: UserPlus,
+    adminOnly: true,
+  },
 ]
+
+/** The entries this role can use; everything while the role is unknown. */
+export function paletteEntriesFor(
+  entries: PaletteEntry[],
+  role: string | null,
+  mode: WorkspaceMode = "agency"
+): PaletteEntry[] {
+  const inMode = entries.filter(
+    (entry) => !entry.agencyOnly || mode === "agency"
+  )
+  if (role === null) return inMode
+  const managerial = settingsGatingFromRole(role).canManageTeam
+  return inMode.filter((entry) => !entry.adminOnly || managerial)
+}
+
+export { GO_TO as PALETTE_GO_TO, ACTIONS as PALETTE_ACTIONS }
 
 const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
 
@@ -69,7 +119,15 @@ function CommandPalette({
 }) {
   const router = useRouter()
   const clients = useClients()
-  const locations = useLocationDirectory(useSessionRole())
+  const role = useSessionRole()
+  const locations = useLocationDirectory(role)
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const goTo = paletteEntriesFor(GO_TO, role, mode)
+  const actions = paletteEntriesFor(ACTIONS, role, mode)
+  // Go to Inbox, Listings or Reports keeps the client in scope, like the
+  // sidebar's links.
+  const { remembered } = useRememberedClient()
 
   const go = (href: string) => {
     onOpenChange(false)
@@ -81,12 +139,35 @@ function CommandPalette({
   )
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Search clients, locations and actions…" />
+    // "Commands", not "Search": this looks for clients, locations and actions,
+    // and deliberately never looks inside review text. The Inbox's own
+    // "Search reviews" field is the one place to type a customer's words, and
+    // two fields that both look like search but answer different questions is
+    // how an operator ends up believing a review does not exist.
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Commands"
+      description={
+        business
+          ? "Jump to a location or a page, or run an action. To search review text, use Search reviews in the Inbox."
+          : "Jump to a client or a location, or run an action. To search review text, use Search reviews in the Inbox."
+      }
+    >
+      <CommandInput
+        placeholder={
+          business
+            ? "Go to a location or an action…"
+            : "Go to a client, a location or an action…"
+        }
+      />
       <CommandList>
-        <CommandEmpty>Nothing matched that.</CommandEmpty>
+        <CommandEmpty>
+          Nothing matched that. To search review text, use Search reviews in the
+          Inbox.
+        </CommandEmpty>
 
-        {clients.data?.items.length ? (
+        {!business && clients.data?.items.length ? (
           <CommandGroup heading="Clients">
             {clients.data.items.map((client) => (
               <CommandItem
@@ -107,16 +188,16 @@ function CommandPalette({
         ) : null}
 
         {locations.data?.length ? (
-          <CommandGroup heading="Locations">
+          <CommandGroup heading="Listings">
             {locations.data.map((location) => (
               <CommandItem
                 key={location.id}
-                value={`location ${location.name}`}
-                onSelect={() => go(`/locations/${location.id}`)}
+                value={`listing ${location.name}`}
+                onSelect={() => go(`/listings/${location.id}`)}
               >
                 <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
-                {location.clientId ? (
+                {!business && location.clientId ? (
                   <span className="truncate text-caption text-ink-muted">
                     {clientNameById.get(location.clientId)}
                   </span>
@@ -126,14 +207,26 @@ function CommandPalette({
           </CommandGroup>
         ) : null}
 
+        {business ? null : (
+          <React.Suspense fallback={null}>
+            <SwitchClientCommands onDone={() => onOpenChange(false)} />
+          </React.Suspense>
+        )}
+
         <CommandGroup heading="Go to">
-          {GO_TO.map((item) => {
+          {goTo.map((item) => {
             const Icon = item.icon
             return (
               <CommandItem
                 key={item.href}
                 value={`go ${item.label}`}
-                onSelect={() => go(item.href)}
+                onSelect={() =>
+                  go(
+                    business
+                      ? item.href
+                      : withClientScope(item.href, remembered)
+                  )
+                }
               >
                 <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
@@ -143,7 +236,7 @@ function CommandPalette({
         </CommandGroup>
 
         <CommandGroup heading="Actions">
-          {ACTIONS.map((item) => {
+          {actions.map((item) => {
             const Icon = item.icon
             return (
               <CommandItem
@@ -163,11 +256,68 @@ function CommandPalette({
 }
 
 /**
+ * "Switch client: …" for every client but the current one, and "All
+ * clients" while one is in scope. The same switch the top-bar switcher
+ * makes, so it follows the same page rules and the Inbox's unsaved-reply
+ * guard. Offered only when there is more than one client to switch between.
+ */
+function SwitchClientCommands({ onDone }: { onDone: () => void }) {
+  const { clients, current, select } = useClientSwitch()
+  if (!clients || clients.length <= 1) return null
+  const choose = (clientId: string | null) => {
+    onDone()
+    void select(clientId)
+  }
+  return (
+    <CommandGroup heading="Switch client">
+      {current ? (
+        <CommandItem
+          value="switch client all clients"
+          onSelect={() => choose(null)}
+        >
+          <Building2 className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+          <span className="flex-1 truncate">Switch client: All clients</span>
+        </CommandItem>
+      ) : null}
+      {clients
+        .filter((client) => client.id !== current)
+        .map((client) => (
+          <CommandItem
+            key={client.id}
+            value={`switch client ${client.name} ${client.id}`}
+            onSelect={() => choose(client.id)}
+          >
+            <ArrowRightLeft
+              className={ICON_CLASS}
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="flex-1 truncate">
+              Switch client: {client.name}
+            </span>
+          </CommandItem>
+        ))}
+    </CommandGroup>
+  )
+}
+
+/**
  * Opens the palette on the platform's own shortcut, and on `/` when the user
  * is not typing. The `/` binding is deliberately skipped inside inputs,
  * textareas and anything contenteditable, or it would eat a slash mid-sentence
  * in a reply the operator is writing.
  */
+const OPEN_PALETTE_EVENT = "np:open-command-palette"
+
+/**
+ * Opens the toolbar's palette from anywhere on the page (the not-found
+ * page's "Search clients and listings" button), without lifting the
+ * palette's state out of the toolbar that owns it.
+ */
+function openCommandPalette() {
+  document.dispatchEvent(new Event(OPEN_PALETTE_EVENT))
+}
+
 function useCommandPalette() {
   const [open, setOpen] = React.useState(false)
 
@@ -184,8 +334,13 @@ function useCommandPalette() {
         setOpen((previous) => !previous)
       }
     }
+    const onOpenRequest = () => setOpen(true)
     document.addEventListener("keydown", onKeyDown)
-    return () => document.removeEventListener("keydown", onKeyDown)
+    document.addEventListener(OPEN_PALETTE_EVENT, onOpenRequest)
+    return () => {
+      document.removeEventListener("keydown", onKeyDown)
+      document.removeEventListener(OPEN_PALETTE_EVENT, onOpenRequest)
+    }
   }, [])
 
   return { open, setOpen }
@@ -212,10 +367,13 @@ function useSyncPlatform() {
 }
 
 /**
- * The toolbar's search field. It looks like a capsule search field — a grey
- * pill with a magnifier, "Search" and the shortcut — but it is a button that
- * opens the palette, because the palette is where typing goes. Below `sm`
- * only the magnifier shows; the label stays in the accessible name.
+ * The toolbar's search trigger. It looks like a field (a bordered white box
+ * with a magnifier, a label and the shortcut) but it is a button that opens
+ * the palette, because the palette is where typing goes. Below 768px it is a
+ * 44px square with the magnifier alone; the label stays the accessible name.
+ *
+ * The label names its scope (clients, listings, pages and actions). Review
+ * text is searched in the Inbox, in one clearly labelled field.
  */
 function CommandPaletteButton({
   onClick,
@@ -225,24 +383,41 @@ function CommandPaletteButton({
   className?: string
 }) {
   const hint = useShortcutHint()
+  const business = useWorkspaceMode() === "business"
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={
+        business
+          ? "Search listings, pages and actions"
+          : "Search clients, listings, pages and actions"
+      }
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        "flex h-(--np-control-h) items-center gap-2 rounded-(--np-radius-pill) bg-fill-secondary px-2.5 text-ui text-ink-muted sm:w-56 sm:px-3",
-        "transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink active:scale-[0.98]",
+        "flex h-[34px] shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted md:min-w-50",
+        "transition-colors duration-(--np-duration-fast) hover:border-line-strong hover:text-ink",
         "focus-halo focus-visible:outline-none",
+        "max-md:size-11 max-md:justify-center max-md:p-0",
         className
       )}
     >
       <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
-      <span className="sr-only flex-1 text-left sm:not-sr-only">Search</span>
-      <Kbd className="hidden border-0 bg-transparent px-0 text-ink-muted sm:inline-flex">
+      <span aria-hidden className="flex-1 truncate text-left max-md:hidden">
+        {business ? "Search listings…" : "Search clients, listings…"}
+      </span>
+      <Kbd aria-hidden className="ml-auto max-md:hidden">
         {hint}
       </Kbd>
     </button>
   )
 }
 
-export { CommandPalette, CommandPaletteButton, useCommandPalette }
+export {
+  CommandPalette,
+  CommandPaletteButton,
+  openCommandPalette,
+  useCommandPalette,
+  useShortcutHint,
+}

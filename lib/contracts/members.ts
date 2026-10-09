@@ -45,12 +45,36 @@ export const memberSchema = z.object({
   role: memberRoleSchema,
   canPublish: z.boolean(),
   createdAt: z.string(),
-  locations: z.array(z.object({ locationId: z.string(), canPublish: z.boolean() })),
+  locations: z.array(
+    z.object({
+      locationId: z.string(),
+      canPublish: z.boolean(),
+      /** The client the listing is filed under; null when unfiled. */
+      clientId: z.string().nullable().optional(),
+    })
+  ),
 })
 export type Member = z.infer<typeof memberSchema>
 
+/**
+ * Every client with its listing count, plus the unfiled group (id
+ * `"unfiled"`) when it has listings: what Team needs to say "Old Crown (3 of
+ * 5 listings)" without a request per member.
+ */
+export const memberClientTotalSchema = z.object({
+  clientId: z.string(),
+  name: z.string(),
+  archived: z.boolean(),
+  total: z.number().int().nonnegative(),
+})
+export type MemberClientTotal = z.infer<typeof memberClientTotalSchema>
+
 /** GET `/api/members` response. */
-export const membersResponseSchema = z.object({ members: z.array(memberSchema) })
+export const membersResponseSchema = z.object({
+  members: z.array(memberSchema),
+  /** Optional so a response from before client access still parses. */
+  clients: z.array(memberClientTotalSchema).optional(),
+})
 export type MembersResponse = z.infer<typeof membersResponseSchema>
 
 /** PATCH `/api/members` response: the updated membership row. */

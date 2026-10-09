@@ -1,11 +1,22 @@
-import { renderHook, act, screen, waitFor, within } from "@testing-library/react"
+import {
+  renderHook,
+  act,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
-import { usePublishFlow, type PublishStep } from "@/lib/editors/use-publish-flow"
+import {
+  NOTHING_TO_SEND,
+  usePublishFlow,
+  type PublishStep,
+} from "@/lib/editors/use-publish-flow"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { ApiClientError } from "@/lib/api/client"
 import { Toaster } from "@/components/ui/toast"
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -104,6 +115,26 @@ describe("usePublishFlow", () => {
   })
 })
 
+describe("usePublishFlow no-op steps", () => {
+  it("marks a step that found nothing to send, instead of calling it sent", async () => {
+    const steps: PublishStep[] = [
+      { key: "profile", label: "Profile", run: async () => NOTHING_TO_SEND },
+      { key: "listing", label: "Listing", run: async () => ({ ok: true }) },
+    ]
+    const { result } = renderHook(
+      () => usePublishFlow({ steps: () => steps }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    expect(result.current.results.map((step) => step.noop)).toEqual([
+      true,
+      false,
+    ])
+  })
+})
+
 describe("ReviewChangesSheet", () => {
   const conflictRows = [
     {
@@ -138,12 +169,60 @@ describe("ReviewChangesSheet", () => {
     expect(publish).toHaveBeenCalledTimes(1)
   })
 
+  it("words each step by what actually happened", async () => {
+    renderWithProviders(
+      <ReviewChangesSheet
+        open
+        onOpenChange={() => {}}
+        rows={[{ field: "Store code", before: "", after: "RIVER-2" }]}
+        locationName="Old Crown"
+        onPublish={vi.fn()}
+        error="Google or our service is temporarily unavailable."
+        results={[
+          {
+            key: "profile",
+            label: "Publish name",
+            status: "done",
+            kind: "google",
+            noop: true,
+          },
+          {
+            key: "listing",
+            label: "Publish categories",
+            status: "failed",
+            kind: "google",
+            message: "Google or our service is temporarily unavailable.",
+            code: "google_unavailable",
+          },
+          {
+            key: "attributes",
+            label: "Publish attributes",
+            status: "pending",
+            kind: "google",
+          },
+        ]}
+      />
+    )
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByText("Nothing to send")).toBeInTheDocument()
+    expect(within(sheet).queryByText("Sent to Google")).toBeNull()
+    expect(within(sheet).getByText("google_unavailable")).toBeInTheDocument()
+    expect(
+      within(sheet).getByText("Not sent — an earlier step failed")
+    ).toBeInTheDocument()
+    expect(
+      within(sheet).getByRole("button", { name: "Try again" })
+    ).toBeEnabled()
+  })
+
   it("publishes a plain change without asking for anything", async () => {
     renderWithProviders(
       <ReviewChangesSheet
         open
         onOpenChange={() => {}}
-        rows={[{ field: "Phone", before: "01223 277 217", after: "01223 277 218" }]}
+        rows={[
+          { field: "Phone", before: "01223 277 217", after: "01223 277 218" },
+        ]}
         locationName="Old Crown"
         onPublish={vi.fn()}
       />
@@ -154,4 +233,127 @@ describe("ReviewChangesSheet", () => {
     ).toBeEnabled()
     expect(within(sheet).queryByRole("checkbox")).toBeNull()
   })
+})
+
+describe("uncertain replacement review", () => {
+  it("blocks unresolved rows and explains uncertainty without claiming a concurrent edit", () => {
+    renderWithProviders(
+      <ReviewChangesSheet
+        open
+        onOpenChange={() => {}}
+        rows={[
+          {
+            field: "Soup",
+            before: "A, B",
+            after: "C, D",
+            blocking: true,
+            explanation: "These entries cannot be matched reliably.",
+          },
+        ]}
+        locationName="Riverside"
+        onPublish={() => {}}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "Publish to Google" })
+    ).toBeDisabled()
+    expect(
+      screen.getByText("These entries cannot be matched reliably.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/after you started editing/)
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe("publication error scope", () => {
+  it.each([
+    {
+      kind: "google" as const,
+      noop: false,
+      expected: "Earlier steps were sent to Google.",
+    },
+    {
+      kind: "local" as const,
+      noop: false,
+      expected:
+        "Completed local saves are kept. No Google step completed successfully.",
+    },
+    {
+      kind: "google" as const,
+      noop: true,
+      expected: "Google refused this change",
+    },
+  ])(
+    "reports $kind success accurately when noop=$noop before rejection",
+    async ({ kind, noop, expected }) => {
+      const { result } = renderHook(
+        () =>
+          usePublishFlow({
+            steps: () => [
+              {
+                key: "first",
+                label: "First",
+                kind,
+                run: async () => (noop ? NOTHING_TO_SEND : undefined),
+              },
+              {
+                key: "failed",
+                label: "Attributes",
+                run: async () => {
+                  throw new ApiClientError(403, "PERMISSION_DENIED", "raw")
+                },
+              },
+            ],
+          }),
+        { wrapper }
+      )
+      await act(async () => {
+        await result.current.publish()
+      })
+      expect(result.current.error).toContain(expected)
+      expect(result.current.error).not.toContain("Nothing was changed")
+      expect(result.current.results[0]).toMatchObject({
+        status: "done",
+        kind,
+        noop,
+      })
+      expect(result.current.results[1]).toMatchObject({
+        status: "failed",
+        message: result.current.error,
+      })
+      expect(
+        await screen.findByText(result.current.error ?? "missing error")
+      ).toBeVisible()
+      if (noop)
+        expect(result.current.error).not.toContain("Earlier steps were sent")
+    }
+  )
+
+  it.each(["TimeoutError", "AbortError"])(
+    "does not claim zero writes after %s on the first Google step",
+    async (name) => {
+      const { result } = renderHook(
+        () =>
+          usePublishFlow({
+            steps: () => [
+              {
+                key: "first",
+                label: "Publish",
+                run: async () => {
+                  throw new DOMException("unconfirmed", name)
+                },
+              },
+            ],
+          }),
+        { wrapper }
+      )
+      await act(async () => {
+        await result.current.publish()
+      })
+      expect(result.current.error).toContain("may have applied")
+      expect(result.current.error).not.toContain("Nothing was changed")
+      expect(result.current.results[0].message).toBe(result.current.error)
+    }
+  )
 })

@@ -5,14 +5,14 @@ import { memberRowGate, roleOptionsFor, settingsGatingFromRole } from "@/lib/set
 describe("settingsGatingFromRole (mirror of server settingsCapabilities)", () => {
   it("matches the server predicates for every role", () => {
     expect(settingsGatingFromRole("owner")).toEqual({
-      canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: true,
+      canManageTeam: true, canManageConnections: true, canEditSettings: true,
     })
     expect(settingsGatingFromRole("admin")).toEqual({
-      canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: false,
+      canManageTeam: true, canManageConnections: true, canEditSettings: true,
     })
     for (const role of ["member", "viewer", null]) {
       expect(settingsGatingFromRole(role)).toEqual({
-        canManageTeam: false, canManageConnections: false, canEditSettings: false, canViewCompliance: false, canManageCompliance: false,
+        canManageTeam: false, canManageConnections: false, canEditSettings: false,
       })
     }
   })

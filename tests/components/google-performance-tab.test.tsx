@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), usePathname: () => "/performance", useSearchParams: () => new URLSearchParams("tab=google") }))
@@ -39,8 +39,14 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
   it("renders metric tiles when ready", async () => {
     stub({ range: "28d", from: "a", to: "b", state: "ready", freshThrough: "2026-08-01", locations: [{ id: "l", name: "L" }], totals: { ...ZERO_TOTALS, CALL_CLICKS: 12, WEBSITE_CLICKS: 30 }, series: [{ date: "2026-08-01", metrics: { CALL_CLICKS: 12 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true })
     renderTab()
-    expect(await screen.findByText("Calls")).toBeInTheDocument()
-    expect(screen.getByText("12")).toBeInTheDocument()
-    expect(screen.getByText("Website clicks")).toBeInTheDocument()
+    // "Calls" and "Website clicks" also name the actions chart's series (its
+    // legend and screen-reader table), so read the figure from the tile.
+    const callsLabel = (await screen.findAllByText("Calls")).find((node) =>
+      node.closest("[data-slot=kpi-tile]")
+    )
+    expect(callsLabel).toBeDefined()
+    const tile = callsLabel!.closest("[data-slot=kpi-tile]") as HTMLElement
+    expect(within(tile).getByText("12")).toBeInTheDocument()
+    expect(screen.getAllByText("Website clicks").length).toBeGreaterThan(0)
   })
 })

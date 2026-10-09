@@ -92,6 +92,19 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-ink-muted", bg: "--np-fill-tertiary", kind: "text", note: "secondary text on a subtle well" },
   { fg: "--np-accent-ink", bg: "--np-fill", kind: "text", note: "tinted action inside a grey control" },
 
+  // The third surface step and the counter surfaces.
+  { fg: "--np-ink", bg: "--np-surface-alt", kind: "text", note: "text on a list row or panel" },
+  { fg: "--np-ink-muted", bg: "--np-surface-alt", kind: "text", note: "secondary text on a list row or panel" },
+  { fg: "--np-accent-ink", bg: "--np-surface-alt", kind: "text", note: "link or selected label on a panel" },
+  { fg: "--np-success-ink", bg: "--np-surface-alt", kind: "text", note: "status text on a list row" },
+  { fg: "--np-warning-ink", bg: "--np-surface-alt", kind: "text", note: "attention text on a list row" },
+  { fg: "--np-danger-ink", bg: "--np-surface-alt", kind: "text", note: "danger text on a list row" },
+  { fg: "--np-info-ink", bg: "--np-surface-alt", kind: "text", note: "pending text on a list row" },
+  { fg: "--np-line-strong", bg: "--np-surface-alt", kind: "graphic", note: "control edge on a panel" },
+  { fg: "--np-rating", bg: "--np-surface-alt", kind: "graphic", note: "star rating on a list row" },
+  { fg: "--np-ink-on-charcoal", bg: "--np-charcoal", kind: "text", note: "composer footer and bulk bar labels" },
+  { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "text", note: "dark action bar meta" },
+
   // Materials, measured against their opaque twins: the translucent value
   // composites over content and cannot be measured, so the twin is the floor.
   { fg: "--np-ink", bg: "--np-material-sidebar-opaque", kind: "text", note: "sidebar item label" },
@@ -237,7 +250,7 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
   // Every semantic role the light theme declares must be answered by the dark
   // block, unless it is theme-independent (shape, motion, spacing, density).
   const themeIndependent =
-    /^--np-(radius|corner|duration|ease|sidebar-width|toolbar|page|gap|card|panel|row|cell|control|list|field-h|pill|menu|material-blur|material-saturate)/
+    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|page|gap|card|panel|row|cell|control|list|field-h|pill|menu|material-blur|material-saturate|measure|focus-halo)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
     Object.keys(parsed.dark).filter((name) => parsed.dark[name] !== parsed.light[name])

@@ -102,7 +102,7 @@ describe("RouteErrorState", () => {
       <RouteErrorState title="This page hit an error" description="Still working." onReset={onReset} />
     )
     expect(screen.getByRole("alert")).toHaveTextContent("This page hit an error")
-    expect(screen.getByRole("link", { name: "Go to Home" })).toHaveAttribute("href", "/home")
+    expect(screen.getByRole("link", { name: "Go to Inbox" })).toHaveAttribute("href", "/inbox")
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(onReset).toHaveBeenCalledTimes(1)
   })

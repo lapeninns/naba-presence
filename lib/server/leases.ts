@@ -1,8 +1,8 @@
 import "server-only"
 
-import type { ReservedSql } from "postgres"
+import type { Sql } from "postgres"
 
-import { getDatabase } from "@/lib/server/db"
+import { withSessionConnection } from "@/lib/server/db"
 import { log } from "@/lib/server/logger"
 
 /**
@@ -18,24 +18,19 @@ export const LEASE_KEYS = [
   "naba:keywords",
   "naba:presence-resources",
   "naba:sweep",
+  "naba:health",
 ] as const
 
 export type LeaseKey = (typeof LEASE_KEYS)[number]
 
 /**
  * `ops_heartbeat.name` for every tick whose lease a route actually takes, in
- * the order the health route reports them.
- *
- * `naba:sweep` is deliberately absent. The key exists so
- * `app/api/sync/sweep/route.ts` can adopt it -- it is the one cron route with
- * no advisory lock, and the scheduler now drives it daily -- but until that
- * handler is wrapped nothing stamps the row, and reporting a tick that can
- * never be stamped would be a permanent false alarm. Move it here in the same
- * change that wraps the route.
+ * the order the health route reports them. The sweep's fleet enqueue takes
+ * `naba:sweep`, so every tick is listed.
  */
-export const SCHEDULER_TICK_NAMES: readonly string[] = LEASE_KEYS.filter(
-  (key) => key !== "naba:sweep"
-).map((key) => key.slice("naba:".length))
+export const SCHEDULER_TICK_NAMES: readonly string[] = LEASE_KEYS.map((key) =>
+  key.slice("naba:".length)
+)
 
 function tickName(key: LeaseKey): string {
   return key.slice("naba:".length)
@@ -51,11 +46,11 @@ function tickName(key: LeaseKey): string {
  * session-driven refresh takes the same fleet lease. Data freshness is what
  * `reconcileStalenessSeconds` covers; this is liveness.
  */
-async function recordTickHeartbeat(connection: ReservedSql, key: LeaseKey) {
+async function recordTickHeartbeat(connection: Sql, key: LeaseKey) {
   try {
     // Platform-level write: ops_heartbeat is not tenant-scoped (0009), so it
-    // is written outside withTenant, on the connection already reserved for
-    // the lease.
+    // is written outside withTenant, on the connection already holding the
+    // lease.
     await connection`
       insert into ops_heartbeat (name, beat_at)
       values (${tickName(key)}, now())
@@ -73,26 +68,25 @@ export async function withAdvisoryLock<T>(
   key: LeaseKey,
   fn: () => Promise<T>
 ): Promise<T | { skipped: true }> {
-  const connection = await getDatabase().reserve()
-  let acquired = false
-  try {
+  // The lock outlives many transactions, so it needs a session connection.
+  // Closing that connection also releases the lock (the pooler resets the
+  // backend with DISCARD ALL), so a failed unlock must not mask the tick's
+  // own outcome.
+  return withSessionConnection(async (connection) => {
     const [lock] = await connection<{ acquired: boolean }[]>`
       select pg_try_advisory_lock(hashtext(${key})) as acquired
     `
-    acquired = lock.acquired
-    if (!acquired) return { skipped: true }
-    const result = await fn()
-    await recordTickHeartbeat(connection, key)
-    return result
-  } finally {
+    if (!lock.acquired) return { skipped: true }
     try {
-      if (acquired) {
-        await connection`
-          select pg_advisory_unlock(hashtext(${key}))
-        `
-      }
+      const result = await fn()
+      await recordTickHeartbeat(connection, key)
+      return result
     } finally {
-      connection.release()
+      await connection`
+        select pg_advisory_unlock(hashtext(${key}))
+      `.catch((error: unknown) => {
+        log.warn("leases.unlock_failed", { key, error })
+      })
     }
-  }
+  })
 }

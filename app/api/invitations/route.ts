@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import type { TransactionSql } from "postgres"
 
 import {
   invitationCreateSchema,
@@ -29,6 +30,50 @@ function isUniqueViolation(error: unknown) {
   )
 }
 
+/**
+ * Checks a scoped invitation before it is stored, and returns the client ids
+ * de-duplicated. The scope only means something for members and viewers,
+ * every id must be a client of this organisation (RLS scopes the lookup), and
+ * together they must hold at least one listing: accepted with none, the
+ * invitee would have no location_member rows, which means every client.
+ */
+async function validateClientScope(
+  sql: TransactionSql,
+  role: MemberRole,
+  requested: string[]
+) {
+  if (role === "owner" || role === "admin") {
+    throw new ApiError(
+      409,
+      "role_sees_all_clients",
+      "Owners and admins always see every client. Invite them without choosing clients."
+    )
+  }
+  const clientIds = [...new Set(requested.map((id) => id.toLowerCase()))]
+  const found = await sql<{ id: string; listings: number }[]>`
+    select c.id::text as id, count(l.id)::int as listings
+    from client c
+    left join location l on l.client_id = c.id
+    where c.id in ${sql(clientIds)}
+    group by c.id
+  `
+  if (found.length !== clientIds.length) {
+    throw new ApiError(
+      404,
+      "client_not_found",
+      "One or more of those clients was not found."
+    )
+  }
+  if (found.every((client) => client.listings === 0)) {
+    throw new ApiError(
+      409,
+      "would_widen_to_all_clients",
+      "Those clients have no listings yet, so the invitation would give every client. Add their listings first, or invite for all clients."
+    )
+  }
+  return clientIds
+}
+
 export const GET = route({
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
@@ -39,6 +84,7 @@ export const GET = route({
           email: string
           role: MemberRole
           canPublish: boolean
+          clients: { id: string; name: string }[] | null
           tokenCiphertext: Buffer
           expiresAt: Date
           acceptedAt: Date | null
@@ -50,11 +96,19 @@ export const GET = route({
           email,
           role,
           can_publish as "canPublish",
+          case when i.client_ids is null then null else (
+            select coalesce(
+              json_agg(json_build_object('id', c.id::text, 'name', c.name) order by lower(c.name)),
+              '[]'::json
+            )
+            from client c
+            where c.id = any(i.client_ids)
+          ) end as clients,
           token_ciphertext as "tokenCiphertext",
           expires_at as "expiresAt",
           accepted_at as "acceptedAt",
           created_at as "createdAt"
-        from invitation
+        from invitation i
         where accepted_at is null
         order by created_at desc
       `
@@ -110,6 +164,9 @@ export const POST = route({
             "That person is already in this organisation. Change their role from the team list instead."
           )
         }
+        const clientIds = input.clientIds
+          ? await validateClientScope(sql, input.role, input.clientIds)
+          : null
         const [row] = await sql<
           Array<{
             id: string
@@ -125,6 +182,7 @@ export const POST = route({
             email,
             role,
             can_publish,
+            client_ids,
             token_hash,
             token_ciphertext,
             invited_by,
@@ -135,6 +193,7 @@ export const POST = route({
             ${input.email},
             ${input.role},
             ${input.canPublish},
+            ${clientIds ? sql.array(clientIds) : null}::uuid[],
             ${sha256(token)},
             ${encryptSecret(token)},
             ${session.userId},
@@ -159,11 +218,19 @@ export const POST = route({
             email: input.email,
             role: input.role,
             canPublish: input.canPublish,
+            clientIds,
             clientRequestId,
           },
         })
         return {
           ...row,
+          clients: clientIds
+            ? await sql<{ id: string; name: string }[]>`
+                select id::text as id, name from client
+                where id in ${sql(clientIds)}
+                order by lower(name)
+              `.then((rows) => rows.map(({ id, name }) => ({ id, name })))
+            : null,
           expiresAt: row.expiresAt.toISOString(),
           createdAt: row.createdAt.toISOString(),
         }

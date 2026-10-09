@@ -1,7 +1,6 @@
 import { AccessDeniedPage } from "@/components/app-shell/access-denied"
-import { InvitationsPanel } from "@/components/settings/invitations-panel"
-import { MembersTable } from "@/components/settings/members-table"
-import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
+import { PageFrame } from "@/components/app-shell/page-frame"
+import { TeamView } from "@/components/settings/team-view"
 import { getSession } from "@/lib/server/session"
 import type { MemberRole } from "@/lib/settings/forms/invitation"
 
@@ -19,39 +18,10 @@ export default async function TeamPage() {
 
   return (
     <PageFrame>
-      <PageHeader
-        title="Team"
-        description="Who can see and act on your clients' reviews and settings."
+      <TeamView
+        actorRole={(session?.role ?? "owner") as MemberRole}
+        actorUserId={session?.userId ?? ""}
       />
-      <section aria-labelledby="team-members" className="flex flex-col gap-3">
-        <h2 id="team-members" className="text-title font-semibold text-ink">
-          Members
-        </h2>
-        <MembersTable
-          actorRole={(session?.role ?? "owner") as MemberRole}
-          actorUserId={session?.userId ?? ""}
-        />
-      </section>
-      <section
-        aria-labelledby="team-invitations"
-        className="flex flex-col gap-3"
-      >
-        <div className="flex flex-col gap-1">
-          <h2
-            id="team-invitations"
-            className="text-title font-semibold text-ink"
-          >
-            Invitations
-          </h2>
-          <p className="text-ui text-ink-muted">
-            Invited teammates can see every client until you narrow their
-            access.
-          </p>
-        </div>
-        <InvitationsPanel
-          actorRole={(session?.role ?? "owner") as MemberRole}
-        />
-      </section>
     </PageFrame>
   )
 }

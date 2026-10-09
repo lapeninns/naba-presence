@@ -6,18 +6,10 @@ import { SectionPanel } from "@/components/locations/section-panel"
 import { TabError } from "@/components/locations/tab-states"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useToastManager } from "@/components/ui/toast"
 import {
@@ -25,7 +17,6 @@ import {
   type IndustryState,
 } from "@/lib/api/location-industry"
 import type { LocationCapabilities } from "@/lib/locations/gating"
-import { callsStateLabel } from "@/lib/locations/console-labels"
 import {
   inputToTimeOfDay,
   lodgingUpdatedPaths,
@@ -49,13 +40,11 @@ function asRecord(value: unknown): RawRecord {
     ? (value as RawRecord)
     : {}
 }
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
 
 /**
- * Lodging, business calls and healthcare: the fields that only exist for some
- * kinds of business.
+ * Lodging and healthcare: the fields that only exist for some kinds of
+ * business. (Business calls and healthcare provider attributes went with the
+ * Google APIs that served them; see lib/domain/google-retired-apis.ts.)
  *
  * They used to be a whole tab called "Industry", named after the Google APIs
  * that serve them rather than after anything a hotelier would look for. Now
@@ -108,9 +97,7 @@ function IndustryResource({
   // section it can never have.
   if (
     query.data.lodging.data == null &&
-    query.data.calls.data == null &&
-    query.data.healthcareServices.data == null &&
-    query.data.providerAttributes.data == null
+    query.data.healthcareServices.data == null
   )
     return null
 
@@ -137,7 +124,7 @@ function IndustryEditor({
 }) {
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <section className="flex max-w-2xl flex-col gap-4">
+      <section className="flex flex-col gap-3">
         <h3 className="text-title font-semibold text-ink">Lodging</h3>
         <SectionPanel title="Lodging" result={state.lodging}>
           {(data) => (
@@ -157,42 +144,20 @@ function IndustryEditor({
         </SectionPanel>
       </section>
 
-      <section className="flex max-w-sm flex-col gap-4">
-        <h3 className="text-title font-semibold text-ink">Business calls</h3>
-        <SectionPanel title="Business calls" result={state.calls}>
-          {(data) => (
-            <BusinessCallsSection
-              locationId={locationId}
-              loaded={data as RawRecord}
-              disabled={disabled}
-              publishReason={publishReason}
-            />
-          )}
-        </SectionPanel>
-      </section>
-
-      <section className="flex max-w-2xl flex-col gap-4">
+      <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h3 className="text-title font-semibold text-ink">Healthcare</h3>
           <p className="text-ui text-ink-muted">
-            Google holds healthcare service and provider details for this
-            listing that can&apos;t be edited here yet.
+            Google holds healthcare service details for this listing that
+            can&apos;t be edited here yet.
           </p>
         </div>
-        <div className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface">
-          <SectionPanel
-            title="Healthcare services"
-            result={state.healthcareServices}
-          >
-            {(data) => <HealthcareServicesReadOnly data={data as RawRecord} />}
-          </SectionPanel>
-          <SectionPanel
-            title="Provider attributes"
-            result={state.providerAttributes}
-          >
-            {(data) => <ProviderAttributesReadOnly data={data as RawRecord} />}
-          </SectionPanel>
-        </div>
+        <SectionPanel
+          title="Healthcare services"
+          result={state.healthcareServices}
+        >
+          {(data) => <HealthcareServicesReadOnly data={data as RawRecord} />}
+        </SectionPanel>
       </section>
     </div>
   )
@@ -545,92 +510,6 @@ function LodgingSection({
   )
 }
 
-// --- Business calls ------------------------------------------------------
-const CALLS_STATES = ["ENABLED", "DISABLED"] as const
-
-function BusinessCallsSection({
-  locationId,
-  loaded,
-  disabled,
-  publishReason,
-}: {
-  locationId: string
-  loaded: RawRecord
-  disabled: boolean
-  publishReason: string | null
-}) {
-  const initial = asString(loaded.callsState) || "ENABLED"
-  // The loaded value is its own revision token: local edits survive until a
-  // refetch actually changes it.
-  const [callsState, setCallsState] = useResetOnRevision(initial, initial)
-  const labelId = useId()
-
-  const dirty = callsState !== initial
-
-  const save = useResourceMutation({
-    // The server 422s business_calls_mask_invalid for any mask other than
-    // exactly ["callsState"] — hard-code it rather than deriving it.
-    mutationFn: () =>
-      publishIndustry(locationId, {
-        operation: "update_business_calls",
-        updateMask: ["callsState"],
-        payload: { callsState },
-      }),
-    invalidate: [queryKeys.locationIndustry(locationId)],
-    successToast: "Calls setting published to Google",
-  })
-
-  return (
-    <div className="flex flex-col gap-4 rounded-(--np-radius-card) bg-surface p-(--np-card-pad)">
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span id={labelId} className="text-ui font-medium text-ink">
-            Accept calls from customers
-          </span>
-          <Badge variant={initial === "ENABLED" ? "success" : "secondary"}>
-            Currently {callsStateLabel(initial)}
-          </Badge>
-        </div>
-        <Select
-          value={callsState}
-          onValueChange={(value: string | null) =>
-            value && setCallsState(value)
-          }
-          disabled={disabled}
-        >
-          <SelectTrigger
-            className="w-full"
-            aria-label="Calls"
-            aria-describedby={labelId}
-          >
-            <SelectValue>
-              {(value: string | null) => (value ? callsStateLabel(value) : "")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {CALLS_STATES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {callsStateLabel(value)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <Button
-          onClick={() => save.mutate()}
-          disabled={
-            disabled || Boolean(publishReason) || !dirty || save.isPending
-          }
-        >
-          {save.isPending ? "Saving…" : "Save calls"}
-        </Button>
-      </div>
-      <GateNote reason={disabled ? null : publishReason} />
-    </div>
-  )
-}
-
 // --- Healthcare (read-only; §12 — no typed editor yet) --------------------
 function ReadOnlyRow({
   label,
@@ -655,20 +534,6 @@ function HealthcareServicesReadOnly({ data }: { data: RawRecord }) {
       description={`${
         count > 0
           ? `Google lists ${count} service${count === 1 ? "" : "s"} for this listing. `
-          : ""
-      }Not editable here yet.`}
-    />
-  )
-}
-
-function ProviderAttributesReadOnly({ data }: { data: RawRecord }) {
-  const hasAttributes = Object.keys(data).length > 0
-  return (
-    <ReadOnlyRow
-      label="Provider attributes"
-      description={`${
-        hasAttributes
-          ? "Google holds provider attributes for this listing. "
           : ""
       }Not editable here yet.`}
     />

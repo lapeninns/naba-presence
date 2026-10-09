@@ -20,7 +20,10 @@ function locationRow(id: string, name: string) {
   }
 }
 
-function stubOverview(locations: ReturnType<typeof locationRow>[]) {
+function stubOverview(
+  locations: ReturnType<typeof locationRow>[],
+  reviewVolume = 4
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -31,7 +34,7 @@ function stubOverview(locations: ReturnType<typeof locationRow>[]) {
             to: "2026-01-31T00:00:00.000Z",
             timezone: "Europe/London",
             summary: {
-              reviewVolume: 4,
+              reviewVolume,
               averageRating: 4.5,
               responseRate: 80,
               unresolvedComplaints: 0,
@@ -87,6 +90,20 @@ describe("ReplyPerformanceTab by-location card", () => {
     expect(
       await screen.findByRole("heading", { name: "By location" })
     ).toBeInTheDocument()
+  })
+})
+
+describe("ReplyPerformanceTab empty window", () => {
+  it("shows one empty panel when neither window has reviews", async () => {
+    stubOverview([], 0)
+    renderTab()
+    expect(
+      await screen.findByText("No reviews in this window yet")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Response rate")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Review volume" })
+    ).not.toBeInTheDocument()
   })
 })
 

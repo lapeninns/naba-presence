@@ -13,7 +13,7 @@ Current status: **NOT STARTED — entry criteria are blocked.**
 | Entry criterion | Observation | Result |
 |---|---|---|
 | Tasks 1–9 complete or product-waived | GGL-501/502/503 live work, OBS staging drills, A11Y manual sign-off, OPS staging/live rehearsals, and CI URLs remain blocked | BLOCKED |
-| CI green on `main` | No Git remote or Actions run exists | BLOCKED |
+| CI green on `main` | No Git remote or Actions run exists (30 July). Update 2026-10-09: the remote and Actions exist; CI, CodeQL and Nightly fail to start because of the Actions budget since about 2026-10-04 (last green 2026-10-03) | BLOCKED |
 | Staging alerts quiet for 48 hours | No staging monitoring deployment exists | BLOCKED |
 | REL-501 report accepted | Local production-topology report is PASS; human acceptance not recorded | BLOCKED |
 | Pilot listing live on staging | Pilot/staging inputs unavailable | BLOCKED |
@@ -24,8 +24,9 @@ Entry decision: **NO-GO. Do not start the seven-day clock.**
 
 At the same UTC time each day:
 
-1. Record application image, migration ledger, scheduler heartbeat, and all
-   fields from `/api/operations/health?scope=platform`.
+1. Record the Vercel deployment ID and Git SHA, the migration ledger, the
+   per-tick `ops_heartbeat` rows (`schedulerTicks`), and all fields from
+   `/api/operations/health?scope=platform`.
 2. Record alert events and compare the health snapshot with the prior day.
 3. Verify `providerTotals.divergence=false` for the pilot.
 4. Run the REL-501 reply-consistency query and require zero divergent rows.

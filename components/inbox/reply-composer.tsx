@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
+  CircleAlertIcon,
   CircleCheckIcon,
+  CircleIcon,
+  InfoIcon,
+  PenLineIcon,
   RotateCcwIcon,
-  ShieldCheckIcon,
   SparklesIcon,
-  TriangleAlertIcon,
 } from "lucide-react"
 
 import {
@@ -18,70 +20,62 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import {
   useAskDiscardConfirm,
   useRegisterDirtyGuard,
+  type ComposerSaveResult,
 } from "@/components/inbox/dirty-context"
-import { VerificationPanel } from "@/components/inbox/verification-panel"
 import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { replyWork } from "@/lib/inbox/review-situation"
 import {
-  useGenerateOrSaveDraft,
-  useVerifyDraft,
-} from "@/lib/queries/use-draft-mutations"
+  PRIMARY_ACTION_EVENT,
+  REPLY_FOCUS_EVENT,
+  REPLY_GENERATE_EVENT,
+} from "@/lib/inbox/events"
+import { greetingName, replyGuidance } from "@/lib/inbox/reply-guidance"
+import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
+import { replyWork } from "@/lib/inbox/review-situation"
+import { describeCreditsLeft } from "@/lib/contracts/ai-credits"
+import { isAiCreditsExhausted } from "@/lib/api/ai-credits"
+import { useAiCredits } from "@/lib/queries/use-ai-credits"
+import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import type { LatestVerification } from "@/lib/api/reviews"
 import { cn } from "@/lib/utils"
 
 const BYTE_LIMIT = 4096
-const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.9)
-
-const TONE_ITEMS: Record<string, string> = {
-  warm_professional: "Warm and professional",
-  concise: "Concise",
-  empathetic: "Empathetic",
-}
+// The count only appears once it matters: a running "212 / 4,096 bytes"
+// under every reply was a number nobody needed, in a unit nobody writes in.
+const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.8)
 
 const TONES = [
-  { value: "warm_professional", label: "Warm and professional" },
-  { value: "concise", label: "Concise" },
-  { value: "empathetic", label: "Empathetic" },
+  {
+    value: "warm_professional",
+    label: "Warm",
+    hint: "Friendly and personal. Thanks them by name and invites them back.",
+  },
+  {
+    value: "concise",
+    label: "Concise",
+    hint: "Short and polite. Two sentences, no more.",
+  },
+  {
+    value: "empathetic",
+    label: "Empathetic",
+    hint: "Acknowledges how they felt before anything else.",
+  },
 ] as const
 
 type Tone = (typeof TONES)[number]["value"]
 
-// `review_draft.source` (supabase/migrations/0001_initial.sql). Who wrote the
-// words matters when you are about to put them on a public profile under the
-// business's name, and the pane never used to say.
-const PROVENANCE: Record<string, string> = {
-  ai: "Drafted by AI",
-  template: "From a template",
-  human: "Written by you",
-}
+const DEFAULT_TONE: Tone = "warm_professional"
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
-}
-
-function saveShortcutLabel(): string {
-  if (typeof navigator === "undefined") return "Ctrl+Enter"
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ||
-    /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    ? "⌘↵"
-    : "Ctrl+Enter"
 }
 
 function ReplyComposer({ reviewId }: { reviewId: string }) {
@@ -89,10 +83,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const review = detail.data?.review
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // What is live on Google, and what the newest saved draft says. The composer
-  // edits ONE of them: the draft when there is one, otherwise the live reply.
+  // What is live on Google, and what the newest saved draft says. The editor
+  // holds ONE of them: the draft when there is one, otherwise the live reply.
   const latestDraft = review?.drafts[0]
-  const { liveBody, draftBody, settled } = replyWork({
+  const { liveBody, draftBody } = replyWork({
     reply: review?.reply ?? null,
     drafts: review?.drafts ?? [],
   })
@@ -101,14 +95,24 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const guardKey = `inbox:reply:${reviewId}`
   const fieldId = useId()
   const [body, setBody] = useState("")
-  const [tone, setTone] = useState<Tone>("warm_professional")
+  const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [editingSettled, setEditingSettled] = useState(false)
-  // Verification produced by THIS session's latest save/verify/generate;
-  // null until the user acts, then the persisted review.latestVerification (D3)
-  // shows verdict AND reasons on load.
+  // The tone a regenerate waits on while the discard confirm is open.
+  const [pendingTone, setPendingTone] = useState<Tone | null>(null)
+  // A failed generation, said where it happened, with the two ways on.
+  const [generateError, setGenerateError] = useState<{
+    message: string
+    tone: Tone
+    creditsOut?: boolean
+  } | null>(null)
+  // Verification produced by THIS session's latest save or generate; until
+  // then the persisted review.latestVerification stands.
   const [mutationVerification, setMutationVerification] =
     useState<LatestVerification | null>(null)
+  // The checks' verdict is about the text that was checked. Typing makes it
+  // stale, so the message under the editor goes until the next check.
+  const [verdictStale, setVerdictStale] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const isDirty = body !== seededBody
   const askDiscard = useAskDiscardConfirm()
@@ -118,7 +122,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     snapshot: () => body,
     askConfirm: askDiscard,
   })
-  useRegisterDirtyGuard(isDirty, confirmDiscard)
 
   // Seed the textbox once per review, then follow the server only while there
   // is nothing of the operator's own to lose. A stashed draft from a forced
@@ -126,6 +129,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // Generate.
   const seededReviewRef = useRef<string | null>(null)
   const seededBodyRef = useRef("")
+  // Text an Undo put back, which a newer draft must not replace.
+  const restoredBodyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!review) return
     if (seededReviewRef.current !== reviewId) {
@@ -135,7 +140,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       seededBodyRef.current = next
       setBody(next)
       setMutationVerification(null)
-      setEditingSettled(false)
+      setVerdictStale(false)
       return
     }
     // A newer draft for the review already on screen: someone else saved one,
@@ -144,74 +149,209 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     // another. Adopt it only when the box still holds what we last seeded.
     if (
       seededBody !== seededBodyRef.current &&
-      (body === seededBodyRef.current || body === seededBody)
+      (body === seededBodyRef.current || body === seededBody) &&
+      body !== restoredBodyRef.current
     ) {
       seededBodyRef.current = seededBody
       setBody(seededBody)
     }
   }, [body, review, reviewId, restore, seededBody])
 
+  // `r` asks; this decides. The hotkey layer has no idea whether editing is
+  // permitted for this review, and it must not: permission lives with the
+  // review, not with the keyboard.
+  const canOpenEditorRef = useRef(false)
+  const editableNow =
+    Boolean(review?.capabilities.canEdit) &&
+    (!review ||
+      !isReviewWorkflowState(review.workflowStatus) ||
+      isAllowedReviewTransition(review.workflowStatus, "drafted"))
+  useEffect(() => {
+    canOpenEditorRef.current = editableNow
+  }, [editableNow])
+  useEffect(() => {
+    function onFocusReply() {
+      if (!canOpenEditorRef.current) return
+      const field = textareaRef.current
+      field?.focus()
+      const length = field?.value.length ?? 0
+      field?.setSelectionRange(length, length)
+    }
+    window.addEventListener(REPLY_FOCUS_EVENT, onFocusReply)
+    return () => window.removeEventListener(REPLY_FOCUS_EVENT, onFocusReply)
+  }, [])
+
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
-  const verify = useVerifyDraft(reviewId)
+  const aiCredits = useAiCredits()
+  // Only a loaded balance of zero turns Generate off; while it loads, or if
+  // it cannot load, the server still decides (it answers 402).
+  const creditsExhausted = aiCredits.data
+    ? aiCredits.data.remaining <= 0
+    : false
   const toasts = useToastManager()
 
-  const generateLabel = useMemo(
-    () =>
-      review && review.drafts.length > 0 ? "Regenerate" : "Generate draft",
-    [review]
+  // The publish bar's Publish runs this composer's own save first, through
+  // the dirty store it already reads, then publishes the draft it returns.
+  // It is offered while the text on screen is not yet a checked draft: there
+  // are unsaved edits, or the newest saved draft was never checked. Why it
+  // cannot run is said in words on the bar.
+  const saveBlocked = !editableNow
+    ? review?.capabilities.canEdit
+      ? "A publish for this reply is under way."
+      : "You do not have permission to edit this reply."
+    : body.trim() === ""
+      ? "Write the reply before publishing it."
+      : byteLength(body) > BYTE_LIMIT
+        ? "Shorten the reply to fit Google's length limit."
+        : null
+  const uncheckedDraft =
+    latestDraft !== undefined &&
+    latestDraft.verificationStatus !== "fail" &&
+    !hasVerifiedDraft(review?.drafts ?? [])
+  const offerSave = isDirty || uncheckedDraft
+  const saveRef = useRef<() => Promise<ComposerSaveResult | null>>(
+    async () => null
+  )
+  const runSave = useCallback(() => saveRef.current(), [])
+  useRegisterDirtyGuard(
+    isDirty,
+    confirmDiscard,
+    offerSave
+      ? { save: runSave, blockedReason: saveBlocked, saving }
+      : undefined
   )
 
-  async function runGenerate() {
+  // `g`: a first draft in the chosen tone, when there is nothing to lose —
+  // no saved draft, no live reply and nothing typed. Like `r`, the key only
+  // asks; whether it is allowed is decided here.
+  const generateRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    saveRef.current = async () => {
+      if (saveBlocked || generateOrSave.isPending || saving) return null
+      return onSave()
+    }
+    generateRef.current = () => {
+      if (!editableNow || generateOrSave.isPending || !review) return
+      if (creditsExhausted) return
+      if (review.drafts.length > 0 || liveBody !== null || body !== "") return
+      void runGenerate(tone)
+    }
+  })
+  useEffect(() => {
+    const onGenerate = () => generateRef.current()
+    window.addEventListener(REPLY_GENERATE_EVENT, onGenerate)
+    return () => window.removeEventListener(REPLY_GENERATE_EVENT, onGenerate)
+  }, [])
+
+  function focusEditor() {
+    requestAnimationFrame(() => {
+      const field = textareaRef.current
+      field?.focus()
+      const length = field?.value.length ?? 0
+      field?.setSelectionRange(length, length)
+    })
+  }
+
+  async function runGenerate(withTone: Tone = tone) {
+    // What the box held, so a regenerate over it can be taken back.
+    const previous = body
+    setGenerateError(null)
+    // A stale balance can still allow the click; the server's 402 is the
+    // authority, and the refetch keeps the guard current afterwards.
+    if (creditsExhausted) return
     try {
       // No body → server runs AI (or rating-only template). Manual only.
-      const result = await generateOrSave.mutateAsync({ tone })
+      const result = await generateOrSave.mutateAsync({ tone: withTone })
       setBody(result.body)
       setMutationVerification(result.verification)
+      setVerdictStale(false)
+      const restorable =
+        previous.trim() !== "" && previous !== result.body ? previous : null
       toasts.add({
-        title: "Draft ready",
-        description: "A fresh reply was generated and verified.",
+        title: "Reply ready",
+        description: restorable
+          ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
+          : "A fresh reply was written and checked.",
         type: "success",
-      })
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        const length = result.body.length
-        textareaRef.current?.setSelectionRange(length, length)
+        ...(restorable
+          ? {
+              actionProps: {
+                children: "Undo",
+                onClick: () => {
+                  // Held against the adopt-a-newer-draft rule above: the
+                  // refetch carrying the regenerated draft may land after
+                  // this, and must not take the restored text back.
+                  restoredBodyRef.current = restorable
+                  setBody(restorable)
+                  setVerdictStale(true)
+                },
+              },
+            }
+          : {}),
       })
     } catch (error) {
-      toasts.add({ title: describeActionError(error), type: "error" })
+      if (isAiCreditsExhausted(error)) {
+        // Told apart from drafts_paused: the balance is spent, so there is
+        // nothing to retry. The mutation's settle step refetches the balance.
+        setGenerateError({ message: "", tone: withTone, creditsOut: true })
+        return
+      }
+      setGenerateError({ message: describeActionError(error), tone: withTone })
     }
   }
 
   function onGenerateClick() {
-    if (isDirty) {
+    if (isDirty && body.trim() !== "") {
+      setPendingTone(tone)
       setConfirmOpen(true)
       return
     }
     void runGenerate()
   }
 
-  async function onSave() {
+  // With a reply in the box, choosing a tone is asking for it in that tone,
+  // so it regenerates — through the same discard confirm when there are
+  // unsaved edits. With an empty box it only sets the tone Generate uses.
+  function onToneChoose(next: Tone) {
+    if (next === tone || generateOrSave.isPending) return
+    // Out of credits: the tone is only remembered, nothing is written.
+    if (creditsExhausted) {
+      setTone(next)
+      return
+    }
+    if (body.trim() === "") {
+      setTone(next)
+      return
+    }
+    if (isDirty) {
+      setPendingTone(next)
+      setConfirmOpen(true)
+      return
+    }
+    setTone(next)
+    void runGenerate(next)
+  }
+
+  function writeOwn() {
+    setGenerateError(null)
+    focusEditor()
+  }
+
+  // Saves AND checks: the drafts route verifies what it stores. A failed
+  // check is said under the editor, where the fix is made.
+  async function onSave(): Promise<ComposerSaveResult | null> {
+    setSaving(true)
     try {
       const result = await generateOrSave.mutateAsync({ body, tone })
       setMutationVerification(result.verification)
-      toasts.add({
-        title: "Draft saved",
-        description: "Verification ran on your reply.",
-        type: "success",
-      })
+      setVerdictStale(false)
+      if (result.verification.verdict === "fail") focusEditor()
+      return { draftId: result.draftId, verification: result.verification }
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
-    }
-  }
-
-  async function onReverify() {
-    if (!latestDraft) return
-    try {
-      const result = await verify.mutateAsync(latestDraft.id)
-      setMutationVerification(result.verification)
-      toasts.add({ title: "Reply re-verified", type: "success" })
-    } catch (error) {
-      toasts.add({ title: describeActionError(error), type: "error" })
+      return null
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -220,336 +360,356 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // Saving or generating moves the review to `drafted`, and
   // `enforce_review_workflow_transition` has no edge there from
   // `publish_requested`; the route answers 409 `publish_in_progress` rather
-  // than letting the trigger raise. Say so before the click, not after — and
-  // say it in the words of the reason, not "no permission".
+  // than letting the trigger raise. The editor is read-only until it lands.
   const canDraft =
     !isReviewWorkflowState(review.workflowStatus) ||
     isAllowedReviewTransition(review.workflowStatus, "drafted")
-  const showSettledSummary =
-    settled && canEdit && !isDirty && !editingSettled && body.trim() !== ""
+  const editable = canEdit && canDraft
   const bytes = byteLength(body)
   const overLimit = bytes > BYTE_LIMIT
   const nearLimit = !overLimit && bytes >= BYTE_WARN_AT
-  const canSave =
-    canEdit &&
-    canDraft &&
-    isDirty &&
-    body.trim() !== "" &&
-    !overLimit &&
-    !generateOrSave.isPending
-  const canGenerate = canEdit && canDraft && !generateOrSave.isPending
-  const displayedVerification =
-    mutationVerification ?? review.latestVerification
-  const reasons = displayedVerification?.reasons ?? []
-  const blocking = reasons.filter((reason) => reason.severity === "fail").length
-  const provenance = latestDraft ? PROVENANCE[latestDraft.source] : null
-  const shortcut = saveShortcutLabel()
+  const canGenerate = editable && !generateOrSave.isPending && !creditsExhausted
+  const verification = verdictStale
+    ? null
+    : (mutationVerification ?? review.latestVerification)
+  const failing =
+    verification?.verdict === "fail"
+      ? verification.reasons.filter((reason) => reason.severity === "fail")
+      : []
+  const warnings =
+    verification?.verdict === "warn"
+      ? verification.reasons.filter((reason) => reason.severity === "warn")
+      : []
+  const showFail = verification?.verdict === "fail"
+  const empty = body.trim() === ""
+  // Advice, ticked off as they type; never a gate — the verification above
+  // is the only check that can stop a publish.
+  const guidance = editable
+    ? replyGuidance({
+        body,
+        reviewerName: greetingName(
+          review.reviewerDisplayName,
+          review.reviewerIsAnonymous
+        ),
+        rating: review.rating,
+      })
+    : []
 
-  if (showSettledSummary) {
-    return (
-      <section
-        aria-labelledby={`${fieldId}-heading`}
-        className="flex flex-col gap-2"
-      >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3
-            id={`${fieldId}-heading`}
-            className="text-ui font-semibold text-ink"
+  const discardDialog = (
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialogContent aria-label="Discard your edits?">
+        <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
+        <AlertDialogDescription>
+          Regenerating replaces your unsaved changes with a new reply. You can
+          undo it straight afterwards.
+        </AlertDialogDescription>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="secondary" />}>
+            Keep editing
+          </AlertDialogClose>
+          <Button
+            onClick={() => {
+              const next = pendingTone ?? tone
+              setConfirmOpen(false)
+              setPendingTone(null)
+              setTone(next)
+              void runGenerate(next)
+            }}
           >
-            Your reply
-          </h3>
-          {provenance ? (
-            <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
-              <SparklesIcon
-                aria-hidden
-                strokeWidth={1.75}
-                className="size-3.5 shrink-0"
-              />
-              {provenance}
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
-            <CircleCheckIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0 text-success-ink"
-            />
-            In sync with Google
-          </span>
-          <span aria-hidden className="flex-1" />
+            Discard and regenerate
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
+  const generateErrorNote = generateError ? (
+    <div
+      role="alert"
+      data-slot="generate-error"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
+    >
+      <CircleAlertIcon
+        aria-hidden
+        strokeWidth={1.75}
+        className="size-4 shrink-0 text-danger-ink"
+      />
+      <span className="min-w-0 flex-[1_1_200px]">
+        <strong className="font-semibold">No reply was generated.</strong>{" "}
+        {generateError.creditsOut
+          ? aiCredits.data && creditsExhausted
+            ? describeCreditsLeft(aiCredits.data)
+            : "Out of AI credits for this month. You can still write a reply yourself."
+          : generateError.message}
+      </span>
+      <span className="flex items-center gap-2">
+        {generateError.creditsOut ? null : (
           <Button
             variant="secondary"
             size="sm"
-            pill
-            onClick={() => setEditingSettled(true)}
+            disabled={generateOrSave.isPending}
+            onClick={() => void runGenerate(generateError.tone)}
           >
-            Edit reply
+            Retry
           </Button>
-        </div>
-        <p
-          dir="auto"
-          lang={review.detectedLanguageCode ?? undefined}
-          className="rounded-(--np-radius-control) bg-surface-sunken px-4 py-3 text-body whitespace-pre-line text-ink"
-        >
-          {body}
-        </p>
-      </section>
-    )
-  }
+        )}
+        <Button variant="ghost" size="sm" onClick={writeOwn}>
+          <PenLineIcon aria-hidden data-icon="inline-start" />
+          Write my own
+        </Button>
+      </span>
+    </div>
+  ) : null
 
-  return (
-    <section
-      aria-labelledby={`${fieldId}-heading`}
-      className="flex flex-col gap-2"
+  // Tone applies to Generate, so it sits beside it, on the bar above the
+  // words: these are the prompt's controls, not part of the text.
+  const toneControl = (
+    <div
+      role="radiogroup"
+      aria-label="Reply tone"
+      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%] pointer-coarse:h-10"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <label
-          id={`${fieldId}-heading`}
-          htmlFor={fieldId}
-          className="text-ui font-semibold text-ink"
-        >
-          Your reply
-        </label>
-        {provenance ? (
-          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
-            <SparklesIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0"
-            />
-            {isDirty ? `${provenance} · unsaved edits` : provenance}
-          </span>
-        ) : null}
-        <span aria-hidden className="flex-1" />
-        {reasons.length > 0 ? (
-          <span
+      {TONES.map((option) => {
+        const selected = tone === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            title={option.hint}
+            aria-describedby={`${fieldId}-${option.value}-hint`}
+            disabled={!editable || generateOrSave.isPending}
+            onClick={() => onToneChoose(option.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 text-caption font-medium",
-              blocking > 0 ? "text-danger-ink" : "text-warning-ink"
+              "inline-flex h-full shrink-0 items-center justify-center rounded-[7px] px-2.5 text-[13px] whitespace-nowrap focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:opacity-50 @max-[480px]/detail:flex-1",
+              selected
+                ? "bg-ink font-semibold text-canvas"
+                : "text-ink-secondary hover:bg-fill hover:text-ink"
             )}
           >
-            <TriangleAlertIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0"
-            />
-            {blocking > 0
-              ? `${blocking} ${blocking === 1 ? "issue" : "issues"} to fix before publishing`
-              : `${reasons.length} ${reasons.length === 1 ? "point" : "points"} to check before publishing`}
-          </span>
-        ) : settled && !isDirty ? (
-          <span className="inline-flex items-center gap-1.5 text-caption text-ink-muted">
-            <CircleCheckIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className="size-3.5 shrink-0 text-success-ink"
-            />
-            In sync with Google
-          </span>
-        ) : null}
-      </div>
-
-      {!canEdit ? (
-        <p className="text-caption text-ink-muted">
-          You can read this reply, but you do not have permission to edit it.
-        </p>
-      ) : !canDraft ? (
-        <p className="text-caption text-ink-muted">
-          A publish for this reply is under way. You can edit it again once
-          Google answers.
-        </p>
-      ) : null}
-
-      <Textarea
-        ref={textareaRef}
-        id={fieldId}
-        lang={review.detectedLanguageCode ?? undefined}
-        dir="auto"
-        value={body}
-        readOnly={!canEdit || !canDraft}
-        aria-invalid={overLimit || undefined}
-        aria-describedby={`${fieldId}-count ${fieldId}-hint`}
-        onChange={(event) => setBody(event.target.value)}
-        onKeyDown={(event) => {
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            event.key === "Enter" &&
-            canSave
-          ) {
-            event.preventDefault()
-            void onSave()
-          }
-        }}
-        placeholder="Write a reply, or generate one to start."
-        className="min-h-28 read-only:cursor-default read-only:bg-surface-sunken"
-      />
-
-      {/* The composer's toolbar: tone and the draft tools at the leading
-          edge, the byte count and Save at the trailing edge. Publish lives in
-          the pane footer beneath — it is the one irreversible action. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Select
-          value={tone}
-          onValueChange={(value: string | null) =>
-            setTone((value ?? "warm_professional") as Tone)
-          }
-          items={TONE_ITEMS}
-          disabled={!canEdit || !canDraft}
-        >
-          <SelectTrigger
-            aria-label="Reply tone"
-            aria-describedby={`${fieldId}-tone-hint`}
-            title="Used when you generate a draft"
-            className="w-full basis-full sm:w-auto sm:max-w-56 sm:shrink-0 sm:basis-auto"
-          >
-            <span
-              aria-hidden
-              className="shrink-0 text-caption font-medium text-ink-muted"
-            >
-              Tone
-            </span>
-            <SelectValue className="flex-1 text-left" />
-          </SelectTrigger>
-          <SelectContent>
-            {TONES.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="sr-only" id={`${fieldId}-tone-hint`}>
-          Tone is used when you generate a draft
-        </span>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!canGenerate}
-          onClick={onGenerateClick}
-        >
-          <SparklesIcon
-            aria-hidden
-            strokeWidth={1.75}
-            data-icon="inline-start"
-          />
-          {generateOrSave.isPending ? "Working…" : generateLabel}
-        </Button>
-
-        {latestDraft ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={
-              !canEdit ||
-              !canDraft ||
-              verify.isPending ||
-              generateOrSave.isPending
-            }
-            onClick={() => void onReverify()}
-          >
-            <ShieldCheckIcon
-              aria-hidden
-              strokeWidth={1.75}
-              data-icon="inline-start"
-            />
-            {verify.isPending ? "Verifying…" : "Re-verify"}
-          </Button>
-        ) : null}
-
-        {canEdit && canDraft && isDirty ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={generateOrSave.isPending}
-            onClick={() => setBody(seededBody)}
-          >
-            <RotateCcwIcon
-              aria-hidden
-              strokeWidth={1.75}
-              data-icon="inline-start"
-            />
-            Revert
-          </Button>
-        ) : null}
-
-        <span aria-hidden className="flex-1" />
-
+            {option.label}
+          </button>
+        )
+      })}
+      {/* Outside the radios, so each is named by its label alone and
+          described by its hint. */}
+      {TONES.map((option) => (
         <span
-          id={`${fieldId}-count`}
-          className={cn(
-            "text-caption tabular-nums",
-            bytes === 0 && "sr-only",
-            overLimit
-              ? "text-danger-ink"
-              : nearLimit
-                ? "text-warning-ink"
-                : "text-ink-muted"
-          )}
+          key={option.value}
+          id={`${fieldId}-${option.value}-hint`}
+          className="sr-only"
         >
-          {bytes.toLocaleString("en-GB")} / {BYTE_LIMIT.toLocaleString("en-GB")}
+          {option.hint}
         </span>
-        <span role="status" className="sr-only">
-          {overLimit
-            ? "Your reply is over the 4,096-byte limit."
-            : nearLimit
-              ? "Your reply is approaching the 4,096-byte limit."
-              : ""}
-        </span>
+      ))}
+    </div>
+  )
 
-        {canEdit && canDraft ? (
+  return (
+    <div data-slot="reply-composer" className="flex min-w-0 flex-col gap-2">
+      {/* The thread's "Reply as …" heading is the visible name; the field
+          keeps its own. */}
+      <label htmlFor={fieldId} className="sr-only">
+        Your reply
+      </label>
+      {generateErrorNote}
+
+      {/* One bordered card whose edge takes the focus ring while the
+          textarea inside is borderless: the tone and Generate docked on a
+          bar above the words, the guidance and length beneath them. */}
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:shadow-[0_0_0_3px_var(--np-fill)] has-[[aria-invalid=true]]:border-danger-ink">
+        <div
+          data-slot="composer-prompt-bar"
+          className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3"
+        >
           <span
-            id={`${fieldId}-hint`}
-            className="hidden sm:inline-flex"
-            title={`Save with ${shortcut}`}
+            aria-hidden
+            className="text-caption text-ink-muted @max-[480px]/detail:hidden"
           >
-            <Kbd>{shortcut}</Kbd>
+            Tone
           </span>
-        ) : (
-          <span id={`${fieldId}-hint`} className="sr-only" />
-        )}
-
-        <Button
-          variant="secondary"
-          size="sm"
-          pill
-          disabled={!canSave}
-          onClick={() => void onSave()}
-        >
-          Save draft
-        </Button>
-      </div>
-
-      {reasons.length > 0 ? (
-        <VerificationPanel
-          verification={displayedVerification}
-          status={review.workflowStatus}
-        />
-      ) : null}
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent aria-label="Discard your edits?">
-          <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Regenerating replaces your unsaved changes with a new draft. This
-            cannot be undone.
-          </AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="secondary" />}>
-              Keep editing
-            </AlertDialogClose>
+          {toneControl}
+          <span aria-hidden className="flex-1" />
+          {editable && isDirty && seededBody !== "" ? (
             <Button
+              variant="ghost"
+              size="sm"
+              disabled={generateOrSave.isPending}
               onClick={() => {
-                setConfirmOpen(false)
-                void runGenerate()
+                setBody(seededBody)
+                setVerdictStale(false)
               }}
             >
-              Discard and regenerate
+              <RotateCcwIcon aria-hidden data-icon="inline-start" />
+              Revert
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </section>
+          ) : null}
+          <Button
+            variant={empty ? "secondary" : "ghost"}
+            size="sm"
+            disabled={!canGenerate}
+            pending={generateOrSave.isPending && !saving}
+            pendingLabel="Writing…"
+            onClick={onGenerateClick}
+          >
+            <SparklesIcon aria-hidden data-icon="inline-start" />
+            {empty ? "Generate reply" : "Regenerate"}
+          </Button>
+        </div>
+        {aiCredits.data && editable ? (
+          <p
+            data-slot="ai-credits"
+            data-exhausted={creditsExhausted || undefined}
+            className={cn(
+              "m-0 border-b border-line px-3 py-1.5 text-caption",
+              creditsExhausted ? "text-warning-ink" : "text-ink-muted"
+            )}
+          >
+            {describeCreditsLeft(aiCredits.data)}
+          </p>
+        ) : null}
+
+        <Textarea
+          ref={textareaRef}
+          id={fieldId}
+          lang={review.detectedLanguageCode ?? undefined}
+          dir="auto"
+          value={body}
+          readOnly={!editable}
+          aria-invalid={overLimit || showFail || undefined}
+          aria-describedby={
+            [
+              showFail ? `${fieldId}-problem` : null,
+              nearLimit || overLimit ? `${fieldId}-count` : null,
+              guidance.length > 0 ? `${fieldId}-guidance` : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
+          aria-keyshortcuts="Meta+Enter Control+Enter"
+          onChange={(event) => {
+            setBody(event.target.value)
+            setVerdictStale(true)
+          }}
+          onKeyDown={(event) => {
+            // The key does exactly what the publish bar's button does, by
+            // asking the bar to press it.
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault()
+              window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+            }
+          }}
+          placeholder="Write a reply, or generate one in the chosen tone."
+          className={cn(
+            "min-h-[160px] rounded-none border-0 bg-transparent px-4 pt-3.5 pb-3 text-[15px] leading-relaxed shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            generateOrSave.isPending && !saving && "animate-pulse"
+          )}
+        />
+
+        {guidance.length > 0 || nearLimit || overLimit ? (
+          <div
+            data-slot="composer-foot"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5"
+          >
+            {guidance.length > 0 ? (
+              <ul
+                id={`${fieldId}-guidance`}
+                aria-label="Reply guidance"
+                data-slot="reply-guidance"
+                className="m-0 flex min-w-0 flex-[1_1_auto] list-none flex-wrap items-center gap-x-3.5 gap-y-1 p-0 text-caption"
+              >
+                {guidance.map((item) => (
+                  <li
+                    key={item.id}
+                    data-met={item.met}
+                    className={cn(
+                      "inline-flex items-center gap-1.5",
+                      item.met ? "text-ink" : "text-ink-muted"
+                    )}
+                  >
+                    {item.met ? (
+                      <CircleCheckIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-success-ink"
+                      />
+                    ) : (
+                      <CircleIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-faint"
+                      />
+                    )}
+                    {item.label}
+                    <span className="sr-only">
+                      {item.met ? ": done" : ": not yet"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {nearLimit || overLimit ? (
+              <span
+                id={`${fieldId}-count`}
+                data-slot="length-note"
+                className={cn(
+                  "ml-auto text-caption",
+                  overLimit
+                    ? "font-semibold text-danger-ink"
+                    : "text-warning-ink"
+                )}
+              >
+                {overLimit
+                  ? `Over Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
+                  : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <span role="status" className="sr-only">
+          {overLimit
+            ? "Your reply is over Google's length limit."
+            : nearLimit
+              ? "Your reply is nearly at Google's length limit."
+              : ""}
+        </span>
+      </div>
+
+      {showFail ? (
+        <p
+          id={`${fieldId}-problem`}
+          role="alert"
+          data-slot="reply-problem"
+          className="flex items-start gap-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
+        >
+          <CircleAlertIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="mt-px size-4 shrink-0 text-danger-ink"
+          />
+          <span>
+            <strong className="font-semibold">Can&rsquo;t publish yet.</strong>{" "}
+            {failing.map((reason) => reason.message).join(" ")} Edit the reply
+            and try again.
+          </span>
+        </p>
+      ) : warnings.length > 0 ? (
+        <p
+          data-slot="reply-note"
+          className="flex items-start gap-1.5 text-caption text-ink-muted"
+        >
+          <InfoIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="mt-px size-3.5 shrink-0"
+          />
+          <span>{warnings.map((reason) => reason.message).join(" ")}</span>
+        </p>
+      ) : null}
+
+      {discardDialog}
+    </div>
   )
 }
 

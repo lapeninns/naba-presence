@@ -227,6 +227,7 @@ describe(".env.example", () => {
           "PERFORMANCE_INTERVAL_SECONDS",
           "KEYWORD_INTERVAL_SECONDS",
           "PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS",
+          "HEALTH_INTERVAL_SECONDS",
           "RETENTION_ENABLED",
         ])
     )

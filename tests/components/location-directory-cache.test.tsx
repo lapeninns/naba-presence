@@ -2,13 +2,27 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { LocationsIndex } from "@/components/locations/locations-index"
 import { queryKeys } from "@/lib/queries/keys"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
 import * as locationsApi from "@/lib/api/locations"
 
 // Regression guards for two cache bugs that primary-location resolution would
 // otherwise read straight into: a shape collision on the directory key, and a
 // key namespace that let one import drop every per-location cache.
+
+/** The smallest consumer: every listing surface reads the directory this way. */
+function DirectoryNames({ role }: { role: string }) {
+  const directory = useLocationDirectory(role)
+  return (
+    <ul>
+      {(directory.data ?? []).map((entry) => (
+        <li key={entry.id}>
+          <a href={`/listings/${entry.id}`}>{entry.name}</a>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 describe("location directory cache", () => {
   it.each([
@@ -41,7 +55,7 @@ describe("location directory cache", () => {
       })
       render(
         <QueryClientProvider client={client}>
-          <LocationsIndex role={role} />
+          <DirectoryNames role={role} />
         </QueryClientProvider>
       )
       await screen.findByRole("link", { name: "Riverside" })

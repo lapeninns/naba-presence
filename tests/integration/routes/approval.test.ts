@@ -317,6 +317,39 @@ describeDatabase("reply approval", () => {
       decision: "rejected",
       note: "Please make the reply more specific.",
     })
+
+    // The author reads the note on the review itself; it used to be stored
+    // and never returned.
+    const detail = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: requester.cookie } }
+    )
+    expect(detail.status).toBe(200)
+    const body = (await detail.json()) as {
+      review: {
+        lastRejection: { note: string | null; decidedAt: string } | null
+        timeline: { action: string; metadataSummary: string | null }[]
+      }
+    }
+    expect(body.review.lastRejection?.note).toBe(
+      "Please make the reply more specific."
+    )
+    expect(typeof body.review.lastRejection?.decidedAt).toBe("string")
+    expect(
+      body.review.timeline.find(
+        (event) => event.action === "review.approval.rejected"
+      )?.metadataSummary
+    ).toBe("Note: Please make the reply more specific.")
+
+    // Resubmitting takes it out of draft, and the old rejection goes with it.
+    const again = await publish(fixture, requester.cookie)
+    expect(again.status, await again.clone().text()).toBe(202)
+    const resubmitted = (await (
+      await fetch(`${server.baseUrl}/api/reviews/${fixture.review.reviewId}`, {
+        headers: { cookie: requester.cookie },
+      })
+    ).json()) as { review: { lastRejection: unknown } }
+    expect(resubmitted.review.lastRejection).toBeNull()
   })
 
   it("forbids a viewer from approving", async () => {

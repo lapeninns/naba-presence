@@ -5,12 +5,12 @@ begin;
 --
 -- runGbpWrite now recovers an attempt left in flight by an interrupted
 -- request instead of 409ing it until its retention TTL expires
--- (lib/server/gbp-write.ts, "In-flight recovery"). Deciding that a row was
--- interrupted rather than still running needs its start time, and
--- food_menus_sync_attempt is the one resume-mode attempt table without one --
--- hours_sync_attempt (0013) and profile_sync_attempt (0016) both have
--- `started_at`. A row with no start time keeps the plain 409, so this column
--- is what switches Food Menus onto the recovery path.
+-- (docs/architecture.md, "Ambiguous, failed, and interrupted writes").
+-- Deciding that a row was interrupted rather than still running needs its
+-- start time, and food_menus_sync_attempt is the one resume-mode attempt
+-- table without one -- hours_sync_attempt (0013) and profile_sync_attempt
+-- (0016) both have `started_at`. A row with no start time keeps the plain
+-- 409, so this column is what switches Food Menus onto the recovery path.
 --
 -- Recovery happens inside the next request for the same key rather than in an
 -- out-of-band reaper, so no lease column is added here: there is nothing to

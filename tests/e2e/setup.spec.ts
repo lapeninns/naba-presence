@@ -17,7 +17,9 @@ test.describe("client setup", () => {
     await applyCookie(page, baseURL, state.cookie)
   })
 
-  test("resumes at the step the data has actually reached", async ({ page }) => {
+  test("resumes at the step the data has actually reached", async ({
+    page,
+  }) => {
     // Nothing about the operator's progress is stored: every answer is derived
     // from what exists, so a bare /setup?client=… lands where the work is.
     const state = await readJourneyState()
@@ -26,11 +28,10 @@ test.describe("client setup", () => {
       page.getByRole("heading", { name: "Client setup", level: 1 })
     ).toBeVisible()
     const stepper = page.getByRole("list", { name: "Setup steps" })
-    await expect(stepper.getByRole("listitem")).toHaveCount(8)
+    // The client's own six steps plus Done; agency and client come before.
+    await expect(stepper.getByRole("listitem")).toHaveCount(7)
     // Exactly one step is current, whichever the data resolved to.
-    await expect(
-      stepper.locator("[aria-current='step']")
-    ).toHaveCount(1)
+    await expect(stepper.locator("[aria-current='step']")).toHaveCount(1)
   })
 
   test("lets an operator step back without losing completed work", async ({
@@ -44,7 +45,7 @@ test.describe("client setup", () => {
     // Both routes are offered: the first client needs a fresh consent, the
     // tenth is usually on a login the agency already connected.
     await expect(
-      page.getByRole("button", { name: /Continue with Google/ })
+      page.getByRole("button", { name: /Sign in with Google/ })
     ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Use an account already connected" })

@@ -70,8 +70,9 @@ database is unavailable.
     a jobs tick that drains due webhook, checkpoint, and publish-recovery work
     through `/api/jobs/run` — run as Vercel Cron entries (`vercel.json`)
     firing the cron-authenticated GET handlers on those routes. `CRON_SECRET`
-    must be set on the Vercel project or every tick answers 401. Any other
-    host runs the web process and one scheduler process:
+    must be set on the Vercel project or every tick answers 401. Outside
+    Vercel — a local production build, for instance — the same loops need the
+    web process and one scheduler process:
 
     ```bash
     pnpm start
@@ -111,27 +112,18 @@ review with `pnpm supabase db push --dry-run`, and then use
 `pnpm supabase db push`. The existing `pnpm db:migrate` command remains
 available for deployments to a direct PostgreSQL URL.
 
-### Production-style Docker Compose
+### Production
 
-Run the complete local production stack without changing `.env`:
-
-```bash
-docker compose up --build
-```
-
-This separate stack starts a plain PostgreSQL 17 container, applies migrations
-once, starts the standalone web image, and starts the reconciliation/retention
-scheduler with its jobs worker tick. Use it to exercise the production
-container topology; normal local
-development uses Supabase CLI above. PostgreSQL is exposed only on
-`127.0.0.1:54329`. The loopback-only stack enables a local owner bootstrap
-session, so it does not require hosted Supabase or Google OAuth.
-`NABAPRESENCE_NODE_IMAGE` can override the default `node:22-alpine` build image.
-Remove this disposable Compose database with:
-
-```bash
-docker compose down --volumes
-```
+Production runs on Vercel, and only on Vercel. The deployment is the web
+process; the seven background loops are the Vercel Cron entries in
+`vercel.json`; the database is a managed PostgreSQL 17 instance reached through
+`DATABASE_URL` (the non-superuser runtime role) and `DIRECT_DATABASE_URL`
+(migrations only). There is no container image and no self-hosted stack to
+run: the repository used to carry a production-topology Docker Compose file and
+a Dockerfile, nothing in CI ever built or booted them, and both have been
+deleted rather than left standing as untested infrastructure. The Supabase CLI
+loop above is the supported local environment, and `docs/runbook.md` covers the
+deployment gate, the kill switches and the rollback unit.
 
 ## Code map
 
@@ -164,23 +156,36 @@ docker compose down --volumes
 
 ## Validation
 
-The gate every change must pass, in this order:
+The gate every change must pass locally:
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:integration
+pnpm verify        # typecheck + lint + unit tests, no database: before every push
+pnpm verify:full   # verify + build + integration (needs the local Supabase stack)
 ```
 
-`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately.
+`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately. Run
+`verify:full` and the browser suites when a change touches server code, the
+database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
+runs `pnpm verify`.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
-contract applies only `0001_initial.sql`. CI separately runs `pnpm db:migrate`
-against PostgreSQL 17, creates a non-superuser runtime login with
-`pnpm db:runtime-role`, builds the standalone server, and runs the integration
-and browser suites through that runtime role.
+contract applies only `0001_initial.sql`. CI runs everything as a parallel
+graph behind one required check, `CI result`. It migrates PostgreSQL 17 from
+scratch and from `main`, creates a non-superuser runtime login with
+`pnpm db:runtime-role`, builds the standalone server, and runs the
+integration and browser suites through that runtime role. See
+[`docs/ci.md`](docs/ci.md) for the job graph, the migration rules and how to
+debug a red run.
 
-Development and production builds intentionally use Next.js 16’s supported
-webpack path because Turbopack can spawn runaway PostCSS workers in this
-project.
+Development runs on Turbopack, the default bundler in Next.js 16. This note
+previously pinned both dev and build to the webpack path because Turbopack
+was spawning runaway PostCSS workers here. That no longer reproduces on
+16.2.6: a cold Turbopack server compiled every dashboard route in
+0.17–0.52s against webpack’s 1–3.6s, holding one PostCSS worker throughout.
+
+Production builds stay on webpack (`next build --webpack`). That is the path
+CI validates end to end, through `scripts/prepare-standalone.mjs` and the
+standalone server, and dev-server speed is no argument for moving it.
 
 ## Email and password authentication
 
@@ -228,14 +233,38 @@ verification token can be required in addition. Google API access, OAuth
 verification, end-client authorisation, and the storage-policy interpretation
 must be approved before general availability.
 
+The OAuth app must be **In production**, not Testing: in Testing Google issues
+seven-day refresh tokens and every connection breaks weekly. For revocation
+notices within a minute, register a Cross-Account Protection (RISC) stream at:
+
+```text
+POST {NEXTAUTH_URL}/api/webhooks/google/risc
+```
+
+(`docs/runbook.md`, "RISC"). Without it, revocations are caught at the next
+token refresh or API call.
+
 ## Operational references
 
 - [Architecture and data controls](docs/architecture.md)
 - [Operations runbook](docs/runbook.md)
+- [Observability and alert rules](docs/observability.md)
+- [Connect once, return daily: implementation record](docs/specs/2026-09-23-connect-once-implementation.md)
+- Environment variables: every key the server reads is documented in
+  [`.env.example`](.env.example) (pinned by `tests/env-flags.test.ts`)
 - [Requirement traceability matrix](docs/requirements-matrix.md)
 - [Backend, API, and frontend feature map](docs/frontend-backend-feature-map.md)
 - [Design-system palette specification](docs/specs/2026-07-28-design-system.md)
-- [Full design-system replacement specification](docs/superpowers/specs/2026-07-29-full-design-system-replacement-design.md)
-- [Full design-system replacement plan](docs/superpowers/plans/2026-07-29-full-design-system-replacement.md)
-- Production design-system proof surface: [`/design-system`](/design-system)
-- [UI DS-idiom rebuild design](docs/superpowers/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)
+- Design-system evidence surface: `/design-system` — the rendered contrast
+  pairs and component hierarchy the accessibility sweep walks. Internal
+  evidence, not a product surface: `DESIGN_SYSTEM_EVIDENCE_ENABLED` defaults
+  off in production, so it is not served there.
+
+The 2026-07 frontend rebuild is archived under
+[`docs/archive/2026-07-frontend-rebuild/`](docs/archive/2026-07-frontend-rebuild/README.md).
+Those documents are a historical record: their branch, workflow, testing, and
+commit instructions no longer apply.
+
+- [Full design-system replacement specification](docs/archive/2026-07-frontend-rebuild/specs/2026-07-29-full-design-system-replacement-design.md)
+- [Full design-system replacement plan](docs/archive/2026-07-frontend-rebuild/plans/2026-07-29-full-design-system-replacement.md)
+- [UI DS-idiom rebuild design](docs/archive/2026-07-frontend-rebuild/specs/2026-07-28-ui-ds-idiom-rebuild-design.md)

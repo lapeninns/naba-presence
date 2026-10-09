@@ -21,6 +21,7 @@ function PasswordField({
   error,
   describedBy,
   autoFocus,
+  labelAside,
 }: {
   label: string
   name: string
@@ -30,32 +31,40 @@ function PasswordField({
   error?: string
   describedBy?: React.ReactNode
   autoFocus?: boolean
+  /** A route out beside the label, e.g. "Forgot password?". */
+  labelAside?: React.ReactNode
 }) {
   const [visible, setVisible] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
   return (
     <Field error={error}>
-      <FieldLabel>{label}</FieldLabel>
+      {labelAside ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-3">
+          <FieldLabel>{label}</FieldLabel>
+          {labelAside}
+        </div>
+      ) : (
+        <FieldLabel>{label}</FieldLabel>
+      )}
       <div className="relative">
         <Input
           name={name}
           type={visible ? "text" : "password"}
           autoComplete={autoComplete}
           autoFocus={autoFocus}
-          className="pr-10"
+          className="pr-12"
           value={value}
           onChange={(event) => onValueChange(event.currentTarget.value)}
           onKeyUp={(event) =>
             setCapsLock(event.getModifierState?.("CapsLock") ?? false)
           }
         />
-        <span className="absolute inset-y-0 right-1 flex items-center">
+        <span className="absolute inset-y-0 right-[3px] flex items-center">
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            pill
-            className="text-ink-muted hover:text-ink"
+            className="size-8 rounded-md text-ink-muted hover:text-ink pointer-coarse:size-10"
             accessibleNameFromChildren
             onClick={() => setVisible((current) => !current)}
           >

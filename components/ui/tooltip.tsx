@@ -34,8 +34,10 @@ type PositionProps = Pick<
 >
 
 /**
- * A small dark pill. Caption is the floor (12px), never smaller; the fade
- * is quick and springs from the anchor side.
+ * A small charcoal label (the counter-surface, like toasts): caption text in
+ * the on-charcoal ink, control radius. In the dark theme charcoal is
+ * near-white with dark text. Never the only home of information a touch
+ * user needs; a tooltip does not open on touch.
  */
 function TooltipContent({
   className,
@@ -58,7 +60,7 @@ function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           className={cn(
-            "max-w-xs origin-(--transform-origin) rounded-(--np-radius-pill) bg-ink px-2.5 py-1 text-caption font-medium text-ink-inverse shadow-(--np-shadow-raised) outline-none text-balance",
+            "max-w-xs origin-(--transform-origin) rounded-(--np-radius-control) bg-charcoal px-2 py-1 text-caption font-medium text-balance text-ink-on-charcoal shadow-np-pop outline-none",
             "transition-[opacity,scale] duration-(--np-duration-fast) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-instant:duration-0",
             className
           )}

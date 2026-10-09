@@ -375,6 +375,19 @@ export async function preparePublish(
     const record = await loadPublishRecord(sql, input)
     await requireLocationAccess(sql, input.session, record.location_id)
     assertDraftPublishable(record, input.expectedReviewUpdateTime)
+    // An approver's rejection returns the review to `drafted`, and the
+    // workflow trigger (0006) only lets `verified` move on to
+    // `awaiting_approval` or `publish_requested`. The gates above have just
+    // proved this draft is checked and current, so record that before moving
+    // on: resubmitting (or publishing) the unchanged reply after a rejection
+    // otherwise failed with a 500 on `drafted -> awaiting_approval`. Rolled
+    // back with the rest of the transaction if a later gate refuses.
+    await sql`
+      update review
+      set workflow_status = 'verified'
+      where id = ${input.reviewId}
+        and workflow_status = 'drafted'
+    `
 
     const canPublish = await canPublishLocation(
       sql,

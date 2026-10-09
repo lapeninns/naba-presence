@@ -39,12 +39,15 @@ const keywordIntervalMs =
 const presenceResourceIntervalMs =
   interval("PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS", 900, 300) * 1000
 const sweepIntervalMs = interval("SWEEP_INTERVAL_SECONDS", 86400, 3600) * 1000
-// The one flag the scheduler still reads. The GBP surfaces return a benign
-// no-op when their kill switch is off, so gating them here only duplicated
-// the web process's decision; retention answers a paused switch with a 503,
-// which would otherwise be logged as a failed tick for as long as the pause
-// lasts.
+// Matches vercel.json's */15 schedule for /api/cron/health.
+const healthIntervalMs = interval("HEALTH_INTERVAL_SECONDS", 900, 300) * 1000
+// The two flags the scheduler reads. The GBP surfaces return a benign no-op
+// when their kill switch is off, so gating them here only duplicated the web
+// process's decision. Retention and the health tick answer a paused switch
+// with a 503, which would otherwise be logged as a failed tick for as long as
+// the pause lasts.
 const retentionEnabled = featureFlag("RETENTION_ENABLED", true)
+const notificationsEnabled = featureFlag("NOTIFICATIONS_ENABLED", true)
 
 function log(level, event, context = {}) {
   const record = JSON.stringify({
@@ -238,6 +241,29 @@ async function runRetention() {
   completion("retention", walk, startedAt, { organisations, failures })
 }
 
+/**
+ * The health tick: evaluates every organisation into incidents, sends what
+ * is due and checks the platform, under the `naba:health` lease that also
+ * stamps its heartbeat. Vercel ran it every 15 minutes; the self-hosted
+ * scheduler never did, so on a self-hosted deployment no notification was
+ * ever evaluated or sent and ops health reported the tick as stale for ever.
+ */
+async function runHealth() {
+  const startedAt = performance.now()
+  const result = await post("/api/cron/health", {})
+  if (result?.skipped === true) return noteSkip("health")
+  noteRun("health")
+  log("info", "health.completed", {
+    organisations: result?.organisations ?? 0,
+    opened: result?.opened ?? 0,
+    resolved: result?.resolved ?? 0,
+    sent: result?.sent ?? 0,
+    failed: result?.failed ?? 0,
+    errors: result?.errors ?? 0,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
 async function runJobs() {
   const startedAt = performance.now()
   const result = await post("/api/jobs/run", {})
@@ -355,11 +381,11 @@ async function runPresenceResources() {
  * `provider_deleted_at` was never set outside a hand-made request and a
  * deleted review stayed in the inbox for ever.
  *
- * One organisation and five pages per request: the route has no wall-clock
- * budget of its own, and a sweep reads every page of a location's history, so
- * the bound has to come from the request size. A location with more history
- * than that parks its checkpoint at 'pending' and the job runner carries it
- * on -- sweep is one of the two sync types claim_due_jobs claims.
+ * A cron-token POST queues the whole fleet in one statement
+ * (`enqueueFleetSweep` in app/api/sync/sweep/route.ts) and ignores any body;
+ * the job runner then walks each location's history, since sweep is one of
+ * the sync types claim_due_jobs claims. The walk below therefore ends after
+ * its first page (`nextCursor` is always null).
  */
 async function runSweep() {
   const startedAt = performance.now()
@@ -367,12 +393,7 @@ async function runSweep() {
   let failures = 0
   const walk = await paginate(
     "sweep",
-    (cursor) =>
-      post("/api/sync/sweep", {
-        organisationCursor: cursor,
-        maxOrganisations: 1,
-        maxPagesPerLocation: 5,
-      }),
+    () => post("/api/sync/sweep", {}),
     (page) => {
       organisations += page.processed ?? 0
       failures += page.failures?.length ?? 0
@@ -465,6 +486,9 @@ const stopRetention = retentionEnabled
     )
   : () => {}
 const stopJobs = recurring("jobs", runJobs, jobsIntervalMs, 10_000)
+const stopHealth = notificationsEnabled
+  ? recurring("health", runHealth, healthIntervalMs, 50_000)
+  : () => {}
 const stopPerformance = recurring(
   "performance",
   runPerformance,
@@ -497,6 +521,7 @@ function shutdown(signal) {
   stopReconciliation()
   stopRetention()
   stopJobs()
+  stopHealth()
   stopPerformance()
   stopKeywords()
   stopPresenceResources()
@@ -512,6 +537,8 @@ log("info", "scheduler.started", {
   retentionEnabled,
   retentionIntervalSeconds: retentionIntervalMs / 1000,
   jobsIntervalSeconds: jobsIntervalMs / 1000,
+  notificationsEnabled,
+  healthIntervalSeconds: healthIntervalMs / 1000,
   performanceIntervalSeconds: performanceIntervalMs / 1000,
   keywordIntervalSeconds: keywordIntervalMs / 1000,
   presenceResourceIntervalSeconds: presenceResourceIntervalMs / 1000,

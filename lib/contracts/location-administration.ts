@@ -1,20 +1,35 @@
 // Contract for /api/locations/[id]/administration. Client-safe: zod only.
 import { z } from "zod"
 
-import { gbpMutationWithResponseResultSchema, sectionResultSchema } from "./gbp-management"
+import {
+  gbpMutationWithResponseResultSchema,
+  sectionResultSchema,
+} from "./gbp-management"
 
 export { sectionResultSchema, type SectionResult } from "./gbp-management"
 
 // --- GET ------------------------------------------------------------------
 
+export const administrationFailureSchema = z.enum([
+  "permission_denied",
+  "reconnect_required",
+  "not_found",
+  "transient",
+  "unknown",
+])
+export type AdministrationFailure = z.infer<typeof administrationFailureSchema>
+const administrationSectionSchema = sectionResultSchema.extend({
+  failure: administrationFailureSchema.optional(),
+})
+
 export const administrationStateSchema = z.object({
-  voice: sectionResultSchema,
-  verifications: sectionResultSchema,
-  verificationOptions: sectionResultSchema,
-  googleUpdated: sectionResultSchema,
-  locationAdmins: sectionResultSchema,
-  accountAdmins: sectionResultSchema,
-  invitations: sectionResultSchema,
+  voice: administrationSectionSchema,
+  verifications: administrationSectionSchema,
+  verificationOptions: administrationSectionSchema,
+  googleUpdated: administrationSectionSchema,
+  locationAdmins: administrationSectionSchema,
+  accountAdmins: administrationSectionSchema,
+  invitations: administrationSectionSchema,
   accountName: z.string(),
   googleLocationName: z.string(),
   canManage: z.boolean(),
@@ -25,7 +40,9 @@ export type AdministrationState = z.infer<typeof administrationStateSchema>
 export const administrationResponseSchema = z.object({
   administration: administrationStateSchema,
 })
-export type AdministrationResponse = z.infer<typeof administrationResponseSchema>
+export type AdministrationResponse = z.infer<
+  typeof administrationResponseSchema
+>
 
 // Google admin / invitation rows as the account-management API returns them.
 // They arrive inside the freeform `locationAdmins` / `accountAdmins` /
@@ -56,8 +73,12 @@ export const administrationMatchSchema = z.object({
 })
 export type AdministrationMatchBody = z.infer<typeof administrationMatchSchema>
 
-export const administrationMatchResponseSchema = z.object({ matches: z.unknown() })
-export type AdministrationMatchResponse = z.infer<typeof administrationMatchResponseSchema>
+export const administrationMatchResponseSchema = z.object({
+  matches: z.unknown(),
+})
+export type AdministrationMatchResponse = z.infer<
+  typeof administrationMatchResponseSchema
+>
 
 // --- PATCH ----------------------------------------------------------------
 
@@ -75,7 +96,9 @@ export const ADMINISTRATION_OPERATIONS = [
   "accept_google_update",
 ] as const
 export const administrationOperationSchema = z.enum(ADMINISTRATION_OPERATIONS)
-export type AdministrationOperation = z.infer<typeof administrationOperationSchema>
+export type AdministrationOperation = z.infer<
+  typeof administrationOperationSchema
+>
 
 /** Each operation must be sent with exactly this confirmation literal. */
 export const ADMINISTRATION_CONFIRMATIONS = {
@@ -92,11 +115,54 @@ export const ADMINISTRATION_CONFIRMATIONS = {
   accept_google_update: "accept_google_suggested_update",
 } as const satisfies Record<AdministrationOperation, string>
 
-export const DANGER_ZONE_OPERATIONS: ReadonlySet<AdministrationOperation> = new Set<AdministrationOperation>([
-  "delete_admin",
-  "transfer_location",
-  "delete_location",
-])
+export const DANGER_ZONE_OPERATIONS: ReadonlySet<AdministrationOperation> =
+  new Set<AdministrationOperation>([
+    "delete_admin",
+    "transfer_location",
+    "delete_location",
+  ])
+
+// One Google resource-id segment. Deliberately excludes `/`, `.`, `%`, `?`,
+// `#` and whitespace: the server interpolates these names into Google URL
+// paths, so a segment must never be able to traverse, re-encode a slash, or
+// start a query string or fragment.
+const GOOGLE_ID_SEGMENT = "[A-Za-z0-9_-]+"
+
+/**
+ * The exact Google resource-name shape each name-bearing operation targets.
+ * The shape alone does not authorise anything: the server additionally
+ * requires the parent to be the linked location or account
+ * (lib/server/location-administration.ts).
+ */
+export const ADMINISTRATION_RESOURCE_NAME_PATTERNS = {
+  complete_verification: new RegExp(
+    `^locations/${GOOGLE_ID_SEGMENT}/verifications/${GOOGLE_ID_SEGMENT}$`
+  ),
+  update_admin: new RegExp(
+    `^(?:accounts|locations)/${GOOGLE_ID_SEGMENT}/admins/${GOOGLE_ID_SEGMENT}$`
+  ),
+  delete_admin: new RegExp(
+    `^(?:accounts|locations)/${GOOGLE_ID_SEGMENT}/admins/${GOOGLE_ID_SEGMENT}$`
+  ),
+  accept_invitation: new RegExp(
+    `^accounts/${GOOGLE_ID_SEGMENT}/invitations/${GOOGLE_ID_SEGMENT}$`
+  ),
+  decline_invitation: new RegExp(
+    `^accounts/${GOOGLE_ID_SEGMENT}/invitations/${GOOGLE_ID_SEGMENT}$`
+  ),
+} as const satisfies Partial<Record<AdministrationOperation, RegExp>>
+
+export type AdministrationNamedOperation =
+  keyof typeof ADMINISTRATION_RESOURCE_NAME_PATTERNS
+
+export function isAdministrationNamedOperation(
+  operation: AdministrationOperation
+): operation is AdministrationNamedOperation {
+  return Object.hasOwn(ADMINISTRATION_RESOURCE_NAME_PATTERNS, operation)
+}
+
+export const INVALID_ADMINISTRATION_RESOURCE_NAME =
+  "Enter a valid Google resource name for this operation."
 
 export const administrationMutationSchema = z
   .object({
@@ -113,8 +179,26 @@ export const administrationMutationSchema = z
         message: `Confirmation must be “${expected}”.`,
       })
     }
+    if (isAdministrationNamedOperation(value.operation)) {
+      const name = value.payload.name
+      if (
+        typeof name !== "string" ||
+        !ADMINISTRATION_RESOURCE_NAME_PATTERNS[value.operation].test(name)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", "name"],
+          message: INVALID_ADMINISTRATION_RESOURCE_NAME,
+        })
+      }
+    }
   })
-export type AdministrationMutation = z.infer<typeof administrationMutationSchema>
+export type AdministrationMutation = z.infer<
+  typeof administrationMutationSchema
+>
 
-export const administrationMutationResultSchema = gbpMutationWithResponseResultSchema
-export type AdministrationMutationResult = z.infer<typeof administrationMutationResultSchema>
+export const administrationMutationResultSchema =
+  gbpMutationWithResponseResultSchema
+export type AdministrationMutationResult = z.infer<
+  typeof administrationMutationResultSchema
+>

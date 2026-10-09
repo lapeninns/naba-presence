@@ -7,7 +7,10 @@ import {
   type ResetRequestInput,
   type SignInInput,
 } from "@/lib/contracts/auth"
-import { invitationLookupSchema } from "@/lib/contracts/invitations"
+import {
+  invitationAcceptedResponseSchema,
+  invitationLookupSchema,
+} from "@/lib/contracts/invitations"
 
 export async function signIn(input: SignInInput): Promise<void> {
   await apiFetch("/api/auth/password/login", { method: "POST", body: input })
@@ -53,8 +56,31 @@ export async function resendConfirmation(
   })
 }
 
-export async function signOut(): Promise<void> {
-  await apiFetch("/api/session", { method: "DELETE" })
+export async function signOut(
+  options: { everywhere?: boolean } = {}
+): Promise<void> {
+  await apiFetch(
+    options.everywhere ? "/api/session?scope=all" : "/api/session",
+    {
+      method: "DELETE",
+    }
+  )
+}
+
+/**
+ * Ends the support impersonation the current cookie carries: records
+ * `support.impersonation.ended` and clears the session.
+ */
+export async function endImpersonation(): Promise<void> {
+  await apiFetch("/api/support/impersonation", { method: "DELETE" })
+}
+
+/** Accepts an invitation with the session the visitor already holds. */
+export async function acceptInvitation(token: string) {
+  return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
+    method: "POST",
+    schema: invitationAcceptedResponseSchema,
+  })
 }
 
 export async function lookupInvitation(

@@ -8,7 +8,12 @@ import {
   verificationVerdict,
   type VerificationReason,
 } from "@/lib/domain/verification"
-import { semanticVerification, type SemanticInput } from "@/lib/server/ai"
+import {
+  AiOutputError,
+  semanticVerification,
+  type AiUsage,
+  type SemanticInput,
+} from "@/lib/server/ai"
 import { sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
 
@@ -58,13 +63,16 @@ export function buildEvidenceHash(input: EvidenceInput): string {
 export type SemanticOutcome = {
   status: "ran" | "skipped" | "unavailable"
   reasons: VerificationReason[]
+  /** Provider usage when the call completed; recorded by the caller. */
+  usage?: AiUsage
+  model?: string
 }
 
 const SEMANTIC_UNAVAILABLE: VerificationReason = {
   code: "semantic_verification_unavailable",
   severity: "warn",
   message:
-    "The AI verification pass could not run. Re-verify before publishing.",
+    "The AI verification pass could not run, so only the rule checks were applied. Read the reply carefully before publishing.",
 }
 
 /**
@@ -81,7 +89,12 @@ export async function runSemanticVerification(
   try {
     const result = await semanticVerification(input)
     return result.ran
-      ? { status: "ran", reasons: result.reasons }
+      ? {
+          status: "ran",
+          reasons: result.reasons,
+          usage: result.usage,
+          model: result.model,
+        }
       : { status: "skipped", reasons: [] }
   } catch (error) {
     // A provider that is down or rate-limiting must not lose the reply the
@@ -91,7 +104,14 @@ export async function runSemanticVerification(
       error instanceof ApiError &&
       (error.status === 429 || error.status >= 500)
     ) {
-      return { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
+      // An unreadable 200 was still billed: carry its usage to the ledger.
+      return {
+        status: "unavailable",
+        reasons: [SEMANTIC_UNAVAILABLE],
+        ...(error instanceof AiOutputError
+          ? { usage: error.usage, model: error.model }
+          : {}),
+      }
     }
     throw error
   }

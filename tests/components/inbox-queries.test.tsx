@@ -72,7 +72,7 @@ describe("useReviews", () => {
 describe("useReviewCounts", () => {
   it("scopes the key and the query to a locationId", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      jsonResponse({ total: 1, byStatus: { new: 1 }, byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } })
+      jsonResponse({ total: 1, byStatus: { new: 1 }, byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } })
     )
     vi.stubGlobal("fetch", fetchMock)
     const client = newClient()
@@ -88,7 +88,7 @@ describe("useReviewCounts", () => {
 
   it("uses the organisation scope when no location is given", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      jsonResponse({ total: 0, byStatus: {}, byQueue: { needs_reply: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } })
+      jsonResponse({ total: 0, byStatus: {}, byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } })
     )
     vi.stubGlobal("fetch", fetchMock)
     const client = newClient()

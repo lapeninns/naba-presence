@@ -1,7 +1,10 @@
 import { AccessDeniedPage } from "@/components/app-shell/access-denied"
-import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
+import { PageFrame } from "@/components/app-shell/page-frame"
 import { ClientSettings } from "@/components/clients/client-settings"
 import { getSession } from "@/lib/server/session"
+import { redirectOutOfClientLayer } from "@/lib/server/workspace-redirect"
+
+export const metadata = { title: "Client settings · NabaPresence" }
 
 export default async function ClientSettingsPage({
   params,
@@ -10,17 +13,15 @@ export default async function ClientSettingsPage({
 }) {
   const { clientId } = await params
   const session = await getSession()
+  redirectOutOfClientLayer(session, `/clients/${clientId}/settings`)
   if (session && session.role !== "owner" && session.role !== "admin") {
     return <AccessDeniedPage area="Client settings" />
   }
 
+  // The header names the client, so it is drawn by the settings component
+  // once the client has loaded.
   return (
     <PageFrame>
-      <PageHeader
-        title="Client settings"
-        eyebrow="Client"
-        description="Rename the client, file its locations, or archive it."
-      />
       <ClientSettings clientId={clientId} />
     </PageFrame>
   )

@@ -1,4 +1,5 @@
 import { Check } from "lucide-react"
+import Link from "next/link"
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
@@ -9,16 +10,24 @@ export type Step = {
   state: "done" | "current" | "todo"
   /** One short line: who, when, or why this step is where it is. */
   meta?: string
+  /** Makes the step a link (a wizard step the operator may revisit). */
+  href?: string
+  /** A trailing note such as "Optional". */
+  note?: string
 }
 
 /**
- * Progress through an ordered flow: the setup wizard, and the reply lifecycle
- * in the review pane.
+ * Progress through an ordered flow (reference `.stepper`).
  *
- * `ol` with `aria-current="step"` on the active item, which is the whole
- * accessible contract — the connecting lines and the tick are decorative, and
- * every state is also stated in the label or its meta line rather than being
- * carried by colour.
+ * Each step has a 22px mono number ring: done is the ok tint with a tick,
+ * current is the accent solid (and, vertically, the whole row sits on the
+ * accent tint), to-do is the control edge. `ol` with `aria-current="step"`
+ * on the active item is the accessible contract; the rings and rules are
+ * decorative, and every state is also in words (label, meta, note).
+ *
+ * `vertical` is the setup rail; `horizontal` a compact row that scrolls
+ * sideways inside itself when it does not fit. For a reply's five-stage
+ * record use `Lifecycle` instead.
  */
 function Stepper({
   steps,
@@ -29,80 +38,99 @@ function Stepper({
   steps: Step[]
   orientation?: "horizontal" | "vertical"
 }) {
+  const vertical = orientation === "vertical"
   return (
     <ol
       data-slot="stepper"
       data-orientation={orientation}
       className={cn(
-        orientation === "horizontal"
-          ? "flex items-start gap-0 overflow-x-auto"
-          : "flex flex-col gap-(--np-list-gap)",
+        "list-none",
+        vertical
+          ? "flex flex-col gap-0.5"
+          : "flex [scrollbar-width:none] items-center gap-0 overflow-x-auto",
         className
       )}
       {...props}
     >
       {steps.map((step, index) => {
         const isLast = index === steps.length - 1
+        const ring = (
+          <span
+            aria-hidden
+            className={cn(
+              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
+              step.state === "done" &&
+                "border-success-ink bg-success-tint text-success-ink",
+              step.state === "current" &&
+                "border-primary bg-primary text-primary-foreground",
+              step.state === "todo" && "border-line-strong text-ink-muted"
+            )}
+          >
+            {step.state === "done" ? (
+              <Check className="size-3" strokeWidth={2.5} />
+            ) : (
+              index + 1
+            )}
+          </span>
+        )
+        const body = (
+          <>
+            {ring}
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">{step.label}</span>
+              {step.meta ? (
+                <span className="truncate text-caption font-normal text-ink-muted">
+                  {step.meta}
+                </span>
+              ) : null}
+            </span>
+            {step.note ? (
+              <span className="ml-auto shrink-0 text-[11.5px] font-normal text-ink-muted">
+                {step.note}
+              </span>
+            ) : null}
+          </>
+        )
+        const rowClass = cn(
+          "flex min-w-0 items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-2 text-ui text-ink-secondary no-underline",
+          step.state === "current" && "font-semibold",
+          vertical &&
+            step.state === "current" &&
+            "bg-accent-tint text-accent-ink",
+          step.href &&
+            "focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill",
+          step.href &&
+            vertical &&
+            step.state === "current" &&
+            "hover:bg-accent-tint"
+        )
         return (
           <li
             key={step.id}
             data-state={step.state}
             aria-current={step.state === "current" ? "step" : undefined}
             className={cn(
-              orientation === "horizontal"
-                ? "flex min-w-0 flex-1 flex-col gap-2"
-                : "flex items-center gap-3 rounded-(--np-radius-control) px-2.5 py-1.5",
-              orientation === "vertical" &&
-                step.state === "current" &&
-                "bg-accent-tint"
+              "min-w-0",
+              !vertical && "flex shrink-0 items-center",
+              !vertical && !isLast && "flex-1"
             )}
           >
-            <div
-              className={cn(
-                "flex items-center",
-                orientation === "vertical" && "shrink-0"
-              )}
-            >
+            {step.href ? (
+              <Link href={step.href} className={rowClass}>
+                {body}
+              </Link>
+            ) : (
+              <span className={rowClass}>{body}</span>
+            )}
+            {!vertical && !isLast ? (
               <span
                 aria-hidden
                 className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full text-caption font-semibold tabular-nums transition-colors duration-(--np-duration-fast) ease-spring-snappy",
-                  step.state === "done" && "bg-accent-tint text-accent-ink",
-                  step.state === "current" && "bg-primary text-primary-foreground",
-                  step.state === "todo" && "bg-fill text-ink-muted"
+                  "mx-1 h-0.5 min-w-4 flex-1 rounded-full",
+                  step.state === "done" ? "bg-success-solid" : "bg-line"
                 )}
-              >
-                {step.state === "done" ? (
-                  <Check className="size-3.5" strokeWidth={2} />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              {orientation === "horizontal" && !isLast ? (
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mx-2 h-px flex-1",
-                    step.state === "done"
-                      ? "bg-(--np-accent-vivid)"
-                      : "bg-line-subtle"
-                  )}
-                />
-              ) : null}
-            </div>
-            <div className={cn("min-w-0", orientation === "vertical" && "flex-1")}>
-              <p
-                className={cn(
-                  "truncate text-ui font-medium",
-                  step.state === "todo" ? "text-ink-muted" : "text-ink"
-                )}
-              >
-                {step.label}
-              </p>
-              {step.meta ? (
-                <p className="truncate text-caption text-ink-muted">{step.meta}</p>
-              ) : null}
-            </div>
+              />
+            ) : null}
           </li>
         )
       })}

@@ -25,9 +25,9 @@ export type StatusTone = (typeof STATUS_TONES)[number]
  * (lib/design/contrast-pairs.ts), which is why status text no longer has to
  * fall back to plain foreground the way the old badge variants did.
  *
- * `dot` is the vivid, solid step of each family: the dot is a graphic, not
- * text, so it only has to clear 3:1 and can afford to be bright. Neutral has
- * no solid step; its dot is the strong line, the one grey that clears 3:1.
+ * `dot` is the solid step of each family (reference `.dot.ok/.warn/.bad/
+ * .info`). A dot always sits beside the word it reinforces, so it is never
+ * the only signal. Neutral's dot is the muted ink.
  */
 export const TONE_CLASSES: Record<
   StatusTone,
@@ -36,26 +36,26 @@ export const TONE_CLASSES: Record<
   healthy: {
     text: "text-success-ink",
     tint: "bg-success-tint",
-    dot: "bg-[var(--np-success-solid)]",
+    dot: "bg-success-solid",
   },
   attention: {
     text: "text-warning-ink",
     tint: "bg-warning-tint",
-    dot: "bg-[var(--np-warning-ink)]",
+    dot: "bg-warning-solid",
   },
   "at-risk": {
     text: "text-danger-ink",
     tint: "bg-danger-tint",
-    dot: "bg-[var(--np-danger-solid)]",
+    dot: "bg-danger-solid",
   },
   pending: {
     text: "text-info-ink",
     tint: "bg-info-tint",
-    dot: "bg-[var(--np-info-solid)]",
+    dot: "bg-info-solid",
   },
   neutral: {
     text: "text-ink-muted",
     tint: "bg-fill",
-    dot: "bg-[var(--np-line-strong)]",
+    dot: "bg-ink-muted",
   },
 }

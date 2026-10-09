@@ -5,38 +5,31 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /**
- * A small, non-interactive label: a count, a category, a state word.
+ * A small, non-interactive label: a count, a category, a role.
  *
- * Two shapes: `pill` (a capsule, the default) and `tag` (the tag radius, for
- * a badge that sits flush in a table cell or a field). Backgrounds come from
- * the fill ladder and the status tints, so a badge never needs a border; the
- * `outline` variant is white with a hairline edge for a white-on-white
- * surface. Height is the 22px pill metric.
- *
- * Every ink/tint pair here is measured (lib/design/contrast-pairs.ts), which
- * is why the status variants can carry their own ink instead of falling back
- * to plain foreground the way the old ones did.
+ * Reference `.badge`: 20px tall, the tag radius, 11.5px semibold, on the
+ * hover-fill grey with the strong secondary ink. `role` is the mono role
+ * badge ("OWNER"). The status variants carry their own measured ink on tint
+ * (lib/design/contrast-pairs.ts). `shape="pill"` keeps a capsule for callers
+ * that asked for one.
  */
 const badgeVariants = cva(
-  "group/badge inline-flex h-(--np-pill-h) w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-2 text-caption font-medium whitespace-nowrap tabular-nums focus-halo transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-[7px] text-[11.5px] leading-none font-semibold whitespace-nowrap tabular-nums focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        // Darken rather than the stock `bg-primary/80` lightening, which drops
-        // white-on-primary to 3.27:1 when the badge is a link. See button.tsx.
-        default:
-          "bg-primary text-primary-foreground [a&]:hover:bg-[var(--np-accent-hover)]",
-        tinted:
-          "bg-accent-tint text-accent-ink [a&]:hover:bg-[var(--np-accent-tint-strong)]",
-        secondary: "bg-fill text-ink [a&]:hover:bg-fill-secondary",
+        default: "bg-primary text-primary-foreground [a&]:hover:bg-accent-hover",
+        tinted: "bg-accent-tint text-accent-ink",
+        secondary: "bg-fill text-ink-secondary [a&]:hover:bg-fill-secondary",
         destructive: "bg-danger-tint text-danger-ink",
         outline:
-          "bg-surface text-ink hairline focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] [a&]:hover:bg-fill-tertiary",
-        ghost: "text-ink-muted [a&]:hover:bg-fill-tertiary [a&]:hover:text-ink",
+          "bg-transparent text-ink-secondary shadow-[inset_0_0_0_1px_var(--np-line)] [a&]:hover:bg-fill",
+        ghost: "text-ink-muted [a&]:hover:bg-fill [a&]:hover:text-ink",
         link: "text-accent-ink underline-offset-4 hover:underline",
         success: "bg-success-tint text-success-ink",
         warning: "bg-warning-tint text-warning-ink",
         info: "bg-info-tint text-info-ink",
+        role: "bg-fill font-mono font-medium tracking-[0.02em] text-ink-secondary uppercase",
       },
       shape: {
         pill: "rounded-(--np-radius-pill)",
@@ -45,7 +38,7 @@ const badgeVariants = cva(
     },
     defaultVariants: {
       variant: "default",
-      shape: "pill",
+      shape: "tag",
     },
   }
 )
@@ -53,7 +46,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = "default",
-  shape = "pill",
+  shape = "tag",
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {

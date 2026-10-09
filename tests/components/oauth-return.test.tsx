@@ -6,9 +6,11 @@ import { Toaster } from "@/components/ui/toast"
 
 const replace = vi.fn()
 let search = new URLSearchParams()
+let pathname = "/settings/connections"
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
   useSearchParams: () => search,
+  usePathname: () => pathname,
 }))
 const connectMutate = vi.fn()
 vi.mock("@/lib/queries/use-connection-workspace", () => ({
@@ -18,6 +20,7 @@ vi.mock("@/lib/queries/use-connection-workspace", () => ({
 afterEach(() => {
   vi.clearAllMocks()
   search = new URLSearchParams()
+  pathname = "/settings/connections"
 })
 
 describe("OAuthReturn", () => {
@@ -34,5 +37,40 @@ describe("OAuthReturn", () => {
     const { container } = render(<Toaster><OAuthReturn /></Toaster>)
     expect(replace).toHaveBeenCalledWith("/settings/connections")
     expect(container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it("explains a consent that left out Business Profile access", () => {
+    search = new URLSearchParams("google=error&status=403&reason=google_scope_missing")
+    render(<Toaster><OAuthReturn /></Toaster>)
+    expect(screen.getByText("Permission not granted")).toBeInTheDocument()
+    expect(screen.getByText(/leave the Business Profile permission ticked/i)).toBeInTheDocument()
+    expect(screen.queryByText(/don’t have permission to connect Google/i)).toBeNull()
+  })
+
+  it("keeps a setup step's own parameters and retries into setup", () => {
+    pathname = "/setup"
+    search = new URLSearchParams("client=c1&step=account&google=error&status=502&rid=r1")
+    const input = { clientId: "c1", returnTo: "/setup?client=c1&step=account" }
+    render(<Toaster><OAuthReturn connectInput={input} /></Toaster>)
+    expect(replace).toHaveBeenCalledWith("/setup?client=c1&step=account")
+    screen.getByRole("button", { name: "Try again" }).click()
+    expect(connectMutate).toHaveBeenCalledWith(input)
+  })
+})
+
+describe("connectedMessage", () => {
+  it("reports how many listings are catching up, never a review count", async () => {
+    const { connectedMessage } = await import("@/components/settings/oauth-return")
+    const message = connectedMessage({ reconnected: true, mismatch: false, catchUp: 9 })
+    expect(message.title).toBe("Reconnected")
+    expect(message.description).toContain("9 listings")
+    expect(message.description).not.toMatch(/\d+ (new )?reviews/)
+  })
+
+  it("says plainly when a different Google account came back", async () => {
+    const { connectedMessage } = await import("@/components/settings/oauth-return")
+    expect(
+      connectedMessage({ reconnected: false, mismatch: true, catchUp: 0 }).title
+    ).toBe("Connected a different Google account")
   })
 })

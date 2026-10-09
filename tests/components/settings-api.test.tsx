@@ -6,7 +6,6 @@ import { fetchSettingsCapabilities } from "@/lib/api/settings-capabilities"
 import { updateMember } from "@/lib/api/members"
 import { createInvitation } from "@/lib/api/invitations"
 import { startBackfill } from "@/lib/api/backfill"
-import { exportPrivacyData } from "@/lib/api/privacy"
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -43,9 +42,9 @@ describe("settings clients", () => {
 
   it("fetchSettingsCapabilities parses the capability envelope", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
-      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: true, canViewCompliance: true, canManageCompliance: false } })
+      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: false } })
     ))
-    expect((await fetchSettingsCapabilities()).canManageCompliance).toBe(false)
+    expect((await fetchSettingsCapabilities()).canEditSettings).toBe(false)
   })
 })
 
@@ -87,30 +86,5 @@ describe("connection clients", () => {
   it("startBackfill surfaces the paused error as an ApiClientError", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "sync_paused", message: "Review sync is paused." }, 503)))
     await expect(startBackfill({ maxPagesPerLocation: 10 })).rejects.toMatchObject({ code: "sync_paused", status: 503 })
-  })
-})
-
-describe("privacy export download", () => {
-  it("exportPrivacyData fetches the attachment and triggers a download without JSON-parsing", async () => {
-    const blob = new Blob([JSON.stringify({ reviews: [] })], { type: "application/json" })
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(blob, { status: 200, headers: { "content-disposition": 'attachment; filename="privacy-export.json"' } }))
-    vi.stubGlobal("fetch", fetchMock)
-    const createURL = vi.fn(() => "blob:mock")
-    const revokeURL = vi.fn()
-    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: createURL, revokeObjectURL: revokeURL }))
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
-    await exportPrivacyData("guest-4821")
-    const [requestUrl, init] = fetchMock.mock.calls[0]
-    expect(requestUrl).toBe("/api/privacy/export")
-    expect(requestUrl).not.toContain("guest-4821")
-    expect(init?.method).toBe("POST")
-    expect(JSON.parse(init?.body as string)).toEqual({ subject: "guest-4821" })
-    expect(createURL).toHaveBeenCalled()
-    expect(clickSpy).toHaveBeenCalled()
-  })
-
-  it("exportPrivacyData throws a mapped ApiClientError when the subject is not found", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "privacy_subject_not_found", message: "No retained records matched that subject reference." }, 404)))
-    await expect(exportPrivacyData("nobody")).rejects.toMatchObject({ code: "privacy_subject_not_found", status: 404 })
   })
 })
