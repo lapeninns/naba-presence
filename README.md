@@ -32,10 +32,12 @@ database is unavailable.
 
 ## Local setup
 
-1. Install dependencies, copy `.env.example` to `.env`, and fill the application
-   secrets:
+1. Use Node 24 (`.nvmrc`; `package.json` `engines` and `engineStrict` make
+   `pnpm install` refuse any other major), install dependencies, copy
+   `.env.example` to `.env`, and fill the application secrets:
 
    ```bash
+   nvm use
    pnpm install
    cp .env.example .env
    ```

@@ -7,6 +7,10 @@ on which runner, what is required to merge, and how to debug a red run.
   `claude-review.yml`; Dependabot: `.github/dependabot.yml`.
 - Shared install step: `.github/actions/setup` (pnpm from `packageManager`,
   Node from `.nvmrc`, `pnpm install --frozen-lockfile`).
+- Node runtime: Node 24 everywhere. `.nvmrc` (`24`) drives local nvm, CI and
+  nightly; `package.json` `engines.node` (`>=24 <25`) drives Vercel and, with
+  `engineStrict: true` in `pnpm-workspace.yaml`, makes `pnpm install` refuse
+  another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
 - CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
   runner-hook reference copies), `scripts/db-migrate.mjs`,
   `scripts/vercel-ignore-build.mjs`.
@@ -155,6 +159,13 @@ pnpm test:e2e      # browser journeys; pnpm test:a11y for accessibility only.
 Run `verify` before pushing. Run `verify:full`, `test:e2e` and `test:a11y`
 as well when you touch server code, the database or UI flows. CI runs
 everything, plus migrations, secret scanning, dependency review and CodeQL.
+
+`test:integration`, `test:e2e` and `test:a11y` go through
+`scripts/run-test-command.mjs`, which refuses a non-local host in
+`TEST_RUNTIME_DATABASE_URL`, `DIRECT_DATABASE_URL` or `DATABASE_SESSION_URL`
+(the advisory-lock connection) unless `ALLOW_REMOTE_TEST_DB=1` is set
+deliberately. The harness seeds and deletes tenants in whatever those URLs
+reach.
 
 **Pre-push hook (opt-in):** `pnpm hooks:install` sets
 `core.hooksPath=.githooks`. `.githooks/pre-push` then runs `pnpm verify` and,
