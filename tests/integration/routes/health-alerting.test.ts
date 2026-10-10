@@ -12,6 +12,8 @@ import {
 } from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
+// What `pnpm release:promote` stamps into a production deployment.
+const RELEASE_SHA = "0123456789abcdef0123456789abcdef01234567"
 const describeDatabase = run ? describe : describe.skip
 
 describeDatabase("operations health alerting", () => {
@@ -55,7 +57,7 @@ describeDatabase("operations health alerting", () => {
         ${owner.userId}
       )
     `
-    server = await startAppServer()
+    server = await startAppServer({ NABA_RELEASE_SHA: RELEASE_SHA })
 
     const heartbeatResponse = await fetch(`${server.baseUrl}/api/jobs/run`, {
       method: "POST",
@@ -274,6 +276,9 @@ describeDatabase("operations health alerting", () => {
       schedulerHeartbeatStale: false,
     })
     expect(health.oldestFailedEventAgeSeconds).toBeGreaterThanOrEqual(1_200)
+    // Release and schema fields are operator-only (platform scope).
+    expect(health).not.toHaveProperty("release")
+    expect(health).not.toHaveProperty("schema")
   })
 
   it("attributes the due backlog to the claimer that owes it", async () => {
@@ -375,6 +380,15 @@ describeDatabase("operations health alerting", () => {
     // The default budget covers a test-sized fleet completely.
     expect(health.partial).toBe(false)
     expect(health.organisationsCovered).toBe(health.organisationCount)
+    // The deployed commit, for the smoke check against the release receipt,
+    // and the schema check against this build's required migrations (the
+    // harness database is fully migrated).
+    expect(health.release).toEqual({
+      sha: RELEASE_SHA,
+      source: "naba_release_sha",
+    })
+    expect(health.schema).toMatchObject({ compatible: true, missing: [] })
+    expect(health.schema.requiredCount).toBeGreaterThan(0)
   })
 
   it("answers partial within its budget instead of walking every tenant", async () => {

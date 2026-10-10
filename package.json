@@ -16,6 +16,7 @@
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:runtime-role": "node scripts/db-create-runtime-role.mjs",
     "db:status": "node scripts/db-status.mjs",
+    "release:promote": "node scripts/release/promote.mjs",
     "ops:revoke-support-sessions": "node scripts/revoke-support-sessions.mjs",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",

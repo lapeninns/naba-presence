@@ -158,6 +158,33 @@ export type PlatformHealthCoverage = z.infer<
   typeof platformHealthCoverageSchema
 >
 
+/**
+ * Release fields of the platform-scope health response only; the tenant
+ * (session) scope never carries them. `release.sha` is the deployed commit
+ * (lib/server/release.ts), for a smoke check to compare with the release
+ * receipt `pnpm release:promote` wrote. `schema` compares the database's
+ * `schema_migration` with the migrations this build requires
+ * (lib/server/schema-manifest.ts): `compatible` is null when the ledger
+ * could not be read. Defaulted so a monitor parsing a response from an
+ * older build reads both as unknown.
+ */
+export const platformReleaseSchema = z.object({
+  release: z
+    .object({
+      sha: z.string(),
+      source: z.enum(["naba_release_sha", "vercel_git_commit_sha", "unknown"]),
+    })
+    .default({ sha: "unknown", source: "unknown" }),
+  schema: z
+    .object({
+      compatible: z.boolean().nullable(),
+      requiredCount: z.number().int().nonnegative(),
+      missing: z.array(z.string()),
+    })
+    .default({ compatible: null, requiredCount: 0, missing: [] }),
+})
+export type PlatformRelease = z.infer<typeof platformReleaseSchema>
+
 export const webhookFailureSchema = z.object({
   id: z.string(),
   eventType: z.string(),

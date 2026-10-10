@@ -287,6 +287,18 @@ export const serverEnvSchema = z.object({
   SESSION_ABSOLUTE_DAYS: z.coerce.number().int().min(1).max(365).default(90),
   // Google Cross-Account Protection receiver (/api/webhooks/google/risc).
   RISC_ENABLED: featureFlag(true),
+  // The commit this deployment was built from, stamped into the build and
+  // runtime environment by `pnpm release:promote` (scripts/release/promote.mjs).
+  // Reported by the platform health scope (lib/server/release.ts). A value
+  // that is not a full lowercase SHA fails validation rather than report a
+  // release nobody can match to a commit.
+  NABA_RELEASE_SHA: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .optional()
+  ),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

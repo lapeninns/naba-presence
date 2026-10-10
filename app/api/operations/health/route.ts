@@ -4,9 +4,16 @@ import type { TransactionSql } from "postgres"
 import type {
   OperationsHealth,
   PlatformHealthCoverage,
+  PlatformRelease,
 } from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { schedulerLiveness } from "@/lib/server/ops-liveness"
+import { releaseInfo } from "@/lib/server/release"
+import {
+  missingMigrations,
+  readAppliedMigrations,
+} from "@/lib/server/schema-compat"
+import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -314,6 +321,32 @@ function budgetMs() {
   return Number.isFinite(configured) && configured >= 0 ? configured : 20_000
 }
 
+/**
+ * The deployed commit and whether the database still satisfies this build's
+ * required migrations. Startup already refuses an incompatible schema; this
+ * reports it while serving, so a restore or a failed migration after boot is
+ * visible to the monitor. One indexed read of `schema_migration`, outside the
+ * tenant walk's budget.
+ */
+async function platformRelease(): Promise<PlatformRelease> {
+  let schema: PlatformRelease["schema"]
+  try {
+    const missing = missingMigrations(await readAppliedMigrations())
+    schema = {
+      compatible: missing.length === 0,
+      requiredCount: REQUIRED_MIGRATIONS.length,
+      missing,
+    }
+  } catch {
+    schema = {
+      compatible: null,
+      requiredCount: REQUIRED_MIGRATIONS.length,
+      missing: [],
+    }
+  }
+  return { release: releaseInfo(), schema }
+}
+
 async function platformHealth() {
   // Cross-tenant enumeration: the platform monitor walks every organisation
   // that has a job route, so this one read deliberately runs outside
@@ -408,6 +441,7 @@ async function platformHealth() {
     ...totals,
     ...(await schedulerLiveness()),
     googleQuota: await googleQuotaPressure(),
+    ...(await platformRelease()),
   }
 }
 
