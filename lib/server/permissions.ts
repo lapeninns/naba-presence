@@ -68,6 +68,9 @@ import type { Session } from "@/lib/server/session"
 //     location reads exactly like a nonexistent one.)
 //   * Asking whether the session may publish to one location:
 //       await canPublishLocation(sql, session, locationId)
+//   * Gating a mutation (404 when hidden, 403 when the role/grant may not):
+//       await requireLocationAction(sql, session, locationId, "edit")
+//     The action vocabulary and its rule are LOCATION_ACTIONS/actionAllowed.
 //   * Many locations at once (one query), e.g. for capability payloads:
 //       const grants = await grantsFor(sql, session, locationIds)
 //       grants.get(id) -> { visible, canEdit, canPublish }
@@ -257,6 +260,84 @@ export async function requireLocationAccess(
       notFound.message ?? "The requested review was not found."
     )
   }
+}
+
+/**
+ * What a member may do at one location. Every mutation entry point names
+ * the action it performs and asks `requireLocationAction`; route visibility
+ * (requireLocationAccess) never authorises a write on its own.
+ *
+ *   read             -> visible
+ *   edit             -> canEdit   (create/update/delete drafts; never a viewer)
+ *   request_approval -> canEdit   (submit a reply or post for approval)
+ *   triage           -> canEdit   (mark a review as needing nothing)
+ *   assign           -> canEdit   (set or clear a review's assignee)
+ *   decide_approval  -> canPublish (approve or reject someone's request)
+ *   publish          -> canPublish (send to Google)
+ *
+ * A viewer is read-only everywhere, whatever grant rows say.
+ */
+export const LOCATION_ACTIONS = [
+  "read",
+  "edit",
+  "request_approval",
+  "triage",
+  "assign",
+  "decide_approval",
+  "publish",
+] as const
+export type LocationAction = (typeof LOCATION_ACTIONS)[number]
+
+/** Pure rule: may `role` holding `grant` perform `action`? */
+export function actionAllowed(
+  role: Session["role"],
+  grant: LocationGrant,
+  action: LocationAction
+): boolean {
+  if (!grant.visible) return false
+  if (action === "read") return true
+  if (role === "viewer") return false
+  switch (action) {
+    case "edit":
+    case "request_approval":
+    case "triage":
+    case "assign":
+      return grant.canEdit
+    case "decide_approval":
+    case "publish":
+      return grant.canPublish
+  }
+}
+
+/**
+ * Gate one action at one location. A hidden location answers 404 exactly as
+ * `requireLocationAccess` does (same default code, so a probe cannot tell
+ * "not yours" from "does not exist"); a visible location the scope may not
+ * act on answers 403 `permission_denied`.
+ */
+export async function requireLocationAction(
+  sql: TransactionSql,
+  scope: GrantScope,
+  locationId: string,
+  action: LocationAction,
+  notFound: LocationNotFound = {}
+): Promise<LocationGrant> {
+  const grant = await grantFor(sql, scope, locationId)
+  if (!grant.visible) {
+    throw new ApiError(
+      404,
+      notFound.code ?? "review_not_found",
+      notFound.message ?? "The requested review was not found."
+    )
+  }
+  if (!actionAllowed(scope.role, grant, action)) {
+    throw new ApiError(
+      403,
+      "permission_denied",
+      "You do not have permission to do that for this location."
+    )
+  }
+  return grant
 }
 
 /**

@@ -19,6 +19,7 @@ import {
 } from "@/lib/server/env"
 import {
   NO_GRANT,
+  actionAllowed,
   grantsFor,
   isManagerialRole,
 } from "@/lib/server/permissions"
@@ -27,9 +28,12 @@ import type { Session } from "@/lib/server/session"
 // One capability object per review (shape: ReviewCapabilities in
 // lib/contracts/reviews.ts). The location rule itself lives ONLY in
 // lib/server/permissions.ts (grantsFor); this module just projects it:
-//   canPublish         === grant.canPublish (canPublishLocation)
-//   canEdit            === grant.canEdit    (visible && role !== 'viewer')
-//   canRequestApproval === canEdit && !canPublish && organisation.approval_required
+//   canPublish         === actionAllowed(role, grant, "publish")
+//   canEdit            === actionAllowed(role, grant, "edit")
+//   canRequestApproval === actionAllowed(role, grant, "request_approval")
+//                        && !canPublish && organisation.approval_required
+//   The same actionAllowed the server's requireLocationAction enforces, so a
+//   button the UI shows is one the route accepts.
 //     (D2: a non-publisher may submit a reply for approval only when the org
 //     requires it. Never true for a publisher — see executePublish's
 //     `!canPublish && approval_required` routing, lib/server/publishing.ts.)
@@ -51,8 +55,13 @@ export async function reviewCapabilitiesForLocations(
 
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const { canEdit, canPublish } = grants.get(id) ?? NO_GRANT
-    const canRequestApproval = canEdit && !canPublish && approvalRequired
+    const grant = grants.get(id) ?? NO_GRANT
+    const canPublish = actionAllowed(session.role, grant, "publish")
+    const canEdit = actionAllowed(session.role, grant, "edit")
+    const canRequestApproval =
+      actionAllowed(session.role, grant, "request_approval") &&
+      !canPublish &&
+      approvalRequired
     result.set(id, { canPublish, canEdit, canRequestApproval })
   }
   return result
