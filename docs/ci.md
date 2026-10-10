@@ -13,7 +13,8 @@ on which runner, what is required to merge, and how to debug a red run.
   another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
 - CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
   runner-hook reference copies), `scripts/db-migrate.mjs`,
-  `scripts/vercel-ignore-build.mjs`.
+  `scripts/vercel-ignore-build.mjs`; production promotion:
+  `scripts/release/promote.mjs` (§7).
 
 ## 1. What runs when
 
@@ -25,7 +26,7 @@ on which runner, what is required to merge, and how to debug a red run.
 | Draft PR | every job | as same-repo | yes | never (label ignored) | preview build |
 | Fork PR | every job, **after a maintainer approves the run** | always hosted | yes | never (no secrets; comment path re-checks) | preview build |
 | Dependabot PR | every job | always hosted | yes | never | preview skipped |
-| Push to `main` | every job, never cancelled | hosted; Mac when enabled | yes | – | production build |
+| Push to `main` | every job, never cancelled | hosted; Mac when enabled | yes | – | none; production is promoted by `pnpm release:promote` (§7) |
 | Nightly 04:17 UTC | `ci.yml` with `full: true` (full-history gitleaks) + `pnpm audit` | hosted; Mac when enabled | weekly, Mon 05:41 UTC | – | – |
 
 "Docs-only" means every changed file is under `docs/` or ends in `.md`,
@@ -308,14 +309,78 @@ For a PR that adds a migration:
    Run this **before merging** when the new code depends on the new schema:
    the live code tolerates an expand-only migration, but the new code would
    fail against the old schema.
-4. Merge. Vercel builds and promotes production.
+4. Merge, then promote with `pnpm release:promote` (§7). Merging does not
+   deploy production; the promotion script runs `db:status --expect-current`
+   again and refuses while anything is pending.
 5. On failure, restore the snapshot and promote the noted deployment
    together. Never run ad-hoc down migrations.
 
 ## 7. Deploys (Vercel)
 
-Vercel deploys through its own GitHub integration, so GitHub environment
-protection rules do not apply.
+**Production ships from the operator's machine, not from a merge.** Merging
+to `main` does not deploy production: the operator runs
+`vercel deploy --prod` from a clean worktree of `origin/main`, through
+`pnpm release:promote` (`scripts/release/promote.mjs`). Whether the Vercel
+GitHub integration is still connected for previews, and whether it could
+promote production on its own, is a dashboard check recorded under D-38 in
+`docs/release/decision-log.md`; if it can, turn off automatic production
+promotion or require `CI result` through Vercel Deployment Checks.
+
+### Promotion (`pnpm release:promote`)
+
+From a fresh worktree of `origin/main` (`git worktree add`), with
+`pnpm install --frozen-lockfile` run, the project linked (`vercel link`),
+`gh` signed in as an account that can read the repository's checks, and the
+production admin URL in the environment:
+
+```bash
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --dry-run
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote
+```
+
+The script refuses, before deploying anything, unless every gate holds
+(`checkCandidate`, unit-tested in `tests/server/release-promote.test.ts`):
+
+- The worktree has no changed, staged or untracked files, and no ignored
+  `.env*` or `.dev.vars` file that `vercel deploy` would upload.
+- `HEAD` equals `origin/main` after a fetch.
+- On that SHA, the latest `CI result`, `Analyze (javascript-typescript)` and
+  `Analyze (actions)` check runs are completed with conclusion `success`
+  (`gh api repos/lapeninns/naba-presence/commits/<sha>/check-runs`).
+  Pending, skipped, neutral, cancelled or missing all refuse.
+- `db:status --expect-current` against `DIRECT_DATABASE_URL` reports no
+  pending migration (it prints the target; confirm it is production).
+  `DIRECT_DATABASE_URL` must be set explicitly, so a local `.env` can never
+  stand in for production.
+
+While hosted CI cannot run (§3), `--exception <reference>` replaces the check
+gate, and only that gate, with a recorded local-evidence exception: the
+reference names where it is recorded (a ledger row, decision ID or URL), and
+the receipt carries it in place of a CI run URL. It never excuses a dirty
+worktree, a commit other than `origin/main`, or pending migrations.
+
+It then runs
+`vercel deploy --prod --yes --format json --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha> --meta releaseSha=<sha>`
+and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
+
+- build: `sha`, `deploymentId`, `url`, `ciRunUrl` or `exceptionRef`, and the
+  state of each required check;
+- migrations: every `supabase/migrations` version the commit ships, with the
+  file's sha256;
+- configuration: the production variable **names** from
+  `vercel env ls production` (values are never read into the receipt), plus
+  `operator` (GitHub login) and `timestamp`.
+
+The script refuses to write a receipt in which any value would be changed by
+`lib/domain/redaction.ts`, or a configuration entry that is not a variable
+name. Commit the receipt through a docs-only PR.
+
+Smoke check: `GET /api/operations/health?scope=platform` with the cron
+bearer returns `release.sha` (equal to the receipt's `sha`, with `source`
+`naba_release_sha`) and `schema.compatible: true`. Only the platform scope
+reports these; the session scope does not.
+
+### Ignored build step
 
 - `vercel.json` `ignoreCommand` runs `scripts/vercel-ignore-build.mjs`. Exit 0
   means **skip**; exit 1 means build.
@@ -325,11 +390,7 @@ protection rules do not apply.
     (`VERCEL_GIT_PREVIOUS_SHA..VERCEL_GIT_COMMIT_SHA`) is docs-only.
   - Anything uncertain builds: an unknown `VERCEL_ENV`, no previous SHA, or a
     SHA outside Vercel's shallow clone.
-- **Recommended, not enabled yet (an owner dashboard task):** Vercel
-  **Deployment Checks** (Project →
-  Settings → Deployment Checks) requiring the GitHub check `CI result`. The
-  production domain is then assigned only after CI passes on that commit.
-  Previews stay ungated. Deployment Checks gate promotion, not the build.
+- GitHub environment protection rules do not apply to Vercel deploys.
 
 ## 8. Self-hosted runner runbook
 

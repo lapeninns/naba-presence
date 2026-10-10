@@ -8,9 +8,12 @@
 
 Release candidate: ____________________
 
-Git SHA: ____________________
+Git SHA (receipt `sha`): ____________________
 
-Vercel deployment ID: ____________________
+Vercel deployment ID (receipt `deploymentId`): ____________________
+
+Release receipt (`docs/release/receipts/…json`, written by
+`pnpm release:promote`): ____________________
 
 Decision date: ____________________
 

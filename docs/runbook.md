@@ -30,6 +30,28 @@ anything is pending. `DIRECT_DATABASE_URL` takes precedence over a local
 (host:port/database) is the production database. A cold start that fails on the schema check is fixed by
 running `pnpm db:migrate`, not by rolling the code back.
 
+Production is promoted only through `pnpm release:promote`
+(`scripts/release/promote.mjs`; full procedure in `docs/ci.md` §7). Merging
+does not deploy. In order:
+
+1. Snapshot the database and note the current production deployment (the
+   rollback unit below).
+2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
+   `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
+3. From a fresh worktree of `origin/main`:
+   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --dry-run`, then
+   without `--dry-run`. It refuses a dirty worktree, a commit other than
+   `origin/main`, a `CI result` or CodeQL analysis that is not a completed
+   success on that SHA (unless `--exception <reference>` names a recorded
+   local-evidence exception), and pending migrations. It deploys with
+   `NABA_RELEASE_SHA=<sha>` and writes a receipt under
+   `docs/release/receipts/`.
+4. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   reports `release.sha` equal to the receipt's `sha` and
+   `schema.compatible: true`. Then sign in and load the dashboard.
+5. Commit the receipt through a docs-only PR and copy its `sha` and
+   `deploymentId` into `docs/live-certification/release-checklist.md`.
+
 Confirm
 the Supabase project URL/publishable key, email confirmation and recovery
 templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub

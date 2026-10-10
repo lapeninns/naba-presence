@@ -21,7 +21,10 @@ accepts traffic, so a superuser or `BYPASSRLS` runtime identity fails closed.
 It also compares `schema_migration` with the build's required-migrations
 manifest (`lib/server/schema-manifest.ts`, checked by
 `lib/server/schema-compat.ts`) and fails closed when the database lacks a
-migration the code needs.
+migration the code needs. While serving, the cron-bearer platform scope of
+`app/api/operations/health/route.ts` repeats that comparison and reports the
+deployed commit from `lib/server/release.ts` (`NABA_RELEASE_SHA`, stamped by
+`scripts/release/promote.mjs`); the session scope carries neither.
 Verified application users are provisioned by the SECURITY DEFINER
 `provision_authenticated_user` database function through
 `lib/server/provisioning.ts`, without giving the runtime role unrestricted
