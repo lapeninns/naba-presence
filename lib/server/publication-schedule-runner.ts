@@ -17,9 +17,10 @@ import {
   jsonColumnOrNull,
   withTenant,
 } from "@/lib/server/db"
-import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
+import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
+import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
 import { canPublishLocation } from "@/lib/server/permissions"
 import { publishScheduledLocalPost } from "@/lib/server/posts"
 import type { Session } from "@/lib/server/session"
@@ -204,7 +205,9 @@ export async function processSchedule(
       await sql`select 1 from location_link ll join external_location e on e.id = ll.external_location_id
       join google_connection gc on gc.id = e.google_connection_id
       where ll.location_id = ${schedule.locationId} and ll.is_active and gc.status in ('active', 'expired')`
-    const paused = !gbpWritesEnabled(env, "posts") || !env.PUBLISH_ENABLED
+    // Env and the operator pause table alike (lib/server/pause-controls.ts):
+    // a table pause is the same transient block, not a failed occurrence.
+    const paused = !(await isScopeEnabled(gbpWriteScopes("posts"), { env }))
     if (paused || !link) {
       // Transient: the approval stands. Occurrences left waiting are marked
       // missed once they fall outside the grace period.

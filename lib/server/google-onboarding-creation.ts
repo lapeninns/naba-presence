@@ -8,7 +8,6 @@ import { onboardingPayloadMatches } from "@/lib/domain/google-onboarding-confirm
 import { writeAudit } from "./audit"
 import { auditExtendedGrants, extendClientHolders } from "./client-access"
 import { getDatabase, jsonColumn, withTenant } from "./db"
-import { gbpWritesEnabled, getServerEnv } from "./env"
 import { stableGoogleHash } from "./gbp-management"
 import { connectionAccessToken, createGoogleLocation, getGoogleLocation, GoogleMutationAmbiguousError } from "./google"
 import { searchOnboardingMatches } from "./google-onboarding"
@@ -16,6 +15,7 @@ import { checkedOnboardingDraft, requireNoOnboardingMatchLink } from "./google-o
 import { checkedOnboardingReview } from "./google-onboarding-reviews"
 import { requireOnboardingServiceSupport } from "./google-onboarding-services"
 import { ApiError } from "./http"
+import { requireGbpDispatch } from "./pause-controls"
 import type { Session } from "./session"
 
 type CreationRow = {
@@ -86,7 +86,7 @@ export async function submitOnboardingCreation(session: Session, accountId: stri
   })
   if (initial.existing) return project(initial.existing)
   const review = initial.review!
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google listing writes are paused.")
+  await requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google listing writes are paused." })
   const matches = await searchOnboardingMatches(session, accountId, { connectionId: review.frozen.connectionId, clientId: review.frozen.clientId ?? undefined, pageSize: 10, search: { kind: "location", location: businessInformationPayloadSchema.strip().parse(review.frozen.payload) } })
   if (stableGoogleHash(matches.matches) !== stableGoogleHash(review.frozen.matchResult.matches)) throw new ApiError(409, "onboarding_matches_changed", "Google's matches changed after approval. Search and review again.")
   const token = await connectionAccessToken(getDatabase(), session.organisationId, review.frozen.connectionId)
@@ -101,7 +101,7 @@ export async function submitOnboardingCreation(session: Session, accountId: stri
       return { row: existing, execute: false }
     }
     if (!current.approved_by || current.review_hash !== expectedReviewHash) throw new ApiError(409, "approval_stale", "The creation approval changed. Review again.")
-    if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google listing writes are paused.")
+    await requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google listing writes are paused." })
     await sql`insert into google_onboarding_creation (organisation_id, draft_id, review_id, review_hash, actor_user_id) values (${session.organisationId}, ${draftId}, ${reviewId}, ${expectedReviewHash}, ${session.userId})`
     await writeAudit(sql, { organisationId: session.organisationId, actorUserId: session.userId, action: "google.onboarding.creation_started", subjectType: "google_onboarding_draft", subjectId: draftId, requestId, metadata: { reviewId, providerRequestId: current.frozen.providerRequestId } })
     return { row: (await load(sql, draftId))!, execute: true }

@@ -4,11 +4,11 @@ import type { TransactionSql } from "postgres"
 import type { z } from "zod"
 import type { GbpChangeSet, lodgingPreviewRequestSchema } from "@/lib/contracts/gbp-change-set"
 import { jsonColumn, withTenant } from "@/lib/server/db"
-import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import { googleLodgingApi } from "@/lib/server/google"
 import { resolveGbpLocationContext, stableGoogleHash, type GbpLocationContext } from "@/lib/server/gbp-management"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
 type ChangeSetRow = {
@@ -171,7 +171,9 @@ export async function approvedGbpChange(input: {
   readonly payload: unknown; readonly updateMask: readonly string[]; readonly resourceType: ChangeResource
 }) {
   const { session, linked, changeSetId, payload, updateMask, resourceType } = input
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  // Every reviewed change set dispatches through here, so the operator pause
+  // table (lib/server/pause-controls.ts) holds them off as well as the env.
+  await requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google writes are paused." })
   return withTenant(session.organisationId, async (sql) => {
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
     if (!row.approved_by) throw new ApiError(409, "approval_required", "Review and approve the exact change before publishing.")

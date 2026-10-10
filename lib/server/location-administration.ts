@@ -30,6 +30,7 @@ import {
   startGbpMutation,
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
 const COMPLETE_LOCATION_MASK = [
@@ -278,8 +279,10 @@ export async function mutateLocationAdministration(input: {
       "publish_not_allowed",
       "You cannot manage this Google location."
     )
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites"))
-    throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  await requireGbpDispatch("profileWrites", {
+    code: "google_writes_paused",
+    message: "Google writes are paused.",
+  })
   // Validated before a token is fetched or a mutation row is recorded.
   const resourceName = isAdministrationNamedOperation(input.operation)
     ? scopedAdministrationResourceName(input.operation, input.payload.name, {

@@ -9,7 +9,7 @@ import {
   isApplied,
 } from "@/lib/server/bulk-listing-targets"
 import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
-import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
+import { getServerEnv } from "@/lib/server/env"
 import {
   resolveGbpLocationContext,
   stableGoogleHash,
@@ -19,6 +19,7 @@ import { ApiError } from "@/lib/server/http"
 import { requireNoUnresolvedAccountChange, withGoogleAccountChangeLock } from "@/lib/server/google-account-change-lock"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
+import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
 import { canPublishLocation } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -150,7 +151,9 @@ export async function processBulkChild(
     }
   })
   if ("code" in gate) return fail(gate.code ?? "approval_invalid")
-  if (!gbpWritesEnabled(getServerEnv(), WRITE_FLAG[input.operation])) {
+  // The surface's own switch, under the env and the operator pause table;
+  // the tick already checked `publish` and `bulk`.
+  if (!(await isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation])))) {
     await settle(organisationId, childId, "queued", {
       code: "publishing_paused",
     })

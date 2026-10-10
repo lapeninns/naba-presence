@@ -23,6 +23,7 @@ import {
   type GbpLocationContext,
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
 async function context(session: Session, locationId: string) {
@@ -108,7 +109,7 @@ export async function mutateIndustryManagement(input: {
   if (input.operation === "update_healthcare_services") throw new ApiError(409, "service_review_required", "Use the general Services editor to review and approve the exact service changes before sending.")
   const linked = await context(input.session, input.locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  await requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google writes are paused." })
   return publishReviewedLodging(input, linked)
 }
 

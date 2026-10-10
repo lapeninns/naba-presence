@@ -281,6 +281,49 @@ const noTruncate = readFileSync(
 const ORG = "00000000-0000-4000-8000-00000000000a"
 const OTHER = "00000000-0000-4000-8000-00000000000b"
 
+// Dispatch paths that do not run through runGbpWrite (main's reviewed change
+// sets, onboarding, administration, and the bulk and schedule runners) must
+// answer to the operator table too, not only the env flags.
+describe("dispatch gates outside runGbpWrite", () => {
+  const source = (path: string) =>
+    readFileSync(join(process.cwd(), path), "utf8")
+
+  it("routes every reviewed change set dispatch through requireGbpDispatch", () => {
+    const changeSets = source("lib/server/gbp-change-sets.ts")
+    const approved = changeSets.slice(
+      changeSets.indexOf("export async function approvedGbpChange")
+    )
+    expect(approved.slice(0, approved.indexOf("\n}\n"))).toContain(
+      'await requireGbpDispatch("profileWrites"'
+    )
+  })
+
+  it("leaves no env-only google_writes_paused refusal", () => {
+    for (const path of [
+      "lib/server/gbp-change-sets.ts",
+      "lib/server/industry-management.ts",
+      "lib/server/google-onboarding-creation.ts",
+      "lib/server/google-onboarding-reviews.ts",
+      "lib/server/location-administration.ts",
+    ]) {
+      const text = source(path)
+      expect(text, path).not.toMatch(
+        /if \(!gbpWritesEnabled\([^)]*\)\)\s*throw new ApiError\(503, "google_writes_paused"/
+      )
+      expect(text, path).toContain("requireGbpDispatch(")
+    }
+  })
+
+  it("holds the bulk and schedule runners off by their surface's scopes", () => {
+    expect(source("lib/server/bulk-listing-runner.ts")).toContain(
+      "isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation]))"
+    )
+    expect(source("lib/server/publication-schedule-runner.ts")).toContain(
+      'isScopeEnabled(gbpWriteScopes("posts"), { env })'
+    )
+  })
+})
+
 describe("0090 pause controls migration", () => {
   it("lets the runtime read and never write", () => {
     for (const table of [

@@ -14,6 +14,10 @@ vi.mock("@/lib/server/env", () => ({
   gbpWritesEnabled: () => true,
   getServerEnv: () => ({}),
 }))
+// The dispatch gate reads the operator pause table; nothing is paused here.
+vi.mock("@/lib/server/pause-controls", () => ({
+  requireGbpDispatch: async () => {},
+}))
 vi.mock("@/lib/server/gbp-management", () => ({
   resolveGbpLocationContext: async () => ({
     connectionId: "con1",
