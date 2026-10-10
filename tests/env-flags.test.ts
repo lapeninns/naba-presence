@@ -239,6 +239,7 @@ describe(".env.example", () => {
       "PERFORMANCE_BUDGET_MS",
       "KEYWORDS_BUDGET_MS",
       "PRESENCE_RESOURCE_BUDGET_MS",
+      "OPERATIONS_HEALTH_BUDGET_MS",
       "NEXT_OTEL_VERBOSE",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
     ])

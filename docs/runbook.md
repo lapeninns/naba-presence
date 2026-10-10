@@ -163,8 +163,16 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
   are the session and scheduler POST paths of reconcile, performance and
   keywords (`RECONCILE_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
-  `KEYWORDS_BUDGET_MS`). The runner's own tick budget is 45 seconds inside a
-  60-second function.
+  `KEYWORDS_BUDGET_MS`). Performance and keywords check the deadline between
+  locations inside an organisation as well, so an owner's manual refresh
+  returns `truncated: true` rather than running past it; the locations it did
+  not reach stay due. The runner's own tick budget is 45 seconds inside a
+  60-second function. The platform health walk is bounded by
+  `OPERATIONS_HEALTH_BUDGET_MS` (20000) and reports `partial`.
+- A presence-resource sweep records success only for a real Google read. A
+  posts read that failed (the page still shows cached posts) records `failed`
+  and keeps `last_succeeded_at`. The sweep always refreshes media past the
+  five-minute cache.
 - **Google request budget (0049).** Every Business Profile call first takes a
   slot from `google_rate_bucket`: per API host
   (`GOOGLE_API_REQUESTS_PER_MINUTE`, 240) and, for a write, per location

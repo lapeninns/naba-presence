@@ -142,6 +142,22 @@ export const operationsHealthSchema = z.object({
 })
 export type OperationsHealth = z.infer<typeof operationsHealthSchema>
 
+/**
+ * Coverage fields of the platform-scope health response
+ * (`?scope=platform`). The tenant walk is time-budgeted, so a large fleet can
+ * answer with only some organisations read: `partial` is then true, the
+ * summed counters are lower bounds, and `organisationsCovered` says how many
+ * of `organisationCount` were read. Defaulted so a monitor parsing a response
+ * from a build without the budget reads it as complete.
+ */
+export const platformHealthCoverageSchema = z.object({
+  partial: z.boolean().default(false),
+  organisationsCovered: z.number().int().nonnegative().default(0),
+})
+export type PlatformHealthCoverage = z.infer<
+  typeof platformHealthCoverageSchema
+>
+
 export const webhookFailureSchema = z.object({
   id: z.string(),
   eventType: z.string(),

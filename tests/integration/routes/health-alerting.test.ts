@@ -372,7 +372,35 @@ describeDatabase("operations health alerting", () => {
     expect(health.failedWebhookEvents).toBeGreaterThanOrEqual(1)
     expect(health.deadWebhookEvents).toBeGreaterThanOrEqual(1)
     expect(health.ambiguousPublishAttempts).toBeGreaterThanOrEqual(1)
+    // The default budget covers a test-sized fleet completely.
+    expect(health.partial).toBe(false)
+    expect(health.organisationsCovered).toBe(health.organisationCount)
   })
+
+  it("answers partial within its budget instead of walking every tenant", async () => {
+    // A second organisation guarantees there is a tenant left to skip.
+    const extra = await createTestTenant(admin)
+    const budgetServer = await startAppServer({
+      OPERATIONS_HEALTH_BUDGET_MS: "1",
+    })
+    try {
+      const response = await fetch(
+        `${budgetServer.baseUrl}/api/operations/health?scope=platform`,
+        { headers: { authorization: "Bearer route-harness-cron-secret" } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const health = await response.json()
+      expect(health.organisationCount).toBeGreaterThanOrEqual(2)
+      // At least one tenant is always read, so the answer is never an empty
+      // "complete" one, and never more than the budget allowed.
+      expect(health.partial).toBe(true)
+      expect(health.organisationsCovered).toBeGreaterThanOrEqual(1)
+      expect(health.organisationsCovered).toBeLessThan(health.organisationCount)
+    } finally {
+      await budgetServer.stop()
+      await destroyTenants(admin, [extra.organisationId])
+    }
+  }, 60_000)
 
   it("rejects an invalid platform monitor token", async () => {
     const response = await fetch(

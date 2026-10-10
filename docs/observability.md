@@ -41,6 +41,11 @@ The response is `Cache-Control: no-store` and aggregates tenant-scoped reads
 without bypassing RLS. It contains:
 
 - `scope`, `generatedAt` and `organisationCount` (the platform scope only)
+- `partial` and `organisationsCovered` (platform scope only). The tenant walk
+  stops at `OPERATIONS_HEALTH_BUDGET_MS` (20000 by default) after at least one
+  organisation and starts at a random one. When `partial` is true, the summed
+  counters below are lower bounds over `organisationsCovered` of
+  `organisationCount` tenants, and the worst-tenant ages may be understated.
 - `failedWebhookEvents`
 - `deadWebhookEvents`
 - `oldestFailedEventAgeSeconds` (the maximum across tenants, not a sum)
