@@ -362,19 +362,19 @@ surfaces are read-only and answer to their own flag alone
 and keeps its own error code, so a paused surface is distinguishable in logs
 and in the UI:
 
-| Flag                         | Surface (`env.ts` key)    | Modules                                                | Error when off                    |
-| ---------------------------- | ------------------------- | ------------------------------------------------------ | --------------------------------- |
-| `GBP_PROFILE_WRITES_ENABLED` | `profileWrites`           | `hours.ts`                                             | 409 `hours_publishing_disabled`   |
-|                              |                           | `profile.ts`                                           | 409 `profile_publishing_disabled` |
-|                              |                           | `business-information.ts`                              | 503 `business_information_paused` |
-|                              |                           | `industry-management.ts`, `location-administration.ts` | 503 `google_writes_paused`        |
-| `GBP_POSTS_ENABLED`          | `posts`                   | `posts.ts`                                             | 503 `publishing_paused`           |
-| `GBP_MEDIA_ENABLED`          | `media`                   | `media.ts`                                             | 503 `media_paused`                |
-| `GBP_PLACE_ACTIONS_ENABLED`  | `placeActions`            | `place-actions.ts`                                     | 503 `place_actions_paused`        |
-| `GBP_FOOD_MENUS_ENABLED`     | `foodMenus`               | `food-menus.ts`                                        | 503 `food_menus_paused`           |
-| `GBP_PERFORMANCE_ENABLED`    | `performance` (ingestion) | `performance.ts`                                       | 503 `sync_paused`                 |
-| `GBP_KEYWORDS_ENABLED`       | `keywords` (ingestion)    | `keywords.ts`                                          | 503 `sync_paused`                 |
-| `IMPORT_REVIEW_ENABLED`      | —                         | `import-review.ts`                                     | 503 `import_review_paused`        |
+| Flag                         | Surface (`env.ts` key)    | Modules                                                | Error when off                                                                                                                                     |
+| ---------------------------- | ------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GBP_PROFILE_WRITES_ENABLED` | `profileWrites`           | `hours.ts`                                             | 409 `hours_publishing_disabled`                                                                                                                    |
+|                              |                           | `profile.ts`                                           | 409 `profile_publishing_disabled`                                                                                                                  |
+|                              |                           | `business-information.ts`                              | 503 `business_information_paused`                                                                                                                  |
+|                              |                           | `industry-management.ts`, `location-administration.ts` | 503 `google_writes_paused`                                                                                                                         |
+| `GBP_POSTS_ENABLED`          | `posts`                   | `posts.ts`                                             | topic, language, summary, call to action, event title and schedule, offer ("identify" compares the last three only where Google's list shows them) | `matchLivePost` (ambiguous creates, stranded posts) and post update verification |
+| `GBP_MEDIA_ENABLED`          | `media`                   | `media.ts`                                             | 503 `media_paused`                                                                                                                                 |
+| `GBP_PLACE_ACTIONS_ENABLED`  | `placeActions`            | `place-actions.ts`                                     | 503 `place_actions_paused`                                                                                                                         |
+| `GBP_FOOD_MENUS_ENABLED`     | `foodMenus`               | `food-menus.ts`                                        | 503 `food_menus_paused`                                                                                                                            |
+| `GBP_PERFORMANCE_ENABLED`    | `performance` (ingestion) | `performance.ts`                                       | 503 `sync_paused`                                                                                                                                  |
+| `GBP_KEYWORDS_ENABLED`       | `keywords` (ingestion)    | `keywords.ts`                                          | 503 `sync_paused`                                                                                                                                  |
+| `IMPORT_REVIEW_ENABLED`      | —                         | `import-review.ts`                                     | 503 `import_review_paused`                                                                                                                         |
 
 Review reply publishing answers to `PUBLISH_ENABLED` alone (`publishing_paused`)
 and drafting to `DRAFTS_ENABLED` (`drafts_paused`). `lib/server/capabilities.ts`

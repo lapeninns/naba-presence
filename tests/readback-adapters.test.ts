@@ -442,3 +442,41 @@ describe("local post readback", () => {
     ).toEqual(["topicType", "summary", "callToAction"])
   })
 })
+
+describe("local post identification in Google's list", () => {
+  const intended = {
+    topicType: "STANDARD",
+    languageCode: "en-GB",
+    summary: "Late opening",
+    callToAction: { actionType: "LEARN_MORE", url: "https://x.example/menu" },
+  }
+
+  it("adopts a listing that omits the call to action", () => {
+    const listed = {
+      name: "p",
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Late opening",
+    }
+    expect(localPostMatches(listed, intended, "identify")).toBe(true)
+    // An update readback is strict about the same omission.
+    expect(localPostMatches(listed, intended)).toBe(false)
+  })
+
+  it("never adopts a listing that contradicts the intent", () => {
+    expect(
+      localPostMatches(
+        { ...intended, callToAction: { actionType: "CALL" } },
+        intended,
+        "identify"
+      )
+    ).toBe(false)
+    expect(
+      localPostMatches(
+        { ...intended, summary: "Early closing" },
+        intended,
+        "identify"
+      )
+    ).toBe(false)
+  })
+})

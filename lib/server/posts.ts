@@ -215,9 +215,10 @@ async function upsertLiveLocalPost(
 }
 
 /**
- * A live Google post that carries the content we sent (topic, language,
- * summary, call to action, event title and schedule, offer; compared after
- * normalisation by lib/domain/readback/posts.ts), and whose name no local
+ * A live Google post that carries the content we sent (topic, language and
+ * summary, plus any call to action, event or offer the listing shows;
+ * compared after normalisation by lib/domain/readback/posts.ts "identify"),
+ * and whose name no local
  * row has claimed yet. That content is all a stranded post can be identified
  * by: `gbp_local_post_attempt.intended_payload` is written before the
  * provider call, but Google's name for the post only exists in a response we
@@ -232,7 +233,7 @@ function matchLivePost(
   return live.find((candidate) => {
     const name = stringOrNull(candidate.name)
     if (!name || claimed.has(name)) return false
-    return localPostMatches(candidate, intended)
+    return localPostMatches(candidate, intended, "identify")
   })
 }
 

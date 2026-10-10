@@ -71,16 +71,29 @@ function offerMatches(actual: unknown, expected: unknown) {
 }
 
 /**
- * The content fields of `live` that differ from `intended`. A field the
- * intent leaves out must be absent (or empty) on Google too, so a cleared
- * event or offer that Google kept is a difference.
+ * How strictly a live post is compared:
+ * - "verify" (default): the readback of an update. A field the intent leaves
+ *   out must be absent (or empty) on Google too, so a cleared event or offer
+ *   that Google kept is a difference.
+ * - "identify": finding an uncertain create in Google's list. Topic, language
+ *   and summary must match; a call to action, event or offer is compared
+ *   only where both sides carry one. A listed post that contradicts the
+ *   intent is never adopted, but a listing that omits a field still is:
+ *   missing a create that landed would let the next publish create it again.
  */
+export type LocalPostCompareMode = "verify" | "identify"
+
+/** The content fields of `live` that differ from `intended`. */
 export function localPostMismatches(
   live: unknown,
-  intended: unknown
+  intended: unknown,
+  mode: LocalPostCompareMode = "verify"
 ): LocalPostField[] {
   const actual = record(live)
   const want = record(intended)
+  const compared = (field: "callToAction" | "event" | "offer") =>
+    mode === "verify" ||
+    (!isEmptyValue(actual[field]) && !isEmptyValue(want[field]))
   const mismatches: LocalPostField[] = []
   if (upper(actual.topicType) !== upper(want.topicType))
     mismatches.push("topicType")
@@ -95,14 +108,23 @@ export function localPostMismatches(
     mismatches.push("languageCode")
   if (normalizeText(actual.summary) !== normalizeText(want.summary))
     mismatches.push("summary")
-  if (!callToActionMatches(actual.callToAction, want.callToAction))
+  if (
+    compared("callToAction") &&
+    !callToActionMatches(actual.callToAction, want.callToAction)
+  )
     mismatches.push("callToAction")
-  if (!eventMatches(actual.event, want.event)) mismatches.push("event")
-  if (!offerMatches(actual.offer, want.offer)) mismatches.push("offer")
+  if (compared("event") && !eventMatches(actual.event, want.event))
+    mismatches.push("event")
+  if (compared("offer") && !offerMatches(actual.offer, want.offer))
+    mismatches.push("offer")
   return mismatches
 }
 
 /** True when Google holds the post content that was sent. */
-export function localPostMatches(live: unknown, intended: unknown): boolean {
-  return localPostMismatches(live, intended).length === 0
+export function localPostMatches(
+  live: unknown,
+  intended: unknown,
+  mode: LocalPostCompareMode = "verify"
+): boolean {
+  return localPostMismatches(live, intended, mode).length === 0
 }
