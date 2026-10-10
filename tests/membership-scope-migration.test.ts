@@ -169,6 +169,53 @@ describe("0063 membership scope", () => {
       ).rejects.toThrow(/not-null|null value/)
     })
 
+    it("accepts a client-scoped invitation written the way the deployed code writes it", async () => {
+      // POST /api/invitations before this release: client_ids, no scope.
+      await db.exec(`
+        insert into invitation (organisation_id, email, role, client_ids)
+        values ('${ORG}', 'old-writer@example.test', 'viewer', array['${CLIENT}']::uuid[])
+      `)
+      expect((await invitationScopes())["old-writer@example.test"]).toBe(
+        "assigned"
+      )
+    })
+
+    it("reconciles a scope an older writer left out of step with the rows", async () => {
+      const accepted = "30000000-0000-4000-8000-000000000010"
+      const widened = "30000000-0000-4000-8000-000000000011"
+      const demoted = "30000000-0000-4000-8000-000000000012"
+      await db.exec(`
+        -- Older acceptance: rows under the default 'all'.
+        insert into member (organisation_id, user_id, role)
+        values ('${ORG}', '${accepted}', 'member');
+        insert into location_member (organisation_id, location_id, user_id)
+        values ('${ORG}', '${LOC_A}', '${accepted}');
+        -- Older "every client" save from an assigned member: rows gone,
+        -- scope left 'assigned'.
+        insert into member (organisation_id, user_id, role, location_scope)
+        values ('${ORG}', '${widened}', 'viewer', 'assigned');
+        -- Older demotion of an admin holding latent rows: scope left 'all'.
+        insert into member (organisation_id, user_id, role)
+        values ('${ORG}', '${demoted}', 'viewer');
+        insert into location_member (organisation_id, location_id, user_id)
+        values ('${ORG}', '${LOC_B}', '${demoted}');
+      `)
+      const fixed = await db.query<{ changed: number }>(
+        "select reconcile_member_location_scope() as changed"
+      )
+      expect(fixed.rows[0].changed).toBe(3)
+      const scopes = await memberScopes()
+      expect(scopes[accepted]).toBe("assigned")
+      expect(scopes[widened]).toBe("all")
+      expect(scopes[demoted]).toBe("assigned")
+      // Owners and admins stay 'all' whatever rows they hold.
+      expect(scopes[ADMIN_WITH_ROWS]).toBe("all")
+      const again = await db.query<{ changed: number }>(
+        "select reconcile_member_location_scope() as changed"
+      )
+      expect(again.rows[0].changed).toBe(0)
+    })
+
     it("ties an invitation's scope to its client or location ids", async () => {
       // A location scope for a member: accepted.
       await db.exec(`
@@ -180,11 +227,14 @@ describe("0063 membership scope", () => {
         insert into invitation (organisation_id, email, role, location_scope)
         values ('${ORG}', 'empty@example.test', 'member', 'assigned')
       `)
-      // Ids named, scope left at the default 'all'.
-      await rejects(`
-        insert into invitation (organisation_id, email, role, location_ids)
-        values ('${ORG}', 'mismatch@example.test', 'member', array['${LOC_A}']::uuid[])
+      // Ids named with the scope explicitly 'all': the trigger names it.
+      await db.exec(`
+        insert into invitation (organisation_id, email, role, location_ids, location_scope)
+        values ('${ORG}', 'mismatch@example.test', 'member', array['${LOC_A}']::uuid[], 'all')
       `)
+      expect((await invitationScopes())["mismatch@example.test"]).toBe(
+        "assigned"
+      )
       // An empty list.
       await rejects(`
         insert into invitation (organisation_id, email, role, location_ids, location_scope)

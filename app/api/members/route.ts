@@ -150,7 +150,11 @@ export const PATCH = route({
       //   member/viewer -> either      -> unchanged.
       //   owner/admin -> member/viewer -> 'assigned' when they hold rows (the
       //                                   latent rows become active, as they
-      //                                   always have), otherwise 'all'.
+      //                                   always have, restored as they were
+      //                                   at promotion: extendClientHolders
+      //                                   skips 'all' holders, so listings
+      //                                   filed meanwhile are not among
+      //                                   them), otherwise 'all'.
       // Decided inside the UPDATE, against the row it locks, so a concurrent
       // client-access save cannot leave a scope computed from a stale read.
       const [row] = await sql<

@@ -367,6 +367,27 @@ describeDatabase("organisation invitations", () => {
     return row
   }
 
+  it("accepts a client-scoped invitation written without a scope, as the deployed code writes it", async () => {
+    // 0063 runs before the release that writes location_scope is deployed;
+    // the older POST sets client_ids and leaves the scope to the default.
+    const owner = await fixture()
+    const email = `old-writer-${randomUUID()}@example.test`
+    await admin`
+      insert into invitation (
+        organisation_id, email, role, token_hash, token_ciphertext,
+        expires_at, client_ids
+      ) values (
+        ${owner.organisationId}, ${email}, 'viewer',
+        ${randomUUID()}, ${Buffer.from("x")},
+        now() + interval '7 days', ${admin.array([randomUUID()])}::uuid[]
+      )
+    `
+    await expect(scopeRow(email)).resolves.toEqual({
+      locationIds: null,
+      locationScope: "assigned",
+    })
+  })
+
   it("stores an unscoped invitation as scope all and copies it on acceptance", async () => {
     const owner = await fixture()
     const { response, body, email } = await createInvitation(owner)

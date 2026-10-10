@@ -22,42 +22,72 @@ begin;
 -- 'all'. An owner or admin with rows keeps them (a later demotion makes them
 -- active again, as it does today) but is 'all'.
 --
--- Low-lock: the column arrives with a constant default (no rewrite), the
--- backfill touches only the rows that become 'assigned', and NOT NULL is
--- proven by a validated CHECK first so SET NOT NULL does not rescan under an
--- ACCESS EXCLUSIVE lock. Every statement is re-runnable.
+-- Locking: the whole file is one transaction, so ADD COLUMN takes ACCESS
+-- EXCLUSIVE on member and on invitation and holds it until commit; nothing
+-- below releases it early. The column arrives with a constant default (no
+-- rewrite) and NOT NULL is proven by a validated CHECK first so SET NOT NULL
+-- does not scan again, which keeps the hold short on these small tables but
+-- does not make it any weaker. Every statement is re-runnable.
+--
+-- Expand only. The deployed app does not know the scope exists until the
+-- release that writes it ships, and production migrations run before that
+-- deploy (docs/ci.md, "Expand, then contract"). So nothing here may refuse a
+-- write the deployed code makes:
+--   * member: the column defaults to 'all'. An older writer can still leave
+--     the scope out of step with the rows (acceptance inserting rows under the
+--     default, a client-access save or a demotion that does not touch the
+--     scope). reconcile_member_location_scope() below recomputes it from the
+--     rows and is re-runnable; the reader switch runs it once the writers in
+--     this release are the only ones live (docs/release/ledger.md, PERM-01).
+--   * invitation: a trigger names the scope 'assigned' whenever client_ids or
+--     location_ids is set, so an older POST /api/invitations (client_ids, no
+--     scope) still satisfies the CHECK that ties the two together.
 -- ---------------------------------------------------------------------------
 
 alter table member
   add column if not exists location_scope text default 'all';
 
-do $$
+-- The member and viewer rows rule as it reads today: rows held means
+-- 'assigned', none means 'all'; owners and admins are always 'all' and their
+-- rows stay latent. Recomputes every membership that disagrees and returns
+-- how many it changed, so it can be run again (by the reader switch, or by
+-- hand) to repair a scope an older writer left behind. It only ever moves a
+-- scope to what the current row rule already grants, so running it changes
+-- no one's access while readers still use the rows.
+create or replace function reconcile_member_location_scope()
+returns integer
+language plpgsql
+as $$
 declare
-  batch integer;
+  changed integer;
 begin
-  loop
-    with pending as (
-      select m.organisation_id, m.user_id
-      from member m
-      where m.location_scope is distinct from 'assigned'
-        and m.role in ('member', 'viewer')
-        and exists (
+  update member m
+  set location_scope = target.scope
+  from (
+    select
+      mm.organisation_id,
+      mm.user_id,
+      case
+        when mm.role in ('member', 'viewer') and exists (
           select 1 from location_member lm
-          where lm.organisation_id = m.organisation_id
-            and lm.user_id = m.user_id
-        )
-      limit 1000
-    )
-    update member m
-    set location_scope = 'assigned'
-    from pending
-    where m.organisation_id = pending.organisation_id
-      and m.user_id = pending.user_id;
-    get diagnostics batch = row_count;
-    exit when batch = 0;
-  end loop;
+          where lm.organisation_id = mm.organisation_id
+            and lm.user_id = mm.user_id
+        ) then 'assigned'
+        else 'all'
+      end as scope
+    from member mm
+  ) target
+  where m.organisation_id = target.organisation_id
+    and m.user_id = target.user_id
+    and m.location_scope is distinct from target.scope;
+  get diagnostics changed = row_count;
+  return changed;
 end;
 $$;
+
+revoke all on function reconcile_member_location_scope() from public;
+
+select reconcile_member_location_scope();
 
 update member set location_scope = 'all' where location_scope is null;
 
@@ -81,7 +111,8 @@ alter table member drop constraint member_location_scope_not_null;
 -- listings when accepted) or, for a business workspace, listings directly
 -- (0043's location_ids, written for the first time by this release). Never
 -- both, never an empty list, never on an owner or admin, and the scope says
--- 'assigned' exactly when one of them is set.
+-- 'assigned' exactly when one of them is set (the trigger below supplies it
+-- for writers that predate the column).
 -- ---------------------------------------------------------------------------
 
 alter table invitation
@@ -93,6 +124,28 @@ where (client_ids is not null or location_ids is not null)
   and location_scope is distinct from 'assigned';
 
 update invitation set location_scope = 'all' where location_scope is null;
+
+-- Older writers set client_ids and leave the scope at its default; name it
+-- here, before the CHECK below sees the row. Never moves a scope to 'all':
+-- an 'assigned' row with no ids stays refused.
+create or replace function name_invitation_location_scope()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.client_ids is not null or new.location_ids is not null then
+    new.location_scope := 'assigned';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function name_invitation_location_scope() from public;
+
+drop trigger if exists invitation_location_scope_from_targets on invitation;
+create trigger invitation_location_scope_from_targets
+  before insert or update on invitation
+  for each row execute function name_invitation_location_scope();
 
 alter table invitation drop constraint if exists invitation_location_scope_check;
 alter table invitation

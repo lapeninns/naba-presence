@@ -319,18 +319,46 @@ describeDatabase("member removal, location grants and the last owner", () => {
   it("rolls the scope back with the rows when a client-access save fails", async () => {
     const owner = await createTestTenant(admin, { workspaceMode: "business" })
     organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
     const member = await seedMemberUser(admin, {
       organisationId: owner.organisationId,
     })
-    // An unknown listing is refused after the plan, inside the transaction
-    // that would have written both.
-    const refused = await putAccess(owner.cookie, member.userId, {
-      locations: [{ locationId: randomUUID(), canPublish: false }],
-    })
-    expect(refused.status).toBe(404)
+    // Fail the row insert, which runs after the scope update, for this one
+    // member only: the save has then written 'assigned' and must lose it.
+    const suffix = member.userId.replaceAll("-", "")
+    const fn = `fail_location_member_${suffix}`
+    await admin.unsafe(`
+      create function ${fn}() returns trigger language plpgsql as $$
+      begin
+        if new.user_id = '${member.userId}'::uuid then
+          raise exception 'injected location_member failure';
+        end if;
+        return new;
+      end;
+      $$;
+      create trigger ${fn} before insert on location_member
+        for each row execute function ${fn}();
+    `)
+    try {
+      const refused = await putAccess(owner.cookie, member.userId, {
+        locations: [{ locationId: flagship, canPublish: false }],
+      })
+      expect(refused.status).toBe(500)
+    } finally {
+      await admin.unsafe(`
+        drop trigger if exists ${fn} on location_member;
+        drop function if exists ${fn}();
+      `)
+    }
     await expect(scopeOf(owner.organisationId, member.userId)).resolves.toEqual(
       { locationScope: "all", rows: 0 }
     )
+    const [audits] = await admin<{ count: number }[]>`
+      select count(*)::int as count from audit_log
+      where organisation_id = ${owner.organisationId}
+        and action = 'member.client_access_changed'
+    `
+    expect(audits.count).toBe(0)
   })
 
   it("moves the scope with the role and keeps latent rows", async () => {

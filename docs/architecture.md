@@ -124,6 +124,14 @@ extends only `assigned` holders. Reads still use the row rule above; with
 `permissions.scope_shadow_mismatch` wherever the explicit rule would grant
 differently, without changing the grant.
 
+0063 is expand-only: it runs before the release that writes the scope is
+deployed, so it refuses nothing the deployed code writes. An invitation
+trigger names the scope `assigned` whenever `client_ids` or `location_ids` is
+set. Older member writers can still leave the scope out of step with the rows,
+so the reader switch first runs `reconcile_member_location_scope()`
+(re-runnable; it recomputes the scope from the rows, so it changes no one's
+access while readers use the rows) once only the new writers are live.
+
 Visibility never authorises a write. Every mutation names its action
 (`read`, `edit`, `request_approval`, `triage`, `assign`, `decide_approval`,
 `publish`) and calls `requireLocationAction`, which answers 404 for a hidden
