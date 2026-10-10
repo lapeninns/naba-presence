@@ -321,6 +321,82 @@ describeDatabase("Local Posts CRUD", () => {
     expect(rows[0]).toMatchObject({ status: "published", googlePostName: name })
   })
 
+  // A post Google is still reviewing is not live. An unchanged re-publish
+  // under a new intent is answered from the succeeded attempt, and its
+  // receipt used to be settled confirmed_applied from the bare row status.
+  it("records a re-publish of a post Google is still reviewing as awaiting confirmation", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("reviewing")
+    let held: Record<string, unknown> = {}
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
+      held = { ...(call.body as object), name, state: "PROCESSING" }
+      return { status: 200, json: held }
+    })
+    google.respond(
+      { method: "PATCH", pathIncludes: "/localPosts/reviewing" },
+      (call) => {
+        held = { ...held, ...(call.body as object), state: "PROCESSING" }
+        return { status: 200, json: held }
+      }
+    )
+    google.respond(
+      { method: "GET", pathIncludes: "/localPosts/reviewing" },
+      () => ({ status: 200, json: held })
+    )
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 200,
+      json: { localPosts: [held] },
+    }))
+    const postId = await createDraft(
+      owner.cookie,
+      linked.locationId,
+      "Under review"
+    )
+    const publishUnder = (intentId: string) =>
+      fetch(
+        `${server.baseUrl}/api/locations/${linked.locationId}/posts/${postId}/publish`,
+        {
+          method: "POST",
+          headers: {
+            ...jsonHeaders(owner.cookie),
+            "Idempotency-Key": intentId,
+          },
+          body: "{}",
+        }
+      )
+    const receiptState = async (intentId: string) => {
+      const [row] = await admin<{ state: string }[]>`
+        select state from mutation_operation
+        where organisation_id = ${owner.organisationId}
+          and intent_id = ${intentId}
+      `
+      return row?.state
+    }
+
+    const created = randomUUID()
+    const first = await publishUnder(created)
+    expect(first.status, await first.clone().text()).toBe(200)
+    expect(await receiptState(created)).toBe("awaiting_confirmation")
+    // The first publish of a named post sends the update; the second one of
+    // the same content is that update's succeeded attempt again.
+    const updated = randomUUID()
+    const second = await publishUnder(updated)
+    expect(second.status, await second.clone().text()).toBe(200)
+    expect(await receiptState(updated)).toBe("awaiting_confirmation")
+    const patches = () =>
+      google.calls.filter((call) => call.method === "PATCH").length
+    const sentBefore = patches()
+
+    const repeated = randomUUID()
+    const third = await publishUnder(repeated)
+    expect(third.status, await third.clone().text()).toBe(200)
+    expect(await third.json()).toMatchObject({
+      operation: { outcome: "awaiting_confirmation" },
+    })
+    expect(patches()).toBe(sentBefore)
+    expect(await receiptState(repeated)).toBe("awaiting_confirmation")
+  })
+
   // An ambiguous create used to settle 'ambiguous' with no Google name, and
   // the tab offered Publish on exactly that status - a blind second create.
   it("resolves an ambiguous create by reading Google, not by creating again", async () => {

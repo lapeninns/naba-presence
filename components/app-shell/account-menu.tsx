@@ -189,7 +189,9 @@ function AccountMenu({
         // a bare gateway answer (a 502 or a function timeout, which carries
         // no route error code), may have reached it and done its work.
         description: `${describeActionError(error)} ${
-          error instanceof ApiClientError && error.code !== "http_error"
+          error instanceof ApiClientError &&
+          error.code !== "http_error" &&
+          error.code !== "network_error"
             ? "You’re still signed in."
             : "You may still be signed in."
         }`,

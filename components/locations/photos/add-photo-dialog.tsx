@@ -38,7 +38,10 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   MIN_PHOTO_UPLOAD_BYTES,
 } from "@/lib/contracts/location-media"
-import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
 import { humaniseCategory } from "@/lib/locations/media-labels"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
@@ -47,7 +50,7 @@ const ACCEPTED_TYPES = ["image/jpeg", "image/png"]
 const MB = 1024 * 1024
 
 type UploadStatus =
-  "invalid" | "ready" | "uploading" | "sent" | "done" | "failed"
+  "invalid" | "ready" | "uploading" | "sent" | "done" | "unconfirmed" | "failed"
 
 type UploadEntry = {
   key: string
@@ -99,7 +102,10 @@ const STATUS_PILL: Record<
   // idempotent replay reports the earlier attempt's own status).
   sent: { tone: "info", label: "Sent to Google" },
   done: { tone: "ok", label: describeOutcome("confirmed_applied").label },
-  failed: { tone: "bad", label: "Failed" },
+  // The upload got no answer or Google's media needs resolving
+  // (errorOutcome `uncertain`): it may exist at Google, so not "Failed".
+  unconfirmed: { tone: "info", label: describeOutcome("uncertain").label },
+  failed: { tone: "bad", label: describeOutcome("failed").label },
 }
 
 /**
@@ -216,6 +222,7 @@ export function AddPhotoDialog({
     setUploading(true)
     let succeeded = 0
     let failed = 0
+    let unconfirmed = 0
     for (const entry of ready) {
       patch(entry.key, { status: "uploading", progress: 0 })
       const form = new FormData()
@@ -233,9 +240,11 @@ export function AddPhotoDialog({
           progress: 1,
         })
       } catch (error) {
-        failed += 1
+        const maybeSent = isUnconfirmedFailure(error)
+        if (maybeSent) unconfirmed += 1
+        else failed += 1
         patch(entry.key, {
-          status: "failed",
+          status: maybeSent ? "unconfirmed" : "failed",
           error: describeActionError(error),
           code: error instanceof ApiClientError ? error.code : undefined,
         })
@@ -250,10 +259,16 @@ export function AddPhotoDialog({
           ? `${succeeded} ${succeeded === 1 ? "photo" : "photos"} sent to Google`
           : "No photos were uploaded",
       description:
-        failed > 0
-          ? `${failed} failed. The reason is beside each one.`
+        failed + unconfirmed > 0
+          ? [
+              failed > 0 ? `${failed} failed.` : null,
+              unconfirmed > 0 ? `${unconfirmed} not confirmed.` : null,
+              "The reason is beside each one.",
+            ]
+              .filter(Boolean)
+              .join(" ")
           : undefined,
-      type: failed > 0 ? "error" : "success",
+      type: failed > 0 ? "error" : unconfirmed > 0 ? "warning" : "success",
     })
   }
 
@@ -371,6 +386,7 @@ export function AddPhotoDialog({
                   !uploading &&
                   (entry.status === "ready" ||
                     entry.status === "invalid" ||
+                    entry.status === "unconfirmed" ||
                     entry.status === "failed")
                 return (
                   <li

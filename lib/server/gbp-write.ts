@@ -706,6 +706,19 @@ export type GbpReadback<TResponse, TReadback> = {
    * (`rejected`). Default `confirmed_applied`.
    */
   outcome?: (readback: TReadback) => GbpSuccessOutcome
+  /**
+   * The same judgement for an attempt that had already succeeded before
+   * this request -- an unchanged re-publish answered from its row, or a
+   * receipt joining a row another request settled -- read from what the
+   * module stored, in the claim transaction. Only consulted when `outcome`
+   * is set; without it (or when it returns null) such a row is recorded
+   * `awaiting_confirmation`, never `confirmed_applied`, because nothing in
+   * this request read the resource's state.
+   */
+  settledOutcome?: (
+    sql: TransactionSql,
+    attempt: AttemptRow
+  ) => Promise<GbpSuccessOutcome | null>
 }
 
 /** The outcomes a settled-successful write may stand for. */
@@ -931,7 +944,7 @@ export async function runGbpWrite<
     | { kind: "start"; row: AttemptRow | null }
   /** What phase (a) settled on. */
   type Claim =
-    | { kind: "idempotent"; row: AttemptRow }
+    | { kind: "idempotent"; row: AttemptRow; outcome: OperationOutcome }
     | { kind: "in_flight"; row: AttemptRow }
     | { kind: "uncertain"; row: AttemptRow }
     | { kind: "started"; row: AttemptRow }
@@ -982,13 +995,34 @@ export async function runGbpWrite<
   }
 
   /**
+   * The outcome a row this request did not settle stands for. A succeeded
+   * row on a surface whose readback can say less than "applied" is asked of
+   * the module (GbpReadback.settledOutcome), so a post Google is still
+   * reviewing or refused is not recorded live.
+   */
+  const rowOutcome = async (
+    sql: TransactionSql,
+    row: AttemptRow
+  ): Promise<OperationOutcome> => {
+    if (row.status !== "succeeded" || !input.readback?.outcome) {
+      return outcomeForAttemptStatus(row.status, readbackVerified)
+    }
+    return (
+      (await input.readback.settledOutcome?.(sql, row)) ??
+      "awaiting_confirmation"
+    )
+  }
+
+  /**
    * Links this request's receipt to `row` and, when `row` is settled, settles
-   * it. Returns this request's receipt when it settled it, so the caller can
-   * answer from it.
+   * it -- with `known` when the caller has just read the outcome back, and
+   * otherwise with `rowOutcome`. Returns this request's receipt when it
+   * settled it, so the caller can answer from it.
    */
   const recordOnRow = async (
     sql: TransactionSql,
-    row: AttemptRow
+    row: AttemptRow,
+    known?: OperationOutcome
   ): Promise<MutationOperation | null> => {
     if (!operationId) return null
     await linkOperationAttempt(sql, {
@@ -996,7 +1030,10 @@ export async function runGbpWrite<
       attemptTable,
       attemptId: row.id,
     })
-    const state = outcomeForAttemptStatus(row.status, readbackVerified)
+    const state =
+      row.status === "succeeded" && known !== undefined
+        ? known
+        : await rowOutcome(sql, row)
     if (state === "sent") return null
     const settled = await settleOperationsForAttempt(sql, {
       organisationId: input.organisationId,
@@ -1070,7 +1107,11 @@ export async function runGbpWrite<
         // A resume surface recovers the row by readback below.
         if (onExisting === "replay") throw intentInProgress()
       }
-      if (decided.kind === "idempotent") await recordOnRow(sql, decided.row)
+      if (decided.kind === "idempotent") {
+        const outcome = await rowOutcome(sql, decided.row)
+        await recordOnRow(sql, decided.row, outcome)
+        return { ...decided, outcome }
+      }
       if (decided.kind !== "start") return decided
       const row = await input.store.start(sql, {
         organisationId: input.organisationId,
@@ -1089,7 +1130,11 @@ export async function runGbpWrite<
       // blocking ours), so re-read and answer from its row.
       const again = decide(await input.store.find(sql, scope))
       if (again.kind === "start") throw inProgressError()
-      if (again.kind === "idempotent") await recordOnRow(sql, again.row)
+      if (again.kind === "idempotent") {
+        const outcome = await rowOutcome(sql, again.row)
+        await recordOnRow(sql, again.row, outcome)
+        return { ...again, outcome }
+      }
       return again
     })
 
@@ -1282,10 +1327,18 @@ export async function runGbpWrite<
   const replayReceipt = (
     operation: MutationOperation
   ): GbpWriteResult<TResponse, TReadback> => {
+    // A `rejected` receipt on a succeeded attempt is Google holding the
+    // resource and refusing to show it (GbpReadback.outcome): the write
+    // landed, and the first answer was a success that said so. Replaying it
+    // as a failure would claim nothing was applied.
+    const landedRejected =
+      operation.state === "rejected" &&
+      operation.receipt?.attemptStatus === "succeeded"
     if (
       !operation.attemptId ||
       (operation.state !== "confirmed_applied" &&
-        operation.state !== "awaiting_confirmation")
+        operation.state !== "awaiting_confirmation" &&
+        !landedRejected)
     ) {
       throw receiptError(operation)
     }
@@ -1344,9 +1397,19 @@ export async function runGbpWrite<
     if (recovered) {
       // The interrupted or uncertain write had landed; it is now settled,
       // reconciled and audited, and this request wrote nothing of its own.
+      // This request's receipt joins the row only now, after the settle
+      // above (which settles receipts still `sent` on it), so it takes the
+      // outcome the readback just read rather than the bare row status.
+      const outcome = successState(recovered)
       const settled = await withTenant(input.organisationId, async (sql) => {
         const row = await input.store.find(sql, scope)
-        if (row) await recordOnRow(sql, row)
+        if (row) {
+          await recordOnRow(
+            sql,
+            row,
+            row.id === recovered.attemptId ? outcome : undefined
+          )
+        }
         return row
       })
       return {
@@ -1355,7 +1418,7 @@ export async function runGbpWrite<
         status: settled?.status ?? "succeeded",
         rawStatus: settled?.rawStatus ?? "succeeded",
         operationId,
-        outcome: successState(recovered),
+        outcome,
       }
     }
     // The row is settled `failed` now, so this re-arms it. Anything else
@@ -1373,7 +1436,7 @@ export async function runGbpWrite<
       status: claimed.row.status,
       rawStatus: claimed.row.rawStatus,
       operationId,
-      outcome: outcomeForAttemptStatus(claimed.row.status, readbackVerified),
+      outcome: claimed.outcome,
     }
   }
   const attemptId = claimed.row.id

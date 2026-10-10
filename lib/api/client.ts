@@ -185,12 +185,32 @@ export async function apiFetch<T = unknown>(
   const headers: Record<string, string> = {}
   if (body !== undefined) headers["content-type"] = "application/json"
   if (intentId) headers[INTENT_HEADER] = intentId
-  const response = await fetch(path, {
-    method,
-    signal,
-    headers: Object.keys(headers).length > 0 ? headers : undefined,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method,
+      signal,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (error) {
+    // fetch() rejects with a TypeError when the connection drops or the
+    // request never got an answer -- for a write, the one case where it may
+    // still have been applied. Wrapped so the error keeps the intent it was
+    // sent under, which a retry resends and `GET /api/mutations/{intentId}`
+    // answers for (the upload XHR in lib/api/location-media.ts does the
+    // same). Reads, and an aborted or timed-out request, rethrow as they are.
+    if (intentId && error instanceof TypeError) {
+      throw new ApiClientError(
+        0,
+        "network_error",
+        "We couldn’t reach NabaPresence. Check your connection and try again.",
+        undefined,
+        { intentId }
+      )
+    }
+    throw error
+  }
   const payload = await readPayload(response)
 
   if (!response.ok) {
@@ -224,11 +244,14 @@ export async function apiFetch<T = unknown>(
   if (!schema) return payload.raw as T
   const parsed = schema.safeParse(payload.raw)
   if (!parsed.success) {
+    // The server answered 2xx, so a write behind it was applied: the intent
+    // lets a retry be answered from its receipt instead of writing again.
     throw new ApiClientError(
       500,
       "malformed_response",
       "The server response did not match the expected shape.",
-      parsed.error.issues
+      parsed.error.issues,
+      { intentId }
     )
   }
   return parsed.data

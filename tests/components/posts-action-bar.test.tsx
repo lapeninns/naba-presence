@@ -346,5 +346,46 @@ describe("PostsActionBar", () => {
       await waitFor(() => expect(intentIds).toHaveLength(2))
       expect(intentIds[1]).toBe(intentIds[0])
     })
+
+    // A dropped connection rejects fetch() with a bare TypeError: the most
+    // common lost answer, and the one the receipt notice exists for.
+    it("follows the receipt when the connection drops mid-publish", async () => {
+      const actual = await vi.importActual<
+        typeof import("@/lib/api/location-posts")
+      >("@/lib/api/location-posts")
+      api.publishPost.mockImplementation(actual.publishPost)
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValue(new TypeError("Failed to fetch"))
+      receipts.fetchMutationReceipt.mockResolvedValue({
+        id: "op-1",
+        intentId: "x",
+        surface: "local_post",
+        action: "create",
+        locationId: "loc-1",
+        targetType: "local_post",
+        targetRef: "p1",
+        outcome: "uncertain",
+        errorCode: null,
+        attemptId: "a1",
+        createdAt: "2026-10-10T10:00:00.000Z",
+        updatedAt: "2026-10-10T10:00:00.000Z",
+      })
+      renderBar()
+      await publishFromDialog()
+      const notice = await screen.findByRole("status")
+      expect(notice).toHaveAttribute("data-outcome", "uncertain")
+      const sent = new Headers(fetchSpy.mock.calls[0][1]?.headers).get(
+        "Idempotency-Key"
+      )
+      expect(sent).toEqual(expect.any(String))
+      await waitFor(() =>
+        expect(receipts.fetchMutationReceipt).toHaveBeenCalledWith(
+          sent,
+          expect.anything()
+        )
+      )
+      fetchSpy.mockRestore()
+    })
   })
 })

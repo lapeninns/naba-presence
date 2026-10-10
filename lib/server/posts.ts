@@ -1501,6 +1501,18 @@ async function publishLocalPost(input: {
       // or Google refused it (REJECTED).
       outcome: (readback) =>
         googlePostStateOutcome(stringOrNull(asRecord(readback).state)),
+      // An unchanged re-publish answered from its succeeded attempt, or a
+      // receipt joining one: the post's stored Google state, which a list
+      // reconcile may have moved on since (the answer below reads the same).
+      settledOutcome: async (sql, attempt) => {
+        const [row] = await sql<{ googleState: string | null }[]>`
+          select p.google_state as "googleState"
+          from gbp_local_post_attempt a
+          join gbp_local_post p on p.id = a.post_id
+          where a.id = ${attempt.id}
+        `
+        return row ? googlePostStateOutcome(row.googleState) : null
+      },
     },
     audit: (ctx) => ({
       action: operation === "create" ? "post.published" : "post.updated.google",

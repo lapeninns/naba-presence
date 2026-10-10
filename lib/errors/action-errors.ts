@@ -422,6 +422,10 @@ const COPY: Record<string, string> = {
     "Google didn’t accept those details. Check them and try again. Nothing was changed.",
 
   // ---- Client-side --------------------------------------------------------
+  // A write whose request got no answer (apiFetch, the upload XHR). Same
+  // sentence as NETWORK_ERROR_COPY below.
+  network_error:
+    "We couldn’t reach NabaPresence. Check your connection and try again.",
   malformed_response:
     "The server sent an unexpected response. Refresh and try again.",
 }
@@ -499,7 +503,8 @@ export function describeActionError(
     return GENERIC_ERROR_COPY
   }
   // fetch() rejects with a TypeError when the network is down or the request
-  // never reached the server; apiFetch does not wrap it.
+  // never reached the server; apiFetch wraps it as `network_error` only for
+  // writes.
   if (error instanceof TypeError) return NETWORK_ERROR_COPY
   // An aborted or timed-out request rejects with a DOMException, NOT a
   // TypeError, so it used to fall through to "Something went wrong" — the one
@@ -615,9 +620,17 @@ export function errorOutcome(
       (/^[A-Z][A-Z_]+$/.test(error.code) || error.code === "google_api_error")
     )
       return "rejected"
-    // No JSON answer from the app (a proxy's 502/504): the handler may still
-    // have run to completion.
-    if (error.status >= 500 && error.code === "http_error") return "uncertain"
+    // No JSON answer from the app (a proxy's 502/504), an unhandled server
+    // error (the provider write may have landed and only the settle after it
+    // failed), or a 2xx whose body did not parse: the handler may have run to
+    // completion. Typed 5xx codes are the app's own verdicts and stay failed.
+    if (
+      error.status >= 500 &&
+      (error.code === "http_error" ||
+        error.code === "internal_error" ||
+        error.code === "malformed_response")
+    )
+      return "uncertain"
     return "failed"
   }
   if (error instanceof TypeError || isTimeoutError(error)) return "uncertain"

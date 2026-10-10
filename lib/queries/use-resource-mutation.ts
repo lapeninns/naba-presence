@@ -102,14 +102,15 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     onError,
     intentKey,
   } = options
-  // The last call's intent, and the one a retry of it may reuse.
-  const lastCall = useRef<{ key: string; intentId: string | undefined } | null>(
-    null
+  // Each call's fingerprint and intent, by the variables TanStack hands
+  // back to onSuccess/onError, so overlapping calls (two items, or a second
+  // click before the first fails) each settle their own entry. And the
+  // intents a retry may reuse, one per action whose last call may have
+  // applied: an uncertain delete of A stays carried through a success on B.
+  const calls = useRef(
+    new Map<unknown, { key: string; intentId: string | undefined }>()
   )
-  const unconfirmed = useRef<{
-    key: string
-    intentId: string | undefined
-  } | null>(null)
+  const unconfirmed = useRef(new Map<string, string | undefined>())
 
   return useMutation<TData, Error, TVariables>({
     // Mutations run without TanStack retries here, so a call is one user
@@ -119,14 +120,16 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
       const key = intentFingerprint(
         intentKey ? intentKey(variables) : variables
       )
-      const carried =
-        unconfirmed.current?.key === key ? unconfirmed.current.intentId : null
-      const intentId = carried ?? mintIntentId()
-      lastCall.current = { key, intentId }
+      const intentId = unconfirmed.current.has(key)
+        ? unconfirmed.current.get(key)
+        : mintIntentId()
+      calls.current.set(variables, { key, intentId })
       return mutationFn(variables, { intentId })
     },
     onSuccess: (data, variables) => {
-      unconfirmed.current = null
+      const call = calls.current.get(variables)
+      calls.current.delete(variables)
+      if (call) unconfirmed.current.delete(call.key)
       onSuccess?.(data, variables)
       if (typeof invalidate === "function") {
         invalidate()
@@ -141,9 +144,15 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
       if (copy) toasts.add(successToastFields(copy))
     },
     onError: (error, variables) => {
-      unconfirmed.current = isUnconfirmedFailure(error)
-        ? lastCall.current
-        : null
+      const call = calls.current.get(variables)
+      calls.current.delete(variables)
+      if (call) {
+        if (isUnconfirmedFailure(error)) {
+          unconfirmed.current.set(call.key, call.intentId)
+        } else {
+          unconfirmed.current.delete(call.key)
+        }
+      }
       const message = errorToast
         ? errorToast(error)
         : describeActionError(error, { context: errorContext })

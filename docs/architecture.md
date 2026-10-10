@@ -539,7 +539,20 @@ the same judgement when the request carried no intent (`operationId` null),
 taken from `runGbpWrite`'s result. A readback may narrow a success with
 `GbpReadback.outcome`: a local post Google holds but is still reviewing is
 `awaiting_confirmation`, one it refused is `rejected`
-(`lib/domain/post-outcome.ts`, shared with the posts tab). The client words
+(`lib/domain/post-outcome.ts`, shared with the posts tab). A receipt this
+request did not settle itself -- an unchanged re-publish answered from its
+succeeded attempt, or a new intent joining a row a readback just recovered --
+takes the same judgement: the recovered readback's outcome, or
+`GbpReadback.settledOutcome` read from the module's stored state (the post's
+`google_state`), and `awaiting_confirmation` when neither is known, never a
+bare `confirmed_applied`. A same-intent replay of a `rejected` receipt whose
+attempt `succeeded` answers as the idempotent success it was, not as "not
+applied". On the client, `apiFetch` wraps a write's `fetch()` rejection as
+`ApiClientError(0, "network_error")` carrying its intent, and `errorOutcome`
+(`lib/errors/action-errors.ts`) calls a proxy's bare 5xx, an unhandled 500
+`internal_error` and a 2xx `malformed_response` `uncertain`, so a retry
+resends the intent; `useResourceMutation` keeps one carried intent per
+action fingerprint. The client words
 every state with `lib/editors/outcome.ts`: toasts, publish steps
 (`stepOutcome` in `lib/editors/use-publish-flow.ts` prefers the answer's
 outcome to the step's `verified` flag), the posts tab and inbox status pills,

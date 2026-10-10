@@ -3,7 +3,7 @@ import {
   QueryClientProvider,
   type QueryKey,
 } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -270,6 +270,54 @@ describe("useResourceMutation", () => {
       await userEvent.click(send)
       await waitFor(() => expect(seen).toHaveLength(3))
       expect(new Set(seen).size).toBe(3)
+    })
+
+    it("keeps an uncertain call's intent through a success on another item", async () => {
+      const seen: { variables: string; intentId: string | undefined }[] = []
+      renderIntent({
+        mutationFn: async (variables: string, intent) => {
+          seen.push({ variables, intentId: intent.intentId })
+          if (variables === "draft one" && seen.length === 1) throw ambiguous()
+          return { ok: true as const }
+        },
+      })
+      await userEvent.click(screen.getByRole("button", { name: "Send one" }))
+      await screen.findByText("status: error")
+      await userEvent.click(screen.getByRole("button", { name: "Send two" }))
+      await screen.findByText("status: success")
+      await userEvent.click(screen.getByRole("button", { name: "Send one" }))
+      await waitFor(() => expect(seen).toHaveLength(3))
+      expect(seen[2]).toEqual({
+        variables: "draft one",
+        intentId: seen[0].intentId,
+      })
+    })
+
+    it("remembers the call that failed, not the last one started", async () => {
+      const seen: { variables: string; intentId: string | undefined }[] = []
+      let failFirst: (error: Error) => void = () => {}
+      renderIntent({
+        mutationFn: (variables: string, intent) => {
+          seen.push({ variables, intentId: intent.intentId })
+          if (variables === "draft one" && seen.length === 1) {
+            return new Promise((_resolve, reject) => {
+              failFirst = reject
+            })
+          }
+          return Promise.resolve({ ok: true as const })
+        },
+      })
+      // One starts, two starts and succeeds, then one fails uncertainly.
+      await userEvent.click(screen.getByRole("button", { name: "Send one" }))
+      await userEvent.click(screen.getByRole("button", { name: "Send two" }))
+      await waitFor(() => expect(seen).toHaveLength(2))
+      await act(async () => {
+        failFirst(ambiguous())
+      })
+      await userEvent.click(screen.getByRole("button", { name: "Send one" }))
+      await waitFor(() => expect(seen).toHaveLength(3))
+      expect(seen[2].intentId).toBe(seen[0].intentId)
+      expect(seen[2].intentId).not.toBe(seen[1].intentId)
     })
 
     it("keys the retry on intentKey when the call reads its input from render state", async () => {

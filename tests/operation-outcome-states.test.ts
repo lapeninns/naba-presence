@@ -139,7 +139,12 @@ describe("errorOutcome", () => {
     [api(403, "PERMISSION_DENIED"), "rejected"],
     [api(429, "RESOURCE_EXHAUSTED"), "failed"],
     [api(409, "hours_stale"), "failed"],
-    [api(500, "internal_error"), "failed"],
+    // An unhandled 500 may follow a provider write that landed (the settle
+    // after it failed), and a 2xx that did not parse was applied.
+    [api(500, "internal_error"), "uncertain"],
+    [api(500, "malformed_response"), "uncertain"],
+    [api(500, "google_write_failed"), "failed"],
+    [api(502, "google_readback_mismatch"), "failed"],
     [new Error("boom"), "failed"],
   ] as const)("%o is %s", (error, outcome) => {
     expect(errorOutcome(error)).toBe(outcome)

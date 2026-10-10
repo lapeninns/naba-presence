@@ -327,6 +327,88 @@ describe("mutation operation ledger", () => {
     })
   })
 
+  // A surface whose readback can say less than "applied" (a post Google is
+  // still reviewing or refused) must not have a new intent's receipt on an
+  // already-succeeded row recorded live from the bare row status.
+  const reviewing = (
+    settledOutcome?: NonNullable<Input["readback"]>["settledOutcome"]
+  ): Partial<Input> => ({
+    readback: {
+      read: async () => ({ hash: "a" }),
+      verify: ({ readback }) => readback.hash === "a",
+      outcome: () => "awaiting_confirmation",
+      settledOutcome,
+    },
+  })
+
+  it("records a new intent on a succeeded row by the module's stored state", async () => {
+    await run(
+      null,
+      "a",
+      reviewing(async () => "rejected")
+    )
+    const result = await run(
+      OTHER_INTENT,
+      "a",
+      reviewing(async () => "rejected")
+    )
+    expect(mutations).toBe(1)
+    expect(result).toMatchObject({ idempotent: true, outcome: "rejected" })
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      intent_id: OTHER_INTENT,
+      state: "rejected",
+    })
+  })
+
+  it("never records a succeeded row live when the module cannot say its state", async () => {
+    await run(null, "a", reviewing())
+    const result = await run(OTHER_INTENT, "a", reviewing())
+    expect(result).toMatchObject({
+      idempotent: true,
+      outcome: "awaiting_confirmation",
+    })
+    const [operation] = await operations()
+    expect(operation.state).toBe("awaiting_confirmation")
+  })
+
+  it("records a new intent joining a recovered row with the readback's outcome", async () => {
+    const attemptId = await strand({ intentId: null, ageMs: 60 * 60 * 1000 })
+    const result = await run(OTHER_INTENT, "a", reviewing())
+    expect(mutations).toBe(0)
+    expect(result).toMatchObject({
+      idempotent: true,
+      attemptId,
+      outcome: "awaiting_confirmation",
+    })
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      intent_id: OTHER_INTENT,
+      attempt_id: attemptId,
+      state: "awaiting_confirmation",
+    })
+  })
+
+  it("replays a rejected receipt on a landed write as the success it answered", async () => {
+    const refused: Partial<Input> = {
+      readback: {
+        read: async () => ({ hash: "a" }),
+        verify: ({ readback }) => readback.hash === "a",
+        outcome: () => "rejected",
+      },
+    }
+    const first = await run(INTENT, "a", refused)
+    expect(first.outcome).toBe("rejected")
+    const replay = await run(INTENT, "a", refused)
+    expect(mutations).toBe(1)
+    expect(replay).toMatchObject({
+      idempotent: true,
+      attemptId: first.attemptId,
+      status: "succeeded",
+      outcome: "rejected",
+    })
+  })
+
   it("takes the request's ambient intent, for the first described write only", async () => {
     await withMutationIntent(INTENT, async () => {
       await runGbpWrite(base("a"), {
