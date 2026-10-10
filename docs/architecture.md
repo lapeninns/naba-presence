@@ -830,11 +830,11 @@ Publication holds the location/resource lock across preflight, execution and
 readback. A unique attempt reference binds each change set to one execution;
 repeating the same approved intent returns its recorded outcome without sending
 another Google mutation. A distinct intent cannot bypass an unresolved attempt.
-Migrations `0060` and `0061` extend these reviews to business-information and
+Migrations `0064` and `0065` extend these reviews to business-information and
 attribute writes. Other write families still require the same approval boundary.
 
-Account onboarding has no linked location at the start. Migrations `0062` through
-`0064` therefore add tenant-scoped draft, review and creation records rather than
+Account onboarding has no linked location at the start. Migrations `0066` through
+`0068` therefore add tenant-scoped draft, review and creation records rather than
 requiring a synthetic location. Draft targets and provider request UUIDs are
 immutable. Revision checks and search identities reject concurrent edits and late
 matching responses. Reviews freeze the draft, matching evidence and creation
@@ -857,7 +857,7 @@ ownership URL does not imply lack of access. The response distinguishes accessib
 not accessible, ambiguous and identity-unconfirmed matches. Revision/hash, search
 identity, search observation time, client/connection access and creation-started
 state are checked before and after discovery. Discovery creates no local mapping
-and authorises no link. Migration `0065` adds separate immutable local match-link
+and authorises no link. Migration `0069` adds separate immutable local match-link
 reviews, with a composite tenant/draft foreign key, forced RLS and approval-only
 runtime updates. Reviews freeze exact resource readback, draft/search identities,
 account/connection/client, proposed local name and existing mapping conflicts.
@@ -865,7 +865,7 @@ Approval refreshes account membership and the selected resource, then rechecks
 draft, actors, mapping state and current two-person policy under the draft lock.
 Unknown provider verification remains null rather than false. Reviews expire for
 approval after 24 hours and cascade with the parent draft's 180-day retention.
-No provider create/validation call represents local-link review. Migration `0066`
+No provider create/validation call represents local-link review. Migration `0070`
 adds forced-RLS local-link operation records, immutable review identity/hash and
 generation-bound retries. A parent-draft lock and cross-table exclusion triggers
 serialize creation against pending/completed local links. The mapper transaction
@@ -951,7 +951,7 @@ before resolving a connection or creating an attempt. Access-page reads retain
 null compatibility fields with `verification_workflow_moved` and make no
 verification calls or raw verification snapshot writes.
 
-Migration 0069 projects legacy, unreviewed verification payloads onto a bounded
+Migration 0073 projects legacy, unreviewed verification payloads onto a bounded
 identity/outcome allowlist and redacts old verification snapshots/audit metadata.
 It preserves ledger identities, actors, outcomes, timestamps and retention,
 leaves reviewed attempts and encrypted review bytes unchanged, and restores the
@@ -1013,14 +1013,14 @@ Public attempt/audit data contains no private service context or provider echoes
 Internal start/completion controls now use reviewed execution and distinct
 request/merchant-state feedback. Legacy administration start/completion requests
 return `verification_review_required` before provider or ledger work. Migration
-0069 redacts legacy credential echoes while retaining known outcomes and
+0073 redacts legacy credential echoes while retaining known outcomes and
 historical identity, scope, actors, timestamps and retention state. Its isolated
 fresh/upgrade tests do not establish production migration activation.
 
 `google-verification-completion-reviews.ts` now provides scoped PIN-completion
 preview, restore and approval. It independently establishes the exact pending
 request and a supported PIN method, freezes that sanitized request and credential
-generation, and rechecks them at approval. Migration 0068 extends the existing
+generation, and rechecks them at approval. Migration 0072 extends the existing
 review store; its forced RLS, retention/legal holds and immutable runtime payload
 grants are retained. Completion reviews expire after twenty minutes.
 The PIN stays transient. An encrypted random HMAC key and commitment bind the
@@ -1131,14 +1131,14 @@ exact request, connection, credential generation, target and the full Google
 baseline (supported action types, editable links and read-only
 `unsupportedLinks` of types this release does not model). Approval and sending
 are separate; one attempt per review is claimed in `place_action_mutation`
-(0073, intent immutable by trigger). Acceptance and independent collection
+(0077, intent immutable by trigger). Acceptance and independent collection
 readback are recorded separately; a confirmed outcome is settled and never
 downgraded by later Google edits. Writes serialise per Google account with
 access and lifecycle changes (`google-account-change-lock.ts`,
 `requireNoUnresolvedAccountChange`). Outcomes are reported as operational events
 (`publication_failed`, `publication_unresolved`, `publication_confirmed`).
 
-## Operational notifications (WP8, 0074)
+## Operational notifications (WP8, 0078)
 
 Incidents (`notification_incident`) are conditions re-derived by the health
 tick or events recorded through `recordOperationalEvent`, one open incident per
@@ -1156,7 +1156,7 @@ Owners and admins see scheduler, sync, queued work, unresolved writes and email
 evidence at `/settings/operations`; retry requeues only refused sends or unknown
 ones still inside the provider's idempotency window.
 
-## Scheduled post publication (WP7, 0075)
+## Scheduled post publication (WP7, 0079)
 
 A `post_publication_schedule` freezes a post's content, the location, an IANA
 timezone, a bounded local rule (`lib/domain/publication-schedule.ts`) and any
@@ -1172,7 +1172,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0076)
+## Bulk listing changes (WP6, 0080)
 
 A preview freezes up to 100 explicit location ids; a batch naming any listing
 the requester cannot see is refused without saying which. Each listing gets a
