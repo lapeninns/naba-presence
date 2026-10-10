@@ -153,7 +153,7 @@ alter table gbp_local_post_attempt
     references post_approval_decision(id) on delete set null;
 
 insert into schema_migration (version)
-values ('0062_post_approval_binding')
+values ('0081_post_approval_binding')
 on conflict (version) do nothing;
 
 commit;

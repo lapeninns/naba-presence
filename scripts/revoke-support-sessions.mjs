@@ -12,7 +12,7 @@ import { describeDatabaseTarget } from "./migration-rules.mjs"
 //     --operator you@example.com --reason "Pilot launch: impersonation off" [--dry-run]
 //
 // Deletes every outstanding support impersonation session in every
-// organisation through revoke_support_sessions (0065), which writes one
+// organisation through revoke_support_sessions (0084), which writes one
 // `support.sessions_revoked` audit row per affected organisation naming the
 // operator and the reason. --dry-run counts what would be revoked and changes
 // nothing.

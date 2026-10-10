@@ -1186,7 +1186,7 @@ describe("loadLinkedLocation", () => {
 
   it("a hidden-but-existing location surfaces as the same notFound, never review_not_found", async () => {
     // The member is assigned to UNLINKED only, so LOCATION exists but is
-    // hidden. (Holding a row names the scope 'assigned', as 0064 does.)
+    // hidden. (Holding a row names the scope 'assigned', as 0083 does.)
     await db.query("insert into location_member values ($1, $2, true)", [
       USER,
       UNLINKED,

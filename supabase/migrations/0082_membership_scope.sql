@@ -171,7 +171,7 @@ alter table invitation
   ) not valid;
 alter table invitation validate constraint invitation_location_ids_scope_check;
 
-insert into schema_migration (version) values ('0063_membership_scope')
+insert into schema_migration (version) values ('0082_membership_scope')
 on conflict (version) do nothing;
 
 commit;

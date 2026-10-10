@@ -4,15 +4,15 @@ import { join } from "node:path"
 import { PGlite } from "@electric-sql/pglite"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-// 0064 keeps "a member or viewer holding a location_member row is
+// 0083 keeps "a member or viewer holding a location_member row is
 // 'assigned'" now that readers trust member.location_scope, and makes
 // reconcile_member_location_scope() narrowing-only: once zero rows means no
 // access, moving a row-less member to 'all' would be a widening.
 
 const read = (name: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", name), "utf8")
-const scope0063 = read("0063_membership_scope.sql")
-const invariant0064 = read("0064_membership_scope_invariant.sql")
+const scope0082 = read("0082_membership_scope.sql")
+const invariant0083 = read("0083_membership_scope_invariant.sql")
 
 const ORG = "00000000-0000-4000-8000-00000000000a"
 const LOC_A = "10000000-0000-4000-8000-00000000000a"
@@ -22,7 +22,7 @@ const MEMBER_EMPTIED = "30000000-0000-4000-8000-000000000003"
 const MEMBER_DRIFTED = "30000000-0000-4000-8000-000000000004"
 const VIEWER_ALL = "30000000-0000-4000-8000-000000000005"
 
-describe("0064 membership scope invariant", () => {
+describe("0083 membership scope invariant", () => {
   let db: PGlite
 
   async function scopeOf(userId: string) {
@@ -62,7 +62,7 @@ describe("0064 membership scope invariant", () => {
         client_ids uuid[]
       );
     `)
-    await db.exec(scope0063)
+    await db.exec(scope0082)
     await db.exec(`
       insert into member (organisation_id, user_id, role, location_scope) values
         ('${ORG}', '${ADMIN_WITH_ROWS}', 'admin', 'all'),
@@ -73,7 +73,7 @@ describe("0064 membership scope invariant", () => {
         ('${ORG}', '${LOC_A}', '${ADMIN_WITH_ROWS}'),
         ('${ORG}', '${LOC_A}', '${MEMBER_DRIFTED}');
     `)
-    await db.exec(invariant0064)
+    await db.exec(invariant0083)
   })
 
   afterAll(async () => {
@@ -81,12 +81,12 @@ describe("0064 membership scope invariant", () => {
   })
 
   it("is one transaction, records its version, and creates no table", () => {
-    expect(invariant0064.trim().startsWith("begin;")).toBe(true)
-    expect(invariant0064.trim().endsWith("commit;")).toBe(true)
-    expect(invariant0064).toContain(
-      "values ('0064_membership_scope_invariant')"
+    expect(invariant0083.trim().startsWith("begin;")).toBe(true)
+    expect(invariant0083.trim().endsWith("commit;")).toBe(true)
+    expect(invariant0083).toContain(
+      "values ('0083_membership_scope_invariant')"
     )
-    expect(invariant0064).not.toMatch(/create table/i)
+    expect(invariant0083).not.toMatch(/create table/i)
   })
 
   it("narrows a member left 'all' with rows, and never widens an emptied assigned member", async () => {
@@ -107,7 +107,7 @@ describe("0064 membership scope invariant", () => {
   })
 
   it("a row inserted for a member or viewer on 'all' names them 'assigned'", async () => {
-    // An acceptance written by code older than 0063: rows under the default.
+    // An acceptance written by code older than 0082: rows under the default.
     await db.exec(`
       insert into location_member (organisation_id, location_id, user_id)
       values ('${ORG}', '${LOC_B}', '${VIEWER_ALL}')

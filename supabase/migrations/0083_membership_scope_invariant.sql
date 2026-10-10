@@ -3,7 +3,7 @@ begin;
 -- ---------------------------------------------------------------------------
 -- Make member.location_scope the rule, and keep it from drifting open.
 --
--- From this release lib/server/permissions.ts reads the scope (0063) instead
+-- From this release lib/server/permissions.ts reads the scope (0082) instead
 -- of inferring it from rows:
 --
 --   'all'      -> every location of the organisation;
@@ -12,7 +12,7 @@ begin;
 --
 -- "No rows" never means "every location" again. That makes one direction of
 -- drift dangerous: a member or viewer who holds rows but is named 'all' sees
--- every location instead of the rows. Only writers that predate 0063 can
+-- every location instead of the rows. Only writers that predate 0082 can
 -- leave that state (an acceptance inserting rows under the default 'all', a
 -- demotion of an admin holding latent rows that does not touch the scope),
 -- and they stay live between this migration and the deploy that follows it.
@@ -28,12 +28,12 @@ begin;
 --     them 'assigned'. (Only a role change is caught: the client-access save
 --     names a member 'all' and then deletes their rows, in that order.)
 --
--- The 0063-aware writers already do both, so for them the triggers are
+-- The 0082-aware writers already do both, so for them the triggers are
 -- no-ops. 'all' with rows stays allowed for owners and admins, whose rows are
 -- latent.
 --
 -- reconcile_member_location_scope() is redefined to only ever narrow. The
--- 0063 version moved a member or viewer with no rows to 'all', which was
+-- 0082 version moved a member or viewer with no rows to 'all', which was
 -- right while "no rows" meant every location and is a widening now: an
 -- assigned member whose last listing was deleted must keep seeing nothing.
 -- It is run once below, and stays safe to run again at any time.
@@ -121,7 +121,7 @@ create trigger member_demotion_assigns_scope
 
 select reconcile_member_location_scope();
 
-insert into schema_migration (version) values ('0064_membership_scope_invariant')
+insert into schema_migration (version) values ('0083_membership_scope_invariant')
 on conflict (version) do nothing;
 
 commit;

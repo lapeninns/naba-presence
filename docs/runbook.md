@@ -77,7 +77,7 @@ spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
 
-### Membership scope switch (0063/0064)
+### Membership scope switch (0082/0083)
 
 `lib/server/permissions.ts` decides member and viewer visibility from
 `member.location_scope` alone: `assigned` with no `location_member` rows is
@@ -85,7 +85,7 @@ no access. The shadow compare that was meant to prove rows and scope agree
 was never deployed (it was removed in the same branch), so before deploying
 the reader switch, run this read-only check on staging and then production
 through the session-pooler URL, and attach the counts to the PR as merge
-evidence. Both counts should be zero after 0064's reconcile; any other
+evidence. Both counts should be zero after 0083's reconcile; any other
 result, or an explicit owner sign-off replacing the observation, is recorded
 against PERM-01 in `docs/release/ledger.md`.
 
@@ -110,12 +110,12 @@ where m.role in ('member', 'viewer');
 ```
 
 `assigned_without_rows` is not wrong in itself (it is how "no clients" is
-saved now), but each one must be explainable. Code older than 0063 that is
+saved now), but each one must be explainable. Code older than 0082 that is
 still live between migrating and deploying saves "All clients" by deleting
 every row without writing the scope, which leaves the member `assigned` with
 no rows: no access once this release is live, and the reconcile does not
 repair it. After deploying, list the saves made in that window and have an
-owner re-save each affected member (or deploy the code before applying 0064,
+owner re-save each affected member (or deploy the code before applying 0083,
 which avoids the window):
 
 ```sql
@@ -124,7 +124,7 @@ from audit_log a
 join member m
   on m.organisation_id = a.organisation_id and m.user_id::text = a.subject_id
 where a.action = 'member.client_access_changed'
-  and a.created_at between '<0064 applied at>' and '<deploy promoted at>'
+  and a.created_at between '<0083 applied at>' and '<deploy promoted at>'
   and m.location_scope = 'assigned'
   and not exists (
     select 1 from location_member lm
@@ -501,7 +501,7 @@ DIRECT_DATABASE_URL=... pnpm ops:revoke-support-sessions \
 ```
 
 The script calls `revoke_support_sessions(operator, reason)` (migration
-0065), which deletes every `app_session` row with a `support_actor` and
+0084), which deletes every `app_session` row with a `support_actor` and
 writes one `support.sessions_revoked` audit row per affected organisation
 with the operator, reason, session count and support actors. The runtime role
 cannot execute it. `--dry-run` only counts.

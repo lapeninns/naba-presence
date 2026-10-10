@@ -80,7 +80,7 @@ $$;
 revoke all on function revoke_support_sessions(text, text) from public;
 revoke all on function revoke_support_sessions(text, text) from naba_app_runtime;
 
-insert into schema_migration (version) values ('0065_revoke_support_sessions')
+insert into schema_migration (version) values ('0084_revoke_support_sessions')
 on conflict (version) do nothing;
 
 commit;

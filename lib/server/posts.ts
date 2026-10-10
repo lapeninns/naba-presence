@@ -453,7 +453,7 @@ type LocalPost = {
   offer: Record<string, unknown> | null
   media: Array<Record<string, unknown>>
   approvalRequestedBy: string | null
-  /** Bumped by the 0062 trigger whenever a column sent to Google changes. */
+  /** Bumped by the 0081 trigger whenever a column sent to Google changes. */
   contentRevision: number
   /** The revision an outstanding approval request was made against. */
   approvalRequestedRevision: number | null

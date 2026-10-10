@@ -84,7 +84,7 @@ mapping, where everything thrown passes through `apiError(error, requestId)`.
 The error body is `{ error: <code>, message, requestId }` plus `fieldErrors`,
 `retryable`, `reconnectRequired` and `details` when set.
 
-Abuse limits (migration 0066, ledger SEC-07/SEC-08) are fixed windows in the
+Abuse limits (migration 0085, ledger SEC-07/SEC-08) are fixed windows in the
 platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
@@ -134,7 +134,7 @@ one query and feeds the capability payloads. There is no inline
 query builders. Every helper expects the tenant transaction, so RLS already
 scopes `location_member` to the organisation before the rule runs.
 
-Membership scope is explicit (migrations 0063, 0064). `member` and
+Membership scope is explicit (migrations 0082, 0083). `member` and
 `invitation` carry `location_scope`: `all` (every location; owners and admins
 always) or `assigned` (exactly the `location_member` rows, none when there are
 none). Every writer sets it in the same transaction as the rows: the
@@ -149,14 +149,14 @@ with the same code. A business workspace can scope an invitation to listings
 extends only `assigned` holders. `publishPredicate` is the per-row SQL form of
 `canPublish` for the review queues.
 
-0063 is expand-only: it runs before the release that writes the scope is
+0082 is expand-only: it runs before the release that writes the scope is
 deployed, so it refuses nothing the deployed code writes. An invitation
 trigger names the scope `assigned` whenever `client_ids` or `location_ids` is
-set. Because readers now trust the scope, 0064 keeps the one dangerous drift
+set. Because readers now trust the scope, 0083 keeps the one dangerous drift
 (a member or viewer holding rows but named `all`) from arising out of writers
 that predate it: inserting a `location_member` row for such a member, or
 demoting an owner/admin who holds rows, names them `assigned`. It also
-redefines `reconcile_member_location_scope()` to only ever narrow (the 0063
+redefines `reconcile_member_location_scope()` to only ever narrow (the 0082
 version moved row-less members to `all`, a widening once zero rows means no
 access), runs it once, and leaves it safe to rerun. The opposite drift, an
 older "every client" save that removed the rows but left `assigned`, is a
@@ -191,7 +191,7 @@ Two-person approval holds on every publication path. For replies,
 `has_qualifying_approval` (`lib/server/publishing/intent.ts`) counts only an
 approval of the same draft by someone who is neither the requester nor the
 draft's author, and `recordApprovalDecision` refuses the author up front. For
-posts, `gbp_local_post.content_revision` (0062) is bumped by a trigger
+posts, `gbp_local_post.content_revision` (0081) is bumped by a trigger
 whenever content sent to Google changes, and an edit withdraws an outstanding
 request. `requestOrPublishLocalPost` (`lib/server/posts.ts`) applies
 `requiresPostApproval` to POST `/publish` and to a PATCH of a live post alike:

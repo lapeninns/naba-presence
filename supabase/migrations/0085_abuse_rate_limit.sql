@@ -126,7 +126,7 @@ grant execute on function take_abuse_budget(text, text, integer, integer)
 grant execute on function purge_abuse_rate_buckets(integer)
   to naba_app_runtime;
 
-insert into schema_migration (version) values ('0066_abuse_rate_limit')
+insert into schema_migration (version) values ('0085_abuse_rate_limit')
 on conflict (version) do nothing;
 
 commit;

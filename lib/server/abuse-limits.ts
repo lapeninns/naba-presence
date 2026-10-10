@@ -9,7 +9,7 @@ import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 
 /**
- * Application abuse limits (ledger SEC-07, SEC-08; migration 0066).
+ * Application abuse limits (ledger SEC-07, SEC-08; migration 0085).
  *
  * Each protected action has a scope, and each scope counts hits per key kind
  * in fixed windows held in Postgres, so every instance shares one count:

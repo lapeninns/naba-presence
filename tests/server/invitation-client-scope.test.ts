@@ -52,7 +52,7 @@ function fakeAcceptance(input: {
             expiresAt: new Date(Date.now() + 60_000),
             acceptedAt: null,
             locationIds: null,
-            // What the 0063 CHECK guarantees: 'assigned' exactly when ids
+            // What the 0082 CHECK guarantees: 'assigned' exactly when ids
             // are named.
             locationScope:
               input.pending.clientIds || input.pending.locationIds

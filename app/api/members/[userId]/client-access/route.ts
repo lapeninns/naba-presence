@@ -120,7 +120,7 @@ export const PUT = route({
       })
       if (!plan.ok) throw new ApiError(plan.status, plan.code, plan.message)
 
-      // The scope is written with the rows it describes (supabase 0063):
+      // The scope is written with the rows it describes (supabase 0082):
       // "every client" is `all`, anything narrower is exactly these rows,
       // and no rows on `assigned` is no access.
       const locationScope: LocationScope = plan.allClients ? "all" : "assigned"

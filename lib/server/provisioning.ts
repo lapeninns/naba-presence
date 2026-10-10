@@ -205,9 +205,9 @@ type PendingInvitationScope = {
 }
 
 /**
- * The scope a membership created from `pending` starts with (supabase 0063).
+ * The scope a membership created from `pending` starts with (supabase 0082).
  * Owners and admins are always `all`; a member or viewer copies the
- * invitation's scope, which the 0063 CHECK ties to its client or location
+ * invitation's scope, which the 0082 CHECK ties to its client or location
  * ids.
  */
 function invitedMemberScope(pending: PendingInvitationScope): LocationScope {
