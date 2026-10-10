@@ -1,9 +1,24 @@
 import type { ZodType } from "zod"
 
 import { hardNavigate } from "@/lib/client/hard-navigate"
+import {
+  LISTING_CHANGE_AWAITING_APPROVAL,
+  listingChangeParkedResponseSchema,
+} from "@/lib/contracts/listing-changes"
 import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
 
 import { stashAllDrafts } from "./draft-stash"
+
+/**
+ * True for the 202 a listing write answers when two-person approval parked
+ * it: not a failure, and nothing reached Google.
+ */
+export function isAwaitingApproval(error: unknown): error is ApiClientError {
+  return (
+    error instanceof ApiClientError &&
+    error.code === LISTING_CHANGE_AWAITING_APPROVAL
+  )
+}
 
 export class ApiClientError extends Error {
   readonly status: number
@@ -240,6 +255,28 @@ export async function apiFetch<T = unknown>(
   // 204/empty bodies carry no payload; returning "" would fail every schema
   // and surprise callers such as signOut.
   if (response.status === 204) return undefined as T
+
+  // A listing write parked for a second publisher's approval (two-person
+  // mode, lib/server/listing-changes.ts): nothing was sent to Google, so it
+  // is not the answer the caller's schema describes. Raised as its own
+  // code -- never a failure -- with the change request in `details`, so
+  // every editor's error path can say "sent for approval" and keep the edit.
+  if (response.status === 202) {
+    const parked = listingChangeParkedResponseSchema.safeParse(payload.raw)
+    if (parked.success) {
+      throw new ApiClientError(
+        202,
+        LISTING_CHANGE_AWAITING_APPROVAL,
+        "Sent for approval. Another publisher needs to approve this change before it goes to Google.",
+        {
+          changeRequest: parked.data.changeRequest,
+          operationId: parked.data.operation.operationId,
+          outcome: "awaiting_approval",
+        },
+        { requestId: payload.requestId, intentId }
+      )
+    }
+  }
 
   if (!schema) return payload.raw as T
   const parsed = schema.safeParse(payload.raw)

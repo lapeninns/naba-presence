@@ -1,4 +1,5 @@
 import { ApiClientError } from "@/lib/api/client"
+import { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/listing-changes"
 import {
   operationOutcomeSchema,
   type OperationOutcome,
@@ -40,6 +41,20 @@ const APPROVAL_COPY: Record<ActionErrorContext, Record<string, string>> = {
 }
 
 const COPY: Record<string, string> = {
+  // ---- Listing change approvals (two-person mode, P02-S2b) ---------------
+  // Not a failure: the change is held for a second publisher.
+  listing_change_awaiting_approval:
+    "Sent for approval. Another publisher needs to approve this change before it goes to Google.",
+  listing_change_upload_unsupported:
+    "Uploads can’t be sent for approval yet. Add the photo by its web address instead.",
+  listing_second_approver_required:
+    "A different publisher must approve this change.",
+  change_request_not_pending: "This change is no longer waiting for approval.",
+  change_request_changed:
+    "This is not the change you were shown. Reload and review it again.",
+  change_request_not_found: "This change request was not found.",
+  change_request_invalid:
+    "This change can no longer be sent as it was requested. Make it again.",
   // ---- Session / permissions (shared) -------------------------------------
   authentication_required:
     "Your session has expired. Sign in again to continue.",
@@ -593,8 +608,15 @@ const UNCERTAIN_CODES = new Set([
  */
 export function errorOutcome(
   error: unknown
-): Extract<OperationOutcome, "uncertain" | "sent" | "rejected" | "failed"> {
+): Extract<
+  OperationOutcome,
+  "uncertain" | "sent" | "rejected" | "failed" | "awaiting_approval"
+> {
   if (error instanceof ApiClientError) {
+    // A listing write parked for a second publisher (lib/api/client.ts).
+    if (error.code === LISTING_CHANGE_AWAITING_APPROVAL) {
+      return "awaiting_approval"
+    }
     const named = operationOutcomeSchema.safeParse(
       (error.details as { outcome?: unknown } | undefined)?.outcome
     )

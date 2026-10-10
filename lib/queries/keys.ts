@@ -23,6 +23,12 @@ export const queryKeys = {
   locations: ["location-directory"] as const,
   locationsManagement: ["location-directory", "management"] as const,
   locationCapabilities: (id: string) => ["location-capabilities", id] as const,
+  // Listing changes waiting for a second publisher (two-person mode). Its own
+  // root, so a write anywhere that parked can refresh every location's panel
+  // without knowing which location it was.
+  listingChangeRequestsAll: ["listing-change-requests"] as const,
+  listingChangeRequests: (id: string) =>
+    ["listing-change-requests", id] as const,
   // The DB-only listing state. Rooted apart from the resource keys so an
   // editor's invalidation of ["locations", id, …] refreshes it explicitly.
   listingSummary: (id: string) => ["listing-summary", id] as const,

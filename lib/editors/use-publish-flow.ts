@@ -19,8 +19,11 @@ import {
 import {
   ApiClientError,
   intentFingerprint,
+  isAwaitingApproval,
   mintIntentId,
 } from "@/lib/api/client"
+import { describeActionError } from "@/lib/errors/action-errors"
+import { queryKeys } from "@/lib/queries/keys"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 
 /**
@@ -194,6 +197,7 @@ export function usePublishFlow({
     setResults(running)
 
     let failure: string | null = null
+    let parked = false
     for (const [index, step] of plan.entries()) {
       running[index] = { ...running[index], status: "running" }
       setResults([...running])
@@ -222,6 +226,20 @@ export function usePublishFlow({
         }
         setResults([...running])
       } catch (cause) {
+        // Held for a second publisher (two-person mode): the step did what
+        // it could, nothing reached Google, and the later steps still run.
+        if (isAwaitingApproval(cause)) {
+          unconfirmed.current.delete(step.key)
+          parked = true
+          running[index] = {
+            ...running[index],
+            status: "done",
+            message: describeActionError(cause),
+            outcome: "awaiting_approval",
+          }
+          setResults([...running])
+          continue
+        }
         if (sent && isUnconfirmedFailure(cause))
           unconfirmed.current.set(step.key, sent)
         else unconfirmed.current.delete(step.key)
@@ -252,6 +270,10 @@ export function usePublishFlow({
 
     for (const queryKey of invalidate ?? [])
       void queryClient.invalidateQueries({ queryKey })
+    if (parked)
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.listingChangeRequestsAll,
+      })
 
     setPublishing(false)
 
@@ -260,7 +282,10 @@ export function usePublishFlow({
       toasts.add({ title: failure, type: "error" })
       return false
     }
-    if (successToast)
+    // A parked step is the news: the surface's own "sent to Google" or
+    // "live" words would claim a write that has not happened.
+    if (parked) toasts.add(successToastFields({ outcome: "awaiting_approval" }))
+    else if (successToast)
       toasts.add(
         successToastFields(
           typeof successToast === "function"

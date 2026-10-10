@@ -9,7 +9,11 @@ import {
 import { useRef } from "react"
 
 import { useToastManager } from "@/components/ui/toast"
-import { intentFingerprint, mintIntentId } from "@/lib/api/client"
+import {
+  intentFingerprint,
+  isAwaitingApproval,
+  mintIntentId,
+} from "@/lib/api/client"
 import {
   successToastFields,
   type SuccessToastCopy,
@@ -19,6 +23,7 @@ import {
   isUnconfirmedFailure,
   type ActionErrorContext,
 } from "@/lib/errors/action-errors"
+import { queryKeys } from "@/lib/queries/keys"
 
 /** Handed to `mutationFn` with every call. */
 export type MutationIntent = {
@@ -157,6 +162,19 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
         ? errorToast(error)
         : describeActionError(error, { context: errorContext })
       onError?.(error, message, variables)
+      // Two-person mode held the write for a second publisher: nothing
+      // failed and nothing was sent, so it is not toasted as an error, and
+      // the approval panels pick the new request up.
+      if (isAwaitingApproval(error)) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.listingChangeRequestsAll,
+        })
+        toasts.add({
+          title: describeActionError(error),
+          type: "info",
+        })
+        return
+      }
       toasts.add({ title: message, type: "error" })
     },
   })
