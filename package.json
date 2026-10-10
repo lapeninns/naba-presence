@@ -17,6 +17,7 @@
     "db:runtime-role": "node scripts/db-create-runtime-role.mjs",
     "db:status": "node scripts/db-status.mjs",
     "release:promote": "node scripts/release/promote.mjs",
+    "verify:release": "node scripts/release/verify-local.mjs",
     "ops:revoke-support-sessions": "node scripts/revoke-support-sessions.mjs",
     "ops:pause": "node scripts/ops-pause.mjs",
     "supabase:start": "supabase start",

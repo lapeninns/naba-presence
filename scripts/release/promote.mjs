@@ -2,172 +2,78 @@
 // Controlled production promotion (ledger CI-06, decision D-38).
 //
 // Usage, from a clean worktree of origin/main with dependencies installed:
-//   DIRECT_DATABASE_URL='<admin url>' pnpm release:promote [--dry-run]
-//     [--exception <reference>] [--receipts-dir <dir>]
+//   DIRECT_DATABASE_URL='<admin url>' pnpm release:promote
+//     --local-receipt <file> [--dry-run] [--receipts-dir <dir>]
 //
 // Production ships by `vercel deploy --prod` from the operator's machine, not
-// by a Git-triggered promote, so this script is the gate. It refuses unless:
+// by a Git-triggered promote, so this script is the gate. Hosted CI is not a
+// gate (docs/ci.md §5): the evidence is the local release gate's receipt from
+// `pnpm verify:release` (scripts/release/verify-local.mjs). It refuses unless:
 //   - the worktree has no changes, untracked files or ignored env files
 //     (`vercel deploy` uploads the directory, not the commit),
 //   - HEAD is exactly origin/main after a fetch,
-//   - GitHub Actions reports `CI result` and both CodeQL analyses as
-//     completed and successful on that SHA, or, when hosted CI could not
-//     produce a verdict (missing, queued, in progress, cancelled or failed
-//     to start), the operator passes `--exception` with a reference to the
-//     recorded local-evidence exception (docs/ci.md §3). A completed red
-//     verdict is never excused,
+//   - the local receipt is for that SHA, ran in a fresh worktree on the
+//     .nvmrc Node major with no requested skips, and every required step
+//     passed (re-judged from its steps, scripts/release/local-receipt.mjs),
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
 // Then it deploys with NABA_RELEASE_SHA stamped into the build and runtime
 // environment and writes a receipt to docs/release/receipts/: the build (SHA,
-// deployment ID and URL, CI run or exception), the migrations the commit
-// ships (version and sha256), and the production configuration NAMES. Never
-// values. The receipt is committed through a docs-only PR afterwards.
+// deployment ID and URL, the local gate's receipt file, sha256 and step
+// results), the migrations the commit ships (version and sha256), and the
+// production configuration NAMES. Never values.
 //
 // The decision is the pure `checkCandidate`, in the style of
 // scripts/vercel-ignore-build.mjs `decide()`; everything that talks to git,
-// GitHub, Vercel or the database lives in `main()`.
+// Vercel or the database lives in `main()`.
 
 import { execFileSync, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { redactForLog } from "../../lib/domain/redaction.ts"
 import { listMigrationVersions } from "../migration-rules.mjs"
+import { localReceiptProblems } from "./local-receipt.mjs"
+import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
-export const REPOSITORY = "lapeninns/naba-presence"
-
-/**
- * GitHub check runs that must have succeeded on the candidate SHA. The names
- * are the job names in ci.yml (`result`) and codeql.yml (`analyze` matrix).
- */
-export const REQUIRED_CHECKS = [
-  "CI result",
-  "Analyze (javascript-typescript)",
-  "Analyze (actions)",
-]
-
-/**
- * GitHub Actions' app id. Only its check runs count: any app with
- * checks:write could otherwise post a "CI result" success on the SHA. The
- * branch ruleset pins the same `integration_id`.
- */
-export const GITHUB_ACTIONS_APP_ID = 15368
-
-/**
- * Completed conclusions that mean hosted CI produced no verdict, so a
- * recorded exception may stand in for them. Everything else that is not
- * `success` (failure, timed_out, action_required, skipped, neutral, stale)
- * is a verdict or an unexplained state, and always refuses.
- */
-const NO_VERDICT_CONCLUSIONS = new Set(["cancelled", "startup_failure"])
+export { secretLikePaths }
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/
 const CONFIG_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
- * @typedef {{ id?: number, name: string, status: string,
- *   conclusion: string | null, html_url?: string | null,
- *   app?: number | null }} CheckRun
  * @typedef {"current" | "pending" | "unknown"} SchemaStatus
+ * @typedef {{ file: string, sha256: string, content: unknown }} LocalReceiptInput
+ * @typedef {{ file: string, sha256: string, finishedAt: string,
+ *   steps: { id: string, status: string }[] }} LocalGateEvidence
  */
-
-/**
- * The latest GitHub Actions run of each check name: a re-run is a new check
- * run with a higher id, and only the latest attempt counts. Runs from any
- * other app are ignored.
- * @param {CheckRun[]} checkRuns
- * @param {string} name
- * @returns {CheckRun | undefined}
- */
-export function latestCheckRun(checkRuns, name) {
-  return checkRuns
-    .filter((run) => run.name === name && run.app === GITHUB_ACTIONS_APP_ID)
-    .reduce(
-      (latest, run) =>
-        latest === undefined || (run.id ?? 0) > (latest.id ?? 0) ? run : latest,
-      /** @type {CheckRun | undefined} */ (undefined)
-    )
-}
-
-/**
- * Problems with the required checks, in REQUIRED_CHECKS order. `waivable`
- * problems are ones where hosted CI gave no verdict (missing, not completed,
- * cancelled, failed to start); a recorded exception may stand in for those
- * and nothing else.
- * @param {CheckRun[]} checkRuns
- * @returns {{ message: string, waivable: boolean }[]}
- */
-export function checkProblems(checkRuns) {
-  const problems = []
-  for (const name of REQUIRED_CHECKS) {
-    const run = latestCheckRun(checkRuns, name)
-    if (!run) {
-      problems.push({
-        message: `check "${name}" has not run on this commit`,
-        waivable: true,
-      })
-    } else if (run.status !== "completed") {
-      problems.push({
-        message: `check "${name}" is ${run.status}, not completed`,
-        waivable: true,
-      })
-    } else if (run.conclusion !== "success") {
-      problems.push({
-        message: `check "${name}" concluded ${run.conclusion ?? "nothing"}`,
-        waivable: NO_VERDICT_CONCLUSIONS.has(run.conclusion ?? ""),
-      })
-    }
-  }
-  return problems
-}
-
-/**
- * A usable exception reference: one token naming where the exception is
- * recorded (a ledger row, decision ID or URL), that redaction leaves
- * unchanged, so it cannot smuggle a credential into the receipt.
- * @param {unknown} reference
- */
-export function isExceptionReference(reference) {
-  if (typeof reference !== "string") return false
-  const trimmed = reference.trim()
-  return (
-    trimmed.length >= 3 &&
-    trimmed.length <= 300 &&
-    /^\S+$/.test(trimmed) &&
-    redactForLog(trimmed) === trimmed
-  )
-}
 
 /**
  * Whether `sha` may be promoted. Pure: the caller gathers the facts.
  *
- * The exception only stands in for GitHub checks that gave no verdict
- * (hosted CI unavailable, docs/ci.md §3). It never excuses a check that
- * completed red, a dirty worktree, a commit that is not origin/main, or
- * pending migrations.
+ * Nothing stands in for the local receipt: a missing, failed, skipped or
+ * other-commit receipt refuses, as do a dirty worktree, a commit that is not
+ * origin/main and pending migrations.
  *
  * @param {{
  *   sha: string,
- *   checkRuns: CheckRun[],
  *   worktreeClean: boolean,
  *   headIsOriginMain: boolean,
  *   schemaStatus: SchemaStatus,
- *   exception?: { ref: string } | null,
+ *   localReceipt: LocalReceiptInput | null,
+ *   nodeMajor: number,
  * }} input
  * @returns {{ ok: boolean, problems: string[],
- *   evidence: { ciRunUrl: string } | { exceptionRef: string } | null,
- *   checks: { name: string, status: string, conclusion: string | null }[] }}
+ *   evidence: { localGate: LocalGateEvidence } | null }}
  */
 export function checkCandidate({
   sha,
-  checkRuns,
   worktreeClean,
   headIsOriginMain,
   schemaStatus,
-  exception,
+  localReceipt,
+  nodeMajor,
 }) {
   const problems = []
   if (!SHA_PATTERN.test(sha ?? "")) {
@@ -185,44 +91,42 @@ export function checkCandidate({
     problems.push("the production schema status could not be confirmed")
   }
 
-  const checks = REQUIRED_CHECKS.map((name) => {
-    const run = latestCheckRun(checkRuns, name)
-    return {
-      name,
-      status: run?.status ?? "missing",
-      conclusion: run?.conclusion ?? null,
-    }
-  })
-  const failedChecks = checkProblems(checkRuns)
-  /** @type {{ ciRunUrl: string } | { exceptionRef: string } | null} */
+  /** @type {{ localGate: LocalGateEvidence } | null} */
   let evidence = null
-  if (failedChecks.length === 0) {
-    const ciRunUrl = latestCheckRun(checkRuns, "CI result")?.html_url
-    if (ciRunUrl) {
-      evidence = { ciRunUrl }
-    } else {
-      problems.push('check "CI result" has no run URL')
-    }
-  } else if (exception != null) {
-    const verdicts = failedChecks.filter((problem) => !problem.waivable)
-    if (verdicts.length > 0) {
-      problems.push(
-        "--exception covers only checks hosted CI could not run, not a completed red check"
-      )
-      problems.push(...verdicts.map((problem) => problem.message))
-    } else if (isExceptionReference(exception.ref)) {
-      evidence = { exceptionRef: exception.ref.trim() }
-    } else {
-      problems.push(
-        "--exception needs a reference to where the exception is recorded"
-      )
-      problems.push(...failedChecks.map((problem) => problem.message))
-    }
+  if (localReceipt == null) {
+    problems.push(
+      "no local release-gate receipt: run pnpm verify:release and pass --local-receipt <file>"
+    )
   } else {
-    problems.push(...failedChecks.map((problem) => problem.message))
+    const receiptProblems = localReceiptProblems(localReceipt.content, {
+      sha: sha ?? "",
+      nodeMajor,
+    })
+    if (receiptProblems.length > 0) {
+      problems.push(
+        ...receiptProblems.map((problem) => `local gate: ${problem}`)
+      )
+    } else {
+      const content = /** @type {Record<string, any>} */ (localReceipt.content)
+      evidence = {
+        localGate: {
+          file: localReceipt.file,
+          sha256: localReceipt.sha256,
+          finishedAt: content.finishedAt,
+          steps: content.steps.map((step) => ({
+            id: step.id,
+            status: step.status,
+          })),
+        },
+      }
+    }
   }
 
-  return { ok: problems.length === 0, problems, evidence, checks }
+  return {
+    ok: problems.length === 0,
+    problems,
+    evidence: problems.length === 0 ? evidence : null,
+  }
 }
 
 /**
@@ -244,31 +148,6 @@ export function migrationReceipt(files) {
 }
 
 /**
- * Paths (`a.b[2]`) whose value redaction would change: anything shaped like
- * a credential, a bearer token, a JWT or a URL with userinfo or a secret
- * query parameter.
- * @param {unknown} value
- * @param {string} [path]
- * @returns {string[]}
- */
-export function secretLikePaths(value, path = "$") {
-  if (typeof value === "string") {
-    return redactForLog(value) === value ? [] : [path]
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) =>
-      secretLikePaths(item, `${path}[${index}]`)
-    )
-  }
-  if (value && typeof value === "object") {
-    return Object.entries(value).flatMap(([key, item]) =>
-      secretLikePaths(item, `${path}.${key}`)
-    )
-  }
-  return []
-}
-
-/**
  * The release receipt. Throws rather than return a receipt that names a
  * configuration value instead of a variable name, or that carries anything
  * redaction would touch.
@@ -276,8 +155,7 @@ export function secretLikePaths(value, path = "$") {
  * @param {{
  *   sha: string,
  *   deployment: { id: string, url: string },
- *   evidence: { ciRunUrl: string } | { exceptionRef: string },
- *   checks: { name: string, status: string, conclusion: string | null }[],
+ *   evidence: { localGate: LocalGateEvidence },
  *   migrations: { version: string, sha256: string }[],
  *   configNames: string[],
  *   operator: string,
@@ -288,7 +166,6 @@ export function buildReceipt({
   sha,
   deployment,
   evidence,
-  checks,
   migrations,
   configNames,
   operator,
@@ -306,10 +183,7 @@ export function buildReceipt({
     sha,
     deploymentId: deployment.id,
     url: deployment.url,
-    ...("ciRunUrl" in evidence
-      ? { ciRunUrl: evidence.ciRunUrl }
-      : { exceptionRef: evidence.exceptionRef }),
-    checks,
+    localGate: evidence.localGate,
     migrations,
     configNames: [...new Set(configNames)].sort(),
     operator,
@@ -326,8 +200,29 @@ export function buildReceipt({
 
 /** `20261010T120000Z-<sha12>.json`: sorts by time, names the commit. */
 export function receiptFileName(receipt) {
-  const stamp = receipt.timestamp.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")
-  return `${stamp}-${receipt.sha.slice(0, 12)}.json`
+  return timestampedFileName(receipt.timestamp, receipt.sha)
+}
+
+/**
+ * The local receipt as promotion reads it: the file name, the sha256 of its
+ * exact bytes (so the promotion receipt pins the file) and its parsed JSON.
+ * Unparseable content becomes `null`, which checkCandidate refuses.
+ * @param {string} path
+ * @param {Buffer} bytes
+ * @returns {LocalReceiptInput}
+ */
+export function readLocalReceipt(path, bytes) {
+  let content = null
+  try {
+    content = JSON.parse(bytes.toString("utf8"))
+  } catch {
+    content = null
+  }
+  return {
+    file: basename(path),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    content,
+  }
 }
 
 /**
@@ -401,29 +296,15 @@ function run(command, args, options = {}) {
 }
 
 function parseArgs(argv) {
-  const options = { dryRun: false, exception: null, receiptsDir: null }
+  const options = { dryRun: false, localReceipt: null, receiptsDir: null }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--dry-run") options.dryRun = true
-    else if (arg === "--exception") options.exception = argv[++index] ?? ""
+    else if (arg === "--local-receipt") options.localReceipt = argv[++index]
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index]
     else throw new Error(`Unknown argument: ${arg}`)
   }
   return options
-}
-
-function readCheckRuns(sha) {
-  const output = run("gh", [
-    "api",
-    "--paginate",
-    `repos/${REPOSITORY}/commits/${sha}/check-runs`,
-    "--jq",
-    ".check_runs[] | {id, name, status, conclusion, html_url, app: .app.id}",
-  ])
-  return output
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
 }
 
 /** @returns {SchemaStatus} */
@@ -476,32 +357,34 @@ async function main() {
   )
   for (const issue of issues) console.error(`worktree: ${issue}`)
 
-  const checkRuns = readCheckRuns(sha)
+  let localReceipt = null
+  if (options.localReceipt) {
+    const path = resolve(options.localReceipt)
+    try {
+      localReceipt = readLocalReceipt(path, readFileSync(path))
+    } catch (error) {
+      console.error(`local receipt: cannot read ${path}: ${error.message}`)
+    }
+  }
   const schemaStatus = readSchemaStatus(root)
   const evaluation = checkCandidate({
     sha,
-    checkRuns,
     worktreeClean: issues.length === 0,
     headIsOriginMain: sha === originMain,
     schemaStatus,
-    exception: options.exception === null ? null : { ref: options.exception },
+    localReceipt,
+    nodeMajor: Number(readFileSync(join(root, ".nvmrc"), "utf8").trim()),
   })
-  for (const check of evaluation.checks) {
-    console.log(
-      `check ${check.name}: ${check.status}${check.conclusion ? ` (${check.conclusion})` : ""}`
-    )
-  }
   if (!evaluation.ok || !evaluation.evidence) {
     for (const problem of evaluation.problems) {
       console.error(`refused: ${problem}`)
     }
     process.exit(1)
   }
-  if ("exceptionRef" in evaluation.evidence) {
-    console.warn(
-      `Promoting on a recorded exception (${evaluation.evidence.exceptionRef}); the receipt records it.`
-    )
-  }
+  const { localGate } = evaluation.evidence
+  console.log(
+    `local gate: ${localGate.file} (sha256 ${localGate.sha256.slice(0, 12)}, finished ${localGate.finishedAt})`
+  )
 
   const migrationsDir = join(root, "supabase/migrations")
   const migrations = migrationReceipt(
@@ -517,7 +400,7 @@ async function main() {
       cwd: root,
     })
   )
-  const operator = run("gh", ["api", "user", "--jq", ".login"])
+  const operator = run("git", ["config", "user.name"], { cwd: root })
 
   // Validate the receipt before deploying, with placeholder deployment
   // fields, so a configuration name or operator that would make buildReceipt
@@ -525,7 +408,6 @@ async function main() {
   const receiptInput = {
     sha,
     evidence: evaluation.evidence,
-    checks: evaluation.checks,
     migrations,
     configNames,
     operator,
@@ -575,7 +457,7 @@ async function main() {
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
   console.log(`Receipt: ${relative(root, receiptPath)}`)
   console.log(
-    "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit the receipt through a docs-only PR."
+    "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit the receipt."
   )
 }
 

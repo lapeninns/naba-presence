@@ -5,8 +5,11 @@
 CI's required check `CI result` covers lint, typecheck, unit tests, the
 build, migrations (append-only policy, from scratch, upgrade from `main`,
 concurrent runs), integration and e2e. Each runs against a disposable
-PostgreSQL 17 through the runtime test role. See `docs/ci.md`. Locally, run
-`pnpm verify:full` for the same checks minus e2e.
+PostgreSQL 17 through the runtime test role. See `docs/ci.md`. Hosted CI is
+not the release gate: `pnpm verify:release` runs the same graph (plus the
+production audit and, when installed, gitleaks) locally on a fresh worktree
+and throwaway PostgreSQL, and writes the receipt promotion requires
+(`docs/ci.md` §5). `pnpm verify:full` is the quicker check minus e2e.
 
 Production migrations are **manual**: Vercel's build runs only
 `next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
@@ -38,18 +41,19 @@ does not deploy. In order:
    rollback unit below).
 2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
    `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
-3. From a fresh worktree of `origin/main`:
-   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --dry-run`, then
-   without `--dry-run`. It refuses a dirty worktree, a commit other than
-   `origin/main`, a `CI result` or CodeQL analysis that is not a completed
-   success on that SHA (unless `--exception <reference>` names a recorded
-   local-evidence exception), and pending migrations. It deploys with
+3. Run `pnpm verify:release` on the `origin/main` commit. Then, from a fresh
+   worktree of `origin/main`:
+   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run`,
+   then without `--dry-run`. It refuses a dirty worktree, a commit other than
+   `origin/main`, a local receipt that is missing, for another commit, run
+   with `--skip` or with any required step not passed, and pending
+   migrations. It deploys with
    `NABA_RELEASE_SHA=<sha>` and writes a receipt under
    `docs/release/receipts/`.
 4. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
-5. Commit the receipt through a docs-only PR and copy its `sha` and
+5. Commit the receipt and copy its `sha` and
    `deploymentId` into `docs/live-certification/release-checklist.md`.
 
 Confirm

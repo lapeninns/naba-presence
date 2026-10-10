@@ -13,7 +13,8 @@ on which runner, what is required to merge, and how to debug a red run.
   another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
 - CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
   runner-hook reference copies), `scripts/db-migrate.mjs`,
-  `scripts/vercel-ignore-build.mjs`; production promotion:
+  `scripts/vercel-ignore-build.mjs`; local release gate:
+  `scripts/release/verify-local.mjs` (§5); production promotion:
   `scripts/release/promote.mjs` (§7).
 
 ## 1. What runs when
@@ -173,11 +174,55 @@ the Actions cache.
 pnpm verify        # typecheck + lint + unit tests; no database. Before every push.
 pnpm verify:full   # verify + build + integration; needs the local Supabase stack.
 pnpm test:e2e      # browser journeys; pnpm test:a11y for accessibility only.
+pnpm verify:release # the whole CI graph on a fresh worktree and throwaway Postgres; writes a receipt.
 ```
 
 Run `verify` before pushing. Run `verify:full`, `test:e2e` and `test:a11y`
 as well when you touch server code, the database or UI flows. CI runs
 everything, plus migrations, secret scanning, dependency review and CodeQL.
+
+### Local release gate (`pnpm verify:release`)
+
+Hosted CI is not a release gate: GitHub Actions has not run since about
+2026-10-04 and the project runs locally. The release evidence is
+`pnpm verify:release` (`scripts/release/verify-local.mjs`), which runs the
+`ci.yml` graph plus the nightly audit on this machine, in order:
+
+| Step | What runs |
+|---|---|
+| `frozen-install` | `pnpm install --frozen-lockfile` |
+| `typecheck`, `lint`, `unit` | `pnpm typecheck`, `pnpm lint` (zero warnings), `pnpm test` |
+| `build` | `pnpm build` (webpack standalone) |
+| `migration-policy` | `node scripts/ci/migration-policy.mjs` against the base (`origin/main`, `--base-ref` overrides) |
+| `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
+| `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
+| `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
+| `integration` | `pnpm test:integration` on a freshly migrated database |
+| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy) |
+| `audit` | `pnpm audit --prod --audit-level high` |
+| `secret-scan` | `gitleaks git --redact` over the full history; **skipped with a note** when gitleaks is not installed |
+
+It checks `HEAD` out into a fresh detached worktree under the OS temp
+directory, so no `.env*` file, untracked file or local build output takes
+part (uncommitted changes in your checkout are not tested; it warns). It
+starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops it at
+the end, even on failure or Ctrl-C, and it drops inherited database, port and
+CI variables (`DATABASE_SESSION_URL` included), so it never reaches the
+shared dev database on 54322. It sets `ci.yml`'s placeholder `env:` values and
+`LC_ALL`/`LANG` (Homebrew Postgres needs a UTF-8 locale). It must run on the
+`.nvmrc` Node major.
+
+Every step runs even after a failure, unless `--fail-fast`. A step whose
+prerequisite failed is `not-run`. The full output goes to `verify.log` in the
+printed run directory. The receipt is written to
+`docs/release/receipts/local/<UTC time>-<sha12>.json` (gitignored, so the
+checkout stays clean for promotion): SHA, base ref, base and merge-base SHAs,
+Node, pnpm, PostgreSQL and gitleaks versions, and each step's status,
+duration, test counts and note. The exit code is 0 only when the gate passed.
+`--skip <id,...>` and `--fail-fast` are for iterating; such a receipt never
+passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
+worktree for debugging. Rules are unit-tested in
+`tests/server/release-verify-local.test.ts`.
 
 `test:integration`, `test:e2e` and `test:a11y` go through
 `scripts/run-test-command.mjs`, which refuses a non-local host in
@@ -328,14 +373,14 @@ promotion or require `CI result` through Vercel Deployment Checks.
 
 ### Promotion (`pnpm release:promote`)
 
-From a fresh worktree of `origin/main` (`git worktree add`), with
-`pnpm install --frozen-lockfile` run, the project linked (`vercel link`),
-`gh` signed in as an account that can read the repository's checks, and the
-production admin URL in the environment:
+First run the local release gate (§5) on the `origin/main` commit and keep
+the receipt path it prints. Then, from a fresh worktree of `origin/main`
+(`git worktree add`), with `pnpm install --frozen-lockfile` run, the project
+linked (`vercel link`) and the production admin URL in the environment:
 
 ```bash
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --dry-run
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt>
 ```
 
 The script refuses, before deploying anything, unless every gate holds
@@ -344,45 +389,35 @@ The script refuses, before deploying anything, unless every gate holds
 - The worktree has no changed, staged or untracked files, and no ignored
   `.env*` or `.dev.vars` file that `vercel deploy` would upload.
 - `HEAD` equals `origin/main` after a fetch.
-- On that SHA, the latest `CI result`, `Analyze (javascript-typescript)` and
-  `Analyze (actions)` check runs from GitHub Actions (app id 15368, the
-  ruleset's `integration_id`) are completed with conclusion `success`
-  (`gh api repos/lapeninns/naba-presence/commits/<sha>/check-runs`). Check
-  runs from any other app are ignored, so a same-named run posted by another
-  integration cannot satisfy the gate. Pending, skipped, neutral, cancelled
-  or missing all refuse.
+- `--local-receipt` names a `verify:release` receipt for exactly that SHA,
+  produced in a fresh worktree on the `.nvmrc` Node major, with no
+  `--skip`, and every required step `passed` (only `secret-scan` may be
+  `skipped`, for a missing gitleaks). The gate re-judges the steps
+  (`scripts/release/local-receipt.mjs`), so a receipt edited to say `ok`
+  over a failed step still refuses. Hosted check runs are not consulted.
 - `db:status --expect-current` against `DIRECT_DATABASE_URL` reports no
   pending migration (it prints the target; confirm it is production).
   `DIRECT_DATABASE_URL` must be set explicitly, so a local `.env` can never
   stand in for production.
 
-While hosted CI cannot run (§3), `--exception <reference>` replaces the check
-gate, and only that gate, with a recorded local-evidence exception: the
-reference names where it is recorded (a ledger row, decision ID or URL), and
-the receipt carries it in place of a CI run URL. It stands in only for checks
-that gave no verdict: missing, queued, in progress, `cancelled` or
-`startup_failure`. A check that completed `failure`, `timed_out`,
-`action_required`, `skipped` or `neutral` still refuses. It never excuses a
-dirty worktree, a commit other than `origin/main`, or pending migrations.
-
 It then runs
 `vercel deploy --prod --yes --format json --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha> --meta releaseSha=<sha>`
 and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
-- build: `sha`, `deploymentId`, `url`, `ciRunUrl` or `exceptionRef`, and the
-  state of each required check;
+- build: `sha`, `deploymentId`, `url`, and `localGate`: the local receipt's
+  file name, the sha256 of its bytes, its finish time and each step's status;
 - migrations: every `supabase/migrations` version the commit ships, with the
   file's sha256;
 - configuration: the production variable **names** from
   `vercel env ls production` (values are never read into the receipt), plus
-  `operator` (GitHub login) and `timestamp`.
+  `operator` (`git config user.name`) and `timestamp`.
 
 The script refuses to write a receipt in which any value would be changed by
 `lib/domain/redaction.ts`, or a configuration entry that is not a variable
 name. It validates a provisional receipt before deploying, so those refusals
 happen before production changes, and prints the deployment ID and URL as soon
 as the deploy returns. If the receipt write still fails after that, roll back
-or write the receipt by hand from the printed values. Commit the receipt through a docs-only PR.
+or write the receipt by hand from the printed values. Commit the receipt.
 
 Smoke check: `GET /api/operations/health?scope=platform` with the cron
 bearer returns `release.sha` (equal to the receipt's `sha`, with `source`

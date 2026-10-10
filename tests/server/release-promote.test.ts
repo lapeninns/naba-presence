@@ -3,72 +3,98 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import {
-  GITHUB_ACTIONS_APP_ID,
-  REQUIRED_CHECKS,
+  GATE_STEPS,
+  LOCAL_RECEIPT_KIND,
+  LOCAL_RECEIPT_VERSION,
+} from "../../scripts/release/local-receipt.mjs"
+import {
   buildReceipt,
   checkCandidate,
-  isExceptionReference,
   migrationReceipt,
   parseDeployOutput,
   parseEnvNames,
+  readLocalReceipt,
   receiptFileName,
   secretLikePaths,
   worktreeIssues,
 } from "../../scripts/release/promote.mjs"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
-const CI_URL = "https://github.com/lapeninns/naba-presence/actions/runs/1/job/2"
+const OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 
-type Run = {
-  id?: number
-  name: string
-  status: string
-  conclusion: string | null
-  html_url?: string | null
-  app?: number | null
-}
+type Step = { id: string; status: string; required?: boolean }
 
-const green = (): Run[] =>
-  REQUIRED_CHECKS.map((name: string, index: number) => ({
-    id: 10 + index,
-    name,
-    status: "completed",
-    conclusion: "success",
-    html_url:
-      name === "CI result" ? CI_URL : `https://example.test/check/${index}`,
-    app: GITHUB_ACTIONS_APP_ID,
+const passingSteps = (): Step[] =>
+  GATE_STEPS.map((step: { id: string; required: boolean }) => ({
+    id: step.id,
+    required: step.required,
+    status: "passed",
+    durationMs: 1000,
   }))
+
+const localContent = (overrides: Record<string, unknown> = {}) => ({
+  kind: LOCAL_RECEIPT_KIND,
+  version: LOCAL_RECEIPT_VERSION,
+  sha: SHA,
+  mode: "worktree",
+  base: { ref: "origin/main", sha: SHA, mergeBase: SHA },
+  toolchain: { node: "v24.18.0", pnpm: "10.34.5" },
+  options: { skip: [], failFast: false },
+  ok: true,
+  steps: passingSteps(),
+  startedAt: "2026-10-10T11:00:00.000Z",
+  finishedAt: "2026-10-10T11:20:00.000Z",
+  ...overrides,
+})
+
+const local = (overrides: Record<string, unknown> = {}) =>
+  readLocalReceipt(
+    "/tmp/receipts/20261010T112000Z-0123456789ab.json",
+    Buffer.from(JSON.stringify(localContent(overrides)))
+  )
+
+const withStep = (id: string, status: string) =>
+  passingSteps().map((step) => (step.id === id ? { ...step, status } : step))
 
 const candidate = (overrides: Partial<Parameters<typeof checkCandidate>[0]>) =>
   checkCandidate({
     sha: SHA,
-    checkRuns: green(),
     worktreeClean: true,
     headIsOriginMain: true,
     schemaStatus: "current",
-    exception: null,
+    localReceipt: local(),
+    nodeMajor: 24,
     ...overrides,
   })
 
-const withCheck = (name: string, patch: Partial<Run>): Run[] =>
-  green().map((run) => (run.name === name ? { ...run, ...patch } : run))
-
 describe("release:promote checkCandidate", () => {
-  it("accepts a green, clean origin/main commit on a current schema", () => {
-    const result = candidate({})
-    expect(result).toMatchObject({
-      ok: true,
-      problems: [],
-      evidence: { ciRunUrl: CI_URL },
+  it("accepts a clean origin/main commit with a passing local gate", () => {
+    const receipt = local()
+    const result = candidate({ localReceipt: receipt })
+    expect(result).toMatchObject({ ok: true, problems: [] })
+    expect(result.evidence).toEqual({
+      localGate: {
+        file: "20261010T112000Z-0123456789ab.json",
+        sha256: receipt.sha256,
+        finishedAt: "2026-10-10T11:20:00.000Z",
+        steps: GATE_STEPS.map((step: { id: string }) => ({
+          id: step.id,
+          status: "passed",
+        })),
+      },
     })
-    expect(result.checks).toEqual(
-      REQUIRED_CHECKS.map((name: string) => ({
-        name,
-        status: "completed",
-        conclusion: "success",
-      }))
+  })
+
+  it("pins the local receipt by the sha256 of its exact bytes", () => {
+    const bytes = Buffer.from(JSON.stringify(localContent()))
+    expect(readLocalReceipt("a/b.json", bytes)).toMatchObject({
+      file: "b.json",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    })
+    expect(readLocalReceipt("x.json", Buffer.from("{not json")).content).toBe(
+      null
     )
   })
 
@@ -96,196 +122,89 @@ describe("release:promote checkCandidate", () => {
     expect(candidate({ schemaStatus: "unknown" }).ok).toBe(false)
   })
 
-  it("refuses a failed CI result", () => {
-    const result = candidate({
-      checkRuns: withCheck("CI result", { conclusion: "failure" }),
+  it("refuses without a local receipt, or with an unreadable one", () => {
+    const missing = candidate({ localReceipt: null })
+    expect(missing.ok).toBe(false)
+    expect(missing.evidence).toBeNull()
+    expect(missing.problems[0]).toMatch(/run pnpm verify:release/)
+    const garbled = candidate({
+      localReceipt: readLocalReceipt("x.json", Buffer.from("[]")),
     })
-    expect(result.ok).toBe(false)
-    expect(result.problems).toContain('check "CI result" concluded failure')
+    expect(garbled.ok).toBe(false)
   })
 
-  it("refuses a missing CI result", () => {
-    const result = candidate({
-      checkRuns: green().filter((run) => run.name !== "CI result"),
-    })
+  it("refuses a local receipt for another commit", () => {
+    const result = candidate({ localReceipt: local({ sha: OTHER_SHA }) })
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      'check "CI result" has not run on this commit'
+      "local gate: the local receipt is for fedcba987654, not 0123456789ab"
     )
   })
 
-  it("refuses a pending CI result", () => {
-    const result = candidate({
-      checkRuns: withCheck("CI result", {
-        status: "in_progress",
-        conclusion: null,
-      }),
-    })
-    expect(result.ok).toBe(false)
-    expect(result.problems).toContain(
-      'check "CI result" is in_progress, not completed'
-    )
-  })
-
-  it("refuses a skipped or neutral CI result", () => {
-    for (const conclusion of ["skipped", "neutral", "cancelled"]) {
-      expect(
-        candidate({ checkRuns: withCheck("CI result", { conclusion }) }).ok
-      ).toBe(false)
-    }
-  })
-
-  it("refuses a failed CodeQL analysis", () => {
-    for (const name of [
-      "Analyze (javascript-typescript)",
-      "Analyze (actions)",
-    ]) {
+  it("refuses a failed, skipped or not-run required step", () => {
+    for (const status of ["failed", "skipped", "not-run"]) {
       const result = candidate({
-        checkRuns: withCheck(name, { conclusion: "failure" }),
-      })
-      expect(result.ok).toBe(false)
-      expect(result.problems).toContain(`check "${name}" concluded failure`)
-    }
-  })
-
-  it("judges only the latest attempt of a re-run check", () => {
-    const rerunGreen = [
-      ...green(),
-      {
-        id: 1,
-        name: "CI result",
-        status: "completed",
-        conclusion: "failure",
-        app: GITHUB_ACTIONS_APP_ID,
-      },
-    ]
-    expect(candidate({ checkRuns: rerunGreen }).ok).toBe(true)
-    const rerunRed = [
-      ...green(),
-      {
-        id: 99,
-        name: "CI result",
-        status: "completed",
-        conclusion: "failure",
-        app: GITHUB_ACTIONS_APP_ID,
-      },
-    ]
-    expect(candidate({ checkRuns: rerunRed }).ok).toBe(false)
-  })
-
-  it("counts only GitHub Actions check runs", () => {
-    const spoofed = [
-      ...withCheck("CI result", { conclusion: "failure" }),
-      {
-        id: 999,
-        name: "CI result",
-        status: "completed",
-        conclusion: "success",
-        html_url: "https://example.test/spoof",
-        app: 424242,
-      },
-    ]
-    const result = candidate({ checkRuns: spoofed })
-    expect(result.ok).toBe(false)
-    expect(result.problems).toContain('check "CI result" concluded failure')
-
-    const foreignOnly = green().map((run) => ({ ...run, app: 424242 }))
-    expect(candidate({ checkRuns: foreignOnly }).problems).toContain(
-      'check "CI result" has not run on this commit'
-    )
-    const unattributed = green().map((run) => ({ ...run, app: undefined }))
-    expect(candidate({ checkRuns: unattributed }).ok).toBe(false)
-  })
-
-  it("refuses an exception for a check that completed red", () => {
-    for (const conclusion of [
-      "failure",
-      "timed_out",
-      "action_required",
-      "skipped",
-      "neutral",
-    ]) {
-      const result = candidate({
-        checkRuns: withCheck("CI result", { conclusion }),
-        exception: { ref: "D-36" },
+        localReceipt: local({ steps: withStep("e2e", status) }),
       })
       expect(result.ok).toBe(false)
       expect(result.evidence).toBeNull()
-      expect(result.problems).toContain(
-        `check "CI result" concluded ${conclusion}`
-      )
     }
-    const codeqlRed = candidate({
-      checkRuns: withCheck("Analyze (actions)", { conclusion: "failure" }),
-      exception: { ref: "D-36" },
-    })
-    expect(codeqlRed.ok).toBe(false)
+    expect(
+      candidate({ localReceipt: local({ steps: withStep("unit", "failed") }) })
+        .problems
+    ).toContain('local gate: step "unit" failed')
   })
 
-  it("lets an exception stand in for checks hosted CI could not run", () => {
-    const noVerdict: Run[][] = [
-      green().filter((run) => run.name !== "CI result"),
-      withCheck("CI result", { status: "queued", conclusion: null }),
-      withCheck("CI result", { status: "in_progress", conclusion: null }),
-      withCheck("CI result", { conclusion: "cancelled" }),
-      withCheck("CI result", { conclusion: "startup_failure" }),
-    ]
-    for (const checkRuns of noVerdict) {
-      expect(
-        candidate({ checkRuns, exception: { ref: "D-36" } })
-      ).toMatchObject({ ok: true, evidence: { exceptionRef: "D-36" } })
-    }
+  it("re-judges the steps instead of trusting the ok flag", () => {
+    const result = candidate({
+      localReceipt: local({ ok: true, steps: withStep("audit", "failed") }),
+    })
+    expect(result.ok).toBe(false)
+    const missingStep = candidate({
+      localReceipt: local({
+        steps: passingSteps().filter((step) => step.id !== "integration"),
+      }),
+    })
+    expect(missingStep.problems).toContain(
+      'local gate: step "integration" is missing'
+    )
+    expect(candidate({ localReceipt: local({ ok: false }) }).ok).toBe(false)
   })
 
-  it("accepts the exception path only with a reference", () => {
-    const redChecks = withCheck("CI result", { conclusion: "cancelled" })
-    const accepted = candidate({
-      checkRuns: redChecks,
-      exception: { ref: "docs/release/ledger.md#CI-01" },
-    })
-    expect(accepted).toMatchObject({
-      ok: true,
-      evidence: { exceptionRef: "docs/release/ledger.md#CI-01" },
-    })
+  it("accepts a skipped secret scan only, never a failed one", () => {
     expect(
-      accepted.checks.find(
-        (check: { name: string }) => check.name === "CI result"
-      )
-    ).toMatchObject({ conclusion: "cancelled" })
-
-    for (const ref of ["", "  ", "x", "two words"]) {
-      const refused = candidate({ checkRuns: redChecks, exception: { ref } })
-      expect(refused.ok).toBe(false)
-      expect(refused.problems).toContain(
-        "--exception needs a reference to where the exception is recorded"
-      )
-    }
-  })
-
-  it("never lets the exception excuse the worktree, branch or schema", () => {
-    const exception = { ref: "D-36" }
-    const red = withCheck("CI result", { conclusion: "cancelled" })
+      candidate({
+        localReceipt: local({ steps: withStep("secret-scan", "skipped") }),
+      }).ok
+    ).toBe(true)
     expect(
-      candidate({ checkRuns: red, exception, worktreeClean: false }).ok
-    ).toBe(false)
-    expect(
-      candidate({ checkRuns: red, exception, headIsOriginMain: false }).ok
-    ).toBe(false)
-    expect(
-      candidate({ checkRuns: red, exception, schemaStatus: "pending" }).ok
+      candidate({
+        localReceipt: local({ steps: withStep("secret-scan", "failed") }),
+      }).ok
     ).toBe(false)
   })
 
-  it("records CI evidence, not the exception, when the checks are green", () => {
-    expect(candidate({ exception: { ref: "D-36" } }).evidence).toEqual({
-      ciRunUrl: CI_URL,
-    })
+  it("refuses a run with requested skips, another Node major or another mode", () => {
+    expect(
+      candidate({
+        localReceipt: local({
+          options: { skip: ["secret-scan"], failFast: false },
+        }),
+      }).ok
+    ).toBe(false)
+    expect(
+      candidate({ localReceipt: local({ toolchain: { node: "v22.11.0" } }) }).ok
+    ).toBe(false)
+    expect(candidate({ localReceipt: local({ mode: "in-place" }) }).ok).toBe(
+      false
+    )
+    expect(candidate({ localReceipt: local({ kind: "other" }) }).ok).toBe(false)
   })
 
-  it("rejects an exception reference that carries a credential", () => {
-    expect(isExceptionReference("https://x.test/?token=abc")).toBe(false)
-    expect(isExceptionReference("postgres://admin:pw@db.test/x")).toBe(false)
-    expect(isExceptionReference("https://github.com/o/r/issues/1")).toBe(true)
+  it("never lets a passing local gate excuse the worktree, branch or schema", () => {
+    expect(candidate({ worktreeClean: false }).evidence).toBeNull()
+    expect(candidate({ headIsOriginMain: false }).ok).toBe(false)
+    expect(candidate({ schemaStatus: "pending" }).ok).toBe(false)
   })
 })
 
@@ -293,8 +212,14 @@ describe("release:promote receipt", () => {
   const base = {
     sha: SHA,
     deployment: { id: "dpl_abc123", url: "https://naba-abc.vercel.app" },
-    evidence: { ciRunUrl: CI_URL },
-    checks: [{ name: "CI result", status: "completed", conclusion: "success" }],
+    evidence: {
+      localGate: {
+        file: "20261010T112000Z-0123456789ab.json",
+        sha256: sha256("receipt"),
+        finishedAt: "2026-10-10T11:20:00.000Z",
+        steps: [{ id: "unit", status: "passed" }],
+      },
+    },
     migrations: migrationReceipt([
       { name: "0002_b.sql", content: "select 2;" },
       { name: "0001_a.sql", content: "select 1;" },
@@ -311,8 +236,7 @@ describe("release:promote receipt", () => {
       sha: SHA,
       deploymentId: "dpl_abc123",
       url: "https://naba-abc.vercel.app",
-      ciRunUrl: CI_URL,
-      checks: base.checks,
+      localGate: base.evidence.localGate,
       migrations: [
         { version: "0001_a", sha256: sha256("select 1;") },
         { version: "0002_b", sha256: sha256("select 2;") },
@@ -321,19 +245,8 @@ describe("release:promote receipt", () => {
       operator: "release-operator",
       timestamp: "2026-10-10T12:00:00.000Z",
     })
-    expect(receipt).not.toHaveProperty("exceptionRef")
-  })
-
-  it("records the exception reference in place of a CI run", () => {
-    const receipt = buildReceipt({
-      ...base,
-      evidence: { exceptionRef: "docs/release/ledger.md#CI-01" },
-    })
-    expect(receipt).toHaveProperty(
-      "exceptionRef",
-      "docs/release/ledger.md#CI-01"
-    )
     expect(receipt).not.toHaveProperty("ciRunUrl")
+    expect(receipt).not.toHaveProperty("exceptionRef")
   })
 
   it("hashes migration content, so an edited file changes the receipt", () => {
@@ -437,23 +350,15 @@ describe("release:promote CLI parsing", () => {
     ])
   })
 
-  it("is wired as pnpm release:promote and requires the CodeQL job names", () => {
+  it("is wired as pnpm release:promote and pnpm verify:release", () => {
     const pkg = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf8")
     )
     expect(pkg.scripts["release:promote"]).toBe(
       "node scripts/release/promote.mjs"
     )
-    const ci = readFileSync(
-      new URL("../../.github/workflows/ci.yml", import.meta.url),
-      "utf8"
+    expect(pkg.scripts["verify:release"]).toBe(
+      "node scripts/release/verify-local.mjs"
     )
-    expect(ci).toMatch(/name: CI result/)
-    const codeql = readFileSync(
-      new URL("../../.github/workflows/codeql.yml", import.meta.url),
-      "utf8"
-    )
-    expect(codeql).toMatch(/name: Analyze \(\$\{\{ matrix\.language \}\}\)/)
-    expect(codeql).toMatch(/language: \[javascript-typescript, actions\]/)
   })
 })

@@ -164,6 +164,7 @@ The gate every change must pass locally:
 ```bash
 pnpm verify        # typecheck + lint + unit tests, no database: before every push
 pnpm verify:full   # verify + build + integration (needs the local Supabase stack)
+pnpm verify:release # release gate: the whole CI graph on a fresh worktree and throwaway Postgres
 ```
 
 `pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately. Run
