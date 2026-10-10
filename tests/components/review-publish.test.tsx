@@ -82,11 +82,15 @@ describe("aggregate menu review", () => {
       screen.getByRole("button", { name: "Publish 1 area to Google" })
     )
     await waitFor(() =>
-      expect(publish).toHaveBeenCalledWith("l1", {
-        expectedCanonicalRevision: "4",
-        expectedCanonicalHash: "reviewed-local",
-        expectedGoogleHash: "reviewed-google",
-      })
+      expect(publish).toHaveBeenCalledWith(
+        "l1",
+        {
+          expectedCanonicalRevision: "4",
+          expectedCanonicalHash: "reviewed-local",
+          expectedGoogleHash: "reviewed-google",
+        },
+        { intentId: expect.any(String) }
+      )
     )
     expect(refresh).not.toHaveBeenCalled()
   })

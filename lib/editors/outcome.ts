@@ -98,6 +98,22 @@ export const OUTCOME_PRESENTATION: Record<
   },
 }
 
+/**
+ * The outcome of a mutation route's answer: its `operation.outcome`
+ * (lib/contracts/mutation-operations.ts `operationSummarySchema`), or, from
+ * a server that sent none, the attempt status it did send -- `succeeded`
+ * meant the pipeline verified the write, anything else that it was sent.
+ */
+export function answerOutcome(answer: {
+  status?: string
+  operation?: { outcome: OperationOutcome }
+}): OperationOutcome {
+  return (
+    answer.operation?.outcome ??
+    (answer.status === "succeeded" ? "confirmed_applied" : "sent")
+  )
+}
+
 /** The presentation for one outcome. */
 export function describeOutcome(
   outcome: OperationOutcome

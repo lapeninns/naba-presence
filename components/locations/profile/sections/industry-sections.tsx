@@ -277,15 +277,31 @@ function LodgingSection({
     [changes]
   )
   const publish = useResourceMutation({
-    mutationFn: () =>
-      publishIndustry(locationId, {
-        operation: "update_lodging",
-        updateMask: mask,
-        payload,
-        expectedGoogleHash: loadedHash ?? undefined,
-      }),
+    mutationFn: (_: void, intent) =>
+      publishIndustry(
+        locationId,
+        {
+          operation: "update_lodging",
+          updateMask: mask,
+          payload,
+          expectedGoogleHash: loadedHash ?? undefined,
+        },
+        { intentId: intent.intentId }
+      ),
+    // What is sent comes from the form, so the same form is the same action.
+    intentKey: () => [mask, payload, loadedHash],
     invalidate: [queryKeys.locationIndustry(locationId)],
-    successToast: { outcome: "sent", title: "Lodging details sent to Google" },
+    successToast: (result) => {
+      // The route's outcome; an older answer without one was only sent.
+      const outcome = result.operation?.outcome ?? "sent"
+      return {
+        outcome,
+        title:
+          outcome === "confirmed_applied"
+            ? "Lodging details live on Google"
+            : "Lodging details sent to Google",
+      }
+    },
     onSuccess: () => {
       setPublishError(null)
       setReviewOpen(false)

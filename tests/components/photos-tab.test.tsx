@@ -439,10 +439,12 @@ describe("PhotosTab", () => {
     expect(within(listbox).queryByText("Profile")).not.toBeInTheDocument()
     await user.click(within(listbox).getByText("Exterior"))
 
-    expect(updateMediaCategoryMock).toHaveBeenCalledWith("loc-1", "m1", {
-      category: "EXTERIOR",
-      expectedGoogleHash: "h1",
-    })
+    expect(updateMediaCategoryMock).toHaveBeenCalledWith(
+      "loc-1",
+      "m1",
+      { category: "EXTERIOR", expectedGoogleHash: "h1" },
+      { intentId: expect.any(String) }
+    )
   })
 
   it("treats cover and profile as create-only categories", () => {

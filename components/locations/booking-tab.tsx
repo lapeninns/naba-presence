@@ -53,6 +53,7 @@ import {
   type PlaceActionType,
   type PlaceActionsState,
 } from "@/lib/api/location-booking"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import {
   ACTION_TYPE_COPY,
   actionTypeLabel,
@@ -60,6 +61,7 @@ import {
   hostOf,
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
+import type { OutcomeMessage } from "@/lib/editors/outcome"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
@@ -76,6 +78,19 @@ const TYPE_ICON: Record<string, LucideIcon> = {
   APPOINTMENT: Clock,
   ONLINE_APPOINTMENT: Video,
   SHOP_ONLINE: Store,
+}
+
+/**
+ * A place-action write's toast, worded by the route's outcome: live only when
+ * the route says Google was read back holding it.
+ */
+function linkToast(
+  result: { status?: string; operation?: { outcome: OperationOutcome } },
+  sent: string,
+  live: string
+): OutcomeMessage {
+  const outcome = result.operation?.outcome ?? "sent"
+  return { outcome, title: outcome === "confirmed_applied" ? live : sent }
 }
 
 export function BookingTab({ locationId }: { locationId: string }) {
@@ -142,10 +157,13 @@ function BookingLinks({
   })
 
   const remove = useResourceMutation({
-    mutationFn: (link: PlaceActionLink) =>
-      deletePlaceAction(locationId, link.id, {
-        expectedGoogleHash: link.googleHash,
-      }),
+    mutationFn: (link: PlaceActionLink, intent) =>
+      deletePlaceAction(
+        locationId,
+        link.id,
+        { expectedGoogleHash: link.googleHash },
+        { intentId: intent.intentId }
+      ),
     invalidate: [queryKeys.locationBooking(locationId)],
     successToast: "Booking link removed",
     onSuccess: () => setDeleteTarget(null),
@@ -153,15 +171,25 @@ function BookingLinks({
   })
 
   const prefer = useResourceMutation({
-    mutationFn: (link: PlaceActionLink) =>
-      updatePlaceAction(locationId, link.id, {
-        uri: link.uri,
-        placeActionType: link.placeActionType as PlaceActionType,
-        isPreferred: true,
-        expectedGoogleHash: link.googleHash,
-      }),
+    mutationFn: (link: PlaceActionLink, intent) =>
+      updatePlaceAction(
+        locationId,
+        link.id,
+        {
+          uri: link.uri,
+          placeActionType: link.placeActionType as PlaceActionType,
+          isPreferred: true,
+          expectedGoogleHash: link.googleHash,
+        },
+        { intentId: intent.intentId }
+      ),
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: { outcome: "sent", title: "Preferred link sent to Google" },
+    successToast: (result) =>
+      linkToast(
+        result,
+        "Preferred link sent to Google",
+        "Preferred link live on Google"
+      ),
     onSuccess: () => setPreferTarget(null),
     onError: (_error, message) => setConfirmFailure(message),
   })
@@ -543,14 +571,25 @@ function AddLinkForm({
   const [error, setError] = useState<string | null>(null)
 
   const add = useResourceMutation({
-    mutationFn: () =>
-      createPlaceAction(locationId, {
-        uri: uri.trim(),
-        placeActionType: type,
-        isPreferred: preferred,
-      }),
+    mutationFn: (_: void, intent) =>
+      createPlaceAction(
+        locationId,
+        {
+          uri: uri.trim(),
+          placeActionType: type,
+          isPreferred: preferred,
+        },
+        { intentId: intent.intentId }
+      ),
+    // The form is what is sent: the same form again is a retry.
+    intentKey: () => [uri.trim(), type, preferred],
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: { outcome: "sent", title: "Booking link sent to Google" },
+    successToast: (result) =>
+      linkToast(
+        result,
+        "Booking link sent to Google",
+        "Booking link live on Google"
+      ),
     onSuccess: () => {
       setUri("")
       setPreferred(false)
@@ -679,17 +718,28 @@ function EditLinkDialog({
   }
 
   const update = useResourceMutation({
-    mutationFn: () => {
+    mutationFn: (_: void, intent) => {
       if (!link) throw new Error("No link selected.")
-      return updatePlaceAction(locationId, link.id, {
-        uri: uri.trim(),
-        placeActionType: link.placeActionType as PlaceActionType,
-        isPreferred: link.isPreferred,
-        expectedGoogleHash: link.googleHash,
-      })
+      return updatePlaceAction(
+        locationId,
+        link.id,
+        {
+          uri: uri.trim(),
+          placeActionType: link.placeActionType as PlaceActionType,
+          isPreferred: link.isPreferred,
+          expectedGoogleHash: link.googleHash,
+        },
+        { intentId: intent.intentId }
+      )
     },
+    intentKey: () => [link?.id, uri.trim(), link?.googleHash],
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: { outcome: "sent", title: "Booking link sent to Google" },
+    successToast: (result) =>
+      linkToast(
+        result,
+        "Booking link sent to Google",
+        "Booking link live on Google"
+      ),
     onSuccess: onClose,
     // The toast goes away; the dialog keeps the link and says what happened.
     onError: (_error, message) => setFailure(message),

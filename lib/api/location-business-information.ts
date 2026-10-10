@@ -9,7 +9,7 @@ import {
   type BusinessInformationState,
 } from "@/lib/contracts/location-business-information"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type {
   AttributeMetadata,
@@ -27,7 +27,8 @@ export function fetchBusinessInformation(id: string, options?: RequestOptions): 
 
 export function publishBusinessInformation(
   id: string,
-  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash">
+  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash">,
+  options: MutationOptions = {}
 ) {
   const body: BusinessInformationLocationUpdate = {
     operation: "update_location",
@@ -40,12 +41,14 @@ export function publishBusinessInformation(
     method: "PATCH",
     body,
     schema: businessInformationMutationResultSchema,
+    intentId: options.intentId,
   })
 }
 
 export function publishBusinessAttributes(
   id: string,
-  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash">
+  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash">,
+  options: MutationOptions = {}
 ) {
   const body: BusinessInformationAttributeUpdate = {
     operation: "update_attributes",
@@ -58,6 +61,7 @@ export function publishBusinessAttributes(
     method: "PATCH",
     body,
     schema: businessInformationMutationResultSchema,
+    intentId: options.intentId,
   })
 }
 

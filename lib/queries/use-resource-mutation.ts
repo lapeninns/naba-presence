@@ -6,26 +6,31 @@ import {
   type QueryKey,
   type UseMutationResult,
 } from "@tanstack/react-query"
+import { useRef } from "react"
 
 import { useToastManager } from "@/components/ui/toast"
-import { mintIntentId } from "@/lib/api/client"
+import { intentFingerprint, mintIntentId } from "@/lib/api/client"
 import {
   successToastFields,
   type SuccessToastCopy,
 } from "@/lib/editors/outcome"
 import {
   describeActionError,
+  isUnconfirmedFailure,
   type ActionErrorContext,
 } from "@/lib/errors/action-errors"
 
 /** Handed to `mutationFn` with every call. */
 export type MutationIntent = {
   /**
-   * One id per `mutate` call, for `apiFetch`'s `intentId` option: resent on
-   * a retry of this same action, the server answers the retry from its
-   * receipt rather than writing twice. No lib/api wrapper forwards it yet
-   * (docs/architecture.md, "Operation receipts"), so today each call still
-   * sends a fresh intent. Undefined where the browser offers no UUIDs.
+   * The intent this call belongs to, for the `lib/api` wrapper's
+   * `{ intentId }` option. A call that repeats an action whose last attempt
+   * may have been applied (an uncertain or still-in-flight failure, see
+   * `isUnconfirmedFailure`) gets that attempt's id again, so the server
+   * answers from its receipt rather than writing twice; any other call --
+   * the first, one after a success or a definite failure, or one whose
+   * input changed (an edit) -- gets a fresh one. Undefined where the browser
+   * offers no UUIDs.
    */
   intentId: string | undefined
 }
@@ -63,6 +68,15 @@ export type ResourceMutationOptions<TData, TVariables> = {
   onSuccess?: (data: TData, variables: TVariables) => void
   /** Extra error work; `message` is the already-humanised copy. Runs before the toast. */
   onError?: (error: unknown, message: string, variables: TVariables) => void
+  /**
+   * What makes two calls the same action, for reusing an intent on a retry.
+   * Defaults to the variables. A `mutationFn` that reads what it sends from
+   * render state rather than from its variables (a post publish sends the
+   * post as it is now) names that state here -- its revision, say -- so an
+   * edit between the attempts mints a new intent instead of earning a 409
+   * `intent_conflict`.
+   */
+  intentKey?: (variables: TVariables) => unknown
 }
 
 /**
@@ -86,15 +100,33 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     errorContext,
     onSuccess,
     onError,
+    intentKey,
   } = options
+  // The last call's intent, and the one a retry of it may reuse.
+  const lastCall = useRef<{ key: string; intentId: string | undefined } | null>(
+    null
+  )
+  const unconfirmed = useRef<{
+    key: string
+    intentId: string | undefined
+  } | null>(null)
 
   return useMutation<TData, Error, TVariables>({
-    // One intent per call. Mutations run without TanStack retries here, so
-    // a call is one user action; a caller that retries the SAME action
-    // itself keeps the intent it was handed and resends it.
-    mutationFn: (variables: TVariables) =>
-      mutationFn(variables, { intentId: mintIntentId() }),
+    // Mutations run without TanStack retries here, so a call is one user
+    // action. Pressing the button again after a failure that may have
+    // applied is a retry of the same action, and resends its intent.
+    mutationFn: (variables: TVariables) => {
+      const key = intentFingerprint(
+        intentKey ? intentKey(variables) : variables
+      )
+      const carried =
+        unconfirmed.current?.key === key ? unconfirmed.current.intentId : null
+      const intentId = carried ?? mintIntentId()
+      lastCall.current = { key, intentId }
+      return mutationFn(variables, { intentId })
+    },
     onSuccess: (data, variables) => {
+      unconfirmed.current = null
       onSuccess?.(data, variables)
       if (typeof invalidate === "function") {
         invalidate()
@@ -109,6 +141,9 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
       if (copy) toasts.add(successToastFields(copy))
     },
     onError: (error, variables) => {
+      unconfirmed.current = isUnconfirmedFailure(error)
+        ? lastCall.current
+        : null
       const message = errorToast
         ? errorToast(error)
         : describeActionError(error, { context: errorContext })

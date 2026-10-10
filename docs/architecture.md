@@ -474,11 +474,16 @@ The client mints an intent id per user action and sends it as the
 `Idempotency-Key` header (`INTENT_HEADER` in
 `lib/contracts/mutation-operations.ts`); `apiFetch` in `lib/api/client.ts`
 sends a fresh one on every mutation unless the caller passes the id of the
-action it is retrying, and `useResourceMutation` hands one to each `mutate`
-call. No `lib/api` wrapper forwards that id yet and no editor keeps it for a
-retry, so through the UI every attempt is a new intent; resending the intent
-on an explicit retry of an uncertain write is a follow-up, and until it lands
-only callers that pass `intentId` themselves are deduplicated. `route()`
+action it is retrying. The listing mutation wrappers in `lib/api` (hours,
+profile, food menus, business information, industry, media, booking links,
+post publish) take `{ intentId }`. `useResourceMutation` hands each `mutate`
+call one and `usePublishFlow` hands each step `intent.idFor(body)`; both
+resend the previous id when the person retries an action whose last attempt
+may have applied (`isUnconfirmedFailure` in `lib/errors/action-errors.ts`:
+an ambiguous answer, a dropped connection, another request still in flight)
+with the same input, and mint a new one after a success, a definite failure
+or an edit (`intentKey` names the input for a call that reads it from render
+state, such as a post publish keyed on its revision). `route()`
 parses the header into `ctx.intentId` on session routes (400
 `invalid_intent_id` when it is not a UUID; cron and public routes ignore it)
 and makes it the handler's ambient intent. `x-request-id` stays per-request
@@ -526,6 +531,22 @@ a receipt follows its location's visibility. `approval_ref`,
 another connection is `connection_changed`, the same connection holding
 another credential is `generation_changed`, and a generation without its
 connection id is refused, since the counter is per connection.
+
+Every listing mutation route answers with `operation: { operationId,
+outcome }` beside its own fields (`operationSummarySchema` in
+`lib/contracts/mutation-operations.ts`): `outcome` is the receipt's state, or
+the same judgement when the request carried no intent (`operationId` null),
+taken from `runGbpWrite`'s result. A readback may narrow a success with
+`GbpReadback.outcome`: a local post Google holds but is still reviewing is
+`awaiting_confirmation`, one it refused is `rejected`
+(`lib/domain/post-outcome.ts`, shared with the posts tab). The client words
+every state with `lib/editors/outcome.ts`: toasts, publish steps
+(`stepOutcome` in `lib/editors/use-publish-flow.ts` prefers the answer's
+outcome to the step's `verified` flag), the posts tab and inbox status pills,
+and `OperationReceiptNotice` (`components/locations/operation-outcome.tsx`),
+which follows the receipt of a write that failed uncertainly through
+`useMutationReceipt` (`lib/queries/use-mutation-receipt.ts`), polling while it
+is `sent` or `uncertain` and stopping once it settles.
 
 A module's own pre-dispatch checks still run before `runGbpWrite`, so a replay
 after success can be answered by them first (hours and menus answer `in_sync`;

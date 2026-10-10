@@ -14,7 +14,7 @@ import {
   type PostUpdateResponse,
 } from "@/lib/contracts/location-posts"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type Post = PostRow
 export type PostsState = PostsListResponse
@@ -44,10 +44,15 @@ export function updatePost(id: string, postId: string, input: LocalPostInputValu
   })
 }
 
-export function publishPost(id: string, postId: string): Promise<PublishPostResult> {
+export function publishPost(
+  id: string,
+  postId: string,
+  options: MutationOptions = {}
+): Promise<PublishPostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/publish`, {
     method: "POST",
     schema: postPublishOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 

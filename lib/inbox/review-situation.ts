@@ -14,6 +14,8 @@
  * alike.
  */
 
+import { describeOutcome } from "@/lib/editors/outcome"
+
 export type SituationTone = "neutral" | "positive" | "caution" | "attention"
 
 // --- Reply publication state -------------------------------------------
@@ -21,9 +23,15 @@ export type SituationTone = "neutral" | "positive" | "caution" | "attention"
 // `review_reply.publish_status` values (supabase/migrations/0001_initial.sql).
 // The pane used to label every one of these "Your published reply", which is
 // wrong for five of the six.
+// The two that are Google outcomes take the shared outcome words
+// (lib/editors/outcome.ts), so "Live on Google" means the same here as on
+// every other surface.
 const REPLY_STATE: Record<string, { label: string; tone: SituationTone }> = {
-  published: { label: "Live on Google", tone: "positive" },
-  accepted: { label: "Sent to Google", tone: "neutral" },
+  published: {
+    label: describeOutcome("confirmed_applied").label,
+    tone: "positive",
+  },
+  accepted: { label: describeOutcome("sent").label, tone: "neutral" },
   awaiting_approval: { label: "Waiting for approval", tone: "caution" },
   rejected: { label: "Rejected", tone: "attention" },
   failed: { label: "Failed to publish", tone: "attention" },

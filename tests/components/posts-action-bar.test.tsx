@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   updatePost: vi.fn(),
 }))
 vi.mock("@/lib/api/location-posts", () => api)
+const receipts = vi.hoisted(() => ({ fetchMutationReceipt: vi.fn() }))
+vi.mock("@/lib/api/mutations", () => receipts)
 
 const POSTS_KEY = queryKeys.locationPosts("loc-1")
 const OWNER: LocationCapabilities = { canEditCanonical: true, canPublish: true }
@@ -78,7 +80,9 @@ describe("PostsActionBar", () => {
     await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
 
     expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
-    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
+    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
+      intentId: expect.any(String),
+    })
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
   })
 
@@ -234,7 +238,9 @@ describe("PostsActionBar", () => {
 
     await userEvent.click(button)
     expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
-    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
+    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
+      intentId: expect.any(String),
+    })
   })
 
   it("keeps the pause switch over Request approval", () => {
@@ -273,5 +279,72 @@ describe("PostsActionBar", () => {
 
     expect(api.fetchPosts).toHaveBeenCalledWith("loc-1")
     await waitFor(() => expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true))
+  })
+
+  describe("publish outcomes", () => {
+    async function publishFromDialog() {
+      await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+      const confirm = await screen.findByRole("alertdialog")
+      await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
+    }
+
+    it("says live only when the route's outcome is confirmed_applied", async () => {
+      api.publishPost.mockResolvedValue({
+        status: "published",
+        postId: "p1",
+        googlePostName: "locations/1/localPosts/9",
+        operation: { operationId: "op-1", outcome: "confirmed_applied" },
+      })
+      renderBar()
+      await publishFromDialog()
+      expect(await screen.findByText("Post live on Google")).toBeInTheDocument()
+    })
+
+    it("does not say live while Google is still reviewing the post", async () => {
+      api.publishPost.mockResolvedValue({
+        status: "published",
+        postId: "p1",
+        googlePostName: "locations/1/localPosts/9",
+        operation: { operationId: "op-1", outcome: "awaiting_confirmation" },
+      })
+      renderBar()
+      await publishFromDialog()
+      expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+      expect(screen.queryByText(/live on Google/i)).toBeNull()
+    })
+
+    it("follows the receipt of an ambiguous publish, and resends its intent on retry", async () => {
+      const intentIds: string[] = []
+      api.publishPost.mockImplementation(async (_l: string, _p: string, options: { intentId: string }) => {
+        intentIds.push(options.intentId)
+        throw new ApiClientError(502, "google_mutation_ambiguous", "unclear", undefined, {
+          intentId: options.intentId,
+        })
+      })
+      receipts.fetchMutationReceipt.mockResolvedValue({
+        id: "op-1",
+        intentId: "x",
+        surface: "local_post",
+        action: "create",
+        locationId: "loc-1",
+        targetType: "local_post",
+        targetRef: "p1",
+        outcome: "uncertain",
+        errorCode: null,
+        attemptId: "a1",
+        createdAt: "2026-10-10T10:00:00.000Z",
+        updatedAt: "2026-10-10T10:00:00.000Z",
+      })
+      renderBar()
+      await publishFromDialog()
+      const notice = await screen.findByRole("status")
+      expect(notice).toHaveAttribute("data-outcome", "uncertain")
+      expect(notice).not.toHaveTextContent("Live on Google")
+      await waitFor(() => expect(receipts.fetchMutationReceipt).toHaveBeenCalledWith(intentIds[0], expect.anything()))
+
+      await publishFromDialog()
+      await waitFor(() => expect(intentIds).toHaveLength(2))
+      expect(intentIds[1]).toBe(intentIds[0])
+    })
   })
 })

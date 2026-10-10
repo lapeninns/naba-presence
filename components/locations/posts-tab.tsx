@@ -14,6 +14,8 @@ import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import type { Post } from "@/lib/api/location-posts"
+import { localPostOutcome } from "@/lib/domain/post-outcome"
+import { describeOutcome } from "@/lib/editors/outcome"
 import {
   composeDisabledReason,
   contentEditDisabledReason,
@@ -85,9 +87,11 @@ function lifecycle(post: Post): LifecycleStage[] {
     },
     {
       id: "live",
-      label: "Live on Google",
+      label: describeOutcome("confirmed_applied").label,
+      // Done only on the outcome that may say live: Google reports the post
+      // LIVE (lib/domain/post-outcome.ts).
       state:
-        status === "published" && post.googleState === "LIVE" ? "done" : "todo",
+        localPostOutcome(post) === "confirmed_applied" ? "done" : "todo",
     },
   ]
 }

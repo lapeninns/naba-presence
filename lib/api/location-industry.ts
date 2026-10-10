@@ -7,7 +7,7 @@ import {
   type IndustryState,
 } from "@/lib/contracts/location-industry"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type { IndustryOperation, IndustryState, SectionResult } from "@/lib/contracts/location-industry"
 
@@ -26,7 +26,8 @@ export function publishIndustry(
     payload: Record<string, unknown>
     /** The loaded resource's hash; required by update_lodging. */
     expectedGoogleHash?: string
-  }
+  },
+  options: MutationOptions = {}
 ) {
   // The editor builds the mask/payload from Google leaves; the route
   // validates them per operation (lodging against its allowlist) before
@@ -44,5 +45,6 @@ export function publishIndustry(
     method: "PATCH",
     body,
     schema: industryMutationResultSchema,
+    intentId: options.intentId,
   })
 }

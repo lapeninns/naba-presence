@@ -72,6 +72,14 @@ type ApiFetchOptions<T> = RequestOptions & {
   intentId?: string
 }
 
+/**
+ * What a `lib/api` mutation wrapper accepts besides its input: the intent the
+ * call belongs to (see `intentId` above). `useResourceMutation` and
+ * `usePublishFlow` hand one to every call and resend it on a retry of the
+ * same action.
+ */
+export type MutationOptions = { intentId?: string }
+
 /** A fresh intent id, or undefined where the browser offers no UUIDs (non-secure origins). */
 export function mintIntentId(): string | undefined {
   try {
@@ -79,6 +87,34 @@ export function mintIntentId(): string | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * A stable fingerprint of what a call sends, for deciding whether a retry is
+ * the same action. Files are compared by name, size, type and modification
+ * time: their bytes are not read, and two different files never look alike
+ * to JSON (both serialise as `{}`).
+ */
+export function intentFingerprint(value: unknown): string {
+  return (
+    JSON.stringify(value, (_key, item: unknown) => {
+      if (typeof Blob !== "undefined" && item instanceof Blob) {
+        const file = item as Blob & { name?: string; lastModified?: number }
+        return {
+          blob: [
+            file.name ?? null,
+            file.size,
+            file.type,
+            file.lastModified ?? null,
+          ],
+        }
+      }
+      if (typeof FormData !== "undefined" && item instanceof FormData) {
+        return { form: [...item.entries()] }
+      }
+      return item
+    }) ?? "undefined"
+  )
 }
 
 async function readPayload(response: Response): Promise<{

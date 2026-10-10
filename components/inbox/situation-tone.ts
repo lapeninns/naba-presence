@@ -39,8 +39,9 @@ export const SITUATION_TONE_INK: Record<SituationTone, string> = {
  * already carry, with two refinements the tone scale cannot express — a
  * checked draft that may go out is the accent ("Draft ready"), and work
  * that is with Google but not yet confirmed is info. A review with nothing
- * written yet is a dashed "not yet" pill. "Replied" is `ok` only because the
- * ladder reaches it from a confirmed `published` status and nothing else.
+ * written yet is a dashed "not yet" pill. "Replied" is `ok` only because its
+ * status carries the `confirmed_applied` outcome, which the ladder gives a
+ * confirmed `published` status and nothing else.
  */
 export function replyStatusPill(status: ReplyStatus): {
   tone: "neutral" | "ok" | "warn" | "bad" | "info" | "accent"
@@ -52,7 +53,8 @@ export function replyStatusPill(status: ReplyStatus): {
   if (status.icon === "cloud" || status.icon === "loader") {
     return { tone: "info", dashed: false }
   }
-  if (status.text === "Live on Google") return { tone: "ok", dashed: false }
+  if (status.outcome === "confirmed_applied")
+    return { tone: "ok", dashed: false }
   if (status.icon === "check") return { tone: "accent", dashed: false }
   if (status.short === "Needs reply") return { tone: "neutral", dashed: true }
   return { tone: "neutral", dashed: false }

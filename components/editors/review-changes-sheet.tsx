@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
+import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -19,7 +20,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
+import {
+  stepOutcome,
+  type PublishStepResult,
+} from "@/lib/editors/use-publish-flow"
 
 /**
  * The confirmation step in front of every Google write (reference review
@@ -112,6 +116,14 @@ function ReviewChangesSheet({
   const failed = failedAt !== -1
   const laterSteps = failed && results ? results.length - failedAt - 1 : 0
   const steps = results ? stepsView(results) : []
+  const failedStep = failed ? results?.[failedAt] : undefined
+  const failedOutcome = failedStep ? stepOutcome(failedStep) : null
+  const unconfirmed =
+    failedStep &&
+    failedStep.kind !== "local" &&
+    (failedOutcome === "uncertain" || failedOutcome === "sent")
+      ? failedStep
+      : null
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -211,6 +223,15 @@ function ReviewChangesSheet({
             </section>
           ) : null}
 
+          {unconfirmed?.intentId ? (
+            // A Google step whose answer was lost: its receipt says what
+            // became of it once the recovery job has read Google back.
+            <OperationReceiptNotice
+              receiptId={unconfirmed.intentId}
+              fallback={stepOutcome(unconfirmed) ?? "uncertain"}
+            />
+          ) : null}
+
           {error ? (
             <p role="alert" className="text-ui text-danger-ink">
               {failed
@@ -279,18 +300,14 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         detail: "Already matches Google, so no request was made.",
       }
     // The outcome words (lib/editors/outcome.ts) say the rest: a local
-    // save is "Saved here"; a Google write is "Live on Google" when its
-    // endpoint read Google back and it matched, and "Sent to Google" when
-    // the endpoint makes no such check.
+    // save is "Saved here"; a Google write is what the server answered
+    // (stepOutcome): "Live on Google" only when Google was read back holding
+    // it, "Waiting for Google" or "Sent to Google" when it was not.
     if (step.status === "done")
       return {
         id: step.key,
         label: step.label,
-        state: local
-          ? "saved_locally"
-          : step.verified
-            ? "confirmed_applied"
-            : "sent",
+        state: stepOutcome(step) ?? "sent",
         detail: local
           ? "NabaPresence’s copy. Not on Google by itself."
           : undefined,
@@ -306,7 +323,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       return {
         id: step.key,
         label: step.label,
-        state: "failed",
+        state: stepOutcome(step) ?? "failed",
         detail: step.message,
         errorCode: step.code,
       }

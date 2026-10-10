@@ -9,7 +9,7 @@ import {
   type SaveFoodMenusBody,
 } from "@/lib/contracts/location-food-menus"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type { FoodMenu, FoodMenusState, PublishFoodMenusInput as PublishMenusInput } from "@/lib/contracts/location-food-menus"
 
@@ -28,11 +28,12 @@ export function saveFoodMenus(id: string, input: SaveFoodMenusBody) {
   })
 }
 
-export function publishFoodMenus(id: string, input: PublishFoodMenusInput) {
+export function publishFoodMenus(id: string, input: PublishFoodMenusInput, options: MutationOptions = {}) {
   const body: PublishFoodMenusBody = { confirmation: FOOD_MENUS_PUBLISH_CONFIRMATION, ...input, confirmFullReplacement: true }
   return apiFetch(`/api/locations/${id}/food-menus`, {
     method: "POST",
     body,
     schema: publishFoodMenusResultSchema,
+    intentId: options.intentId,
   })
 }

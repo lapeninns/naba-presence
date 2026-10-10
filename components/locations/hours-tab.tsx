@@ -220,7 +220,7 @@ function HoursForm({
       label: "Publish opening hours to Google",
       // The hours publish reads Google back and compares it before success.
       verified: true,
-      run: async () => {
+      run: async (intent) => {
         const fresh = saved.current ?? snapshot.hours
         // An empty mask means the saved schedule already matches Google —
         // nothing left to send, and the publish route would reject it.
@@ -230,15 +230,19 @@ function HoursForm({
           ? hoursSelectionRequest(fresh, chosen)
           : null
         if (canSelectParts && !partial) return NOTHING_TO_SEND
-        const result = await publishHours(locationId, {
+        const body = {
           expectedCanonicalRevision: fresh.canonicalResource.revision,
           expectedCanonicalHash: fresh.canonicalHash,
           expectedGoogleHash: fresh.googleHash,
           approvedUpdateMask: fresh.updateMask,
           confirmOverwriteGoogleChanges: needsAck,
           ...partial,
+        }
+        const result = await publishHours(locationId, body, {
+          intentId: intent.idFor(body),
         })
         if (result.status !== "published") return NOTHING_TO_SEND
+        return result
       },
     })
     return steps

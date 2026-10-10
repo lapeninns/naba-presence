@@ -9,7 +9,7 @@ import {
   type SaveProfileResponse,
 } from "@/lib/contracts/location-profile"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type {
   ProfileField,
@@ -36,10 +36,15 @@ export function saveProfile(id: string, input: SaveProfileInput): Promise<SavePr
   })
 }
 
-export function runProfileOperation(id: string, input: ProfileOperationInput): Promise<ProfileOperationResponse> {
+export function runProfileOperation(
+  id: string,
+  input: ProfileOperationInput,
+  options: MutationOptions = {}
+): Promise<ProfileOperationResponse> {
   return apiFetch(`/api/locations/${id}/profile`, {
     method: "POST",
     body: input,
     schema: profileOperationResponseSchema,
+    intentId: options.intentId,
   })
 }

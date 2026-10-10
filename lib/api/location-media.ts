@@ -13,7 +13,9 @@ import {
 } from "@/lib/contracts/location-media"
 import { GOOGLE_MEDIA_CATEGORIES, type GoogleMediaCategory } from "@/lib/domain/google-contract"
 
-import { ApiClientError, apiFetch, type RequestOptions } from "./client"
+import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
+
+import { ApiClientError, apiFetch, mintIntentId, type MutationOptions, type RequestOptions } from "./client"
 
 export type { MediaItem, MediaOwnership, MediaResolution, MediaState, MediaUnresolvedCreate }
 
@@ -46,11 +48,12 @@ export function fetchMedia(
   }).then((r) => r.media)
 }
 
-export function createMediaFromUrl(id: string, input: MediaCreateInput) {
+export function createMediaFromUrl(id: string, input: MediaCreateInput, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media`, {
     method: "POST",
     body: { ...input, confirmation: "create_google_media" },
     schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
@@ -61,12 +64,17 @@ export function createMediaFromUrl(id: string, input: MediaCreateInput) {
 export function uploadMediaFile(
   id: string,
   form: FormData,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  options: MutationOptions = {}
 ): Promise<MediaMutationResult> {
   form.set("confirmation", "create_google_media")
+  // apiFetch mints the intent for its own calls; this one does it here, so a
+  // retried upload of the same file can resend it.
+  const intentId = options.intentId ?? mintIntentId()
   return new Promise<MediaMutationResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `/api/locations/${id}/media`)
+    if (intentId) xhr.setRequestHeader(INTENT_HEADER, intentId)
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(event.loaded / event.total)
@@ -89,26 +97,33 @@ export function uploadMediaFile(
       const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : null
       const code = typeof record.error === "string" ? record.error : nested && typeof nested.code === "string" ? nested.code : "http_error"
       const message = typeof record.message === "string" ? record.message : nested && typeof nested.message === "string" ? nested.message : `Request failed (${xhr.status}).`
-      reject(new ApiClientError(xhr.status, code, message, record.details))
+      reject(new ApiClientError(xhr.status, code, message, record.details, { intentId }))
     }
-    xhr.onerror = () => reject(new ApiClientError(0, "network_error", "The upload could not be completed. Check your connection and try again."))
+    xhr.onerror = () =>
+      reject(
+        new ApiClientError(0, "network_error", "The upload could not be completed. Check your connection and try again.", undefined, {
+          intentId,
+        })
+      )
     xhr.send(form)
   })
 }
 
-export function updateMediaCategory(id: string, mediaId: string, input: Omit<MediaUpdateRequest, "confirmation">) {
+export function updateMediaCategory(id: string, mediaId: string, input: Omit<MediaUpdateRequest, "confirmation">, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media/${mediaId}`, {
     method: "PATCH",
     body: { ...input, confirmation: "update_google_media" },
     schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
-export function deleteMediaItem(id: string, mediaId: string, input: Omit<MediaDeleteRequest, "confirmation">) {
+export function deleteMediaItem(id: string, mediaId: string, input: Omit<MediaDeleteRequest, "confirmation">, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media/${mediaId}`, {
     method: "DELETE",
     body: { ...input, confirmation: "delete_google_media" },
     schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 

@@ -97,7 +97,8 @@ describe("aggregate hours review", () => {
           expectedCanonicalHash: "local",
           expectedGoogleHash: "google",
           approvedUpdateMask: ["moreHours"],
-        })
+        }),
+        { intentId: expect.any(String) }
       )
     )
   })
@@ -128,7 +129,8 @@ describe("aggregate hours review", () => {
             moreHoursTypes: ["BAR"],
             expectedGoogleParts: { "more:BAR": "b".repeat(64) },
           },
-        })
+        }),
+        { intentId: expect.any(String) }
       )
     )
   })

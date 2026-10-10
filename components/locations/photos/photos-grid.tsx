@@ -8,6 +8,7 @@ import { MediaCard } from "@/components/locations/photos/media-card"
 import { PhotoPreview } from "@/components/locations/photos/photo-preview"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { answerOutcome } from "@/lib/editors/outcome"
 import {
   updateMediaCategory,
   type MediaCategory,
@@ -59,17 +60,27 @@ export function PhotosGrid({
     MediaMutationResult,
     { item: MediaItem; category: MediaCategory }
   >({
-    mutationFn: (input) =>
-      updateMediaCategory(locationId, input.item.id, {
-        category: input.category,
-        expectedGoogleHash: input.item.googleHash,
-      }),
+    mutationFn: (input, intent) =>
+      updateMediaCategory(
+        locationId,
+        input.item.id,
+        {
+          category: input.category,
+          expectedGoogleHash: input.item.googleHash,
+        },
+        { intentId: intent.intentId }
+      ),
     invalidate: onChanged,
     successToast: (result, input) => {
       const what = input.category === "LOGO" ? "Logo" : "Category"
-      return result.status === "succeeded"
-        ? `${what} updated on Google`
-        : `${what} change sent to Google`
+      const outcome = answerOutcome(result)
+      return {
+        outcome,
+        title:
+          outcome === "confirmed_applied"
+            ? `${what} updated on Google`
+            : `${what} change sent to Google`,
+      }
     },
   })
   const updatingId = changeCategory.isPending

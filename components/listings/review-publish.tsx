@@ -53,6 +53,7 @@ import { describeOutcome } from "@/lib/editors/outcome"
 import {
   NOTHING_TO_SEND,
   publishOutcome,
+  stepOutcome,
   usePublishFlow,
   type PublishStep,
   type PublishStepResult,
@@ -157,9 +158,9 @@ function useProfileReview(locationId: string, enabled: boolean) {
               label: `Business profile · ${rows
                 .map((row) => row.field.toLowerCase())
                 .join(", ")}`,
-              run: async () => {
+              run: async (intent) => {
                 const selected = fields.map((field) => field.key)
-                await runProfileOperation(locationId, {
+                const body = {
                   direction: "to_google",
                   confirmation: "publish_nabapresence_profile_to_google",
                   selectedFields: selected,
@@ -167,6 +168,9 @@ function useProfileReview(locationId: string, enabled: boolean) {
                   expectedCanonicalHash: profile.canonicalHash,
                   expectedGoogleHash: profile.googleHash,
                   confirmOverwriteGoogleChanges: needsAck,
+                } as const
+                return runProfileOperation(locationId, body, {
+                  intentId: intent.idFor(body),
                 })
               },
             },
@@ -224,16 +228,20 @@ function useHoursReview(locationId: string, enabled: boolean) {
                 // The endpoint reads Google back and compares before success.
                 verified: true,
                 label: "Opening hours",
-                run: async () => {
-                  const result = await publishHours(locationId, {
+                run: async (intent) => {
+                  const body = {
                     expectedCanonicalRevision: hours.canonicalResource.revision,
                     expectedCanonicalHash: hours.canonicalHash,
                     expectedGoogleHash: hours.googleHash,
                     approvedUpdateMask: hours.updateMask,
                     confirmOverwriteGoogleChanges: needsAck,
                     ...partial,
+                  }
+                  const result = await publishHours(locationId, body, {
+                    intentId: intent.idFor(body),
                   })
                   if (result.status !== "published") return NOTHING_TO_SEND
+                  return result
                 },
               },
             ]
@@ -267,13 +275,17 @@ function useMenuReview(locationId: string, enabled: boolean) {
                 // The endpoint reads Google back and compares before success.
                 verified: true,
                 label: "Food menu · replaces the menu on Google",
-                run: async () => {
-                  const result = await publishFoodMenus(locationId, {
+                run: async (intent) => {
+                  const body = {
                     expectedCanonicalRevision: state.canonicalResource.revision,
                     expectedCanonicalHash: state.canonicalHash,
                     expectedGoogleHash: state.googleHash,
+                  }
+                  const result = await publishFoodMenus(locationId, body, {
+                    intentId: intent.idFor(body),
                   })
                   if (result.status === "in_sync") return NOTHING_TO_SEND
+                  return result
                 },
               },
             ],
@@ -470,23 +482,27 @@ function toStepRows(
         detail:
           "It already matched Google when this step ran, so nothing was sent.",
       }
-    if (step.status === "done")
+    if (step.status === "done") {
+      // The server's answer for the step (stepOutcome): only a write Google
+      // was read back holding may say live; anything less says what it is.
+      const outcome = stepOutcome(step) ?? "sent"
       return {
         id: step.key,
         label: step.label,
-        // A verified step's publish read Google back and it matched: the
-        // one state the outcome words may call live. Every area here is
-        // verified today; an unverified one would only say "sent".
-        state: step.verified ? "confirmed_applied" : "sent",
-        detail: step.verified
-          ? "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search."
-          : "Google accepted the request. It hasn’t been read back yet.",
+        state: outcome,
+        detail:
+          outcome === "confirmed_applied"
+            ? "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search."
+            : describeOutcome(outcome).description,
       }
+    }
     if (step.status === "failed")
       return {
         id: step.key,
         label: step.label,
-        state: "failed",
+        // "Not confirmed" rather than "Failed" when the change may have
+        // landed: retrying then resends the same intent.
+        state: stepOutcome(step) ?? "failed",
         errorCode: step.code,
         detail: `${step.message ?? "Google didn’t accept this change."} This step did not finish with a confirmed result. Check Google before retrying; the saved copy is kept.`,
         action: onRetry ? (

@@ -143,8 +143,10 @@ describe("tab mutation clients", () => {
     expect(result.status).toBe("succeeded")
     expect(opened[0]).toEqual(["POST", "/api/locations/loc-1/media"])
     expect(sent[0]).toBeInstanceOf(FormData)
-    // Never sets content-type; the browser adds the multipart boundary.
-    expect(setHeader).not.toHaveBeenCalled()
+    // Never sets content-type; the browser adds the multipart boundary. The
+    // one header is the intent, so a retried upload can resend it.
+    expect(setHeader).toHaveBeenCalledTimes(1)
+    expect(setHeader).toHaveBeenCalledWith("Idempotency-Key", expect.any(String))
     expect(progress).toContain(0.5)
   })
 

@@ -1,4 +1,8 @@
 import { ApiClientError } from "@/lib/api/client"
+import {
+  operationOutcomeSchema,
+  type OperationOutcome,
+} from "@/lib/contracts/mutation-operations"
 
 /**
  * The single mapping layer from server error codes to GB-English user copy.
@@ -548,4 +552,84 @@ export function isNotLinkedError(error: unknown): boolean {
 /** Review sync is paused by ops — settings shows a paused notice, not an error. */
 export function isPausedError(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "sync_paused"
+}
+
+// ---- Outcomes of failed writes -------------------------------------------
+
+/**
+ * Codes that say the write may have reached Google and nothing yet shows
+ * whether it applied. Retrying blindly could apply it twice.
+ */
+const UNCERTAIN_CODES = new Set([
+  "google_mutation_ambiguous",
+  "mutation_uncertain",
+  "post_publish_uncertain",
+  "publish_outcome_unknown",
+  "media_needs_resolution",
+  "network_error",
+])
+
+/**
+ * What a failed write call means in the shared outcome vocabulary
+ * (lib/contracts/mutation-operations.ts), judged from the error alone:
+ *
+ *   uncertain  the request may have been applied: an ambiguous provider
+ *              answer, a dropped connection or timeout, or a gateway error
+ *              that carried no answer from the app at all;
+ *   sent       another request under the same intent (or for the same
+ *              change) is still on its way;
+ *   rejected   Google answered and refused (its own status word as code);
+ *   failed     anything else: the app refused before sending, or the
+ *              request completed without applying.
+ *
+ * A replayed receipt names its outcome in `details.outcome`, which wins.
+ * The receipt itself (`GET /api/mutations/{intentId}`) is the authority;
+ * this is the best guess until it has been read.
+ */
+export function errorOutcome(
+  error: unknown
+): Extract<OperationOutcome, "uncertain" | "sent" | "rejected" | "failed"> {
+  if (error instanceof ApiClientError) {
+    const named = operationOutcomeSchema.safeParse(
+      (error.details as { outcome?: unknown } | undefined)?.outcome
+    )
+    if (
+      named.success &&
+      (named.data === "uncertain" ||
+        named.data === "sent" ||
+        named.data === "rejected" ||
+        named.data === "failed")
+    ) {
+      return named.data
+    }
+    if (UNCERTAIN_CODES.has(error.code)) return "uncertain"
+    if (error.code.endsWith("_in_progress")) return "sent"
+    // The same test the server's receipts use (lib/server/mutation-operations.ts
+    // failureOutcome): Google's own 4xx refusal, not auth, timeout or rate
+    // limiting.
+    if (
+      error.status >= 400 &&
+      error.status < 500 &&
+      ![401, 408, 429].includes(error.status) &&
+      !error.reconnectRequired &&
+      (/^[A-Z][A-Z_]+$/.test(error.code) || error.code === "google_api_error")
+    )
+      return "rejected"
+    // No JSON answer from the app (a proxy's 502/504): the handler may still
+    // have run to completion.
+    if (error.status >= 500 && error.code === "http_error") return "uncertain"
+    return "failed"
+  }
+  if (error instanceof TypeError || isTimeoutError(error)) return "uncertain"
+  return "failed"
+}
+
+/**
+ * True when a retry of the same action must reuse its intent: the first
+ * request may have been applied, so the server has to answer the retry from
+ * the receipt rather than write again.
+ */
+export function isUnconfirmedFailure(error: unknown): boolean {
+  const outcome = errorOutcome(error)
+  return outcome === "uncertain" || outcome === "sent"
 }

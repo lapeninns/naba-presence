@@ -1,5 +1,7 @@
 export const queryKeys = {
   session: ["session"] as const,
+  // One change's receipt (GET /api/mutations/{id}), by operation or intent id.
+  mutationReceipt: (id: string) => ["mutation-receipt", id] as const,
   // Prefix of every per-client key, so creating, renaming or reassigning a
   // client invalidates the index and each hub in one call.
   clientsAll: ["clients"] as const,

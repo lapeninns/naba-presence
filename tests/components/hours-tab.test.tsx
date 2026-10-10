@@ -473,17 +473,21 @@ describe("HoursTab selective publish", () => {
       within(sheet).getByRole("button", { name: "Publish to Google" })
     )
     await waitFor(() =>
-      expect(publish).toHaveBeenCalledWith("loc-1", {
-        expectedCanonicalRevision: "2",
-        expectedCanonicalHash: "ch",
-        expectedGoogleHash: "gh",
-        approvedUpdateMask: ["specialHours"],
-        confirmOverwriteGoogleChanges: false,
-        selection: {
-          specialDates: ["2026-12-25"],
-          expectedGoogleParts: { "special:2026-12-25": null },
+      expect(publish).toHaveBeenCalledWith(
+        "loc-1",
+        {
+          expectedCanonicalRevision: "2",
+          expectedCanonicalHash: "ch",
+          expectedGoogleHash: "gh",
+          approvedUpdateMask: ["specialHours"],
+          confirmOverwriteGoogleChanges: false,
+          selection: {
+            specialDates: ["2026-12-25"],
+            expectedGoogleParts: { "special:2026-12-25": null },
+          },
         },
-      })
+        { intentId: expect.any(String) }
+      )
     )
   })
 
@@ -517,7 +521,8 @@ describe("HoursTab selective publish", () => {
         expect.objectContaining({
           confirmOverwriteGoogleChanges: false,
           approvedUpdateMask: ["specialHours"],
-        })
+        }),
+        { intentId: expect.any(String) }
       )
     )
   })

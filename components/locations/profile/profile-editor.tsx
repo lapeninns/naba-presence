@@ -365,7 +365,7 @@ function ProfileEditor({
       label: "Publish name, description, phone and website",
       // Reads Google back and compares the selected fields before success.
       verified: true,
-      run: async () => {
+      run: async (intent) => {
         const fresh = saved.current ?? profile
         const fields = fresh.fields
           .filter(
@@ -376,7 +376,7 @@ function ProfileEditor({
         listingAfterProfile.current = null
         // Nothing drifted: the NabaPresence copy already matches Google.
         if (fields.length === 0) return NOTHING_TO_SEND
-        await runProfileOperation(locationId, {
+        const body = {
           direction: "to_google",
           confirmation: "publish_nabapresence_profile_to_google",
           selectedFields: fields,
@@ -384,8 +384,12 @@ function ProfileEditor({
           expectedCanonicalHash: fresh.canonicalHash,
           expectedGoogleHash: fresh.googleHash,
           confirmOverwriteGoogleChanges: needsAck,
+        } as const
+        const answer = await runProfileOperation(locationId, body, {
+          intentId: intent.idFor(body),
         })
         listingAfterProfile.current = await fetchBusinessInformation(locationId)
+        return answer
       },
     })
     if (business && listingUpdate.updateMask.length > 0) {
@@ -394,8 +398,8 @@ function ProfileEditor({
         label: "Publish categories, address and status",
         // Business information compares the readback field by field.
         verified: true,
-        run: async () => {
-          await publishBusinessInformation(locationId, {
+        run: async (intent) => {
+          const body = {
             updateMask: listingUpdate.updateMask,
             payload: businessInformationPayloadSchema.parse(
               listingUpdate.payload
@@ -403,8 +407,12 @@ function ProfileEditor({
             expectedGoogleHash:
               listingAfterProfile.current?.locationHash ??
               business.locationHash,
+          }
+          const answer = await publishBusinessInformation(locationId, body, {
+            intentId: intent.idFor(body),
           })
           expectListingSave()
+          return answer
         },
       })
     }
@@ -412,16 +420,21 @@ function ProfileEditor({
       list.push({
         key: "attributes",
         label: "Publish attributes",
-        // Attributes are read back but not compared, so only "sent".
-        run: async () => {
-          await publishBusinessAttributes(locationId, {
+        // Not marked verified: the step says "sent" unless the route's
+        // answer names a stronger outcome.
+        run: async (intent) => {
+          const body = {
             attributeMask: attributesUpdate.attributeMask,
             attributes: attributesUpdate.attributes,
             expectedGoogleHash:
               listingAfterProfile.current?.attributesHash ??
               business.attributesHash,
+          }
+          const answer = await publishBusinessAttributes(locationId, body, {
+            intentId: intent.idFor(body),
           })
           expectAttributesSave()
+          return answer
         },
       })
     }

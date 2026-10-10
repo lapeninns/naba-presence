@@ -1,7 +1,21 @@
-import { render, screen, within } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { renderWithProviders } from "../helpers/render"
+import {
+  OperationReceiptNotice,
+  unconfirmedReceiptId,
+} from "@/components/locations/operation-outcome"
 import { OperationOutcomeNotice } from "@/components/ui/operation-outcome"
+import { ApiClientError } from "@/lib/api/client"
+import * as mutationsApi from "@/lib/api/mutations"
+import type { MutationReceipt } from "@/lib/api/mutations"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
+import {
+  RECEIPT_POLL_DELAYS_MS,
+  RECEIPT_POLL_LIMIT,
+  receiptPollDelay,
+} from "@/lib/queries/use-mutation-receipt"
 import { PublishSteps } from "@/components/ui/publish-steps"
 import {
   OPERATION_OUTCOMES,
@@ -115,5 +129,122 @@ describe("PublishSteps with outcome states", () => {
       expect(row).toHaveTextContent(EXPECTED[outcome].label)
     }
     expect(within(list).getAllByText("Live on Google")).toHaveLength(1)
+  })
+})
+
+describe("OperationReceiptNotice", () => {
+  const receipt = (outcome: OperationOutcome): MutationReceipt => ({
+    id: "op-1",
+    intentId: "11111111-1111-4111-8111-111111111111",
+    surface: "local_post",
+    action: "create",
+    locationId: "loc-1",
+    targetType: "local_post",
+    targetRef: "p1",
+    outcome,
+    errorCode: null,
+    attemptId: "a1",
+    createdAt: "2026-10-10T10:00:00.000Z",
+    updatedAt: "2026-10-10T10:00:00.000Z",
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it("shows the fallback until the receipt is read, never as live", async () => {
+    vi.spyOn(mutationsApi, "fetchMutationReceipt").mockReturnValue(
+      new Promise(() => {})
+    )
+    renderWithProviders(<OperationReceiptNotice receiptId="op-1" />)
+    const notice = screen.getByRole("status")
+    expect(notice).toHaveAttribute("data-outcome", "uncertain")
+    expect(notice).toHaveTextContent("Couldn’t confirm with Google")
+    expect(notice).toHaveTextContent("checking again automatically")
+    expect(notice).not.toHaveTextContent("Live on Google")
+  })
+
+  it.each(["awaiting_confirmation", "uncertain", "sent"] as const)(
+    "says %s without claiming it is live",
+    async (outcome) => {
+      vi.spyOn(mutationsApi, "fetchMutationReceipt").mockResolvedValue(
+        receipt(outcome)
+      )
+      renderWithProviders(<OperationReceiptNotice receiptId="op-1" />)
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveAttribute(
+          "data-outcome",
+          outcome
+        )
+      )
+      expect(screen.getByRole("status")).toHaveTextContent(
+        describeOutcome(outcome).title
+      )
+      expect(screen.queryByText(/Live on Google/)).toBeNull()
+    }
+  )
+
+  it("moves on by itself when a polled receipt settles, and reports it once", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchReceipt = vi
+      .spyOn(mutationsApi, "fetchMutationReceipt")
+      .mockResolvedValueOnce(receipt("uncertain"))
+      .mockResolvedValue(receipt("confirmed_applied"))
+    const onSettled = vi.fn()
+    renderWithProviders(
+      <OperationReceiptNotice receiptId="op-1" onSettled={onSettled} />
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveAttribute(
+        "data-outcome",
+        "uncertain"
+      )
+    )
+    await vi.advanceTimersByTimeAsync(RECEIPT_POLL_DELAYS_MS[0])
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveAttribute(
+        "data-outcome",
+        "confirmed_applied"
+      )
+    )
+    expect(screen.getByRole("status")).toHaveTextContent("Live on Google")
+    expect(onSettled).toHaveBeenCalledTimes(1)
+    expect(onSettled).toHaveBeenCalledWith("confirmed_applied")
+    // Settled: no more asking.
+    const calls = fetchReceipt.mock.calls.length
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetchReceipt.mock.calls.length).toBe(calls)
+  })
+
+  it("backs off and stops asking after the poll limit", () => {
+    expect(receiptPollDelay(0)).toBe(RECEIPT_POLL_DELAYS_MS[0])
+    expect(receiptPollDelay(99 % RECEIPT_POLL_LIMIT)).toBe(
+      RECEIPT_POLL_DELAYS_MS.at(-1)
+    )
+    expect(receiptPollDelay(RECEIPT_POLL_LIMIT)).toBe(false)
+  })
+
+  it("follows only failures that leave the outcome open", () => {
+    const intentId = "11111111-1111-4111-8111-111111111111"
+    expect(
+      unconfirmedReceiptId(
+        new ApiClientError(502, "google_mutation_ambiguous", "x", undefined, {
+          intentId,
+        })
+      )
+    ).toBe(intentId)
+    expect(
+      unconfirmedReceiptId(
+        new ApiClientError(400, "INVALID_ARGUMENT", "x", undefined, {
+          intentId,
+        })
+      )
+    ).toBeNull()
+    expect(
+      unconfirmedReceiptId(
+        new ApiClientError(502, "google_mutation_ambiguous", "x")
+      )
+    ).toBeNull()
   })
 })

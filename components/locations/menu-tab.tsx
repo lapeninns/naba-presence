@@ -26,7 +26,10 @@ import {
   type FoodMenusState,
 } from "@/lib/api/location-menu"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
-import { usePublishFlow } from "@/lib/editors/use-publish-flow"
+import {
+  usePublishFlow,
+  type PublishStep,
+} from "@/lib/editors/use-publish-flow"
 import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
@@ -113,7 +116,7 @@ function MenuForm({
   } | null>(null)
   const saved = useRef<FoodMenusState | null>(null)
   const buildSteps = useCallback(
-    () => [
+    (): PublishStep[] => [
       {
         key: "save",
         label: "Save the menu in NabaPresence",
@@ -146,13 +149,16 @@ function MenuForm({
         label: "Replace the food menu on Google",
         // The Food Menus publish reads Google back and compares it.
         verified: true,
-        run: async () => {
+        run: async (intent) => {
           const fresh = saved.current
           if (!fresh || !reviewed) throw new Error("The menu was not saved.")
-          await publishFoodMenus(locationId, {
+          const body = {
             expectedCanonicalRevision: fresh.canonicalResource.revision,
             expectedCanonicalHash: fresh.canonicalHash,
             expectedGoogleHash: reviewed.googleHash,
+          }
+          return publishFoodMenus(locationId, body, {
+            intentId: intent.idFor(body),
           })
         },
       },

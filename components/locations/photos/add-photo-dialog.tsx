@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
+import { answerOutcome, describeOutcome } from "@/lib/editors/outcome"
 import { ApiClientError } from "@/lib/api/client"
 import {
   createMediaFromUrl,
@@ -97,7 +98,7 @@ const STATUS_PILL: Record<
   // The route answered but did not report the write as succeeded (an
   // idempotent replay reports the earlier attempt's own status).
   sent: { tone: "info", label: "Sent to Google" },
-  done: { tone: "ok", label: "On Google" },
+  done: { tone: "ok", label: describeOutcome("confirmed_applied").label },
   failed: { tone: "bad", label: "Failed" },
 }
 
@@ -150,17 +151,28 @@ export function AddPhotoDialog({
   useEffect(() => () => revoke(held.current), [])
 
   const addUrl = useResourceMutation<MediaMutationResult>({
-    mutationFn: () =>
-      createMediaFromUrl(locationId, {
-        mediaFormat: "PHOTO",
-        category,
-        sourceUrl: url,
-      }),
+    mutationFn: (_: void, intent) =>
+      createMediaFromUrl(
+        locationId,
+        {
+          mediaFormat: "PHOTO",
+          category,
+          sourceUrl: url,
+        },
+        { intentId: intent.intentId }
+      ),
+    intentKey: () => [category, url],
     invalidate: onAdded,
-    successToast: (result) =>
-      result.status === "succeeded"
-        ? "Photo added on Google"
-        : "Photo sent to Google",
+    successToast: (result) => {
+      const outcome = answerOutcome(result)
+      return {
+        outcome,
+        title:
+          outcome === "confirmed_applied"
+            ? "Photo added on Google"
+            : "Photo sent to Google",
+      }
+    },
     onSuccess: () => {
       setUrl("")
       onOpenChange(false)
@@ -216,7 +228,8 @@ export function AddPhotoDialog({
         )
         succeeded += 1
         patch(entry.key, {
-          status: result.status === "succeeded" ? "done" : "sent",
+          status:
+            answerOutcome(result) === "confirmed_applied" ? "done" : "sent",
           progress: 1,
         })
       } catch (error) {

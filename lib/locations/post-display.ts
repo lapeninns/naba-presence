@@ -10,6 +10,9 @@ import type {
   LocalPostTopicType,
   PostRow,
 } from "@/lib/contracts/location-posts"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
+import { localPostOutcome } from "@/lib/domain/post-outcome"
+import { describeOutcome } from "@/lib/editors/outcome"
 
 export type PostTone = "neutral" | "info" | "ok" | "warn" | "bad"
 
@@ -28,34 +31,39 @@ export const POST_ACTION_LABEL: Record<LocalPostActionType, string> = {
   CALL: "Call now",
 }
 
+/** The pill tone each outcome takes on the posts tab. */
+const OUTCOME_POST_TONE: Record<OperationOutcome, PostTone> = {
+  saved_locally: "neutral",
+  sent: "info",
+  awaiting_confirmation: "info",
+  confirmed_applied: "ok",
+  rejected: "bad",
+  failed: "bad",
+  uncertain: "warn",
+}
+
 /**
- * The post's state in words. "Live on Google" only when Google's own state
- * for the post says LIVE; a published post Google has not reported on yet
- * stays "Published", which is what the app knows.
+ * The post's state in words. A post nothing has been sent for says where it
+ * is (draft, awaiting approval); every other post says its publish outcome
+ * in the shared words (lib/editors/outcome.ts) via `localPostOutcome`, so
+ * "Live on Google" appears only when Google's own state for the post says
+ * LIVE. Google still reviewing it (PROCESSING), or not having reported on it
+ * yet, is "Waiting for Google"; REJECTED is "Rejected by Google".
  */
-export function postStatus(post: Pick<PostRow, "status" | "googleState">): {
+export function postStatus(
+  post: Pick<PostRow, "status" | "googleState"> &
+    Partial<Pick<PostRow, "lastErrorCode">>
+): {
   label: string
   tone: PostTone
 } {
-  switch (post.status) {
-    case "draft":
-      return { label: "Draft", tone: "neutral" }
-    case "awaiting_approval":
-      return { label: "Awaiting approval", tone: "warn" }
-    case "publishing":
-      return { label: "Sent to Google — waiting", tone: "info" }
-    case "failed":
-      return { label: "Failed", tone: "bad" }
-    case "ambiguous":
-      return { label: "Needs checking", tone: "warn" }
-    case "published":
-      if (post.googleState === "LIVE")
-        return { label: "Live on Google", tone: "ok" }
-      if (post.googleState === "REJECTED")
-        return { label: "Rejected by Google", tone: "bad" }
-      if (post.googleState === "PROCESSING")
-        return { label: "Google is processing it", tone: "info" }
-      return { label: "Published", tone: "ok" }
+  if (post.status === "draft") return { label: "Draft", tone: "neutral" }
+  if (post.status === "awaiting_approval")
+    return { label: "Awaiting approval", tone: "warn" }
+  const outcome = localPostOutcome(post) ?? "failed"
+  return {
+    label: describeOutcome(outcome).label,
+    tone: OUTCOME_POST_TONE[outcome],
   }
 }
 

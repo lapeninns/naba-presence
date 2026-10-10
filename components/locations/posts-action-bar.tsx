@@ -6,6 +6,7 @@ import {
   Trash2Icon,
   UploadIcon,
 } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import {
@@ -20,6 +21,10 @@ import {
   PostComposerSheet,
   postFormValues,
 } from "@/components/locations/posts/post-composer-sheet"
+import {
+  OperationReceiptNotice,
+  unconfirmedReceiptId,
+} from "@/components/locations/operation-outcome"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -36,7 +41,9 @@ import {
   decideApprovalDisabledReason,
   resourceDisabledReason,
 } from "@/lib/locations/gating"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import type { OutcomeMessage } from "@/lib/editors/outcome"
+import { errorOutcome } from "@/lib/errors/action-errors"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
@@ -46,16 +53,34 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
 
-function publishOutcome(status: string): OutcomeMessage {
+/**
+ * The toast for a publish answer. The route's `operation.outcome` says what
+ * Google's own state for the post shows (lib/domain/post-outcome.ts): live,
+ * still being reviewed, or rejected. Without one the post was only sent.
+ */
+export function publishOutcome(result: {
+  status: string
+  operation?: { outcome: OperationOutcome }
+}): OutcomeMessage {
   // Waiting for an approver: nothing has gone to Google yet.
-  if (status === "awaiting_approval")
+  if (result.status === "awaiting_approval")
     return { outcome: "saved_locally", title: "Post submitted for approval." }
+  const outcome = result.operation?.outcome
   // A rejected post is on Google and invisible to everyone, so the toast
   // must not say it was published.
-  if (status === "rejected")
+  if (result.status === "rejected" || outcome === "rejected")
     return { outcome: "rejected", title: "Google rejected this post." }
-  // "published" means Google took the post and did not reject it; it may
-  // still be processing, so this is "sent", not "live".
+  if (outcome === "confirmed_applied")
+    return { outcome, title: "Post live on Google" }
+  if (outcome === "awaiting_confirmation")
+    return {
+      outcome,
+      title: "Post sent to Google",
+      description: "Google is still reviewing it, so it may not show yet.",
+    }
+  if (outcome === "uncertain") return { outcome }
+  // "published" with no outcome: Google took the post and did not reject
+  // it; it may still be processing, so this is "sent", not "live".
   return { outcome: "sent", title: "Post sent to Google" }
 }
 
@@ -86,14 +111,19 @@ export function PostsActionBar({
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone?: string
 }) {
+  const queryClient = useQueryClient()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const invalidate = [queryKeys.locationPosts(locationId)]
 
   const publish = useResourceMutation({
-    mutationFn: () => publishPost(locationId, post.id),
+    mutationFn: (_: void, intent) =>
+      publishPost(locationId, post.id, { intentId: intent.intentId }),
+    // The publish sends the post as it is now, so a retry is the same action
+    // only while the post is the same revision; an edit mints a new intent.
+    intentKey: () => [post.id, post.contentRevision],
     invalidate,
-    successToast: (result) => publishOutcome(result.status),
+    successToast: (result) => publishOutcome(result),
     errorContext: "post",
     onSuccess: () => setPublishOpen(false),
     onError: () => setPublishOpen(false),
@@ -106,9 +136,7 @@ export function PostsActionBar({
       decidePostApproval(locationId, post.id, decision, post.contentRevision),
     invalidate,
     successToast: (result, decision) =>
-      decision === "reject"
-        ? "Sent back to draft"
-        : publishOutcome(result.status),
+      decision === "reject" ? "Sent back to draft" : publishOutcome(result),
     errorContext: "post",
   })
   const remove = useResourceMutation({
@@ -173,6 +201,9 @@ export function PostsActionBar({
 
   const editable = post.status === "draft" || post.status === "failed"
   const preview = postFormValues(post, timezone)
+  // A publish whose answer was lost or ambiguous: follow its receipt until
+  // the recovery job settles it, then re-read the post.
+  const receiptId = unconfirmedReceiptId(publish.error)
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -266,6 +297,18 @@ export function PostsActionBar({
         <Trash2Icon aria-hidden />
         Delete
       </Button>
+      {receiptId ? (
+        <OperationReceiptNotice
+          className="w-full"
+          receiptId={receiptId}
+          fallback={errorOutcome(publish.error)}
+          onSettled={() => {
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.locationPosts(locationId),
+            })
+          }}
+        />
+      ) : null}
       {primaryReason &&
       (post.status === "draft" || post.status === "failed") ? (
         <span className="w-full text-caption text-ink-muted">
