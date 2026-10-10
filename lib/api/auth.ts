@@ -1,4 +1,4 @@
-import { apiFetch, type RequestOptions } from "./client"
+import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 import {
   registerResponseSchema,
   type RegisterInput,
@@ -56,6 +56,12 @@ export async function resendConfirmation(
   })
 }
 
+/**
+ * Resolves only when the server confirmed the sign-out. A 503
+ * `sign_out_everywhere_failed` (see {@link signedOutHereOnly}) means this
+ * browser is signed out but other sessions may not be; anything else thrown
+ * means this browser may still be signed in.
+ */
 export async function signOut(
   options: { everywhere?: boolean } = {}
 ): Promise<void> {
@@ -64,6 +70,18 @@ export async function signOut(
     {
       method: "DELETE",
     }
+  )
+}
+
+/**
+ * True when "sign out everywhere" ended this browser's session but could not
+ * end the others: the caller must treat this browser as signed out without
+ * claiming every device is.
+ */
+export function signedOutHereOnly(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    error.code === "sign_out_everywhere_failed"
   )
 }
 

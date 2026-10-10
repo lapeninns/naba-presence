@@ -173,6 +173,13 @@ with `OAUTH_STATE_SECRET`, not `NEXTAUTH_SECRET`, once that is set.
 Platform sign-in and the Google grant are separate lifetimes: sessions slide
 to 14 idle days and end 90 days after sign-in, "sign out everywhere" ends
 them all, and none of it touches a connection or background sync.
+Sign-out is truthful: `DELETE /api/session` answers 204 only when it did what
+was asked. If revoking every session fails, this browser is still signed out
+(its row when the database allows, its cookie always) and the answer is 503
+`sign_out_everywhere_failed`; the account menu then says other devices may
+still be signed in. Any other failure keeps the person signed in on the page
+with a Retry. A confirmed sign-out clears the query cache and every
+`naba:draft:` stash before the full-page navigation.
 
 ## Standalone canonical resources and Google publication
 

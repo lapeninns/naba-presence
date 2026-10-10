@@ -255,6 +255,16 @@ export async function revokeAllSessions(): Promise<number> {
   return revoked
 }
 
+/**
+ * Forgets the session cookie in this browser without touching the database.
+ * For sign-out paths whose database step failed: the browser must still stop
+ * presenting the token, even when its row could not be deleted.
+ */
+export async function dropSessionCookie() {
+  const cookieStore = await cookies()
+  cookieStore.delete(SESSION_COOKIE)
+}
+
 export async function clearSession() {
   const cookieStore = await cookies()
   const token = cookieStore.get(SESSION_COOKIE)?.value

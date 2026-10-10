@@ -51,6 +51,10 @@ const COPY: Record<string, string> = {
     "You do not have permission to publish to Google for this location.",
   canonical_edit_permission_required:
     "Only owners and admins can edit this location.",
+  // DELETE /api/session?scope=all: this browser is signed out, the rest are
+  // unknown. Never say "everywhere" happened.
+  sign_out_everywhere_failed:
+    "You’re signed out on this device, but other devices may still be signed in. Sign in again and retry “Sign out everywhere”.",
 
   // ---- Google write gates / pauses ---------------------------------------
   // Divergence: inbox "Publishing is temporarily paused. Try again shortly."

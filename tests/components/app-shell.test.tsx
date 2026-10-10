@@ -463,7 +463,7 @@ describe("account menu", () => {
     expect(assign).toHaveBeenCalledWith(`${window.location.origin}/sign-in`)
   })
 
-  it("still leaves the app when the sign-out request fails", async () => {
+  it("stays in the app when the sign-out request fails", async () => {
     const user = userEvent.setup()
     const assign = vi.fn()
     vi.stubGlobal("location", { ...window.location, assign })
@@ -473,9 +473,8 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }))
-    await waitFor(() =>
-      expect(assign).toHaveBeenCalledWith(`${window.location.origin}/sign-in`)
-    )
+    expect(await screen.findByText("Couldn’t sign out")).toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
   })
 
   it("hides the organisation switcher for someone who belongs to one", async () => {

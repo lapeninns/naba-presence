@@ -387,8 +387,11 @@ delivery only a few times).
 Sessions slide to `SESSION_IDLE_DAYS` (14) of inactivity and end
 `SESSION_ABSOLUTE_DAYS` (90) after sign-in. "Sign out everywhere" (account
 menu, `DELETE /api/session?scope=all`) ends every session the person has in
-every organisation. None of this touches Google connections or background
-sync. MFA for owners and admins is a Supabase Auth feature still to enable.
+every organisation. If that fails (503 `sign_out_everywhere_failed`, logged as
+`session.revoke_all_failed`), the requesting browser is still signed out but
+the other sessions may remain; the person can sign in and retry. None of this
+touches Google connections or background sync. MFA for owners and admins is a
+Supabase Auth feature still to enable.
 
 ### Pub/Sub delivery failure
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { LogOut, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import * as React from "react"
@@ -27,8 +27,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
-import { signOut } from "@/lib/api/auth"
-import { apiFetch } from "@/lib/api/client"
+import { signedOutHereOnly, signOut } from "@/lib/api/auth"
+import { ApiClientError, apiFetch } from "@/lib/api/client"
+import { clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
@@ -78,15 +79,15 @@ function initialsFor(name: string) {
   return letters || "AC"
 }
 
-async function handleSignOut(everywhere = false) {
-  try {
-    await signOut({ everywhere })
-  } catch {
-    // Best-effort: a failed clear is recoverable server-side, but a user
-    // stranded on a dashboard they believe they have left is not.
-  } finally {
-    hardNavigate("/sign-in")
-  }
+/**
+ * Forgets everything this browser holds for the session that just ended: the
+ * query cache (the full reload drops it too, but a back-forward cache restore
+ * would not) and every stashed draft, which would otherwise be offered to the
+ * next person who signs in on this tab.
+ */
+function purgeClientState(queryClient: QueryClient) {
+  queryClient.clear()
+  clearAllStashedDrafts()
 }
 
 const subscribeNever = () => () => {}
@@ -150,8 +151,46 @@ function AccountMenu({
       ) ?? [])
 
   const toast = useToastManager()
+  const queryClient = useQueryClient()
   const [confirmEverywhere, setConfirmEverywhere] = React.useState(false)
   const [signingOut, setSigningOut] = React.useState(false)
+  // Leaves only when the server confirmed it. A failure keeps the person
+  // here, still signed in, with a way to try again: sending them to the
+  // sign-in page would claim a sign-out that may not have happened.
+  const handleSignOut = async (everywhere: boolean) => {
+    setSigningOut(true)
+    try {
+      await signOut({ everywhere })
+    } catch (error) {
+      if (signedOutHereOnly(error)) {
+        // This browser is signed out; only the other devices are unknown.
+        // The sign-in page says so and how to finish the job.
+        purgeClientState(queryClient)
+        hardNavigate("/sign-in?status=sign_out_everywhere_failed")
+        return
+      }
+      setSigningOut(false)
+      setConfirmEverywhere(false)
+      toast.add({
+        title: everywhere ? "Couldn’t sign out everywhere" : "Couldn’t sign out",
+        // A server answer means nothing changed; a lost request may or may
+        // not have reached it.
+        description: `${describeActionError(error)} ${
+          error instanceof ApiClientError
+            ? "You’re still signed in."
+            : "You may still be signed in."
+        }`,
+        type: "error",
+        actionProps: {
+          children: "Retry",
+          onClick: () => void handleSignOut(everywhere),
+        },
+      })
+      return
+    }
+    purgeClientState(queryClient)
+    hardNavigate("/sign-in")
+  }
   const [switching, setSwitching] = React.useState(false)
   const switchTo = async (organisationId: string, name: string) => {
     setSwitching(true)
@@ -292,13 +331,19 @@ function AccountMenu({
             </>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => void handleSignOut()}>
+          <DropdownMenuItem
+            disabled={signingOut}
+            onClick={() => void handleSignOut(false)}
+          >
             <LogOut aria-hidden />
             Sign out
           </DropdownMenuItem>
           {/* Every device and organisation. Google connections and background
             sync keep running: they never depended on anyone being signed in. */}
-          <DropdownMenuItem onClick={() => setConfirmEverywhere(true)}>
+          <DropdownMenuItem
+            disabled={signingOut}
+            onClick={() => setConfirmEverywhere(true)}
+          >
             <LogOut aria-hidden />
             Sign out everywhere…
           </DropdownMenuItem>
@@ -321,10 +366,7 @@ function AccountMenu({
               variant="danger"
               pending={signingOut}
               pendingLabel="Signing out…"
-              onClick={() => {
-                setSigningOut(true)
-                void handleSignOut(true)
-              }}
+              onClick={() => void handleSignOut(true)}
             >
               Sign out everywhere
             </Button>

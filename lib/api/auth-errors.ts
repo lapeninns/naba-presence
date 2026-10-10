@@ -83,6 +83,13 @@ const BY_CODE: Record<string, AuthMessage> = {
   invalid_request: {
     title: "Check the highlighted fields.",
   },
+  // The account menu lands here after DELETE /api/session?scope=all signed
+  // this browser out but could not end the other sessions.
+  sign_out_everywhere_failed: {
+    title: "You’re signed out on this device.",
+    description:
+      "Signing out everywhere didn’t finish, so other devices may still be signed in. Sign in, then choose Sign out everywhere again.",
+  },
 }
 
 export function authErrorMessage(error: unknown): AuthMessage {

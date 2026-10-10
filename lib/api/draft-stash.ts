@@ -63,6 +63,26 @@ export function takeStashedDraft(key: string): string | null {
 }
 
 /**
+ * Removes every stashed draft from sessionStorage, best-effort. Called on a
+ * confirmed sign-out: a stash outlives the session that wrote it, and the
+ * next person to sign in on this tab must not be offered someone else's
+ * unsent text.
+ */
+export function clearAllStashedDrafts(): void {
+  if (typeof window === "undefined") return
+  try {
+    const keys: string[] = []
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index)
+      if (key?.startsWith(PREFIX)) keys.push(key)
+    }
+    for (const key of keys) sessionStorage.removeItem(key)
+  } catch {
+    // Storage unavailable: nothing could have been stashed either.
+  }
+}
+
+/**
  * Test-only: clears every registered draft source. Not for production use —
  * intended for a top-level `beforeEach` so registrations from one test don't
  * leak into the next.
