@@ -9,6 +9,11 @@ export const ORG_FEATURES = [
   "post_scheduling",
   // Bulk listing and review actions (plan P09).
   "bulk_actions",
+  // Two-person approval of direct listing writes (plan P02-S2b): with the
+  // organisation's require_two_person_approval on, a publisher's listing
+  // write parks as a change request for a second publisher to approve
+  // (lib/server/listing-changes.ts).
+  "listing_change_approvals",
 ] as const
 
 export type OrgFeature = (typeof ORG_FEATURES)[number]

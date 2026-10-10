@@ -10,7 +10,9 @@ import {
   type MediaMutationOutcome,
 } from "@/lib/contracts/location-media"
 import { ApiError } from "@/lib/server/http"
-import { createMedia, loadMedia, uploadMedia } from "@/lib/server/media"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
+import { refuseUploadWhenApprovalRequired } from "@/lib/server/listing-changes"
+import { loadMedia, uploadMedia } from "@/lib/server/media"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string() })
@@ -60,6 +62,9 @@ export const POST = route({
           { status: 413 }
         )
       }
+      // An upload cannot be frozen for approval; refused, not sent, while
+      // two-person listing approval applies.
+      await refuseUploadWhenApprovalRequired(session, params.id)
       const input = mediaUploadFieldsSchema.parse({
         mediaFormat: form.get("mediaFormat"),
         category: form.get("category"),
@@ -84,20 +89,17 @@ export const POST = route({
       )
     }
     const input = mediaCreateRequestSchema.parse(await request.json())
-    return NextResponse.json(
-      (await createMedia({
-        organisationId: session.organisationId,
-        session,
-        locationId: params.id,
-        payload: {
-          mediaFormat: input.mediaFormat,
-          category: input.category,
-          sourceUrl: input.sourceUrl,
-          description: input.description,
-        },
-        requestId,
-      })) satisfies MediaMutationOutcome,
-      { status: 201 }
-    )
+    // Parks for a second publisher in two-person mode (a 202);
+    // lib/server/listing-change-registry.ts.
+    const created = await submitListingChange("media_create", {
+      session,
+      locationId: params.id,
+      body: input,
+      requestId,
+    })
+    if (created instanceof Response) return created
+    return NextResponse.json(created satisfies MediaMutationOutcome, {
+      status: 201,
+    })
   },
 })

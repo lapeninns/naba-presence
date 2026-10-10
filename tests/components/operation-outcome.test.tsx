@@ -30,6 +30,7 @@ import {
 
 const EXPECTED = {
   saved_locally: { label: "Saved here", toast: "success" },
+  awaiting_approval: { label: "Awaiting approval", toast: "info" },
   sent: { label: "Sent to Google", toast: "info" },
   awaiting_confirmation: { label: "Waiting for Google", toast: "info" },
   confirmed_applied: { label: "Live on Google", toast: "success" },
@@ -39,7 +40,7 @@ const EXPECTED = {
 } as const
 
 describe("operation outcome vocabulary", () => {
-  it("has exactly the seven shared states, each with copy", () => {
+  it("has exactly the eight shared states, each with copy", () => {
     expect(OPERATION_OUTCOMES).toEqual(Object.keys(EXPECTED))
     expect(Object.keys(OUTCOME_PRESENTATION).sort()).toEqual(
       [...OPERATION_OUTCOMES].sort()

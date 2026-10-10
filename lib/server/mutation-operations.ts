@@ -143,6 +143,12 @@ export type StoredReceipt = {
   rawStatus?: string | null
   httpStatus?: number | null
   message?: string | null
+  /**
+   * An approved listing change request (lib/server/listing-changes.ts): the
+   * intent its dispatch ran under, and that dispatch's own receipt.
+   */
+  dispatchIntentId?: string | null
+  dispatchOperationId?: string | null
 }
 
 const operationColumns = (sql: TransactionSql) => sql`

@@ -10,9 +10,8 @@ import {
 import {
   loadBusinessInformation,
   searchBusinessInformationMetadata,
-  updateBusinessAttributes,
-  updateBusinessInformation,
 } from "@/lib/server/business-information"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
@@ -49,22 +48,18 @@ export const PATCH = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: businessInformationPatchSchema,
-  handler: ({ session, params, body, requestId }): Promise<BusinessInformationMutationResult> =>
-    body.operation === "update_location"
-      ? updateBusinessInformation({
-          session,
-          locationId: params.id,
-          payload: body.payload,
-          updateMask: body.updateMask,
-          expectedGoogleHash: body.expectedGoogleHash,
-          requestId,
-        })
-      : updateBusinessAttributes({
-          session,
-          locationId: params.id,
-          attributes: body.attributes,
-          attributeMask: body.attributeMask,
-          expectedGoogleHash: body.expectedGoogleHash,
-          requestId,
-        }),
+  // Parks for a second publisher in two-person mode
+  // (lib/server/listing-change-registry.ts); sent as before otherwise.
+  handler: ({
+    session,
+    params,
+    body,
+    requestId,
+  }): Promise<BusinessInformationMutationResult | Response> =>
+    submitListingChange(
+      body.operation === "update_location"
+        ? "business_information_update"
+        : "business_attributes_update",
+      { session, locationId: params.id, body, requestId }
+    ),
 })

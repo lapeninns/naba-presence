@@ -10,10 +10,14 @@
 import { z } from "zod"
 
 /**
- * The seven outcomes, in the order a write normally moves through them.
+ * The eight outcomes, in the order a write normally moves through them.
  *
  *   saved_locally          NabaPresence's own copy changed; nothing went to
  *                          Google.
+ *   awaiting_approval      A listing change frozen for a second publisher to
+ *                          approve (two-person approval, plan P02-S2b);
+ *                          nothing went to Google. Approval sends it, and
+ *                          it moves on from `sent` like any other write.
  *   sent                   The request left the app; Google has not answered
  *                          in a way that proves anything yet.
  *   awaiting_confirmation  Google accepted the request but has not shown the
@@ -30,6 +34,7 @@ import { z } from "zod"
  */
 export const OPERATION_OUTCOMES = [
   "saved_locally",
+  "awaiting_approval",
   "sent",
   "awaiting_confirmation",
   "confirmed_applied",

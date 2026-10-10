@@ -20,7 +20,8 @@ export const RESOURCE_CAPABILITY_STATES = [
   "blocked",
   "unavailable",
 ] as const
-export type ResourceCapabilityState = (typeof RESOURCE_CAPABILITY_STATES)[number]
+export type ResourceCapabilityState =
+  (typeof RESOURCE_CAPABILITY_STATES)[number]
 
 /** The per-surface keys the server always emits under `resources`. */
 export const LOCATION_RESOURCE_KEYS = [
@@ -76,6 +77,13 @@ export const locationCapabilitiesSchema = z.object({
   canRequestApproval: z.boolean().optional(),
   canDecideApproval: z.boolean().optional(),
   resources: z.record(z.string(), resourceCapabilitySchema).optional(),
+  /**
+   * Two-person approval of listing writes applies here (the organisation's
+   * policy and its `listing_change_approvals` feature are on): a publisher's
+   * Google write parks as a change request (lib/server/listing-changes.ts).
+   * Only the single-location capabilities answer carries it.
+   */
+  listingChangeApprovals: z.boolean().optional(),
 })
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>
 

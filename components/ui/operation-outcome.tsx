@@ -6,6 +6,7 @@ import {
   HardDrive,
   Hourglass,
   Send,
+  UserCheck,
 } from "lucide-react"
 import * as React from "react"
 
@@ -29,6 +30,10 @@ export const OUTCOME_VISUAL: Record<
     icon: <HardDrive />,
     mark: "bg-fill text-ink-secondary",
   },
+  awaiting_approval: {
+    icon: <UserCheck />,
+    mark: "bg-info-tint text-info-ink",
+  },
   sent: { icon: <Send />, mark: "bg-info-tint text-info-ink" },
   awaiting_confirmation: {
     icon: <Hourglass />,
@@ -51,6 +56,7 @@ const ALERT_VARIANT: Record<
   "default" | "info" | "success" | "warning" | "destructive"
 > = {
   saved_locally: "default",
+  awaiting_approval: "info",
   sent: "info",
   awaiting_confirmation: "info",
   confirmed_applied: "success",
@@ -61,6 +67,7 @@ const ALERT_VARIANT: Record<
 
 const ALERT_ICON: Record<OperationOutcome, React.ReactNode> = {
   saved_locally: <HardDrive aria-hidden />,
+  awaiting_approval: <UserCheck aria-hidden />,
   sent: <Send aria-hidden />,
   awaiting_confirmation: <Clock aria-hidden />,
   confirmed_applied: <Check aria-hidden />,

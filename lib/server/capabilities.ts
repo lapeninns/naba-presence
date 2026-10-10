@@ -34,6 +34,7 @@ import {
   isManagerialRole,
   type LocationGrant,
 } from "@/lib/server/permissions"
+import { listingApprovalRequired } from "@/lib/server/listing-changes"
 import type { Session } from "@/lib/server/session"
 
 // One capability object per review (shape: ReviewCapabilities in
@@ -273,19 +274,26 @@ export async function locationCapabilities(
   locationId: string
 ): Promise<LocationCapabilities> {
   const map = await locationCapabilitiesForIds(sql, session, [locationId])
-  return (
-    map.get(locationId) ?? {
+  // Whether this location's listing writes park for a second publisher, so
+  // the editors only ask for pending change requests where there can be any.
+  const listingChangeApprovals = await listingApprovalRequired(
+    sql,
+    session.organisationId
+  )
+  const found = map.get(locationId)
+  if (found) return { ...found, listingChangeApprovals }
+  return {
+    canEditCanonical: false,
+    canPublish: false,
+    ...locationActionCapabilities(session.role, NO_GRANT),
+    resources: buildResources({
       canEditCanonical: false,
       canPublish: false,
-      ...locationActionCapabilities(session.role, NO_GRANT),
-      resources: buildResources({
-        canEditCanonical: false,
-        canPublish: false,
-        linked: false,
-        publishesEnabled: NO_RESOURCE_WRITES,
-      }),
-    }
-  )
+      linked: false,
+      publishesEnabled: NO_RESOURCE_WRITES,
+    }),
+    listingChangeApprovals,
+  }
 }
 
 // Org/settings capabilities for the Settings workspace (spec §3):

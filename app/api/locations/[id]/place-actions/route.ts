@@ -6,10 +6,8 @@ import {
   type PlaceActionMutationOutcome,
   type PlaceActionsResponse,
 } from "@/lib/contracts/location-place-actions"
-import {
-  createPlaceAction,
-  loadPlaceActions,
-} from "@/lib/server/place-actions"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
+import { loadPlaceActions } from "@/lib/server/place-actions"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string() })
@@ -29,19 +27,18 @@ export const GET = route({
 export const POST = route({
   params: paramsSchema,
   body: placeActionCreateRequestSchema,
-  handler: async ({ session, params, body, requestId }) =>
-    NextResponse.json(
-      (await createPlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId: params.id,
-        payload: {
-          uri: body.uri,
-          placeActionType: body.placeActionType,
-          isPreferred: body.isPreferred,
-        },
-        requestId,
-      })) satisfies PlaceActionMutationOutcome,
-      { status: 201 }
-    ),
+  // Parks for a second publisher in two-person mode (a 202);
+  // lib/server/listing-change-registry.ts.
+  handler: async ({ session, params, body, requestId }) => {
+    const created = await submitListingChange("place_action_create", {
+      session,
+      locationId: params.id,
+      body,
+      requestId,
+    })
+    if (created instanceof Response) return created
+    return NextResponse.json(created satisfies PlaceActionMutationOutcome, {
+      status: 201,
+    })
+  },
 })

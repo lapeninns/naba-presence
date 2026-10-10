@@ -206,6 +206,38 @@ the `expectedRevision` the approver read (409 `approval_post_changed`
 otherwise), needs the post to be `awaiting_approval`, and the publish claim
 refuses a row whose revision moved after the decision. The attempt row records
 the decision it went out under (`approval_decision_id`).
+
+Direct listing writes take part when an organisation has both
+`require_two_person_approval` and the `listing_change_approvals` feature
+(`organisation_feature`) on; with either off they behave as before. The
+listing write routes (hours, profile publish, business information,
+attributes, industry, food menus, media create/patch/delete and place-action
+links) call `submitListingChange` (`lib/server/listing-change-registry.ts`)
+instead of the surface function. For a publisher, `parkListingChange`
+(`lib/server/listing-changes.ts`) sends nothing: it records a change request
+as a `mutation_operation` receipt in the outcome state `awaiting_approval`
+(`supabase/migrations/0075_listing_change_approval.sql`) holding the frozen,
+validated body (`change_request`), its payload hash, the fields it writes
+(`field_mask`), the baseline it was edited against (`expected_revision`) and
+its author, and answers 202. A same-intent retry gets the same request; a
+newer request for the same change supersedes the older one, and a local save
+of the content a publish request would send (hours, profile, menus)
+invalidates it. `POST /api/locations/[id]/change-requests/[changeId]`
+approves or rejects: the decider needs `decide_approval`, must not be the
+author, and must name the request's payload hash; the decision is a
+`mutation_approval_decision` row whose CHECK forbids the requester deciding.
+An approval dispatches the frozen body through the same registry entry, as
+the approver, so `runGbpWrite` and the surface's own freshness checks run as
+for any write and a stale baseline is refused with the surface's 409. The
+change request then follows its dispatch's attempt row and receipt state, so
+the attempt's settle or the `mutation_recover` job settles it too. A media
+upload cannot be frozen (no asset store yet), so it is refused with 409
+`listing_change_upload_unsupported` while approval applies. The editors show
+pending requests above themselves (`components/locations/listing-change-requests.tsx`,
+only where the location capability `listingChangeApprovals` is true), and the
+API client raises a parked answer as `listing_change_awaiting_approval`, never
+as a failure or a send. Approvals carry no MFA assurance yet (P02-S9).
+
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
 every session mutation declares non-viewer `roles`, calls an action guard in
 its own handler, delegates through a named call chain that ends in one, or is

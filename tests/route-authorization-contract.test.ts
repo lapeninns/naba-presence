@@ -38,18 +38,37 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url))
 const ACTION_GUARD =
   /\b(requireLocationAction|requirePublishGrant)\(|if \(!\(await canPublishLocation\(/
 
-/** "module#function" links, from the function the route calls to the guard. */
+/**
+ * "module#function" links, from the function the route calls to the guard.
+ * A first link "registry:<kind>" is a listing write routed through
+ * submitListingChange (lib/server/listing-change-registry.ts): the handler
+ * must submit that kind, and the kind's registry entry must call the next
+ * link -- the surface function a parked request is dispatched through too.
+ */
 type Chain = readonly string[]
+
+const REGISTRY = "lib/server/listing-change-registry.ts"
+
+/** The source of one kind's entry in the listing change registry. */
+function registryEntry(kind: string): string {
+  const source = readFileSync(join(repoRoot, REGISTRY), "utf8")
+  const start = source.indexOf(`\n  ${kind}: entry({`)
+  if (start === -1) throw new Error(`${REGISTRY} has no entry ${kind}`)
+  const rest = source.slice(start + 1)
+  const close = rest.indexOf("\n  }),\n")
+  return close === -1 ? rest : rest.slice(0, close)
+}
 
 const DELEGATED: Record<string, readonly Chain[]> = {
   "POST app/api/locations/[id]/food-menus/route.ts": [
     [
+      "registry:food_menus_publish",
       "lib/server/food-menus.ts#publishFoodMenus",
       "lib/server/food-menus.ts#assertFoodMenusPublishable",
     ],
   ],
   "POST app/api/locations/[id]/hours/route.ts": [
-    ["lib/server/hours.ts#publishCanonicalHours"],
+    ["registry:hours_publish", "lib/server/hours.ts#publishCanonicalHours"],
   ],
   "POST app/api/locations/[id]/media/route.ts": [
     [
@@ -58,6 +77,7 @@ const DELEGATED: Record<string, readonly Chain[]> = {
       "lib/server/media.ts#requireMediaWrite",
     ],
     [
+      "registry:media_create",
       "lib/server/media.ts#createMedia",
       "lib/server/media.ts#linkedForWrite",
       "lib/server/media.ts#requireMediaWrite",
@@ -68,6 +88,7 @@ const DELEGATED: Record<string, readonly Chain[]> = {
   ],
   "PATCH app/api/locations/[id]/media/[mediaId]/route.ts": [
     [
+      "registry:media_update",
       "lib/server/media.ts#updateMedia",
       "lib/server/media.ts#mutableMediaItem",
       "lib/server/media.ts#linkedForWrite",
@@ -76,6 +97,7 @@ const DELEGATED: Record<string, readonly Chain[]> = {
   ],
   "DELETE app/api/locations/[id]/media/[mediaId]/route.ts": [
     [
+      "registry:media_delete",
       "lib/server/media.ts#removeMedia",
       "lib/server/media.ts#mutableMediaItem",
       "lib/server/media.ts#linkedForWrite",
@@ -84,20 +106,37 @@ const DELEGATED: Record<string, readonly Chain[]> = {
   ],
   "POST app/api/locations/[id]/place-actions/route.ts": [
     [
+      "registry:place_action_create",
       "lib/server/place-actions.ts#createPlaceAction",
       "lib/server/place-actions.ts#linkedForWrite",
     ],
   ],
   "PATCH app/api/locations/[id]/place-actions/[linkId]/route.ts": [
     [
+      "registry:place_action_update",
       "lib/server/place-actions.ts#updatePlaceAction",
       "lib/server/place-actions.ts#linkedForWrite",
     ],
   ],
   "DELETE app/api/locations/[id]/place-actions/[linkId]/route.ts": [
     [
+      "registry:place_action_delete",
       "lib/server/place-actions.ts#removePlaceAction",
       "lib/server/place-actions.ts#linkedForWrite",
+    ],
+  ],
+  // Approving dispatches the frozen write through its surface function,
+  // whose own guard (the chains above) runs again as the approver.
+  "POST app/api/locations/[id]/change-requests/[changeId]/route.ts": [
+    [
+      "lib/server/listing-change-registry.ts#decideListingChange",
+      "lib/server/listing-changes.ts#rejectListingChange",
+      "lib/server/listing-changes.ts#lockPending",
+    ],
+    [
+      "lib/server/listing-change-registry.ts#decideListingChange",
+      "lib/server/listing-changes.ts#approveListingChange",
+      "lib/server/listing-changes.ts#lockPending",
     ],
   ],
   "POST app/api/locations/[id]/posts/route.ts": [
@@ -165,6 +204,23 @@ function functionBody(module: string, name: string): string {
 
 /** Why `chain` does not prove a guard for `config`, or null when it does. */
 function chainGap(config: string, chain: Chain): string | null {
+  if (chain[0]?.startsWith("registry:")) {
+    const kind = chain[0].slice("registry:".length)
+    if (
+      !calls(config, "submitListingChange") ||
+      !config.includes(`"${kind}"`)
+    ) {
+      return `the handler does not submit ${kind}`
+    }
+    const next = chain[1]?.split("#")[1]
+    if (!next || !calls(registryEntry(kind), next)) {
+      return `the ${kind} registry entry does not call ${next}`
+    }
+    return chainGap(
+      config.replace(/\bsubmitListingChange\(/g, `${next}(`),
+      chain.slice(1)
+    )
+  }
   const links = chain.map((link) => {
     const [module, name] = link.split("#")
     return { link, module: module!, name: name! }
@@ -176,7 +232,8 @@ function chainGap(config: string, chain: Chain): string | null {
     const body = functionBody(current.module, current.name)
     const next = links[index + 1]
     if (next) {
-      if (!calls(body, next.name)) return `${current.link} does not call ${next.name}`
+      if (!calls(body, next.name))
+        return `${current.link} does not call ${next.name}`
     } else if (!ACTION_GUARD.test(body)) {
       return `${current.link} has no action guard`
     }
@@ -278,11 +335,15 @@ describe("route authorisation contract", () => {
   it("catches a guard removed from one function of a guarded module", () => {
     const body = functionBody("lib/server/posts.ts", "createLocalPostDraft")
     expect(ACTION_GUARD.test(body)).toBe(true)
-    expect(ACTION_GUARD.test(body.replace(/requireLocationAction\(/g, "noop("))).toBe(false)
+    expect(
+      ACTION_GUARD.test(body.replace(/requireLocationAction\(/g, "noop("))
+    ).toBe(false)
   })
 
   it("does not count a boolean permission read or a viewer role list", () => {
-    expect(ACTION_GUARD.test("const ok = await canPublishLocation(sql, s, id)")).toBe(false)
+    expect(
+      ACTION_GUARD.test("const ok = await canPublishLocation(sql, s, id)")
+    ).toBe(false)
     expect(declaresNonViewerRoles('roles: ["owner", "viewer"],')).toBe(false)
     expect(declaresNonViewerRoles('roles: ["owner", "admin"],')).toBe(true)
   })
@@ -293,6 +354,32 @@ describe("route authorisation contract", () => {
         "lib/server/posts.ts#createLocalPostDraft",
       ])
     ).toBe("the handler does not call createLocalPostDraft")
+  })
+
+  it("follows a listing write through its registry entry to the surface guard", () => {
+    const chain = [
+      "registry:place_action_create",
+      "lib/server/place-actions.ts#createPlaceAction",
+      "lib/server/place-actions.ts#linkedForWrite",
+    ]
+    expect(
+      chainGap(
+        'route({ handler: () => submitListingChange("place_action_create", {}) })',
+        chain
+      )
+    ).toBeNull()
+    expect(
+      chainGap(
+        'route({ handler: () => submitListingChange("media_create", {}) })',
+        chain
+      )
+    ).toBe("the handler does not submit place_action_create")
+    expect(
+      chainGap(
+        'route({ handler: () => submitListingChange("place_action_create", {}) })',
+        ["registry:place_action_create", "lib/server/media.ts#createMedia"]
+      )
+    ).toBe("the place_action_create registry entry does not call createMedia")
   })
 
   it("keeps no stale allowlist entries", () => {

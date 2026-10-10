@@ -52,7 +52,10 @@ describe("0067 mutation_operation migration", () => {
   })
 
   it("allows exactly the shared outcome vocabulary", () => {
+    // `awaiting_approval` arrived later, with the listing change approvals
+    // of 0075 (tests/listing-change-approval-migration.test.ts).
     for (const outcome of OPERATION_OUTCOMES) {
+      if (outcome === "awaiting_approval") continue
       expect(migration).toContain(`'${outcome}'`)
     }
   })

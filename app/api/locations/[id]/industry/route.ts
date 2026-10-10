@@ -6,10 +6,8 @@ import {
   type IndustryResponse,
 } from "@/lib/contracts/location-industry"
 import { googleApiRetiredError } from "@/lib/server/google"
-import {
-  loadIndustryManagement,
-  mutateIndustryManagement,
-} from "@/lib/server/industry-management"
+import { loadIndustryManagement } from "@/lib/server/industry-management"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -35,7 +33,7 @@ export const PATCH = route({
     params,
     body,
     requestId,
-  }): Promise<IndustryMutationResult> => {
+  }): Promise<IndustryMutationResult | Response> => {
     // Google switched these APIs off (Business Calls 2023-05-30, provider
     // attributes 2024-07-01). Answer the same stable 410 the transport would,
     // before resolving the location or recording a mutation attempt.
@@ -45,16 +43,12 @@ export const PATCH = route({
     if (body.operation === "update_healthcare_provider_attributes") {
       throw googleApiRetiredError("health_provider_attributes")
     }
-    return mutateIndustryManagement({
+    // Parks for a second publisher in two-person mode
+    // (lib/server/listing-change-registry.ts); sent as before otherwise.
+    return submitListingChange("industry_update", {
       session,
       locationId: params.id,
-      operation: body.operation,
-      payload: body.payload as Record<string, unknown>,
-      updateMask: [...body.updateMask],
-      expectedGoogleHash:
-        body.operation === "update_lodging"
-          ? body.expectedGoogleHash
-          : undefined,
+      body,
       requestId,
     })
   },

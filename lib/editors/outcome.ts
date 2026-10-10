@@ -43,6 +43,15 @@ export const OUTCOME_PRESENTATION: Record<
     toast: "success",
     live: false,
   },
+  awaiting_approval: {
+    label: "Awaiting approval",
+    title: "Sent for approval",
+    description:
+      "Nothing has gone to Google yet. Another publisher needs to approve this change first.",
+    tone: "pending",
+    toast: "info",
+    live: false,
+  },
   sent: {
     label: "Sent to Google",
     title: "Sent to Google",

@@ -35,6 +35,12 @@ capability manifest, then rebuild the frontend around user jobs.
 Several rows below were overtaken by the `core-hardening` branch; the table
 cells note the new home, and `docs/architecture.md` describes each piece.
 
+- Two-person approval of direct listing writes (October 2026, behind the
+  `listing_change_approvals` organisation feature): listing write routes go
+  through `lib/server/listing-change-registry.ts`, parked requests are listed
+  and decided at `GET /api/locations/[id]/change-requests` and
+  `POST /api/locations/[id]/change-requests/[changeId]`, and each editor shows
+  them through `components/locations/listing-change-requests.tsx`.
 - Every API handler runs through `lib/server/route.ts` (`route()`), which owns
   the request id, auth mode, role gate, zod parsing and the error envelope.
 - Request/response schemas live once in `lib/contracts/*` and are imported by

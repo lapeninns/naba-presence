@@ -225,6 +225,15 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   a row): `pnpm ops:pause feature --organisation <uuid> --feature
   post_scheduling --enable --operator you@example.com`. The script refuses a
   feature name not listed in `lib/contracts/org-features.ts`.
+- `listing_change_approvals` makes direct listing writes obey the
+  organisation's two-person policy: with both on, a publisher's hours,
+  profile, business information, attribute, industry, menu, media and
+  booking-link writes park as change requests that another publisher approves
+  on the editor. Turning it off leaves parked requests `awaiting_approval`
+  (still decidable through `POST /api/locations/{id}/change-requests/{id}`);
+  find them with `select id, location_id, change_request ->> 'kind' from
+  mutation_operation where state = 'awaiting_approval'`. Media uploads are
+  refused (409 `listing_change_upload_unsupported`) while it applies.
 
 ## Scheduled work
 

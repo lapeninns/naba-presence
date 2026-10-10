@@ -34,6 +34,7 @@ export const POST_ACTION_LABEL: Record<LocalPostActionType, string> = {
 /** The pill tone each outcome takes on the posts tab. */
 const OUTCOME_POST_TONE: Record<OperationOutcome, PostTone> = {
   saved_locally: "neutral",
+  awaiting_approval: "neutral",
   sent: "info",
   awaiting_confirmation: "info",
   confirmed_applied: "ok",
