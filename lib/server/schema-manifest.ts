@@ -70,5 +70,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0059_ai_credits",
   "0060_ai_credit_notifications",
   "0061_workspace_mode",
+  "0062_post_approval_binding",
   "20260729000400_remove_local_demo_data",
 ]

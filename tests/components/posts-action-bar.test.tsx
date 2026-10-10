@@ -123,16 +123,18 @@ describe("PostsActionBar", () => {
   it("approves and rejects an awaiting-approval post with the matching copy", async () => {
     api.decidePostApproval.mockResolvedValueOnce({ status: "published", postId: "p1", googlePostName: null })
     api.decidePostApproval.mockResolvedValueOnce({ status: "draft" })
-    const client = renderBar({ post: post({ status: "awaiting_approval" }) })
+    const client = renderBar({
+      post: post({ status: "awaiting_approval", contentRevision: 3 }),
+    })
 
     await userEvent.click(screen.getByRole("button", { name: "Approve" }))
     expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
-    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve")
+    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3)
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 
     await userEvent.click(screen.getByRole("button", { name: "Reject" }))
     expect(await screen.findByText("Sent back to draft")).toBeInTheDocument()
-    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject")
+    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject", 3)
   })
 
   it("deletes after confirmation, closes the dialog and invalidates", async () => {

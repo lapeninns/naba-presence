@@ -72,6 +72,17 @@ const POST_PUBLISH_IN_PROGRESS = {
     "A publish of this post is already under way. Wait a moment and try again.",
 }
 
+/**
+ * The row's content moved on between the read a decision or publish was
+ * based on and the write that acts on it. Nothing was sent to Google.
+ */
+const postChanged = () =>
+  new ApiError(
+    409,
+    "approval_post_changed",
+    "This post changed after you opened it. Read the current version before deciding."
+  )
+
 const postPublishInProgress = () =>
   new ApiError(
     POST_PUBLISH_IN_PROGRESS.status,
@@ -413,7 +424,14 @@ async function reconcileLocalPosts(
  * `Date`, which `NextResponse.json` serialises to the ISO strings the
  * contract declares.
  */
-type PostListRow = Omit<PostRow, "createdAt" | "updatedAt" | "providerCreatedAt" | "providerUpdatedAt" | "localEditedAt"> & {
+type PostListRow = Omit<
+  PostRow,
+  | "createdAt"
+  | "updatedAt"
+  | "providerCreatedAt"
+  | "providerUpdatedAt"
+  | "localEditedAt"
+> & {
   createdAt: Date
   updatedAt: Date
   providerCreatedAt: Date | null
@@ -435,14 +453,25 @@ type LocalPost = {
   offer: Record<string, unknown> | null
   media: Array<Record<string, unknown>>
   approvalRequestedBy: string | null
+  /** Bumped by the 0062 trigger whenever a column sent to Google changes. */
+  contentRevision: number
+  /** The revision an outstanding approval request was made against. */
+  approvalRequestedRevision: number | null
+  /** Whoever last wrote the content locally (the creator until an edit). */
+  authorId: string | null
   requireTwoPersonApproval: boolean
 }
 
-/** The post row (404 `post_not_found`). Callers check location access first. */
+/**
+ * The post row (404 `post_not_found`). Callers check location access first.
+ * `lock` holds the row for the rest of the transaction, so a decision and
+ * the revision it names cannot be split by a concurrent edit.
+ */
 async function loadPost(
   sql: TransactionSql,
   locationId: string,
-  postId: string
+  postId: string,
+  options: { lock?: boolean } = {}
 ): Promise<LocalPost> {
   const [post] = await sql<LocalPost[]>`
     select
@@ -459,6 +488,9 @@ async function loadPost(
       p.offer,
       p.media,
       p.approval_requested_by::text as "approvalRequestedBy",
+      p.content_revision::integer as "contentRevision",
+      p.approval_requested_revision::integer as "approvalRequestedRevision",
+      coalesce(p.content_edited_by, p.created_by)::text as "authorId",
       o.require_two_person_approval as "requireTwoPersonApproval"
     from gbp_local_post p
     join organisation o on o.id = p.organisation_id
@@ -466,6 +498,7 @@ async function loadPost(
       and p.location_id = ${locationId}
       and p.status <> 'deleted'
     limit 1
+    ${options.lock ? sql`for update of p` : sql``}
   `
   if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
   return post
@@ -535,6 +568,7 @@ export async function listLocalPosts(
         offer,
         media,
         status,
+        content_revision::integer as "contentRevision",
         google_post_name as "googlePostName",
         google_state as "googleState",
         google_search_url as "googleSearchUrl",
@@ -627,6 +661,21 @@ export async function updateLocalPostDraft(
         event = ${jsonColumnOrNull(sql, input.event)},
         offer = ${jsonColumnOrNull(sql, input.offer)},
         media = ${jsonColumn(sql, input.media)},
+        -- Authorship moves only with the content: re-saving identical text
+        -- must not make the saver its author, which would bar them from
+        -- approving someone else's request in two-person mode.
+        content_edited_by = case
+          when (topic_type, language_code, summary, call_to_action, event, offer, media)
+            is distinct from (
+              ${input.topicType}::text, ${input.languageCode}::text, ${input.summary}::text,
+              ${jsonColumnOrNull(sql, input.callToAction)}::jsonb,
+              ${jsonColumnOrNull(sql, input.event)}::jsonb,
+              ${jsonColumnOrNull(sql, input.offer)}::jsonb,
+              ${jsonColumn(sql, input.media)}::jsonb
+            )
+            then ${session.userId}::uuid
+          else content_edited_by
+        end,
         status = case when status = 'published' then status else 'draft' end,
         last_error_code = null
       where id = ${postId}
@@ -668,6 +717,14 @@ type LocalPostAttemptIntent = {
   payload: Record<string, unknown>
   /** create/update only: the approver when published through the approval flow. */
   approvedBy: string | null
+  /** create/update only: the post_approval_decision this publish went out under. */
+  approvalDecisionId: string | null
+  /**
+   * create/update only: the content revision `payload` was built from. The
+   * publish claim refuses a row that has moved on, so an edit landing between
+   * the read and the claim can never be sent under an approval of other text.
+   */
+  revision: number | null
 }
 
 type AttemptSelection = { id: string; status: string; startedAt?: Date | null }
@@ -738,7 +795,14 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
   },
 
   async start(sql, input) {
-    const { postId, operation, payload, approvedBy } = input.intent
+    const {
+      postId,
+      operation,
+      payload,
+      approvedBy,
+      approvalDecisionId,
+      revision,
+    } = input.intent
     // The publish key is derived from the write now, not from the request, so
     // a retry after a settled failure finds its own row: re-arm it in place
     // rather than inserting a second row that `unique (organisation_id,
@@ -747,6 +811,7 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
       ? await sql<AttemptSelection[]>`
           update gbp_local_post_attempt
           set status = 'started', actor_user_id = ${input.actorUserId},
+            approval_decision_id = ${approvalDecisionId},
             provider_error_code = null, provider_http_status = null,
             provider_response = null, finished_at = null, started_at = now()
           where id = ${input.existing.id}
@@ -755,10 +820,11 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
       : await sql<AttemptSelection[]>`
           insert into gbp_local_post_attempt (
             organisation_id, post_id, actor_user_id, operation,
-            status, idempotency_key, intended_payload
+            status, idempotency_key, intended_payload, approval_decision_id
           ) values (
             ${input.organisationId}, ${postId}, ${input.actorUserId},
-            ${operation}, 'started', ${input.key}, ${jsonColumn(sql, payload)}
+            ${operation}, 'started', ${input.key}, ${jsonColumn(sql, payload)},
+            ${approvalDecisionId}
           )
           on conflict (organisation_id, idempotency_key) do nothing
           returning id::text as id, status, started_at as "startedAt"
@@ -776,9 +842,16 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
         set status = 'publishing', approved_by = ${approvedBy},
           publish_lease_expires_at = now() + interval '5 minutes'
         where id = ${postId} and status <> 'publishing'
+          and content_revision = ${revision}
         returning id::text as id
       `
-      if (!claimed) throw postPublishInProgress()
+      if (!claimed) {
+        const [current] = await sql<{ status: string }[]>`
+          select status from gbp_local_post where id = ${postId}
+        `
+        if (current?.status === "publishing") throw postPublishInProgress()
+        throw postChanged()
+      }
     }
     return attemptRow(row)
   },
@@ -821,6 +894,113 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
 // Publish / approve / delete
 // ---------------------------------------------------------------------------
 
+/**
+ * The two-person rule for posts, mirroring the reply pipeline's
+ * `requiresApproval`: a user without publish authority always asks, and in
+ * two-person mode even a publisher asks unless a different user has already
+ * approved this exact content.
+ */
+export function requiresPostApproval(
+  policy: { requireTwoPersonApproval: boolean },
+  canPublish: boolean,
+  hasQualifyingApproval: boolean
+): boolean {
+  return (
+    !canPublish || (policy.requireTwoPersonApproval && !hasQualifyingApproval)
+  )
+}
+
+/** SHA-256 of what a publish of this row would send to Google. */
+export function postContentHash(post: LocalPost): string {
+  return sha256(JSON.stringify(providerPayload(post)))
+}
+
+type ApprovalRef = { id: string; decidedBy: string }
+
+/**
+ * An approval that lets `actorUserId` publish this row as it stands: an
+ * approved decision on the current revision and payload hash by somebody who
+ * is neither the actor nor the content's author. This is how a publish that
+ * failed after its approval can be retried without asking again, and it is
+ * the only way a publisher gets past the two-person rule.
+ */
+async function qualifyingApproval(
+  sql: TransactionSql,
+  post: LocalPost,
+  actorUserId: string
+): Promise<ApprovalRef | null> {
+  const [approval] = await sql<ApprovalRef[]>`
+    select id::text as id, decided_by::text as "decidedBy"
+    from post_approval_decision
+    where post_id = ${post.id}
+      and decision = 'approved'
+      and content_revision = ${post.contentRevision}
+      and content_hash = ${postContentHash(post)}
+      and decided_by is not null
+      and decided_by <> ${actorUserId}
+      and decided_by is distinct from ${post.authorId}::uuid
+    order by created_at desc
+    limit 1
+  `
+  return approval ?? null
+}
+
+/** True when `userId` asked for, or wrote, the content up for approval. */
+const isOwnRequest = (post: LocalPost, userId: string) =>
+  post.approvalRequestedBy === userId || post.authorId === userId
+
+/**
+ * Checks shared by approve and reject: the post must be parked, and (for an
+ * approval) the approver must have read the revision that was asked about.
+ */
+function requirePendingDecision(
+  post: LocalPost,
+  expectedRevision: number | undefined,
+  decision: "approve" | "reject"
+) {
+  if (post.status !== "awaiting_approval") {
+    throw new ApiError(
+      409,
+      "approval_not_pending",
+      "This post is not awaiting approval."
+    )
+  }
+  if (decision === "approve" && expectedRevision === undefined) {
+    throw new ApiError(
+      400,
+      "expected_revision_required",
+      "Say which version of the post you are approving."
+    )
+  }
+  if (
+    (expectedRevision !== undefined &&
+      expectedRevision !== post.contentRevision) ||
+    post.approvalRequestedRevision !== post.contentRevision
+  ) {
+    throw postChanged()
+  }
+}
+
+async function insertDecision(
+  sql: TransactionSql,
+  input: { organisationId: string; session: Session },
+  post: LocalPost,
+  decision: "approved" | "rejected"
+): Promise<string> {
+  const [row] = await sql<{ id: string }[]>`
+    insert into post_approval_decision (
+      organisation_id, post_id, content_revision, content_hash,
+      requested_by, author_id, decided_by, decision
+    ) values (
+      ${input.organisationId}, ${post.id}, ${post.contentRevision},
+      ${postContentHash(post)}, ${post.approvalRequestedBy},
+      ${post.authorId}, ${input.session.userId}, ${decision}
+    )
+    returning id::text as id
+  `
+  return row.id
+}
+
 export async function requestOrPublishLocalPost(input: {
   organisationId: string
   session: Session
@@ -828,36 +1008,89 @@ export async function requestOrPublishLocalPost(input: {
   postId: string
   requestId: string
   approval?: boolean
+  /** Approve only: the `contentRevision` the approver read. */
+  expectedRevision?: number
 }) {
-  // Requesting approval is a local-only write: it must not depend on the
-  // Google link being active or on the posts kill switch (both gate the
-  // provider write below, as on main).
-  const { canPublish, post } = await withTenant(
-    input.organisationId,
-    async (sql) => {
-      // A viewer may neither publish nor ask for approval; an approver's
-      // decision needs publication authority, not just an edit grant.
-      const grant = await requireLocationAction(
+  // One transaction, with the row locked, decides whether this request parks
+  // or publishes and records the decision: an edit cannot land between the
+  // revision being checked and the decision that names it. Requesting
+  // approval is a local-only write, so it must not depend on the Google link
+  // or the posts kill switch; both are checked only once a publish is due,
+  // and before any decision row is written, so a paused or unlinked publish
+  // leaves no approval behind claiming otherwise.
+  const decided = await withTenant(input.organisationId, async (sql) => {
+    // A viewer may neither publish nor ask for approval; an approver's
+    // decision needs publication authority, not just an edit grant.
+    const grant = await requireLocationAction(
+      sql,
+      input.session,
+      input.locationId,
+      input.approval ? "decide_approval" : "request_approval"
+    )
+    const post = await loadPost(sql, input.locationId, input.postId, {
+      lock: true,
+    })
+    const publishWith = async (approval: ApprovalRef | null) => {
+      requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+      const linked = await loadLinkedLocation(
         sql,
         input.session,
         input.locationId,
-        input.approval ? "decide_approval" : "request_approval"
+        POSTS_NOT_LINKED
       )
+      return { kind: "publish" as const, post, linked, approval }
+    }
+
+    if (input.approval) {
+      requirePendingDecision(post, input.expectedRevision, "approve")
+      if (isOwnRequest(post, input.session.userId)) {
+        if (post.requireTwoPersonApproval) {
+          throw new ApiError(
+            403,
+            "second_approver_required",
+            "A different authorised user must approve this post."
+          )
+        }
+        // Without the policy a publisher may publish their own content
+        // directly, so approving their own request is that publish, not a
+        // decision: no approval row claims a second person looked at it.
+        if (post.approvalRequestedBy === input.session.userId) {
+          return publishWith(null)
+        }
+      }
+      const linkedPublish = await publishWith(null)
+      const id = await insertDecision(sql, input, post, "approved")
+      // The decision stands even if the publish below fails (a retry of the
+      // same revision goes out under it), so it is audited in its own right.
+      await writeAudit(sql, {
+        organisationId: input.organisationId,
+        actorUserId: input.session.userId,
+        action: "post.approval.approved",
+        subjectType: "local_post",
+        subjectId: input.postId,
+        requestId: input.requestId,
+        metadata: {
+          locationId: input.locationId,
+          contentRevision: post.contentRevision,
+          decisionId: id,
+        },
+      })
       return {
-        canPublish: grant.canPublish,
-        post: await loadPost(sql, input.locationId, input.postId),
+        ...linkedPublish,
+        approval: { id, decidedBy: input.session.userId },
       }
     }
-  )
-  if (!canPublish) {
-    await withTenant(input.organisationId, async (sql) => {
-      const [requested] = await sql<{ id: string }[]>`
+
+    if (post.status === "publishing") throw postPublishInProgress()
+    const approval = await qualifyingApproval(sql, post, input.session.userId)
+    if (requiresPostApproval(post, grant.canPublish, approval !== null)) {
+      await sql`
         update gbp_local_post
-        set status = 'awaiting_approval', approval_requested_by = ${input.session.userId}
-        where id = ${input.postId} and status <> 'publishing'
-        returning id::text as id
+        set status = 'awaiting_approval',
+          approval_requested_by = ${input.session.userId},
+          approval_requested_revision = content_revision
+        where id = ${input.postId}
       `
-      if (!requested) throw postPublishInProgress()
       await writeAudit(sql, {
         organisationId: input.organisationId,
         actorUserId: input.session.userId,
@@ -865,27 +1098,78 @@ export async function requestOrPublishLocalPost(input: {
         subjectType: "local_post",
         subjectId: input.postId,
         requestId: input.requestId,
-        metadata: { locationId: input.locationId },
+        metadata: {
+          locationId: input.locationId,
+          contentRevision: post.contentRevision,
+          // Why a publisher's own publish parked: the organisation's
+          // two-person policy, not a missing grant.
+          twoPerson: grant.canPublish,
+        },
       })
-    })
+      return { kind: "parked" as const }
+    }
+    return publishWith(approval)
+  })
+  if (decided.kind === "parked") {
     return { status: "awaiting_approval" as const }
   }
-  requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
-  const linked = await withTenant(input.organisationId, (sql) =>
-    loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED)
-  )
-  if (
-    input.approval &&
-    post.requireTwoPersonApproval &&
-    post.approvalRequestedBy === input.session.userId
-  ) {
-    throw new ApiError(
-      403,
-      "second_approver_required",
-      "A different authorised user must approve this post."
+  return publishLocalPost({
+    ...input,
+    linked: decided.linked,
+    post: decided.post,
+    approval: decided.approval,
+  })
+}
+
+/**
+ * Send a parked post back to draft. Rejecting is a decision on someone's
+ * request, so it needs the same authority as approving; withdrawing your own
+ * request is allowed and recorded in the audit log only (a decision row is by
+ * definition somebody else's).
+ */
+export async function rejectLocalPost(input: {
+  organisationId: string
+  session: Session
+  locationId: string
+  postId: string
+  requestId: string
+  expectedRevision?: number
+}) {
+  await withTenant(input.organisationId, async (sql) => {
+    await requireLocationAction(
+      sql,
+      input.session,
+      input.locationId,
+      "decide_approval"
     )
-  }
-  return publishLocalPost({ ...input, linked, post })
+    const post = await loadPost(sql, input.locationId, input.postId, {
+      lock: true,
+    })
+    requirePendingDecision(post, input.expectedRevision, "reject")
+    const decisionId =
+      post.approvalRequestedBy === input.session.userId
+        ? null
+        : await insertDecision(sql, input, post, "rejected")
+    await sql`
+      update gbp_local_post
+      set status = 'draft', approval_requested_by = null
+      where id = ${input.postId}
+    `
+    await writeAudit(sql, {
+      organisationId: input.organisationId,
+      actorUserId: input.session.userId,
+      action: "post.approval.rejected",
+      subjectType: "local_post",
+      subjectId: input.postId,
+      requestId: input.requestId,
+      metadata: {
+        locationId: input.locationId,
+        contentRevision: post.contentRevision,
+        decisionId,
+      },
+    })
+  })
+  return { status: "draft" as const }
 }
 
 async function publishLocalPost(input: {
@@ -893,9 +1177,10 @@ async function publishLocalPost(input: {
   session: Session
   postId: string
   requestId: string
-  approval?: boolean
   linked: LinkedLocation
   post: LocalPost
+  /** The approval this publish goes out under, when there is one. */
+  approval: ApprovalRef | null
 }) {
   const { linked, post } = input
   const operation = post.googlePostName ? "update" : "create"
@@ -926,7 +1211,9 @@ async function publishLocalPost(input: {
       postId: input.postId,
       operation,
       payload,
-      approvedBy: input.approval ? input.session.userId : null,
+      approvedBy: input.approval?.decidedBy ?? null,
+      approvalDecisionId: input.approval?.id ?? null,
+      revision: post.contentRevision,
     },
     onExisting: "resume",
     inProgress: POST_PUBLISH_IN_PROGRESS,
@@ -999,9 +1286,12 @@ async function publishLocalPost(input: {
         locationId: linked.locationId,
         attemptId: ctx.attemptId,
         googlePostName: stringOrNull(asRecord(ctx.readback).name),
-        // The approver, when this publish came through the approval flow;
-        // there is no separate approve audit because this row carries it.
-        approvedBy: input.approval ? input.session.userId : null,
+        // The approval this publish went out under (the approval flow, or a
+        // retry of an approved revision); there is no separate approve audit
+        // because this row carries it.
+        approvedBy: input.approval?.decidedBy ?? null,
+        approvalDecisionId: input.approval?.id ?? null,
+        contentRevision: post.contentRevision,
         providerAmbiguous: ctx.providerAmbiguous,
       },
     }),
@@ -1100,6 +1390,8 @@ export async function deleteLocalPost(input: {
         operation: "delete",
         payload: {},
         approvedBy: null,
+        approvalDecisionId: null,
+        revision: null,
       },
       onExisting: "replay",
       failureCode: "google_post_failed",

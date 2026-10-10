@@ -110,6 +110,10 @@ const DELEGATED: Record<string, readonly Chain[]> = {
   "POST app/api/locations/[id]/posts/[postId]/publish/route.ts": [
     ["lib/server/posts.ts#requestOrPublishLocalPost"],
   ],
+  "POST app/api/locations/[id]/posts/[postId]/approval/route.ts": [
+    ["lib/server/posts.ts#rejectLocalPost"],
+    ["lib/server/posts.ts#requestOrPublishLocalPost"],
+  ],
   "POST app/api/reviews/[id]/approval/route.ts": [
     ["lib/server/review-approval.ts#recordApprovalDecision"],
     [

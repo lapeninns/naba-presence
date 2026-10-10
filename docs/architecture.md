@@ -133,6 +133,22 @@ anything is recorded. Row outcomes are truthful about the two commits an
 approval spans (`lib/server/review-bulk-outcome.ts`): `skipped`/`failed`
 before the decision commits, `approved_not_published` or `uncertain` after it,
 and an unexpected fault on one row is that row's outcome, not the batch's.
+
+Two-person approval holds on every publication path. For replies,
+`has_qualifying_approval` (`lib/server/publishing/intent.ts`) counts only an
+approval of the same draft by someone who is neither the requester nor the
+draft's author, and `recordApprovalDecision` refuses the author up front. For
+posts, `gbp_local_post.content_revision` (0062) is bumped by a trigger
+whenever content sent to Google changes, and an edit withdraws an outstanding
+request. `requestOrPublishLocalPost` (`lib/server/posts.ts`) applies
+`requiresPostApproval` to POST `/publish` and to a PATCH of a live post alike:
+in two-person mode a publisher's publish parks unless
+`post_approval_decision` holds an approval of the current revision and payload
+hash by someone other than the publisher and the author. An approval names
+the `expectedRevision` the approver read (409 `approval_post_changed`
+otherwise), needs the post to be `awaiting_approval`, and the publish claim
+refuses a row whose revision moved after the decision. The attempt row records
+the decision it went out under (`approval_decision_id`).
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
 every session mutation declares non-viewer `roles`, calls an action guard in
 its own handler, delegates through a named call chain that ends in one, or is

@@ -54,11 +54,13 @@ export function publishPost(id: string, postId: string): Promise<PublishPostResu
 export function decidePostApproval(
   id: string,
   postId: string,
-  decision: PostApprovalDecision["decision"]
+  decision: PostApprovalDecision["decision"],
+  /** The post's `contentRevision` as the approver saw it. */
+  expectedRevision: number | undefined
 ): Promise<PostApprovalOutcome> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/approval`, {
     method: "POST",
-    body: { decision } satisfies PostApprovalDecision,
+    body: { decision, expectedRevision } satisfies PostApprovalDecision,
     schema: postApprovalOutcomeSchema,
   })
 }

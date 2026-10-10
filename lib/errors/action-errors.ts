@@ -116,6 +116,11 @@ const COPY: Record<string, string> = {
   // and what changed is the text they were about to approve.
   approval_draft_changed:
     "This reply changed after you opened it. Read the current draft before approving or rejecting it.",
+  // Google posts: the approval names the revision the approver read.
+  approval_post_changed:
+    "This post changed after you opened it. Read the current version before approving or rejecting it.",
+  expected_revision_required:
+    "Reload this post, then approve the version you can see.",
   stale_draft_evidence:
     "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:

@@ -178,9 +178,19 @@ export type LocalPostInput = z.infer<typeof localPostInputSchema>
 /** The body as sent (defaults still optional). */
 export type LocalPostInputValues = z.input<typeof localPostInputSchema>
 
-/** POST `/posts/[postId]/approval` body. */
+/**
+ * POST `/posts/[postId]/approval` body.
+ *
+ * `expectedRevision` is the `contentRevision` of the post the approver read.
+ * The server requires it to approve (400 `expected_revision_required`) and
+ * answers 409 `approval_post_changed` when the post has moved on, so an
+ * approval always names the exact content it covers. It is optional in the
+ * schema only so that a viewer or non-publisher is refused for who they are
+ * (403) before what they sent is looked at.
+ */
 export const postApprovalDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
+  expectedRevision: z.number().int().positive().optional(),
 })
 export type PostApprovalDecision = z.infer<typeof postApprovalDecisionSchema>
 
@@ -209,6 +219,11 @@ export const postRowSchema = z.object({
   offer: z.unknown(),
   media: z.unknown(),
   status: z.enum(LOCAL_POST_STATUSES),
+  /**
+   * Bumped whenever content sent to Google changes; an approval names the
+   * revision it covers. Optional so an older server still parses.
+   */
+  contentRevision: z.number().int().positive().optional(),
   googlePostName: z.string().nullable(),
   googleState: z.string().nullable(),
   googleSearchUrl: z.string().nullable(),

@@ -100,7 +100,10 @@ export function PostsActionBar({
   })
   const decide = useResourceMutation({
     mutationFn: (decision: "approve" | "reject") =>
-      decidePostApproval(locationId, post.id, decision),
+      // Bound to the revision on screen: an edit since the list loaded makes
+      // the server refuse (approval_post_changed) rather than approve text
+      // this approver never read.
+      decidePostApproval(locationId, post.id, decision, post.contentRevision),
     invalidate,
     successToast: (result, decision) =>
       decision === "reject"
