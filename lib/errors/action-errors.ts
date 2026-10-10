@@ -257,6 +257,13 @@ const COPY: Record<string, string> = {
   // answer is that nothing was published.
   google_post_not_published:
     "Google does not list this post, so nothing was published. You can publish it again.",
+  // A post update Google never confirmed. Re-sending it is safe (it replaces
+  // the post's text rather than adding a post), so the copy says so.
+  google_post_update_unconfirmed:
+    "Google did not confirm this change to the post. Publish it again to resend it.",
+  // An unconfirmed create: sending again could make a second live post.
+  post_publish_uncertain:
+    "Google has not confirmed whether this post went live. Refresh the posts list before changing it.",
 
   // ---- Locations: business information (Google-direct) --------------------
   business_information_stale:

@@ -550,10 +550,21 @@ the existing row.
 Posts add a guard of their own because a post's key moves with its content:
 `requestOrPublishLocalPost` refuses to dispatch a post whose status is
 `ambiguous` until Google's live list has settled it on the server
-(`reconcileLocalPosts`). A listed match adopts the live post and the publish
-answers `published` without a second create; no match settles it `failed` and
-the publish proceeds; a post still `ambiguous` after that answers 409
-`post_publish_uncertain`.
+(`reconcileLocalPosts`). When the list cannot be read the request fails with
+the provider's own error and the post stays `ambiguous`. For an uncertain
+create (no Google name yet), a listed match adopts the live post and the
+publish answers `published` without a second create; no match settles it
+`failed` and the publish proceeds; a post still `ambiguous` after that (a
+concurrent re-strand) answers 409 `post_publish_uncertain`, as does an edit
+of an uncertain create, which would otherwise move the post's key away from
+the guard. An uncertain update is different: the post's name being listed
+proves only that the post exists, so it settles `failed` with
+`google_post_update_unconfirmed` (the list then leaves the unsent text alone)
+and the publish re-sends the PATCH, which carries no duplicate risk. For the
+same reason a publish readback of an update proves nothing without the PATCH's
+own response, so an ambiguous update settles `failed` rather than `succeeded`.
+Post deletes read the live list only when the DELETE itself was ambiguous; a
+clean 2xx is taken as Google's answer.
 
 The reply pipeline in `lib/server/publishing/*` deliberately does not use
 `runGbpWrite`; "Three-phase reply mutation and recovery" states what it keeps

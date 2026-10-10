@@ -63,24 +63,26 @@ const POSTS_PAUSED = {
 }
 
 /**
+ * The post's last create is still unconfirmed: it is `ambiguous` with no
+ * Google name, so it may already be live. Neither a publish (a second create)
+ * nor an edit (which would move its key away from the uncertain attempt) may
+ * go ahead until Google's list settles it.
+ */
+function postPublishUncertain() {
+  return new ApiError(
+    409,
+    "post_publish_uncertain",
+    "Google has not confirmed whether this post's last publish went live. Refresh the posts list before changing it."
+  )
+}
+
+/**
  * A publish holds `gbp_local_post` at `publishing` from before the Google
  * call until settle, so a second publish of the same post is refused while
  * that claim stands. The 409 is shared by every refusal (a live publish, an
  * edit during one, an approval request during one) so the client has one
  * thing to say.
  */
-/**
- * The post's last publish is still unconfirmed after reading Google's list:
- * it stays `ambiguous` (the list did not settle it) and is not sent again.
- */
-function postPublishUncertain() {
-  return new ApiError(
-    409,
-    "post_publish_uncertain",
-    "Google has not confirmed whether this post's last publish went live. Refresh the posts list before publishing again."
-  )
-}
-
 const POST_PUBLISH_IN_PROGRESS = {
   status: 409,
   code: "post_publish_in_progress",
@@ -259,6 +261,12 @@ type StrandedPost = {
  * published, so the row becomes `failed` and is safe to publish again. A
  * `publishing` row still inside its lease is left alone — that publish is
  * genuinely in flight.
+ *
+ * A row that already holds a name was stranded by an UPDATE, and its name
+ * being listed proves only that the post exists, not that the PATCH landed.
+ * It becomes `failed` with `google_post_update_unconfirmed` instead: the
+ * upsert below then leaves the unsent text alone, and the next publish
+ * re-sends the PATCH, which carries no duplicate risk.
  */
 async function settleStrandedLocalPosts(
   sql: TransactionSql,
@@ -308,14 +316,44 @@ async function settleStrandedLocalPosts(
   `
   const claimed = new Set(held.map((row) => row.googlePostName))
   for (const post of stranded) {
-    // A row that already holds a name needs no fuzzy match: Google's own list
-    // is the answer. Without this branch an interrupted UPDATE to a published
-    // post -- which strands WITH its name -- had no exit at all and sat at
-    // 'ambiguous' forever, while reconciliation re-created it alongside.
+    if (
+      post.googlePostName &&
+      live.some((item) => stringOrNull(item.name) === post.googlePostName)
+    ) {
+      await sql`
+        update gbp_local_post
+        set status = 'failed', last_error_code = 'google_post_update_unconfirmed',
+          publish_lease_expires_at = null
+        where id = ${post.id}
+      `
+      // An attempt still `started` is the interrupted request's: it is as
+      // unknown as the reaper would leave it. An `ambiguous` one stays so;
+      // the next publish of the same text reads it back and re-sends.
+      if (post.attemptId && post.attemptStatus === "started") {
+        const settled = await sql<{ id: string }[]>`
+          update gbp_local_post_attempt
+          set status = 'ambiguous',
+            provider_error_code = 'google_post_update_unconfirmed',
+            finished_at = now()
+          where id = ${post.attemptId} and status = 'started'
+          returning id::text as id
+        `
+        await settleOperationsForAttempts(sql, {
+          attemptTable: "gbp_local_post_attempt",
+          attemptIds: settled.map((row) => row.id),
+          state: "uncertain",
+          attemptStatus: "ambiguous",
+          errorCode: "google_post_update_unconfirmed",
+        })
+      }
+      continue
+    }
+    // A named row not in Google's list needs no fuzzy match: the post is gone
+    // at Google, so the row fails here and is marked deleted below. Without
+    // an exit an interrupted UPDATE -- which strands WITH its name -- sat at
+    // 'ambiguous' forever.
     const name = post.googlePostName
-      ? live.some((item) => stringOrNull(item.name) === post.googlePostName)
-        ? post.googlePostName
-        : null
+      ? null
       : stringOrNull(
           (post.intendedPayload
             ? matchLivePost(live, post.intendedPayload, claimed)
@@ -355,17 +393,12 @@ async function settleStrandedLocalPosts(
         returning id
       `
       // And the receipt waiting on it (lib/server/mutation-operations.ts).
-      // Google's own list holding the post's name proves it; a match by
-      // content is only Google having accepted something like it.
+      // A match by content is only Google having accepted something like it.
       if (settled.length > 0) {
         await settleOperationsForAttempts(sql, {
           attemptTable: "gbp_local_post_attempt",
           attemptIds: [post.attemptId],
-          state: !name
-            ? "failed"
-            : name === post.googlePostName
-              ? "confirmed_applied"
-              : "awaiting_confirmation",
+          state: name ? "awaiting_confirmation" : "failed",
           attemptStatus: name ? "succeeded" : "failed",
           errorCode: name ? null : "google_post_not_published",
         })
@@ -726,17 +759,26 @@ export async function updateLocalPostDraft(
       where id = ${postId}
         and location_id = ${locationId}
         and status not in ('deleted', 'publishing')
+        and not (status = 'ambiguous' and google_post_name is null)
       returning id::text as id, status
     `
     if (!post) {
       // 'publishing' is excluded above rather than reset to 'draft': the edit
       // would rewrite the payload an in-flight publish is sending, and the
       // reset would clear the claim that stops it being published twice.
-      const [current] = await sql<{ status: string }[]>`
-        select status from gbp_local_post
+      // An unconfirmed create is excluded too: reset to 'draft' it would
+      // slip past the publish route's `ambiguous` guard under a new key and
+      // create the post a second time if the first create had landed.
+      const [current] = await sql<
+        { status: string; googlePostName: string | null }[]
+      >`
+        select status, google_post_name as "googlePostName" from gbp_local_post
         where id = ${postId} and location_id = ${locationId}
       `
       if (current?.status === "publishing") throw postPublishInProgress()
+      if (current?.status === "ambiguous" && !current.googlePostName) {
+        throw postPublishUncertain()
+      }
       throw new ApiError(404, "post_not_found", "Post not found.")
     }
     await writeAudit(sql, {
@@ -1081,8 +1123,8 @@ export async function requestOrPublishLocalPost(input: {
   // leaves no approval behind claiming otherwise.
   //
   // `reconciled` is the second pass, after an `ambiguous` post was settled
-  // from Google's live list (see below).
-  const decide = (reconciled: boolean) =>
+  // from Google's live list (see below), naming what the uncertain write was.
+  const decide = (reconciled: false | "create" | "update") =>
     withTenant(input.organisationId, async (sql) => {
       // A viewer may neither publish nor ask for approval; an approver's
       // decision needs publication authority, not just an edit grant.
@@ -1152,12 +1194,17 @@ export async function requestOrPublishLocalPost(input: {
       // holds no Google name -- risks a second live post. Google's list settles
       // it first, on the server, whatever the client believes the status is.
       if (post.status === "ambiguous") {
-        if (reconciled) throw postPublishUncertain()
-        return { kind: "reconcile" as const }
+        if (reconciled !== false) throw postPublishUncertain()
+        return {
+          kind: "reconcile" as const,
+          create: post.googlePostName === null,
+        }
       }
-      // The uncertain publish had landed: the post is live with the content it
-      // was asked to publish, so there is nothing left to send.
-      if (reconciled && post.status === "published") {
+      // The uncertain create had landed: the post is live with the content it
+      // was asked to publish, so there is nothing left to send. Only a create:
+      // a listed name proves nothing about an update, which settles `failed`
+      // and is re-sent below (a PATCH carries no duplicate risk).
+      if (reconciled === "create" && post.status === "published") {
         return { kind: "adopted" as const, post }
       }
       const approval = await qualifyingApproval(sql, post)
@@ -1197,7 +1244,7 @@ export async function requestOrPublishLocalPost(input: {
       input.session,
       input.locationId
     )
-    decided = await decide(true)
+    decided = await decide(decided.create ? "create" : "update")
   }
   if (decided.kind === "reconcile") throw postPublishUncertain()
   if (decided.kind === "adopted") {
@@ -1368,6 +1415,12 @@ async function publishLocalPost(input: {
     onAmbiguous: "readback",
     readback: {
       read: async ({ response }) => {
+        // An update with no response -- the PATCH was ambiguous, or this is a
+        // later reconcile of that attempt -- cannot be proven by reading the
+        // post: it exists either way and Google normalises its body. Nothing
+        // is read, verify fails, and the attempt settles `failed` so the next
+        // publish re-sends the PATCH (idempotent, unlike a create).
+        if (operation === "update" && response === undefined) return {}
         const named = stringOrNull(response?.name) ?? post.googlePostName
         if (named) {
           googlePostName = named
@@ -1379,16 +1432,26 @@ async function publishLocalPost(input: {
         googlePostName = stringOrNull(match?.name)
         return match ?? {}
       },
-      // A named resource is the proof that the write landed; the body is not
+      // A named resource is the proof that the write landed (for an update,
+      // only beside the PATCH's own response; see `read`); the body is not
       // compared with the intent because Google normalises post bodies. No
       // name means the list has spoken and nothing was published, so the
       // attempt settles failed rather than fabricating a publish.
       verify: ({ readback }) => Boolean(stringOrNull(readback.name)),
-      mismatch: {
-        status: 502,
-        code: "google_post_not_published",
-        message: "Google does not list this post, so nothing was published.",
-      },
+      mismatch:
+        operation === "create"
+          ? {
+              status: 502,
+              code: "google_post_not_published",
+              message:
+                "Google does not list this post, so nothing was published.",
+            }
+          : {
+              status: 502,
+              code: "google_post_update_unconfirmed",
+              message:
+                "Google did not confirm this change to the post. Publish it again to resend it.",
+            },
     },
     audit: (ctx) => ({
       action: operation === "create" ? "post.published" : "post.updated.google",
@@ -1534,10 +1597,16 @@ export async function deleteLocalPost(input: {
       // listed means it did not and the row settles failed, safe to retry.
       onAmbiguous: "readback",
       readback: {
-        read: async () => ({
-          listed: (await fetchLiveLocalPosts(linked)).some(
-            (item) => stringOrNull(item.name) === googlePostName
-          ),
+        // A clean 2xx DELETE is Google's own answer, so the list is read only
+        // when that answer was lost: listing after it could fail, or still
+        // show the post through read-after-write lag, and turn a delete that
+        // landed into an error.
+        read: async ({ providerAmbiguous }) => ({
+          listed:
+            providerAmbiguous &&
+            (await fetchLiveLocalPosts(linked)).some(
+              (item) => stringOrNull(item.name) === googlePostName
+            ),
         }),
         verify: ({ readback }) => !readback.listed,
         mismatch: {
