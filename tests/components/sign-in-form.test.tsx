@@ -24,6 +24,38 @@ afterEach(() => {
 })
 
 describe("sign-in mode", () => {
+  it("keeps the pilot sign-in form available without exposing account creation", () => {
+    render(
+      <SignInPanel registrationAllowed={false} initialMode="create-account" />
+    )
+    expect(
+      screen.getByText(
+        "NabaPresence is available by invitation during the pilot."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /^Sign in$/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Switch to create account" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Your name")).not.toBeInTheDocument()
+  })
+
+  it("retains account creation for an invitation", () => {
+    render(
+      <SignInPanel
+        registrationAllowed
+        inviteToken="invitation-token"
+        initialMode="create-account"
+      />
+    )
+    expect(screen.getByLabelText("Your name")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Switch to create account" })
+    ).toBeInTheDocument()
+  })
+
   it("submits credentials and lands on /inbox", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "signIn").mockResolvedValue(undefined)

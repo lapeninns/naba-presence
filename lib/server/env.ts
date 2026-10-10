@@ -125,6 +125,10 @@ export const serverEnvSchema = z.object({
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
+  REGISTRATION_MODE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["open", "invite_only"]).default("open")
+  ),
   OPENAI_API_KEY: optionalText,
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: optionalTextWithDefault("gpt-5-mini"),
@@ -178,11 +182,7 @@ export const serverEnvSchema = z.object({
   // organisation.ai_monthly_draft_credits override wins. The token backstop is
   // a runaway-loop guard across draft and verify calls, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
-  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .default(20_000_000),
+  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
@@ -228,6 +228,8 @@ export const serverEnvSchema = z.object({
   ),
   EMAIL_API_KEY: optionalText,
   EMAIL_FROM: optionalText,
+  // Operator alerts can be enabled without mailing every tenant incident.
+  TENANT_EMAIL_ENABLED: featureFlag(true),
   EMAIL_API_BASE_URL: urlWithDefault("https://api.resend.com"),
   // Where infrastructure alerts (stale cron heartbeats) go.
   OPS_ALERT_EMAILS: emailList,

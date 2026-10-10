@@ -12,6 +12,11 @@ const GENERIC: AuthMessage = {
 }
 
 const BY_CODE: Record<string, AuthMessage> = {
+  registration_closed: {
+    title: "Access is by invitation during the pilot.",
+    description:
+      "Open your invitation link to create an account, or sign in to your existing account.",
+  },
   invalid_credentials: {
     title: "That email or password is incorrect.",
     description: "Check both and try again.",

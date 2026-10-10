@@ -12,6 +12,20 @@ repair.
 
 ## Snapshot
 
+### After upgrade, 9 October 2026
+
+PR #59 upgraded Next.js, `@next/env` and `eslint-config-next` to 16.3.8 and
+moved `shadcn` out of production dependencies. At candidate
+`6115040bafaa007b5da008734ce928bee307f095`, the refreshed
+`pnpm audit --prod --audit-level high --json` result is **0 critical, 0 high,
+0 moderate, 0 low and 0 info**. The frozen install, current-version webpack
+build and local validation passed. Receipt:
+`/Users/amankumarshrestha/Documents/Codex/2026-10-09/nabapresence-smtp/dependency-audit.json`.
+
+The table below preserves the original pre-upgrade assessment. Its old
+findings are not the current dependency audit. Hosted CI and reviewer
+acceptance remain separate requirements.
+
 | Field                         | Value                                                                              |
 | ----------------------------- | ---------------------------------------------------------------------------------- |
 | Command                       | `pnpm audit --prod --json` (read-only)                                             |
